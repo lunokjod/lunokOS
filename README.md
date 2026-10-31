@@ -132,6 +132,7 @@ pio run -e emulator      # binari per al PC
 ./.pio/build/emulator/program --fs emulator
 pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
 pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
+pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
 pio test -e test         # proves natives
 ```
 

@@ -92,6 +92,26 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 | **Què queda** | **Mesurar a la placa** els microsegons d'un frame del llum (avui són un càlcul, no una mesura) i el corrent d'un llum encès i apagat amb el mesurador USB. I **el sensor del Matrix**: el driver està escrit pel full del fabricant i no s'ha vist en maquinari, o sigui que el **sentit dels eixos** en aquesta placa i la qualitat de la mesura estan per comprovar (`run tilt` els ensenya a la consola). |
 | **Criteri** | El que ja es compleix: el gest de tres tocs tanca l'app del davant, una app rep les premudes, i un llum que ha pres una app no li sobreviu. |
 
+## La M5 Paper, pas a pas
+
+L'entorn `paper` hi és i el firmware que en surt arrenca, escriu per la consola, munta el disc, desa
+claus i dorm amb temporitzador. El que falta té ordre, perquè cada pas necessita l'anterior:
+
+| # | Pas | Criteri per dir-lo fet |
+|---|---|---|
+| 1 | **Que arrenqui**: `pio run -e paper`, flashejar i veure el prompt. El *main power hold* de GPIO2 és el primer que fa el HAL, perquè sense ell la placa s'apaga i sembla un crash | El prompt respon `help` i `caps` diu **8 de 17** |
+| 2 | **El panell**: driver propi de l'**IT8951E** (SPI: CS 15, SCK 14, MOSI 12, MISO 13, BUSY 27, amb l'alimentació a GPIO23 i GPIO5) i `IDisplay` de 960×540 amb 16 grisos | Una pàgina en blanc i un rectangle negre de debò, amb els modes `INIT` i `GC16` mesurats |
+| 3 | **Les tres tecles**: `IInput` ha de poder dir **quina** tecla —avui el contracte és d'un botó sol— i els tocs han de comptar per al gest de tancar (docs/50) | Cada tecla diu el seu GPIO i tres tocs tanquen l'app |
+| 4 | **El rellotge BM8563** (I2C 0x51) i el despert per la seva alarma: és el que fa que l'hora sobrevisqui a treure el cable | `time.caps().source` diu `"rtc"` i un son de deu minuts torna a l'hora |
+| 5 | **La bateria**: divisor a GPIO35 (×2), la corba del full del fabricant i una mesura amb el mesurador al davant | `power.battery()` dona mV i % que quadren amb el mesurador |
+| 6 | **La ràdio**: el mateix `INet` de l'ATOM (esp_wifi directe, provisioning, NTP i una pàgina). És el bloc més gran i el que més flash costa | `provision`, `ntp` i `http` funcionen com a l'ATOM |
+| 7 | **La targeta microSD**: CS a GPIO4, compartint SCK/MOSI/MISO amb el panell; el muntatge `/sd` de la VFS ja hi és | `mounts` llista `/sd` i `fs.space` en dona números |
+| 8 | **El toc GT911** (0x14, INT a GPIO36) i el SHT30 (0x44) | Un toc diu on és i el SHT30 dona temperatura |
+
+I una cosa que no és de la placa però que aquesta placa fa evident: **les parts d'ESP32 que els dos
+HAL comparteixen**. El disc i la NVS hi són dues vegades (376 línies copiades) i la ràdio ho serà més;
+plegar-les en una llibreria comuna és feina del proper torn que toqui aquesta banda.
+
 ## Fora de la v1
 
 | Cosa | Per què queda fora |

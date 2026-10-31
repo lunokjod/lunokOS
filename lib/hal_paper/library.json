@@ -1,0 +1,6 @@
+{
+  "name": "hal_paper",
+  "version": "0.1.0",
+  "description": "Board support for the M5 Paper (v1.0 and v1.1): ESP32-D0WDQ6-V3, 16 MB of flash, 8 MB of PSRAM, serial console, LittleFS, NVS and the power of the board. The e-ink panel, the touch, the RTC chip and the radio are not here yet (docs/50, docs/90).",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

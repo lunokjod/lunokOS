@@ -145,12 +145,18 @@ lib/
                         nom i 1 llum, impl.h diu què enllaçar
   board_matrix/         el mateix per al Matrix: "m5stack-atom-matrix" i 25 llums;
                         les dues no es veuen mai alhora (lib_ignore, docs/50)
+  board_paper/          la identitat del Paper: "m5stack-paper", cap llum i cap
+                        sensor (docs/50)
+  hal_paper/            implementació de la M5 Paper: consola, fitxers, NVS i
+                        energia; el panell, el toc i la ràdio encara no (docs/50)
   hal_emulator/         implementació per al PC (inclou main() de l'emulador);
                         mateixes capçaleres, amb "emulator" a dins
   pal_esp32/            FreeRTOS/ESP-IDF
   pal_host/             POSIX
   json/                 analitzador JSON de tracció, per a manifests i cfg
   qr/                   qualsevol QR que aquest build pugui dibuixar
+boards/                 definicions de placa que PlatformIO no porta: la del Paper
+                        (boards_dir a platformio.ini, docs/80)
 data/                   arrel de la imatge de la LittleFS; les apps d'exemple
                         són a data/apps/<id>/
 emulator/               disc de proves de l'emulador (fora del git)

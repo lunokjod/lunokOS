@@ -14,17 +14,17 @@ Si una cosa és «un aparell que es pot endollar», és HAL. Si és «una manera
 Totes són classes amb funcions virtuals pures, sense memòria dinàmica i sense excepcions. Una placa
 que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 
-| Interfície | Què abstrau | Lite | Matrix | Emulador |
-|---|---|---|---|---|
-| `IClock` | hora de paret, rellotge monòton, **un sol** despertador | ✓ | ✓ | ✓ |
-| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ |
-| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ |
-| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | de mentida |
-| `IPower` | bateria, son, velocitat del processador | ✓ | ✓ | de mentida |
-| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | 25 |
-| `IInput` | el botó: si és premut i quant fa | ✓ | ✓ | ✓ |
-| `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | de mentida |
-| `IDisplay` | **reservat**: no hi ha cap placa amb pantalla | — | — | — |
+| Interfície | Què abstrau | Lite | Matrix | Paper | Emulador |
+|---|---|---|---|---|---|
+| `IClock` | hora de paret, rellotge monòton, **un sol** despertador | ✓ | ✓ | ✓ (del SoC) | ✓ |
+| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ |
+| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ |
+| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | **pendent** | de mentida |
+| `IPower` | bateria, son, velocitat del processador | ✓ | ✓ | ✓ (sense bateria) | de mentida |
+| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 25 |
+| `IInput` | el botó: si és premut i quant fa | ✓ | ✓ | **pendent** (3 tecles) | ✓ |
+| `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | de mentida |
+| `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — |
 
 El contracte sencer, amb totes les funcions i els comentaris que les expliquen, és a
 `lib/hal/include/hal/hal.h`. **Quan aquest document i el capçalari no diguin el mateix, mana el
@@ -328,28 +328,29 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 
 ## Taula de capacitats
 
-| Capacitat | Lite | Matrix | Emulador | Notes |
-|---|---|---|---|---|
-| `console` | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
-| `ansi` | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
-| `display` | — | — | — | Reservat: no hi ha cap placa amb pantalla |
-| `input` | ✓ | ✓ | ✓ | El botó de GPIO39 |
-| `led` | ✓ | ✓ | ✓ | Un llum o vint-i-cinc, amb el sostre de la identitat |
-| `imu` | — | ✓ | ✓ | El Lite no en té i la crida respon `E_UNSUPPORTED` |
-| `littlefs` | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
-| `sd` | — | — | — | No hi ha maquinari ni muntatge; la VFS el preveu |
-| `nvs` | ✓ | ✓ | ✓ | Partició NVS / directori de fitxers |
-| `rtc` | ✓ | ✓ | ✓ | L'ATOM no té xip amb pila: l'hora ve del SoC i es perd |
-| `rtc_wake` | ✓ | ✓ | ✓ | Despertar pel temporitzador del RTC o pel botó |
-| `net_wifi` | ✓ | ✓ | ✓ | La ràdio de debò / la de mentida (docs/85) |
-| `net_http` | ✓ | ✓ | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
-| `net_prov` | ✓ | ✓ | ✓ | El component d'Espressif / l'AP de mentida |
-| `battery` | — | — | — | Cap d'aquestes bandes pot dir l'estat d'una bateria |
-| `sleep_light` | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
-| `sleep_deep` | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
+| Capacitat | Lite | Matrix | Paper | Emulador | Notes |
+|---|---|---|---|---|---|
+| `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
+| `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
+| `display` | — | — | — | — | **Reservat**: la interfície hi és i encara no la implementa cap placa (docs/90) |
+| `input` | ✓ | ✓ | — | ✓ | El botó de l'ATOM; el Paper en té tres i no es llegeixen encara |
+| `led` | ✓ | ✓ | — | ✓ | El Paper no té cap llum |
+| `imu` | — | ✓ | — | ✓ | El Lite no en té i la crida respon `E_UNSUPPORTED` |
+| `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
+| `sd` | — | — | — | — | El Paper té ranura i encara no la munta; la VFS el preveu |
+| `nvs` | ✓ | ✓ | ✓ | ✓ | Partició NVS / directori de fitxers |
+| `rtc` | ✓ | ✓ | ✓ | ✓ | Ni l'ATOM ni el Paper tenen xip amb pila en ús: l'hora ve del SoC i es perd |
+| `rtc_wake` | ✓ | ✓ | ✓ | ✓ | Despertar pel temporitzador del RTC (i pel botó, a l'ATOM) |
+| `net_wifi` | ✓ | ✓ | — | ✓ | La ràdio de debò / la de mentida (docs/85); al Paper, pendent |
+| `net_http` | ✓ | ✓ | — | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
+| `net_prov` | ✓ | ✓ | — | ✓ | El component d'Espressif / l'AP de mentida |
+| `battery` | — | — | — | — | Cap d'aquestes bandes pot dir l'estat d'una bateria |
+| `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
+| `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
 `caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula: **13 de 17** al Lite, **14 de 17** al
-Matrix (que hi afegeix `imu`) i **14 de 17** a l'emulador.
+Matrix (que hi afegeix `imu`), **8 de 17** al Paper (li falten la ràdio, la pantalla, les tecles, la
+targeta i el sensor) i **14 de 17** a l'emulador.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -373,6 +374,61 @@ Conseqüències que aquesta placa imposa:
 - És el **cas sense pantalla**: tots els camins de «capacitat absent» es proven aquí primer.
 - **El Grove és I2C lliure**: si cal provar el camí d'un xip RTC de debò, s'hi pot posar un mòdul sense
   canviar de placa.
+
+## Fitxa: M5 Paper v1.0 i v1.1
+
+| | |
+|---|---|
+| Nom (`sys.board`) | `m5stack-paper` (les dues versions, un sol firmware: vegeu a sota) |
+| Entorn | `paper`, amb la definició de placa del projecte a `boards/m5stack-paper.json` |
+| Xip | ESP32-D0WDQ6-V3, 240 MHz, **8 MB de PSRAM** |
+| Flash | **16 MB**, amb la taula de `partitions_16mb.csv`: 4 MB d'aplicació i 11,9 MB de disc |
+| Pantalla | **E-ink de 4,7 polzades, 960 × 540** (540 × 960 en vertical), **16 nivells de gris**, controlador **IT8951E** per SPI |
+| Entrada | **Tres tecles** (esquerra, central `PWR`, dreta) **i panell tàctil GT911** per I2C |
+| Sensor | SHT30 (temperatura i humitat) i una EEPROM FM24C02 |
+| Rellotge | **BM8563** amb pila de botó: és el que sobreviu a treure el cable (encara no es llegeix) |
+| Bateria | 1150 mAh, amb divisor a **GPIO35** (encara no es calibra) |
+| Expansió | Tres ports HY2.0-4P (A: G25/G32, B: G26/G33, C: G18/G19) i una ranura microSD |
+| Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat |
+
+Pins que el HAL fa servir, i que són els de la llibreria del fabricant (`M5EPD.h`):
+
+| Què | Pin |
+|---|---|
+| **Main power hold** (s'ha de mantenir alt o la placa s'apaga) | **GPIO2** |
+| EPD: CS, SCK, MOSI, MISO, BUSY | 15, 14, 12, 13, 27 |
+| Alimentació del panell / dels ports HY2.0 | GPIO23 / GPIO5 |
+| microSD: CS (comparteix SCK/MOSI/MISO amb el panell) | GPIO4 |
+| I2C intern: SDA, SCL | GPIO21, GPIO22 |
+| GT911 (0x14) amb INT a GPIO36 · SHT30 (0x44) · BM8563 (0x51) · FM24C02 (0x50) | al mateix bus |
+| Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
+
+**El que canvia entre v1.0 i v1.1**, i és tot:
+
+| | v1.0 (SKU K049, descatalogada) | v1.1 (SKU K049-B) |
+|---|---|---|
+| Panell | **ED047TC1**, rígid | **ET047TC1**, flexible |
+| Pont USB-sèrie | **CP2104** | **CP2104 o CH9102** (el fabricant posa l'un o l'altre) |
+| Pes | 87,1 g | 81,6 g |
+| Consum anunciat en repòs (`RTC` sol) | — | 3,7 V a **10 µA** |
+
+**I el que no canvia**: el xip, la flash, la PSRAM, el controlador del panell (**IT8951E** als dos), el
+toc, el rellotge, el sensor, l'EEPROM, la bateria i **tot el mapa de pins**. Per això hi ha **un sol
+entorn i un sol firmware**: la diferència del panell viu dins de la flash del propi IT8951 (la forma
+d'ona i el VCOM els té ell) i la del pont USB-sèrie és un controlador del PC, no una línia de codi.
+L'única cosa que s'ha de vigilar és la del pont: si el port no apareix, és el driver del CP2104 o del
+CH9102, no el firmware.
+
+**Què hi ha avui en aquesta placa** (docs/90): consola, LittleFS, NVS, rellotge del SoC, les dues
+fondàries de son amb el despert pel temporitzador del RTC i la velocitat del processador. **No hi és
+encara** el panell (IT8951E), el toc (GT911), el rellotge BM8563, la bateria, la targeta, les tres
+tecles i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
+
+**Una discrepància que s'ha de comprovar a la placa**: la llibreria del fabricant té els noms de les
+tecles en dos llocs i no diuen el mateix —`M5EPD.h` defineix `KEY_RIGHT_PIN 39` i `KEY_LEFT_PIN 37`,
+mentre que el README de la mateixa llibreria diu dreta=37 i esquerra=39—. El codi que corre és el
+capçalari, i és el que s'ha de creure; però el primer que cal fer amb la placa a la mà és prémer cada
+tecla i veure quin GPIO es tanca.
 
 ## Fitxa: emulador (PC)
 
@@ -398,7 +454,9 @@ Els detalls de cada mentida són a `85 · Emulador`.
    PAL.
 3. Implementar `IPlatform` i les interfícies que la placa tingui de debò. Les que no, `nullptr`.
 4. Afegir un `[env:<id>]` a `platformio.ini` amb el seu `-Ilib/board_<id>/include`, el seu `lib_ignore`
-   (**totes** les altres identitats) i la PAL que correspongui.
+   (**totes** les altres identitats) i la PAL que correspongui. Si PlatformIO no coneix la placa, es
+   descriu a `boards/<id>.json` i el `[platformio]` ja porta `boards_dir = boards`: així la definició
+   viatja amb el projecte i no depèn de la versió de la plataforma (el Paper és aquest cas).
 5. Afegir la fitxa en aquest document i la fila a la taula de capacitats.
 6. Dir la veritat a la fitxa: què s'ha provat i què no. Una placa que només compila no «funciona».
 

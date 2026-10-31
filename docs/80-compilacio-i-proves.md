@@ -1,10 +1,11 @@
 # 80 · Compilació i proves
 
-## Quatre entorns
+## Cinc entorns
 
 | Entorn | Plataforma | Per a què |
 |---|---|---|
 | `atom` | espressif32 + Arduino | El firmware de la placa de proves |
+| `paper` | espressif32 + Arduino, placa pròpia | La M5 Paper (16 MB de flash, PSRAM i un panell e-ink): definició a `boards/m5stack-paper.json`, taula a `partitions_16mb.csv` (docs/50) |
 | `atom_matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
 | `emulator` | native | El mateix codi compilat per al PC |
 | `test` | native | Les proves natives (Unity) |
@@ -12,6 +13,7 @@
 ```ini
 [platformio]
 default_envs = emulator
+boards_dir = boards        ; el Paper no és una placa que la plataforma conegui
 
 [env:atom]
 platform = espressif32
@@ -31,6 +33,14 @@ lib_ignore = hal_emulator, pal_host, board_matrix,
 extends = env:atom
 build_flags = -std=gnu++11 -Ilib/board_matrix/include
 lib_ignore = hal_emulator, pal_host, board_atom, …   ; i les de xarxa, igual
+
+[env:paper]
+platform = espressif32
+board = m5stack-paper
+framework = arduino
+board_build.partitions = partitions_16mb.csv
+build_flags = -std=gnu++11 -Ilib/board_paper/include
+lib_ignore = hal_emulator, pal_host, hal_atom, board_atom, board_matrix, …
 
 [env:emulator]
 platform = native

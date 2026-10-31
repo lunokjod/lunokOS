@@ -1,0 +1,22 @@
+# lunokOS partition table for the M5 Paper (16 MB of flash).
+#
+# The Paper has four times the flash of the ATOM, so the application slot is the
+# same 4 MB (the build is about 2 MB today and the e-ink driver will add to it)
+# and the rest goes to the disk, which is where an app that keeps a library or a
+# book wants it.
+#
+# The two names below are the ones the system looks for by label: the app mounts
+# the data partition as "littlefs" (docs/70) and the key-value store uses "nvs".
+# The subtype of the data partition says "spiffs" because that is the identifier
+# this toolchain knows for a generic data partition: it is a type label and
+# nothing else, the filesystem built on it is LittleFS.
+#
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x4000,
+phy_init,   data, phy,     0xf000,   0x1000,
+app0,       app,  factory, 0x10000,  0x400000,
+littlefs,   data, spiffs,  0x410000, 0xBE0000,
+# The core dump partition is here for the same reason as on the ATOM: without it
+# every boot starts with "No core dump partition found!" and a panic leaves
+# nothing behind (docs/70).
+coredump,   data, coredump,0xFF0000, 0x010000,
