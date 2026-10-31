@@ -151,6 +151,21 @@ sessió `lua` i de l'app `tilt`. Un buffer més gran **no** vol dir que una app 
 vulgui: el que mana és la memòria de l'app, i el sostre és el dir quan una app no hi cap abans de
 gastar un sol byte de heap.
 
+## La M5 Paper, el primer maó (31/10)
+
+`pio run -e paper`, sense ràdio, sense panell i sense Bluetooth (no hi ha res d'això implementat
+encara, docs/50):
+
+| | |
+|---|---|
+| Flash | **551 201 B** de 4 194 304 (13,1 %) — la partició d'aplicació de `partitions_16mb.csv` |
+| RAM estàtica | **52 248 B** de 327 680 (15,9 %); el build informa d'un 1,2 % perquè el denominador de la placa inclou els 8 MB de PSRAM |
+| Flash lliure | 3 643 103 B per al panell, la ràdio i el que vingui |
+
+El que costa de flash una placa és, sobretot, el que se li ha implementat: l'ATOM gasta 2 000 681 B
+perquè hi té la ràdio amb TLS, el provisioning per Bluetooth i totes les apps; el Paper, amb el disc,
+la NVS, la consola i l'energia, en gasta 551 201.
+
 ## El preu del llum i del botó, mesurat (31/10)
 
 | | Abans | Amb el llum i el botó |

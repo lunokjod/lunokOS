@@ -94,8 +94,10 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 
 ## La M5 Paper, pas a pas
 
-L'entorn `paper` hi és i el firmware que en surt arrenca, escriu per la consola, munta el disc, desa
-claus i dorm amb temporitzador. El que falta té ordre, perquè cada pas necessita l'anterior:
+L'entorn `paper` hi és i el firmware **compila** (551 201 B de flash i 52 248 B de RAM estàtica,
+docs/75): porta la consola, el disc, la NVS, el rellotge del SoC, les dues fondàries de son i el
+*main power hold*. **No s'ha flashejat encara**, i el que falta té ordre perquè cada pas necessita
+l'anterior:
 
 | # | Pas | Criteri per dir-lo fet |
 |---|---|---|

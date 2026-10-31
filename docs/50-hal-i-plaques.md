@@ -424,6 +424,11 @@ fondàries de son amb el despert pel temporitzador del RTC i la velocitat del pr
 encara** el panell (IT8951E), el toc (GT911), el rellotge BM8563, la bateria, la targeta, les tres
 tecles i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
 
+**Què està provat i què no**: `pio run -e paper` **compila net** (zero avisos propis, docs/75) i el
+binari que en surt porta la identitat del Paper i cap de les de l'ATOM, que és el que es pot comprovar
+sense la placa. **No s'ha flashejat encara**: el prompt pel port sèrie, el `caps` de debò i el
+comportament de l'alimentació són el primer que s'ha de veure amb la placa a la mà (docs/90).
+
 **Una discrepància que s'ha de comprovar a la placa**: la llibreria del fabricant té els noms de les
 tecles en dos llocs i no diuen el mateix —`M5EPD.h` defineix `KEY_RIGHT_PIN 39` i `KEY_LEFT_PIN 37`,
 mentre que el README de la mateixa llibreria diu dreta=37 i esquerra=39—. El codi que corre és el
