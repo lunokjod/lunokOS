@@ -259,8 +259,9 @@ class FakeInput : public IInput {
   // (docs/85).
   Face face(uint32_t) override { return Face::kLeft; }
   Spot spot(uint32_t key) override {
-    if (key == 1) return Spot::kLeft;
-    if (key == 2) return Spot::kRight;
+    // The bench has the Paper's shape: a vertical dial of three keys (docs/85).
+    if (key == 1) return Spot::kUp;
+    if (key == 2) return Spot::kDown;
     return Spot::kCentre;
   }
   KeyKind kind(uint32_t) override { return KeyKind::kCompound; }

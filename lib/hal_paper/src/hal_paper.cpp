@@ -162,8 +162,13 @@ class PaperKeys : public IInput {
   // one thing about this board that has to be checked by pressing it (docs/90).
   Face face(uint32_t) override { return Face::kLeft; }
   Spot spot(uint32_t key) override {
-    if (key == 1) return Spot::kLeft;
-    if (key == 2) return Spot::kRight;
+    // The dial is vertical: its two side keys are the top and the bottom of the
+    // face, not two sides. Which GPIO is the top one is the one thing about this
+    // board that cannot be read from a datasheet —the maker's header says GPIO37
+    // is left and GPIO39 is right, and its README says the opposite— so it is one
+    // constant and one word to flip it (docs/90).
+    if (key == 1) return Spot::kUp;      // GPIO37
+    if (key == 2) return Spot::kDown;    // GPIO39
     return Spot::kCentre;
   }
   KeyKind kind(uint32_t) override { return KeyKind::kCompound; }

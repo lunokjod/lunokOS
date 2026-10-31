@@ -2289,8 +2289,8 @@ void test_the_board_says_where_its_keys_are(void) {
   // The bench imitates the Paper: one compound dial of three keys on the left
   // face, with the middle one in the middle (docs/85).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 left/centre compound 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 left/left compound 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 left/right compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 left/up compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 left/down compound 0"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "middle left/centre"), g_out);
   // A key that is not there is said, not invented.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ninth nil E_INVAL"), g_out);
@@ -2322,21 +2322,22 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 0"), g_out);
   TEST_ASSERT_TRUE(kernel::app_running());
 
-  // One press of the right key goes up one, and one of the left key goes down
-  // one: the function comes from the place on the board, not from the number
-  // (docs/30). Both are done before any long hold, so the number is known.
+  // The key at the top of the face goes up one and the one at the bottom goes
+  // down one: the function comes from the place on the board and not from the
+  // number of the key (docs/30). Both are done before any long hold, so the
+  // number is known.
   capture_begin();
-  emu::press_key(2, true);
+  emu::press_key(1, true);
   pump_turns(20);
-  emu::press_key(2, false);
+  emu::press_key(1, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 1"), g_out);
 
   capture_begin();
-  emu::press_key(1, true);
+  emu::press_key(2, true);
   pump_turns(20);
-  emu::press_key(1, false);
+  emu::press_key(2, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 0"), g_out);
@@ -2345,9 +2346,9 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   // holding for most of a second is two more steps at least. How many exactly
   // depends on the frames, so the test asks for the two that it knows.
   capture_begin();
-  emu::press_key(2, true);
+  emu::press_key(1, true);
   pump_turns(900);
-  emu::press_key(2, false);
+  emu::press_key(1, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 2"), g_out);

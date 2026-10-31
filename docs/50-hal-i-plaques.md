@@ -133,7 +133,7 @@ cara. A sobre, la tecla diu **com està feta** i a quin **component** pertany (d
 |---|---|---|
 | Tecles | 1 | 3 |
 | Cara | `top` (el botó gran de dalt) | `left` (el dial del costat esquerre) |
-| Lloc | `centre` | `centre` (la central), `left` i `right` (les altres dues) |
+| Lloc | `centre` | `centre` (la central), `up` i `down` (les altres dues, que són el **damunt i el sota** del dial) |
 | Com està feta | `simple` | `compound` |
 | Component (`group`) | 0 | 0 per a les tres: **és un sol dial** |
 
