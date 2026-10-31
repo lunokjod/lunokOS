@@ -1,0 +1,42 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "lunokOS: build emulator",
+      "type": "shell",
+      "command": "pio",
+      "args": ["run", "-e", "emulator"],
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "lunokOS: emulator",
+      "detail": "Builds and runs the binary with stdin attached to the terminal. pio -t upload is not used: PlatformIO pipes stdio, so the prompt never shows and the keyboard does not reach the program.",
+      "type": "shell",
+      "command": "${workspaceFolder}/.pio/build/emulator/program",
+      "dependsOn": "lunokOS: build emulator",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": true,
+        "clear": true
+      }
+    },
+    {
+      "label": "lunokOS: native tests",
+      "type": "shell",
+      "command": "pio",
+      "args": ["test", "-e", "test"],
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "lunokOS: seed emulator disk",
+      "detail": "Copies data/apps into emulator/littlefs so the emulator sees the same apps as the flash image.",
+      "type": "shell",
+      "command": "mkdir -p \"${workspaceFolder}/emulator/littlefs\" && cp -r \"${workspaceFolder}/data/apps\" \"${workspaceFolder}/emulator/littlefs/\"",
+      "problemMatcher": []
+    }
+  ]
+}
