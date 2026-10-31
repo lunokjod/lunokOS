@@ -6,7 +6,7 @@
 namespace hal {
 
 // The emulator's key-value store: one file per key, under
-// <fs_dir>/nvs/<namespace>/<key>. Same interface as the board's NVS, and the
+// <state_dir>/nvs/<namespace>/<key>. Same interface as the board's NVS, and the
 // value is opaque bytes in both (docs/70).
 IKeyValue* emu_nvs();
 

@@ -6,8 +6,8 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 
 > **Estat: M0 a M7 fets, amb les mesures de camp de M5, M6 i M7 pendents** (M4 inclou la targeta
 > SD, que al Paper ja munta i llegeix); de **M8** ja hi ha la identitat —el banc rep la placa que ha
-> de ser (`--board`) i `sys.board` en diu el nom— i hi queden el maquinari fals seguint el model i
-> les tecles a mà. Les tres bandes compilen, l'emulador és
+> de ser (`--board`) i `sys.board` en diu el nom— i el maquinari fals que surt del model, i hi queden
+> la forma de les tecles i poder-les prémer a mà. Les tres bandes compilen, l'emulador és
 > interactiu i **executa apps de Lua**: `run hello` arrenca una app de veritat i n'escriu la línia,
 > **també a la placa**. Les apps poden **esperar amb promeses** (`sys.delay(300):await()`) sense
 > aturar el nucli, **llegir línies** amb `console.read_line()`, **escriure amb colors** amb `term`,
@@ -15,16 +15,17 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **161 proves natives**
-> passen en 6 suites.
-> A l'ATOM: **2 008 281 B** de flash (63,8 % d'una partició de 3 MB) i **92 664 B** de RAM estàtica (28,3 %); `hello` fa un
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **200 proves natives**
+> passen en 7 suites.
+> A l'ATOM: **2 020 769 B** de flash (64,2 % d'una partició de 3 MB) i **93 096 B** de RAM estàtica (28,4 %); `hello` fa un
 > pic de **10 897 B** de 65 536 de sostre i el port sèrie **4,1 ms** d'anada i tornada.
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
 > (escriure és **atòmic**: un temporal i un reanomenament), `mkdir`/`remove`/`rename`, `fs.data()` per
 > al propi racó, i `fs.open` amb un **objecte fitxer** (`read`/`write`/`seek`/`size`/`close`, **vuit
-> oberts** com a màxim). Cada app toca **cinc llocs i prou** —`/data/<id>/` i `/cfg/`, que són
-> escrivibles, i `/res/` (el seu: `apps/<id>/res/`), `/apps/` i `/sd/`, que només es llegeixen— i
+> oberts** com a màxim). Cada app toca **set llocs i prou**: `/data/<id>/` i `/cfg/`, que són
+> escrivibles; `/rtc` i `/fram`, que són **memòria crua** (la del RTC del xip i la FRAM) i també
+> s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/` i `/sd/`, que només es llegeixen; i
 > **el límit és el disc**: no hi ha
 > quota. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
 > és una porta i no un disc**: apunta a `cfg/<id>/` de la targeta si n'hi ha i de la flash si no, i qui
@@ -53,16 +54,24 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > davant **es torna a obrir sola** amb `app.args.restore` (després de `on_save`, que és on desa el
 > que vol recordar). El despert és el **temporitzador del RTC** i el **botó**, i el sistema diu quant
 > s'ha desviat: `power: woke on the timer, +N ms from the hour it was given`. `power.battery()` diu
-> `nil` on no hi ha indicador, que és diferent de zero volts. **El sistema no s'adorm sol** (una
-> consola que es menja les tecles és pitjor que gastar) i les dues mesures d'M6 —consum i desviació
-> de l'hora— encara són pendents. I el **processador** es pot dur de **80 a 240 MHz** a mà
+> `nil` on no hi ha indicador, que és diferent de zero volts. **Al Paper el sistema s'apaga sol fins a
+> la propera alarma** —xip de rellotge, bateria, i ningú fent-lo servir; `power idle off` ho atura—,
+> i a les plaques sense rellotge no s'adorm sol mai, perquè una consola que es menja les tecles és
+> pitjor que gastar. Les dues mesures d'M6 —consum i desviació de l'hora— encara són pendents. I el
+> **processador** es pot dur de **80 a 240 MHz** a mà
 > (`power cpu 240`, `power.cpu(mhz)`): el sistema no el mou sol —no hi ha DFS en aquest
 > framework— i un número que no sigui un dels passos es refusa en comptes d'arrodonir-se.
 >
 > **I les dues coses que aquesta placa té per a una persona.** El **LED** (un WS2812 a G27) és del
-> sistema i només hi diu una cosa —que la ràdio treballa—, i una app el pot
-> prendre mentre viu (`led.set(0,0,40)`); **quan l'app marxa el llum s'apaga**, no torna a cap color
-> d'abans, perquè un llum encès per ningú és energia. A la shell, `led 00ff00` i `led off`. El
+> sistema, que hi diu quatre moments amb quatre efectes —respiració blanca en arrencar, parpelleig
+> blau mentre la ràdio treballa, rebot turquesa quan venç una alarma i SOS vermell quan alguna cosa
+> falla—, i una app el pot prendre mentre viu (`led.set(0,0,40)`) o **jugar-hi efectes**
+> (`led.play{kind="breathe", color={0,0,40}, period=3000}`, amb `blink`, `sos` i `bounce`, un número
+> de cops o per sempre, i `led.stop(800)` per marxar amb un fade). Els efectes corren **sense cap fil
+> nou i sense aturar res**: el nucli els pinta a final de cada torn i només quan canvien. Els quatre
+> moments del sistema són de l'app, que els pot canviar amb `led.system(...)`. **Quan l'app marxa el
+> llum s'apaga**, no torna a cap color d'abans, perquè un llum encès per ningú és energia. A la shell,
+> `led 00ff00` i `led off`, i l'app `glow` (`run glow`) juga els quatre efectes. El
 > **botó** (G39) es llegeix a cada torn del nucli: `button.wait(ms)` dona una promesa amb
 > `{kind="press"|"long", held_ms}` i `on_button(kind, held)` és el hook de qui no vol esperar. **Tres
 > tocs dins d'1,5 s tanquen l'app** i els compta el sistema abans d'avisar-la, o sigui que cap app no
@@ -74,6 +83,10 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > graus per segon i la temperatura del xip en °C. El Lite no en té i la crida respon
 > `E_UNSUPPORTED` en comptes d'inventar zeros; l'app `tilt` és un nivell de bombolla als
 > vint-i-cinc llums, amb els números a la consola perquè es pugui comprovar el que llegeix.
+>
+> **I l'aire de la Paper**: `env.read()` torna la temperatura i la humitat del SHT30 en una sola
+> lectura —dos números i dos CRCs que es comproven abans de donar-los—, i als ATOM respon
+> `E_UNSUPPORTED` perquè no hi ha xip. L'app `air` (`run air`) la llegeix cada dos segons.
 >
 > **El que queda** és a [90 · Full de ruta](docs/90-full-de-ruta.md), i el que encara no s'ha
 > mesurat va marcat com a **pendent** a la documentació i no se'n dona cap número com si fos mesurat.
@@ -89,7 +102,7 @@ botons, targeta, xarxa, bateria— darrere d'una taula de capacitats que cada pl
 |---|---|---|
 | Plataforma | ESP32 (M5 ATOM, ATOM Matrix i Paper) | Linux |
 | Entorn de PlatformIO | `atom`, `atom_matrix` i `paper` | `emulator` (i `test` per a les proves) |
-| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` / `m5stack-paper` | el model que rep a `--board` (`m5stack-atom` per defecte), mai `emulator` |
+| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` / `m5stack-paper` | el model que rep a `--board`, que és **obligatori**, mai `emulator` |
 | És de debò (`sys.emulator`) | `false` | `true` |
 | Consola | UART | stdin/stdout en mode cru |
 | Fitxers | LittleFS + NVS, i la targeta SD al Paper | un directori del disc, i `--sd` per a una targeta |
@@ -97,7 +110,7 @@ botons, targeta, xarxa, bateria— darrere d'una taula de capacitats que cada pl
 
 El nucli, l'intèrpret i les dependències de Lua són els mateixos a les dues bandes. Només canvien
 les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.h>` només existeix a
-`lib/hal_atom/`, `lib/pal_esp32/` i `src/main.cpp`** —el punt d'entrada, que només compila sota
+`lib/pal_esp32/` i `src/main.cpp`** —el punt d'entrada, que només compila sota
 `ARDUINO`—, i a la resta del projecte no n'hi ha cap. Es comprova amb un `grep`.
 
 ## Índex de la documentació
@@ -116,6 +129,7 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 | [80 · Compilació i proves](docs/80-compilacio-i-proves.md) | Entorns, proves natives, què no es pot provar sense maquinari |
 | [85 · Emulador](docs/85-emulador.md) | Com es fa servir i què no simula |
 | [90 · Full de ruta](docs/90-full-de-ruta.md) | El que queda, fita per fita, amb el criteri per tancar-la |
+| [95 · Mesures a la placa](docs/95-mesures-a-la-placa.md) | El full de camp: què cal mesurar al maquinari, amb quin comandament i on va cada número |
 
 ## Lleis que no es trenquen
 
@@ -131,13 +145,26 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 8. **El codi mana sobre la documentació.** Si un document i el codi no diuen el mateix, el document
    està malament i es canvia al mateix commit que el codi. La documentació explica **com funciona el
    projecte avui**; el que s'ha arreglat i quan ho diu git, no els documents.
+9. **Cap maquinari sense la seva política d'energia.** Dormir és l'única manera d'estalviar bateria:
+   cada peça que tingui una alimentació commutada, un mode de repòs o un reset s'implementa amb les
+   dues meitats —com s'encén quan cal i com es deixa apagada quan no—, i el despert l'arma **el
+   rellotge més exacte que hi hagi** i no el primer que funcioni (docs/50, docs/60). I si la placa
+   sap **apagar-se del tot** i tornar-se a encendre sola, això és el que fa quan ha de dormir molt:
+   al Paper, `sleep deep` no és un son, és una apagada amb l'alarma del rellotge armada. I qui ho
+   decideix **no és l'app que ho demana sinó el nucli**: a cada torn, si hi ha una alarma pendent i
+   ningú no fa servir la placa, s'apaga fins a aquella alarma i el quars la compta.
+10. **Cada canvi puja la versió, i la puja en el mateix commit** (`kernel::kVersion`, docs/80):
+    **Z** si és un pedaç —una correcció, un número mesurat, un document que deia una cosa falsa—,
+    **Y** si és una cosa nova que una persona o una app pot fer servir —una crida de Lua, un
+    comandament, una peça de maquinari conduïda—, i **X** si és una reescriptura de debò, d'aquelles
+    que fan que una app que anava s'hagi de tornar a mirar.
 
 ## Compilació i emulador
 
 ```
 pio run -e emulator      # binari per al PC
-./.pio/build/emulator/program --fs emulator
-# el banc es diu la placa que és: --board m5stack-atom (per defecte),
+./.pio/build/emulator/program --board m5stack-atom
+# el banc es diu la placa que és: --board m5stack-atom (obligatori),
 # m5stack-atom-matrix o m5stack-paper. `sys.board` respon aquest nom
 # i `sys.emulator` continua cert
 pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
@@ -146,14 +173,19 @@ pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/
 pio test -e test         # proves natives
 ```
 
-Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id>`,
+Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id> [path]`,
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
 `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
-`ntp`, `http <url>`, `power [cpu [mhz]]`, `led`, `button`, `sleep [light|deep] <ms>`, `cfg`
+`ntp`, `http <url>`, `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
+idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
+`button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
 (`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,
-`verbose on|off`, `clear` i `reboot`. El disc de l'emulador és el directori `emulator/littlefs`, i la
-tasca **lunokOS: seed emulator disk** de VS Code hi copia les apps de `data/apps`. Per córrer un
-guio sense seure al davant: `./.pio/build/emulator/program --fs emulator --script <fitxer>`.
+`verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
+no, ho diu). El disc de l'emulador és la carpeta **`data/`** del repositori —el que hi ha a `data/apps/`
+és el que el banc executa, sense copiar res—, i `--flash <dir>` en tria una altra; la tasca
+**lunokOS: seed emulator disk** de VS Code copia les apps de `data/apps` a `emulator/littlefs`, que és
+el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`). Per córrer un
+guio sense seure al davant: `./.pio/build/emulator/program --board m5stack-atom --script <fitxer>`.
 
 ## Llicència
 

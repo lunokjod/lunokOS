@@ -1,0 +1,5 @@
+// Detached from the ESP32: it is here for the tests, which run on a PC and must be able to
+// include the headers of the chip. See library.json.
+#ifndef LUNOK_HAL_INCLUDE_PLACEHOLDER
+#define LUNOK_HAL_INCLUDE_PLACEHOLDER
+#endif

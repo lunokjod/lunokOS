@@ -19,6 +19,9 @@ RTC_DATA_ATTR bool g_epoch_known = false;
 // The deadline the kernel armed, so `last_wake()` can say whether the timer is what
 // brought the board back.
 RTC_DATA_ATTR int64_t g_armed_epoch_ms = 0;
+// Whether **this boot** has armed the chip's timer. It mirrors the structure ESP-IDF keeps in RAM
+// (which a boot wipes), because that is the one its `disable` checks before it complains.
+bool g_timer_wake_armed = false;
 
 class Esp32Clock : public IClock {
  public:
@@ -39,17 +42,9 @@ class Esp32Clock : public IClock {
 
   // The RTC timer is the wake the kernel programs: only the nearest alarm is ever
   // armed, and a key that brings the board back is the board's business (docs/60).
-  bool arm_wake(int64_t at_epoch_ms) override {
-    int64_t left = at_epoch_ms - esp32_wall_ms();
-    if (left < 1) left = 1;
-    g_armed_epoch_ms = at_epoch_ms;
-    return esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(left) * 1000) == ESP_OK;
-  }
+  bool arm_wake(int64_t at_epoch_ms) override { return esp32_arm_timer_wake(at_epoch_ms); }
 
-  void disarm_wake() override {
-    g_armed_epoch_ms = 0;
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-  }
+  void disarm_wake() override { esp32_disarm_timer_wake(); }
 
   WakeCause last_wake() override {
     switch (esp_sleep_get_wakeup_cause()) {
@@ -77,6 +72,24 @@ int64_t esp32_wall_ms() {
   struct timeval tv;
   if (gettimeofday(&tv, nullptr) != 0) return 0;
   return static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000;
+}
+
+bool esp32_arm_timer_wake(int64_t at_epoch_ms) {
+  int64_t left = at_epoch_ms - esp32_wall_ms();
+  if (left < 1) left = 1;
+  if (esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(left) * 1000) != ESP_OK) return false;
+  g_timer_wake_armed = true;
+  g_armed_epoch_ms = at_epoch_ms;
+  return true;
+}
+
+void esp32_disarm_timer_wake() {
+  g_armed_epoch_ms = 0;
+  // Only ours to take down: ESP-IDF logs an error when a source that is not armed is disarmed, and
+  // on a board whose clock chip keeps the alarm this is called after every arming (docs/60).
+  if (!g_timer_wake_armed) return;
+  g_timer_wake_armed = false;
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
 }
 
 IClock* esp32_clock() {

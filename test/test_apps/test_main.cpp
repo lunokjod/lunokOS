@@ -16,6 +16,7 @@
 #include <unity.h>
 
 #include "alarms/alarms.h"
+#include "emu/memories.h"
 #include "emu/options.h"
 #include "hal/hal.h"
 #include "json/json.h"
@@ -48,10 +49,16 @@ void tearDown(void) {
   // And the bench goes back to the ATOM: one binary is one bench, and a test that was
   // the Matrix would make the next one refuse an app for no reason (docs/85).
   const bool had_card = emu::options().sd_dir != nullptr;
+  const bool was_another_board = emu::options().board != nullptr;
   emu::Options opts = emu::options();
   opts.board = nullptr;
   opts.sd_dir = nullptr;
+  opts.battery_mv = 0;
   emu::set_options(opts);
+  // Going back is a boot and not just an option: the hardware the kernel installs —the sensor, the
+  // gauge, the light— is the board's, and a kernel that booted as a Paper is a kernel with no light
+  // for ever (docs/85).
+  if (was_another_board) kernel::boot(hal::platform());
   if (had_card) {
     // The mounts were built with a card in them, so out it goes with the table that knew
     // about it: a test that left `/sd` pointing at its own directory would give the next
@@ -220,6 +227,18 @@ bool card_on(const char* dir) {
   kernel::vfs::init(hal::platform());
   kernel::cfg::boot(hal::platform());
   return hal::platform().storage("/sd") != nullptr;
+}
+
+// The board this test is about: a board is chosen and never assumed, because the bench answers with
+// the hardware of the model it was told to be, and a test that expects a gauge on an ATOM is a test
+// that would pass on a board nobody has (docs/50, docs/85).
+void use_board(const char* model) {
+  emu::Options opts = emu::options();
+  opts.board = model;
+  emu::set_options(opts);
+  // The board's operations (the sensor, the gauge) are installed by the boot, so a board is not
+  // something a test can change under a running kernel: it boots again on the new one (docs/85).
+  kernel::boot(hal::platform());
 }
 
 // The card of this run: a directory of its own, empty but for what the test writes, so a
@@ -1022,6 +1041,9 @@ void test_the_settings_of_an_app_go_behind_the_door_of_cfg(void) {
 // is the point of having a card on the bench (docs/70, docs/85).
 void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // The slot is a thing the model has: the Paper has one and the ATOMs do not, so a card is a card
+  // on the board that can hold it (docs/50, docs/85).
+  use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   make_card();
@@ -1063,6 +1085,8 @@ void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
 // taken out and put in another board, and its `cfg/` goes with it (docs/70).
 void test_the_settings_of_an_app_go_to_the_card_when_there_is_one(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // The settings go to the card of a board that has a slot to put one in (docs/50, docs/85).
+  use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   make_card();
@@ -1102,6 +1126,133 @@ void test_the_settings_of_an_app_go_to_the_card_when_there_is_one(void) {
   storage->remove("/apps/cardcfg");
 }
 
+
+// The battery is a measurement and a curve, and the curve is the part that can be wrong
+// without any hardware: a single cell lives most of its charge in its last volt, so a
+// straight line from 3,3 to 4,2 would say 45 % at 3,7 V (docs/50).
+void test_the_battery_curve_falls_and_is_clamped(void) {
+  TEST_ASSERT_EQUAL_UINT32(100, hal::battery_percent(4200));
+  TEST_ASSERT_EQUAL_UINT32(100, hal::battery_percent(4350));  // a charger reads over full
+  TEST_ASSERT_EQUAL_UINT32(0, hal::battery_percent(3300));
+  TEST_ASSERT_EQUAL_UINT32(0, hal::battery_percent(3100));
+  TEST_ASSERT_EQUAL_UINT32(70, hal::battery_percent(3900));
+  TEST_ASSERT_EQUAL_UINT32(42, hal::battery_percent(3700));
+  // And it never goes up while the voltage goes down, which is the one thing an app
+  // showing a battery icon needs from it.
+  uint32_t previous = 101;
+  for (int mv = 4300; mv >= 3100; mv -= 10) {
+    const uint32_t pct = hal::battery_percent(mv);
+    TEST_ASSERT_TRUE_MESSAGE(pct <= previous, "the curve goes up when the cell goes down");
+    TEST_ASSERT_TRUE_MESSAGE(pct <= 100, "a percentage over a hundred");
+    previous = pct;
+  }
+}
+
+// The battery of the bench is a number the person sets, and with no number the whole
+// answer is nil, which is not zero volts (docs/30, docs/85).
+void test_the_battery_reaches_the_app_as_a_measurement(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "gauge",
+                           "{\"title\":\"Gauge\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local b = power.battery()\n"
+                           "if b then console.print('battery ' .. b.mv .. ' ' .. b.pct)\n"
+                           "else console.print('battery nil') end\n"));
+
+  // A board that cannot say: nil. The gauge is the Paper's, so this is one (docs/50).
+  use_board("m5stack-paper");
+  emu::Options opts = emu::options();
+  opts.battery_mv = 0;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(run_captured("run gauge", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "battery nil"), g_out);
+
+  // And a cell at 3,9 V, which the curve says is 70 %.
+  opts.battery_mv = 3900;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(run_captured("run gauge", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "battery 3900 70"), g_out);
+
+  storage->remove("/apps/gauge/app.lua");
+  storage->remove("/apps/gauge/manifest.json");
+  storage->remove("/apps/gauge");
+}
+
+// The extra memory of a board is there for **any** app and it is transparent: the app asks for
+// memory, the interpreter puts the big blocks in the PSRAM and the small ones in the board's own RAM,
+// and the same app fits on the board that has it and does not on the one that does not. The numbers
+// are the board's and the app can ask for them (docs/75, docs/50).
+void test_the_extra_memory_is_there_for_any_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The app: says what the board has, and then builds a table of about a megabyte.
+  TEST_ASSERT_TRUE(add_app(storage, "big",
+                           "{\"title\":\"Big\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local h = sys.heap()\n"
+                           "console.print('limit ' .. h.limit .. ' extra ' .. h.extra_total)\n"
+                           "local t = {}\n"
+                           "for i = 1, 60000 do t[i] = i end\n"
+                           "console.print('big ' .. #t)\n"));
+
+  // The ATOM: no extra memory, and the kernel's own ceiling, so a megabyte does not fit.
+  hal::ExtraMemory extra = hal::platform().extra_memory();
+  TEST_ASSERT_EQUAL_UINT32(0, extra.chip_bytes);
+  TEST_ASSERT_EQUAL_UINT32(0, extra.total_bytes);
+  TEST_ASSERT_EQUAL_UINT32(0, extra.free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(0, hal::platform().heap_limit_kb());
+  TEST_ASSERT_TRUE(run_captured("run big", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "extra 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 65536"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "big 60000"), g_out);
+
+  // The Paper: the chip carries 8 MB and the CPU addresses 4, the ceiling is that memory, and the
+  // same app runs.
+  use_board("m5stack-paper");
+  extra = hal::platform().extra_memory();
+  TEST_ASSERT_EQUAL_UINT32(8192u * 1024u, extra.chip_bytes);
+  TEST_ASSERT_EQUAL_UINT32(4096u * 1024u, extra.total_bytes);
+  TEST_ASSERT_EQUAL_UINT32(4096, hal::platform().heap_limit_kb());
+  TEST_ASSERT_TRUE(run_captured("run big", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "extra 4194304"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 4194304"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "big 60000"), g_out);
+
+  storage->remove("/apps/big/app.lua");
+  storage->remove("/apps/big/manifest.json");
+  storage->remove("/apps/big");
+}
+
+// The heap demo of the repository, run from the disk on the board that has the extra memory: it asks
+// for a megabyte, keeps it and gives it back, and the numbers are the app's budget and the PSRAM's
+// (docs/75, docs/95).
+void test_the_heap_demo_app_from_the_disk_runs(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char manifest[256];
+  static char source[4096];
+  TEST_ASSERT_GREATER_THAN(0,
+                           read_host_file("data/apps/heap/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("data/apps/heap/heap.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "heap-app", manifest, source, "heap.lua"));
+
+  TEST_ASSERT_TRUE(run_captured("run heap-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 4194304 B"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "holding 60000"), g_out);
+  // A megabyte held, and back after dropping it: the block was the app's and not the board's.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "after dropping it"), g_out);
+
+  storage->remove("/apps/heap-app/heap.lua");
+  storage->remove("/apps/heap-app/manifest.json");
+  storage->remove("/apps/heap-app");
+}
 
 // An open file is a handle with a pool behind it: read, write, size and close,
 // and the ninth open is refused because the system has eight (docs/70).
@@ -1261,20 +1412,20 @@ void test_an_app_asks_what_is_mounted_and_how_much_room_is_left(void) {
                             "    .. tostring(one.writable))\n"
                             "end\n"
                             "local s, err = fs.space('/data')\n"
-                            "console.print('room ' .. tostring(s) .. ' '\n"
-                            "  .. tostring(err and err.code))\n"
+                            "console.print('room ' .. tostring(s and s.total) .. ' free '\n"
+                            "  .. tostring(s and s.free) .. ' ' .. tostring(err and err.code))\n"
                             "local n, err2 = fs.space('/nvs')\n"
                             "console.print('nvs room ' .. tostring(n) .. ' '\n"
                             "  .. tostring(err2 and err2.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 6"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 7"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs false"), g_out);
-  // The disk of this band is the host's, and it says it cannot report room; the
-  // board says numbers for /data (docs/85 and docs/70). Both are honest, and the
-  // test says which one it expects here instead of accepting either.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "room nil E_UNSUPPORTED"), g_out);
+  // The flash of the bench is a directory, but the board's is a partition of a size its own table
+  // says, so `/data` answers the real number (0x0E0000, the littlefs partition of partitions.csv).
+  // `/nvs` still cannot: it holds entries and not bytes (docs/70, docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "room 917504 free "), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nvs room nil E_UNSUPPORTED"), g_out);
 
   storage->remove("/apps/mtab/app.lua");
@@ -1934,6 +2085,147 @@ void test_the_light_goes_off_when_its_app_goes(void) {
   storage->remove("/apps/stuck");
 }
 
+// An app plays an effect and keeps working: the light is painted between turns, so a
+// promise that waits does not stop it and the app does not wait for it (docs/30).
+void test_an_app_plays_an_effect_while_it_works(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "glow",
+                            "{\"title\":\"Glow\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "led.play{kind='breathe', color={0, 0, 255}, period=1000, cycles=2}\n"
+                            "local e = led.effect()\n"
+                            "console.print('playing ' .. e.kind .. ' ' .. e.period)\n"
+                            "sys.delay(120):await()\n"
+                            "console.print('still working ' .. led.effect().kind)\n"));
+
+  const uint32_t before = emu::led_frames();
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run glow", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "playing breathe 1000"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "still working breathe"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(emu::led_frames() > before, "the effect was never painted");
+
+  // The app went, and the light went with it: the blue was the app's and not the
+  // system's (docs/30, docs/75).
+  pump_captured(20, g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT32(0, emu::led_red() + emu::led_green() + emu::led_blue());
+
+  storage->remove("/apps/glow/app.lua");
+  storage->remove("/apps/glow/manifest.json");
+  storage->remove("/apps/glow");
+}
+
+// The four moments of the system are the app's to change, and the maker's come back with
+// one word (docs/30).
+void test_an_app_changes_the_system_moments(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "moods",
+                            "{\"title\":\"Moods\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "console.print('alarm is ' .. led.system('alarm').kind)\n"
+                            "led.system('alarm', {kind='blink', color={9, 8, 7}, period=400, cycles=1})\n"
+                            "local now = led.system('alarm')\n"
+                            "console.print('now ' .. now.kind .. ' ' .. now.color[3])\n"
+                            "led.system('alarm', 'default')\n"
+                            "console.print('back ' .. led.system('alarm').kind)\n"
+                            "local all = led.system()\n"
+                            "console.print('four ' .. tostring(all.boot ~= nil and all.radio ~= nil "
+                            "and all.alarm ~= nil and all.error ~= nil))\n"));
+
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run moods", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarm is bounce"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "now blink 7"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back bounce"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "four true"), g_out);
+
+  storage->remove("/apps/moods/app.lua");
+  storage->remove("/apps/moods/manifest.json");
+  storage->remove("/apps/moods");
+}
+
+// What the light cannot do is refused with a reason and not guessed: an effect that does
+// not exist, a call that is not a table, and a light of the strip that is not there
+// (docs/30).
+void test_led_play_refuses_what_it_cannot_do(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "wrong",
+                            "{\"title\":\"Wrong\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "local _, bad = led.play{kind='disco'}\n"
+                            "console.print('kind ' .. bad.code)\n"
+                            "local _, notatable = led.play('nope')\n"
+                            "console.print('table ' .. notatable.code)\n"
+                            "local _, nolight = led.play{kind='blink', pixel=5}\n"
+                            "console.print('pixel ' .. nolight.code)\n"
+                            "local ok = led.stop(0)\n"
+                            "console.print('stop ' .. tostring(ok))\n"));
+
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run wrong", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "kind E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "table E_INVAL"), g_out);
+  // The bench is the ATOM here: one light, so light number five is not there.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pixel E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stop true"), g_out);
+
+  storage->remove("/apps/wrong/app.lua");
+  storage->remove("/apps/wrong/manifest.json");
+  storage->remove("/apps/wrong");
+}
+
+// The air around the board is read from the board and not invented: the Paper has an SHT30, the ATOM
+// says it has none, and the two are two different answers (docs/30, docs/50).
+void test_the_air_is_read_from_the_board_that_has_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "air",
+                            "{\"title\":\"Air\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "console.print('env cap ' .. tostring(sys.caps().env))\n"
+                            "local air, err = env.read()\n"
+                            "if air then\n"
+                            "  console.print(string.format('air %.1f %.1f', air.celsius, air.humidity))\n"
+                            "else\n"
+                            "  console.print('no air ' .. err.code)\n"
+                            "end\n"));
+
+  // The ATOM: the capability is false and the call says which of the two it is. The board is said and
+  // not assumed, like every test that is about a board (docs/85).
+  use_board("m5stack-atom");
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run air", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "env cap false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no air E_UNSUPPORTED"), g_out);
+
+  // The Paper: the chip answers the two numbers the bench was told (docs/85).
+  use_board("m5stack-paper");
+  emu::Options opts = emu::options();
+  opts.env_celsius = 21.5f;
+  opts.env_humidity = 48.0f;
+  opts.env_fail = false;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run air", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "env cap true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "air 21.5 48.0"), g_out);
+
+  // And a chip that is there and does not answer is `E_IO`, not `E_UNSUPPORTED`: an app has to be
+  // able to tell a fault from a board that never had the sensor (docs/30).
+  opts.env_fail = true;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run air", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no air E_IO"), g_out);
+  opts.env_fail = false;
+  emu::set_options(opts);
+
+  storage->remove("/apps/air/app.lua");
+  storage->remove("/apps/air/manifest.json");
+  storage->remove("/apps/air");
+}
+
 // The demo app of the light is a file in the repository, so it is run here: a wheel
 // that never ends on its own, a press that steps the brightness and the system's
 // gesture to leave (docs/30).
@@ -2556,6 +2848,8 @@ void test_a_key_reaches_the_app_with_its_number(void) {
                            "console.print('keys ' .. button.count())\n"
                            "while true do sys.delay(50):await() end\n"));
 
+  // Three keys is the Paper's dial; an ATOM has one button and would print 1 (docs/50).
+  use_board("m5stack-paper");
   pump_captured(20, g_out, sizeof(g_out), "run thirdkey");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keys 3"), g_out);
 
@@ -2628,6 +2922,8 @@ void test_three_taps_of_a_side_key_keep_the_app(void) {
 // and the board says it in the same words on every board (docs/30, docs/50).
 void test_the_board_says_where_its_keys_are(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // Three keys, with a face and a place, are the Paper's dial (docs/50).
+  use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(add_app(storage, "keymap",
@@ -2664,6 +2960,8 @@ void test_the_board_says_where_its_keys_are(void) {
 // stays down steps again, which is what a keyboard does (docs/30, docs/90).
 void test_the_keys_demo_app_from_the_disk_runs(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // The demo prints the three keys of the dial, so the bench is the board that has them (docs/50).
+  use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
@@ -2756,6 +3054,47 @@ void test_an_app_asks_for_the_processor_speed(void) {
   storage->remove("/apps/fast/app.lua");
   storage->remove("/apps/fast/manifest.json");
   storage->remove("/apps/fast");
+}
+
+// A sleep that did not run to its hour is **not** a measurement of the clock: a finger on the
+// button, a cable plugged in or a supply that blinked ends it early, and the system says it that way
+// instead of reporting the −243 530 ms of a board that never got to prove anything. Measured on the
+// glass the 31/10, which is where the number came from (docs/60).
+void test_a_sleep_cut_short_is_not_a_measurement(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IKeyValue* nvs = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(nvs);
+  nvs->erase("power", "drift");
+  nvs->erase("power", "cause");
+
+  // The bench comes back 243 s before the hour it was given, which is what a board whose supply
+  // blinks does: the sleep is over and the hour was never reached.
+  emu::Options opts = emu::options();
+  opts.wake_early_ms = 243530;
+  emu::set_options(opts);
+  pump_captured(20, g_out, sizeof(g_out), "sleep light 300000");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the sleep was cut short by the power coming back"),
+                               g_out);
+  // The last millisecond is the clock's business and not the test's: what is checked is that the
+  // number is the one asked for and that it is said as early (31/10).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, ", 2435"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ms before the hour it was given"), g_out);
+  // And it is not dressed up as a drift: `power last` says what kind of number it is.
+  pump_captured(10, g_out, sizeof(g_out), "power last");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "-2435"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ms (power, cut short)"), g_out);
+
+  // A sleep that does reach its hour is still measured as one, with the plain name of the clock that
+  // brought the board back.
+  opts.wake_early_ms = 0;
+  emu::set_options(opts);
+  pump_captured(20, g_out, sizeof(g_out), "sleep light 1000");
+  pump_captured(10, g_out, sizeof(g_out), "power last");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ms (timer)"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cut short"), g_out);
+
+  nvs->erase("power", "drift");
+  nvs->erase("power", "cause");
 }
 
 // A light sleep comes back in the same turn, the clock has moved by the hour it
@@ -2904,13 +3243,522 @@ void test_the_mtab_demo_app_from_the_disk_runs(void) {
   TEST_ASSERT_TRUE(add_app_file(storage, "mtab-app", manifest, source, "mtab.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts: 6"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs rw  unknown (E_UNSUPPORTED)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts: 7"), g_out);
+  // The RTC memory is a file of the chip: a mount of its own, writable, and not a filesystem. Its
+  // room is its size and all of it is free, because nothing is allocated out of raw memory and
+  // counting entries there would be a number that means nothing (docs/70).
+  char rtc_line[64];
+  snprintf(rtc_line, sizeof(rtc_line), "/rtc rtc rw  %u of %u B free",
+           static_cast<unsigned>(emu::kRtcRamBytes), static_cast<unsigned>(emu::kRtcRamBytes));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, rtc_line), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs rw  "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "of 917504 B free"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs ro  unknown (E_UNSUPPORTED)"), g_out);
 
   storage->remove("/apps/mtab-app/mtab.lua");
   storage->remove("/apps/mtab-app/manifest.json");
   storage->remove("/apps/mtab-app");
+}
+
+// The dump app of the repository, run from the disk: the memory is read as hex and as text, a byte
+// that cannot be printed is a dot, and the empty tail is not printed at all (docs/50, docs/70).
+void test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  hal::IStorage* rtc = hal::platform().storage("/rtc");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_NOT_NULL(rtc);
+
+  static char manifest[256];
+  static char source[4096];
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/hexdump/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/hexdump/hexdump.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "hexdump-app", manifest, source, "hexdump.lua"));
+
+  // An empty memory is said in one line and not in four hundred rows of zeros.
+  memset(emu::rtc_ram(), 0, emu::kRtcRamBytes);
+  TEST_ASSERT_TRUE(run_captured("run hexdump-app", g_out, sizeof(g_out)));
+  char empty[96];
+  snprintf(empty, sizeof(empty), "is %u B and every one of them is zero",
+           static_cast<unsigned>(emu::kRtcRamBytes));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, empty), g_out);
+
+  // Something that is not text all the way: a byte a terminal cannot show and a zero in the middle,
+  // which is what a struct of a real app looks like. It goes in through a handle, which is the only
+  // way to write raw memory (docs/70).
+  static const uint8_t kept[] = {'h', 'o', 'l', 'a', 0x01, 0x00, 'R', 'T', 'C'};
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(rtc->open("", hal::OpenMode::kReadWrite, slot));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(sizeof(kept)),
+                        rtc->write(slot, kept, sizeof(kept)));
+  TEST_ASSERT_TRUE(rtc->close(slot));
+
+  TEST_ASSERT_TRUE(run_captured("run hexdump-app", g_out, sizeof(g_out)));
+  char summary[96];
+  snprintf(summary, sizeof(summary), "is %u B, %u in use and %u zero after",
+           static_cast<unsigned>(emu::kRtcRamBytes), static_cast<unsigned>(sizeof(kept)),
+           static_cast<unsigned>(emu::kRtcRamBytes - sizeof(kept)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, summary), g_out);
+  // The offset, the hex of sixteen bytes, and the same sixteen between bars with the dot in place of
+  // the control byte and of the zero, which is a dot as well because it is not printable.
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "00000000  68 6f 6c 61 01 00 52 54 43 00 00 00 00 00 00 00"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "|hola..RTC.......|"), g_out);
+  // Only one row: the memory has nine bytes in use and what comes after them is not shown.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "00000010"), g_out);
+
+  memset(emu::rtc_ram(), 0, emu::kRtcRamBytes);
+  storage->remove("/apps/hexdump-app/hexdump.lua");
+  storage->remove("/apps/hexdump-app/manifest.json");
+  storage->remove("/apps/hexdump-app");
+}
+
+// The FRAM is 256 bytes that **do not need the power**, and like the RTC memory it is one file an app
+// reads and writes: the layout is the app's. Two things are the point here: a board without the chip
+// has no `/fram` at all, and the chip is the file — what is written is in the memory when the call
+// returns, with no write cycle to wait for, because it is a FRAM and not an EEPROM (docs/50,
+// docs/70).
+void test_the_fram_is_one_file_of_its_bytes(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  // The board the tests start on has no FM24C02 soldered, so it has no mount to offer.
+  TEST_ASSERT_NULL(hal::platform().storage("/fram"));
+
+  use_board("m5stack-paper");
+  hal::IStorage* fram = hal::platform().storage("/fram");
+  TEST_ASSERT_NOT_NULL(fram);
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  hal::Stat info;
+  TEST_ASSERT_TRUE(fram->stat("", info));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(hal::NodeType::kFile),
+                          static_cast<uint8_t>(info.type));
+  TEST_ASSERT_EQUAL_UINT32(emu::kFramBytes, info.size);
+
+  // A round trip through a handle, which is the only way to write raw memory (docs/70).
+  static const char kept[] = "kept in the fram";  // sixteen bytes: one row of the dump
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(fram->open("", hal::OpenMode::kReadWrite, slot));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(sizeof(kept) - 1),
+                        fram->write(slot, kept, sizeof(kept) - 1));
+  TEST_ASSERT_TRUE(fram->seek(slot, 0));
+  char back[24] = {0};
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(sizeof(kept) - 1), fram->read(slot, back, sizeof(kept) - 1));
+  TEST_ASSERT_EQUAL_STRING(kept, back);
+  // It has an end, and writing past it is a short write and not a crash.
+  TEST_ASSERT_TRUE(fram->seek(slot, emu::kFramBytes - 2));
+  TEST_ASSERT_EQUAL_INT(2, fram->write(slot, kept, sizeof(kept) - 1));
+  TEST_ASSERT_TRUE(fram->close(slot));
+
+  // It is a file and not a filesystem, and its room is its size, all of it free: nothing is
+  // allocated out of raw memory (docs/70).
+  TEST_ASSERT_FALSE(fram->mkdir(""));
+  uint64_t total = 0;
+  uint64_t free_bytes = 0;
+  TEST_ASSERT_TRUE(fram->space(total, free_bytes));
+  TEST_ASSERT_EQUAL_UINT32(emu::kFramBytes, static_cast<uint32_t>(total));
+  TEST_ASSERT_EQUAL_UINT32(emu::kFramBytes, static_cast<uint32_t>(free_bytes));
+
+  // The prompt sees it, and says how much room it has. The path is padded by `print_mounts`, so the
+  // test looks for the name and for the number and not for the whole line (docs/70).
+  pump_captured(20, g_out, sizeof(g_out), "mounts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/fram"), g_out);
+  char line[64];
+  snprintf(line, sizeof(line), "free %u of %u B", static_cast<unsigned>(emu::kFramBytes),
+           static_cast<unsigned>(emu::kFramBytes));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, line), g_out);
+  // And the settings door is still there: the table had exactly eight rows and the FRAM took the
+  // eighth, which is how `/cfg` disappeared on the bench (31/10, docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/cfg"), g_out);
+
+  // And the dump app looks at it when it is told which file: `run hexdump /fram`.
+  static char manifest[256];
+  static char source[4096];
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/hexdump/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/hexdump/hexdump.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "hexdump-fram", manifest, source, "hexdump.lua"));
+  TEST_ASSERT_TRUE(run_captured("run hexdump-fram /fram", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "|kept in the fram|"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "00000000  6b 65 70 74 20 69 6e 20 74 68 65 20 66 72 61 6d"), g_out);
+  storage->remove("/apps/hexdump-fram/hexdump.lua");
+  storage->remove("/apps/hexdump-fram/manifest.json");
+  storage->remove("/apps/hexdump-fram");
+
+  // The memory that does not need the power: a power cycle of the bench does not touch it.
+  memset(emu::fram(), 0, emu::kFramBytes);
+}
+
+// The battery demo of the repository, run from the disk: the two paths are the point,
+// because a board that cannot say is not a board that says zero (docs/30, docs/50).
+void test_the_battery_demo_app_from_the_disk_runs(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char manifest[256];
+  static char source[4096];
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/battery/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/battery/battery.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "battery-app", manifest, source, "battery.lua"));
+
+  // A board with no gauge: it says so, and it does not say zero volts. The battery is the Paper's,
+  // so the bench has to be one of those or it would be a board answering for hardware it has not
+  // got (docs/50, docs/85).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.battery_mv = 0;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "does not know its battery"), g_out);
+
+  // And a cell at 3,9 V: the measurement, the curve and the bar.
+  opts.battery_mv = 3900;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "3900 mV, 70 %"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "charging: the board cannot tell"), g_out);
+
+  // And the same number on an ATOM is a board with no gauge at all, which is the other path.
+  opts.board = "m5stack-atom";
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "does not know its battery"), g_out);
+  opts.board = nullptr;
+  emu::set_options(opts);
+
+  storage->remove("/apps/battery-app/battery.lua");
+  storage->remove("/apps/battery-app/manifest.json");
+  storage->remove("/apps/battery-app");
+}
+
+// The alarm demos of the repository, run from the disk: the queue the system keeps and the
+// timers an app arms. A demo that stops working is a lie in the documentation (docs/40), and
+// these two are the ones that show the queue of `lib/alarms` and the clock behind it.
+void test_the_alarm_demos_from_the_disk_run(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char manifest[256];
+  static char source[4096];
+
+  // The queue: what this board allows, three armed, one cancelled and the gap closed. The app
+  // keeps running on purpose after that (its last line waits nine seconds), so it is closed
+  // here by hand rather than waited for.
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "alarmqueue-app", manifest, source, "alarmqueue.lua"));
+  pump_captured(40, g_out, sizeof(g_out), "run alarmqueue-app");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 8 at once"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancelling "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, ": true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "queue without the middle one"), g_out);
+  kernel::shell::close_app();
+  // The two that were left are the test's now: they would fire inside the next one.
+  alarms::reset();
+  storage->remove("/apps/alarmqueue-app/alarmqueue.lua");
+  storage->remove("/apps/alarmqueue-app/manifest.json");
+  storage->remove("/apps/alarmqueue-app");
+
+  // The timers: three of them, delivered in order while the app waits, and the app ends by
+  // itself inside the turns a test gives it.
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/timers/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0,
+                           read_host_file("data/apps/timers/timers.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "timers-app", manifest, source, "timers.lua"));
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run timers-app", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "three timers armed"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 400 ms"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 800 ms"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 1200 ms"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "without stopping anything"), g_out);
+
+  storage->remove("/apps/timers-app/timers.lua");
+  storage->remove("/apps/timers-app/manifest.json");
+  storage->remove("/apps/timers-app");
+
+  // The one that arms an alarm and leaves: it ends by itself, so this one can be waited for. What
+  // it leaves in the queue is taken down here, or it would go off inside the test after this one.
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/later/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("data/apps/later/later.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "later-app", manifest, source, "later.lua"));
+  TEST_ASSERT_TRUE_MESSAGE(run_captured("run later-app", g_out, sizeof(g_out)), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed for"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "leaving: the queue keeps it"), g_out);
+  alarms::reset();
+
+  storage->remove("/apps/later-app/later.lua");
+  storage->remove("/apps/later-app/manifest.json");
+  storage->remove("/apps/later-app");
+}
+
+// The maths between a date and an epoch: no hardware in it, and it is where a leap year can
+// go wrong without anybody noticing for four years (docs/50).
+void test_the_civil_calendar_round_trips(void) {
+  // 1970-01-01 is zero by definition, and the 31st of October 2026 is 20 757 days later.
+  TEST_ASSERT_EQUAL_INT64(0, hal::days_from_civil(1970, 1, 1));
+  TEST_ASSERT_EQUAL_INT64(20757, hal::days_from_civil(2026, 10, 31));
+
+  int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+  hal::civil_from_days(20757, y, mo, d);
+  TEST_ASSERT_EQUAL_INT(2026, y);
+  TEST_ASSERT_EQUAL_INT(10, mo);
+  TEST_ASSERT_EQUAL_INT(31, d);
+
+  // The 29th of February exists on a leap year and not on the one after a century that is
+  // not a multiple of four: 2000 yes, 2100 no.
+  TEST_ASSERT_EQUAL_INT64(1, hal::days_from_civil(2024, 3, 1) - hal::days_from_civil(2024, 2, 29));
+  TEST_ASSERT_EQUAL_INT64(1, hal::days_from_civil(2000, 3, 1) - hal::days_from_civil(2000, 2, 29));
+  TEST_ASSERT_EQUAL_INT64(1, hal::days_from_civil(2100, 3, 1) - hal::days_from_civil(2100, 2, 28));
+
+  // An epoch and its six fields, both ways, with an hour that has minutes and seconds.
+  const int64_t ms = hal::civil_to_epoch_ms(2026, 10, 31, 19, 30, 7);
+  hal::epoch_ms_to_civil(ms, y, mo, d, h, mi, s);
+  TEST_ASSERT_EQUAL_INT(2026, y);
+  TEST_ASSERT_EQUAL_INT(10, mo);
+  TEST_ASSERT_EQUAL_INT(31, d);
+  TEST_ASSERT_EQUAL_INT(19, h);
+  TEST_ASSERT_EQUAL_INT(30, mi);
+  TEST_ASSERT_EQUAL_INT(7, s);
+  TEST_ASSERT_EQUAL_INT64(ms, hal::civil_to_epoch_ms(y, mo, d, h, mi, s));
+
+  // And the binary-coded decimal the clock chips keep, which is not the number itself.
+  TEST_ASSERT_EQUAL_UINT8(0x25, hal::bin_to_bcd(25));
+  TEST_ASSERT_EQUAL_UINT8(25, hal::bcd_to_bin(0x25));
+  for (uint8_t value = 0; value < 60; ++value) {
+    TEST_ASSERT_EQUAL_UINT8(value, hal::bcd_to_bin(hal::bin_to_bcd(value)));
+  }
+}
+
+// The alarm of the clock chip: the hour and the minute, and the day and the weekday left out
+// on purpose (hal/alarm.h). This is what turns the board back on after a full power off, so
+// the two fields it compares are the whole design (docs/50).
+void test_the_alarm_is_the_hour_and_the_minute(void) {
+  const hal::AlarmFields dawn =
+      hal::alarm_fields(hal::civil_to_epoch_ms(2026, 10, 31, 7, 5, 0));
+  TEST_ASSERT_EQUAL_UINT8(0x05, dawn.minute);
+  TEST_ASSERT_EQUAL_UINT8(0x07, dawn.hour);
+  TEST_ASSERT_EQUAL_UINT8(hal::kAlarmAny, dawn.day);
+  TEST_ASSERT_EQUAL_UINT8(hal::kAlarmAny, dawn.weekday);
+
+  // The end of the day is binary coded, which is where a decimal twenty-three would hide,
+  // and a deadline with seconds on it is **rounded up**: 23:59:30 is armed for the next
+  // midnight, in the next day, because a board woken at 23:59:00 would find nothing due and
+  // arm the same minute again —which is the next day— (docs/50).
+  const hal::AlarmFields late =
+      hal::alarm_fields(hal::civil_to_epoch_ms(2026, 1, 2, 23, 59, 30));
+  TEST_ASSERT_EQUAL_UINT8(0x00, late.minute);
+  TEST_ASSERT_EQUAL_UINT8(0x00, late.hour);
+
+  // A minute that is already whole is not moved: this is the case a clock alarm uses.
+  const hal::AlarmFields on_the_minute =
+      hal::alarm_fields(hal::civil_to_epoch_ms(2026, 1, 2, 12, 0, 0));
+  TEST_ASSERT_EQUAL_UINT8(0x00, on_the_minute.minute);
+  TEST_ASSERT_EQUAL_UINT8(0x12, on_the_minute.hour);
+
+  // And one second over rolls into the next minute rather than back into this one.
+  const hal::AlarmFields over =
+      hal::alarm_fields(hal::civil_to_epoch_ms(2026, 1, 2, 0, 0, 59));
+  TEST_ASSERT_EQUAL_UINT8(0x01, over.minute);
+  TEST_ASSERT_EQUAL_UINT8(0x00, over.hour);
+
+  // The bench keeps the board powered, so its deep sleep is a sleep and not a power off. A
+  // board that switches itself off has to say so, or the system would promise an app a wake
+  // from a board that is not there (docs/50).
+  TEST_ASSERT_FALSE(hal::platform().power()->deep_powers_off());
+}
+
+// The chip is not one alarm: it has a **countdown** (a tick a second up to 255 s, a tick a
+// minute up to 255) and a **clock alarm** (hour and minute) — and the one that is used is the
+// most exact that reaches (hal/alarm.h). This decides whether an app's alarm is sharp or a
+// minute late, so its edges are worth a test (docs/50).
+void test_the_clock_chip_picks_the_most_exact_wake_it_has(void) {
+  const int64_t now = hal::civil_to_epoch_ms(2026, 1, 2, 10, 0, 0);
+  const uint8_t seconds = static_cast<uint8_t>(hal::WakePlan::kTimerSeconds);
+  const uint8_t minutes = static_cast<uint8_t>(hal::WakePlan::kTimerMinutes);
+  const uint8_t clock = static_cast<uint8_t>(hal::WakePlan::kAlarmClock);
+  const uint8_t none = static_cast<uint8_t>(hal::WakePlan::kNone);
+
+  // Ten seconds is ten ticks of one second.
+  const hal::WakeFields ten = hal::wake_for(now, now + 10000);
+  TEST_ASSERT_EQUAL_UINT8(seconds, static_cast<uint8_t>(ten.plan));
+  TEST_ASSERT_EQUAL_UINT8(10, ten.ticks);
+
+  // Rounded **up**, never down: a board woken a tick short is a board woken before its hour.
+  TEST_ASSERT_EQUAL_UINT8(2, hal::wake_for(now, now + 1001).ticks);
+  // A tenth of a second is still one tick, and not zero.
+  const hal::WakeFields tiny = hal::wake_for(now, now + 100);
+  TEST_ASSERT_EQUAL_UINT8(1, tiny.ticks);
+  TEST_ASSERT_EQUAL_UINT8(seconds, static_cast<uint8_t>(tiny.plan));
+
+  // The last second the countdown can count, and the one after it, which is minutes.
+  TEST_ASSERT_EQUAL_UINT8(seconds, static_cast<uint8_t>(hal::wake_for(now, now + 255000).plan));
+  TEST_ASSERT_EQUAL_UINT8(255, hal::wake_for(now, now + 255000).ticks);
+  const hal::WakeFields over_a_minute = hal::wake_for(now, now + 256000);
+  TEST_ASSERT_EQUAL_UINT8(minutes, static_cast<uint8_t>(over_a_minute.plan));
+  TEST_ASSERT_EQUAL_UINT8(5, over_a_minute.ticks);  // 256 s, up to the next whole minute
+
+  // Four hours and a quarter is the last of the countdown; a minute more falls to the clock
+  // alarm, which is the one without seconds.
+  TEST_ASSERT_EQUAL_UINT8(minutes, static_cast<uint8_t>(hal::wake_for(now, now + 255 * 60000).plan));
+  TEST_ASSERT_EQUAL_UINT8(255, hal::wake_for(now, now + 255 * 60000).ticks);
+  const hal::WakeFields alarm = hal::wake_for(now, now + 256 * 60000);
+  TEST_ASSERT_EQUAL_UINT8(clock, static_cast<uint8_t>(alarm.plan));
+  TEST_ASSERT_EQUAL_UINT8(0x16, alarm.minute);  // 10:00 plus 4 h 16 is 14:16
+  TEST_ASSERT_EQUAL_UINT8(0x14, alarm.hour);
+
+  // Past a day the chip cannot be told in one go, and the board is armed **in stages** instead of
+  // being handed to the RC timer: 25 hours after 10:00 is 11:00 the next day, and the board comes
+  // back to arm the rest (docs/60).
+  const hal::WakeFields staged = hal::wake_for(now, now + 25 * 3600000LL);
+  TEST_ASSERT_EQUAL_UINT8(clock, static_cast<uint8_t>(staged.plan));
+  TEST_ASSERT_EQUAL_UINT8(0x00, staged.minute);
+  TEST_ASSERT_EQUAL_UINT8(0x11, staged.hour);  // eleven, in binary coded decimal
+
+  // A moment already gone is not a wake at all, and neither is now: the board stays on instead of
+  // being powered off with nothing armed (docs/50).
+  TEST_ASSERT_EQUAL_UINT8(none, static_cast<uint8_t>(hal::wake_for(now, now - 1000).plan));
+  TEST_ASSERT_EQUAL_UINT8(none, static_cast<uint8_t>(hal::wake_for(now, now).plan));}
+
+// The error of a sleep is the clock's and not the firmware's: a board that restarts reports after
+// the bootloader, the banner, the flash and the card have had a second, and that second was being
+// counted as drift —a 20 s sleep came out 6 % off on the Paper the 31/10— (docs/60).
+void test_the_boot_is_not_part_of_the_clocks_error(void) {
+  const int64_t asked = 1793483154301LL;
+  // Back from a restart 400 ms late, 1 100 ms after the reset: what the clock did is the 400.
+  TEST_ASSERT_EQUAL_INT(400, static_cast<int>(hal::wake_error_ms(asked + 1500, 1100, asked, true)));
+  // A light sleep does not restart, so its uptime is not the boot's and none of it is taken out.
+  TEST_ASSERT_EQUAL_INT(1500,
+                        static_cast<int>(hal::wake_error_ms(asked + 1500, 1100, asked, false)));
+  // Early is negative, and a board that comes back on the second is zero.
+  TEST_ASSERT_EQUAL_INT(-250,
+                        static_cast<int>(hal::wake_error_ms(asked - 250, 900, asked, false)));
+  TEST_ASSERT_EQUAL_INT(0, static_cast<int>(hal::wake_error_ms(asked + 900, 900, asked, true)));
+}
+
+// The RTC memory is **one file of its size**, and what is written there is what is read back: it is
+// the only memory that survives a deep sleep, so a board keeps a few bytes there without touching
+// the flash (docs/50, docs/70).
+void test_the_rtc_memory_is_one_file_of_its_size(void) {
+  hal::IStorage* rtc = hal::platform().storage("/rtc");
+  TEST_ASSERT_NOT_NULL(rtc);
+
+  hal::Stat info;
+  TEST_ASSERT_TRUE(rtc->stat("", info));
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(hal::NodeType::kFile),
+                          static_cast<uint8_t>(info.type));
+  TEST_ASSERT_EQUAL_UINT32(emu::kRtcRamBytes, info.size);
+
+  // A round trip through a handle: the bytes come back as they went in.
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(rtc->open("", hal::OpenMode::kReadWrite, slot));
+  const char tag[] = "kept";
+  TEST_ASSERT_EQUAL_INT(4, rtc->write(slot, tag, 4));
+  TEST_ASSERT_TRUE(rtc->seek(slot, 0));
+  char back[8] = {0};
+  TEST_ASSERT_EQUAL_INT(4, rtc->read(slot, back, 4));
+  TEST_ASSERT_EQUAL_STRING("kept", back);
+  // The memory has an end, and writing past it is a short write and not a crash.
+  const uint32_t last = static_cast<uint32_t>(emu::kRtcRamBytes) - 2;
+  TEST_ASSERT_TRUE(rtc->seek(slot, last));
+  TEST_ASSERT_EQUAL_INT(2, rtc->write(slot, tag, 4));
+  TEST_ASSERT_TRUE(rtc->close(slot));
+
+  // It is a file and not a filesystem: no directories, no renames, and nothing to list.
+  TEST_ASSERT_FALSE(rtc->mkdir(""));
+  TEST_ASSERT_FALSE(rtc->rename("", ""));
+}
+
+// The number the energy policy is waiting for: how far the board woke from the hour it was
+// given, kept where a person can read it after a deep sleep has taken the console line with
+// the restart (docs/60).
+void test_the_last_wake_is_measured_and_kept(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IKeyValue* nvs = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(nvs);
+  // Nothing measured yet: it says so instead of showing a zero that looks like a measurement.
+  nvs->erase("power", "drift");
+  nvs->erase("power", "cause");
+  pump_captured(10, g_out, sizeof(g_out), "power last");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no sleep has been measured yet"), g_out);
+
+  // A light sleep on the bench is the clock jumping: the number is what came out, and it
+  // is the timer that brought it back.
+  pump_captured(20, g_out, sizeof(g_out), "sleep light 1000");
+  pump_captured(10, g_out, sizeof(g_out), "power last");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "last wake: +"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ms (timer)"), g_out);
+
+  // And it survives a restart: it is in the key-value store and not in the RAM of a boot.
+  char text[24];
+  size_t len = 0;
+  TEST_ASSERT_TRUE(nvs->get("power", "drift", text, sizeof(text) - 1, len));
+  TEST_ASSERT_TRUE(len > 0);
+
+  nvs->erase("power", "drift");
+  nvs->erase("power", "cause");
+}
+
+// The idle policy: a board that keeps the hour in a chip puts itself to sleep until the next
+// alarm, and a person can turn that off while working at the prompt. This bench has no chip,
+// so what is proved here is the switch and that the bench is honest about not sleeping by
+// itself (docs/60).
+void test_the_idle_sleep_is_a_switch(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  pump_captured(10, g_out, sizeof(g_out), "power idle");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle sleep: on"), g_out);
+
+  pump_captured(10, g_out, sizeof(g_out), "power idle off");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle sleep: off"), g_out);
+  TEST_ASSERT_FALSE(kernel::power::idle_sleep_allowed());
+
+  // A word that is not on or off is refused and does not change anything.
+  pump_captured(10, g_out, sizeof(g_out), "power idle maybe");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "usage: power idle"), g_out);
+  TEST_ASSERT_FALSE(kernel::power::idle_sleep_allowed());
+
+  pump_captured(10, g_out, sizeof(g_out), "power idle on");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "idle sleep: on"), g_out);
+  TEST_ASSERT_TRUE(kernel::power::idle_sleep_allowed());
+
+  // The policy reads the board before it reads a clock: this one does not stop being
+  // powered when it sleeps, so it never sleeps on its own, whatever the switch says.
+  TEST_ASSERT_FALSE(hal::platform().power()->deep_powers_off());
+}
+
+// Off is not a sleep: on a board that holds its own supply the command ends the system, and on a
+// board that does not the board says so instead of looking like it worked (docs/50, docs/85). The
+// ATOM has no hold on its supply; the Paper has one, and the model of the bench says so.
+void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  // The ATOM, which is the board a test starts on: no hold, so the line says why and the system
+  // goes on running. A command that looked like it worked and left the board on is worse.
+  TEST_ASSERT_TRUE(run_captured("poweroff", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "powering off..."), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cannot cut its own power"), g_out);
+  TEST_ASSERT_TRUE(kernel::running());
+
+  // The Paper: the supply is cut, and the bench ends because a board that is off is a board that is
+  // off. There is nothing to say after the cut, so the system is not running any more.
+  use_board("m5stack-paper");
+  TEST_ASSERT_TRUE(run_captured("poweroff", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "powering off..."), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cannot cut its own power"), g_out);
+  TEST_ASSERT_FALSE(kernel::running());
 }
 
 // The demo app that shows handles by hand is a file in the repository, so it is
@@ -2950,9 +3798,9 @@ void test_the_handles_demo_app_from_the_disk_runs(void) {
 // of the panel follows what it says (docs/30, docs/50).
 void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
   TEST_ASSERT_TRUE(boot_once());
-  emu::Options opts = emu::options();
   // The level is the Matrix's app and it says so, so the bench has to be one (docs/85).
-  opts.board = "m5stack-atom-matrix";
+  use_board("m5stack-atom-matrix");
+  emu::Options opts = emu::options();
   opts.imu_fail = false;
   opts.imu_ax = 0.0f;
   opts.imu_ay = 0.0f;
@@ -3035,6 +3883,8 @@ void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
 // is measured here is the chip that stops answering.
 void test_a_sensor_that_does_not_answer_is_said(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // A sensor is the Matrix's; on a board without one there is nothing to answer (docs/50).
+  use_board("m5stack-atom-matrix");
   emu::Options opts = emu::options();
   opts.imu_fail = true;
   emu::set_options(opts);
@@ -3089,10 +3939,27 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
+  RUN_TEST(test_the_battery_curve_falls_and_is_clamped);
+  RUN_TEST(test_the_battery_reaches_the_app_as_a_measurement);
+  RUN_TEST(test_the_rtc_memory_is_one_file_of_its_size);
+  RUN_TEST(test_the_last_wake_is_measured_and_kept);
+  RUN_TEST(test_the_idle_sleep_is_a_switch);
+  RUN_TEST(test_poweroff_cuts_the_power_of_the_board_that_can);
+  RUN_TEST(test_a_sleep_cut_short_is_not_a_measurement);
+  RUN_TEST(test_the_civil_calendar_round_trips);
+  RUN_TEST(test_the_alarm_is_the_hour_and_the_minute);
+  RUN_TEST(test_the_clock_chip_picks_the_most_exact_wake_it_has);
+  RUN_TEST(test_the_boot_is_not_part_of_the_clocks_error);
   RUN_TEST(test_a_file_is_read_whatever_its_size);
   RUN_TEST(test_an_app_opens_files_and_the_ninth_is_refused);
   RUN_TEST(test_the_handles_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_mtab_demo_app_from_the_disk_runs);
+  RUN_TEST(test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory);
+  RUN_TEST(test_the_fram_is_one_file_of_its_bytes);
+  RUN_TEST(test_the_extra_memory_is_there_for_any_app);
+  RUN_TEST(test_the_heap_demo_app_from_the_disk_runs);
+  RUN_TEST(test_the_battery_demo_app_from_the_disk_runs);
+  RUN_TEST(test_the_alarm_demos_from_the_disk_run);
   RUN_TEST(test_the_wifi_command_scans_and_lists_the_networks);
   RUN_TEST(test_a_network_with_no_name_is_listed_as_hidden);
   RUN_TEST(test_a_scan_that_finds_nothing_answers_zero);
@@ -3114,6 +3981,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_power_command_moves_the_cpu);
   RUN_TEST(test_the_led_command_paints_and_gives_it_back);
   RUN_TEST(test_the_light_goes_off_when_its_app_goes);
+  RUN_TEST(test_an_app_plays_an_effect_while_it_works);
+  RUN_TEST(test_an_app_changes_the_system_moments);
+  RUN_TEST(test_led_play_refuses_what_it_cannot_do);
+  RUN_TEST(test_the_air_is_read_from_the_board_that_has_it);
   RUN_TEST(test_the_light_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_matrix_app_from_the_disk_paints_the_panel);
   RUN_TEST(test_the_tilt_app_of_the_disk_follows_the_sensor);

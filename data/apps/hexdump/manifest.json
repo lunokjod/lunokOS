@@ -1,0 +1,8 @@
+{
+  "title": "Hexdump",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "hexdump.lua",
+  "boards": ["esp32"],
+  "description": "Shows the bytes of the RTC memory, or of a file opened with it, in hex and in visible text."
+}

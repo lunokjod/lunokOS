@@ -12,6 +12,7 @@
 
 #include <unity.h>
 
+#include "emu/model.h"
 #include "emu/options.h"
 #include "hal/hal.h"
 #include "luabind/luabind.h"
@@ -120,7 +121,7 @@ void test_time_caps_says_where_the_epoch_comes_from(void) {
   TEST_ASSERT_TRUE(run("local c = time.caps()\n"
                        "assert(c.source == 'soc', tostring(c.source))\n"
                        "assert(c.synced == false)\n"
-                       "assert(c.wake == 'none', tostring(c.wake))"));
+                       "assert(c.wake == 'no', tostring(c.wake))"));
   luabind::stop();
 }
 
@@ -568,6 +569,19 @@ void test_the_heap_numbers_match_the_ceiling(void) {
   luabind::stop();
 }
 
+// The board's memory is a wall: a bench told to give a megabyte gives the board's 320 KB, because
+// the firmware being emulated is the one on the glass (docs/75, docs/85).
+void test_a_ceiling_above_the_board_is_the_board(void) {
+  pal::init();
+  emu::Options opts = emu::options();
+  opts.mem_cap_kb = 100000;  // a hundred megabytes, which no ESP32 of this family has
+  emu::set_options(opts);
+  TEST_ASSERT_EQUAL_UINT32(emu::model().heap_kb, hal::platform().heap_limit_kb());
+  opts.mem_cap_kb = 0;  // and zero is the kernel's own ceiling, the same as the board gives
+  emu::set_options(opts);
+  TEST_ASSERT_EQUAL_UINT32(0, hal::platform().heap_limit_kb());
+}
+
 // The app is told the board the platform says, not a name the shell invents: on the
 // bench that is the model it was told to be, and `sys.emulator` is the flag that says the
 // hardware under it is a fake (docs/50, docs/85).
@@ -793,6 +807,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_ceiling_too_small_for_the_interpreter_is_refused);
   RUN_TEST(test_every_byte_comes_back_when_the_state_stops);
   RUN_TEST(test_the_heap_numbers_match_the_ceiling);
+  RUN_TEST(test_a_ceiling_above_the_board_is_the_board);
   RUN_TEST(test_the_app_sees_the_board_the_platform_says);
   RUN_TEST(test_read_line_gets_the_line_that_is_typed);
   RUN_TEST(test_two_reads_at_once_is_ebusy);

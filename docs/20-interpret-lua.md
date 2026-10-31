@@ -74,7 +74,7 @@ Els que s'obren, i **només** aquests (`open_libraries` a `lib/luabind/src/luabi
 | `coroutine` | Sí: és la base de les promeses |
 | `table` | Sí |
 | `string` | Sí |
-| `math` | Sí (llavor fixada pel nucli, vegeu «Determinisme») |
+| `math` | Sí (`math.random` sense llavor fixada pel nucli, vegeu «Determinisme») |
 | `utf8` | Sí |
 | `os`, `io`, `package`, `debug` | **No hi són**: ni `os.time`, ni `io.write`, ni `require`. El temps el dona `time.*`, la consola `console.*`/`term.*`, i els fitxers `fs.*` (docs/30) |
 | mòduls en C, binaris precompilats | **No hi són**: `dofile`, `loadfile` i `load` es posen a `nil` |
@@ -94,7 +94,7 @@ Cada app s'executa amb un `_ENV` propi:
 
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
-| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`, 64 KB fins que es mesuri el de debò) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
+| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: 65 536 B al sostre per defecte i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
 | **Instruccions** | **No hi és** (docs/90) | Avui una app amb un `while true do end` **penja la placa**: el nucli no torna a tenir el torn. És el forat més gran del sistema i està fitat |
 | **Temps de torn** | El nucli no deixa córrer una tasca més d'un torn seguit: una app que cedeix torna al nucli a cada espera | Es torna a la cua de tasques |
 
@@ -132,10 +132,12 @@ sense app a sota. Serveix per programar i per fer proves sense escriure un fitxe
 
 ## Determinisme
 
-El nucli fixa la **llavor** de `math.random` a l'arrencada (de l'RNG del maquinari a la placa, d'una
-llavor de debò a l'emulador si es demana amb `--seed`). Dins d'una mateixa arrencada, una app que no
-toqui la llavor obté la mateixa seqüència que una altra app a la qual se li ha fixat la mateixa llavor
-amb `math.randomseed`. Això és el que permet proves reproduïbles.
+**El nucli no fixa cap llavor.** La que hi ha és la de Lua mateix: `setrandfunc` de `lmathlib.c`
+sembra amb `time(NULL)` i amb l'adreça de l'estat, i ningú no la toca després. O sigui que dues
+arrencades **no** donen la mateixa seqüència (a la placa, a més, `time(NULL)` és 0 mentre l'època no
+s'ha posat, i si l'adreça de l'estat és la mateixa, la seqüència sí que es pot repetir: **no s'ha
+mesurat**). Una prova que vulgui reproduir-se crida `math.randomseed(n)` i prou, que és el que fa la
+suite. El `--seed` del banc **es llegeix i no fa res encara**; quan ho faci, ho dirà `docs/85`.
 
 ## Errors
 

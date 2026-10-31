@@ -9,6 +9,8 @@
 #include <string.h>
 
 #include "emu/options.h"
+#include "emu/memories.h"
+#include "emu/model.h"
 #include "emu_nvs.h"
 #include "emu_storage.h"
 #include "pal/pal.h"
@@ -21,13 +23,19 @@ Options g_options;
 }  // namespace
 
 Options::Options()
-    : fs_dir("emulator"),
+    : state_dir(nullptr),
+      flash_dir(nullptr),
+      fs_dir("emulator"),
       board(nullptr),
       sd_dir(nullptr),
+      battery_mv(0),
       script(nullptr),
       run_app(nullptr),
       now_epoch(0),
       mem_cap_kb(0),
+      read_delay_us(-1),
+      wake_early_ms(0),
+      baud(-1),
       time_scale(1),
       seed(0),
       verbose(false),
@@ -52,7 +60,11 @@ Options::Options()
       imu_gx(0.0f),
       imu_gy(0.0f),
       imu_gz(0.0f),
-      imu_celsius(25.0f) {}
+      imu_celsius(25.0f),
+      env_fail(false),
+      // A room, which is the reading an app that starts must survive.
+      env_celsius(25.0f),
+      env_humidity(50.0f) {}
 
 const Options& options() { return g_options; }
 
@@ -97,6 +109,8 @@ bool key_down(int key) {
 namespace hal {
 namespace {
 
+// The hardware of this bench is `emu::model()`, which is the model `--board` named: one list and
+// not two, because a bench that answers for another board teaches the wrong thing (docs/85).
 int64_t mono_ms() {
   struct timespec ts;
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
@@ -138,13 +152,29 @@ class HostClock : public IClock {
   void disarm_wake() override { armed_ = 0; }
 
   WakeCause last_wake() override {
-    if (armed_ > 0 && epoch_ms() >= armed_) return WakeCause::kTimer;
+    // On the Paper the alarm is the chip's, so a wake that was armed is the clock's; on the ATOMs
+    // there is no chip and the timer is the only thing that can have brought the board back
+    // (docs/50, docs/60). A sleep that stopped before its hour is neither: nothing says what ended
+    // it, which is exactly what a board whose supply blinked answers (docs/85).
+    const int64_t at = (slept_ > 0) ? slept_ : armed_;
+    if (at > 0 && epoch_ms() >= at) {
+      return emu::model().keeps_the_hour ? WakeCause::kClock : WakeCause::kTimer;
+    }
     return WakeCause::kPowerOn;
   }
 
+  // The sleep this band just did, told by the fake power: it is what makes the wake cause the timer's
+  // when the hour was reached, and nothing's when it was not (docs/85).
+  void note_sleep(int64_t at_epoch_ms) { slept_ = at_epoch_ms; }
+
   bool can_wake() const override { return true; }
 
-  const char* source() const override { return known_ ? "soc" : "none"; }
+  const char* source() const override {
+    if (!known_) return "none";
+    // `rtc` is an hour that a chip with a coin cell keeps; `soc` is the board's own counter. The
+    // Paper has the chip and the ATOMs do not (docs/50, docs/60).
+    return emu::model().keeps_the_hour ? "rtc" : "soc";
+  }
 
   // Both clocks jump: the epoch and the monotonic one, because the alarm queue is
   // on the monotonic side and a sleep that does not move it would leave every
@@ -162,6 +192,7 @@ class HostClock : public IClock {
   uint32_t scale_;
   bool known_;
   int64_t armed_ = 0;
+  int64_t slept_ = 0;
 };
 
 // One clock for the whole band: the power has to move the same one the kernel
@@ -171,6 +202,16 @@ HostClock& host_clock() {
   static HostClock instance;
   return instance;
 }
+
+}  // namespace
+
+// The bench's clock, moved by hand. It is the only way a test can watch a five-second breath in a
+// millisecond, and it moves **the same clock the kernel reads**, so an effect and the turn that
+// paints it agree (docs/30, docs/85). It is here and not in `emu` because the clock is this
+// translation unit's secret and the anonymous namespace is not reachable from outside.
+void bench_advance_clock(int64_t delta) { host_clock().advance_ms(delta); }
+
+namespace {
 
 // The board sleeps and this one does not: the virtual clock jumps to the hour it
 // was told, and the wake is the timer's. There is no gauge here either, and the
@@ -184,7 +225,7 @@ const uint32_t kEmuLights = 25;
 
 class FakeLed : public ILed {
  public:
-  uint32_t count() override { return kEmuLights; }
+  uint32_t count() override { return emu::model().lights; }
   // It imitates the panel of the Matrix, ceiling included: a PC that let 255
   // through would hide the limit that the board has (docs/85).
   uint32_t max_value() override { return board::led_max(); }
@@ -250,11 +291,24 @@ class FakeImu : public IImu {
   }
 };
 
+// The air of this band, which is what the options say it is: a PC has no SHT30 and a room is not a
+// test, and `env_fail` is the chip that did not answer (docs/85).
+class FakeSensor : public ISensor {
+ public:
+  bool read(float& celsius, float& humidity) override {
+    const emu::Options& opts = emu::options();
+    if (opts.env_fail) return false;
+    celsius = opts.env_celsius;
+    humidity = opts.env_humidity;
+    return true;
+  }
+};
+
 // The button is what the test says it is, and how long it has been held is the
 // host's clock, the same one the kernel counts with (docs/85).
 class FakeInput : public IInput {
  public:
-  uint32_t count() override { return kKeys; }
+  uint32_t count() override { return emu::model().keys; }
 
   bool pressed(uint32_t key) override {
     if (key >= kKeys) return false;
@@ -290,12 +344,31 @@ class FakeInput : public IInput {
 
 class FakePower : public IPower {
  public:
-  bool battery(int&, int&, bool&) override { return false; }
+  bool battery(int& mv, int& pct, bool& charging) override {
+    const int32_t set = emu::options().battery_mv;
+    // Zero is a board that cannot say, which is what `power.battery()` answers with nil:
+    // a fake battery always at 100 % would hide every path of the real one (docs/85). And a board
+    // without a gauge cannot say even when the person put a number in: the ATOMs have no cell to
+    // read (docs/50).
+    if (set <= 0 || !emu::model().gauge) return false;
+    mv = static_cast<int>(set);
+    pct = static_cast<int>(battery_percent(mv));
+    // The bench is not on a cable any more than the Paper can tell: the same false and the
+    // same warning in docs/30.
+    charging = false;
+    return true;
+  }
 
   bool sleep(SleepMode mode, int64_t at_epoch_ms) override {
+    host_clock().note_sleep(at_epoch_ms);
     if (at_epoch_ms > 0) {
       const int64_t now = host_clock().epoch_ms();
-      host_clock().advance_ms((now > 0) ? (at_epoch_ms - now) : 0);
+      int64_t jump = (now > 0) ? (at_epoch_ms - now) : 0;
+      // A bench told to come back early does it here, which is the button of the glass and the supply
+      // that blinked: the board lands before its hour and the kernel has to say so (docs/85).
+      const int64_t early = emu::options().wake_early_ms;
+      if (early > 0 && jump > early) jump -= early;
+      host_clock().advance_ms(jump);
     }
     // To stderr and not to the console: it is this band talking about itself and
     // it must not be mixed with what the system says to a person (docs/85).
@@ -305,13 +378,26 @@ class FakePower : public IPower {
     return true;
   }
 
-  const char* wakes() override { return "timer"; }
+  // The Paper comes back on the chip's alarm when it is powered off, and on its own timer when it
+  // is not; the ATOMs have no chip and only know the timer (docs/50).
+  const char* wakes() override { return emu::model().keeps_the_hour ? "timer, clock" : "timer"; }
+
+  // A board whose supply is cut stops being a board, and a bench whose supply is cut stops being a
+  // process: the answer is yes, the kernel leaves its loop, and the memories that are not a volume
+  // go to their files on the way out, the same as they do after a deep sleep (docs/85). It is said
+  // to stderr because it is this band talking about itself and not the system talking to a person.
+  bool power_off() override {
+    // A board that cannot cut its own supply says no here as well: the bench answers what the model
+    // does and not what the PC could do (docs/85).
+    if (!emu::model().powers_off) return false;
+    fprintf(stderr, "power: off (the bench ends; rtc.bin and fram.bin are written)\n");
+    return true;
+  }
 
   // The PC does not change its speed, and this band says so instead of pretending:
   // the value is remembered so the call and its refusals can be used and tested,
   // and it starts at the 160 MHz a board boots with (docs/85).
   uint32_t cpu_mhz() override { return cpu_mhz_; }
-
   bool set_cpu_mhz(uint32_t mhz) override {
     if (mhz != 80 && mhz != 160 && mhz != 240) return false;
     cpu_mhz_ = mhz;
@@ -544,8 +630,14 @@ class EmulatorPlatform : public IPlatform {
   // IPlatform is already this answer, so there is nothing to override.
 
   const Caps& caps() const override {
-    if (!built_) {
+    // The bench can be told to be another board between two boots —`use_board` in the tests does
+    // exactly that— and a cached answer from the model before would be a lie about the hardware: the
+    // cache is keyed by the model, not by "already built once" (docs/85).
+    const char* model = emu::model().name;
+    if (!built_ || built_for_ != model) {
       built_ = true;
+      built_for_ = model;
+      caps_ = Caps();
       caps_.add(kCapConsole);
       pal::IConsole* console = pal::system().console();
       if (console != nullptr && console->ansi()) caps_.add(kCapAnsi);
@@ -553,10 +645,13 @@ class EmulatorPlatform : public IPlatform {
       if (emu_storage("/littlefs") != nullptr) caps_.add(kCapLittlefs);
       // The card is advertised only when one is in the slot, the same rule as the board
       // and the same as the flash: a capability that is not there is not promised
-      // (docs/50, docs/70).
-      if (emu_storage("/sd") != nullptr) caps_.add(kCapSd);
+      // (docs/50, docs/70). The ATOMs have no slot at all, so a directory in the state does not
+      // give them one.
+      if (emu::model().slot && emu_storage("/sd") != nullptr) caps_.add(kCapSd);
+      // The battery is a number the person sets, and only on a board that has a gauge (docs/85).
+      if (emu::model().gauge && emu::options().battery_mv > 0) caps_.add(kCapBattery);
       caps_.add(kCapRtc);
-      // The key-value store is one file per key under <fs_dir>/nvs (docs/70).
+      // The key-value store is one file per key under <state_dir>/nvs (docs/70).
       caps_.add(kCapNvs);
       // A fake radio, not the PC's network: it connects to nothing, and the
       // provisioning access point is a fake too (docs/85).
@@ -571,22 +666,41 @@ class EmulatorPlatform : public IPlatform {
       caps_.add(kCapSleepLight);
       caps_.add(kCapSleepDeep);
       caps_.add(kCapRtcWake);
-      // One light and one button, fakes that say so (docs/85).
-      caps_.add(kCapLed);
+      // The light and the sensor are the hardware of the model and of nobody else (docs/50).
+      if (emu::model().lights > 0) caps_.add(kCapLed);
       caps_.add(kCapInput);
-      // It imitates the Matrix, which has one (docs/85).
-      caps_.add(kCapImu);
+      if (emu::model().imu) caps_.add(kCapImu);
+      // The air: the model's, and only the model's (docs/50, docs/85).
+      if (emu::model().env) caps_.add(kCapEnv);
     }
     return caps_;
   }
 
   uint32_t heap_limit_kb() const override {
+    // What the model's board answers, and only that: the Paper says its PSRAM (8 MB) and the ATOMs say
+    // nothing, which is the kernel's own ceiling. `--mem-cap` may lower it and never raise it, because
+    // the firmware on the glass is the one being emulated (docs/75, docs/85).
+    const uint32_t board = emu::model().app_limit_kb;
     const int32_t kb = emu::options().mem_cap_kb;
-    return (kb > 0) ? static_cast<uint32_t>(kb) : 0;
+    if (kb <= 0) return board;
+    const uint32_t asked = static_cast<uint32_t>(kb);
+    const uint32_t most = (board > 0) ? board : emu::model().heap_kb;
+    return (asked > most) ? most : asked;
   }
 
   // Built on first use: the options that say which clock it is (`--now`,
   // `--time-scale`) are set by main() after this object exists.
+  // What the model's board carries as extra memory. The bench **cannot account for it** —nothing is
+  // really taken from a PSRAM on a PC, the blocks come from the process's heap— so free is the total
+  // and the number is the board's, not the PC's (docs/85).
+  ExtraMemory extra_memory() const override {
+    ExtraMemory out;
+    out.chip_bytes = emu::model().psram_chip_kb * 1024u;
+    out.total_bytes = emu::model().psram_kb * 1024u;
+    out.free_bytes = out.total_bytes;
+    return out;
+  }
+
   IClock* clock() override { return &host_clock(); }
   IStorage* storage(const char* mount) override { return emu_storage(mount); }
   IKeyValue* nvs() override { return emu_nvs(); }
@@ -601,11 +715,19 @@ class EmulatorPlatform : public IPlatform {
   }
   IDisplay* display() override { return nullptr; }
   ILed* led() override {
+    // A board with no light has no light to return, the same as the real one (docs/50).
+    if (emu::model().lights == 0) return nullptr;
     static FakeLed instance;
     return &instance;
   }
   IImu* imu() override {
+    if (!emu::model().imu) return nullptr;
     static FakeImu instance;
+    return &instance;
+  }
+  ISensor* sensor() const override {
+    if (!emu::model().env) return nullptr;
+    static FakeSensor instance;
     return &instance;
   }
   IInput* input() override {
@@ -616,6 +738,9 @@ class EmulatorPlatform : public IPlatform {
  private:
   mutable Caps caps_;
   mutable bool built_ = false;
+  // Which model the cached capabilities are about. A board is a board and the bench changes which
+  // one it is, so the answer has a name attached (docs/85).
+  mutable const char* built_for_ = nullptr;
 };
 
 EmulatorPlatform g_platform;
@@ -657,5 +782,9 @@ bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b) {
   if (light == nullptr) return false;
   return static_cast<hal::FakeLed*>(light)->light(index, r, g, b);
 }
+
+// The bench's clock, moved by hand: a test that watches a five-second breath does not wait
+// five seconds for it (docs/30, docs/85).
+void advance_ms(int64_t delta) { hal::bench_advance_clock(delta); }
 
 }  // namespace emu

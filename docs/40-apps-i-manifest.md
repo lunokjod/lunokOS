@@ -75,7 +75,7 @@ Regles de validació, totes amb error clar i el nom del camp:
   dir `esp32`: el manifest diu on l'app **funciona**, i la família sencera inclouria una placa sense
   res per prémer. L'app `keys` és el cas: nomena les tres plaques que en tenen.
 - **El banc no és cap placa i no es nomena, però diu quina és.** `sys.board` a l'emulador diu el
-  **model que se li ha dit que sigui** —`--board m5stack-paper`, i sense dir res l'ATOM—, i
+  **model que se li ha dit que sigui** —`--board m5stack-paper`, que és obligatori—, i
   `sys.emulator` continua cert (docs/85). Com que respon **un** nom i no tres, `boards` es compara al
   PC exactament com a la placa: una app del model corre i una d'un altre model es refusa, dient les
   plaques que vol i quina és aquesta. Cap manifest ha de dir `emulator`, que no és cap placa; si algú
@@ -83,7 +83,8 @@ Regles de validació, totes amb error clar i el nom del camp:
 - `opens` s'accepta amb punt o sense (`"epub"` i `".epub"` són el mateix) i es compara **sense
   distingir majúscules**.
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
-- Si hi ha un camp `id`, ha de coincidir amb el nom del directori.
+- Si hi ha un camp `id`, **s'ignora**: l'identificador d'una app és sempre el nom del seu directori,
+  i un `id` que digui una altra cosa no es comprova ni es fa servir.
 
 ## L'escaneig
 
@@ -149,8 +150,6 @@ open <app> <path>    → l'app és la que diu l'ordre
 - L'escaneig no es fa en arrencar sinó quan es demana, i per això una app nova amb el seu `opens` ja
   funciona sense reiniciar.
 
-En arrencar, el nucli escaneja tots els manifests i construeix un índex extensió → app.
-
 Quan es vol obrir un fitxer (des del prompt amb `open <camí>`, o perquè una altra app ho demana):
 
 | Handlers per a l'extensió | Què passa |
@@ -162,11 +161,12 @@ Quan es vol obrir un fitxer (des del prompt amb `open <camí>`, o perquè una al
 La pregunta es fa sempre i no es desa enlloc: una tria recordada faria que l'altra app fos
 inabastable des del selector. `open <app> <path>` és la via per anar de dret a una app.
 
-L'app que s'obre rep `app.args = { path = "/sd/llibres/un.txt", ext = "txt", source = "console" }`,
+L'app que s'obre rep `app.args = { path = "/sd/llibres/un.txt", ext = "txt", source = "open" }`,
 amb el camí **tal com escrit** (el de l'exemple és un que l'app pot llegir: la targeta o un lloc
-seu). El camí no es tradueix per a l'app: `/res` vol dir el `res/` **de l'app**, o sigui que
-`open res/x.txt` troba l'app per l'extensió i després l'app no pot llegir el fitxer, perquè el `/res`
-que veu és el seu (docs/70).
+seu). `source` val `"open"` quan la obre el prompt o una altra app, i `"sleep"` quan torna d'un son
+de qui gairebé es va desar la feina. El camí no es tradueix per a l'app: `/res` vol dir el `res/` **de
+l'app**, o sigui que `open res/x.txt` troba l'app per l'extensió i després l'app no pot llegir el
+fitxer, perquè el `/res` que veu és el seu (docs/70).
 
 ## Cicle de vida
 
@@ -178,6 +178,8 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 | `on_open(args)` | Quan l'app passa a tenir el port (o rep un fitxer) |
 | `on_event(ev)` | Per cada esdeveniment, si l'app en declara |
 | `on_alarm(id, payload, meta)` | Quan venç una alarma seva |
+| `on_button(kind, held_ms, key)` | Quan es prem una tecla (docs/30) |
+| `on_light()` | Quan un moment del sistema s'acaba i el llum torna a ser de l'app, perquè el torni a pintar si durant la interrupció ha canviat d'idea (docs/30) |
 | `on_pause()` | Abans de tancar-se per deixar pas a una altra app |
 | `on_save()` | Just després de `on_pause`; bon moment per escriure l'estat al disc (`fs.data`) |
 | `on_close()` | Últim, abans de destruir la VM |
@@ -185,7 +187,8 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 Si una app no declara `on_open`, s'executa el cos de l'entry i prou: és la manera curta d'escriure
 una app.
 
-**Què es crida avui (30/10)**: `on_alarm`, `on_pause`, `on_save` i `on_close`. Els tres de comiat es
+**Què es crida avui (31/10)**: `on_alarm`, `on_button`, `on_light`, `on_pause`, `on_save` i
+`on_close`. Els tres de comiat es
 criden abans de tancar una app, tant si la tanca un `raise` com si la treu la persona amb ESC o
 `!!exit`. `on_load`, `on_open` i `on_event` encara no existeixen. Cap ganxo no pot esperar: es criden
 entre dos torns del nucli, amb la coroutine de l'app suspesa.
@@ -209,7 +212,7 @@ end
 Manifest:
 
 ```json
-{ "title": "Hola", "version": "0.1.0", "entry": "hello.lua" }
+{ "title": "Hola", "version": "0.1.0", "entry": "hello.lua", "boards": ["esp32"] }
 ```
 
 ## Assets

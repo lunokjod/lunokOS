@@ -174,9 +174,28 @@ struct PowerOps {
 
 void set_power_ops(const PowerOps& ops);
 
-// The light of the board, as the interpreter uses it. An app takes a colour while
-// it is in front and gives it back when it goes; the system's own colours are not
-// its business (docs/30).
+// One effect of the light, as an app asks for it. Plain numbers and not the kernel's
+// struct, so the interpreter and the policy do not have to share a header for one
+// message: the numbers are the ones in `kernel/led.h` and the names are the same on both
+// sides (docs/30).
+struct LedEffectSpec {
+  uint8_t kind;  // 0 none, 1 breathe, 2 blink, 3 sos, 4 bounce
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+  // The other end of the ramp the effect runs along its cycle (docs/30).
+  uint8_t red2;
+  uint8_t green2;
+  uint8_t blue2;
+  uint32_t period_ms;
+  uint32_t cycles;  // 0 = until it is stopped
+  int32_t pixel;    // -1 = the whole light
+  uint8_t level;    // the brightest this effect may get
+};
+
+// The light of the board, as the interpreter uses it. An app takes a colour or plays an
+// effect while it is in front and gives it back when it goes; the system's four effects
+// are the app's to redefine and not the kernel's to keep (docs/30).
 struct LedOps {
   uint32_t (*count)();
   // The highest a channel may be driven at on this board (docs/30).
@@ -186,9 +205,33 @@ struct LedOps {
   bool (*set_pixel)(uint32_t index, uint8_t r, uint8_t g, uint8_t b);
   void (*clear_colour)();
   bool (*has_colour)();
+  // An effect that runs on the turn clock and never blocks (docs/30).
+  bool (*play)(const LedEffectSpec& effect);
+  // Give it back: now, or fading to black over the milliseconds asked for (docs/30).
+  void (*stop)(uint32_t fade_ms);
+  // The effect the app is playing, if any, and how long it has been playing (docs/30).
+  bool (*effect)(LedEffectSpec& out, uint32_t& elapsed_ms);
+  // The system's four effects: read one, change it, put the maker's back (docs/30).
+  bool (*system_effect)(uint8_t trigger, LedEffectSpec& out);
+  bool (*set_system_effect)(uint8_t trigger, const LedEffectSpec& effect);
+  void (*restore_system_effect)(uint8_t trigger);
+  // The names of both, so the interpreter does not keep a second list of them that can
+  // disagree with the kernel's (docs/30).
+  const char* (*effect_name)(uint8_t kind);
+  bool (*effect_from_name)(const char* name, uint8_t& kind);
+  const char* (*trigger_name)(uint8_t trigger);
+  bool (*trigger_from_name)(const char* name, uint8_t& trigger);
 };
 
 void set_led_ops(const LedOps& ops);
+
+// The ambient sensor, as the interpreter uses it. A board without one leaves the operation absent
+// and env.read() answers E_UNSUPPORTED (docs/30, docs/50).
+struct EnvOps {
+  bool (*read)(float& celsius, float& humidity);
+};
+
+void set_env_ops(const EnvOps& ops);
 
 // The inertial sensor, as the interpreter uses it. A board without one leaves the
 // operation absent and imu.read() answers E_UNSUPPORTED (docs/30, docs/50).

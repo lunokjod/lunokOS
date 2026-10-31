@@ -37,6 +37,12 @@ struct Allocator {
 
 Allocator g_alloc = {0, 0, 0};
 lua_State* g_state = nullptr;  // the state; alive from start() to stop()
+
+// From this size up a block goes to the **extra** memory of the board (the PSRAM of the M5Paper) when
+// it has one. Small blocks stay in the board's own RAM, which is faster and where a thousand little
+// objects fragment a thousand times less; a table of a few thousand entries gets the extra memory and
+// the app never knows —it asks for memory and the interpreter decides where it lives— (docs/75).
+const size_t kExtraThreshold = 4096;
 lua_State* g_task = nullptr;   // the app's coroutine, null when it has none
 Boot g_boot;  // the default Boot says "?" and nothing else
 // A copy of the app id. g_boot.app_id points at the caller's text, which may be
@@ -116,12 +122,17 @@ int64_t now_ms() { return static_cast<int64_t>(pal::system().millis()); }
 // Every byte Lua asks for goes through here. If the ceiling would be crossed the
 // request is refused, Lua raises a memory error and the app dies with a message
 // instead of taking the system down with it.
+//
+// Where the block lives is not the app's problem: a big one goes to the extra memory of the board
+// when it has it and a small one to the board's own RAM, and the PAL takes the other home when the
+// first one is full (docs/75).
 void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   Allocator* alloc = static_cast<Allocator*>(ud);
+  pal::IExtraMemory& memory = pal::extra_memory();
 
   if (nsize == 0) {
     if (ptr != nullptr) {
-      ::free(ptr);
+      memory.release(ptr);
       alloc->used -= osize;
     }
     return nullptr;
@@ -131,7 +142,7 @@ void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   const size_t next = base + nsize;
   if (alloc->limit > 0 && next > alloc->limit) return nullptr;
 
-  void* block = ::realloc(ptr, nsize);
+  void* block = memory.resize(ptr, nsize, nsize >= kExtraThreshold);
   if (block == nullptr) return nullptr;
 
   alloc->used = next;
@@ -609,7 +620,7 @@ void finish_console_line() {
 
 int l_sys_heap(lua_State* L) {
   const size_t free_bytes = (g_alloc.limit > g_alloc.used) ? (g_alloc.limit - g_alloc.used) : 0;
-  lua_createtable(L, 0, 4);
+  lua_createtable(L, 0, 6);
   lua_pushinteger(L, static_cast<lua_Integer>(free_bytes));
   lua_setfield(L, -2, "free");
   lua_pushinteger(L, static_cast<lua_Integer>(g_alloc.used));
@@ -618,6 +629,14 @@ int l_sys_heap(lua_State* L) {
   lua_setfield(L, -2, "limit");
   lua_pushinteger(L, static_cast<lua_Integer>(g_alloc.peak));
   lua_setfield(L, -2, "peak");
+  // The extra memory of the board (the PSRAM of the M5Paper): how much the CPU can address and what
+  // is left of it. On a board without any both are zero, which is the truth and not an error
+  // (docs/75).
+  const hal::ExtraMemory extra = hal::platform().extra_memory();
+  lua_pushinteger(L, static_cast<lua_Integer>(extra.total_bytes));
+  lua_setfield(L, -2, "extra_total");
+  lua_pushinteger(L, static_cast<lua_Integer>(extra.free_bytes));
+  lua_setfield(L, -2, "extra_free");
   return 1;
 }
 
@@ -675,7 +694,8 @@ int l_time_now_ms(lua_State* L) {
 }
 
 // time.caps(): where the epoch comes from, and whether it can be trusted to
-// survive the power going away (docs/60). synced stays false until NTP (M5).
+// survive the power going away (docs/60). `synced` is false and stays false: nothing in the kernel
+// remembers a sync, and NTP, which is there since 0.5.0, does not set it (docs/90).
 int l_time_caps(lua_State* L) {
   hal::IClock* clock = wall_clock();
   lua_createtable(L, 0, 3);
@@ -683,7 +703,7 @@ int l_time_caps(lua_State* L) {
   lua_setfield(L, -2, "source");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "synced");
-  lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "light" : "none");
+  lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "yes" : "no");
   lua_setfield(L, -2, "wake");
   return 1;
 }
@@ -743,7 +763,14 @@ int l_alarm_at(lua_State* L) {
   const int64_t on_epoch_ms = have_on ? static_cast<int64_t>(lua_tonumber(L, -1) * 1000.0) : 0;
   lua_pop(L, 1);
 
-  lua_getfield(L, 1, "in");
+  // The millisecond key is `in_ms` and not `in`, because `in` is a reserved word in Lua: a table
+  // written `{in = 1000}` does not even parse, so the documented name could never be used. The
+  // bracket form `{["in"] = 1000}` still works, and it is what the older text said (docs/30).
+  lua_getfield(L, 1, "in_ms");
+  if (!lua_isnumber(L, -1)) {
+    lua_pop(L, 1);
+    lua_getfield(L, 1, "in");
+  }
   const bool have_in = lua_isnumber(L, -1) != 0;
   const int64_t in_ms = have_in ? static_cast<int64_t>(lua_tointeger(L, -1)) : 0;
   lua_pop(L, 1);
@@ -761,7 +788,7 @@ int l_alarm_at(lua_State* L) {
     }
     spec.on_mono_ms = mono_now + in_ms;
   } else {
-    return raise_coded(L, "E_INVAL", "an alarm needs `on` (epoch seconds) or `in` (ms)");
+    return raise_coded(L, "E_INVAL", "an alarm needs `on` (epoch seconds) or `in_ms` (ms)");
   }
 
   lua_getfield(L, 1, "repeat");
@@ -857,7 +884,7 @@ int l_alarm_caps(lua_State* L) {
   lua_setfield(L, -2, "max");
   lua_pushinteger(L, static_cast<lua_Integer>(kMinAlarmMs));
   lua_setfield(L, -2, "min_period_ms");
-  lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "light" : "none");
+  lua_pushstring(L, (clock != nullptr && clock->can_wake()) ? "yes" : "no");
   lua_setfield(L, -2, "wake");
   return 1;
 }
@@ -877,6 +904,7 @@ NetOps g_net_ops = {};    // same rule: without them net.* answers E_UNSUPPORTED
 PowerOps g_power_ops = {};  // and power.* too
 LedOps g_led_ops = {};      // and led.*
 ImuOps g_imu_ops = {};      // and imu.*
+EnvOps g_env_ops = {};      // and env.*
 ButtonOps g_button_ops = {};  // and button.*
 
 int push_nil_error(lua_State* L, const char* code, const char* message) {
@@ -1126,7 +1154,10 @@ int l_fs_rename(lua_State* L) {
 // fs.mounts(): what is mounted, and nothing about the room. The room costs a walk
 // of the file system, and an app that only wants the list should not pay it
 // (docs/70).
-const uint32_t kMaxMountsInLua = 8;
+// The VFS keeps ten rows (`vfs.cpp`, kMaxMounts) and this is the same number: an app on the Paper
+// with a card has nine mounts (`/littlefs`, `/apps`, `/res`, `/data`, `/sd`, `/rtc`, `/fram`, `/nvs`
+// and `/cfg`), and a list that stopped at eight would hide the last two without saying so.
+const uint32_t kMaxMountsInLua = 10;
 
 int l_fs_mounts(lua_State* L) {
   if (g_file_ops.mounts == nullptr) {
@@ -2143,8 +2174,13 @@ int l_led_set(lua_State* L) {
     if (value > 255) value = 255;
     values[i] = static_cast<int>(value);
   }
-  g_led_ops.set_colour(static_cast<uint8_t>(values[0]), static_cast<uint8_t>(values[1]),
-                       static_cast<uint8_t>(values[2]));
+  const bool ok = g_led_ops.set_colour(static_cast<uint8_t>(values[0]),
+                                       static_cast<uint8_t>(values[1]),
+                                       static_cast<uint8_t>(values[2]));
+  if (!ok) {
+    return push_nil_error(L, "E_BUSY",
+                          "the light is busy with what the system is saying; wait for on_light");
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -2171,7 +2207,13 @@ int l_led_pixel(lua_State* L) {
   if (!g_led_ops.set_pixel(static_cast<uint32_t>(index), static_cast<uint8_t>(values[0]),
                            static_cast<uint8_t>(values[1]),
                            static_cast<uint8_t>(values[2]))) {
-    return push_nil_error(L, "E_INVAL", "this board has no light at that index");
+    // Two reasons and they mean different things to an app: a light of the strip that is not there
+    // is the app's mistake, and a busy light is a moment to wait out (docs/30).
+    if (static_cast<uint32_t>(index) >= g_led_ops.count()) {
+      return push_nil_error(L, "E_INVAL", "this board has no light at that index");
+    }
+    return push_nil_error(L, "E_BUSY",
+                          "the light is busy with what the system is saying; wait for on_light");
   }
   lua_pushboolean(L, 1);
   return 1;
@@ -2183,7 +2225,269 @@ int l_led_off(lua_State* L) {
   if (g_led_ops.set_colour == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
   }
-  g_led_ops.set_colour(0, 0, 0);
+  if (!g_led_ops.set_colour(0, 0, 0)) {
+    return push_nil_error(L, "E_BUSY",
+                          "the light is busy with what the system is saying; wait for on_light");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// The period an effect has when the app does not give one. They are tastes with a reason:
+// a breath at five seconds is about the resting rate of a person, a blink at 800 ms is seen
+// without being a strobe, and a dot of 200 ms is the Morse that a person sends (docs/30).
+// The names come from the kernel, so this switch cannot list an effect the light does not
+// have.
+uint32_t default_period(uint8_t kind) {
+  const char* name = (g_led_ops.effect_name != nullptr) ? g_led_ops.effect_name(kind) : nullptr;
+  if (name == nullptr) return 1000;
+  if (strcmp(name, "breathe") == 0) return 5000;
+  if (strcmp(name, "blink") == 0) return 800;
+  if (strcmp(name, "sos") == 0) return 200;
+  if (strcmp(name, "bounce") == 0) return 700;
+  return 1000;
+}
+
+// One field of a table of options, as an integer. A field that is missing keeps the
+// default; a field that is there and is not a number is refused, because guessing what an
+// app meant with a string where a period goes is how a light ends up doing something
+// nobody asked for (docs/30).
+bool spec_int(lua_State* L, int index, const char* field, lua_Integer fallback,
+              lua_Integer& out) {
+  lua_getfield(L, index, field);
+  const int type = lua_type(L, -1);
+  bool ok = true;
+  if (type == LUA_TNIL) {
+    out = fallback;
+  } else if (type == LUA_TNUMBER) {
+    out = lua_tointeger(L, -1);
+  } else {
+    ok = false;
+  }
+  lua_pop(L, 1);
+  return ok;
+}
+
+// `color = {r, g, b}` and `color2 = {r, g, b}`, each clamped to 0..255 the same way `led.set` does
+// it. Without a colour the effect is white, and without a second one it is a light of one colour:
+// with both, the effect is a **ramp** from the first to the second along every cycle (docs/30).
+bool spec_colour(lua_State* L, int index, const char* field, uint8_t& r, uint8_t& g, uint8_t& b) {
+  lua_getfield(L, index, field);
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    return true;
+  }
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  const int table = lua_gettop(L);
+  uint8_t* out[3] = {&r, &g, &b};
+  for (int i = 0; i < 3; ++i) {
+    lua_rawgeti(L, table, i + 1);
+    lua_Integer value = lua_isnumber(L, -1) ? lua_tointeger(L, -1) : 0;
+    if (value < 0) value = 0;
+    if (value > 255) value = 255;
+    *out[i] = static_cast<uint8_t>(value);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  return true;
+}
+
+// A table of options turned into the one struct the light understands (docs/30).
+bool read_effect_spec(lua_State* L, int index, LedEffectSpec& spec) {
+  if (g_led_ops.effect_from_name == nullptr) return false;
+  lua_getfield(L, index, "kind");
+  if (lua_type(L, -1) != LUA_TSTRING) {
+    lua_pop(L, 1);
+    return false;
+  }
+  uint8_t kind = 0;
+  const bool known = g_led_ops.effect_from_name(lua_tostring(L, -1), kind);
+  lua_pop(L, 1);
+  if (!known) return false;
+
+  spec.kind = kind;
+  spec.red = 255;
+  spec.green = 255;
+  spec.blue = 255;
+  if (!spec_colour(L, index, "color", spec.red, spec.green, spec.blue)) return false;
+  // One colour unless the app says otherwise: a ramp is written as the two ends of it (docs/30).
+  spec.red2 = spec.red;
+  spec.green2 = spec.green;
+  spec.blue2 = spec.blue;
+  if (!spec_colour(L, index, "color2", spec.red2, spec.green2, spec.blue2)) return false;
+
+  lua_Integer value = 0;
+  if (!spec_int(L, index, "period",
+                static_cast<lua_Integer>(default_period(kind)), value)) {
+    return false;
+  }
+  spec.period_ms = (value < 0) ? 0u : static_cast<uint32_t>(value);
+
+  if (!spec_int(L, index, "cycles", 0, value)) return false;
+  spec.cycles = (value < 0) ? 0u : static_cast<uint32_t>(value);
+
+  if (!spec_int(L, index, "pixel", -1, value)) return false;
+  spec.pixel = static_cast<int32_t>(value);
+
+  // **Twenty unless the app asks for more**: a light that says something does not have to be the
+  // brightest thing on the desk. The board's own ceiling still applies above it (docs/30, docs/75).
+  if (!spec_int(L, index, "level", 20, value)) return false;
+  if (value < 0) value = 0;
+  if (value > 255) value = 255;
+  spec.level = static_cast<uint8_t>(value);
+  return true;
+}
+
+void push_effect_spec(lua_State* L, const LedEffectSpec& spec, uint32_t elapsed_ms) {
+  lua_createtable(L, 0, 7);
+  const char* name = (g_led_ops.effect_name != nullptr) ? g_led_ops.effect_name(spec.kind) : nullptr;
+  lua_pushstring(L, (name != nullptr) ? name : "none");
+  lua_setfield(L, -2, "kind");
+  lua_createtable(L, 3, 0);
+  lua_pushinteger(L, spec.red);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, spec.green);
+  lua_rawseti(L, -2, 2);
+  lua_pushinteger(L, spec.blue);
+  lua_rawseti(L, -2, 3);
+  lua_setfield(L, -2, "color");
+  lua_createtable(L, 3, 0);
+  lua_pushinteger(L, spec.red2);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, spec.green2);
+  lua_rawseti(L, -2, 2);
+  lua_pushinteger(L, spec.blue2);
+  lua_rawseti(L, -2, 3);
+  lua_setfield(L, -2, "color2");
+  lua_pushinteger(L, static_cast<lua_Integer>(spec.period_ms));
+  lua_setfield(L, -2, "period");
+  lua_pushinteger(L, static_cast<lua_Integer>(spec.cycles));
+  lua_setfield(L, -2, "cycles");
+  lua_pushinteger(L, static_cast<lua_Integer>(spec.pixel));
+  lua_setfield(L, -2, "pixel");
+  lua_pushinteger(L, static_cast<lua_Integer>(spec.level));
+  lua_setfield(L, -2, "level");
+  lua_pushinteger(L, static_cast<lua_Integer>(elapsed_ms));
+  lua_setfield(L, -2, "elapsed");
+}
+
+// led.play{kind=..., color={r,g,b}, period=ms, cycles=n, pixel=i, level=n}: an effect that
+// runs while the app does its own work. It returns at once — the light is painted at the
+// end of every turn — so an animation never stops the app that asked for it (docs/30).
+int l_led_play(lua_State* L) {
+  if (g_led_ops.play == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+  }
+  if (!lua_istable(L, 1)) {
+    return push_nil_error(
+        L, "E_INVAL",
+        "play takes a table: {kind, color, period, cycles, pixel, level}");
+  }
+  LedEffectSpec spec = {};
+  if (!read_effect_spec(L, 1, spec)) {
+    return push_nil_error(L, "E_INVAL",
+                          "no such effect (breathe, blink, sos, bounce), or a field that is not a number");
+  }
+  if (spec.pixel >= 0 && static_cast<uint32_t>(spec.pixel) >= g_led_ops.count()) {
+    return push_nil_error(L, "E_INVAL", "this board has no light at that index");
+  }
+  if (!g_led_ops.play(spec)) {
+    return push_nil_error(L, "E_BUSY",
+                          "the light is busy with what the system is saying; wait for on_light");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// led.stop([fade_ms]): give the light back. Zero is now; a number fades to black over that
+// many milliseconds and then hands it back to the system, because a light that goes out in
+// one frame in the middle of the night is a slap (docs/30).
+int l_led_stop(lua_State* L) {
+  if (g_led_ops.stop == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+  }
+  lua_Integer fade = luaL_optinteger(L, 1, 0);
+  if (fade < 0) fade = 0;
+  g_led_ops.stop(static_cast<uint32_t>(fade));
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// led.effect(): what the app is playing and how long it has been playing, or nil. It is
+// the question an app asks when it wants to know whether its effect finished by itself
+// (docs/30).
+int l_led_effect(lua_State* L) {
+  if (g_led_ops.effect == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+  }
+  LedEffectSpec spec = {};
+  uint32_t elapsed = 0;
+  if (!g_led_ops.effect(spec, elapsed)) {
+    lua_pushnil(L);
+    return 1;
+  }
+  push_effect_spec(L, spec, elapsed);
+  return 1;
+}
+
+// led.system([name[, effect|"default"]]): the four effects the board has of its own —boot,
+// radio, alarm and error—, read and changed. With no name it answers all four; with a name
+// and nothing else, that one; with a name and a table, it replaces it; with a name and the
+// word "default", the maker's comes back (docs/30).
+int l_led_system(lua_State* L) {
+  if (g_led_ops.system_effect == nullptr || g_led_ops.trigger_name == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+  }
+  // No name: the four, in one table, so an app can look before it changes anything. The
+  // list of names is the kernel's: this loop ends when the kernel runs out of them.
+  if (lua_gettop(L) == 0) {
+    lua_createtable(L, 0, 4);
+    for (uint32_t i = 0;; ++i) {
+      const uint8_t index = static_cast<uint8_t>(i);
+      const char* name = g_led_ops.trigger_name(index);
+      if (name == nullptr) break;
+      LedEffectSpec spec = {};
+      if (!g_led_ops.system_effect(index, spec)) break;
+      push_effect_spec(L, spec, 0);
+      lua_setfield(L, -2, name);
+    }
+    return 1;
+  }
+  if (lua_type(L, 1) != LUA_TSTRING) {
+    return push_nil_error(L, "E_INVAL", "system takes a name: boot, radio, alarm or error");
+  }
+  uint8_t trigger = 0;
+  if (!g_led_ops.trigger_from_name(lua_tostring(L, 1), trigger)) {
+    return push_nil_error(L, "E_INVAL", "no such moment: boot, radio, alarm or error");
+  }
+  if (lua_gettop(L) == 1) {
+    LedEffectSpec spec = {};
+    if (!g_led_ops.system_effect(trigger, spec)) {
+      return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+    }
+    push_effect_spec(L, spec, 0);
+    return 1;
+  }
+  if (lua_type(L, 2) == LUA_TSTRING && strcmp(lua_tostring(L, 2), "default") == 0) {
+    g_led_ops.restore_system_effect(trigger);
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+  if (!lua_istable(L, 2)) {
+    return push_nil_error(L, "E_INVAL",
+                          "the second argument is a table of the effect, or the word \"default\"");
+  }
+  LedEffectSpec spec = {};
+  if (!read_effect_spec(L, 2, spec)) {
+    return push_nil_error(L, "E_INVAL",
+                          "no such effect (breathe, blink, sos, bounce), or a field that is not a number");
+  }
+  if (!g_led_ops.set_system_effect(trigger, spec)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no light");
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -2220,6 +2524,25 @@ int l_imu_read(lua_State* L) {
   lua_setfield(L, -2, "gz");
   lua_pushnumber(L, celsius);
   lua_setfield(L, -2, "celsius");
+  return 1;
+}
+
+// env.read(): how warm it is and how wet, in one call. Two numbers and one answer: the chip measures
+// them together, so they come together or not at all (docs/30).
+int l_env_read(lua_State* L) {
+  if (g_env_ops.read == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no ambient sensor");
+  }
+  float celsius = 0;
+  float humidity = 0;
+  if (!g_env_ops.read(celsius, humidity)) {
+    return push_nil_error(L, "E_IO", "the ambient sensor did not answer");
+  }
+  lua_createtable(L, 0, 2);
+  lua_pushnumber(L, celsius);
+  lua_setfield(L, -2, "celsius");
+  lua_pushnumber(L, humidity);
+  lua_setfield(L, -2, "humidity");
   return 1;
 }
 
@@ -2587,11 +2910,23 @@ void seal_globals(lua_State* L) {
   set_function(L, "set", l_led_set);
   set_function(L, "pixel", l_led_pixel);
   set_function(L, "off", l_led_off);
+  // The effects: what the light says while the app does its own work, and the four
+  // moments of the system, which the app may redefine (docs/30).
+  set_function(L, "play", l_led_play);
+  set_function(L, "stop", l_led_stop);
+  set_function(L, "effect", l_led_effect);
+  set_function(L, "system", l_led_system);
   lua_setglobal(L, "led");
 
   lua_newtable(L);
   set_function(L, "read", l_imu_read);
   lua_setglobal(L, "imu");
+
+  // The air: temperature and humidity, from the chip that is on some boards and not on others
+  // (docs/30, docs/50).
+  lua_newtable(L);
+  set_function(L, "read", l_env_read);
+  lua_setglobal(L, "env");
   lua_createtable(L, 0, 1);
   set_function(L, "wait", l_button_wait);
   set_function(L, "count", l_button_count);
@@ -2971,6 +3306,8 @@ void set_power_ops(const PowerOps& ops) { g_power_ops = ops; }
 void set_led_ops(const LedOps& ops) { g_led_ops = ops; }
 
 void set_imu_ops(const ImuOps& ops) { g_imu_ops = ops; }
+
+void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
 
 void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 

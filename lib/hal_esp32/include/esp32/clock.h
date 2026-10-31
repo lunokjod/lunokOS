@@ -20,6 +20,14 @@ namespace hal {
 // the clock object (docs/60).
 int64_t esp32_wall_ms();
 
+// The chip's own wake timer, armed and taken back down in one place. ESP-IDF keeps the armed
+// timer in a structure that a boot wipes, and it logs an **error** when a source that is not
+// armed is disarmed —which is exactly what a board whose clock chip keeps the alarm does after
+// every arming—, so this remembers whether the timer is ours to take down and only then touches
+// it. `esp32_arm_timer_wake` returns false when the chip refuses the deadline.
+bool esp32_arm_timer_wake(int64_t at_epoch_ms);
+void esp32_disarm_timer_wake();
+
 // The one clock of the board: the epoch, the monotonic counter, the armed wake and
 // where the epoch comes from.
 IClock* esp32_clock();

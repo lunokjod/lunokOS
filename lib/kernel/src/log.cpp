@@ -3,6 +3,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include "kernel/led.h"
+
 namespace kernel {
 namespace {
 
@@ -55,6 +57,13 @@ void log_printf(pal::LogLevel level, const char* fmt, ...) {
   size_t used = 0;
   line[used++] = level_tag(level);
   line[used++] = ' ';
+
+  // A failure is also a light. The SOS is asked for here and not at every place that logs
+  // one, because a place that has to remember to say it is a place that will forget, and
+  // the light of the board is the only thing a person sees when the console is closed
+  // (docs/30). It does nothing on a board with no light, and nothing before the light is
+  // up, which is why it can be called from the first line of the boot.
+  if (level == pal::kLogError) led::note(led::Trigger::kError);
 
   va_list args;
   va_start(args, fmt);

@@ -25,6 +25,8 @@ const char kCfg[] = "/cfg";
 const char kRes[] = "/res";
 const char kApps[] = "/apps";
 const char kSd[] = "/sd";
+const char kRtc[] = "/rtc";
+const char kFram[] = "/fram";
 
 // The pool of open files. The number is the HAL's own pool size: a ninth file
 // cannot open because there is no slot, and saying E_NO_HANDLES is better than
@@ -111,12 +113,18 @@ bool inside_ground(const char* path) {
   return path[len] == '\0' || path[len] == '/';
 }
 
+// The RTC memory and the FRAM are not drives of the system like `/littlefs` or `/nvs`: they are raw
+// memory, with no layout and no keys, and **the app that writes decides the layout**. An app may
+// read and write both, which is the whole reason those memories exist (docs/50, docs/70).
+bool on_raw_memory(const char* path) { return under(path, kRtc) || under(path, kFram); }
+
 // Where an app may go. The drives of the system are not its business: `/littlefs` is the
 // disk a person writes to from the prompt and `/nvs` is the system's bookkeeping. An app
 // has its places at the root and nowhere else (docs/70):
 //
 //   /data/<id>/   its own ground: read and write, and the disk is the limit
 //   /cfg/         its own settings, on the unit the person chose: read and write
+//   /rtc, /fram   raw memory: read and write, and the layout is the app's
 //   /res/         its own static files (`apps/<id>/res/`): read, they are what it ships with
 //   /apps/        the apps of any drive: read, a manifest is public
 //   /sd/          the removable media: read, never write, a card is the person's
@@ -125,13 +133,15 @@ bool inside_ground(const char* path) {
 // instead of being hidden: an app should know it asked for something that is not its.
 bool allowed(const char* path, bool writing, luabind::FsError& err) {
   if (!writing) {
-    if (inside_ground(path) || inside_cfg(path) || under(path, kApps) || under(path, kSd)) {
+    if (inside_ground(path) || inside_cfg(path) || on_raw_memory(path) || under(path, kApps) ||
+        under(path, kSd)) {
       return true;
     }
     err = luabind::FsError::kInval;
     return false;
   }
-  if ((!inside_ground(path) && !inside_cfg(path)) || !vfs::is_writable(path)) {
+  if ((!inside_ground(path) && !inside_cfg(path) && !on_raw_memory(path)) ||
+      !vfs::is_writable(path)) {
     err = luabind::FsError::kInval;
     return false;
   }

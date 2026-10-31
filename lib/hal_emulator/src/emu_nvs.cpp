@@ -1,8 +1,8 @@
 // The emulator's key-value store: one file per key.
 //
-// <fs_dir>/nvs/<namespace>/<key> holds exactly the bytes that were set, so the
+// `<state_dir>/nvs/<namespace>/<key>` holds exactly the bytes that were set, so the
 // value is as opaque here as it is inside the ESP32's NVS blob. A namespace is a
-// directory and a key is a file, which is what makes `ls` on the emulator disk
+// directory and a key is a file, which is what makes `ls` on the emulator state
 // enough to see what the system kept (docs/70 and docs/85).
 #include <dirent.h>
 #include <stdio.h>
@@ -45,10 +45,19 @@ void make_dirs(const char* path) {
 }
 
 // Where a namespace lives, creating it: the store is written by the system, not
-// by a person, so nobody has to make the directory first.
+// by a person, so nobody has to make the directory first. It lives under `state_dir` and not
+// under the flash volume: on a real board the NVS is a partition of its own and it is not a file
+// a person sees in `/littlefs` (docs/85).
+bool ns_root(char* out, size_t cap) {
+  const emu::Options& o = emu::options();
+  const char* base = (o.state_dir != nullptr) ? o.state_dir : o.fs_dir;
+  join(out, cap, (base != nullptr) ? base : "", "/nvs");
+  return true;
+}
+
 bool ns_dir(char* out, size_t cap, const char* ns, bool create) {
   char root[kPathCap];
-  join(root, sizeof(root), emu::options().fs_dir, "/nvs");
+  ns_root(root, sizeof(root));
   if (create) make_dirs(root);
   join(out, cap, root, "/", ns);
   if (create) make_dirs(out);
@@ -147,13 +156,13 @@ class HostNvs : public IKeyValue {
     }
   }
 
-  // A namespace is a directory of <fs_dir>/nvs, so listing them is listing it.
+  // A namespace is a directory of `<state_dir>/nvs`, so listing them is listing it.
   bool next_namespace(const char*& ns, bool& first) override {
     if (first) {
       if (ns_dir_ != nullptr) closedir(ns_dir_);
       ns_dir_ = nullptr;
       char root[kPathCap];
-      join(root, sizeof(root), emu::options().fs_dir, "/nvs");
+      ns_root(root, sizeof(root));
       ns_dir_ = opendir(root);
       if (ns_dir_ == nullptr) return false;
       first = false;
@@ -182,7 +191,7 @@ class HostNvs : public IKeyValue {
     used = 0;
     total = 0;
     char root[kPathCap];
-    join(root, sizeof(root), emu::options().fs_dir, "/nvs");
+    ns_root(root, sizeof(root));
     DIR* namespaces = opendir(root);
     if (namespaces == nullptr) return true;
     for (;;) {

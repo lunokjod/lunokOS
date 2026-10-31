@@ -4,6 +4,7 @@
 // to talk to the serial port (Arduino Serial). The kernel sees neither.
 #include <Arduino.h>
 #include <Esp.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -48,8 +49,13 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   HeapInfo heap() const override {
     HeapInfo info;
     info.valid = true;
-    info.free_bytes = static_cast<uint32_t>(ESP.getFreeHeap());
-    info.min_free_bytes = static_cast<uint32_t>(ESP.getMinFreeHeap());
+    // Asked by capability and not with `ESP.getFreeHeap()`, which is one number for a board that now
+    // has two kinds of memory: this is the board's own RAM, which is what the system and the drivers
+    // need. What the PSRAM has left is the board's answer, in `IPlatform::extra_memory` (docs/75).
+    info.free_bytes =
+        static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    info.min_free_bytes =
+        static_cast<uint32_t>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return info;
   }
 
@@ -121,6 +127,43 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
 
 EspSystem g_system;
 
+// The two homes a block can have, as the chip names them. INTERNAL is the board's own RAM, the one
+// the system and the drivers need, and SPIRAM is the PSRAM the M5Paper carries (docs/50, docs/75).
+constexpr uint32_t kExtraCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+constexpr uint32_t kHomeCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+
+class EspExtraMemory : public IExtraMemory {
+ public:
+  void* allocate(size_t bytes, bool prefer_extra) override {
+    if (bytes == 0) return nullptr;
+    if (prefer_extra) {
+      if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
+      return heap_caps_malloc(bytes, kHomeCaps);  // the extra memory is full, the block still fits
+    }
+    if (void* block = heap_caps_malloc(bytes, kHomeCaps)) return block;
+    // A board with no PSRAM has nowhere else to look and this is the answer it gives (docs/75).
+    return heap_caps_malloc(bytes, kExtraCaps);
+  }
+
+  void* resize(void* block, size_t bytes, bool prefer_extra) override {
+    if (block == nullptr) return allocate(bytes, prefer_extra);
+    if (bytes == 0) {
+      release(block);
+      return nullptr;
+    }
+    const uint32_t home = prefer_extra ? kExtraCaps : kHomeCaps;
+    if (void* moved = heap_caps_realloc(block, bytes, home)) return moved;
+    // The same block in the other home: `heap_caps_realloc` allocates, copies and frees, which is
+    // exactly what moving a block to the other memory means. On failure the block is still the one
+    // the caller gave and it is not touched (docs/75).
+    return heap_caps_realloc(block, bytes, prefer_extra ? kHomeCaps : kExtraCaps);
+  }
+
+  void release(void* block) override { heap_caps_free(block); }
+};
+
+EspExtraMemory g_extra;
+
 }  // namespace
 
 bool init() {
@@ -138,5 +181,7 @@ bool init() {
 void shutdown() {}
 
 ISystem& system() { return g_system; }
+
+IExtraMemory& extra_memory() { return g_extra; }
 
 }  // namespace pal

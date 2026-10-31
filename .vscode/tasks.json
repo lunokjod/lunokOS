@@ -11,9 +11,10 @@
     },
     {
       "label": "lunokOS: emulator",
-      "detail": "Builds and runs the binary with stdin attached to the terminal. pio -t upload is not used: PlatformIO pipes stdio, so the prompt never shows and the keyboard does not reach the program.",
+      "detail": "Builds and runs the binary with stdin attached to the terminal. pio -t upload is not used: PlatformIO pipes stdio, so the prompt never shows and the keyboard does not reach the program. The board is required: the bench is the model it is told to be, hardware included (docs/85).",
       "type": "shell",
       "command": "${workspaceFolder}/.pio/build/emulator/program",
+      "args": ["--board", "m5stack-atom"],
       "dependsOn": "lunokOS: build emulator",
       "problemMatcher": [],
       "presentation": {

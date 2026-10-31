@@ -131,8 +131,9 @@ void test_root_lists_the_mounts(void) {
   kernel::cfg::boot(hal::platform());
   CountingSink sink;
   TEST_ASSERT_TRUE(kernel::vfs::list("/", sink));
-  // /littlefs, /apps, /res, /data, /nvs (the key-value store as files) and /cfg.
-  TEST_ASSERT_EQUAL_INT(6, static_cast<int>(sink.count));
+  // /littlefs, /apps, /res, /data, /nvs (the key-value store as files), /rtc (the RTC memory as one
+  // file) and /cfg.
+  TEST_ASSERT_EQUAL_INT(7, static_cast<int>(sink.count));
 }
 
 void test_root_is_a_directory(void) {

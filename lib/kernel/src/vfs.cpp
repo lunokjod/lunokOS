@@ -10,7 +10,11 @@ namespace vfs {
 namespace {
 
 const size_t kMaxPathBytes = 128;
-const uint32_t kMaxMounts = 8;
+// The rows the table can hold. It was 8, which was exactly what the Paper had —littlefs, apps, res,
+// data, sd, rtc, nvs and the `/cfg` door— so the FRAM did not fit and `/cfg` disappeared without a
+// word (found on the bench the 31/10, writing a setting: `E_INVAL`). Ten leaves the room of two more
+// mounts, and a table that is full now says so in the log instead of dropping a row (docs/70).
+const uint32_t kMaxMounts = 10;
 
 struct Mount {
   const char* path;  // virtual path, no trailing slash
@@ -25,7 +29,14 @@ uint32_t g_count = 0;
 
 void add(const char* path, const char* rel, const char* kind, hal::IStorage* storage,
          bool writable) {
-  if (storage == nullptr || g_count >= kMaxMounts) return;
+  if (storage == nullptr) return;
+  if (g_count >= kMaxMounts) {
+    // A mount that does not fit is a path that stops existing, and a person would see the file
+    // system lose a row for no reason: it is said, and the number is one to raise (docs/70).
+    log_printf(pal::kLogError, "vfs: no room for %s, the table has %u rows", path,
+               static_cast<unsigned>(kMaxMounts));
+    return;
+  }
   Mount& m = g_mounts[g_count++];
   m.path = path;
   m.rel = rel;
@@ -58,6 +69,18 @@ uint32_t init(hal::IPlatform& platform) {
 
   hal::IStorage* sd = platform.storage("/sd");
   if (sd != nullptr) add("/sd", "", "sd", sd, true);
+
+  // /rtc: the RTC memory as one file the size of the memory. It is the only memory that survives a
+  // deep sleep and dies with the power, so what is written there is what a board keeps between two
+  // runs without touching the flash (docs/50, docs/70).
+  hal::IStorage* rtc = platform.storage("/rtc");
+  if (rtc != nullptr) add("/rtc", "", "rtc", rtc, true);
+
+  // /fram: the FRAM of the board, when it has the chip, as one file of its size. It is
+  // non-volatile and needs no power, so it is where an app keeps the few bytes it cannot lose even
+  // if the battery goes (docs/50, docs/70).
+  hal::IStorage* fram = platform.storage("/fram");
+  if (fram != nullptr) add("/fram", "", "fram", fram, true);
 
   // /nvs: the key-value store seen as two levels of files, a namespace per
   // directory (docs/70). Read-only until the write side of M4 is done.

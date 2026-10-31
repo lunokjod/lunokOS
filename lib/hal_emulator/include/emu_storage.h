@@ -5,7 +5,8 @@
 
 namespace hal {
 
-// Returns the POSIX backend for "/littlefs", rooted at <fs_dir>/littlefs, or
+// Returns the POSIX backend for "/littlefs", rooted at the directory named as the flash volume
+// (`--flash`, the repository's `data` by default) or at <fs_dir>/littlefs, or
 // nullptr for any other mount.
 IStorage* emu_storage(const char* mount);
 

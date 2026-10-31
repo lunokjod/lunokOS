@@ -1,0 +1,8 @@
+{
+  "title": "Heap",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "heap.lua",
+  "boards": ["esp32"],
+  "description": "Asks for a megabyte and gives it back, so the memory of the board can be watched working."
+}

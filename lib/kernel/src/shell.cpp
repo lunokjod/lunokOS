@@ -109,6 +109,17 @@ bool read_words(const char* argument, char words[][kWordCap], size_t max_words, 
   return false;
 }
 
+void out_num(uint32_t value);
+
+// A count of bytes as megabytes with one decimal (11.8), because a whole number hides the
+// difference between an empty partition and one holding a few apps (docs/70).
+void print_megabytes(uint64_t bytes) {
+  const uint64_t tenth = bytes / (1024ULL * 1024ULL / 10ULL);
+  out_num(static_cast<uint32_t>(tenth / 10));
+  out(".");
+  out_num(static_cast<uint32_t>(tenth % 10));
+}
+
 void out_num(uint32_t value) {
   char buf[12];
   size_t i = sizeof(buf) - 1;
@@ -132,7 +143,7 @@ void print_help() {
   out("  apps              the apps in /apps\r\n");
   out("  mounts            the mounted file systems and their room\r\n");
   out("  cfg [auto|sd|littlefs]  where the apps' settings are kept\r\n");
-  out("  run <id>          run an app\r\n");
+  out("  run <id> [path]   run an app, optionally pointed at a file\r\n");
   out("  wifi              the stored network and the radio\r\n");
   out("  wifi scan         the networks the radio sees\r\n");
   out("  wifi add <ssid> [password]  store a network and go on it\r\n");
@@ -144,9 +155,12 @@ void print_help() {
   out("  ntp [server]      set the clock from a time server\r\n");
   out("  http <url>        download a page and show its status\r\n");
   out("  power [cpu [mhz]] what this board can do about energy\r\n");
+  out("  power last        how far the last sleep was from the hour it was given\r\n");
+  out("  power idle [on|off]  whether the board may sleep on its own to the next alarm\r\n");
   out("  led [rrggbb|off]  the light of the board\r\n");
   out("  button            the button, right now\r\n");
   out("  sleep [light|deep] <ms>  sleep, and come back at a time\r\n");
+  out("  sleep at <epoch seconds>  the same, at a time of the clock\r\n");
   out("  open [app] <path> open a file with the app that handles it\r\n");
   out("  ls [path]         list a directory (default /)\r\n");
   out("  cat <path>        print a file\r\n");
@@ -155,6 +169,7 @@ void print_help() {
   out("  verbose on|off    mirror the log to the console too\r\n");
   out("  clear             clear the screen\r\n");
   out("  reboot            restart\r\n");
+  out("  poweroff          cut the power of the board, if it can (docs/50)\r\n");
   out("three ESC in a row leave an app, or stop a command that waits\r\n");
   out("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"\r\n");
 }
@@ -191,6 +206,22 @@ void print_mem() {
     newline();
   } else {
     out("  heap               not available on this build\r\n");
+  }
+  // The extra memory of the board (the PSRAM of the Paper), with the three numbers that are not the
+  // same: what the chip says it has, what the CPU can address, and what is left. It was one number
+  // and it read as a bug —`4067 of 8192 KB`— because a pool of 4 MB was counted against an 8 MB chip
+  // (docs/75). On a board with none, the line says so and that is not an error.
+  const hal::ExtraMemory extra = platform().extra_memory();
+  if (extra.chip_bytes > 0) {
+    out("  extra memory       ");
+    out_num(extra.free_bytes / 1024);
+    out(" of ");
+    out_num(extra.total_bytes / 1024);
+    out(" KB usable, of ");
+    out_num(extra.chip_bytes / 1024);
+    out(" KB on the chip (psram)\r\n");
+  } else {
+    out("  extra memory       none on this board\r\n");
   }
   // The last app, if one has run: what it asked for and what it was allowed.
   if (luabind::limit_bytes() > 0) {
@@ -259,11 +290,25 @@ void print_mounts() {
     uint64_t total = 0;
     uint64_t free_bytes = 0;
     if (vfs::space(path, total, free_bytes)) {
-      out("free ");
-      out_num(static_cast<uint32_t>(free_bytes));
-      out(" of ");
-      out_num(static_cast<uint32_t>(total));
-      out(" B");
+      // Bytes below a megabyte and megabytes above it: a 16 GB card in bytes is a number nobody counts,
+      // and `out_num` takes 32 bits, so the card overflowed it and printed zero (measured on the bench,
+      // 31/10). The flash of a board fits either way (917 504 B).
+      const uint64_t megabyte = 1024ULL * 1024ULL;
+      if (total >= megabyte) {
+        // One decimal, because whole megabytes hide the difference between a partition that is
+        // empty and one that has a few apps in it (the Paper's is 11.87 MB, docs/70).
+        out("free ");
+        print_megabytes(free_bytes);
+        out(" MB of ");
+        print_megabytes(total);
+        out(" MB");
+      } else {
+        out("free ");
+        out_num(static_cast<uint32_t>(free_bytes));
+        out(" of ");
+        out_num(static_cast<uint32_t>(total));
+        out(" B");
+      }
     } else {
       // Not "no room": the values of the NVS are not files and there is no byte count to
       // give. What there is, is a number of entries, and that is the number a person needs
@@ -1022,8 +1067,47 @@ bool command_power(const char* argument) {
     return true;
   }
 
+  if (count > 0 && strcmp(words[0], "last") == 0) {
+    if (count != 1) {
+      out("usage: power last\r\n");
+      return false;
+    }
+    // The number of the last sleep, kept where it can be read after a deep sleep has
+    // taken the console line with the restart (docs/60).
+    char report[48];
+    if (!power::last_wake_report(report, sizeof(report))) {
+      out("no sleep has been measured yet\r\n");
+      return true;
+    }
+    out("last wake: ");
+    out(report);
+    newline();
+    return true;
+  }
+
+  if (count > 0 && strcmp(words[0], "idle") == 0) {
+    if (count > 2) {
+      out("usage: power idle [on|off]\r\n");
+      return false;
+    }
+    if (count == 2) {
+      if (strcmp(words[1], "off") == 0) {
+        power::set_idle_sleep_allowed(false);
+      } else if (strcmp(words[1], "on") == 0) {
+        power::set_idle_sleep_allowed(true);
+      } else {
+        out("usage: power idle [on|off]\r\n");
+        return false;
+      }
+    }
+    out("idle sleep: ");
+    out(power::idle_sleep_allowed() ? "on" : "off");
+    out(" (only with an alarm pending and a board that keeps the hour in a chip)\r\n");
+    return true;
+  }
+
   if (count != 0) {
-    out("usage: power | power cpu [mhz]\r\n");
+    out("usage: power | power cpu [mhz] | power idle [on|off] | power last\r\n");
     return false;
   }
   out("sleep: ");
@@ -1053,6 +1137,11 @@ bool command_power(const char* argument) {
   }
   out("keep awake: ");
   out(power::keeping_awake() ? "yes" : "no");
+  newline();
+  // The policy that puts the board down on its own, and whether a person has turned it
+  // off (docs/60).
+  out("idle sleep: ");
+  out(power::idle_sleep_allowed() ? "on" : "off");
   newline();
   out("cpu: ");
   out_num(power::cpu_mhz());
@@ -1198,7 +1287,9 @@ bool command_led(const char* argument) {
     out("usage: led [rrggbb|off]\r\n");
     return false;
   }
-  if (!led::set_colour(r, g, b)) {
+  // A person at the prompt outranks a machine: this stops whatever the system was saying and takes
+  // the light, which is why it is not the call an app uses (docs/30).
+  if (!led::take(r, g, b)) {
     out("led: this board has no light\r\n");
     return false;
   }
@@ -1529,13 +1620,17 @@ bool execute(char* line) {
     return true;
   }
   if (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
-    const char* argument = line + 3;
-    while (*argument == ' ') ++argument;
-    if (*argument == '\0') {
-      out("usage: run <id>\r\n");
+    // A second word is the file the app is pointed at: `run hexdump /fram` is the app and what it
+    // has to look at, which is the same thing `open hexdump /fram` says. The app reads it from
+    // `app.args.path` and nothing else changes (docs/30, docs/40).
+    char words[2][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 3, words, 2, count)) return false;
+    if (count == 0) {
+      out("usage: run <id> [path]\r\n");
       return false;
     }
-    return run_app(argument, nullptr);
+    return run_app(words[0], (count > 1) ? words[1] : nullptr);
   }
   if (strncmp(line, "open", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     return open_file(line + 4);
@@ -1568,6 +1663,21 @@ bool execute(char* line) {
   if (strcmp(line, "reboot") == 0) {
     out("restarting...\r\n");
     pal::system().reboot();
+    return true;
+  }
+  // Cutting the power is not a sleep: nothing is armed and the button is the only way back in. The
+  // board that can do it does not come back from the call at all, so the only line that can follow
+  // is the one of a board that cannot —the ATOMs hold nothing to switch— and the person is told
+  // instead of being left in front of a board that did nothing (docs/50).
+  if (strcmp(line, "poweroff") == 0) {
+    out("powering off...\r\n");
+    pal::IConsole* console = pal::system().console();
+    if (console != nullptr) console->flush();  // the line has to be out before the supply goes
+    if (!platform().power()->power_off()) {
+      out("this board cannot cut its own power: it holds nothing to switch off\r\n");
+      return false;
+    }
+    shutdown();  // on the bench it is a process that ends; on the glass the line below is never read
     return true;
   }
   if (strncmp(line, "verbose", 7) == 0) {

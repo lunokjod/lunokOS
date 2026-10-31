@@ -17,8 +17,9 @@ la bateria.
 - Tot seguit **escaneja `/apps/*/manifest.json`** quan algú demana la llista, i el que hi troba és el
   que responen les comandes (`apps`, `ls`, `cat` i `run`).
 
-A la taula de particions de 4 MB, `/littlefs` té **896 KB** (`0x0E0000` a `0x310000`). Els 64 KB
-següents són la partició **`coredump`**, que no és nostra: la necessita el nucli de l'ESP32 per deixar
+A la taula de particions de 4 MB, `/littlefs` té **896 KB**: comença a `0x310000` i fa `0x0E0000` bytes
+(917 504 B). Els 64 KB següents són la partició **`coredump`**, que no és nostra: la necessita el nucli
+de l'ESP32 per deixar
 un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos errors de
 `esp_core_dump_flash` i una pànic no deixa res a mà.
 - Si el muntatge falla, el sistema **arrenca igualment**: deixa l'error al log, obre el prompt i diu
@@ -31,7 +32,9 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 |---|---|---|
 | `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `cfg/`, `data/` |
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
+| `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `run hexdump` (`data/apps/hexdump/`) l'ensenya en hex i en visible, que és el que cal per a un binari. Per escriure-hi cal un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
+| `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. Per escriure-hi, un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té. `run hexdump /fram` l'ensenya |
 | `/apps` | àlies | `/littlefs/apps` |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
@@ -82,7 +85,7 @@ La crida `IKeyValue` de la HAL **ja està implementada a les dues bandes**, i le
 
 | Banda | Com |
 |---|---|
-| Emulador | Un fitxer per clau: `<fs_dir>/nvs/<espai>/<clau>` amb el valor cru a dins, i l'espai és un directori. Es pot mirar amb `ls` i amb un editor. |
+| Emulador | Un fitxer per clau: `<state_dir>/nvs/<espai>/<clau>` amb el valor cru a dins, i l'espai és un directori. Es pot mirar amb `ls` i amb un editor. |
 | ATOM | `Preferences` per llegir, escriure i esborrar, i l'iterador de l'IDF (`nvs_entry_find`/`nvs_entry_next`) per recórrer un espai; `Preferences` no en té. |
 
 Noms amb `/`, `\` o `.` es refusen: són un espai i una clau de l'NVS, no un camí (i `..` és la manera
@@ -124,12 +127,13 @@ Regles que se'n dedueixen i que són fàcils de trencar si no es diuen:
 
 ## Resolució de camins
 
-1. El camí ha de començar per `/`.
-2. Es prohibeixen `.` i `..` (error `E_INVAL`). Això és també la barrera que impedeix que una app surti
-   del seu directori.
-3. Màxim **128 bytes** i **8 nivells**.
-4. Es busca, a la taula de muntatges, el **prefix més llarg** que encaixi (taula de 5–7 entrades,
-   escaneig lineal, comparació de bytes).
+1. El camí és absolut. Un que no comença per `/` no es refusa: se li posa un `/` al davant, perquè des
+   del prompt s'ha de poder escriure `ls apps`.
+2. Es prohibeix `..` (error `E_INVAL`). Això és també la barrera que impedeix que una app surti del
+   seu directori. Un `.` sol no es tracta de cap manera especial.
+3. Màxim **128 bytes**. No hi ha cap comptador de nivells: el que limita és la llargada del camí.
+4. Es busca, a la taula de muntatges, el **prefix més llarg** que encaixi (taula de fins a **deu**
+   entrades, escaneig lineal, comparació de bytes).
 5. La resta del camí es passa al backend, que no veu mai el prefix.
 
 Els camins distingeixen majúscules i minúscules, i no es normalitzen accents: `Fitxer.epub` i
@@ -162,8 +166,9 @@ Regles:
   finestra** i no una per lectura.
 - Els salts curts cap enrere que cauen dins la finestra són gratis; un salt llunyà costa una
   recàrrega.
-- La mida per defecte és de 512 bytes i es pot triar en obrir (`opts.window`). Més finestra vol dir
-  menys accesses i més RAM: la decisió és de l'app.
+- La finestra és de **512 B i és fixa**: `fs.open` no la deixa triar (`kFsWindow` a `lib/luabind`), i
+  tampoc no hi ha cap `opts` enlloc. Fer-la configurable seria una crida nova i ningú no l'ha demanada;
+  si mai cal, el número viu en una constant i el canvi és d'una línia.
 
 ### Sostres
 
@@ -197,18 +202,27 @@ un lector de llibres.
 
 ## On pot anar una app
 
-Una app viu en cinc llocs i enlloc més (docs/30). El que no hi és no és que estigui amagat: li
+Una app viu en sis llocs i enlloc més (docs/30). El que no hi és no és que estigui amagat: li
 respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és seva.
 
 | Camí | Llegir | Escriure |
 |---|---|---|
 | `/data/<id>/` | sí | **sí**, i el límit és el disc |
 | `/cfg/` | sí, el seu `cfg/<id>/` | **sí**, el seu `cfg/<id>/` |
+| `/rtc` | sí | **sí**: és memòria crua i **qui hi escriu decideix el format** |
+| `/fram` | sí | **sí**, pel mateix motiu: memòria crua i el format el decideix l'app |
 | `/res/` | sí, el seu `apps/<id>/res/` | no: el que una app porta és estàtic |
 | `/apps/` | sí | no |
 | `/sd/` | sí | no |
 | `/littlefs/`, `/nvs/` — les unitats del sistema | **no** | no |
 | `/data/<altra>/` | no | no |
+
+**El `/rtc` no és una unitat del sistema com `/littlefs` o `/nvs`**, i per això hi entra una app: és
+memòria sense mapa ni claus, i el format el posa l'app que hi escriu (docs/50). Es llegeix amb
+`cat /rtc` des del prompt i amb `fs.read`/`fs.open` des d'una app, i per escriure-hi cal un mànec,
+des d'un prompt de `lua` o des d'una app. Per mirar-la, `cat /rtc` si és text i `run hexdump`
+(`data/apps/hexdump/`) si és binari: ensenya l'offset, setze bytes en hex i els mateixos setze entre
+barres, amb un punt allà on el caràcter no es pot imprimir.
 
 **No hi ha quota.** El que doni el disc. La quota de 64 KB que hi havia fins al 31/10 va fora: el Paper
 té 11,9 MB de disc i una app que desa un llibre no hi cabia, i una quota és un número arbitrari
@@ -230,8 +244,9 @@ altre camí que no és seu.
 
 Tres coses que això compra:
 
-- **Els recursos viatgen amb l'app**: si l'app viu a una targeta (`/sd/apps/<id>/`), el seu `res/`
-  hi és al costat i se l'emporta. Un `res/` compartit al disc no pot anar amb ningú.
+- **Els recursos viatgen amb l'app**: `res/` viu dins del directori de l'app (`apps/<id>/res/`) i se
+  n'emporta amb ella. Un `res/` compartit al disc no pot anar amb ningú. Avui les apps només surten de
+  `/littlefs/apps`: copiar-ne una a `/sd/apps/` no la fa arrencar (docs/40).
 - **Dos apps poden tenir el mateix nom de fitxer** sense trepitjar-se, perquè cadascuna té el seu.
 - **El camí que escriu l'app no porta el seu id dins**, que és el que fa que una app es pugui copiar
   d'un disc a un altre sense canviar-ne el codi.
@@ -291,7 +306,9 @@ li queda**. Les files d'avui, en l'ordre en què surten:
 | `/apps` | no | els mateixos bytes, és el mateix disc |
 | `/res` | no | els mateixos bytes |
 | `/data` | **sí** | els mateixos bytes |
-| `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, al banc amb `--sd` |
+| `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, al banc amb `--sd` i un model amb ranura |
+| `/rtc` | **sí** | bytes: **un sol fitxer** de 7 168 B, la memòria del RTC del xip (docs/50). No té entrades |
+| `/fram` | **sí** | bytes: **un sol fitxer** de 256 B, la FM24C02 del Paper; només hi és si el xip contesta (docs/50) |
 | `/nvs` | no | **entrades** (`entries N of M`), perquè el magatzem no té bytes |
 | `/cfg` | **sí** | els bytes de la unitat on és oberta la porta, i el tipus diu quina és |
 
@@ -338,9 +355,11 @@ L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
 - **Per veure-ho de mà**: `run mtab` (`data/apps/mtab/`) llista els muntatges i demana l'espai de
   cadascun, així que ensenya el cost: quatre noms de la mateixa partició són quatre passejades.
   L'arrenca una prova, com `run handles`.
-- A l'**emulador** el disc és el del PC i no és seu per informar-ne, així que `fs.space` hi diu
-  `E_UNSUPPORTED` sempre; a la **placa** dona números. És una diferència de les dues bandes i és a
-  `docs/85`.
+- A l'**emulador** el disc tampoc no és del PC: la flash val el que diu la taula de particions de la
+  placa (0x0E0000 = 917 504 B a l'Atom, 0xBE0000 = 12 451 840 B al Paper) i l'ocupat és el que sumen
+  els fitxers, amb el que quedi al PC com a sostre; la targeta val 16 GB i el lliure és el del PC, i
+  el que falta fins als 16 GB surt com a ocupat. Són les mateixes xifres que a la placa (31/10,
+  mesurat a l'emulador i a `docs/85`).
 - `fs.mounts` i `fs.space` no són una sola crida perquè una app que només vol la llista no ha de
   pagar la passejada.
 

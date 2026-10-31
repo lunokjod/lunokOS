@@ -6,3 +6,10 @@
 
 # Working disk of the emulator: it is state, not code.
 emulator/
+
+# The card in the slot of the emulated board is a directory of somebody's data, always the same one.
+emulator/sd/
+
+# What an app writes when the emulator runs on the repository's own `data` (--flash): the app data
+# area of the emulated flash. The code is data/apps and data/res; this is a run.
+data/data/

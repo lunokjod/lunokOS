@@ -1,0 +1,8 @@
+{
+  "title": "Alarm queue",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "alarmqueue.lua",
+  "boards": ["esp32"],
+  "description": "Shows the system's alarm queue, arms three alarms, cancels the middle one and shows the queue again."
+}

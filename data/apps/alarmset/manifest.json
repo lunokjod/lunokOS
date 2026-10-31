@@ -1,0 +1,8 @@
+{
+  "title": "Alarm by hand",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "alarmset.lua",
+  "boards": ["esp32"],
+  "description": "Asks for a number of seconds, arms a persistent alarm that asks for the front, and lets the system count it."
+}

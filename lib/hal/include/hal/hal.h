@@ -28,7 +28,10 @@ enum Capability : uint32_t {
   kCapSleepLight = 1u << 13,
   kCapSleepDeep = 1u << 14,
   kCapProvisioning = 1u << 15,
-  kCapImu = 1u << 16
+  kCapImu = 1u << 16,
+  // The air around the board: temperature and humidity, which is the SHT30 of the Paper and nothing
+  // at all on the ATOMs (docs/50).
+  kCapEnv = 1u << 17
 };
 
 struct Caps {
@@ -46,7 +49,11 @@ uint32_t cap_count();
 const char* cap_name(uint32_t index);
 uint32_t cap_bit(uint32_t index);
 
-enum class WakeCause : uint8_t { kPowerOn = 0, kTimer = 1, kConsole = 2, kOther = 3 };
+// Why the board came back. `kPowerOn` is a plain boot, `kTimer` is the chip's own sleep
+// timer, `kConsole` a byte on the serial port, `kOther` anything else, and `kClock` is the
+// **clock chip's alarm**: a board that was powered off and that a quartz brought back, which
+// is not the same thing as a timer and is the strongest evidence of a good wake (docs/60).
+enum class WakeCause : uint8_t { kPowerOn = 0, kTimer = 1, kConsole = 2, kOther = 3, kClock = 4 };
 
 enum class OpenMode : uint8_t { kRead = 0, kWrite = 1, kAppend = 2, kReadWrite = 3 };
 
@@ -90,6 +97,11 @@ class IClock {
   virtual void disarm_wake() = 0;
   virtual WakeCause last_wake() = 0;
   virtual bool can_wake() const = 0;
+  // Takes the hour back from wherever this board keeps it properly. A board whose hour is a
+  // chip with a battery behind it answers by reading it; one whose hour is the chip's own
+  // counter has nothing to take and does nothing. The system asks after every sleep that came
+  // back, because a sleep is exactly when its own counter drifts (docs/60).
+  virtual void resync() {}
   // Where the epoch comes from: "rtc" when a battery-backed chip keeps it,
   // "soc" when it is the SoC's own counter, "none" when nobody has set it yet
   // and the epoch is 0. docs/60 is the rule; time.caps() repeats it to apps.
@@ -255,6 +267,17 @@ class IPower {
   // Sleeps until `at_epoch_ms` (0 = no deadline). **A deep sleep does not return**:
   // the board restarts (docs/90). True when it came back from a light sleep.
   virtual bool sleep(SleepMode mode, int64_t at_epoch_ms) = 0;
+  // Whether this board's deep sleep is a **full power off**: the board does not sleep,
+  // it stops being powered and the clock chip's alarm turns it back on (docs/50). It is
+  // the least current a board can draw, and it means the wake does not come from the
+  // chip's own timer but from the clock, which is why the system says so at boot.
+  virtual bool deep_powers_off() const { return false; }
+  // Cuts the board's own supply, and **nothing comes back from it**: it is not a sleep, no alarm is
+  // armed, and only the button —or the cable, on a board that cannot switch itself off while it is
+  // plugged in— brings the board up again (docs/50). False is a board that cannot do it, said out
+  // loud instead of looking like it worked: the ATOMs have no hold on their supply and the Paper
+  // does not drop while the cable is in.
+  virtual bool power_off() { return false; }
   // Where this board can be woken from: "timer", "button", "console" or "none".
   // Said by the board, because it is the wiring that decides it (docs/50).
   virtual const char* wakes() = 0;
@@ -353,6 +376,39 @@ class IImu {
                     float& celsius) = 0;
 };
 
+// The **extra** memory of the board —the PSRAM of the M5Paper— with the three numbers that are not
+// the same and that people confuse (docs/75):
+//
+//   - `chip_bytes` is what the chip says it has, which is what a datasheet prints;
+//   - `total_bytes` is what the CPU can **address**, which is what the system can hand out;
+//   - `free_bytes` is what is left of that.
+//
+// On this family the first and the second do not match: the ESP32's window for external RAM is
+// **4 MB**, so a board that carries 8 MB keeps four of them behind the bank switcher of the chip,
+// and memory that moves under a pointer cannot be given to an app (docs/50, docs/75). All zero on a
+// board with no extra memory, which is the truth about the hardware and not an error.
+struct ExtraMemory {
+  uint32_t chip_bytes;
+  uint32_t total_bytes;
+  uint32_t free_bytes;
+};
+
+// The air around the board: how warm it is and how wet. It is not on every board —the Paper has an
+// SHT30 and the ATOMs have nothing— and a board without one returns nullptr from `sensor()` and
+// leaves the capability off (docs/50).
+//
+// **It is a reading and not a policy**: the chip measures when it is asked and holds no state, so
+// there is nothing to switch on, nothing to keep warm and nothing to turn off afterwards. The one
+// thing the driver has to say is how long asking costs, and it says it in docs/50.
+class ISensor {
+ public:
+  virtual ~ISensor() {}
+  // The temperature in degrees Celsius and the relative humidity in percent. False when the chip
+  // did not answer, or answered with a crossed CRC, which is the same thing to an app: no number is
+  // better than a wrong one (docs/30).
+  virtual bool read(float& celsius, float& humidity) = 0;
+};
+
 class IPlatform {
  public:
   virtual ~IPlatform() {}
@@ -380,6 +436,10 @@ class IPlatform {
   }
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
+  // The extra memory of the board, as the board sees it (docs/75). The interpreter puts its big
+  // blocks there and an app is told what is left; it is the board that answers, so the bench answers
+  // what the model carries (docs/85).
+  virtual ExtraMemory extra_memory() const { return ExtraMemory{0, 0, 0}; }
   virtual IClock* clock() = 0;
   virtual IStorage* storage(const char* mount) = 0;
   virtual IKeyValue* nvs() = 0;
@@ -389,11 +449,23 @@ class IPlatform {
   virtual ILed* led() = 0;
   virtual IInput* input() = 0;
   virtual IImu* imu() = 0;
+  // The ambient sensor, when the board has one. The default is nullptr because that is what a
+  // board without it has to say, and a board that has it overrides this (docs/50). `const` because
+  // the capabilities ask it too, and a board is not changed by being asked what it has.
+  virtual ISensor* sensor() const { return nullptr; }
 };
 
 // Implemented once per board library (hal_atom, hal_emulator).
 IPlatform& platform();
 
 }  // namespace hal
+
+// What a battery voltage means: the curve that turns millivolts into a percentage. It is
+// here and not in a board because it is about a cell and not about a chip (docs/50).
+#include "hal/battery.h"
+
+// Dates and epochs: the maths a clock chip needs, and the same reason to live here (docs/50).
+#include "hal/civil.h"
+#include "hal/alarm.h"
 
 #endif  // LUNOK_HAL_HAL_H

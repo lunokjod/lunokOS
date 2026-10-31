@@ -1,0 +1,79 @@
+// The hardware of each emulated model, and the only list of it (docs/50, docs/85).
+#include <string.h>
+
+#include "board/identity.h"
+#include "emu/model.h"
+
+namespace emu {
+
+bool model_is(const char* name) { return strcmp(board::id(), name) == 0; }
+
+Model model() { return model_of(board::id()); }
+
+Model model_of(const char* name) {
+  Model out = {};
+  out.name = name;
+  const bool paper = (name != nullptr) && strcmp(name, "m5stack-paper") == 0;
+  const bool matrix = (name != nullptr) && strcmp(name, "m5stack-atom-matrix") == 0;
+  if (paper) {
+    // Three keys on the dial, no light, no sensor, and the extra memory the board really carries:
+    // the gauge, the card slot, the FRAM and the clock chip with a coin cell behind it (docs/50).
+    out.lights = 0;
+    out.keys = 3;
+    out.imu = false;
+    // The SHT30 of this board, on the internal I2C next to the clock and the FRAM (docs/50).
+    out.env = true;
+    out.gauge = true;
+    out.slot = true;
+    out.fram = true;
+    out.keeps_the_hour = true;
+    out.powers_off = true;
+    out.heap_kb = 320;
+    // The chip has 8 MB of PSRAM and the ESP32 maps **4** of them: what the system counts is the
+    // mapped region, because the other half needs the bank-switched `himem` nobody uses (docs/50,
+    // docs/75).
+    out.psram_chip_kb = 8192;
+    out.psram_kb = 4096;
+    out.app_limit_kb = 4096;  // what the board answers as the ceiling of an app
+    out.disk_bytes = 0xBE0000;  // the littlefs partition of partitions_16mb.csv
+    return out;
+  }
+  if (matrix) {
+    // The panel of twenty-five and the sensor, one button, no cell and no slot (docs/50).
+    out.lights = 25;
+    out.keys = 1;
+    out.imu = true;
+    out.env = false;
+    out.gauge = false;
+    out.slot = false;
+    out.fram = false;
+    out.keeps_the_hour = false;
+    out.powers_off = false;
+    out.heap_kb = 320;
+    out.psram_chip_kb = 0;
+    out.psram_kb = 0;
+    out.app_limit_kb = 0;  // the board does not say: the kernel's own ceiling, 64 KB
+    out.disk_bytes = 0x0E0000;  // the littlefs partition of partitions.csv
+    return out;
+  }
+  // The ATOM: one light, one button, and nothing else of its own. A name that is not one of the
+  // models is checked when `--board` is parsed, so this is the honest answer for a bench built by
+  // hand as well (docs/85).
+  out.lights = 1;
+  out.keys = 1;
+  out.imu = false;
+  out.env = false;
+  out.gauge = false;
+  out.slot = false;
+  out.fram = false;
+  out.keeps_the_hour = false;
+  out.powers_off = false;
+  out.heap_kb = 320;
+  out.psram_chip_kb = 0;
+  out.psram_kb = 0;
+  out.app_limit_kb = 0;
+  out.disk_bytes = 0x0E0000;
+  return out;
+}
+
+}  // namespace emu

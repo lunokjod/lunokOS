@@ -14,8 +14,9 @@ hora és.
 
 Per ordre de preferència:
 
-1. **Xip RTC amb pila** (M5Paper, DS3231 al Grove…): és la font de veritat quan hi és. **Cap placa
-   d'aquest build en té**, i per això `time.caps().source` no diu mai `"rtc"`.
+1. **Xip RTC amb pila** (M5Paper, DS3231 al Grove…): és la font de veritat quan hi és. **El Paper en té
+   un**: la BM8563 de la I2C 0x51 amb la pila de botó, i per això `time.caps().source` hi diu `"rtc"`
+   i l'hora sobreviu a treure el cable (docs/50). Als ATOM no n'hi ha, i allà la font és la 2.
 2. **RTC del SoC**: compta mentre hi ha corrent, i també durant el son profund. Es perd si es treu
    l'alimentació.
 3. **NTP**: quan hi ha xarxa. **No hi ha cap còpia de l'època a la NVS**: una placa que s'ha quedat
@@ -29,8 +30,8 @@ Per ordre de preferència:
    és, perquè les dues bandes ho facin igual (l'emulador té un servidor de mentida que contesta al cap
    de `--wifi` ms). Prova: `test_ntp_sets_the_clock`, que mira que `time: 0` ja no surti.
 
-`time.caps().source` diu quina s'ha fet servir: `"rtc"`, `"soc"` o `"none"`. `time.caps().synced` diu
-si alguna vegada s'ha sincronitzat.
+`time.caps().source` diu quina s'ha fet servir: `"rtc"`, `"soc"` o `"none"`. `time.caps().synced` és
+**fals sempre avui**: el codi el posa a `false` i el NTP, que ja hi és, no el mou (docs/90).
 
 **Sense cap font ni sincronització**, l'època arrenca a `0` i el sistema ho diu: `time.caps().source`
 és `"none"`. Una app que depèn de l'hora ha de mirar-ho abans de fer res estrany.
@@ -53,9 +54,9 @@ De la llista, **només la primera** és la que es programa al maquinari:
 ```
 
 Quan A passa, es programa B. Des del 31/10 el rellotge de les dues bandes **sap armar-se**:
-`alarm.caps().wake` val `"light"`, l'ATOM programa el temporitzador del RTC i l'emulador mou el seu
-rellotge. El que el sistema encara **no** fa és dormir-se sol: el despert serveix quan algú ha
-demanat `power.sleep`, que és el que M6 hi ha posat (docs/90).
+`alarm.caps().wake` val `"yes"` o `"no"` (si aquesta placa pot armar un despert), l'ATOM programa el
+temporitzador del RTC i l'emulador mou el seu rellotge. El que el sistema encara **no** fa és dormir-se
+sol: el despert serveix quan algú ha demanat `power.sleep`, que és el que M6 hi ha posat (docs/90).
 
 Aquesta ordenació és el que fa que el sistema només hagi de gestionar un despertador encara que hi
 hagi desenes d'alarmes.
@@ -91,8 +92,9 @@ Límit: `alarm.caps().max` alarmes vives alhora (valor a fixar quan es mesuri l'
 3. Pressupost **més curt** que el d'una app de primer pla: és una finestra, no una sessió.
 4. Es destrueix la VM. El primer pla continua exactament on era.
 
-Dins de la finestra: `console.is_foreground()` és `false`, escriure a la consola no fa res (queda al
-log), i qualsevol crida que necessiti el port dona `E_NOTFOREGROUND`.
+Dins de la finestra: `console.is_foreground()` és `false` i escriure a la consola no fa res (queda al
+log). **Cap crida no dona `E_NOTFOREGROUND`**: el codi no el produeix enlloc i la taula d'errors de
+`docs/30` el té marcat com a reservat.
 
 Cost a mesurar: cada finestra paga l'arrencada de l'app (crear la VM i carregar l'entry). Per això
 una app que vol ser barata en segon pla ha de fer que `on_alarm` no carregui mitja app i ha de tenir
@@ -126,33 +128,131 @@ Si el sistema estava apagat quan tocava:
 | Mode | Qui ho decideix | Què es desa |
 |---|---|---|
 | `light` | L'app (`power.sleep`) | Res: la RAM es manté |
-| `deep` | Només l'app (`power.sleep`) | La nota de sessió (quina app hi ha al davant, amb quin fitxer i a quina hora s'ha de despertar) a la NVS, i les alarmes persistents |
+| `deep` | L'app (`power.sleep`) o **el nucli** (la política d'oci, §«Qui arma el despert») | La nota de sessió (quina app hi ha al davant, amb quin fitxer i a quina hora s'ha de despertar) a la NVS, i les alarmes persistents |
 
 Abans de dormir, el nucli passa per `on_pause()` i `on_save()` de l'app oberta, i després programa el
 despertador amb la primera alarma de la cua. Quan desperta, mira el motiu (`last_wake`) i segueix des
 de l'arrencada normal: **la VM no sobreviu a un son profund**, es reconstrueix.
 
+**Un son lleuger el pot tallar un botó o la propera alarma.** El botó ja hi era; l'alarma és nova:
+com que l'alarma és del sistema i no ha de fer cua darrere d'una app que dorm, `kernel::power` baixa
+el termini del son fins a l'alarma més propera. La promesa es tanca igual (`true`), i l'app que
+necessiti el descans sencer l'ha de tornar a demanar.
+
+**Un son profund no el talla res.** Si una app en demana un de més llarg que la propera alarma, la
+placa dorm fins al seu termini i l'alarma s'entrega tard (`late_ms` ho diu). Fer-ho bé vol decidir
+qui mana —l'app que dorm o l'alarma del sistema— i no s'ha decidit encara (docs/90).
+
 **Les dues fondàries hi són a les dues bandes**, i la placa ho diu: `power.caps().sleep_light` i
 `power.caps().sleep_deep` són certs, i `power.caps().wake` diu de què es pot despertar (`"timer,
-button"` a l'ATOM). El que **no** fa el sistema és dormir-se sol, i és una decisió: un caràcter que
-arribi mentre dorm es perd i aquesta placa no té pantalla per dir-ho a la persona (docs/50).
+button"` a l'ATOM, `"timer, clock"` al Paper). I el sistema **sí que es dorm sol** al Paper, quan hi
+ha una alarma pendent i ningú no fa servir la placa (§«Qui arma el despert»); a les plaques sense xip
+de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha pantalla per dir-ho.
 
 ## Precisió
 
 | Què | Valor |
 |---|---|
 | Granularitat de la cua | 1 ms a la RAM |
-| Precisió de l'entrega | **Pendent de mesurar a la placa**. A l'emulador, l'app `clock` posa una alarma a 2 s i la rep **3 ms** tard (`late 3 ms`, mesurat el 30/10) |
+| Precisió de l'entrega | **Mesurat a la placa el 31/10**: una alarma a 2 s rebuda amb el sistema despert surt **`late 0 ms`** al Paper (`run clock`). Al son és **pendent**: amb el cable posat el son és el del xip i el número encara porta el cost d'arrencar. A l'emulador, `late 3 ms` (30/10) |
 | Alarmes amb el sistema despert però ocupat | Com a màxim, un torn del nucli |
 
 No es promet cap número de precisió fins que no es mesuri a la placa, i quan es mesuri s'ha de dir
 amb què s'ha mesurat.
 
+## Qui arma el despert: el rellotge més exacte que hi hagi
+
+**Dormir és l'única manera d'estalviar bateria**, i tot el que allarga el temps despert és una
+despesa. Per això hi ha una regla, i no és de gust:
+
+> **El despert l'arma el rellotge més exacte que tingui la placa.** Si hi ha un rellotge de debò amb
+> la seva alarma (la BM8563 del Paper), l'ha d'armar ell; el temporitzador del RTC del xip és el que
+> hi ha quan no n'hi ha cap, no el que es prefereix.
+
+Per què, amb els números a la mà i els que falten:
+
+- El temporitzador de son de l'ESP32 compta amb l'**oscil·lador RC intern** d'aquest build
+  (`CONFIG_ESP32_RTC_CLK_SRC_INT_RC=y`, i cap placa del projecte no hi té els 32 kHz), o sigui que
+  **deriva**. El rellotge mentre el sistema és despert no deriva (va amb el cristall de l'APB): el que
+  deriva és **quant ha durat el son**.
+- Un despert que deriva obliga a **despertar-se abans** per assegurar-se d'arribar-hi a temps, i cada
+  minut despert de més és bateria que no s'ha estalviat. La BM8563 va amb **quars**, i la seva alarma
+  **sí que es pot fer servir**, però no per despertar el xip: el seu `INT` no arriba a cap GPIO, sinó
+  al circuit d'alimentació, o sigui que el que fa és **apagar la placa del tot i tornar-la a
+  encendre** a l'hora demanada (docs/50, «Apagar-se de debò»). Amb el rellotge del xip armant el
+  despert cal marge; amb la BM8563, el marge es pot treure —quan es mesuri.
+- **Quant deriva no està mesurat**, i per això és una feina pendent amb criteri propi (docs/90): un
+  son profund de deu minuts i comparar l'hora demanada amb la de tornada, que la diu el rellotge que
+  no deriva. **El número ja es mesura sol i es desa**: el nucli compara l'hora a què el son havia de
+  tornar amb la que diu el rellotge en despertar, ho diu per la consola i ho deixa a la NVS, i
+  `power last` el torna a ensenyar quan la línia ja ha passat. El que falta és la dormida de deu
+  minuts en aquesta placa, no el mecanisme.
+- **`power last` diu l'última mesura i no la millor**: `+1234 ms (timer)` vol dir que el son va
+  acabar un segon i quart després de l'hora demanada, i el parèntesi diu què el va despertar. `(clock)`
+  és el millor dels casos: la placa estava **apagada** i la va tornar a encendre l'alarma del
+  rellotge de quars (docs/50).
+- **Un son que no arriba a la seva hora no és cap mesura, i es diu així** (`(timer, cut short)`,
+  31/10). Si el que torna la placa no és ni el temporitzador ni l'alarma del xip —un dit al botó, un
+  cable que s'ha posat, una alimentació que ha parpellejat—, el son no ha arribat enlloc i el número
+  només és **quant abans** es va tallar: la consola diu `the sleep was cut short by …` i el parèntesi
+  porta `cut short`, perquè una precisió mesurada en un son que mai no s'ha fet seria una mentida
+  sobre el rellotge. Va sortir al vidre el 31/10: un son de 300 s va tornar als 56 s amb la causa
+  sense amo i el nucli ho va presentar com una deriva de `−243 530 ms`, que és el que sembla una placa
+  trencada i era una placa que no havia arribat a provar res.
+- **L'arrencada no és part de l'error del rellotge** (`hal::wake_error_ms`, 31/10). Una placa que es
+  reinicia no informa en el moment de despertar-se: abans hi ha el carregador d'arrencada, el
+  banner, la flash, la targeta i els ajustos, i això és **al voltant d'un segon de firmware**. Al
+  Paper, un son de 20 s va sortir `+1 191 ms` i `+1 236 ms` en dues tandes, que és un **6 %** i no ho
+  és: és el firmware comptant-se a si mateix. El nucli ara **resta el temps des de l'arrencada**
+  (`monotonic_ms`) quan el despert ve d'un son de debò, i deixa el número net. El que queda dins és
+  el carregador d'arrencada, que es mesura a part (`docs/95`, E-3).
+
+El que **no** canvia amb això: la cua continua essent de software (`lib/alarms`), perquè una alarma
+aquí és un objecte —amo, payload, repetició, `late_ms`, persistència— i un registre dins d'un xip de
+rellotge no en sap res. El maquinari té una sola feina: **despertar el xip al moment exacte**. I la
+cua ja arma **un sol** despertador, que és exactament el que el xip del rellotge pot fer.
+
+Com està avui:
+
+1. **L'`INT` no és un GPIO, però sí que està cablejat**: va al circuit d'alimentació, així que no
+   serveix per despertar el xip sinó per **tornar a encendre la placa**. Quan el Paper ha de dormir,
+   arma l'alarma (`Bm8563::arm_at`) i baixa GPIO2: la placa s'apaga de debò (`deep_powers_off()` és
+   cert en aquesta placa, docs/50).
+2. **És el sistema qui ho decideix, no una app.** El nucli, a cada torn, mira si hi ha una alarma
+   pendent i, si ningú no l'està fent servir, **s'apaga fins a aquella alarma** (`kernel::power`).
+   O sigui que una alarma d'app en una placa amb rellotge ja no la despert cap temporitzador de
+   software: la compta el quars. El chip té dues maneres d'avisar i s'usa la més exacta que arribi
+   (docs/50): el compte enrere del xip va **al segon** fins a 4 h 15 min, l'alarma de rellotge va al
+   minut per a més enllà, i una espera de més d'un dia s'arma **en tandes** —la placa es desperta
+   abans d'hora, no hi troba res i torna a armar—, o sigui que el quars compta **totes** les esperes.
+   Els números de la política, que són decisions i no mesures: deu segons de consola en silenci, una
+   espera mínima de deu segons i cap app ni `keep_awake` enmig. `power idle off` la desactiva mentre
+   una persona treballa al prompt.
+3. **Rearmar-lo a cada despert**: el xip dispara una vegada. A l'arrencada es llegeix el bit `AF` —per
+   saber si va ser l'alarma o el botó `PWR`— i es desarma (`RtcClock::adopt`).
+4. **Un sol despertador, i el té el xip.** La cua està ordenada i només s'arma la seva entrada més
+   propera, com es feia amb el temporitzador del SoC: la diferència és que ara qui la té armada és
+   el xip. Quan en canvia la propera, `RtcClock::arm_wake` escriu l'hora al xip, l'arma i **baixa el
+   temporitzador del SoC**, perquè dos armats per a la mateixa data són dues veritats i una seria
+   falsa. El del SoC només s'arma quan el xip no pot dir res (no contesta, no té hora, o la data
+   se li escapa), i llavors el xip es desarma.
+5. **Quan sona, se n'arma la següent.** El xip dispara una vegada: a l'arrencada es desarma, la cua
+   es torna a carregar de la NVS, l'alarma que tocava s'entrega i `arm_nearest_alarm()` hi posa la
+   següent. És el mateix ball que feia el temporitzador simulat, amb el quars al mig.
+6. **Una tanda no és el despert.** Si el rellotge ha despertat la placa abans de l'hora demanada (una
+   espera de més d'un dia, armada en tandes), el nucli **no dona l'app per desperta ni la torna a
+   obrir**: desa l'hora que falta, diu quant queda i s'apaga un altre cop, sense esperar els deu
+   segons de consola en silenci. Quan la data arriba de debò, llavors sí que es mesura i l'app torna
+   amb `restore` (docs/30).
+7. **L'hora torna del xip.** Després de cada son que torna, el nucli demana `IClock::resync()`: al
+   Paper torna a llegir el BM8563 i corregeix el comptador del SoC, perquè el son és exactament
+   quan el comptador deriva i el quars no.
+
 ## Què hi ha avui
 
 | Peça | Estat |
 |---|---|
-| Rellotge amb època | A les dues bandes. ATOM: `gettimeofday` per a l'època i `esp_timer_get_time` per al monòton. Mentre ningú no l'ha posada, `source` és `"none"` i l'època val 0 (el `gettimeofday` de l'ESP32 compta des de l'arrencada i fer-lo passar per època seria mentir). L'emulador: `--now` posa l'època i sense l'opció val 0 |
+| Rellotge amb època | El que compta és sempre el **del xip**: `gettimeofday` per a l'època i `esp_timer_get_time` per al monòton, amb la marca a la memòria del RTC perquè un son profund no la perdi. Mentre ningú no l'ha posada, `source` és `"none"` i l'època val 0 (el `gettimeofday` de l'ESP32 compta des de l'arrencada i fer-lo passar per època seria mentir). **Al Paper hi ha a sobre la BM8563 amb pila de botó** (`RtcClock`): es llegeix a l'arrencada i **després de cada son que torna**, s'hi escriu a cada `set_epoch` i a cada armat del despert, i mentre ella és la que recorda `source` diu `"rtc"` i l'hora sobreviu a treure el cable. L'emulador: `--now` posa l'època i sense l'opció val 0 |
 | `time.*` | `now`, `now_ms` i `caps`. Formats, zones i `set` no hi són (docs/30) |
 | Cua única ordenada | `lib/alarms`, 8 entrades de 112 B (896 B). Només la primera s'arma, i `arm_wake` es crida quan canvia la més propera |
 | `alarm.at`/`after`/`cancel`/`list`/`caps` | Hi són. Una app només cancel·la les seves, i el payload és cadena o número fins que hi hagi un codificador JSON |

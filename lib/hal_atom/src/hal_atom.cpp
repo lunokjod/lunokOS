@@ -27,6 +27,7 @@
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "esp32/power.h"
+#include "esp32/rtc_memory.h"
 #include "esp32/storage.h"
 #include "esp32/ws2812.h"
 #include "hal/hal.h"
@@ -174,7 +175,11 @@ class AtomPlatform : public IPlatform {
   // 0 until measured: docs/75 says a number that is not measured is not written.
   uint32_t heap_limit_kb() const override { return 0; }
   IClock* clock() override { return esp32_clock(); }
-  IStorage* storage(const char* mount) override { return esp32_storage(mount, kDataPartition); }
+  IStorage* storage(const char* mount) override {
+    // The RTC memory is a file of the chip and not of the board (docs/50, docs/70).
+    if (mount != nullptr && strcmp(mount, "/rtc") == 0) return esp32_rtc_memory();
+    return esp32_storage(mount, kDataPartition);
+  }
   IKeyValue* nvs() override { return esp32_nvs(); }
   INet* net() override { return esp32_net(); }
   IPower* power() override { return &power_; }

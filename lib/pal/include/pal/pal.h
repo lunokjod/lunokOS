@@ -90,6 +90,36 @@ void shutdown();
 // Valid after init().
 ISystem& system();
 
+// The speed of the console, when the console is a wire whose speed matters. A real UART at 115200
+// baud carries ten bits per byte (8N1), and a console that prints a screen instantly is faster than
+// the board in a way a person notices (docs/85). Zero —the default, and what the tests want— is no
+// wait at all: a file is not a wire. Only a host whose console is a terminal calls this.
+void set_console_baud(uint32_t baud);
+
+// The extra memory of the board (PSRAM on the M5Paper) as a place to allocate from.
+//
+// It exists so the interpreter does not have to ask which board it is on: it asks for big blocks
+// from here and small ones from the normal heap, and a board without extra memory takes all of them
+// from the normal heap and says zero in `HeapInfo` (docs/75). Nothing here is a policy: the number
+// of bytes and the choice of home come from the caller.
+class IExtraMemory {
+ public:
+  virtual ~IExtraMemory() {}
+  // A block of `bytes`, from the extra memory when `prefer_extra` and the board has it, and from the
+  // normal heap otherwise. When the preferred home is full it tries the other one before saying no:
+  // a block is a block and an app does not have to know where it lives. nullptr is a refusal.
+  virtual void* allocate(size_t bytes, bool prefer_extra) = 0;
+  // The same block, grown or shrunk. It is **moved** when its home changes —one that grows past the
+  // caller's threshold goes to the extra memory and one that comes back goes home— and stays where
+  // it is when it does not. On failure the block is untouched and nullptr is returned.
+  virtual void* resize(void* block, size_t bytes, bool prefer_extra) = 0;
+  virtual void release(void* block) = 0;
+};
+
+// Valid before and after init(): the object is a static of the platform, because the interpreter may
+// allocate before anybody brought the layer up.
+IExtraMemory& extra_memory();
+
 }  // namespace pal
 
 #endif  // LUNOK_PAL_PAL_H

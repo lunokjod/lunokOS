@@ -32,8 +32,8 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
 **Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»: `sys.reboot()`,
 `console.flush()`, `console.read()`, `console.read_byte()`, `console.on_data()`, `time.utc`/`local`/
 `format`/`parse`/`set`/`tz`/`sync`, `Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`,
-`net.softap`, i els mòduls `store` i `log`. Les taules d'aquest document ho marquen amb ⏳, i el que
-queda fitat és a `docs/90`.
+`net.softap`, `power.off`, i els mòduls `store` i `log`. Les taules d'aquest document ho marquen amb
+⏳, i el que queda fitat és a `docs/90`.
 
 `term.width()` i `term.height()` tornen **80 i 24**, que és el valor per defecte del contracte: el
 fitxer `cfg/console.json` encara no es llegeix.
@@ -44,7 +44,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 |---|---|
 | `E_UNSUPPORTED` | La placa no té la capacitat que demana la crida |
 | `E_NOENT` | El camí o la clau no existeix |
-| `E_EXIST` | Ja existeix i no es pot sobreescriure |
+| `E_EXIST` | **Reservat**: cap crida el torna avui (el que hi ha és `E_NOENT` quan falta i el refús de política de `docs/70` quan no toca) |
 | `E_NO_HANDLES` | El pool de fitxers oberts és ple |
 | `E_INVAL` | Paràmetre dolent |
 | `E_TIMEOUT` | Ha trigat més del que s'havia dit |
@@ -56,24 +56,50 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_UNAVAIL` | El que es demana no hi és en aquesta placa ara (per exemple, una targeta que no s'ha muntat) |
 | `E_TLS` | El certificat del servidor no és acceptat, o la connexió xifrada no s'ha pogut fer |
 | `E_HTTP` | El servidor no hi era, o ha plegat abans d'acabar de respondre |
-| `E_BUSY` | Ja hi ha una operació en curs en aquest recurs |
+| `E_NONET` | La placa no és en cap xarxa: la ràdio no ha pujat, o s'ha perdut |
+| `E_BUSY` | Ja hi ha una operació en curs en aquest recurs, o el **llum és ocupat** amb un moment del sistema (docs/30) |
 | `E_NOTASK` | S'ha cridat `await` fora d'una tasca |
-| `E_NOTFOREGROUND` | L'app és a la finestra d'alarma i ha demanat una cosa de primer pla |
+| `E_NOTFOREGROUND` | **Reservat**: cap crida el torna avui. Dins d'una finestra d'alarma el que passa és que `console.is_foreground()` diu `false` i el que s'escriu a la consola queda al log (docs/60) |
 | `E_BUDGET` | **Reservat**: el pressupost d'instruccions encara no existeix (docs/20, docs/90) |
 
 ## Capacitats
 
 `sys.caps()` torna una taula plana. Cada clau és `true` o `false`:
 
-`console`, `ansi`, `display`, `input`, `led`, `imu`, `littlefs`, `sd`, `nvs`, `rtc`, `rtc_wake`,
+`console`, `ansi`, `display`, `input`, `led`, `imu`, `env`, `littlefs`, `sd`, `nvs`, `rtc`, `rtc_wake`,
 `net_wifi`, `net_http`, `net_prov`, `battery`, `sleep_light`, `sleep_deep`.
 
 `rtc` és el **domini RTC del xip** —el temporitzador i la memòria que sobreviu al son profund—, no un
 rellotge amb pila: dona l'hora mentre hi ha corrent i **la perd en desconnectar**. `input` i `led` són
 de la placa, i per això cap xip els té per si sol.
 
-Als ATOM d'avui `caps` respon **13 de 17**, el Matrix **14 de 17** perquè hi afegeix `imu`, el Paper
-**12 de 17** (**13** amb targeta al slot) i l'emulador **14 de 17** (**15** amb `--sd`) (docs/50).
+La regla de la llista, perquè no s'hi busqui el que no hi ha:
+
+- **Una entrada és una pregunta que l'app fa abans de triar camí**, i la resposta és el que li diu si
+  ha de fer una cosa o una altra. Quan la resposta és que no, la crida no falla d'una manera estranya:
+  dona `E_UNSUPPORTED`.
+- **Hi ha interfícies i hi ha propietats d'una interfície.** `console`, `display`, `input`, `led`,
+  `imu`, `env`, `littlefs`, `sd`, `nvs`, `rtc` i `net_wifi` són interfícies (una peça que pot ser
+  `nullptr`); `rtc_wake`, `sleep_light`, `sleep_deep` i `battery` són propietats de les del rellotge i
+  de l'energia, i `net_http` i `net_prov` de la de xarxa. `ansi` és l'única que no és maquinari: és si
+  el terminal de l'altra banda entén els colors.
+- **Els números i les formes no són capacitats, són dades**: quantes tecles hi ha i de quina mena és
+  `button.list()`; quants llums, `led.count()`; quants bytes queden, `fs.space()` i `sys.heap()`. Una
+  capacitat que digués «tres tecles» seria una segona veritat que es pot desdir de la primera.
+- **Per tant, les tecles hi són sota `input`** (una tecla o un dial de tres dona el mateix `input:
+  yes`) i la **memòria del RTC hi és sota `rtc`**, amb el fitxer que la fa servir a `mounts` (`/rtc`,
+  7 168 B). **La FRAM és l'única peça que no hi és**: només es veu com a `/fram` a `mounts`, mentre
+  que `/sd`, `/nvs` i `/rtc` tenen bit **i** muntatge. És una decisió oberta a `docs/90`.
+
+Als ATOM d'avui `caps` respon **13 de 18**, el Matrix **14 de 18** perquè hi afegeix `imu`, el Paper
+**13 de 18** amb el SHT30 contestant i sense bateria ni targeta —**14** amb la bateria llegida **o** la
+targeta, **15** amb totes dues, que és el sostre d'aquesta placa: les deu del xip, `littlefs`, `sd`,
+`input`, `battery` i `env`— i l'emulador **el que diu el model que imita**: 13 al model de l'ATOM (12
+si el terminal no és ANSI), 14 al del Matrix i 14 al del Paper (13 sense ANSI), que ja porta la
+targeta `emulator/sd` i puja a 15 amb `--battery-mv` (docs/50, docs/85). L'única que no té ningú és
+`display`, que encara no implementa cap placa. Els números del Paper **no són una previsió**: l'1/11
+la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta dins) i `run air` va donar
+`air 21.1 C 63.5 %` (docs/95, E-5).
 
 ---
 
@@ -90,7 +116,7 @@ funció.
 | `sys.emulator` | booleà | Cert només al PC: diu que la placa de `sys.board` és de mentida |
 | `sys.lua` | cadena | La versió de Lua que porta el sistema |
 | `sys.caps()` | taula de capacitats | Vegeu a dalt |
-| `sys.heap()` | `{free, used, limit, peak}` | Bytes del pressupost de l'app |
+| `sys.heap()` | `{free, used, limit, peak, extra_total, extra_free}` | Bytes del pressupost de l'app i, al darrere, la **memòria extra** de la placa (la PSRAM del Paper): `extra_total` és el que la CPU **pot adreçar** (4 MB, no els 8 del full de dades) i `extra_free` el que en queda; tots dos són **zero** en una placa que no en té, que és la veritat i no un error (docs/75) |
 | `sys.gc("step")` | — | Fa un pas de col·lector |
 | `sys.gc("full")` | — | Col·lecció completa (cara; no es fa servir enmig d'un dibuix) |
 | `sys.gc("count")` | enter | KB en ús |
@@ -141,8 +167,8 @@ Dues regles:
 | Crida | Torna | Notes |
 |---|---|---|
 | `app.id` | cadena | El nom del directori de l'app |
-| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer |
-| `app.info()` | taula | El manifest de l'app mateixa |
+| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run hexdump /fram` i `open hexdump /fram` són el mateix per a l'app |
+| `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
 | `app.raise()` | — | Demana passar a primer pla (només té sentit dins d'una finestra d'alarma) |
@@ -246,7 +272,7 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.set(epoch)` | — | Permís `rtc_set` |
 | `time.tz([cadena])` | cadena | Consulta o fixa la zona (format POSIX) |
 | `time.sync()` ⏳ | promesa | NTP; requereix xarxa (avui hi ha `net.ntp`, que és el que fa la feina) |
-| `time.caps()` | `{source, synced, wake}` | `source` és `"soc"`, `"rtc"` o `"none"`; `wake` és `"none"`, `"light"` o `"deep"` |
+| `time.caps()` | `{source, synced, wake}` | `source` és `"soc"`, `"rtc"` o `"none"`; `wake` és `"yes"` o `"no"` (si aquesta placa pot armar un despert per a una alarma) |
 
 `time.now()` pot **saltar endavant** quan arriba una sincronització. Per mesurar durades, sempre
 `sys.time_ms()`.
@@ -262,11 +288,11 @@ sobrevisquin a un reinici i a la destrucció de la VM.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `alarm.at(spec)` | enter (id) | `spec` = `{on=època}` o `{in=ms}`, més `payload`, `repeat`, `raise`, `persist` |
+| `alarm.at(spec)` | enter (id) | `spec` = `{on=època}` o `{in_ms=ms}`, més `payload`, `repeat`, `raise`, `persist` |
 | `alarm.after(ms[, payload])` | enter (id) | Drecera: alarma d'un sol cop |
 | `alarm.cancel(id)` | booleà | |
 | `alarm.list()` | taula | `{id, on, repeat, persist, raise}` de cada alarma |
-| `alarm.caps()` | `{max, min_period_ms, wake}` | `max` alarmes simultànies |
+| `alarm.caps()` | `{max, min_period_ms, wake}` | `max` alarmes simultànies, i `wake` diu si la placa pot despertar-se sola (`"yes"`/`"no"`) |
 
 Camps de `spec`:
 
@@ -279,8 +305,14 @@ Camps de `spec`:
 s'han perdut mentre el sistema era apagat.
 
 **Avui hi ha** `alarm.at`, `alarm.after`, `alarm.cancel`, `alarm.list`, `alarm.caps`, `on_alarm` i
-`console.is_foreground()`. Tres límits que l'app ha de saber:
+`console.is_foreground()`. Cinc coses que l'app ha de saber:
 
+- **`in_ms` i no `in`**: `in` és una paraula reservada de Lua i una taula escrita `{in = 1000}` ni
+  tan sols s'analitza (`unexpected symbol near 'in'`, mesurat el 31/10). La forma antiga
+  `{["in"] = 1000}` encara funciona, però el nom bo és `in_ms`, com a `power.sleep`.
+- **I `a.repeat` tampoc no es pot escriure**: el camp que torna `alarm.list()` s'anomena `repeat` i
+  és una paraula reservada, o sigui que es llegeix `a["repeat"]`. Ho fa així l'exemple
+  `data/apps/alarmqueue/`.
 - **El payload és una cadena o un número.** Una taula dona `E_INVAL` fins que hi hagi un codificador
   JSON; dir-ho és millor que tornar una cosa diferent de la que es va desar.
 - **`on_alarm` no pot esperar**: es crida entre dos torns de l'app, quan la coroutine de l'app està
@@ -297,6 +329,15 @@ una alarma nova i el sistema es crida a si mateix per sempre. Provat a la placa 
 function on_alarm(id, payload, meta) ... end
 if not console.is_foreground() then return end   -- dins una finestra, res més
 ```
+
+Tres exemples més, i cada un ensenya una cosa diferent: `run alarmqueue` (`data/apps/alarmqueue/`)
+obre la **cua del sistema** —quantes n'hi caben, quines hi ha i en quin ordre, cancel·lar-ne una del
+mig—; `run timers` (`data/apps/timers/`) arma tres temporitzadors i demostra que l'app suspesa no
+atura el nucli; i `run alarmset` (`data/apps/alarmset/`) demana per consola quants segons falten i
+arma una alarma **persistent i amb `raise`**, que és la que fa que el sistema apagui la placa i la
+torni a encendre amb el rellotge (docs/60). I `run later` (`data/apps/later/`) és el cas complet:
+arma una alarma, **surt amb `app.exit()`** i torna per la finestra d'alarma, on diu quants
+mil·lisegons s'ha desviat.
 
 **`persist` sí que hi és**: una alarma persistent es desa a la NVS amb l'**època a dins** (el
 monòton torna a començar a cada arrencada), i en arrencar les vençudes es disparen amb el seu
@@ -454,7 +495,7 @@ L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'e
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `fs.mounts()` | taula | `{path, type, rw}` de cada muntatge, sense l'espai (vegeu `fs.space`) |
+| `fs.mounts()` | taula | `{path, type, writable}` de cada muntatge, sense l'espai (vegeu `fs.space`). L'ordre és el de la taula del nucli i n'hi caben **deu** |
 | `fs.space([path])` | taula o `nil, error` | `{total, free}` del muntatge on viu el camí; `E_UNSUPPORTED` si el backend no ho sap |
 | `fs.list(path)` | taula | `{name, type, size, mtime}` de cada entrada |
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
@@ -471,7 +512,7 @@ L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'e
 
 De l'**objecte fitxer** (`f = fs.open(path[, "r"|"w"|"a"|"r+"])`):
 
-- `f:read(n)`, `f:read("*l")`, `f:read("*a")`: "" i `nil` al final del fitxer, com a Lua.
+- `f:read(n)` i `f:read("*l")` tornen **`nil`** al final del fitxer (com a Lua); `f:read("*a")` torna la resta i, si no en queda, la cadena buida.
 - `f:write(s)` torna els bytes escrits, i **no és atòmica**: per deixar un fitxer sencer o res, `fs.write`.
 - `f:seek(["set"|"cur"|"end"[, off]])` torna la posició nova; `f:size()`; `f:close()`.
 - `f:flush()` no fa res: cada escriptura ja va al backend, i el fitxer és sencer quan es tanca.
@@ -490,11 +531,17 @@ El que una app ha de saber:
   i `file:read("*l")` una línia **sencera**, sigui com sigui de llarga.
 - `fs.write` és **atòmica**: escriu un temporal al costat i el reanomena. Si falla a mitges, el
   fitxer vell segueix sencer. Torna els bytes escrits.
-- **Una app només escriu dins el seu terreny**, `/data/<id>/` (`fs.data([sub])` en dona el camí) i
-  `/cfg/` (que és el seu `cfg/<id>/`), i no pot llegir el d'una altra: això dona `E_INVAL`, no
-  `E_NOENT`. Fora del seu terreny només pot **llegir** `/res/` —el seu, que és `apps/<id>/res/` al
-  costat de l'app—, `/apps/` i `/sd/`; les unitats del sistema (`/littlefs/`, `/nvs/`) no són
-  seves i també responen `E_INVAL` (docs/70).
+- **Una app només escriu dins el seu terreny**, `/data/<id>/` (`fs.data([sub])` en dona el camí),
+  `/cfg/` (que és el seu `cfg/<id>/`) i **`/rtc`**, i no pot llegir el d'una altra: això dona
+  `E_INVAL`, no `E_NOENT`. Fora del seu terreny només pot **llegir** `/res/` —el seu, que és
+  `apps/<id>/res/` al costat de l'app—, `/apps/` i `/sd/`; les unitats del sistema (`/littlefs/`,
+  `/nvs/`) no són seves i també responen `E_INVAL` (docs/70).
+- **`/rtc` i `/fram` són l'excepció i són memòria crua**: 7 168 B que sobreviuen a un son profund i
+  256 B que no necessiten el corrent, sense mapa ni claus, i **el format el decideix l'app que hi
+  escriu** (`/rtc` a seques, que és el fitxer sencer). S'hi escriu amb un mànec —`fs.open('/rtc',
+  'w')` i `file:write(…)`— i no amb `fs.write`, que és atòmic i necessita un reanomenament que una
+  memòria no té. `fs.space` diu la mida de cadascuna i tota lliure, perquè no s'hi assigna res
+  (docs/50, docs/70).
 - **No hi ha quota**: el que doni el disc. Quan s'ha acabat, l'escriptura respon `E_NOSPC` i el fitxer
   vell queda sencer, perquè `fs.write` és atòmica.
 - `fs.stat` torna `{type = "file"|"dir", size, mtime}`; `mtime` és 0 perquè cap backend el dona.
@@ -509,8 +556,9 @@ El que una app ha de saber:
   l'espai vol dir passejar pel sistema de fitxers, i una app que només vol la llista no ho ha de
   pagar.
 - **`fs.space(path)` és la que ho pregunta**, i diu la veritat: `nil, {code = "E_UNSUPPORTED"}` quan
-  el backend no ho sap. A l'emulador **sempre** diu això (el disc és el del PC i no és seu per
-  informar-ne); a la placa, `/littlefs` i els que hi viuen damunt donen números i `/nvs` no.
+  el backend no ho sap. A l'emulador dona **els números de la placa** —la partició de la flash, la
+  targeta de 16 GB i, al `/rtc`, la seva mida, tota lliure—, i a la placa els de debò; el `/nvs` no
+  els dona a cap de les dues bandes, perquè guarda entrades i no bytes (docs/70, docs/85).
 - **Els camins amb espais van entre cometes** a la shell, no a Lua: `cat "res/el meu fitxer.txt"`.
   Des de Lua el camí és una cadena i els espais són espais.
 
@@ -538,36 +586,146 @@ El llum de la placa: **un** LED al ATOM Lite i **vint-i-cinc** al Matrix (5 per 
 contracte és el mateix als dos —`led.set` pinta **tot el llum** d'un color i `led.pixel` en pinta
 **un**— i el que canvia és quants n'hi ha, que ho diu `led.caps().count` (docs/50).
 
+**Dues capes i prou.** El **sistema** diu què fa la placa —arrenca, la ràdio treballa, salta una
+alarma, alguna cosa ha fallat—, i **l'app** hi pot posar el que vulgui mentre viu: el que demana
+l'app guanya mentre dura, i quan se'n va el llum torna a ser del sistema (docs/50).
+
 | Crida | Torna | Notes |
 |---|---|---|
-| `led.caps()` | `{count, max, taken}` | Quants llums té la placa, **fins a quin valor** es pot encendre un canal, i si algú els ha pres |
-| `led.set(r, g, b)` | `true` o `nil, error` | El color que vol l'app **mentre és al davant**, a tots els llums |
-| `led.pixel(i, r, g, b)` | `true` o `nil, error` | **Un** llum: `i` compta des de zero, i un índex que la placa no té es refusa amb `E_INVAL` |
+| `led.caps()` | `{count, max, taken}` | Quants llums té la placa, **fins a quin valor** es pot encendre un canal, i si algú els ha pres (una app amb un color o amb un efecte) |
+| `led.set(r, g, b)` | `true` o `nil, error` | El color que vol l'app **mentre és al davant**, a tots els llums. **`E_BUSY`** si el llum està ocupat (vegeu «La interrupció») o si l'app té un efecte corrent |
+| `led.pixel(i, r, g, b)` | `true` o `nil, error` | **Un** llum: `i` compta des de zero, i un índex que la placa no té es refusa amb `E_INVAL`; `E_BUSY` si el llum està ocupat |
 | `led.off()` | `true` o `nil, error` | El mateix que `led.set(0, 0, 0)`, i es llegeix millor |
+| `led.play(t)` | `true` o `nil, error` | Un **efecte** que corre sol mentre l'app fa la seva feina (vegeu més avall) |
+| `led.stop([ms])` | `true` o `nil, error` | Deixa anar el llum: **ara** (sense número) o amb un **fade a negre** de `ms` mil·lisegons |
+| `led.effect()` | taula o `nil` | L'efecte que l'app està jugant, amb `kind`, `color`, `period`, `cycles`, `pixel`, `level` i **`elapsed`** (quants ms fa que corre). `nil` si no n'hi ha cap |
+| `led.system([nom[, t\|"default"]])` | taula o `true` o `nil, error` | Els quatre efectes del sistema: sense arguments els quatre, amb un nom aquell, amb una taula el canvia, amb `"default"` hi torna a posar el del fabricant |
 
-- **El llum és del sistema i l'app el pren mentre viu.** El sistema hi diu **una sola cosa**: que la
-  ràdio està treballant. Tota la resta és a la consola, i un llum encès costa mil·liampers que aquest
-  sistema no gasta (docs/75).
-- **Quan l'app se'n va, el llum s'apaga.** El color que havia pres **es deixa anar i no es torna al
-  color d'abans**: un llum que sobreviu a la seva app és energia gastada per ningú. Passa igual si
-  l'app acaba sola, si la tanquen amb tres tocs o si mor.
+### `led.play`
+
+```lua
+led.play{kind = 'breathe', color = {0, 0, 200}, period = 3000, cycles = 2, level = 120}
+led.play{kind = 'sos', color = {200, 0, 0}}                       -- un avís de socors
+led.play{kind = 'blink', period = 500, cycles = 0}                -- fins que es pari
+led.play{kind = 'breathe', pixel = 12, period = 2000, cycles = 0} -- un llum del panell
+```
+
+| Camp | Per defecte | Què és |
+|---|---|---|
+| `kind` | **obligatori** | `breathe` (la intensitat puja i baixa com una respiració), `blink` (encesa i apagada), `sos` (el codi Morse del socors), `bounce` (una pilota que bota cada cop més de pressa) o `none`/`off` (cap) |
+| `color` | blanc | `{r, g, b}`, cada canal de 0 a 255 i retallat pel sostre de la placa |
+| `color2` | el mateix que `color` | L'altre extrem de la **rampa**: l'efecte va del primer color al segon al llarg de cada cicle, que és el que fa que un respiració derivi i un rebot canviï de to a mesura que es fa més ràpid |
+| `period` | **5 000** breathe, **800** blink, **200** sos, **700** bounce | Un **cicle sencer** en mil·lisegons; al `sos` és **un punt** i prou, i una volta del missatge són 34 punts amb els seus silencis |
+| `cycles` | `0` | Quants cicles abans de deixar anar el llum. **`0` vol dir per sempre**: fins que es pari o fins que l'app marxi |
+| `pixel` | `-1` | `-1` és **tot el llum**; un número és **un** llum del panell, comptat des de zero, i la resta queden apagats. Un número que la placa no té es refusa amb `E_INVAL` |
+| `level` | **20** | El més brillant que pot arribar aquest efecte, sobre 255. Vint de sèrie perquè un llum que diu una cosa no ha de ser el més brillant de la taula; una app que en vulgui més ho demana, i el sostre de la placa encara mana per sobre |
+
+- **Un efecte no atura l'app ni el nucli.** No hi ha cap fil nou ni cap espera: el nucli pregunta
+  a final de cada torn quin color toca **en aquell mil·lisegon**, i el pinta si ha canviat. Si un
+  torn arriba tard, es pinta el frame d'aquell moment i no una cua de frames pendents, o sigui que
+  el llum no pot anar ni endarrerit ni estirat (docs/10, docs/75). El preu és el d'un app que no
+  cedeix: la llum es queda quieta igual que tot el sistema (docs/20).
+- **Un període per sota de 120 ms s'arrodoneix a 120.** Un llum que parpelleja cada mil·lisegon no
+  és un missatge, és una molèstia, i el terra és del nucli i no de l'app (docs/50).
+- **`led.set` atura l'efecte**: l'última cosa que demana l'app és el que fa el llum. I prendre'l
+  també acaba un moment del sistema que estava passant, perquè un moment és una nota i no un estat
+  (vegeu més avall).
+- **`led.stop(ms)` fa el fade des del que s'està veient** i després dona el llum al sistema, que aquí
+  vol dir apagar-lo si no hi ha res més a dir.
+
+### La interrupció: qui mana quan
+
+El **sistema interromp l'app** quan ha de dir una cosa seva (una alarma, un error). I allò que l'app
+havia posat **no es perd**:
+
+1. **Abans de dir res**, el sistema desa el que l'app tenia —el color, el frame pintat llum a llum o
+   l'efecte, amb el punt del cicle on era— i neteja la capa de l'app.
+2. **Durant el moment, el llum és del sistema**, i l'app no el pot tocar: `led.set`, `led.pixel`,
+   `led.off` i `led.play` responen **`E_BUSY`**. Per tocar el llum a mà, res no l'ha d'estar animant.
+3. **Quan el moment s'acaba**, el llum de l'app **torna exactament com era** (l'efecte continua on
+   era, no al final de la interrupció) i el nucli crida **`on_light()`** de l'app, perquè durant el
+   moment l'app pot haver canviat d'idea i el llum no l'ha escoltat (docs/40).
+
+```lua
+function on_light()
+  -- El sistema ha acabat de dir la seva i el llum torna a ser meu.
+  led.set(0, 0, 40)
+end
+```
+
+**Qui guanya, en ordre**: un error tapa una alarma, una alarma tapa la ràdio i qualsevol cosa tapa
+la respiració d'arrencada. La **ràdio** i la respiració d'arrencada **no són interrupcions**: són el
+fons, i un color o un efecte de l'app els substitueix sense esperar ni haver de tornar-hi.
+Un **error** que salta mentre hi ha un moment més fluix el substitueix (i no el desa: el moment no és
+de l'app).
+
+**I una persona mana sobre tots dos**: `led 00ff00` a la consola para el moment, no desa res i posa el
+color que demana la persona (docs/30).
+
+### Els quatre moments del sistema
+
+| Moment | Què fa de sèrie | Quan |
+|---|---|---|
+| `boot` | respiració **blanca** que deriva a blau pàl·lid, 4 cicles de 5 s, nivell **20** | quan la placa arrenca, i **s'acaba**: un llum que respira tota l'estona en una taula és energia gastada per ningú. Un color o un efecte de l'app el substitueix sense avisar i sense que torni |
+| `radio` | parpelleig **blau** que deriva a cian, 800 ms, nivell 20 | mentre la ràdio treballa (Wi-Fi, Bluetooth o ESP-NOW) |
+| `alarm` | rebot **turquesa** que deriva a verd | quan venç una alarma del rellotge, sigui de qui sigui; **interromp** |
+| `error` | SOS **vermell** que deriva a taronja | quan el nucli escriu un error al registre (`E`), que és el que veu una persona quan la consola és tancada; **interromp** |
+
+L'ordre mana: un **error** no el tapa una alarma, i una alarma no la tapa la ràdio. I els quatre
+són **de l'app**: `led.system()` els llegeix, `led.system('alarm', {...})` els canvia i
+`led.system('alarm', 'default')` hi torna a posar els del fabricant. La llum d'una màquina no és un
+gust que el nucli es quedi.
+
+- **El llum és del sistema i l'app el pren mentre viu.** Quan l'app se'n va, el que havia pres
+  **es deixa anar i no es torna al color d'abans**: un llum que sobreviu a la seva app és energia
+  gastada per ningú. Passa igual si l'app acaba sola, si la tanquen amb tres tocs o si mor.
 - **Al Matrix la imatge és de l'app i són vint-i-cinc llums.** Un `led.pixel` li dona el llum
   sencer, i és una imatge i no un color: vint-i-cinc crides fan un frame. `led.set` la torna a
   pintar tota d'un color si l'app canvia d'idea, i el que no passa mai és que la imatge quedi
   encesa quan l'app marxa — en marxar s'apaguen **tots** els llums (docs/50, docs/75).
-- **En una placa sense llum aquest pas no costa res**: `led.set` respon `E_UNSUPPORTED` i deixar anar
+- **En una placa sense llum aquest pas no costa res**: `led.*` respon `E_UNSUPPORTED` i deixar anar
   el color no fa res, perquè no hi ha res per apagar (docs/30).
 - **El sostre d'un canal no és sempre 255.** `led.caps().max` diu quin és el de debò: **255** al
   Lite i **20** al Matrix, que és el número que dona el fabricant perquè vint-i-cinc LEDs de 2020
-  en una caixa tancada s'escalfen i es poden fer malbé. El sostre el fa complir **el sistema**, no
-  el driver: una app que demani 255 al panell en pinta 20, i la shell ho diu quan s'hi passa
-  (`led: 00ff00 (this board stops at 20)`). Una app que vol una rampa que arribi dalt de tot l'ha
-  de comptar amb `max`, com fan `light` i `matrix` (docs/50).
+  en una caixa tancada s'escalfen i es poden fer malbé. **El Lite no té cap sostre reduït pel
+  fabricant** —un sol WS2812 a 255 és el que diu el seu full de dades—, però el **nivell per defecte
+  de tot efecte és 20** igualment, perquè un llum que diu una cosa no ha de ser el més brillant de la
+  taula. El sostre el fa complir **el sistema**, no el driver: una app que demani 255 al panell en
+  pinta 20, i la shell ho diu quan s'hi passa (`led: 00ff00 (this board stops at 20)`). Una app que
+  vol una rampa que arribi dalt de tot l'ha de comptar amb `max`, com fan `light` i `matrix`
+  (docs/50).
 - **No cal fer res perquè es vegi**: el nucli el pinta a final de torn i només quan canvia. Un frame és
   una escriptura al fil i el llum també costa (docs/75).
-- **Els colors són fluixos a posta** (`0,0,24` per a una app, `0,24,0` per a la ràdio, `24,0,0` per a un
-  error): un llum que diu una cosa no ha de ser el més brillant de la taula.
-- Amb `sys.caps().led` una app sap si tot això existeix abans de demanar-ho.
+- **Els nivells són fluixos a posta** (`level` per defecte de cada moment és el de la taula de dalt, i
+  el d'una app és 255 si no diu res): un llum que diu una cosa no ha de ser el més brillant de la
+  taula.
+- Amb `sys.caps().led` una app sap si tot això existeix abans de demanar-ho, i l'exemple és l'app
+  `glow` (`run glow`), que juga els quatre efectes i marxa amb un fade.
+
+
+## `env`
+
+L'aire: **temperatura i humitat**, del SHT30 de la Paper, a la I2C interna que comparteix amb el
+rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les dues coses.
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `env.read()` | `{celsius, humidity}` o `nil, error` | Temperatura en **°C** i humitat **relativa en %** (0..100) |
+
+- **`E_UNSUPPORTED` en una placa sense sensor** (els ATOM) i **`E_IO` si el xip hi és i no contesta**.
+  Són dues coses diferents i una app les ha de poder distingir: la primera no canviarà mai, la segona
+  pot ser un cable o un bus.
+- **No torna zeros mai**: un zero és una temperatura i una humitat de debò, i inventar-lo faria que
+  una app no pogués saber si el que llegeix és cert.
+- **No és una promesa, i costa uns sis mil·lisegons.** El xip mesura quan se li demana i, mentre
+  mesura, té la línia de rellotge agafada: el torn del nucli que fa la lectura dura això i prou. Més
+  que una promesa per a un número que es llegeix un cop cada minut, i dit aquí perquè no sorprengui
+  (docs/50). **Aquella espera l'ha de deixar passar el bus**: el driver de la I2C dóna tretze
+  mil·lisegons de marge (0.10.1) i, amb el que porta de fàbrica —cent microsegons—, el xip es donava
+  per mort i `env.read()` responia `E_IO` amb la placa sencera dient que no hi havia sensor (docs/50).
+- **Dos CRCs** se supervisen abans de donar el número: una lectura amb el CRC creuat és una lectura
+  que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
+- L'exemple és l'app `air` (`run air`), que la llegeix cada dos segons.
 
 ## `imu`
 
@@ -680,12 +838,13 @@ end
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"` o `"none"`) |
-| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts |
+| `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"`, `"timer, clock"` o `"none"`) |
+| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i al banc és sempre fals. **De mà**: `run battery` (`data/apps/battery/`) ensenya els dos camins |
 | `power.sleep(opts)` | **promesa** | `{mode="light" o "deep", in_ms=<ms> o until=<època en segons>}`; es resol `true` quan la placa torna |
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
 | `power.cpu(mhz)` | número o `nil, error` | La canvia. **Els passos són 80, 160 i 240**: un altre número es refusa amb `E_INVAL` i **no s'arrodoneix** |
+| `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no, com `sys.reboot()` |
 
 - **Un son necessita una hora per tornar.** Sense `in_ms` ni `until` no hi ha res per amollar i es
   refusa amb `E_INVAL`: una placa que dorm sense hora espera un dit al botó (docs/60). També es
@@ -693,7 +852,9 @@ end
 - **`in_ms` i no `in`**: `in` és una paraula reservada de Lua i una taula amb `in=1000` ni tan sols
   s'analitza (`unexpected symbol near 'in'`, mesurat el 31/10).
 - **El son lleuger torna i la promesa es tanca** amb `true`: la memòria, l'intèrpret i la consola hi
-  són, i l'app continua exactament on era.
+  són, i l'app continua exactament on era — però **pot ser abans del que havia demanat**: un botó el
+  talla, i també la propera alarma de la cua, que és del sistema i no ha de fer cua darrere d'una app
+  que dorm. L'app que necessiti el descans sencer l'ha de tornar a demanar (docs/60).
 - **Abans de dormir, la línia s'ha buidat**: el que s'hagi escrit per la consola surt sencer i no
   tallat a mitges, perquè la UART s'atura amb el xip (docs/50).
 - **El son profund no torna.** Abans de parar el xip, el sistema **desa quina app hi ha al davant** i
@@ -702,11 +863,19 @@ end
   que s'ha de recordar ha d'anar a **disc**: la RAM no sobreviu.
 - **La promesa del son profund no es tanca mai**, i no és un defecte: l'app ja no hi és quan el xip
   torna. L'app que vol fer feina en despertar-se la fa a l'arrencada, mirant `app.args.restore`.
-- **`power.keep_awake(true)`** queda apuntat i es pot consultar; el sistema **encara no es dorm sol**,
-  o sigui que avui no canvia res, i es diu en comptes de fer creure que sí (docs/90).
-- **On es desperta cada banda**: l'ATOM pel **temporitzador del RTC** i pel **botó** (`GPIO39`); el PC
-  no dorm: mou el rellotge (docs/85). L'emulador **no es reinicia** després d'un son profund, i per
-  això les proves criden `kernel::power::restore_session()` a mà.
+- **Al Paper, un son profund és una apagada**: la placa deixa de tenir corrent i el rellotge la
+  torna a encendre a l'hora demanada (docs/50). Què es pot esperar: el xip **compta al segon** fins a
+  4 h 15 min (el seu comptador de compte enrere) i, per a esperes més llargues, al minut (l'alarma de
+  rellotge). Més d'un dia s'arma **en tandes**: la placa es desperta abans d'hora, no dona l'app per
+  desperta —ni la torna a obrir—, i s'apaga un altre cop fins a l'hora bona. Una placa amb el cable
+  posat sí que cau al son del xip, que és l'únic que pot funcionar-hi (docs/60).
+- **`power.keep_awake(true)`** atura la política d'oci: el sistema **sí que es dorm sol** quan la
+  placa té un xip de rellotge, hi ha una alarma pendent i ningú no la fa servir (docs/60), i això és
+  el que l'app pot impedir mentre està fent una cosa que no s'ha d'interrompre.
+- **On es desperta cada banda**: l'ATOM pel **temporitzador del RTC** i pel **botó** (`GPIO39`); el
+  Paper pel temporitzador del RTC i, quan està apagat, per **l'alarma del rellotge** (`"timer,
+  clock"`); el PC no dorm: mou el rellotge (docs/85). L'emulador **no es reinicia** després d'un son
+  profund, i per això les proves criden `kernel::power::restore_session()` a mà.
 - **`power.cpu` va de 80 a 240 i prou.** Per sota de 80 l'APB baixa amb la CPU i **cap perifèric del
   core es torna a configurar** (no hi ha ni un `onApbChangeCallback` registrat a `cores/esp32`): el
   port sèrie sortiria amb el baud malament, i és l'única interfície d'aquesta placa. El valor que
@@ -729,7 +898,10 @@ power.sleep({ mode = 'deep', in_ms = 300000 }):await()   -- cinc minuts
 ```
 
 L'exemple de mà és `run sleepy` (`data/apps/sleepy/`), que dorm cinc minuts, desa quantes vegades ho ha
-fet i ho torna a llegir quan la placa arrenca.
+fet i ho torna a llegir quan la placa arrenca. I `run rtccheck` (`data/apps/rtccheck/`) és el que
+mesura: diu d'on surt l'hora, què pot despertar la placa, on és la bateria, quant ha durat de debò
+una espera d'un segon i, després d'un son de vint segons, **quants mil·lisegons s'ha desviat** el
+despert de l'hora demanada.
 
 ## `log` ⏳
 

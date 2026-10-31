@@ -18,7 +18,10 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb l'app `demo` (colors, espera i lectura) |
 | Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **65 536 B** mentre `heap_limit_kb()` no digui un altre número |
 | Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (65 536 B) mentre la placa no en digui un altre |
+| **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
+| Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
 | Pressupost d'instruccions | **No existeix encara** | Avui una app que no cedeix penja la placa (docs/20, docs/90) |
+| Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb `run burst` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i el mateix `run burst` dona `limit 4 194 304 B` |
 
 Nota sobre els 338 864: és més gran que els 320 KB del full de dades del xip perquè el heap de
 l'ESP-IDF inclou regions d'instruccions que també es poden fer servir com a memòria. El número que
@@ -32,13 +35,14 @@ per aquests, no heretats.
 |---|---|---|
 | Cua d'esdeveniments | 16 × `sizeof(Event)` | **128 B** (16 × 8 B) |
 | Anella de log | 2 KB | **2 048 B** |
+| Motor dels efectes del llum (`led`) | 4 efectes del sistema + la capa de l'app | **uns 250 B**, calculat amb `sizeof` (vegeu §«El motor dels efectes»); el build de la 0.10.0 hi suma **+312 B** de RAM amb el mòdul `env` a dins, i no es poden separar sense treure'n un |
 | Buffer de línia de la shell | 1 × 128 B | **128 B** |
 | Buffer de línia de l'app (`luabind`) | 1 × 128 B | **128 B** |
 | Selector d'extensió (`shell`) | 8 candidats × 32 B + camí (128 B) + extensió (16 B) | **400 B** (mesurat: treure la tria desada va baixar la RAM estàtica de 28 948 a 28 756 B, i eixamplar el camí de 96 a 128 B l'ha apujada 32 B, fins a 28 788 B) |
 | Buffer d'ordre del nucli | 1 × 128 B | **128 B** (a la pila) |
 | Línia del log | 1 × 160 B | **160 B** (a la pila) |
 | Pila de la tasca lectora de consola | 2 048 paraules | **8 192 B** |
-| Taula de muntatges (`vfs`) | 8 entrades (7 ocupades al Paper: `/littlefs`, `/apps`, `/res`, `/data`, `/sd`, `/nvs` i `/cfg`; 6 a l'ATOM, que no té targeta) | **8 × (nom + estat + 40 B)** |
+| Taula de muntatges (`vfs`) | 10 entrades (9 ocupades al Paper: `/littlefs`, `/apps`, `/res`, `/data`, `/sd`, `/rtc`, `/fram`, `/nvs` i `/cfg`; 7 a l'ATOM, que no té targeta ni FRAM) | **10 × (nom + estat + 40 B)** |
 | Pool de fitxers (`fs_ops`) | 8 × (mànec, posició, mida) | **288 B** en total amb l'objecte de Lua (mesurat: la RAM estàtica de l'ATOM ha passat de 31 044 a 31 332 B) |
 | Cua de temporitzadors | N × mida fixa, ordenada en lloc | encara no existeix (M3) |
 | Cua d'alarmes (`lib/alarms`) | 8 entrades de 112 B | **896 B** (mesurat amb `sizeof`: `alarms::Entry` fa 112 B) |
@@ -94,15 +98,16 @@ Les files que diuen «encara no existeix» no són forats: són components de fi
 mesuren quan es fan. La resta són mides preses del codi i del mapa de l'enllaçador, amb data.
 
 Mesures de l'enllaçador a l'ATOM el 31/10 (`pio run -e atom`), amb Lua 5.4.7, `run`, les promeses i la
-baixada d'una pàgina amb TLS a dins, més el mòdul dels ajustos (`/cfg`), la reescriptura de `/res` i el
-buitat de la consola abans de dormir: **+2 920 B de flash i +40 B de RAM** sobre la mesura anterior del
-mateix dia (2 005 361 B i 92 624 B).
+baixada d'una pàgina amb TLS a dins, més el mòdul dels ajustos (`/cfg`), la reescriptura de `/res`, el
+buitat de la consola abans de dormir i la mesura de l'últim despert: **+3 612 B de flash i +40 B de
+RAM** sobre la mesura anterior del mateix dia (2 005 361 B i 92 624 B).
 
 | Què | Valor |
 |---|---|
-| Flash | **2 008 281 B** de 3 145 728 (63,8 %) — la partició d'aplicació és de 3 MB des del 31/10 |
-| Flash lliure | **1 137 447 B** |
-| RAM estàtica | **92 664 B** de 327 680 (28,3 %) |
+| Flash | **2 020 769 B** de 3 145 728 (64,2 %) — la partició d'aplicació és de 3 MB des del 31/10 |
+| Flash lliure | **1 124 959 B** |
+| RAM estàtica | **93 096 B** de 327 680 (28,4 %) |
+| **Mesurat amb la 0.10.0** (1/11, `pio run -e atom`): és el total d'avui, i el que creix des de la columna del mig d'aquesta secció són el `/rtc`, el `/fram`, el `poweroff`, la memòria extra, els efectes del llum i el sensor d'ambient. L'`atom_matrix` dona **2 020 781 B** i **95 464 B** (29,1 %) | — |
 | Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`) |
 | Pic de l'app `hello` a l'emulador | **14 364 B** de 65 536 (mateix codi al PC) |
 | Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `run wait` i `mem`) |
@@ -160,14 +165,23 @@ docs/50):
 
 | | |
 |---|---|
-| Flash | **2 064 009 B** de 4 194 304 (49,2 %) — la partició d'aplicació de `partitions_16mb.csv` |
-| Flash lliure | **2 130 295 B** per al panell i el que vingui |
-| RAM estàtica | **92 924 B** de 327 680 (28,3 %); el build informa d'un 2,1 % perquè el denominador de la placa inclou els 4,5 MB de PSRAM |
+| Flash | **2 098 905 B** de 4 194 304 (50,0 %) — la partició d'aplicació de `partitions_16mb.csv`, **mesurat amb la 0.10.1** l'1/11 |
+| Flash lliure | **2 095 399 B** per al panell i el que vingui |
+| RAM estàtica | **93 652 B** de 327 680 (28,4 %); el build informa d'un 2,1 % perquè el denominador de la placa inclou els 4,5 MB de PSRAM |
+
+**La bateria i el rellotge amb pila són el que l'ATOM no paga**; la mesura del despert, en canvi, és
+codi de nucli i hi arriba. El de les dues primeres és del xip: `hal_esp32/battery.cpp` (l'ADC1 i
+l'eFuse), `hal_esp32/bm8563.cpp` (el xip de la I2C), `hal_esp32/i2c.cpp` (el bus) i les corbes i el
+calendari de `hal/`. Costat del mateix dia: **+5 276 B de flash i +48 B de RAM** per la bateria,
+**+13 376 B i +152 B** pel bus i el rellotge (2 069 285 B i 92 972 B → 2 082 661 B i 93 124 B) i
+**+692 B** per la mesura de l'últim despert, que és de nucli i per això **sí** que arriba a l'ATOM
+(2 008 281 → 2 008 973 B). Les altres dues no hi arriben perquè cap crida les toca i
+l'enllaçador no se les emporta.
 
 **El preu d'heretar la ràdio, mesurat amb els dos builds del mateix dia**: el Paper sense ràdio era de
 **553 665 B** de flash i **52 336 B** de RAM; amb `esp_wifi`, el provisioning, el NTP i
-`esp_http_client` amb el paquet de certificats és de 2 064 009 B i 92 924 B, o sigui **+1 510 344 B de
-flash i +40 588 B de RAM**. És el mateix bloc que l'ATOM ja pagava: el que costa no és la placa, és el
+`esp_http_client` amb el paquet de certificats és de 2 083 369 B i 93 124 B, o sigui **+1 529 704 B de
+flash i +40 788 B de RAM**. És el mateix bloc que l'ATOM ja pagava: el que costa no és la placa, és el
 xip (docs/50).
 
 ## El preu de les tecles, mesurat (31/10)
@@ -216,9 +230,9 @@ fondàries al HAL de l'ATOM, `power.*` a Lua i el camí per tornar d'una app.
 |---|---|---|
 | Flash | 1 957 613 B | **1 971 281 B** (+13 668 B, amb el son i `power.cpu`) |
 | RAM estàtica | 87 408 B | **87 592 B** (+184 B) |
-| Partició de 3 MB | 62,2 % | **62,7 %** (lliures: 1 172 447 B) |
+| Partició de 3 MB | 62,2 % | **62,7 %** (lliures: 1 174 447 B) |
 
-Els +176 B són el comptador de la feina d'energia i el que costa a la política saber si hi ha una app
+Els +184 B són el comptador de la feina d'energia i el que costa a la política saber si hi ha una app
 esperant la resposta. **No hi ha cap buffer nou**: una nota de son són tres cadenes curtes a la NVS
 (`session/app`, `session/path`, `session/wake_at`) i la marca de l'època viu a la memòria del RTC.
 
@@ -302,7 +316,80 @@ l'enllaçador (`pio run -e atom -t size`), i s'apunta el número i el dia.
 - No fragmenta a posta: no hi ha pools per mida ni res per l'estil. Si el pic d'una app és massa a
   prop del sostre, es baixa el sostre i es mira on peta.
 
-`sys.heap()` dona `{free, used, limit, peak}`.
+`sys.heap()` dona `{free, used, limit, peak, extra_total, extra_free}`.
+
+## La memòria extra: la PSRAM, i transparent per a l'app (31/10)
+
+El Paper porta **8 MB de PSRAM** i la resta de plaques cap, i el que fa el sistema és el que faria
+qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del xip**.
+
+- **Qui decideix on viu un bloc és l'intèrpret i no l'app**: `kExtraThreshold` (4 096 B) a
+  `lib/luabind/src/luabind.cpp`. D'aquí cap amunt, `pal::extra_memory()` dona el bloc de la PSRAM; per
+  sota, de la RAM interna, que és més ràpida i on mil objectes petit fragmenten mil vegades menys.
+  Una app no sap res de tot això: demana memòria i prou.
+- **Si la casa preferida és plena, es prova l'altra abans de dir que no**. Un bloc pot viure a
+  qualsevol de les dues, i la PSRAM plena no és un error de l'app.
+- **El sostre d'una app al Paper és la PSRAM mapejada** (`heap_limit_kb` = 4 096 KB), perquè el que
+  ha de protegir el sistema és la seva pròpia RAM, no la memòria que l'app té de sobres. Als ATOM el
+  sostre continua essent el de per defecte (**65 536 B**), que és el que hi ha.
+- **8 MB de xip, 4 MB de veritat.** El M5Paper porta 8 MB de PSRAM i l'**ESP32 només en pot mapejar
+  4**. No és una decisió del sistema: és la manera com el xip adreça la memòria externa. La
+  documentació de l'ESP-IDF ho diu amb aquestes paraules —«only the first 4 MiB can be used as such»
+  i «the length of this region is the same as the SPI RAM size, up to the limit of 4 MB»— i, per a la
+  resta, cal el `himem`: **bancs de 32 KB** que es mapegen quan es volen i que deixen els punters
+  inútils quan es canvia de banc. Una taula de Lua que visqués allà es trencaria al mapejar el banc
+  següent, i per tant **no es pot fer transparent**: el que és transparent és el que la CPU pot
+  adreçar, i aix. no arriba enlloc (docs/90).
+- **El sistema diu els tres números i no un de sol** (31/10), perquè el primer que es va veure a la
+  placa va ser una contradicció: `mem` deia `extra memory 4067 of 8192 KB free`, que és una piscina
+  de 4 MB comptada contra un xip de 8. `IPlatform::extra_memory()` torna ara
+  `{chip_bytes, total_bytes, free_bytes}` —el que diu el full de dades, el que la CPU adreça i el
+  que en queda— i `mem` ho escriu tot: **`extra memory  4067 of 4095 KB usable, of 8192 KB on the chip
+  (psram)`**. A l'ATOM el xip és zero i la línia diu `none on this board`, que és la veritat del
+  maquinari i no un error.
+- **Mesurat a la placa amb la 0.7.1 (31/10)**, amb el prompt sol: `free heap 162 728 B`, `min free
+  heap 156 648 B` i **`extra memory 4067 of 4095 KB free (psram)`**. Els 4 095 i no 4 096 són la
+  comptabilitat del propi assignador (`heap_caps_get_total_size` descompta el que es menja la regió),
+  i el sostre de l'app continua essent **4 096 KB**: una app que demani els 4 MB sencers morirà a
+  4 095 amb un error de memòria de Lua, que és el que ha de passar i no un número arrodonit.
+- **L'espai lliure el diu la placa**, no el PC: `IPlatform::extra_memory()` surt de
+  `esp_spiram_get_size()` (el xip), `heap_caps_get_total_size` i `heap_caps_get_free_size` amb
+  `MALLOC_CAP_SPIRAM` (el que es pot fer servir), i a la consola `mem` ho ensenya amb els tres
+  números. Al banc els números són els del model —8 192 KB de xip, 4 096 mapejats— i **no es poden
+  comptar** —allà els blocs venen del heap del PC— i `docs/85` ho diu.
+- **Mesurat a la placa el 31/10**, amb el prompt sol: `free heap 162 728 B` i `min free heap
+  156 648 B` de RAM interna (menys que a l'ATOM, que en té 338 864: el Paper paga la targeta, la I2C,
+  el rellotge i les tres tecles).
+- **Mesurat al banc el 31/10**: la mateixa app (una taula de 60 000 enters, ~1 MB) **no hi cap a
+  l'ATOM** (sostre de 64 KB) i **hi cap al Paper** (sostre de 4 MB), i l'app només diu
+  `sys.heap()` per ensenyar `limit 4194304  extra 4194304`. És la prova que la memòria és
+  transparent: el mateix codi, la mateixa crida, i el que canvia és la placa.
+- **El que encara no està mesurat**: quants blocs reals van a la PSRAM en una app de debò i quants a
+  la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
+  quan hi hagi una app que ho necessiti, amb `docs/95` al costat.
+
+## El motor dels efectes del llum (31/10)
+
+Els quatre efectes (`breathe`, `blink`, `sos`, `bounce`) i les dues capes no costen ni un byte
+dinàmic: tot és estat fix a `lib/kernel/src/led.cpp`.
+
+| Què | Com es compta | Quant |
+|---|---|---|
+| Els quatre efectes del sistema | `4 × sizeof(led::Effect)` | **96 B** (24 B cada un: mena, dos colors de rampa, període, cicles, llum de la tira i nivell) |
+| La capa de l'app **i l'estat desat** per una interrupció | dos `Effect` més l'instant d'inici i el punt del cicle | **uns 90 B** |
+| **Total** | **calculat amb `sizeof`**; el build de la 0.10.0 (1/11) hi suma **+312 B** de RAM per a aquest motor **i** el mòdul `env` | **uns 250 B** de RAM estàtica (els dos junts fan els +312 B de la taula de dalt) |
+
+**I el que costa mentre corre**, que és el número que compta en una placa que vol dormir:
+
+- un frame és **30 µs** al Lite i **750 µs** al Matrix, i el motor en demana un cada **33 ms** (uns 30
+  per segon) només mentre té alguna cosa a dir. Al Lite són **0,09 % de CPU** i al Matrix **2,3 %**,
+  calculat i no mesurat;
+- quan no hi ha cap efecte ni cap moment, `next_frame_ms()` torna `-1` i el nucli torna a esperar el
+  que esperava: **un llum que no es mou no manté la placa desperta**, i ho diu el codi i no la bona
+  voluntat de qui el crida;
+- mentre hi ha un efecte, la política d'energia **no deixa la placa apagar-se**: un efecte s'ha de
+  pintar a cada torn, i una placa que s'apaga al mig d'una respiració és un llum que menteix
+  (docs/60).
 
 ## Pressupost d'instruccions
 

@@ -28,6 +28,7 @@ const CapEntry kCaps[] = {
     {"sleep_deep", kCapSleepDeep},
     {"net_prov", kCapProvisioning},
     {"imu", kCapImu},
+    {"env", kCapEnv},
 };
 
 const uint32_t kCapCount = static_cast<uint32_t>(sizeof(kCaps) / sizeof(kCaps[0]));

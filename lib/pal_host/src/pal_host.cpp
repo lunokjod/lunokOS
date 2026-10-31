@@ -18,6 +18,26 @@ namespace {
 // it by name (`pal_host::console_flushes`) and the object of the PAL is private (docs/85).
 uint32_t g_flushes = 0;
 
+// The speed of the console, when it is a wire and not a file: zero is no wait at all, which is what
+// a test wants, and the emulator asks for 115200 (docs/85).
+uint32_t g_baud = 0;
+int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
+
+int64_t now_ns() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + static_cast<int64_t>(ts.tv_nsec);
+}
+
+void sleep_until(int64_t when_ns) {
+  const int64_t wait = when_ns - now_ns();
+  if (wait <= 0) return;
+  struct timespec ts;
+  ts.tv_sec = static_cast<time_t>(wait / 1000000000LL);
+  ts.tv_nsec = static_cast<long>(wait % 1000000000LL);
+  nanosleep(&ts, nullptr);
+}
+
 }  // namespace
 
 namespace pal {
@@ -102,8 +122,32 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   // IConsole ----------------------------------------------------------------
 
   size_t write(const void* data, size_t len) override {
-    ssize_t n = ::write(STDOUT_FILENO, data, len);
-    return (n < 0) ? 0 : static_cast<size_t>(n);
+    if (g_baud == 0 || len == 0) {
+      const ssize_t plain = ::write(STDOUT_FILENO, data, len);
+      return (plain < 0) ? 0 : static_cast<size_t>(plain);
+    }
+    // The bytes go out at the speed of the wire, one slice at a time: a whole screen handed over in
+    // one `write` and then a wait at the end would look like a paste, and what a person sees on the
+    // glass is the characters arriving (docs/85). A byte is ten bits at 8N1, so 115200 baud is
+    // 86,8 us per byte and a slice of two milliseconds is about twenty-three of them.
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+    const int64_t ns_per_byte = 10000000000LL / static_cast<int64_t>(g_baud);
+    uint32_t slice = static_cast<uint32_t>(2000000LL / ((ns_per_byte > 0) ? ns_per_byte : 1));
+    if (slice == 0) slice = 1;
+    size_t done = 0;
+    while (done < len) {
+      const size_t left = len - done;
+      const uint32_t take = static_cast<uint32_t>((left < slice) ? left : slice);
+      // The wire may still be busy with what was written before: wait for it to be free and only
+      // then put this slice on, which is what the UART does when the buffer is full.
+      const int64_t start = (now_ns() > g_wire_free_ns) ? now_ns() : g_wire_free_ns;
+      sleep_until(start);
+      const ssize_t n = ::write(STDOUT_FILENO, bytes + done, take);
+      if (n <= 0) return done;
+      g_wire_free_ns = start + static_cast<int64_t>(n) * ns_per_byte;
+      done += static_cast<size_t>(n);
+    }
+    return done;
   }
 
   // A pipe to a person's terminal has no buffer of ours to wait for, but the count is
@@ -196,6 +240,28 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
 HostSystem g_system;
 
+// The PC has no PSRAM and its heap is the process's: a block is a block and there is no second home
+// to move it to. The bench says which board it is imitating in `hal_emulator` and **cannot** account
+// for the extra memory it claims, which docs/85 says out loud.
+class HostExtraMemory : public IExtraMemory {
+ public:
+  void* allocate(size_t bytes, bool prefer_extra) override {
+    (void)prefer_extra;
+    return (bytes == 0) ? nullptr : ::malloc(bytes);
+  }
+  void* resize(void* block, size_t bytes, bool prefer_extra) override {
+    (void)prefer_extra;
+    if (bytes == 0) {
+      ::free(block);
+      return nullptr;
+    }
+    return ::realloc(block, bytes);
+  }
+  void release(void* block) override { ::free(block); }
+};
+
+HostExtraMemory g_extra;
+
 }  // namespace
 
 bool init() { return g_system.bring_up(); }
@@ -203,6 +269,13 @@ bool init() { return g_system.bring_up(); }
 void shutdown() { g_system.restore_terminal(); }
 
 ISystem& system() { return g_system; }
+
+IExtraMemory& extra_memory() { return g_extra; }
+
+void set_console_baud(uint32_t baud) {
+  g_baud = baud;
+  g_wire_free_ns = 0;  // a new speed starts from a wire that is free
+}
 
 }  // namespace pal
 

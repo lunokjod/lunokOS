@@ -1,0 +1,8 @@
+{
+  "title": "Later",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "later.lua",
+  "boards": ["esp32"],
+  "description": "Arms an alarm, leaves, and comes back when it goes off, saying how far off it was."
+}

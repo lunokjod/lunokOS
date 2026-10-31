@@ -1,0 +1,6 @@
+{
+  "title": "Air",
+  "version": "0.1.0",
+  "entry": "air.lua",
+  "boards": ["esp32"]
+}

@@ -16,14 +16,15 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 
 | Interfície | Què abstrau | Lite | Matrix | Paper | Emulador |
 |---|---|---|---|---|---|
-| `IClock` | hora de paret, rellotge monòton, **un sol** despertador | ✓ | ✓ | ✓ (del SoC) | ✓ |
+| `IClock` | hora de paret, rellotge monòton, **un sol** despertador, i tornar a prendre l'hora al xip | ✓ | ✓ | ✓ (**amb la BM8563**: l'hora sobreviu al cable, el xip arma el despert i corregeix el comptador després de cada son) | ✓ |
 | `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ |
 | `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ |
 | `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | de mentida |
-| `IPower` | bateria, son, velocitat del processador | ✓ | ✓ | ✓ (sense bateria) | de mentida |
-| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 25 |
-| `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | ✓ (3) |
+| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada** | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
+| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | el del model: 1, 25 o cap |
+| `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | ✓ (les del model) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | de mentida |
+| `ISensor` | l'aire: temperatura i humitat relatives | — | — | ✓ (**SHT30**, a la I2C interna; es mesura quan es demana i no té estat) | de mentida (el model del Paper) |
 | `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — |
 
 El contracte sencer, amb totes les funcions i els comentaris que les expliquen, és a
@@ -84,6 +85,9 @@ llibreria de placa no en copia res: ho fa servir i diu els pins.
 | `esp32/ws2812.h` | El **controlador** d'una tira de WS2812 per RMT. **El xip no té cap llum**: el pin i quantes n'hi ha són paràmetres de plantilla que posa la placa (els buffers són de la mida de la tira d'aquella placa, docs/75) |
 | `esp32/net.h` | La ràdio: `esp_wifi` directe, scans, provisioning (AP i Bluetooth), NTP i una pàgina amb TLS |
 | `esp32/sd_card.h` | Una targeta al **slot** de la placa: FATFS per SPI i les crides de fitxer. **El xip no té ranura**; els quatre pins i l'host SPI els diu la placa. La targeta i el panell del Paper comparteixen bus |
+| `esp32/i2c.h` | El bus I2C: una parella de pins i les dues transaccions que parlen tots aquests xips (escriure, i escriure un registre i llegir-ne). **El xip no té cap xip penjat**; què hi ha a la línia ho diu cada placa |
+| `esp32/bm8563.h` | El **rellotge amb pila** d'aquesta família de xips: hora en BCD, el bit VL que diu si ha perdut la pila, i l'escriptura. La placa diu l'adreça i el bus |
+| `esp32/rtc_clock.h` | El patró de qualsevol placa amb un rellotge amb pila a sobre del del xip: el SoC compta (monòton i despert) i el xip recorda (es llegeix a l'arrencada i s'hi escriu a cada `set_epoch`) |
 
 La línia que separa les dues llibreries és aquesta: **si el codi no sap sobre quina placa corre, és
 del xip; si ha de saber un pin, una etiqueta de partició o quants llums hi ha, és de la placa.** I el
@@ -101,20 +105,22 @@ amb dues capçaleres de nom fix:
 | `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`; al banc, el model que se li ha dit que és |
 | `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]`, i val per a les quatre bandes |
 | `emulator()` | cert només al PC, i és el que diu que la placa de sota `id()` és de mentida |
-| `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap a la Paper ni al banc |
+| `led_count()` | quants llums: 1 al Lite, 25 al Matrix i cap al Paper. **Al banc no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1, 25 o 0) |
 | `led_max()` | el sostre d'un canal: 255 al Lite, 20 al Matrix i al banc |
 | `has_imu()` | si la placa porta sensor inercial |
 
 El banc té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
 models que sap ser —`m5stack-atom`, `m5stack-atom-matrix` i `m5stack-paper`—. No els respon tots alhora:
-la persona li diu quin és (`--board m5stack-paper`, i sense res és l'ATOM) i `id()` i
+la persona li diu quin és (`--board m5stack-paper`, i **cal dir-lo**: el banc no tria placa) i `id()` i
 `board_name()` responen **aquell**, de manera que una app s'accepta o es refusa al PC igual que a la
 placa (docs/40, docs/85). `sys.emulator` continua cert: el nom és el d'una placa que existeix i el
 maquinari de sota és fals.
 
-El maquinari fals és la **uniò** dels tres models —tres tecles, panell de 25 i sensor—, perquè el
-que no hi és no es pot provar. Per això una app que demani més del que té el seu model ho trobarà al
-banc i ha de mirar `sys.emulator` abans de creure's els números.
+El maquinari fals **segueix el model** que el banc ha rebut —capacitats, nombre de llums, nombre de
+tecles, sensor, indicador de bateria, ranura i FRAM surten tots de `emu::model()`—, perquè una app que
+demani més del que té la seva placa no ho trobi al banc i es cregui un número de mentida. L'únic que
+encara és comú als tres models és la **forma de les tecles** (el dial compost de la Paper: cara
+esquerra, `centre`/`up`/`down`), i això és el que queda a M8 (docs/90).
 
 `board/impl.h` arrossega les capçaleres de debò (el HAL d'aquesta placa i la seva PAL), i només
 l'inclou `src/board_link.cpp`.
@@ -154,6 +160,24 @@ política és del nucli i no del driver: qui mana què es pinta és `lib/kernel/
 quedaria a la primera. El sostre del canal és una constant de la identitat i no un gust, i el sistema el
 fa complir **abans** que res arribi al driver; l'emulador té el mateix sostre perquè el PC no amagui un
 límit que la placa té.
+
+**Què diu el llum, i per què hi ha dues capes.** El driver només sap pintar; qui decideix el color és
+`lib/kernel/src/led.cpp`, i ho fa en dues capes (docs/30):
+
+- **el sistema**, amb quatre moments i quatre efectes: respiració blanca a l'arrencada, parpelleig blau
+  mentre la ràdio treballa, rebot turquesa quan venç una alarma i SOS vermell quan el registre escriu
+  un error. L'ordre mana: un error no el tapa una alarma, i una alarma no la tapa la ràdio;
+- **l'app**, amb `led.play`: mentre dura, el que diu l'app és el llum, i en marxar es deixa anar (i
+  deixar anar vol dir apagar, no tornar al color d'abans).
+
+Els quatre efectes són `breathe`, `blink`, `sos` i `bounce`, i **no hi ha cap fil nou**: un efecte és
+una funció del temps des que va començar, i el nucli el pinta a final de cada torn demanant-li a
+`ILed` només el canvi (docs/30, docs/75). El que això compra és que una animació no pugui anar
+endarrerida ni estirada: un torn que arriba tard pinta el frame d'aquell mil·lisegon.
+
+**Un llum encès és corrent**, i per això el motor té tres regles d'estalvi: els efectes tenen un
+sostre de nivell (`level`) que no és 255 si no cal; un moment del sistema **sempre s'acaba**; i la
+política d'energia no deixa la placa apagar-se mentre el llum té alguna cosa a dir (docs/60).
 
 ## Les tecles
 
@@ -331,8 +355,9 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
 - **El RTC d'aquest xip és l'oscil·lador RC intern** (no hi ha cristall de 32 kHz a la placa): el drift
   és real i és un número que s'ha de mesurar (docs/90).
 - **El port sèrie no el desperta.** `esp_sleep_enable_uart_wakeup` existeix, però un caràcter que arribi
-  mentre dorm es perd; i per això el sistema **no s'adorm sol**: una placa sense pantalla que s'adorm
-  quan ningú escriu es menjaria les tecles de la persona (docs/90).
+  mentre dorm es perd; i per això una placa **sense xip de rellotge no s'adorm sola**: una placa sense
+  pantalla que s'adorm quan ningú escriu es menjaria les tecles de la persona. Al Paper sí que ho fa,
+  i només quan hi ha una alarma pendent (docs/60).
 - **La línia s'ha buidat abans de parar el rellotge.** Un `write()` de la consola torna quan el byte és
   al buffer del port, no quan ha sortit pel fil, i els dos sons aturen la UART: sense esperar, l'última
   línia que llegeix una persona arriba **tallada a mitges**. El nucli ho demana a la consola
@@ -345,6 +370,32 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   passos es refusa, no s'arrodoneix.
 - **No hi ha DFS.** `CONFIG_PM_ENABLE` no està activat al framework precompilat, o sigui que pujar i
   baixar sol queda fora i la velocitat és sempre una decisió de qui la demana.
+
+## Apagar tot el que es pot apagar
+
+> **Cap maquinari s'afegeix sense la seva política d'energia.** Dormir és l'única manera d'estalviar
+> bateria, i una peça que només se sap encendre està feta a mitges.
+
+Tres preguntes abans d'escriure el driver d'una peça nova, i les respostes van al document de la
+placa, no al cap de qui la va escriure:
+
+1. **Té una alimentació que es pot tallar?** S'encén just abans d'usar-la i es torna a apagar de
+   seguida; mai encesa «per si de cas».
+2. **Té un mode de repòs propi?** (el panell IT8951E té `PON`/`POFF`, el GT911 accepta reset, el
+   SHT30 fa una mesura i torna a dormir.) S'hi entra quan el sistema dorm i quan ningú la mira.
+3. **Pot despertar el sistema?** Si pot, ha de sortir a `power.caps().wake` i ha de ser una font de
+   despert de debò: una promesa que el maquinari no compleix és pitjor que no tenir-ne.
+
+I el que hi ha avui, sense prometre res que no s'hagi mesurat:
+
+| Rail o peça | Estat |
+|---|---|
+| Main power hold (**GPIO2**) | **Encesa sempre**: sense ella la placa s'apaga. Deixar-la anar és l'últim pas d'**apagar-la** (`poweroff`), i la seqüència sencera és la del fabricant: **GPIO23** (alimentació del panell), **GPIO5** (ports HY2.0), **GPIO2** i son profund del xip. Amb el cable posat el corrent no cau, i per això l'últim pas és el son: la placa calla igualment (mesurat al codi de `M5Paper_FactoryTest`, `Shutdown()`) |
+| Alimentació del panell (**GPIO23**) | **Apagada**, i hi queda fins que arribi el driver del panell (docs/90) |
+| Alimentació dels ports HY2.0 (**GPIO5**) | **Apagada**, igual |
+| Targeta SD | **No té interruptor**: el que hi hagi al slot consumeix mentre la placa és encesa. És un fet de la placa i no una decisió |
+| BM8563 (pila de botó) | No la governa el sistema: la pila la manté quan no hi ha corrent. El que consumeix la I2C quan està en repòs **no està mesurat** |
+| Llums WS2812 | Un color encès consumeix mentre hi és; el nucli els apaga quan l'app marxa (docs/30) |
 
 ## La consola
 
@@ -402,22 +453,22 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
 | `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
 | `display` | — | — | — | — | **Reservat**: la interfície hi és i encara no la implementa cap placa (docs/90) |
-| `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i al banc |
-| `led` | ✓ | ✓ | — | ✓ | El Paper no té cap llum |
-| `imu` | — | ✓ | — | ✓ | El Lite no en té i la crida respon `E_UNSUPPORTED` |
+| `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, al banc, les del model |
+| `led` | ✓ | ✓ | — | ✓ al model que en té (no al del Paper) | El Paper no té cap llum |
+| `imu` | — | ✓ | — | ✓ al model del Matrix | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
-| `sd` | — | — | ✓ amb targeta | ✓ amb `--sd` | Targeta SD per SPI (FATFS), muntada a `/sd` a **10 MHz**. Només s'anuncia si una targeta de debò ha muntat: al Paper quan n'hi ha una al slot, al banc quan se li diu `--sd <dir>`. El Lite i el Matrix no tenen ranura |
+| `sd` | — | — | ✓ amb targeta | ✓ amb `--sd`, si el model té ranura | Targeta SD per SPI (FATFS), muntada a `/sd` a **10 MHz**. Només s'anuncia si una targeta de debò ha muntat: al Paper quan n'hi ha una al slot, al banc quan se li diu `--sd <dir>` **i** el model imitat la té (el Paper; els ATOM no en tenen) |
 | `nvs` | ✓ | ✓ | ✓ | ✓ | Partició NVS / directori de fitxers |
-| `rtc` | ✓ | ✓ | ✓ | ✓ | El **domini RTC del xip**: el temporitzador RC i la memòria RTC. Dona l'hora mentre hi ha corrent i **la perd en desconnectar**; cap xip amb pila en ús (el BM8563 del Paper encara no es llegeix, docs/90) |
+| `rtc` | ✓ | ✓ | ✓ | ✓ | Dona l'hora mentre hi ha corrent. **Al Paper és de debò**: la BM8563 amb pila de botó es llegeix a l'arrencada i s'hi escriu a cada `set_epoch`, així que `time.caps().source` diu `"rtc"` i l'hora sobreviu a treure el cable (docs/60). A l'ATOM i al Matrix és el **domini RTC del xip**, que la perd |
 | `rtc_wake` | ✓ | ✓ | ✓ | ✓ | Despertar pel temporitzador del RTC (i pel botó, a l'ATOM) |
 | `net_wifi` | ✓ | ✓ | ✓ | ✓ | La ràdio de debò / la de mentida (docs/85); la del Paper és la del xip i **està provada a la placa** (31/10) |
 | `net_http` | ✓ | ✓ | ✓ | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
 | `net_prov` | ✓ | ✓ | ✓ | ✓ | El component d'Espressif / l'AP de mentida |
-| `battery` | — | — | — | — | Cap d'aquestes bandes pot dir l'estat d'una bateria |
+| `battery` | — | — | ✓ | ✓ amb `--battery-mv`, si el model té indicador | El Paper la llegeix del divisor de GPIO35 i el banc del número que se li diu, **i només si el model imitat en té** (el Paper; els ATOM no). Només s'anuncia quan la lectura és un número que pot ser una cel·la; `charging` és **fals sempre** perquè cap d'aquestes bandes no té un pin per preguntar-ho (docs/30) |
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 17: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 17** al Lite, **14 de 17** al Matrix (que hi afegeix `imu`), **12 de 17** al Paper (hi afegeix el disc i les tres tecles; **13** quan hi ha targeta al slot) i **14 de 17** a l'emulador (**15** amb `--sd`, i 13 si el terminal no és ANSI).
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **13 de 18** al Paper amb el SHT30 contestant i sense bateria ni targeta —**14** amb la bateria llegida **o** la targeta, **15** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 18** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv`. L'única que no té ningú és `display`.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -453,8 +504,8 @@ Conseqüències que aquesta placa imposa:
 | Pantalla | **E-ink de 4,7 polzades, 960 × 540** (540 × 960 en vertical), **16 nivells de gris**, controlador **IT8951E** per SPI |
 | Entrada | **Tres tecles** (esquerra, central `PWR`, dreta) **i panell tàctil GT911** per I2C |
 | Sensor | SHT30 (temperatura i humitat) i una EEPROM FM24C02 |
-| Rellotge | **BM8563** amb pila de botó: és el que sobreviu a treure el cable (encara no es llegeix) |
-| Bateria | 1150 mAh, amb divisor a **GPIO35** (encara no es calibra) |
+| Rellotge | **BM8563** amb pila de botó, a la I2C interna (0x51): es llegeix a l'arrencada i s'hi escriu l'hora a cada canvi d'època, o sigui que **sobreviu a treure el cable**. El seu `INT` **no arriba a cap GPIO** —al mapa del fabricant només el té la GT911, a GPIO36—: arriba al **circuit d'alimentació** (el SY7088), i per això la seva alarma és el que **torna a encendre la placa** quan s'ha apagat del tot (vegeu «Apagar-se de debò», a sota) |
+| Bateria | 1150 mAh, amb divisor a **GPIO35** (×2): es llegeix (`esp32_battery`, ADC1 canal 7) i el % surt de la corba de `hal/battery.h`. **Pendent de creuar amb un multímetre**, que és l'única cosa que diu si el divisor i l'ADC diuen la veritat. De mà: `run battery` |
 | Expansió | Tres ports HY2.0-4P (A: G25/G32, B: G26/G33, C: G18/G19) i una ranura microSD |
 | Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat (vegeu el bloc de sota) |
 
@@ -468,7 +519,146 @@ Pins que el HAL fa servir, i que són els de la llibreria del fabricant (`M5EPD.
 | microSD: CS (comparteix SCK/MOSI/MISO amb el panell) | GPIO4 |
 | I2C intern: SDA, SCL | GPIO21, GPIO22 |
 | GT911 (0x14) amb INT a GPIO36 · SHT30 (0x44) · BM8563 (0x51) · FM24C02 (0x50) | al mateix bus |
+
+### El bus ha de deixar que el xip aguanti el rellotge (mesurat l'1/11)
+
+Un xip de la I2C pot **aguantar la línia del rellotge a baix** mentre pensa, i això és
+clock stretching: el mestre ha d'esperar i no pot comptar-ho com una avaria. El driver
+d'aquest IDF (**v4.4.6**, el que enllaça el build; ho diu `tools/sdk/versions.txt` del
+paquet del framework) hi posa un sostre per defecte a `i2c_ll_cal_bus_clk`:
+
+```c
+clk_cal->tout = half_cycle * 20;   // deu cicles de bus
+```
+
+A 100 kHz i 80 MHz d'APB són **8 000 cicles = 100 µs**. El SHT30, amb clock stretching i
+repetibilitat mitjana, aguanta el rellotge fins a **6 ms**: cinquanta vegades més. La
+conseqüència, a la placa:
+
+```
+i2c: read of 44 failed (ESP_ERR_TIMEOUT)
+  env  no
+```
+
+i, a més, el driver **reseteja el bus sencer** quan això passa (`i2c_hw_fsm_reset`), que és
+per què la resta de xips de la I2C (el rellotge, la FRAM) van seguir funcionant i el sensor
+no hi era enlloc. La 0.10.1 fixa el sostre al **màxim del registre**, `0xFFFFF` cicles =
+**13,1 ms a 80 MHz**, amb `i2c_set_timeout()` **després** de `i2c_param_config()` (que és qui
+escriu el sostre de deu cicles). Dues notes que això deixa lligades:
+
+- **la repetibilitat mitjana és el que hi cap**: l'alta és de **15 ms** i no passaria del
+  sostre; per això el driver demana `0x2C 0x0D` i no `0x2C 0x06` (docs/50, `esp32/sht30.h`);
+- **el sostre se sobreviu a un reset de bus**: `i2c_hw_fsm_reset` desa i torna a escriure el
+  temps límit, o sigui que un timeout no el deixa baix per sempre.
+
+**Comprovat a la placa l'1/11 amb la 0.10.1**: `caps` diu `env yes` i `run air` dona
+`air 21.1 C 63.5 %` dues vegades seguides, sense cap línia `i2c:` al log (docs/95, E-5).
+
+
+### Què en fa el sistema, avui (31/10)
+
+| Peça | Estat | Què falta |
+|---|---|---|
+| ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
+| 16 MB de flash | **fet**: 2 098 905 B (50,0 %, mesurat amb la 0.10.1 l'1/11) i 11,9 MB de disc | — |
+| **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
+| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **res**: `IDisplay` existeix i està reservada, i `kCapDisplay` no s'anuncia | **el driver sencer**: comandes de l'IT8951E, els modes (`INIT`, `DU4`, `GC16`), el marc de 4 bits per píxel i la política d'encesa de GPIO23 (docs/90 pas 2) |
+| **GT911**, tàctil de dos dits amb gestos (I2C 0x14, INT GPIO36) | **res**: no hi ha interfície de toc al HAL | `ITouch` + la seva crida de Lua (docs/90 pas 8) |
+| **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
+| **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |
+| **BM8563** amb pila (I2C 0x51) i la seva alarma al SY7088 | **fet**: l'hora, el despert, i `poweroff` | les dues proves de foc (docs/95, A-2) |
+| **SY7088** i les tres alimentacions (hold GPIO2, EPD GPIO23, ports GPIO5) | **a mitges**: el hold es manté i es deixa anar, i les altres dues **es tanquen** al `poweroff` | **encendre-les només mentre s'usen** (docs/90 pas 8): és la política que estalvia corrent |
+| Bateria de 1150 mAh (ADC GPIO35 ×2) | **fet de codi** | la mesura amb el multímetre (docs/95, B-1) |
+| Dial de tres tecles (37/38/39) | **fet** | comprovar quina és `up` (docs/95, E-1) |
+| microSD (CS 4, bus compartit amb el panell, 10 MHz) | **fet i provat** | si 20 MHz també hi van (docs/95, C-2) |
+| **3 ports HY2.0-4P**: A G25/G32 (I2C), B G26/G33 (DAC/ADC), C G18/G19 (UART) | **res**: no hi ha cap manera que una app toqui un GPIO | **una crida de Lua** (`gpio.*`) o res: és una decisió de política, no un driver |
+| Pont USB-sèrie CP2104 o CH9102 | **fet** | la latència (docs/95, D-1) |
+| Ràdio 2,4 GHz (Wi-Fi i BLE) | **fet**: `wifi`, provisioning, `ntp`, `http` | el `net.softap`, que ningú no ha demanat |
+| **No hi ha** llum, ni sensor inercial, ni altaveu | **correcte**: `kCapLed` i `kCapImu` no s'anuncien mai en aquesta placa | — |
+
+És a dir: **14 de les 17 capacitats**, que és el màxim d'aquesta placa; l'única que hi és i falta és la
+**pantalla**.
 | Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
+
+### Apagar-se de debò: el son profund d'aquesta placa no és un son
+
+El mapa de pins del fabricant té una columna `INT` a la taula de la I2C interna, i només la té
+plena la GT911 (GPIO36). La BM8563 hi té una barra, i durant un temps aquí es va llegir com «la seva
+alarma no es pot fer servir». **És fals a mitges**: no arriba a un GPIO, però sí al circuit
+d'alimentació. La llibreria del fabricant ho diu sense embuts:
+
+```
+M5EPD::shutdown(int seconds)  =  RTC.clearIRQ(); RTC.setAlarmIRQ(seconds); disableMainPower();
+```
+
+`disableMainPower()` és **baixar GPIO2**, el mateix pin que el HAL posa alt perquè la placa no
+s'apagui sola. O sigui que:
+
+- **`sleep deep` aquí apaga la placa:** s'arma el xip (`Bm8563::arm_at`, amb el compte enrere o
+  l'alarma de rellotge segons què arribi més lluny i amb més exactitud), es baixa GPIO2, i la placa es
+  queda sense corrent. La pila de botó manté el rellotge comptant i el seu `INT` torna a encendre el
+  SY7088 a l'hora demanada: el pin és de **drenatge obert**, o sigui que amb la placa sense corrent
+  encara pot baixar la línia, que és exactament el que el circuit d'alimentació necessita. És el mínim
+  consum que aquesta placa pot fer, i és el que demana la regla d'energia del README.
+- **Amb el cable posat la placa no es pot apagar** (ho diu el fabricant): baixar GPIO2 no la fa caure,
+  i el hold es torna a **pujar de seguida** perquè el son que ve és el del xip i la placa no ha de
+  quedar penjada del cable per seguir encesa —un cable que parpelleja és una placa que torna sola i
+  que no arriba mai a la seva hora—. Cau al son profund del xip, que desperta amb el seu
+  temporitzador. No es perd res: l'hora és al xip.
+- **L'hora del xip s'alinea abans d'armar-lo.** Mentre la placa va, ningú no escriu el xip (només
+  s'hi escriu quan algú posa l'època), o sigui que pot estar dies enrere de l'hora que el sistema
+  dona a les apps. Com que la data demanada s'ha expressat en l'hora del sistema, s'hi escriu
+  aquella hora abans d'armar: sinó la placa es quedaria apagada el temps equivocat.
+- **Tres guardes abans de tallar el corrent**, i cada una és una placa que no tornaria: que hi hagi
+  una hora per escriure-hi (una placa que ningú no ha posat no pot armar cap espera, i una pila morta
+  no sonaria mai), que l'espera sigui **menys d'un dia** (més enllà, el xip no sap expressar-la), i
+  que hi hagi alguna cosa a esperar.
+- **El xip té dues maneres d'avisar, i s'usa la més exacta que arribi** (`hal/alarm.h`):
+  - el **comptador de compte enrere** (`0x0E` + `0x0F`), amb un tic per segon fins a **255 s** i un
+    tic per minut fins a **255 minuts** (4 h 15 min) — és el que fa que una alarma a 30 s soni al
+    segon i no al minut;
+  - l'**alarma de rellotge** (`0x09`–`0x0C`, hora i minut) per a esperes de més de quatre hores, que
+    s'arrodoneix **cap amunt**: despertar-se abans d'hora faria que la placa tornés a armar la
+    mateixa hora i minut, i això és l'endemà;
+  - i per a una espera **de més d'un dia** no hi ha res més, però tampoc no cal: s'arma la primera
+    coincidència, la placa es desperta abans d'hora, troba que no toca i **torna a armar**. El quars
+    compta igual i el preu és un arrencada de més per dia, que és menys que tenir la placa encesa
+    esperant. **L'app no es dona per desperta en una tanda**: el nucli desa l'hora que falta, no la
+    restaura i s'apaga un altre cop (docs/60).
+- **Qui decideix apagar-se no és una app: és el nucli.** A cada torn, `kernel::power` mira si hi ha
+  una alarma pendent i si ningú no fa servir la placa —deu segons de consola en silenci, cap app
+  oberta i cap `keep_awake`— i, si l'espera és de **deu segons o més**, s'apaga fins a aquella
+  alarma. Amb menys de deu segons es queda despert: un despert d'una apagada és un arrencada, i no
+  val la pena per a nou segons. `power idle off` ho desactiva mentre una persona treballa al prompt.
+- **Qui va despertar-ho**: després d'una apagada, un despert per alarma i una premuda del botó `PWR`
+  són el mateix arrencada. L'única cosa que els distingeix és el bit `AF` del xip, que es llegeix
+  **abans** de desarmar-lo (`RtcClock::woke_by_alarm`). Avui es llegeix i es desa; ensenyar-ho al
+  sistema és feina pendent (docs/90).
+
+El que encara no està provat a la placa: que el corrent caigui de debò i que l'alarma el torni a
+pujar. És la primera cosa de la llista de mesures de `docs/90`.
+
+### `poweroff`: apagar sense tornar
+
+`sleep deep` apaga la placa **perquè torni**; `poweroff` l'apaga i no arma res. La seqüència no és
+només baixar GPIO2, i és la que fa servir el firmware de fàbrica del fabricant
+(`M5Paper_FactoryTest`, `Shutdown()` a `global_setting.cpp`):
+
+```
+fflush  →  espera 600 ms  →  GPIO23 = 0  →  GPIO5 = 0  →  GPIO2 = 0  →  esp_deep_sleep_start()
+```
+
+Les dues primeres són **l'alimentació del panell** i la dels **ports HY2.0**; l'última és el xip
+posat a dormir, perquè amb el cable posat el corrent no cau i la placa ha de callar igualment. La
+`M5EPD::shutdown()` de la llibreria, la que no té hora, només fa `disableMainPower()`.
+
+L'única cosa que s'hi afegeix és **desarmar la BM8563 abans**: la `shutdown()` de la llibreria no
+mira l'alarma, i una que vingués d'un son anterior tornaria a encendre una placa que hom ha demanat
+apagada. La seva pròpia `shutdown(seconds)` sí que comença amb `RTC.clearIRQ()`, o sigui que la
+llibreria també ho fa quan pensa en el rellotge.
+
+I com que el son profund no té cap font de despertar, **l'única manera de tornar-la a encendre és el
+botó** (o treure i posar el cable).
 
 El **CS del panell (GPIO15) s'ha de posar alt abans de tocar el bus**: és un pin de *strapping* que
 la placa porta a baix, o sigui que l'IT8951E arrenca **seleccionat** i comparteix MISO amb la targeta.
@@ -490,20 +680,25 @@ d'ona i el VCOM els té ell) i la del pont USB-sèrie és un controlador del PC,
 L'única cosa que s'ha de vigilar és la del pont: si el port no apareix, és el driver del CP2104 o del
 CH9102, no el firmware.
 
-**Què hi ha avui en aquesta placa** (docs/90): consola, LittleFS, NVS, rellotge del SoC, les dues
-fondàries de son amb el despert pel temporitzador del RTC, la velocitat del processador, **les tres
-tecles** (docs/30), **la ràdio** —la mateixa de l'ATOM, perquè és la del xip: `wifi`, `provision`,
-`ntp` i `http`—, **provada en aquest maquinari i funcionant** (31/10), i **la targeta microSD** quan
-n'hi ha una al slot (SPI: CS 4, compartint SCK/MOSI/MISO amb el panell). **No hi és encara** el panell
-(IT8951E), el toc (GT911), el rellotge BM8563 i la bateria: la taula de capacitats ho diu en comptes
-de prometre-ho.
+**Què hi ha avui en aquesta placa** (docs/90): consola, LittleFS, NVS, **el rellotge BM8563 amb pila**
+(l'única hora que sobreviu a treure el cable), les dues fondúries de son amb el despert pel
+temporitzador del RTC, la velocitat del processador, **les tres tecles** (docs/30), **la ràdio** —la
+mateixa de l'ATOM, perquè és la del xip: `wifi`, `provision`, `ntp` i `http`—, **provada en aquest
+maquinari i funcionant** (31/10), **la targeta microSD** quan n'hi ha una al slot (SPI: CS 4,
+compartint SCK/MOSI/MISO amb el panell) i **la bateria**, que es llegeix del divisor de GPIO35.
+**No hi és encara** el panell (IT8951E) ni el toc (GT911): la taula de capacitats ho diu en comptes
+de prometre-ho. I dues coses estan escrites però **no verificades en aquest maquinari**: que el
+`mv` de la bateria quadri amb un multímetre, i que l'hora segueixi allà després de desendollar-lo.
 
 **Què està provat i què no**: `pio run -e paper` **compila net** (zero avisos propis, docs/75) i el
 binari que en surt porta la identitat del Paper i cap de les de l'ATOM. **S'ha flashejat i arrenca**
-(31/10): el banner diu `lunokOS 0.6.0  m5stack-paper`, el prompt respon, `caps` dona **12 de 17**
-(13 amb la targeta al slot), `mounts` llista `/sd` amb **15 193 MB**, `ls sd` el llegeix, `cfg` diu la
-targeta, i **la ràdio funciona**: l'`INet` d'aquesta placa està provat en aquest maquinari (31/10).
-El que **encara no s'ha vist** en aquest maquinari és el panell, el toc, el BM8563 i la bateria.
+(31/10 amb la 0.6.0 i l'1/11 amb la 0.10.1): el banner diu `lunokOS <versió>  board m5stack-paper`, el
+prompt respon, `caps` dona **15 de 18** amb bateria i targeta dins (12 de 18 amb la 0.6.0, que encara
+no tenia ni el sensor ni el `led`), `mounts` llista `/sd` amb **15 193 MB**, `ls sd` el llegeix, `cfg` diu la
+targeta, `run air` dona temperatura i humitat, i **la ràdio funciona**: l'`INet` d'aquesta placa està
+provat en aquest maquinari (31/10).
+El que **encara no s'ha vist** en aquest maquinari és el panell i el toc; el que s'ha vist i s'ha
+verificat és a la llista de dalt, amb el que queda pendent dit allà mateix.
 
 **El pont USB-sèrie: quin és, i com saber-ho.** És un xip que hi ha entre l'USB i la UART del ESP32, i
 **el firmware no el pot veure**: no hi ha cap línia de dades entre ells més enllà de TX i RX, ni I2C ni

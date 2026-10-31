@@ -1,0 +1,6 @@
+{
+  "title": "Glow",
+  "version": "0.1.0",
+  "entry": "glow.lua",
+  "boards": ["esp32"]
+}

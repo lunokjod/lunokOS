@@ -123,6 +123,46 @@ pio test -e test           # proves natives
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
+## Què s'ha de posar a la placa (31/10)
+
+A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
+
+| Què | Ordre | On va |
+|---|---|---|
+| El firmware | `pio run -e paper -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
+| El disc: les apps i els `res/` | `pio run -e paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `data/` |
+
+- **Sense el segon, la placa arrenca i no té cap app**: `apps` surt buit, `run hello` diu que no la
+  troba, i això no és cap error del sistema. Es fa un cop, i cada cop que canviï `data/`.
+- **No cal posar res a la targeta SD**: el slot és una targeta i prou. Si n'hi ha una, `/sd` apareix i
+  `cfg auto` hi desa els ajustos; cap fitxer és obligatori.
+- **`emulator/littlefs` no es puja mai**: és la còpia del banc (docs/85). El que es puja és `data/`.
+- El nom d'un fitxer de `data/` no pot passar de 32 caràcters: `tools/check_fs_names.py` ho converteix
+  en un build fallit en lloc de deixar que la imatge el perdi en silenci (docs/70).
+- Per saber que tot hi és, després de flashejar: `version` (la versió i la placa), `caps` (**14 de
+  17** al Paper amb targeta i bateria), `mem` (els tres números de la memòria extra), `mounts` (fins a
+  nou files, amb `/rtc` i `/fram`) i `apps` (les apps del disc). I `run heap`, que és la meitat que
+  falta de la mesura E-4 de `docs/95`.
+
+## La versió: X.Y.Z, i puja a cada canvi (31/10)
+
+La versió és **`kernel::kVersion`** (`lib/kernel/include/kernel/version.h`) i surt al banner de cada
+arrencada, a `version` i a `app.version`. La regla és del propietari del projecte, i no és opcional:
+
+| Dígit | Quan puja | Exemples |
+|---|---|---|
+| **Z** (pedaç) | una correcció, un número que s'ha mesurat, un document que deia una cosa falsa | un marge que era un minut curt, el drift que comptava l'arrencada, `docs/70` que deia que `/fram` no hi era |
+| **Y** (menor) | una cosa **nova** que una persona o una app pot fer servir | una crida de Lua, un comandament del prompt (`poweroff`), una peça de maquinari conduïda (la FRAM, la PSRAM), `run <id> [path]` |
+| **X** (major) | una **reescriptura de debò**, d'aquelles que fan que una app que anava s'hagi de tornar a mirar | canviar el model d'apps o el contracte de Lua d'una manera que trenca |
+
+- **Cada canvi puja un dels tres, i el número puja al mateix commit que el canvi.** Un torn que toca
+  codi i no toca `kVersion` és un torn a mitges.
+- Si un torn fa diverses coses, mana la **més gran**: dues crides noves i un pedaç són un **Y**.
+- El número que es posa a la capçalera del fitxer no s'esborra: el darrer de la llista és el que val,
+  i cada línia diu el dia i què va ser (les de pedaç no cal que hi siguin totes; les de menor i major,
+  sí).
+- **`app.version` no és aquesta**: és la de cada app i la puja qui l'escriu (docs/40).
+
 ## Què és una prova aquí
 
 Quatre nivells, i cada cosa va al seu:
@@ -132,6 +172,7 @@ Quatre nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_json/` | Resolució de camins, muntatges, llistat de `/`, analitzador JSON |
 | **Unitat** | `test/test_alarms/` | La cua d'alarmes: ordre, repeticions, perdudes i la còpia a la NVS |
 | **Unitat** | `test/test_qr/` | El símbol llegit de tornada com el llegiria un escàner: BCH, desmàscara i Reed-Solomon |
+| **Unitat** | `test/test_led/` | El motor dels efectes: els quatre efectes com a funció del temps, les dues capes, la interrupció pel sistema (desar, pintar, restaurar i avisar `on_light`) i el sostre de brillantor de la placa |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten |
 | **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |

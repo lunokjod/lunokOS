@@ -7,6 +7,7 @@
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
+#include "kernel/env.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
@@ -165,6 +166,10 @@ void deliver_alarms() {
   alarms::Entry entry;
   int64_t now = clock_mono();
   while (alarms::take_due(now, entry)) {
+    // A light says an alarm went off even when the app's answer is a line on a console
+    // nobody is looking at. It runs for its own cycles and then the light goes back to
+    // what it was saying (docs/30).
+    led::note(led::Trigger::kAlarm);
     const int64_t late = now - entry.on_mono_ms;
     const bool owner_running =
         luabind::running() && (strcmp(luabind::app_id(), entry.app) == 0);
@@ -268,6 +273,9 @@ void boot(hal::IPlatform& platform) {
   // The sensor of the board, on the band that has one: the Lite says it has none and
   // imu.read() answers that, instead of the API being absent (docs/50).
   imu::boot(platform);
+  // The air, the same way: the Paper has an SHT30 and the ATOMs have nothing, and env.read() answers
+  // which of the two this is (docs/30, docs/50).
+  env::boot(platform);
   // Last, because it speaks to the console and may bring an app back: a board
   // that wakes from a deep sleep is a board that boots, and the session record is
   // what makes the app come back where it was (docs/90).
@@ -331,6 +339,20 @@ void poll() {
     const int32_t alarm_wait = (left <= 0) ? 0 : static_cast<int32_t>(left);
     if (alarm_wait < wait) wait = alarm_wait;
   }
+  // The same alarm as an hour, so the power policy can sleep to it without knowing what an
+  // alarm is. Zero when there is none to wait for, or when nobody has set the hour (docs/60).
+  int64_t next_alarm_epoch = 0;
+  if (next_alarm >= 0 && g_platform != nullptr) {
+    hal::IClock* clock = g_platform->clock();
+    const int64_t epoch = (clock != nullptr) ? clock->epoch_ms() : 0;
+    if (epoch > 0) next_alarm_epoch = epoch + (next_alarm - clock_mono());
+  }
+
+  // The light is painted at the end of every turn, so a turn that arrives late paints the
+  // frame of *that* moment: cutting the wait is all an animation needs. No thread, no queue
+  // of frames it owes, and nothing that can fall behind (docs/30).
+  const int32_t frame_wait = led::next_frame_ms();
+  if (frame_wait >= 0 && frame_wait < wait) wait = frame_wait;
 
   pal::Event ev;
   if (pal::system().queue()->pop(ev, wait)) dispatch(ev);
@@ -350,14 +372,19 @@ void poll() {
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine
   // suspended: the interpreter is not closed from inside its own call (docs/30).
-  power::poll();
+  // The queue is written down **before** the board may go: a queue that changes in the same
+  // turn the board powers off would be an alarm nobody kept (docs/60).
   if (alarms::revision() != g_saved_revision) save_alarms();
+  power::poll(next_alarm_epoch);
 
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) {
     char buf[64];
     size_t n = console->read(buf, sizeof(buf));
     while (n > 0) {
+      // A person is at the keyboard: the board is being used and does not put itself to
+      // sleep until the prompt has been quiet for a while (docs/60).
+      power::note_activity();
       shell::feed(buf, n);
       n = console->read(buf, sizeof(buf));
     }
@@ -370,6 +397,11 @@ void poll() {
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).
   led::poll();
+
+  // A moment of the system that ended gave the app its light back, and the app may have changed
+  // its mind while the light was not its own: `on_light()` is the one turn it gets to redraw
+  // (docs/30). It runs between turns, with the app's coroutine suspended, like every hook.
+  if (led::released() && luabind::running()) luabind::call_hook("on_light");
 
   if (pal::system().reboot_requested()) g_running = false;
 }

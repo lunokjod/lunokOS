@@ -31,9 +31,9 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
   // (docs/60).
   if (wake_pin_ >= 0) esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(wake_pin_), 0);
   if (at_epoch_ms > 0) {
-    int64_t left = at_epoch_ms - esp32_wall_ms();
-    if (left < 1) left = 1;
-    esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(left) * 1000);
+    // The timer is armed in one place only, so that taking it down again knows whether it is
+    // ours (docs/60).
+    esp32_arm_timer_wake(at_epoch_ms);
   } else if (wake_pin_ < 0) {
     return false;
   }

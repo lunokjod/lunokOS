@@ -1,0 +1,6 @@
+{
+  "title": "Battery",
+  "version": "0.1.0",
+  "entry": "battery.lua",
+  "boards": ["esp32"]
+}

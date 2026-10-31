@@ -7,6 +7,7 @@
 #ifndef LUNOK_KERNEL_POWER_H
 #define LUNOK_KERNEL_POWER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "hal/hal.h"
@@ -28,6 +29,13 @@ bool can_sleep(hal::SleepMode mode);
 // Where it comes back from, in the board's own words ("timer, button").
 const char* wakes();
 
+// How far the last sleep was from the hour it was given, in a line a person can read:
+// `+1234 ms (timer)`. False when nothing has been measured yet. It is kept in the
+// key-value store because the console line is one boot older and gone by the time
+// somebody wonders, and because this number is what decides whether the wake has to move
+// to the board's clock chip (docs/50, docs/60, docs/90).
+bool last_wake_report(char* out, size_t cap);
+
 // The sleep itself, done now: it is what the shell command uses, when there is no
 // app in the way. A **deep** sleep does not come back: the session is written, the
 // app in front is closed with its goodbye hooks and the timer is set for
@@ -40,13 +48,26 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 // because closing the interpreter from the inside is not a thing (docs/30).
 bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms);
 
-// Does the pending request, if there is one. The kernel calls it in every turn,
-// after the alarms and before the app's turn.
-void poll();
+// Does the pending request, if there is one, and then applies the **idle policy**: on a
+// board whose deep sleep is a real power off (a clock chip keeps the hour while the power
+// is gone) and with an alarm pending, the board goes to sleep by itself until that alarm
+// instead of staying awake waiting for it (`next_alarm_epoch_ms`, 0 when there is none).
+// The kernel calls it in every turn, after the alarms and before the app's turn (docs/60).
+void poll(int64_t next_alarm_epoch_ms);
 
-// "Do not sleep on your own while this is set." The system does not sleep on its
-// own yet, so this is what an app says to a policy that will read it: it is
-// remembered and reported, not silently ignored (docs/90).
+// A person did something (a byte arrived on the console): the board is being used and
+// does not go to sleep yet. The kernel says it, and so does anything that turns the
+// policy back on (docs/60).
+void note_activity();
+
+// The idle policy is a switch a person can turn off while working at the prompt:
+// `power idle off` keeps the board on the whole time (docs/30).
+bool idle_sleep_allowed();
+void set_idle_sleep_allowed(bool on);
+
+// "Do not sleep on your own while this is set." The idle policy reads it before it puts the
+// board down, and an app that is doing something that must not be interrupted says it here
+// (docs/30, docs/60).
 bool keep_awake(bool on);
 bool keeping_awake();
 
