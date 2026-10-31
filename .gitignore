@@ -4,5 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 
-# Disc de treball de l'emulador: és estat, no codi.
+# Working disk of the emulator: it is state, not code.
 emulator/
