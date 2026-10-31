@@ -3,6 +3,6 @@
   "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "keys.lua",
-  "boards": ["m5stack-paper", "emulator"],
-  "description": "The three keys of the Paper on the console: the sides step a number, a held key repeats like a keyboard, and three taps of the middle one close the app."
+  "boards": ["esp32"],
+  "description": "The keys of the board on the console: the sides step a number, a held key repeats like a keyboard, and three taps of the main one close the app. Works with the one key of the ATOM too."
 }

@@ -614,7 +614,8 @@ console.print('kind ' .. press.kind .. ', held ' .. press.held_ms .. ' ms')
   la tecla —un teclat repeteix lletres, una tecla de volum repeteix passos, una de menú no repeteix
   res— i per això el sistema només diu **si** és premuda i **quant fa**; el ritme el posa l'app. L'app
   `keys` en fa l'exemple: el primer repetit als **500 ms** i després cada **125 ms**, que és el ritme
-  d'un teclat.
+  d'un teclat. I pregunta `button.count()` abans de dibuixar res, o sigui que la mateixa app funciona
+  amb l'única tecla de l'ATOM i amb les tres de la Paper.
 - **Sense app al davant no passa res**: les premudes no es compten ni es guarden, i una app que arrenca
   no es troba un gest a mitges (docs/30).
 

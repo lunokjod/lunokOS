@@ -1,14 +1,15 @@
--- Keys: the three keys of the Paper, on the console (docs/30, docs/50).
+-- Keys: the keys of this board, on the console (docs/30, docs/50).
 --   run keys
 --
--- Key 0 is the middle one and it is the system's: three taps of it close the app,
--- exactly like three taps of the ATOM's only button. The two side keys step a
--- number —one down and one up— and a key that stays down steps again: the first
--- repeat comes after half a second and then eight times a second, which is the
--- rhythm of a keyboard and not of a finger.
+-- It asks the board how many it has and does what fits: the ATOM gives one and the
+-- Paper three. Key 0 is the **main** one —the only button of the ATOM, the middle
+-- key of the Paper— and it is the system's: three taps of it close the app. The
+-- side keys step a number —one down, one up— and a key that stays down steps
+-- again: the first repeat comes after half a second and then eight times a
+-- second, which is the rhythm of a keyboard and not of a finger.
 --
--- The Paper has no screen driver yet (docs/90), so the console is the only place
--- where the text of this app can be seen.
+-- The text goes to the console because a board with no screen driver yet has no
+-- other place to put it (docs/90).
 
 local count = button.count()
 if count == 0 then
@@ -37,7 +38,7 @@ local function step(key)
     value = value + 1
     console.print('up ' .. value)
   else
-    console.print('value ' .. value .. ' (the middle key: three taps close it)')
+    console.print('value ' .. value .. ' (the main key: three taps close it)')
   end
 end
 
@@ -46,7 +47,11 @@ for key = 0, count - 1 do
   next_at[key] = REPEAT_AFTER_MS
 end
 
-console.print('keys: ' .. count .. '; 0 is the middle one, 1 and 2 the sides')
+if count == 1 then
+  console.print('keys: 1, the main one: three taps close the app and a press says the value')
+else
+  console.print('keys: ' .. count .. '; 0 is the main one, 1 and 2 the sides')
+end
 console.print('value ' .. value)
 
 while true do
