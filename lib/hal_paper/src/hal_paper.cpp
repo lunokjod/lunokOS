@@ -32,15 +32,14 @@
 namespace hal {
 namespace {
 
-// The pins this file touches, from the maker's own library (docs/50). They are
-// outputs of the board and not of the chip:
-//   - the main power has to be held high within a second of the button being
-//     pressed, or the board cuts itself off, which looks exactly like a crash;
-//   - the EPD supply and the one of the three HY2.0 ports are switched, so that a
-//     board that does not use them does not pay for them.
+// The pins this file touches, from the maker's own library (docs/50). The main
+// power has to be held high within a second of the button being pressed, or the
+// board cuts itself off, which looks exactly like a crash.
+//
+// Two more are switched and are not used yet, so they stay off: the supply of the
+// panel (GPIO23) and the one of the three HY2.0 ports (GPIO5). They belong to the
+// steps that use them (docs/90).
 const int kMainPowerPin = 2;
-const int kExtPowerPin = 5;
-const int kEpdPowerPin = 23;
 
 // Held high for as long as the board is on, and set before anything else can fail.
 void hold_power() {
