@@ -2322,7 +2322,9 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 0"), g_out);
   TEST_ASSERT_TRUE(kernel::app_running());
 
-  // One press of the right key goes up one.
+  // One press of the right key goes up one, and one of the left key goes down
+  // one: the function comes from the place on the board, not from the number
+  // (docs/30). Both are done before any long hold, so the number is known.
   capture_begin();
   emu::press_key(2, true);
   pump_turns(20);
@@ -2331,8 +2333,17 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 1"), g_out);
 
-  // And held down it repeats: the first repeat comes half a second later, so a
-  // second is enough to see two more steps and a short press is one.
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 0"), g_out);
+
+  // And held down it repeats: the first repeat comes half a second later, so
+  // holding for most of a second is two more steps at least. How many exactly
+  // depends on the frames, so the test asks for the two that it knows.
   capture_begin();
   emu::press_key(2, true);
   pump_turns(900);
@@ -2341,15 +2352,6 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 2"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 3"), g_out);
-
-  // The left key goes down.
-  capture_begin();
-  emu::press_key(1, true);
-  pump_turns(20);
-  emu::press_key(1, false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 2"), g_out);
 
   // Three taps of the middle key are the way out, and they are the system's.
   capture_begin();

@@ -158,13 +158,28 @@ encara, docs/50):
 
 | | |
 |---|---|
-| Flash | **551 201 B** de 4 194 304 (13,1 %) — la partició d'aplicació de `partitions_16mb.csv` |
-| RAM estàtica | **52 248 B** de 327 680 (15,9 %); el build informa d'un 1,2 % perquè el denominador de la placa inclou els 8 MB de PSRAM |
-| Flash lliure | 3 643 103 B per al panell, la ràdio i el que vingui |
+| Flash | **553 665 B** de 4 194 304 (13,2 %) — la partició d'aplicació de `partitions_16mb.csv` |
+| RAM estàtica | **52 336 B** de 327 680 (16,0 %); el build informa d'un 1,2 % perquè el denominador de la placa inclou els 8 MB de PSRAM |
+| Flash lliure | 3 640 639 B per al panell, la ràdio i el que vingui |
 
 El que costa de flash una placa és, sobretot, el que se li ha implementat: l'ATOM gasta 2 000 681 B
 perquè hi té la ràdio amb TLS, el provisioning per Bluetooth i totes les apps; el Paper, amb el disc,
 la NVS, la consola i l'energia, en gasta 551 201.
+
+## El preu de les tecles, mesurat (31/10)
+
+Les tecles amb la seva descripció —quantes n'hi ha, en quina cara, en quin lloc, si són simples o
+compostes i de quin grup— costen això:
+
+| | Abans | Amb les tecles |
+|---|---|---|
+| `atom` | 2 000 681 B de flash / 92 456 B de RAM | **2 002 389** / **92 480** (+1 708 / +24) |
+| `atom_matrix` | 2 000 673 B de flash / 94 824 B de RAM | **2 002 405** / **94 848** (+1 732 / +24) |
+| `paper` | 551 201 B de flash / 52 248 B de RAM | **553 665** / **52 336** (+2 464 / +88) |
+
+Els 24 B de RAM de l'ATOM són les taules per tecla del nucli (estat, `long` ja dit) i la descripció a
+la capa de Lua; a la Paper s'hi afegeix l'estat de tres tecles en comptes d'una. El flash que creix és
+el codi de la descripció i la crida nova, i no depèn de quantes tecles tingui la placa.
 
 ## El preu del llum i del botó, mesurat (31/10)
 
