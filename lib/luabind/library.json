@@ -1,0 +1,17 @@
+{
+  "name": "luabind",
+  "version": "0.1.0",
+  "description": "The Lua state, its accounting allocator and the first bindings.",
+  "dependencies": {
+    "lua": "*",
+    "pal": "*",
+    "hal": "*",
+    "alarms": "*",
+    "qr": "*",
+    "json": "*"
+  },
+  "build": {
+    "flags": ["-Wall", "-Wextra", "-Werror"],
+    "libArchive": false
+  }
+}

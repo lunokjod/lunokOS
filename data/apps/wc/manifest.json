@@ -1,0 +1,9 @@
+{
+  "title": "Wc",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "wc.lua",
+  "boards": ["esp32"],
+  "opens": "txt",
+  "description": "The second app that handles .txt files, so the selector has two to choose from."
+}

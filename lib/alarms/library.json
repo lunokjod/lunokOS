@@ -1,0 +1,6 @@
+{
+  "name": "alarms",
+  "version": "0.1.0",
+  "description": "The alarm queue: one ordered list, only the nearest deadline is armed.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

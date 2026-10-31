@@ -1,0 +1,6 @@
+{
+  "title": "Scratch",
+  "version": "0.1.0",
+  "entry": "scratch.lua",
+  "boards": ["esp32"]
+}

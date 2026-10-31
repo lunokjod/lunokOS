@@ -1,0 +1,6 @@
+{
+  "name": "json",
+  "version": "0.1.0",
+  "description": "Pull-style JSON helpers: read one known key, never build a tree.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

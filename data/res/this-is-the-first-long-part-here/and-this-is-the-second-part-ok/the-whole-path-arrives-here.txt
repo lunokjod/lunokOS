@@ -1,0 +1,13 @@
+This file lives three levels down on purpose.
+
+Its virtual path is 100 bytes:
+/res/this-is-the-first-long-part-here/and-this-is-the-second-part-ok/the-whole-path-arrives-here.txt
+
+That is longer than the 96 bytes the extension selector used to keep and shorter
+than the 128-byte ceiling of the file system, so it is the one path that shows
+whether the selector keeps it whole. Every name on the way is 32 characters or
+fewer, because the image builder drops anything longer (see docs/70).
+
+On the board: "open" this path, answer the question with a number, and the app
+has to print the whole thing. A cut path would start partway through, or lose
+the "/res/" at the front.

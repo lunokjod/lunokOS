@@ -1,0 +1,8 @@
+{
+  "title": "Tilt",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "tilt.lua",
+  "boards": ["m5stack-atom-matrix", "emulator"],
+  "description": "A spirit level on the twenty-five lights, fed by the IMU, with the numbers on the console. Three taps or three ESC to leave."
+}

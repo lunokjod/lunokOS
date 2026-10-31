@@ -1,0 +1,91 @@
+// Platform abstraction layer.
+//
+// The kernel asks for a queue, a console, a monotonic clock and a way to reboot.
+// It never talks to FreeRTOS, POSIX or Arduino directly. Each system implements
+// this header once: pal_esp32 for the board, pal_host for the emulator.
+#ifndef LUNOK_PAL_PAL_H
+#define LUNOK_PAL_PAL_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace pal {
+
+// Event types travel through the queue as fixed-size PODs. Not one of them
+// carries an owning pointer: the queue must never be a source of leaks.
+enum EventType : uint16_t {
+  kEventNone = 0,
+  kEventConsoleRx = 1,
+  kEventConsoleOwner = 2,
+  kEventTimer = 3,
+  kEventAlarmDue = 4,
+  kEventPromiseDone = 5,
+  kEventAppExit = 6,
+  kEventPower = 7,
+  kEventSystem = 8,
+  kEventTypeCount = 9
+};
+
+struct Event {
+  uint16_t type;
+  uint16_t a;
+  int32_t b;
+};
+
+enum LogLevel : uint8_t {
+  kLogDebug = 0,
+  kLogInfo = 1,
+  kLogWarn = 2,
+  kLogError = 3
+};
+
+class IQueue {
+ public:
+  virtual ~IQueue() {}
+  // Never blocks for more than timeout_ms (0 = try once).
+  virtual bool push(const Event& ev, uint32_t timeout_ms) = 0;
+  // Blocks until an event or the timeout. timeout_ms < 0 means forever.
+  virtual bool pop(Event& out, int32_t timeout_ms) = 0;
+  virtual uint16_t size() const = 0;
+  virtual uint16_t capacity() const = 0;
+};
+
+class IConsole {
+ public:
+  virtual ~IConsole() {}
+  virtual size_t write(const void* data, size_t len) = 0;
+  // Returns what is available right now, 0 if nothing. Never blocks.
+  virtual size_t read(void* data, size_t len) = 0;
+  virtual bool ansi() const = 0;
+};
+
+struct HeapInfo {
+  bool valid;             // false on platforms without a heap to report
+  uint32_t free_bytes;
+  uint32_t min_free_bytes;
+};
+
+class ISystem {
+ public:
+  virtual ~ISystem() {}
+  virtual IQueue* queue() = 0;
+  virtual IConsole* console() = 0;
+  // Monotonic milliseconds. Never goes backwards, never jumps.
+  virtual int64_t millis() const = 0;
+  virtual void reboot() = 0;
+  // True once reboot() has been called on systems that cannot reboot in place.
+  virtual bool reboot_requested() const = 0;
+  virtual uint32_t random() = 0;
+  virtual HeapInfo heap() const = 0;
+};
+
+// Brings the layer up: console mode, queue allocation, reader tasks.
+bool init();
+void shutdown();
+
+// Valid after init().
+ISystem& system();
+
+}  // namespace pal
+
+#endif  // LUNOK_PAL_PAL_H

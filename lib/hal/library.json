@@ -1,0 +1,6 @@
+{
+  "name": "hal",
+  "version": "0.1.0",
+  "description": "Hardware abstraction interfaces: capabilities, clock, storage, net, power.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Hello",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "hello.lua",
+  "boards": ["esp32"],
+  "description": "The shortest app there is: one line out."
+}

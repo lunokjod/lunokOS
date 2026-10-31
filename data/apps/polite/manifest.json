@@ -1,0 +1,6 @@
+{
+  "title": "Polite",
+  "version": "0.1.0",
+  "entry": "polite.lua",
+  "boards": ["esp32"]
+}

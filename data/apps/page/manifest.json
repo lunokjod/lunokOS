@@ -1,0 +1,8 @@
+{
+  "title": "Page",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "page.lua",
+  "boards": ["esp32"],
+  "description": "Downloads a page and prints its status and its body, bringing the network up by itself."
+}

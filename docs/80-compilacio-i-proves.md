@@ -1,0 +1,166 @@
+# 80 · Compilació i proves
+
+## Quatre entorns
+
+| Entorn | Plataforma | Per a què |
+|---|---|---|
+| `atom` | espressif32 + Arduino | El firmware de la placa de proves |
+| `atom_matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
+| `emulator` | native | El mateix codi compilat per al PC |
+| `test` | native | Les proves natives (Unity) |
+
+```ini
+[platformio]
+default_envs = emulator
+
+[env:atom]
+platform = espressif32
+board = m5stack-atom
+framework = arduino
+board_build.partitions = partitions.csv
+board_build.filesystem = littlefs
+monitor_speed = 115200
+monitor_rts = 0
+monitor_dtr = 0
+build_flags = -std=gnu++11 -Ilib/board_atom/include
+lib_ignore = hal_emulator, pal_host, board_matrix
+
+[env:atom_matrix]
+extends = env:atom
+build_flags = -std=gnu++11 -Ilib/board_matrix/include
+lib_ignore = hal_emulator, pal_host, board_atom
+
+[env:emulator]
+platform = native
+build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
+build_flags = -std=c++11 -Ilib/hal_emulator/include
+lib_ignore = hal_atom, pal_esp32
+
+[env:test]
+platform = native
+test_framework = unity
+test_build_src = yes
+build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
+build_flags = -std=c++11 -Ilib/hal_emulator/include
+lib_ignore = hal_atom, pal_esp32
+```
+
+Quatre coses que aquesta configuració fa complir:
+
+1. **C++11 a les dues bandes.** El nucli d'Arduino per a ESP32 compila amb `-std=gnu++11`; si el codi
+   del PC fa servir C++17, el projecte es trenca en silenci quan arribi a la placa. Es compila igual
+   a tot arreu i s'acaba el problema.
+2. **Els avisos són errors, però només els nostres.** A cada `library.json` hi ha
+   `"build": {"flags": ["-Wall", "-Wextra", "-Werror"]}`. No es posa a `build_flags` perquè també
+   s'aplicaria al **framework d'Arduino**, que té avisos propis (un de conegut a `esp32-hal-uart.c`) i
+   no és feina d'aquest projecte arreglar-los. Així el build surt net i el nostre codi no en passa
+   ni un.
+3. **`lib_ignore` i `src/board_link.cpp`.** Cada entorn no veu mai el codi de l'altra placa: ho diuen el
+   `lib_ignore` i el camí d'inclusió (`-Ilib/board_<id>/include`), que és el que fa que
+   `#include "board/identity.h"` i `#include "board/impl.h"` resolguin a la placa d'aquest entorn i no
+   a l'altra. Però això sol no n'hi prou: PlatformIO descobreix les llibreries de `lib/` seguint els
+   `#include`, i com que `board/impl.h` no es diu com cap llibreria (`hal_atom`, `pal_esp32`…), sense
+   ningú que les anomeni (`undefined reference to hal::platform()`) no es compilen mai.
+   `src/board_link.cpp` inclou `board/impl.h`, que és l'únic fitxer que arrossega `hal_atom.h` +
+   `pal_esp32.h` (o `hal_emulator.h` + `pal_host.h`), i per això les proves també compilen `src/`.
+   La identitat de cada placa és una llibreria de capçaleres (`lib/board_<id>/`) i `lib_ignore` deixa
+   només la de l'entorn: `hal_atom` serveix dues plaques, i dues capçaleres amb aquest nom al camí
+   farien que l'ordre decidís, en silenci (docs/50). Fora de `lib/` no hi poden ser: el cercador de
+   dependències només segueix capçaleres de llibreries (mesurat el 31/10, docs/50).
+4. **Dos punts d'entrada.** `src/main.cpp` compila només sota `ARDUINO` (a la resta és un stub, perquè
+   PlatformIO es nega a compilar un entorn el `src/` del qual queda buit) i el `main()` de l'emulador
+   viu a `lib/hal_emulator/`, tancat amb `#if !defined(UNIT_TEST)` perquè quan corre `pio test` mana
+   el `main` de les proves.
+5. **Qui depèn de qui ho diu `library.json`.** El cercador de dependències de PlatformIO segueix els
+   `#include`, i això falla de dues maneres que ja han passat: `lib/luabind` no trobava `lauxlib.h`
+   (el cercador no sap que `lua` és una llibreria fins que algú ho diu) i, quan el va trobar, els
+   objectes de `lua` s'enllaçaven **abans** de qui els crida i l'enllaçador deia que no hi eren. La
+   solució són dues línies de `lib/luabind/library.json`:
+
+   ```json
+   "dependencies": { "lua": "*", "pal": "*" },
+   "build": { "flags": ["-Wall", "-Wextra", "-Werror"], "libArchive": false }
+   ```
+
+   Amb `libArchive` a `false`, `lua` i `luabind` entren a l'enllaç com a **objectes** i no com a
+   arxius `.a`, i l'ordre deixa de tenir importància. `lib/lua` ho porta igual. No cal cap
+   `-Ilib/lua/include` a `platformio.ini`: la dependència declarada ja el posa.
+6. **Cap `#ifdef` de placa.** Quan dues bandes han de fer coses diferents, es fa amb una capçalera
+   **amb el mateix nom i contingut diferent** a cada placa (`board/identity.h`, `board/impl.h`) i el
+   camí d'inclusió de l'entorn. El preprocessador no decideix mai de quina placa és el codi, i per
+   tant no hi ha cap branca morta que ningú no compila ni prova.
+
+`src/main.cpp` només existeix per a Arduino (el `setup()`/`loop()` el crida el framework). A
+l'emulador, el `main()` és a `lib/hal_emulator/`.
+## Com es compila
+
+```
+pio run -e emulator        # binari per al PC
+pio run -e atom            # firmware; les proves de flashejar les fa l'amo
+pio run -e atom_matrix     # la placa del panell: 25 llums al mateix GPIO27
+pio test -e test           # proves natives
+```
+
+Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
+
+## Què és una prova aquí
+
+Quatre nivells, i cada cosa va al seu:
+
+| Nivell | On | Què comprova |
+|---|---|---|
+| **Unitat** | `test/test_json/` | Resolució de camins, muntatges, llistat de `/`, analitzador JSON |
+| **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
+| **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten |
+| **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |
+| **Maquinari** | `test/device/` | Una llista de comprovacions que només es poden fer amb la placa a la mà (encara no hi és) |
+
+Regles:
+
+- **Una prova per canvi.** Curta, i que mesuri la **conseqüència**, no que la funció existeixi.
+- **Les proves han de fallar, no petar.** Si una prova peta en comptes de fallar, la prova està
+  mal escrita.
+- **Trencada a propòsit.** Cada prova nova s'ha de veure vermella almenys una vegada, trencant el codi
+  que vigila. Una prova que no s'ha vist fallar no se sap si mira res.
+- La prova nova d'una crida de Lua ha d'incloure el **cas de la capacitat absent**: és el camí que
+  més vegades es trencarà.
+
+## Que una app Lua funcioni a l'emulador vol dir…
+
+…que el codi de l'app, el manifest, les promeses, la consola, el VFS i els pressupostos funcionen. **No**
+vol dir que la placa vagi: a la placa hi ha un rellotge de debò, una flash de debò i un port sèrie de
+debò.
+
+## Què no es pot provar sense maquinari
+
+| Cosa | Per què |
+|---|---|
+| Consum elèctric | L'emulador no té bateria |
+| Temps real d'un `read` de flash o d'SD | L'emulador llegeix del disc, que és milers de vegades més ràpid |
+| Desgast de la flash | No hi ha cicles que comptar |
+| Despertar de son profund | No hi ha son |
+| Latència del port sèrie i del monitor | Depèn del pont USB de la placa |
+
+La latència del port **sí** que es pot mesurar, només que des de fora de la placa: és
+`tools/serial_ping.py`. Arrenca l'app `ping` (que respon `pong` a cada línia), hi envia deu línies i
+cronometra cada anada i tornada des del PC. La placa ha d'estar al prompt i l'app `ping` al disc:
+
+```
+tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
+```
+
+Dona mínim, mediana i màxim. El número inclou el port, la tasca lectora de consola, el torn del nucli,
+la promesa i la tornada; no és el temps d'una operació de l'app.
+| Memòria de debò | 320 KB no es poden simular; es **limita** la VM amb `--mem-cap`, que és una aproximació |
+
+Quan un número d'aquesta llista aparegui en un report, ha de portar la paraula «mesurat a la placa» i
+amb què. Si no, va marcat com a pendent.
+
+## Proves que han d'existir abans de la primera fita
+
+- La cua de temporitzadors ordena i programa **només la primera**.
+- Un fitxer de 5 KB llegit amb una finestra de 512 B fa els accesses que toca i no carrega el fitxer.
+- Un camí amb `..` dona `E_INVAL` i no arriba al backend.
+- Un `await` fora d'una tasca dona `E_NOTASK`.
+- Una alarma d'una app no carregada s'executa a la finestra d'alarma i el primer pla continua.
+- Un error dins d'una finestra d'alarma no tomba el primer pla.

@@ -1,0 +1,6 @@
+{
+  "name": "board_matrix",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: the M5 ATOM Matrix, the same band as the Lite with a panel of twenty-five lights. Headers only.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

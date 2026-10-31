@@ -1,0 +1,5 @@
+Aquest fitxer té espais al nom, i per això es llegeix entre cometes:
+
+  cat "res/el meu fitxer.txt"
+
+Sense les cometes, la shell no endevina: et diu que el camí va entre cometes.

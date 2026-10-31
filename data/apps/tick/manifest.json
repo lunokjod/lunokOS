@@ -1,0 +1,7 @@
+{
+  "title": "Tick",
+  "version": "0.1.0",
+  "entry": "tick.lua",
+  "boards": ["esp32"],
+  "description": "Waits twice and says so. The kernel has to stay alive between the lines."
+}

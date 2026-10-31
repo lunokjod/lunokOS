@@ -1,0 +1,173 @@
+# 10 · Arquitectura
+
+## Les capes
+
+```mermaid
+graph TD
+  A["apps/<id>/*.lua"] --> B["luabind<br/>sys · app · promise · console · term<br/>time · alarm · fs · store · net · power · log"]
+  B --> C["nucli (kernel)<br/>planificador · esdeveniments · alarmes<br/>apps · vfs · rellotge · memòria · log · shell"]
+  C --> D["PAL<br/>cua · temporitzador · consola · log · uptime"]
+  C --> E["HAL<br/>IDisplay · IInput · IClock · IStorage · INet · IPower · ILed"]
+  D --> F["pal_esp32 / pal_host"]
+  E --> G["hal_atom / hal_emulator"]
+```
+
+Tres idees que expliquen la resta:
+
+1. **El nucli no sap quin maquinari hi ha.** Només pregunta `Platform::caps()` i crida interfícies.
+2. **El nucli no sap quin sistema hi ha a sota.** No crida Arduino ni FreeRTOS ni `esp_*`: demana
+   una cua, un temporitzador, un rellotge i una consola a la PAL.
+3. **Les dues capes de sota són intercanviables per compilació.** `lib_ignore` fa que l'entorn de
+   l'ATOM no vegi mai el codi de l'emulador i al revés.
+
+## Qui pot cridar Lua
+
+| Context | Pot cridar `lua_*` |
+|---|---|
+| Tasca del nucli | **Sí**, i només ella |
+| Tasques auxiliars (xarxa, disc) | No. Només deixen anar esdeveniments POD a la cua |
+| Interrupcions | No. Només encuen esdeveniments POD |
+| Consola sèrie (lectura) | No. El nucli llegeix i després despatxa |
+
+Aquesta és la regla que fa innecessari cap pany al voltant de l'intèrpret. Si mai cal un `mutex`
+per tocar Lua, és que s'ha trencat aquesta regla.
+
+## El bucle del nucli
+
+```
+per sempre:
+  timeout    = proper_termini − ara            (o espera indefinida si no n'hi ha cap)
+  esdeveniment = cua.rebuda(timeout)           # bloqueja fins a l'esdeveniment o el termini
+  si esdeveniment: despatxa(esdeveniment)
+  dispara_terminis_vençuts()                   # alarmes i temporitzadors, en ordre
+  reprèn_tasques_llestes()                     # coroutines amb pressupost d'instruccions
+  pas_de_recollida(BUDGET_US)                  # un pas de col·lector, mai una col·lecció sencera
+  mira_consola()                               # línia nova, o seqüència de sortida
+```
+
+Del bucle se'n dedueixen tres coses:
+
+- **No hi ha cap `delay`.** Quan el sistema no té res a fer, la cua el bloqueja fins al pròxim
+  termini, i així el consum en repòs depèn del maquinari i no del codi.
+- **Els terminis es disparen després de despatxar l'esdeveniment** que ha despertat el nucli, perquè
+  una alarma que venç mentre s'està atenent un altre esdeveniment no s'endarrereixi més del compte.
+- **La recollida de memòria és incremental.** Una col·lecció completa enmig d'una operació llarga
+  es nota massa.
+
+## Esdeveniments
+
+Tots els esdeveniments són estructures de mida fixa (POD), sense cap punter a memòria dinàmica, amb
+una cua de mida fixa. Si la cua s'omple, es descarten els de menys prioritat (mai el de sortida).
+
+| Tipus | Qui el genera | Qui el consumeix |
+|---|---|---|
+| `CONSOLE_RX` | Consola (PAL) | Shell o app de primer pla |
+| `CONSOLE_OWNER` | Shell | Canvi d'amo del port |
+| `TIMER` | PAL / temporitzadors propis | Planificador |
+| `ALARM_DUE` | Cua d'alarmes | Planificador (finestra d'alarma) |
+| `PROMISE_DONE` | Tasca auxiliar | Planificador (reprèn la coroutine que esperava) |
+| `APP_EXIT` | App | Gestor d'apps |
+| `POWER` | HAL | Shell, i ho encua a l'app si està oberta |
+| `SYSTEM` | Mode segur, watchdog | Shell |
+
+## Arrencada
+
+1. La PAL arrenca (consola, rellotge monòton, cua) i el log comença a l'anella de RAM. Tot seguit es
+   llença un quart de segon de consola: la placa obre la UART abans que nosaltres i els primers bytes
+   després d'un reset són brossa, i el shell no ha de respondre a bytes que ningú no ha escrit.
+2. Es pregunta a la placa què té (`Platform::caps()`).
+3. Es munten els volums. `/littlefs` és **obligatori** i es munta sempre; `/sd` i `/nvs` hi són si la
+   placa els té. Si `/littlefs` no munta, es registra l'error i el sistema segueix sense apps.
+4. Es llegeix `cfg/` (si no hi és, s'agafa la configuració per defecte i es diu al log).
+5. S'inicialitza el rellotge amb la millor font disponible.
+6. S'escaneja `/apps/*/manifest.json` i es construeix el registre d'apps (identificador, títol,
+   versió, entry). El registre és el que fan servir les comandes de la shell.
+7. Es reprodueixen les alarmes persistents que hagin vençut mentre el sistema era apagat.
+8. S'obre el prompt `lunok>`.
+
+Si qualsevol pas del 2 al 6 falla, el sistema **no s'atura**: deixa el log a la consola i obre el
+prompt amb menys capacitats. Si fallen dues arrencades seguides (comptador a NVS), arrenca en mode
+segur, sense apps.
+
+## Estats d'una app
+
+```mermaid
+stateDiagram-v2
+  [*] --> Loading
+  Loading --> Running: on_load + on_open
+  Loading --> Error: error de manifest, de sintaxi o de memòria
+  Running --> Paused: una altra app passa a primer pla
+  Paused --> Running: torna a primer pla
+  Running --> Closing: app.exit() o seqüència de sortida
+  Paused --> Closing: es tanca sense tornar
+  Closing --> [*]: on_pause, on_save, on_close
+  Error --> [*]: es descarta la VM, log i prompt
+```
+
+`Paused` existeix a la documentació, però a la v1 no s'hi arriba amb una segona app viva: quan una
+alarma puja al davant una app, la de primer pla es **tanca** (`Closing`) i es reconstrueix després
+si li toca. No hi ha dues apps carregades mai.
+
+## Mapa del repositori
+
+```
+platformio.ini          quatre entorns: atom, atom_matrix, emulator, test
+partitions.csv          particions pròpies (app + littlefs + nvs + coredump)
+src/main.cpp            setup()/loop() d'Arduino: crida al nucli, res més
+lib/
+  kernel/               planificador, esdeveniments, alarmes, gestor d'apps,
+                        vfs, rellotge, memòria, log, shell
+  lua/                  Lua 5.4 vendoritzat, amb els flags de 20 · Intèrpret
+  luabind/              un fitxer per mòdul de Lua
+  hal/                  capçaleres de les interfícies (no té codi)
+  pal/                  capçaleres de la capa de plataforma (no té codi)
+  hal_atom/             implementació de la família M5 ATOM (Lite i Matrix, que
+                        comparteixen xip, flash, taula, botó i consola)
+  board_atom/           la identitat del Lite, només capçaleres: identity.h diu el
+                        nom i 1 llum, impl.h diu què enllaçar
+  board_matrix/         el mateix per al Matrix: "m5stack-atom-matrix" i 25 llums;
+                        les dues no es veuen mai alhora (lib_ignore, docs/50)
+  hal_emulator/         implementació per al PC (inclou main() de l'emulador);
+                        mateixes capçaleres, amb "emulator" a dins
+  pal_esp32/            FreeRTOS/ESP-IDF
+  pal_host/             POSIX
+  json/                 analitzador JSON de tracció, per a manifests i cfg
+data/                   arrel de la imatge de la LittleFS; les apps d'exemple
+                        són a data/apps/<id>/
+emulator/               disc de proves de l'emulador (fora del git)
+test/                   proves natives (Unity) i guions per a l'emulador
+docs/                   aquests documents
+```
+
+## On va cada cosa nova
+
+| Vull afegir… | On va |
+|---|---|
+| Una crida nova de Lua | `lib/luabind/` + contracte a `30 · API` + prova |
+| Una peça de maquinari nova | Interfície a `lib/hal/`, implementació a cada `hal_*` |
+| Una placa nova | `lib/board_<id>/` amb `include/board/identity.h` (el nom de la placa i quants llums té) i `impl.h`, el seu `-I` a `platformio.ini` i les altres plaques a `lib_ignore`; si la placa no té HAL, a més `lib/hal_<id>/` |
+| Una regla que val per a totes les plaques | `lib/kernel/` |
+| Una cosa que depèn del sistema de sota | `lib/pal/` i les dues `pal_*` |
+| Una app | `data/apps/<id>/`, mai dins del nucli |
+| Una llibreria d'utilitat | `lib/<nom>/`, i **exposada a Lua** (vegeu a sota) |
+
+## Tota llibreria d'utilitat es veu des de Lua
+
+**La regla (30/10):** una llibreria que fa una cosa útil i que cap app pot cridar és una llibreria a
+mitges. Si el càlcul no depèn de res del sistema (no toca maquinari, no toca fitxers), **s'exposa a
+Lua** amb la seva taula; si depèn del sistema, s'exposa a través de la crida del nucli que decideix
+(com `net.*`, que no és la HAL sinó la política del nucli). I si no s'exposa, **es diu per què** en
+aquest mateix document.
+
+| Llibreria | Què fa | Com es veu des de Lua |
+|---|---|---|
+| `alarms` | cua d'alarmes ordenada, amb repeticions i comptador de perdudes | taula `alarm` (`alarm.at`, `after`, `cancel`, `list`, `caps`) |
+| `json` | llegir un camp d'un text JSON sense construir cap arbre | taula `json` (`json.get_string`, `json.get_int`) |
+| `qr` | qualsevol QR: versions 1-20, nivells L/M/Q/H, modes numèric, alfanumèric i byte | taula `qr` (`qr.encode`, `qr.caps`) |
+| `lua` | l'intèrpret | és el que hi ha a sota de tot; l'app ja el fa servir |
+| `hal` | el maquinari | **mai directa**: `fs.*`, `net.*`, `time.*`, `console.*` passen pel nucli, que és qui decideix quan encendre, quan esperar i quan dir que no |
+| `pal` | porta sèrie, consola, cues | `console.*` i `term.*` |
+| `kernel` | VFS, shell, xarxa, apps | `fs.*`, `net.*`, `http.get`, `app.*`, `sys.*` |
+
+Una llibreria nova que no aparegui en aquesta taula és un oblit, no una decisió: quan se n'afegeix una,
+s'afegeix aquí amb el que en veu Lua, o amb el motiu de no veure-hi res.

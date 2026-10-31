@@ -1,0 +1,6 @@
+{
+  "name": "board_atom",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: the M5 ATOM Lite. Headers only: board/identity.h says the name and how many lights the strip has, board/impl.h says what to link.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "pal_host",
+  "version": "0.1.0",
+  "description": "PAL implementation for POSIX (emulator): in-memory queue and raw stdin/stdout console.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

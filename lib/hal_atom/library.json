@@ -1,0 +1,6 @@
+{
+  "name": "hal_atom",
+  "version": "0.1.0",
+  "description": "Board support for the M5 ATOM family (Lite and Matrix): ESP32-PICO-D4, serial console, Wi-Fi, sleep, one light or a strip of twenty-five.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}
