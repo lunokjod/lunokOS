@@ -30,12 +30,12 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 | Muntatge | Backend | Què hi ha |
 |---|---|---|
 | `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `cfg/`, `data/` |
-| `/sd` | targeta SD (si n'hi ha) | el que hi hagi a la targeta |
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
-| `/apps` | àlies | `/sd/apps` si existeix, si no `/littlefs/apps` |
+| `/apps` | àlies | `/littlefs/apps` |
 | `/res` | àlies | `/littlefs/res` |
 | `/cfg` | àlies | `/littlefs/cfg` |
+| `/sd` | **reservat** | La VFS sap muntar-lo i cap HAL d'aquest build no el munta: no hi ha maquinari (docs/50) |
 
 Els **àlies no són còpies**: són una entrada més a la taula de muntatges que apunta a un camí dins
 d'un altre muntatge. Ocupen una fila i una comparació de prefix, res més.
@@ -44,16 +44,16 @@ d'un altre muntatge. Ocupen una fila i una comparació de prefix, res més.
 L'emmagatzematge clau-valor té espais de noms i claus. S'exposa com un arbre de dos nivells:
 
 ```
-/nvs/system/last_epoch      → fitxer amb el valor
-/nvs/alarms/7               → fitxer amb el JSON de l'alarma 7
+/nvs/lunoknet/ssid          → la xarxa que el sistema ha desat
+/nvs/session/app            → l'app que hi havia al davant quan es va dormir
+/nvs/alarms/queue           → la cua d'alarmes persistents, una època per línia
 ```
 
 | Operació de fitxer | Què fa a NVS |
 |---|---|
 | Llegir | `get` |
-| Escriure (sencer) | `set` |
-| Esborrar | `erase` |
 | Llistar el directori d'un espai | iterar les claus |
+| Escriure | **No hi és encara**: el muntatge és de només lectura (docs/90). El nucli escriu a la NVS per `IKeyValue`, no per aquest muntatge |
 
 Límits que s'hereten i s'han de dir:
 
@@ -184,12 +184,11 @@ qualsevol cosa més gran, la finestra o `read_at`.
 | Camí | Qui hi pot escriure |
 |---|---|
 | `/data/<id>/` | Només l'app `<id>` |
-| `/sd/` | Només amb permís `sd_write` |
-| `/littlefs/`, `/nvs/` fora de l'espai propi | No (només el nucli) |
+| `/littlefs/` fora del seu terreny, `/nvs/` | No (només el nucli) |
 
 Una app no veu mai el directori d'una altra: la resolució de camins fa que `/data/altra` no existeixi
-per a ella. La quota per app (bytes) és una constant de la configuració; **valor pendent de fixar**
-quan es sàpiga quanta flash queda lliure de debò.
+per a ella. La quota per app és de **64 KB** (`kAppQuotaBytes`), comptant tots els seus fitxers, i es
+comprova **abans** d'escriure: passar-se'n dona `E_NOSPC` sense tocar res.
 
 ## Veure els muntatges i l'espai (30/10)
 
@@ -373,10 +372,10 @@ que hi aparegui l'ha de fer servir.
 ## Desgast de la flash
 
 - LittleFS reparteix les escriptures; tot i així, escriure molt i en bucle es nota.
-- Per això el log viu a la RAM i les escriptures d'estat (`app.save`, `store.set`) s'han de fer quan
+- Per això el log viu a la RAM i les escriptures d'estat (`fs.write` a `fs.data`) s'han de fer quan
   canvia alguna cosa, no a cada volta del bucle.
-- `store.set` desa el JSON sencer de l'app cada cop. Una app que escriu a `store` dins d'un bucle
-  està desgastant la flash: la documentació de l'app ho ha de dir.
+- Una app que desa el seu estat dins d'un bucle està desgastant la flash: el que s'ha de desar, es
+  desa quan canvia.
 
 ## Com es prova
 

@@ -20,8 +20,9 @@ tancat en una carpeta.
    cosa que no hi és retorna `E_UNSUPPORTED` en comptes de petar, i `sys.caps()` ho diu abans de
    provar-ho.
 
-3. **Res no penja el sistema.** Tot el que pot trigar passa per una promesa. Cap crida de C feta
-   des de Lua bloqueja el nucli, i un bucle infinit es talla amb un comptador d'instruccions.
+3. **Res no penja el sistema.** Tot el que pot trigar passa per una promesa: cap crida de C feta des
+   de Lua bloqueja el nucli. El comptador d'instruccions que ha de tallar un bucle infinit **encara
+   no hi és**, i es diu: avui una app que no cedeix penja la placa (docs/20, docs/90).
 
 4. **La memòria és el bé escàs.** L'únic que alloca dinàmicament és Lua, i amb un sostre. La resta
    són taules i buffers fixos. Cap fitxer es carrega sencer.
@@ -49,8 +50,9 @@ tancat en una carpeta.
 
 ## No-objectius
 
-- **No hi ha aïllament de memòria real.** No hi ha MMU. Els permisos del manifest són una barrera
-  per evitar errors, no una frontera de seguretat.
+- **No hi ha aïllament de memòria real.** No hi ha MMU, i el model de permisos del manifest encara
+  no existeix (docs/30): quan hi sigui serà una barrera per evitar errors, no una frontera de
+  seguretat.
 - **No hi ha multitasca preemptiva.** Les coroutines cedeixen quan volen i el comptador les atura si
   no ho fan.
 - **No és un simulador de maquinari.** L'emulador corre el sistema de debò, però no modela la flash,
@@ -64,7 +66,7 @@ tancat en una carpeta.
 | Terme | Què és |
 |---|---|
 | **App** | Un directori `apps/<id>/` amb un `manifest.json` i un entry en Lua |
-| **Manifest** | El fitxer que descriu l'app: títol, entry, icona, extensió que obre, permisos |
+| **Manifest** | El fitxer que descriu l'app: títol, entry, versió, les plaques on corre i, si obre fitxers, l'extensió |
 | **Primer pla** | L'app que té el port sèrie i l'atenció de l'usuari. Només n'hi ha una |
 | **Finestra d'alarma** | El moment en què el nucli carrega una app per executar-li `on_alarm` i la torna a tancar |
 | **Alarma** | Un treball temporal persistent, sense cap funció de Lua a dins: només un identificador i un payload |
@@ -72,10 +74,9 @@ tancat en una carpeta.
 | **Placa** | Una implementació de `IPlatform`: la que parla amb el maquinari |
 | **PAL** | *Platform Abstraction Layer*: el que el nucli demana al sistema de sota (cua, temporitzador, consola, log) |
 | **HAL** | *Hardware Abstraction Layer*: les interfícies de dispositiu (pantalla, entrada, xarxa, energia) |
-| **Muntatge** | Un camí arrel (`/littlefs`, `/sd`, `/nvs`) que lliga un camí virtual amb un backend |
+| **Muntatge** | Un camí arrel (`/littlefs`, `/nvs`) que lliga un camí virtual amb un backend |
 | **Finestra de lectura** | El tros fix de RAM que un fitxer obert té carregat; es mou quan cal |
 | **Promesa** | L'objecte que retorna tota operació que pot trigar; es pot encadenar o esperar amb `await` |
 | **Tasca** | Una coroutine de l'app que el nucli pot reprendre. No és un fil del sistema |
 | **Pressupost** | El màxim de memòria o d'instruccions que una app pot gastar abans que el nucli la talli |
 | **Handler** | L'app que declara que pot obrir una extensió de fitxer (`opens`) |
-| **Mode segur** | L'arrencada sense apps, quan el sistema detecta que les últimes arrencades han fallat |

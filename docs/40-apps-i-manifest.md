@@ -7,59 +7,56 @@ binaris: si el directori és al lloc, l'app existeix.
 
 ```
 apps/
-  epub/
+  clock/
     manifest.json
-    epub.lua
-    lib/                 mòduls propis de l'app (require només busca aquí)
-      zip.lua
-    icon.icn
-    splash.png
+    clock.lua
 ```
 
-L'**identificador** de l'app és el nom del directori. Ha de ser `[a-z0-9_-]`, com a màxim 31
-caràcters, i no pot començar per guionet.
+**Una app és un sol fitxer de Lua.** No hi ha `require` ni mòduls: la llibreria `package` no
+s'obre a l'intèrpret (docs/20), o sigui que una app que vulgui codi compartit l'ha de tenir al
+mateix fitxer.
+
+L'**identificador** de l'app és el nom del directori, i el sistema el guarda en **32 B**: un nom més
+llarg es talla i la resta del sistema ja no hi arriba. La convenció és `[a-z0-9_-]` (el que fan
+servir totes les del repositori), i no es valida a l'escaneig: un directori amb un nom estrany és una
+app amb un nom estrany.
 
 ## On es busquen les apps
 
-| Ordre | Camí | Quan |
-|---|---|---|
-| 1 | `/sd/apps/<id>/` | Si hi ha targeta i el directori existeix |
-| 2 | `/littlefs/apps/<id>/` | Sempre |
-
-El primer que es troba guanya. Això vol dir que una app de la targeta pot **substituir** una de la
-flash sense esborrar-la, que és exactament el que es vol per provar coses.
+Les apps es busquen a **`/littlefs/apps/<id>/`** i enlloc més. El muntatge `/sd` existeix a la VFS
+per al dia que hi hagi una targeta, i cap HAL d'aquest build no el munta (docs/50): quan n'hi hagi,
+una app de la targeta podrà **substituir** una de la flash sense esborrar-la, que és el que es vol
+per provar coses.
 
 ## El manifest
 
 ```json
 {
-  "title": "EPUB",
+  "title": "Clock",
   "author": "@lunokjod",
-  "version": "1.18.3",
-  "entry": "epub.lua",
+  "version": "0.1.0",
+  "entry": "clock.lua",
   "boards": ["esp32"],
-  "icon": "icon.icn",
-  "splash": "splash.png",
-  "description": "The books of the card.\nA shelf, the cover and one page at a time.",
-  "opens": "epub",
-  "permissions": ["sd_write"],
-  "mem_kb": 64
+  "description": "The hour, kept by an alarm.",
+  "opens": "txt"
 }
 ```
 
-| Camp | Tipus | Obligatori | Per defecte | Què és |
+El que el codi llegeix avui, amb la mida que hi cap:
+
+| Camp | Tipus | Obligatori | Mida | Què és |
 |---|---|---|---|---|
-| `title` | cadena | **Sí** | — | Nom que es mostra. 1–40 caràcters |
-| `entry` | cadena | **Sí** | — | Fitxer Lua d'entrada, relatiu al directori de l'app |
-| `boards` | taula de cadenes | **Sí** | — | Les plaques on l'app funciona: el nom d'una placa o el d'una família (`esp32`) |
-| `version` | cadena | **Sí** | — | Versió de l'app, text lliure |
-| `author` | cadena | No | `""` | Autor |
-| `icon` | cadena | No | — | Icona (vegeu «Assets») |
-| `splash` | cadena | No | — | Imatge d'arrencada |
-| `description` | cadena | No | `""` | Text lliure; `\n` per saltar línia |
-| `opens` | cadena o taula | No | — | Extensions que aquesta app sap obrir |
-| `permissions` | taula | No | `[]` | `net`, `sd_write`, `rtc_set`, `sleep` |
-| `mem_kb` | enter | No | límit de la placa | Sostre de memòria de l'app |
+| `title` | cadena | **Sí** | 47 B | Nom que es mostra |
+| `entry` | cadena | **Sí** | 47 B | Fitxer Lua d'entrada, relatiu al directori de l'app |
+| `boards` | taula de cadenes | **Sí** | 8 noms de 23 B | Les plaques on l'app funciona: el nom d'una placa o el d'una família (`esp32`) |
+| `version` | cadena | No | 15 B | Versió de l'app, text lliure |
+| `opens` | cadena | No | 15 B | L'extensió que aquesta app sap obrir |
+| `author`, `description` | cadena | No | — | **No es llegeixen**: hi són al disc i el sistema no les fa servir enlloc encara |
+
+Els camps que aquest document preveia i que **no existeixen al codi** —`icon`, `splash`,
+`permissions`, `mem_kb`— s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la
+placa i els permisos encara no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriuran
+en aquesta taula.
 
 Regles de validació, totes amb error clar i el nom del camp:
 
@@ -158,7 +155,7 @@ Quan es vol obrir un fitxer (des del prompt amb `open <camí>`, o perquè una al
 La pregunta es fa sempre i no es desa enlloc: una tria recordada faria que l'altra app fos
 inabastable des del selector. `open <app> <path>` és la via per anar de dret a una app.
 
-L'app que s'obre rep `app.args = { path = "/sd/books/x.epub", ext = "epub", source = "console" }`.
+L'app que s'obre rep `app.args = { path = "/res/hola.txt", ext = "txt", source = "console" }`.
 
 ## Cicle de vida
 
@@ -171,7 +168,7 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 | `on_event(ev)` | Per cada esdeveniment, si l'app en declara |
 | `on_alarm(id, payload, meta)` | Quan venç una alarma seva |
 | `on_pause()` | Abans de tancar-se per deixar pas a una altra app |
-| `on_save()` | Just després de `on_pause`; bon moment per cridar `app.save` |
+| `on_save()` | Just després de `on_pause`; bon moment per escriure l'estat al disc (`fs.data`) |
 | `on_close()` | Últim, abans de destruir la VM |
 
 Si una app no declara `on_open`, s'executa el cos de l'entry i prou: és la manera curta d'escriure
@@ -219,7 +216,7 @@ res més.
 | Via | Estat |
 |---|---|
 | `pio run -e atom -t uploadfs` (imatge de `data/`) | És la via de la v1 |
-| Copiar el directori a `/sd/apps/` | Suportat pel disseny; falta el maquinari amb targeta |
+| Copiar el directori a `/sd/apps/` | **No es pot**: la VFS preveu el muntatge i cap placa d'aquest build té targeta (docs/50) |
 | Baixar-la per Wi-Fi des del prompt | Fora de la v1 |
 
 Desinstal·lar és esborrar el directori. Les alarmes persistents d'una app que ja no hi és es

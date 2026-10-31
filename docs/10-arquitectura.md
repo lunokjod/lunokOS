@@ -76,8 +76,9 @@ una cua de mida fixa. Si la cua s'omple, es descarten els de menys prioritat (ma
    llença un quart de segon de consola: la placa obre la UART abans que nosaltres i els primers bytes
    després d'un reset són brossa, i el shell no ha de respondre a bytes que ningú no ha escrit.
 2. Es pregunta a la placa què té (`Platform::caps()`).
-3. Es munten els volums. `/littlefs` és **obligatori** i es munta sempre; `/sd` i `/nvs` hi són si la
-   placa els té. Si `/littlefs` no munta, es registra l'error i el sistema segueix sense apps.
+3. Es munten els volums. `/littlefs` és **obligatori** i es munta sempre; `/nvs` hi és si la placa
+   el té, i `/sd` també —cap placa d'aquest build no el té (docs/50)—. Si `/littlefs` no munta, es
+   registra l'error i el sistema segueix sense apps.
 4. Es llegeix `cfg/` (si no hi és, s'agafa la configuració per defecte i es diu al log).
 5. S'inicialitza el rellotge amb la millor font disponible.
 6. S'escaneja `/apps/*/manifest.json` i es construeix el registre d'apps (identificador, títol,
@@ -115,10 +116,12 @@ platformio.ini          quatre entorns: atom, atom_matrix, emulator, test
 partitions.csv          particions pròpies (app + littlefs + nvs + coredump)
 src/main.cpp            setup()/loop() d'Arduino: crida al nucli, res més
 lib/
-  kernel/               planificador, esdeveniments, alarmes, gestor d'apps,
-                        vfs, rellotge, memòria, log, shell
+  kernel/               planificador, esdeveniments, gestor d'apps, vfs,
+                        rellotge, memòria, log, shell, la política del llum,
+                        del botó, de l'energia i de la ràdio
+  alarms/               la cua d'alarmes, sense res de Lua a dins
   lua/                  Lua 5.4 vendoritzat, amb els flags de 20 · Intèrpret
-  luabind/              un fitxer per mòdul de Lua
+  luabind/              la capa de Lua: un sol fitxer amb tota l'API de 30
   hal/                  capçaleres de les interfícies (no té codi)
   pal/                  capçaleres de la capa de plataforma (no té codi)
   hal_atom/             implementació de la família M5 ATOM (Lite i Matrix, que
@@ -132,12 +135,27 @@ lib/
   pal_esp32/            FreeRTOS/ESP-IDF
   pal_host/             POSIX
   json/                 analitzador JSON de tracció, per a manifests i cfg
+  qr/                   qualsevol QR que aquest build pugui dibuixar
 data/                   arrel de la imatge de la LittleFS; les apps d'exemple
                         són a data/apps/<id>/
 emulator/               disc de proves de l'emulador (fora del git)
 test/                   proves natives (Unity) i guions per a l'emulador
 docs/                   aquests documents
 ```
+
+## La documentació
+
+Aquests documents expliquen **com funciona el projecte avui**, i tenen tres regles:
+
+- **El codi mana.** Si un document i el codi no diuen el mateix, el document està malament. Quan es
+  canvia una cosa, es canvia el document que la descriu **al mateix commit**.
+- **No és un historial.** El que s'ha arreglat, quan i amb quant de flash ho diu git
+  (`git log`), i les mètriques vives són a `75`. Un document que es va omplint de cròniques deixa de
+  ser llegible just quan més falta fa.
+- **El que no hi és es diu.** Una crida del contracte sense codi al darrere va marcada, i el que no
+  s'ha mesurat es diu **pendent** en comptes de donar un número que ningú ha pres.
+
+`90 · Full de ruta` és l'única llista de feina, i només té el que falta.
 
 ## On va cada cosa nova
 

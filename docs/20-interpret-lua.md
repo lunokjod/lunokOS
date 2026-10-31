@@ -66,19 +66,18 @@ Conseqüències que la documentació d'usuari ha de recordar:
 
 ## Mòduls que hi són
 
+Els que s'obren, i **només** aquests (`open_libraries` a `lib/luabind/src/luabind.cpp`):
+
 | Mòdul | Estat |
 |---|---|
-| `base` | Sí, amb l'entorn retallat (vegeu el sandbox) |
-| `coroutine` | Sí |
+| `base` | Sí |
+| `coroutine` | Sí: és la base de les promeses |
 | `table` | Sí |
-| `string` | Sí, amb `pack`/`unpack` |
+| `string` | Sí |
 | `math` | Sí (llavor fixada pel nucli, vegeu «Determinisme») |
 | `utf8` | Sí |
-| `os` | **Reemplaçat**: només `os.time`, `os.date`, `os.clock`, `os.difftime`. Sense `execute`, `exit`, `remove`, `rename` |
-| `io` | **Reemplaçat**: `io.open` parla amb el VFS i `io.write` escriu a la consola de l'app |
-| `package` | **Retallat**: `require` només busca dins de l'app |
-| `debug` | **Retallat**: només `traceback` |
-| `loadlib` / mòduls en C | **No hi són** |
+| `os`, `io`, `package`, `debug` | **No hi són**: ni `os.time`, ni `io.write`, ni `require`. El temps el dona `time.*`, la consola `console.*`/`term.*`, i els fitxers `fs.*` (docs/30) |
+| mòduls en C, binaris precompilats | **No hi són**: `dofile`, `loadfile` i `load` es posen a `nil` |
 
 ## Sandbox
 
@@ -86,23 +85,22 @@ Cada app s'executa amb un `_ENV` propi:
 
 - Només hi ha els globals de la llibreria base que no permeten escapar-se'n, els mòduls de la taula
   de `30 · API` i les funcions que l'app declari.
-- `dofile`, `loadfile`, `load` amb mode binari, `collectgarbage("setpause")` descontrolat, i
-  qualsevol accés a `package.loaded` de fora de l'app, no hi són.
-- `require("mòdul")` busca **només** a `/apps/<id>/lib/` (i al costat de l'entry). No hi ha
-  biblioteques compartides entre apps: si dues apps volen el mateix codi, el dupliquen. És el preu
-  de l'aïllament, i amb apps de pocs KB surt bé.
+- `dofile`, `loadfile` i `load` **no hi són** (es posen a `nil`): una app és un sol fitxer.
+- **No hi ha `require`** perquè la llibreria `package` no s'obre. Dues apps que vulguin el mateix codi
+  el dupliquen: és el preu de l'aïllament, i amb apps de pocs KB surt bé.
 - `print` va a la consola de l'app (no a l'stdout del nucli).
 
 ## Pressupostos
 
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
-| **Memòria** | L'assignador de Lua porta el compte del que ha donat i compara amb `mem_kb` del manifest (o el límit global de la placa) | L'assignador falla, Lua llança `E_NOMEM`, l'app rep l'error i es tanca amb missatge |
-| **Instruccions** | `lua_sethook` amb comptador, cada N instruccions | La tasca torna al nucli; al segon avís seguit, l'app es mata |
-| **Temps de torn** | El nucli no deixa córrer una tasca més d'un torn seguit | Es torna a la cua de tasques |
+| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`, 64 KB fins que es mesuri el de debò) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
+| **Instruccions** | **No hi és** (docs/90) | Avui una app amb un `while true do end` **penja la placa**: el nucli no torna a tenir el torn. És el forat més gran del sistema i està fitat |
+| **Temps de torn** | El nucli no deixa córrer una tasca més d'un torn seguit: una app que cedeix torna al nucli a cada espera | Es torna a la cua de tasques |
 
-El comptador d'instruccions no distingeix una app que pinta un joc d'una que s'ha penjat; per això
-el que es talla és el **torn**, no l'execució: una app pot viure hores si cedeix.
+El comptador d'instruccions, quan hi sigui, no distingirà una app que pinta un joc d'una que s'ha
+penjat; per això el que es talla és el **torn** i no l'execució: una app pot viure hores si cedeix.
+Mentrestant, l'única cosa que protegeix el sistema és que les apps cedeixin.
 
 ## El prompt com a intèrpret (`lua`)
 

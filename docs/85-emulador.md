@@ -76,8 +76,10 @@ emulator/
     cfg/
     data/<id>/         estat de cada app
   nvs/<espai>/<clau>   cada clau és un fitxer, amb el valor a dins
-  sd/                  si existeix, hi ha targeta
 ```
+
+No hi ha `sd/`: el muntatge `/sd` existeix a la VFS i cap HAL d'aquest build el munta, o sigui que
+una targeta al PC no seria la mateixa targeta que a la placa (docs/50).
 
 Es pot editar amb qualsevol editor. Es pot esborrar per començar net. Es pot versionar un joc de
 proves petit dins del repositori i deixar la resta fora del git.
@@ -93,9 +95,8 @@ primer** `apps/` i `res/` del disc de l'emulador: és una còpia, no una fusió,
 `data/` ha de desaparèixer també d'aquí. També hi ha la tasca de VS Code **lunokOS: seed emulator
 disk**.
 
-**Per què cal recordar-ho**: editar una app a `data/apps` **no canvia res** a l'emulador. El 30/10 això
-va fer semblar que hi havia un bucle d'alarmes al sistema quan el bucle era de l'app vella que encara
-corria al disc de l'emulador (docs/60).
+**Per què cal recordar-ho**: editar una app a `data/apps` **no canvia res** a l'emulador; el que
+corre és la còpia del disc de treball.
 
 ## Temps virtual
 

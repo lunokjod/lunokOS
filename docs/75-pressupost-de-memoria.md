@@ -17,8 +17,8 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | Heap lliure amb el prompt | **Mesurat a l'ATOM, 30/10, amb LittleFS muntada i Lua al binari** | **338 864 B** |
 | Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb l'app `demo` (colors, espera i lectura) |
 | Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **65 536 B** mentre `heap_limit_kb()` no digui un altre número |
-| Sostre per app | `mem_kb` del manifest | Per defecte, el de la VM |
-| Pressupost d'instruccions per torn | Constant del nucli | pendent de mesurar (M1) |
+| Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (65 536 B) mentre la placa no en digui un altre |
+| Pressupost d'instruccions | **No existeix encara** | Avui una app que no cedeix penja la placa (docs/20, docs/90) |
 
 Nota sobre els 338 864: és més gran que els 320 KB del full de dades del xip perquè el heap de
 l'ESP-IDF inclou regions d'instruccions que també es poden fer servir com a memòria. El número que

@@ -58,7 +58,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_BUSY` | Ja hi ha una operació en curs en aquest recurs |
 | `E_NOTASK` | S'ha cridat `await` fora d'una tasca |
 | `E_NOTFOREGROUND` | L'app és a la finestra d'alarma i ha demanat una cosa de primer pla |
-| `E_BUDGET` | S'ha exhaurit el pressupost d'instruccions del torn |
+| `E_BUDGET` | **Reservat**: el pressupost d'instruccions encara no existeix (docs/20, docs/90) |
 
 ## Capacitats
 
@@ -137,13 +137,13 @@ Dues regles:
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
 | `app.raise()` | — | Demana passar a primer pla (només té sentit dins d'una finestra d'alarma) |
-| `app.save(t)` | — | Desa una taula petita a `/data/<id>/state.json` |
-| `app.restore()` | taula o `nil` | Recupera el que va desar `app.save` |
+| `app.save(t)` ⏳ | — | Desa una taula petita a `/data/<id>/state.json` |
+| `app.restore()` ⏳ | taula o `nil` | Recupera el que va desar `app.save` |
 
 Avui hi ha `app.id`, `app.args`, `app.info()` i `app.exit`; la resta encara no, i cridar-les dona
 «attempt to call a nil value». On van: `app.save`/`app.restore` a **M4** (necessiten escriure al disc
-i un escriptor de JSON, que encara no hi ha), i `app.spawn`/`app.raise` a **M3** (tasques i finestra
-d'alarma).
+i un escriptor de JSON), i `app.spawn`/`app.raise` quan una app els demani. Tot plegat és a
+`docs/90`.
 
 ## `Promise`
 
@@ -236,7 +236,7 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.parse(s, fmt)` | enter o `nil, error` | |
 | `time.set(epoch)` | — | Permís `rtc_set` |
 | `time.tz([cadena])` | cadena | Consulta o fixa la zona (format POSIX) |
-| `time.sync()` ⏳ | promesa | NTP; requereix xarxa; permís `net` |
+| `time.sync()` ⏳ | promesa | NTP; requereix xarxa (avui hi ha `net.ntp`, que és el que fa la feina) |
 | `time.caps()` | `{source, synced, wake}` | `source` és `"soc"`, `"rtc"` o `"none"`; `wake` és `"none"`, `"light"` o `"deep"` |
 
 `time.now()` pot **saltar endavant** quan arriba una sincronització. Per mesurar durades, sempre

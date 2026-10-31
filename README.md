@@ -4,7 +4,8 @@ Sistema mínim per a ESP32 que executa **una app en Lua alhora** i exposa el maq
 capacitats opcionals. El mateix codi es compila per a la placa i per al PC, on un emulador el
 fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sostre de memòria.
 
-> **Estat: M0, M1, M2, M3, M4, M5, el mecanisme d'M6 i el botó i el LED fets (31/10; M4 sense SD, que no hi ha maquinari).** Les tres bandes compilen, l'emulador és
+> **Estat: M0 a M7 fets, amb M4 sense SD (no hi ha maquinari) i les mesures de camp de M5, M6 i M7
+> pendents**. Les tres bandes compilen, l'emulador és
 > interactiu i **executa apps de Lua**: `run hello` arrenca una app de veritat i n'escriu la línia,
 > **també a la placa**. Les apps poden **esperar amb promeses** (`sys.delay(300):await()`) sense
 > aturar el nucli, **llegir línies** amb `console.read_line()`, **escriure amb colors** amb `term`,
@@ -12,9 +13,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **141 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **150 proves natives**
 > passen en 6 suites.
-> A l'ATOM: **1 986 613 B** de flash (63,2 % d'una partició de 3 MB) i **88 152 B** de RAM estàtica (26,9 %); `hello` fa un
+> A l'ATOM: **2 000 681 B** de flash (63,6 % d'una partició de 3 MB) i **92 456 B** de RAM estàtica (28,2 %); `hello` fa un
 > pic de **10 897 B** de 65 536 de sostre i el port sèrie **4,1 ms** d'anada i tornada.
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
@@ -25,8 +26,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 >
 > **La xarxa** ja s'encén sense parar res: `net.connect(ssid, pass)` torna una **promesa** i el
 > nucli mira com va a cada torn, amb el termini comptat pel sistema (`E_TIMEOUT`) i un intent alhora
-> (`E_BUSY`). I la contrasenya no s'escriu enlloc: **el provisioning és el d'Espressif** (SoftAP +
-> proof of possession), així que la xarxa la porta el telèfon amb l'app *ESP SoftAP Provisioning*;
+> (`E_BUSY`). I la contrasenya no s'escriu enlloc: **el provisioning és el d'Espressif** (Security 1
+> amb proof of possession, i **Bluetooth** per defecte, amb `provision softap` com a camí sense
+> Bluetooth), així que la xarxa la porta el telèfon amb l'app *ESP BLE Provisioning*;
 > `net.provision()` **dibuixa el QR al port sèrie** (escrit aquí, `lib/qr`), es resol quan la placa és
 > a la xarxa i `net.forget()` ho esborra. Aquella llibreria fa **qualsevol QR** (nivells L/M/Q/H,
 > modes numèric/alfanumèric/byte) i **també es pot cridar des de Lua** (`qr.encode`), igual que el
@@ -66,9 +68,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > graus per segon i la temperatura del xip en °C. El Lite no en té i la crida respon
 > `E_UNSUPPORTED` en comptes d'inventar zeros; l'app `tilt` és un nivell de bombolla als
 > vint-i-cinc llums, amb els números a la consola perquè es pugui comprovar el que llegeix.
-> El que queda és a
-> [90 · Full de ruta](docs/90-full-de-ruta.md); el que encara no s'ha mesurat, a la documentació va
-> marcat com a **pendent** i no se'n dona cap número com si fos mesurat.
+>
+> **El que queda** és a [90 · Full de ruta](docs/90-full-de-ruta.md), i el que encara no s'ha
+> mesurat va marcat com a **pendent** a la documentació i no se'n dona cap número com si fos mesurat.
 
 ## En una frase
 
@@ -80,8 +82,8 @@ botons, targeta, xarxa, bateria— darrere d'una taula de capacitats que cada pl
 | | Placa | PC |
 |---|---|---|
 | Plataforma | ESP32 (M5 ATOM) | Linux |
-| Entorn de PlatformIO | `atom` | `emulator` |
-| Es diu (`sys.board`) | `m5stack-atom`, el de `board =` | `emulator` |
+| Entorn de PlatformIO | `atom` i `atom_matrix` | `emulator` (i `test` per a les proves) |
+| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` | `emulator` |
 | Consola | UART | stdin/stdout en mode cru |
 | Fitxers | LittleFS + NVS | un directori del disc |
 | Rellotge | RTC del SoC | rellotge del PC o temps virtual |
@@ -106,7 +108,7 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 | [75 · Pressupost de memòria](docs/75-pressupost-de-memoria.md) | Regles d'allocació i què es mesura |
 | [80 · Compilació i proves](docs/80-compilacio-i-proves.md) | Entorns, proves natives, què no es pot provar sense maquinari |
 | [85 · Emulador](docs/85-emulador.md) | Com es fa servir i què no simula |
-| [90 · Full de ruta](docs/90-full-de-ruta.md) | Fites M0–M6 amb criteri de fet |
+| [90 · Full de ruta](docs/90-full-de-ruta.md) | El que queda, fita per fita, amb el criteri per tancar-la |
 
 ## Lleis que no es trenquen
 
@@ -119,6 +121,9 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
    contingut diferent (`board/identity.h`, `board/impl.h`), i el camí d'inclusió de l'entorn decideix
    quina es veu.
 7. Els comptadors de memòria i de temps que no s'hagin mesurat es diuen **pendents**.
+8. **El codi mana sobre la documentació.** Si un document i el codi no diuen el mateix, el document
+   està malament i es canvia al mateix commit que el codi. La documentació explica **com funciona el
+   projecte avui**; el que s'ha arreglat i quan ho diu git, no els documents.
 
 ## Compilació i emulador
 
@@ -130,12 +135,13 @@ pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
 pio test -e test         # proves natives
 ```
 
-Al prompt de l'emulador: `help`, `apps`, `run hello`, `lua` (el prompt es torna l'intèrpret, amb tota l'API,
-i `exit` en surt), `ls`, `cat <fitxer>`, `mem`, `wifi scan`, `wifi add <ssid> [password]`, `wifi forget`,
-`provision`. El disc de
-l'emulador és el directori `emulator/littlefs`, i la tasca **lunokOS: seed emulator disk** de VS Code
-hi copia les apps de `data/apps`. Per córrer un guió sense seure al davant:
-`./.pio/build/emulator/program --fs emulator --script <fitxer>`.
+Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id>`,
+`lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
+`open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
+`ntp`, `http <url>`, `power [cpu [mhz]]`, `led`, `button`, `sleep [light|deep] <ms>`, `log`,
+`verbose on|off`, `clear` i `reboot`. El disc de l'emulador és el directori `emulator/littlefs`, i la
+tasca **lunokOS: seed emulator disk** de VS Code hi copia les apps de `data/apps`. Per córrer un
+guio sense seure al davant: `./.pio/build/emulator/program --fs emulator --script <fitxer>`.
 
 ## Llicència
 

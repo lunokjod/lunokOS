@@ -23,18 +23,20 @@ monitor_speed = 115200
 monitor_rts = 0
 monitor_dtr = 0
 build_flags = -std=gnu++11 -Ilib/board_atom/include
-lib_ignore = hal_emulator, pal_host, board_matrix
+lib_ignore = hal_emulator, pal_host, board_matrix,
+             WiFi, WiFiClientSecure, HTTPClient, ESPmDNS, WebServer,
+             DNSServer, WiFiProv
 
 [env:atom_matrix]
 extends = env:atom
 build_flags = -std=gnu++11 -Ilib/board_matrix/include
-lib_ignore = hal_emulator, pal_host, board_atom
+lib_ignore = hal_emulator, pal_host, board_atom, …   ; i les de xarxa, igual
 
 [env:emulator]
 platform = native
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, pal_esp32
+lib_ignore = hal_atom, pal_esp32, board_atom, board_matrix
 
 [env:test]
 platform = native
@@ -42,8 +44,15 @@ test_framework = unity
 test_build_src = yes
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, pal_esp32
+lib_ignore = hal_atom, pal_esp32, board_atom, board_matrix
 ```
+
+El text de debò és a `platformio.ini`, amb un comentari per línia; aquí n'hi ha la forma. Les
+llibreries de xarxa d'Arduino són fora del build a posta (docs/50), i `board_atom`/`board_matrix` són
+a `lib_ignore` de **tots** els entorns perquè cada build en vegi exactament una.
+`extra_scripts = pre:tools/check_fs_names.py` és a `[env:atom]`: l'eina de la imatge de LittleFS
+deixa caure en silenci qualsevol nom de `data/` més llarg de 32 caràcters i tot i així diu SUCCESS, i
+aquest script ho converteix en un build fallit (docs/70).
 
 Quatre coses que aquesta configuració fa complir:
 
@@ -110,6 +119,8 @@ Quatre nivells, i cada cosa va al seu:
 | Nivell | On | Què comprova |
 |---|---|---|
 | **Unitat** | `test/test_json/` | Resolució de camins, muntatges, llistat de `/`, analitzador JSON |
+| **Unitat** | `test/test_alarms/` | La cua d'alarmes: ordre, repeticions, perdudes i la còpia a la NVS |
+| **Unitat** | `test/test_qr/` | El símbol llegit de tornada com el llegiria un escàner: BCH, desmàscara i Reed-Solomon |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten |
 | **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |
@@ -140,6 +151,7 @@ debò.
 | Desgast de la flash | No hi ha cicles que comptar |
 | Despertar de son profund | No hi ha son |
 | Latència del port sèrie i del monitor | Depèn del pont USB de la placa |
+| Memòria de debò | 320 KB no es poden simular; es **limita** la VM amb `--mem-cap`, que és una aproximació |
 
 La latència del port **sí** que es pot mesurar, només que des de fora de la placa: és
 `tools/serial_ping.py`. Arrenca l'app `ping` (que respon `pong` a cada línia), hi envia deu línies i
@@ -151,7 +163,6 @@ tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
 
 Dona mínim, mediana i màxim. El número inclou el port, la tasca lectora de consola, el torn del nucli,
 la promesa i la tornada; no és el temps d'una operació de l'app.
-| Memòria de debò | 320 KB no es poden simular; es **limita** la VM amb `--mem-cap`, que és una aproximació |
 
 Quan un número d'aquesta llista aparegui en un report, ha de portar la paraula «mesurat a la placa» i
 amb què. Si no, va marcat com a pendent.
