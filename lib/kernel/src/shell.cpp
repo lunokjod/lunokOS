@@ -768,7 +768,10 @@ void radio_done(bool ok, const char* code, uint32_t count) {
 
 bool take_radio(RadioJob job) {
   if (!net::available()) {
-    out("no radio on this board\r\n");
+    // Not "this board has no radio": every ESP32 has one, and the Paper is a
+    // board whose HAL does not implement it yet. Saying which of the two it is
+    // saves the next person the same question (docs/50, docs/90).
+    out("no radio in this build: the HAL of this board does not provide one\r\n");
     return false;
   }
   if (g_job != RadioJob::kNone || net::busy()) {
@@ -810,7 +813,7 @@ bool command_wifi(const char* argument) {
 
   if (count == 0) {
     if (!net::available()) {
-      out("wifi: no radio on this board\r\n");
+      out("wifi: no radio in this build: the HAL of this board does not provide one\r\n");
       return false;
     }
     // The state, and nothing else: `help` is where the commands are listed, and
