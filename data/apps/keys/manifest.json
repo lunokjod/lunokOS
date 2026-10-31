@@ -1,0 +1,8 @@
+{
+  "title": "Keys",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "keys.lua",
+  "boards": ["m5stack-paper", "emulator"],
+  "description": "The three keys of the Paper on the console: the sides step a number, a held key repeats like a keyboard, and three taps of the middle one close the app."
+}

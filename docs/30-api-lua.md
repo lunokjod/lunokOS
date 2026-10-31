@@ -580,26 +580,41 @@ El botó: **l'única cosa que una persona pot prémer** en aquesta placa (docs/5
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `button.wait([ms])` | **promesa** | Es resol amb `{kind = "press"\|"long", held_ms}`; **20 000 ms** per defecte |
+| `button.count()` | enter | Quantes tecles té la placa: **1** a l'ATOM i **3** a la Paper |
+| `button.wait([ms])` | **promesa** | Es resol amb `{key, kind = "press"\|"long", held_ms}` de la primera tecla que es premi; **20 000 ms** per defecte |
+| `button.down(key)` | booleà | Aquesta tecla és premuda **ara** (es llegeix en el moment de preguntar-ho) |
+| `button.held(key)` | enter | Quants ms fa que és premuda, o `0` si no ho està |
 
 ```lua
 local press = button.wait(10000):await()
 console.print('kind ' .. press.kind .. ', held ' .. press.held_ms .. ' ms')
 ```
 
-- **Hi ha dues maneres de rebre una premuda i les tria l'app**:
+- **La tecla 0 és la principal**: a l'ATOM és l'única que hi ha i a la Paper és la **central**, la
+  del mig del dial. Les altres són de l'app i el sistema no hi té cap gest.
+- **Hi ha tres maneres de rebre una premuda i les tria l'app**:
   1. **Esperar-la** amb `button.wait(ms)`, que és una promesa: l'app no es congela, el nucli segueix
      girant i la resta del sistema funciona (docs/30).
-  2. **Rebre-la** amb el hook **`on_button(kind, held_ms)`**, que es crida entre dos torns amb la
-     coroutine suspesa —exactament com `on_alarm`— i per tant **no pot esperar**.
+  2. **Rebre-la** amb el hook **`on_button(kind, held_ms, key)`**, que es crida entre dos torns amb la
+     coroutine suspesa —exactament com `on_alarm`— i per tant **no pot esperar**. La tecla va **al
+     final** a posta: una app escrita per a l'ATOM que declari `on_button(kind)` o
+     `on_button(kind, held)` segueix funcionant.
+  3. **Preguntar-la** amb `button.down(key)` i `button.held(key)` dins del bucle de l'app, que és el
+     que cal per repetir mentre una tecla es té premuda.
 - **Si hi ha una espera oberta, guanya l'espera**: el hook només es crida quan ningú està esperant, i
   així una app no rep dues vegades la mateixa premuda.
 - **`kind` és `"press"` o `"long"`**: `"long"` arriba **una vegada**, quan la premuda passa d'**1 s**, i
   no quan el dit s'aixeca.
-- **El sistema es queda el gest de tancar**: **tres tocs dins d'1,5 s tanquen l'app del davant**, i es
-  compten **abans** d'avisar l'app, o sigui que cap app no s'ho pot empassar. És el mateix gest que tres
-  ESC a la consola, amb la mateixa finestra, perquè una persona no n'ha de recordar dos. El tercer toc
-  **no arriba** a l'app: se la tanca.
+- **El sistema es queda el gest de tancar, i només de la tecla principal**: **tres tocs dins d'1,5 s
+  tanquen l'app del davant**, i es compten **abans** d'avisar l'app, o sigui que cap app no s'ho pot
+  empassar. És el mateix gest que tres ESC a la consola, amb la mateixa finestra, perquè una persona no
+  n'ha de recordar dos. El tercer toc **no arriba** a l'app: se la tanca. **Tres tocs d'una tecla
+  lateral no tanquen res**: són d'un menú, no d'una sortida.
+- **La repetició no és del sistema, és de l'app.** Què fa una tecla que es té premuda depèn del que fa
+  la tecla —un teclat repeteix lletres, una tecla de volum repeteix passos, una de menú no repeteix
+  res— i per això el sistema només diu **si** és premuda i **quant fa**; el ritme el posa l'app. L'app
+  `keys` en fa l'exemple: el primer repetit als **500 ms** i després cada **125 ms**, que és el ritme
+  d'un teclat.
 - **Sense app al davant no passa res**: les premudes no es compten ni es guarden, i una app que arrenca
   no es troba un gest a mitges (docs/30).
 

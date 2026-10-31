@@ -57,12 +57,25 @@ const Options& options() { return g_options; }
 void set_options(const Options& opts) { g_options = opts; }
 
 namespace {
-bool g_button_down = false;
+// The bench has three keys: key 0 is the ATOM's only button and the Paper's
+// middle one, and keys 1 and 2 are the Paper's sides (docs/50, docs/85).
+const int kEmuKeys = 3;
+bool g_key_down[kEmuKeys] = {false, false, false};
 }  // namespace
 
-void press_button(bool down) { g_button_down = down; }
+void press_button(bool down) { g_key_down[0] = down; }
 
-bool button_down() { return g_button_down; }
+void press_key(int key, bool down) {
+  if (key < 0 || key >= kEmuKeys) return;
+  g_key_down[key] = down;
+}
+
+bool button_down() { return g_key_down[0]; }
+
+bool key_down(int key) {
+  if (key < 0 || key >= kEmuKeys) return false;
+  return g_key_down[key];
+}
 
 }  // namespace emu
 
@@ -226,18 +239,25 @@ class FakeImu : public IImu {
 // host's clock, the same one the kernel counts with (docs/85).
 class FakeInput : public IInput {
  public:
-  bool pressed() override {
-    const bool down = emu::button_down();
-    if (down && !down_) started_ms_ = mono_ms();
-    down_ = down;
+  uint32_t count() override { return kKeys; }
+
+  bool pressed(uint32_t key) override {
+    if (key >= kKeys) return false;
+    const bool down = emu::key_down(static_cast<int>(key));
+    if (down && !down_[key]) started_ms_[key] = mono_ms();
+    down_[key] = down;
     return down;
   }
 
-  int64_t held_ms() override { return down_ ? (mono_ms() - started_ms_) : 0; }
+  int64_t held_ms(uint32_t key) override {
+    if (key >= kKeys || !down_[key]) return 0;
+    return mono_ms() - started_ms_[key];
+  }
 
  private:
-  bool down_ = false;
-  int64_t started_ms_ = 0;
+  static const uint32_t kKeys = 3;
+  bool down_[kKeys] = {false, false, false};
+  int64_t started_ms_[kKeys] = {0, 0, 0};
 };
 
 class FakePower : public IPower {

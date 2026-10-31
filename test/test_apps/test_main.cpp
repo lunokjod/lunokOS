@@ -2180,6 +2180,157 @@ void test_the_power_command_moves_the_cpu(void) {
 }
 
 // An app reads the speed, moves it, and gets a refusal it can catch (docs/30).
+// The Paper has three keys and the system says **which** one moved: the promise
+// and the hook both carry the key, or an app could not tell its way up from its
+// way down (docs/30, docs/50).
+void test_a_key_reaches_the_app_with_its_number(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "thirdkey",
+                           "{\"title\":\"Third key\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "function on_button(kind, held, key)\n"
+                           "  console.print('press ' .. kind .. ' key ' .. key)\n"
+                           "end\n"
+                           "console.print('keys ' .. button.count())\n"
+                           "while true do sys.delay(50):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run thirdkey");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keys 3"), g_out);
+
+  // The right-hand key, which is number 2, and not the main one.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press press key 2"), g_out);
+
+  // And the way out is still three taps of the middle one.
+  capture_begin();
+  for (int tap = 0; tap < 3 && kernel::app_running(); ++tap) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  capture_end(nullptr, 0);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "three taps of the middle key did not close it");
+
+  storage->remove("/apps/thirdkey/app.lua");
+  storage->remove("/apps/thirdkey/manifest.json");
+  storage->remove("/apps/thirdkey");
+}
+
+// Three taps of a side key are a menu and not a way out: the gesture belongs to
+// the main key, and an app that needs the sides keeps them (docs/30).
+void test_three_taps_of_a_side_key_keep_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "idleside",
+                           "{\"title\":\"Idle side\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('idle here')\n"
+                           "while true do sys.delay(50):await() end\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run idleside");
+  TEST_ASSERT_TRUE(kernel::app_running());
+
+  capture_begin();
+  for (int tap = 0; tap < 3; ++tap) {
+    emu::press_key(1, true);
+    pump_turns(10);
+    emu::press_key(1, false);
+    pump_turns(10);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a side key closed the app");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "closing the app"), g_out);
+
+  capture_begin();
+  for (int tap = 0; tap < 3 && kernel::app_running(); ++tap) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  capture_end(nullptr, 0);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the middle key stopped closing it");
+
+  storage->remove("/apps/idleside/app.lua");
+  storage->remove("/apps/idleside/manifest.json");
+  storage->remove("/apps/idleside");
+}
+
+// The example of the keys, from the disk: the sides step a number and a key that
+// stays down steps again, which is what a keyboard does (docs/30, docs/90).
+void test_the_keys_demo_app_from_the_disk_runs(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char manifest[256];
+  static char source[8192];
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("data/apps/keys/manifest.json", manifest, sizeof(manifest)));
+  const size_t source_len = read_host_file("data/apps/keys/keys.lua", source, sizeof(source));
+  TEST_ASSERT_GREATER_THAN(0, source_len);
+  TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
+  TEST_ASSERT_TRUE(add_app_file(storage, "keys-app", manifest, source, "keys.lua"));
+
+  // It is a loop, so it takes turns instead of ending on its own (docs/30).
+  pump_captured(20, g_out, sizeof(g_out), "run keys-app");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keys: 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 0"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+
+  // One press of the right key goes up one.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 1"), g_out);
+
+  // And held down it repeats: the first repeat comes half a second later, so a
+  // second is enough to see two more steps and a short press is one.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(900);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 3"), g_out);
+
+  // The left key goes down.
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 2"), g_out);
+
+  // Three taps of the middle key are the way out, and they are the system's.
+  capture_begin();
+  for (int tap = 0; tap < 3 && kernel::app_running(); ++tap) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  capture_end(nullptr, 0);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the middle key did not close the app");
+
+  storage->remove("/apps/keys-app/keys.lua");
+  storage->remove("/apps/keys-app/manifest.json");
+  storage->remove("/apps/keys-app");
+}
+
 void test_an_app_asks_for_the_processor_speed(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -2561,6 +2712,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
+  RUN_TEST(test_a_key_reaches_the_app_with_its_number);
+  RUN_TEST(test_three_taps_of_a_side_key_keep_the_app);
+  RUN_TEST(test_the_keys_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);
   RUN_TEST(test_an_app_sleeps_deeply_and_comes_back_where_it_was);

@@ -269,11 +269,17 @@ class IDisplay {
 class IInput {
  public:
   virtual ~IInput() {}
-  // True while the button is held. The board debounces it, so the same press
+  // How many keys the board has: one on the ATOM, three on the Paper. Key 0 is
+  // the main one, and it is the one the system counts taps on, because three
+  // taps of a side key is a menu and three of the middle one is "get out"
+  // (docs/30).
+  virtual uint32_t count() = 0;
+  // True while that key is held. The board debounces it, so the same press
   // answers the same in every turn the kernel asks in (docs/50).
-  virtual bool pressed() = 0;
-  // How long it has been held, in ms, or 0 when it is not held (docs/50).
-  virtual int64_t held_ms() = 0;
+  virtual bool pressed(uint32_t key) = 0;
+  // How long it has been held, in ms, or 0 when it is not held or the key does
+  // not exist (docs/50).
+  virtual int64_t held_ms(uint32_t key) = 0;
 };
 
 // One light or a strip of them. The system paints **the whole light** with one

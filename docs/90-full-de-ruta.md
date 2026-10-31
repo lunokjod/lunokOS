@@ -103,7 +103,7 @@ l'anterior:
 |---|---|---|
 | 1 | **Que arrenqui**: `pio run -e paper`, flashejar i veure el prompt. El *main power hold* de GPIO2 és el primer que fa el HAL, perquè sense ell la placa s'apaga i sembla un crash | El prompt respon `help` i `caps` diu **8 de 17** |
 | 2 | **El panell**: driver propi de l'**IT8951E** (SPI: CS 15, SCK 14, MOSI 12, MISO 13, BUSY 27, amb l'alimentació a GPIO23 i GPIO5) i `IDisplay` de 960×540 amb 16 grisos | Una pàgina en blanc i un rectangle negre de debò, amb els modes `INIT` i `GC16` mesurats |
-| 3 | **Les tres tecles**: `IInput` ha de poder dir **quina** tecla —avui el contracte és d'un botó sol— i els tocs han de comptar per al gest de tancar (docs/50) | Cada tecla diu el seu GPIO i tres tocs tanquen l'app |
+| 3 | **Les tres tecles**: fetes (`IInput` amb índex, la central compta el gest, l'app `keys` en fa l'exemple amb repetició). El que falta és **comprovar a la placa quina tecla és quina**: la llibreria del fabricant no diu el mateix al capçalari i al seu README (docs/50) | Prémer cada tecla i veure el seu número a `button` |
 | 4 | **El rellotge BM8563** (I2C 0x51) i el despert per la seva alarma: és el que fa que l'hora sobrevisqui a treure el cable | `time.caps().source` diu `"rtc"` i un son de deu minuts torna a l'hora |
 | 5 | **La bateria**: divisor a GPIO35 (×2), la corba del full del fabricant i una mesura amb el mesurador al davant | `power.battery()` dona mV i % que quadren amb el mesurador |
 | 6 | **La ràdio**: el mateix `INet` de l'ATOM (esp_wifi directe, provisioning, NTP i una pàgina). És el bloc més gran i el que més flash costa | `provision`, `ntp` i `http` funcionen com a l'ATOM |

@@ -2167,6 +2167,41 @@ const lua_Integer kButtonWaitDefaultMs = 20000;
 // button.wait([ms]): a promise of `{kind = "press"|"long", held_ms}`. The press is
 // delivered between turns, like an alarm, so the app is not frozen while it waits
 // (docs/30).
+// button.count(): how many keys this board has. Zero is a board with none, and
+// it is not an error: an app asks before it shows three of them (docs/30).
+int l_button_count(lua_State* L) {
+  if (g_button_ops.count == nullptr) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_button_ops.count()));
+  return 1;
+}
+
+// button.down(key): is that key down right now. It is what an app that repeats a
+// step while a key is held needs, and it reads the board at the moment it asks
+// (docs/30).
+int l_button_down(lua_State* L) {
+  if (g_button_ops.down == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  const lua_Integer key = luaL_optinteger(L, 1, 0);
+  if (key < 0) return push_nil_error(L, "E_INVAL", "a key index is not negative");
+  lua_pushboolean(L, g_button_ops.down(static_cast<uint32_t>(key)) ? 1 : 0);
+  return 1;
+}
+
+// button.held(key): how long it has been down, in ms, or 0 when it is not.
+int l_button_held(lua_State* L) {
+  if (g_button_ops.held == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  const lua_Integer key = luaL_optinteger(L, 1, 0);
+  if (key < 0) return push_nil_error(L, "E_INVAL", "a key index is not negative");
+  lua_pushinteger(L, static_cast<lua_Integer>(g_button_ops.held(static_cast<uint32_t>(key))));
+  return 1;
+}
+
 int l_button_wait(lua_State* L) {
   lua_Integer timeout = luaL_optinteger(L, 1, kButtonWaitDefaultMs);
   if (timeout <= 0) {
@@ -2448,6 +2483,9 @@ void seal_globals(lua_State* L) {
   lua_setglobal(L, "imu");
   lua_createtable(L, 0, 1);
   set_function(L, "wait", l_button_wait);
+  set_function(L, "count", l_button_count);
+  set_function(L, "down", l_button_down);
+  set_function(L, "held", l_button_held);
   lua_setglobal(L, "button");
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
@@ -2912,7 +2950,7 @@ void http_progress(bool ok, const char* code, int status, const char* body, uint
 
 // The answer of the press an app was waiting for: a table, because a press has a
 // kind and how long it was held (docs/30).
-void button_progress(const char* kind, int64_t held_ms) {
+void button_progress(const char* kind, int64_t held_ms, uint32_t key) {
   lua_State* L = g_state;
   if (L == nullptr) return;
   const int base = lua_gettop(L);
@@ -2922,11 +2960,13 @@ void button_progress(const char* kind, int64_t held_ms) {
   lua_setfield(L, LUA_REGISTRYINDEX, kButtonKey);
   if (waiting) {
     const int p = lua_absindex(L, -1);
-    lua_createtable(L, 0, 2);
+    lua_createtable(L, 0, 3);
     lua_pushstring(L, (kind != nullptr) ? kind : "press");
     lua_setfield(L, -2, "kind");
     lua_pushinteger(L, static_cast<lua_Integer>(held_ms));
     lua_setfield(L, -2, "held_ms");
+    lua_pushinteger(L, static_cast<lua_Integer>(key));
+    lua_setfield(L, -2, "key");
     promise_settle(L, p, kOk, lua_gettop(L));
   }
   lua_settop(L, base);
@@ -2952,7 +2992,7 @@ void button_failed(const char* code) {
 // on_button(kind, held_ms): the app that did not ask with a promise gets the press
 // here, between two turns and with the coroutine suspended, exactly like on_alarm
 // (docs/30).
-bool call_button(const char* kind, int64_t held_ms) {
+bool call_button(const char* kind, int64_t held_ms, uint32_t key) {
   if (g_state == nullptr) return false;
   lua_State* L = g_state;
   const int top = lua_gettop(L);
@@ -2963,7 +3003,10 @@ bool call_button(const char* kind, int64_t held_ms) {
   }
   lua_pushstring(L, (kind != nullptr) ? kind : "press");
   lua_pushinteger(L, static_cast<lua_Integer>(held_ms));
-  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+  // The key goes **last** on purpose: an app written for the ATOM's one button
+  // declares on_button(kind) or on_button(kind, held) and keeps working (docs/30).
+  lua_pushinteger(L, static_cast<lua_Integer>(key));
+  if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
     con_text("on_button: ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");

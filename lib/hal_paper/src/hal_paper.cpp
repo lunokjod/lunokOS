@@ -126,6 +126,93 @@ class PaperClock : public IClock {
   bool known_ = false;
 };
 
+// The three keys of the dial. They are inputs with no pull configured here: the
+// board has the resistors and pressing a key closes it to ground (docs/50).
+//
+// The order is the one of the maker's own library (M5EPD.h), where the middle
+// key —the one that is also the power button— is the main key, which is the one
+// the system counts three taps on (docs/30). Its README says the opposite about
+// left and right, so the first thing to do on the board is press each key and
+// see which one moves (docs/90).
+class PaperKeys : public IInput {
+ public:
+  uint32_t count() override {
+    ensure_ready();
+    return kKeyCount;
+  }
+
+  bool pressed(uint32_t key) override {
+    ensure_ready();
+    if (key >= kKeyCount) return false;
+    sample();
+    return stable_[key];
+  }
+
+  int64_t held_ms(uint32_t key) override {
+    if (key >= kKeyCount || !stable_[key]) return 0;
+    return (esp_timer_get_time() / 1000) - pressed_since_ms_[key];
+  }
+
+ private:
+  static const uint32_t kKeyCount = 3;
+  // Centre (PWR), left, right.
+  static const uint32_t kPins[kKeyCount];
+  // The board's own library debounces with 10 ms, and so does this one.
+  static const int64_t kDebounceMs = 10;
+
+  void ensure_ready() {
+    if (ready_) return;
+    gpio_config_t config = {};
+    for (uint32_t key = 0; key < kKeyCount; ++key) {
+      config.pin_bit_mask |= 1ULL << kPins[key];
+    }
+    config.mode = GPIO_MODE_INPUT;
+    config.pull_up_en = GPIO_PULLUP_DISABLE;
+    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    config.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&config);
+    const int64_t now = esp_timer_get_time() / 1000;
+    for (uint32_t key = 0; key < kKeyCount; ++key) {
+      raw_[key] = read_pin(key);
+      stable_[key] = raw_[key];
+      changed_ms_[key] = now;
+      pressed_since_ms_[key] = now;
+    }
+    ready_ = true;
+  }
+
+  static bool read_pin(uint32_t key) {
+    return gpio_get_level(static_cast<gpio_num_t>(kPins[key])) == 0;
+  }
+
+  // The same debounce the ATOM has, once per key: a reading that does not hold
+  // for 10 ms is not a press.
+  void sample() {
+    const int64_t now = esp_timer_get_time() / 1000;
+    for (uint32_t key = 0; key < kKeyCount; ++key) {
+      const bool raw = read_pin(key);
+      if (raw != raw_[key]) {
+        raw_[key] = raw;
+        changed_ms_[key] = now;
+        continue;
+      }
+      if (now - changed_ms_[key] < kDebounceMs) continue;
+      if (raw != stable_[key]) {
+        stable_[key] = raw;
+        if (stable_[key]) pressed_since_ms_[key] = changed_ms_[key];
+      }
+    }
+  }
+
+  bool ready_ = false;
+  bool raw_[kKeyCount] = {false, false, false};
+  bool stable_[kKeyCount] = {false, false, false};
+  int64_t changed_ms_[kKeyCount] = {0, 0, 0};
+  int64_t pressed_since_ms_[kKeyCount] = {0, 0, 0};
+};
+
+const uint32_t PaperKeys::kPins[PaperKeys::kKeyCount] = {38, 37, 39};
+
 class PaperPower : public IPower {
  public:
   // The board has a 1150 mAh cell and a divider on GPIO35 to read it, and neither
@@ -196,6 +283,9 @@ class PaperPlatform : public IPlatform {
       caps_.add(kCapSleepLight);
       caps_.add(kCapSleepDeep);
       caps_.add(kCapRtcWake);
+      // Three keys, read in every turn of the kernel like the ATOM's one. The
+      // panel and the touch are still absent (docs/90).
+      caps_.add(kCapInput);
     }
     return caps_;
   }
@@ -213,7 +303,7 @@ class PaperPlatform : public IPlatform {
   IPower* power() override { return &power_; }
   IDisplay* display() override { return nullptr; }
   ILed* led() override { return nullptr; }
-  IInput* input() override { return nullptr; }
+  IInput* input() override { return &keys_; }
   IImu* imu() override { return nullptr; }
 
  private:
@@ -221,6 +311,7 @@ class PaperPlatform : public IPlatform {
   mutable bool built_ = false;
   PaperClock clock_;
   PaperPower power_;
+  PaperKeys keys_;
 };
 
 PaperPlatform g_platform;

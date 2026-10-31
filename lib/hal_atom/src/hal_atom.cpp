@@ -237,7 +237,11 @@ class AtomLed : public ILed {
 
 class AtomInput : public IInput {
  public:
-  bool pressed() override {
+  // One button and no more on this family: the Lite and the Matrix have the same
+  // one, and it is the main key by being the only one (docs/50).
+  uint32_t count() override { return 1; }
+
+  bool pressed(uint32_t key) override {
     ensure_ready();
     const bool raw = gpio_get_level(static_cast<gpio_num_t>(kButtonPin)) == 0;
     const int64_t now = esp_timer_get_time() / 1000;
@@ -252,11 +256,11 @@ class AtomInput : public IInput {
       stable_ = raw;
       if (stable_) pressed_since_ms_ = changed_ms_;
     }
-    return stable_;
+    return (key == 0) ? stable_ : false;
   }
 
-  int64_t held_ms() override {
-    if (!stable_) return 0;
+  int64_t held_ms(uint32_t key) override {
+    if (key != 0 || !stable_) return 0;
     return (esp_timer_get_time() / 1000) - pressed_since_ms_;
   }
 

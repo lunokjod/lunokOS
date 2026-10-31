@@ -1,4 +1,4 @@
-// The button: the one thing a person can press on this board. The kernel counts
+// The keys of the board: the one thing a person can press. The kernel counts
 // the presses it needs for itself (three taps close the app, like three ESC on the
 // console) and hands the same press to the app, as a promise if it is waiting for
 // one and as a hook if it is not (docs/30, docs/50).
@@ -21,8 +21,9 @@ void poll();
 
 // What it is doing right now, for the shell: the same reading the kernel gets in
 // every turn, so a person can see the finger before blaming the app (docs/50).
-bool down();
-int64_t held_ms();
+uint32_t count();
+bool down(uint32_t key);
+int64_t held_ms(uint32_t key);
 
 // An app asked for the next press. False when the board has no button, or when one
 // is already on its way: an app has one promise slot and a second wait would be a

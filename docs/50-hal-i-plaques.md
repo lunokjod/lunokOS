@@ -22,7 +22,7 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | **pendent** | de mentida |
 | `IPower` | bateria, son, velocitat del processador | ✓ | ✓ | ✓ (sense bateria) | de mentida |
 | `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 25 |
-| `IInput` | el botó: si és premut i quant fa | ✓ | ✓ | **pendent** (3 tecles) | ✓ |
+| `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | ✓ (3) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | de mentida |
 | `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — |
 
@@ -113,12 +113,17 @@ quedaria a la primera. El sostre del canal és una constant de la identitat i no
 fa complir **abans** que res arribi al driver; l'emulador té el mateix sostre perquè el PC no amagui un
 límit que la placa té.
 
-## El botó
+## Les tecles
 
-Un botó a **GPIO39**, entrada només i sense pull-up intern: la resistència la porta la placa i prémer el
-porta a GND. El rebot és de **10 ms**, el mateix que fa servir la llibreria del fabricant, i es llegeix
-**a cada torn del nucli** (cada 20 ms mentre una app viu), sense cap interrupció: un dit no baixa de
-50 ms, i una premuda que no arriba a un torn no és una premuda.
+L'ATOM té **un botó** a **GPIO39**; la Paper, **tres tecles** a **GPIO38** (la central, que és també el
+botó d'encesa), **GPIO37** i **GPIO39** (les laterals). Totes són entrades sense pull-up configurat:
+la resistència la porta la placa i prémer les porta a GND. El rebot és de **10 ms**, el mateix que fa
+servir la llibreria del fabricant, i es llegeixen **a cada torn del nucli** (cada 20 ms mentre una app
+viu), sense cap interrupció: un dit no baixa de 50 ms, i una premuda que no arriba a un torn no és una
+premuda.
+
+La **tecla 0 és la principal** —l'única de l'ATOM, la central de la Paper— i és l'única que compta el
+gest de tancar; les laterals són de l'app (docs/30).
 
 ## El sensor inercial (Matrix)
 
@@ -333,7 +338,7 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
 | `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
 | `display` | — | — | — | — | **Reservat**: la interfície hi és i encara no la implementa cap placa (docs/90) |
-| `input` | ✓ | ✓ | — | ✓ | El botó de l'ATOM; el Paper en té tres i no es llegeixen encara |
+| `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i al banc |
 | `led` | ✓ | ✓ | — | ✓ | El Paper no té cap llum |
 | `imu` | — | ✓ | — | ✓ | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
@@ -349,8 +354,8 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
 `caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula: **13 de 17** al Lite, **14 de 17** al
-Matrix (que hi afegeix `imu`), **8 de 17** al Paper (li falten la ràdio, la pantalla, les tecles, la
-targeta i el sensor) i **14 de 17** a l'emulador.
+Matrix (que hi afegeix `imu`), **9 de 17** al Paper (li falten la ràdio, la pantalla, la targeta i el
+sensor) i **14 de 17** a l'emulador.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -420,9 +425,9 @@ L'única cosa que s'ha de vigilar és la del pont: si el port no apareix, és el
 CH9102, no el firmware.
 
 **Què hi ha avui en aquesta placa** (docs/90): consola, LittleFS, NVS, rellotge del SoC, les dues
-fondàries de son amb el despert pel temporitzador del RTC i la velocitat del processador. **No hi és
-encara** el panell (IT8951E), el toc (GT911), el rellotge BM8563, la bateria, la targeta, les tres
-tecles i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
+fondàries de son amb el despert pel temporitzador del RTC, la velocitat del processador i **les tres
+tecles** (docs/30). **No hi és encara** el panell (IT8951E), el toc (GT911), el rellotge BM8563, la
+bateria, la targeta i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
 
 **Què està provat i què no**: `pio run -e paper` **compila net** (zero avisos propis, docs/75) i el
 binari que en surt porta la identitat del Paper i cap de les de l'ATOM, que és el que es pot comprovar

@@ -195,18 +195,23 @@ struct ButtonOps {
   bool (*wait)(uint32_t timeout_ms);
   void (*cancel)();
   bool (*available)();
+  // Several keys: the board says how many and what each one is doing now, so a
+  // person can see the key before blaming the app (docs/30, docs/50).
+  uint32_t (*count)();
+  bool (*down)(uint32_t key);
+  int64_t (*held)(uint32_t key);
 };
 
 void set_button_ops(const ButtonOps& ops);
 
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).
-void button_progress(const char* kind, int64_t held_ms);
+void button_progress(const char* kind, int64_t held_ms, uint32_t key);
 void button_failed(const char* code);
 
 // A press for an app that did not ask for it as a promise: the `on_button` hook, in
 // the same shape as on_alarm, so it cannot await (docs/30).
-bool call_button(const char* kind, int64_t held_ms);
+bool call_button(const char* kind, int64_t held_ms, uint32_t key);
 
 // The kernel says the board is back from the sleep an app asked for. Called
 // between turns, never from inside Lua (docs/30).

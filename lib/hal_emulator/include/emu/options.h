@@ -58,10 +58,14 @@ struct Options {
 const Options& options();
 void set_options(const Options& opts);
 
-// The button of this band is the test's to press: there is no finger on a PC, and a
+// The keys of this band are the test's to press: there is no finger on a PC, and a
 // scripted press is what makes the path through the kernel runnable (docs/85).
-void press_button(bool down);
-bool button_down();
+// Key 0 is the main one —the ATOM's only button, the Paper's middle key— and the
+// bench has three, so a board with more than one can be tried on the PC.
+void press_button(bool down);            // key 0
+void press_key(int key, bool down);      // 0, 1 or 2
+bool button_down();                      // key 0
+bool key_down(int key);
 
 // What the fake light is showing. A test asks the band and not the kernel, so a
 // policy that never paints is caught (docs/85).

@@ -1213,15 +1213,20 @@ bool command_button(const char* argument) {
     out("button: this board has no button\r\n");
     return false;
   }
-  const bool down = button::down();
-  out("button: ");
-  out(down ? "down" : "up");
-  if (down) {
-    out(" (");
-    out_int(static_cast<int32_t>(button::held_ms()));
-    out(" ms)");
-  }
+  const uint32_t keys = button::count();
+  out("keys: ");
+  out_num(keys);
   newline();
+  for (uint32_t key = 0; key < keys; ++key) {
+    out("  ");
+    out_num(key);
+    out(button::down(key) ? ": down (" : ": up");
+    if (button::down(key)) {
+      out_int(static_cast<int32_t>(button::held_ms(key)));
+      out(" ms)");
+    }
+    newline();
+  }
   out_num(button::taps_to_close());
   out(" taps in a row close the app\r\n");
   return true;

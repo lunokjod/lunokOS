@@ -25,10 +25,16 @@ const int64_t kTapWindowMs = 1500;
 // crossed and not when the finger goes up (docs/30).
 const int64_t kLongPressMs = 1000;
 
-bool g_was_down = false;
+// The board may have more than one key (three on the Paper) and the kernel keeps
+// the state of each one: who is down and who has already been told as `long`.
+// Only key 0 counts taps, because three taps of a side key is a menu and three of
+// the middle one is "get out" (docs/30, docs/50).
+const uint32_t kMaxKeys = 4;
+bool g_was_down[kMaxKeys] = {false, false, false, false};
+bool g_long_sent[kMaxKeys] = {false, false, false, false};
+uint32_t g_key_count = 0;
 int64_t g_tap_started_ms = 0;
 uint32_t g_taps = 0;
-bool g_long_sent = false;
 
 bool g_waiting = false;
 int64_t g_wait_deadline_ms = 0;
@@ -45,13 +51,13 @@ void say(const char* text) {
 // The press goes to the app: the promise it is waiting for, or the hook it
 // declared. A promise first, because an app that is waiting for a press is waiting
 // for exactly this one (docs/30).
-void deliver(const char* kind, int64_t held_ms) {
+void deliver(const char* kind, int64_t held_ms, uint32_t key) {
   if (g_waiting) {
     g_waiting = false;
-    luabind::button_progress(kind, held_ms);
+    luabind::button_progress(kind, held_ms, key);
     return;
   }
-  luabind::call_button(kind, held_ms);
+  luabind::call_button(kind, held_ms, key);
 }
 
 }  // namespace
@@ -59,10 +65,14 @@ void deliver(const char* kind, int64_t held_ms) {
 bool boot(hal::IPlatform& platform) {
   g_input = platform.input();
   g_clock = platform.clock();
-  g_was_down = false;
+  g_key_count = (g_input != nullptr) ? g_input->count() : 0;
+  if (g_key_count > kMaxKeys) g_key_count = kMaxKeys;
+  for (uint32_t key = 0; key < kMaxKeys; ++key) {
+    g_was_down[key] = false;
+    g_long_sent[key] = false;
+  }
   g_tap_started_ms = 0;
   g_taps = 0;
-  g_long_sent = false;
   g_waiting = false;
   g_wait_deadline_ms = 0;
 
@@ -73,6 +83,9 @@ bool boot(hal::IPlatform& platform) {
     ops.wait = &wait_start;
     ops.cancel = &cancel;
     ops.available = &available;
+    ops.count = &count;
+    ops.down = &down;
+    ops.held = &held_ms;
   }
   luabind::set_button_ops(ops);
   return g_input != nullptr;
@@ -80,9 +93,15 @@ bool boot(hal::IPlatform& platform) {
 
 bool available() { return g_input != nullptr; }
 
-bool down() { return (g_input != nullptr) && g_input->pressed(); }
+uint32_t count() { return g_key_count; }
 
-int64_t held_ms() { return (g_input != nullptr) ? g_input->held_ms() : 0; }
+bool down(uint32_t key) {
+  return (g_input != nullptr) && (key < g_key_count) && g_input->pressed(key);
+}
+
+int64_t held_ms(uint32_t key) {
+  return (g_input != nullptr && key < g_key_count) ? g_input->held_ms(key) : 0;
+}
 
 uint32_t taps_to_close() { return kTapsToClose; }
 
@@ -101,43 +120,51 @@ bool wait_start(uint32_t timeout_ms) {
 void poll() {
   if (g_input == nullptr) return;
   const int64_t now = now_ms();
-  const bool down = g_input->pressed();
-  const bool rising = down && !g_was_down;
-  g_was_down = down;
 
-  if (rising) {
-    g_long_sent = false;
-    if (!shell::app_running()) {
-      // Nothing to close and nobody to tell: a press is not counted, so three taps
-      // given before an app started do not close it when it appears (docs/30).
-      g_taps = 0;
-      g_tap_started_ms = now;
-    } else {
-      if (g_taps == 0 || (now - g_tap_started_ms) > kTapWindowMs) {
-        g_taps = 1;
+  for (uint32_t key = 0; key < g_key_count; ++key) {
+    const bool down = g_input->pressed(key);
+    const bool rising = down && !g_was_down[key];
+    g_was_down[key] = down;
+
+    if (rising) {
+      g_long_sent[key] = false;
+      if (key != 0) {
+        // A side key has no gesture of the system on it: that one is the app's
+        // (docs/30).
+        deliver("press", 0, key);
+      } else if (!shell::app_running()) {
+        // Nothing to close and nobody to tell: a press is not counted, so three
+        // taps given before an app started do not close it when it appears
+        // (docs/30).
+        g_taps = 0;
         g_tap_started_ms = now;
       } else {
-        ++g_taps;
+        if (g_taps == 0 || (now - g_tap_started_ms) > kTapWindowMs) {
+          g_taps = 1;
+          g_tap_started_ms = now;
+        } else {
+          ++g_taps;
+        }
+        // The gesture is counted **before** the app is greeted, so an app that
+        // wants every press cannot swallow the one that closes it (docs/30).
+        if (g_taps >= kTapsToClose) {
+          g_taps = 0;
+          say("button: three taps, closing the app\r\n");
+          shell::close_app();
+        } else {
+          deliver("press", 0, key);
+        }
       }
-      // The gesture is counted **before** the app is greeted, so an app that wants
-      // every press cannot swallow the one that closes it (docs/30).
-      if (g_taps >= kTapsToClose) {
-        g_taps = 0;
-        say("button: three taps, closing the app\r\n");
-        shell::close_app();
-      } else {
-        deliver("press", 0);
-      }
+    }
+
+    if (down && !g_long_sent[key] && g_input->held_ms(key) >= kLongPressMs) {
+      g_long_sent[key] = true;
+      deliver("long", g_input->held_ms(key), key);
     }
   }
 
-  if (down && !g_long_sent && g_input->held_ms() >= kLongPressMs) {
-    g_long_sent = true;
-    deliver("long", g_input->held_ms());
-  }
-
-  // A press that never came is answered with the deadline, never with silence: an
-  // app waiting for ever is an app that cannot be closed (docs/30).
+  // A press that never came is answered with the deadline, never with silence:
+  // an app waiting for ever is an app that cannot be closed (docs/30).
   if (g_waiting && now >= g_wait_deadline_ms) {
     g_waiting = false;
     luabind::button_failed("E_TIMEOUT");
