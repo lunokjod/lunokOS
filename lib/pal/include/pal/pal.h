@@ -57,6 +57,10 @@ class IConsole {
   // Returns what is available right now, 0 if nothing. Never blocks.
   virtual size_t read(void* data, size_t len) = 0;
   virtual bool ansi() const = 0;
+  // Waits until what was written has left the port. A serial line keeps bytes in flight
+  // after write() returns, so the last thing a person reads before the board stops has to
+  // be pushed out first or it is a word cut in half (docs/50).
+  virtual void flush() = 0;
 };
 
 struct HeapInfo {

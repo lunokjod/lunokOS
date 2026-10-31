@@ -12,6 +12,7 @@
 
 #include <unity.h>
 
+#include "emu/options.h"
 #include "hal/hal.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -387,15 +388,17 @@ void test_fs_mounts_without_a_file_system_says_unsupported(void) {
   luabind::stop();
 }
 
-// A file over the ceiling is refused with a code, not cut.
-void test_fs_read_refuses_a_file_over_the_ceiling(void) {
+// Without a bound, the whole file is read, however big it is: the ceiling was this
+// function's own and it is gone — what is left is the window and the interpreter's
+// memory (docs/30, docs/70).
+void test_fs_read_without_a_bound_reads_the_whole_file(void) {
   pal::init();
   install_fake_fs();
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
-  TEST_ASSERT_TRUE(run("local s, err = fs.read('/fake/big.txt')\n"
-                       "assert(s == nil)\n"
-                       "assert(err.code == 'E_TOOBIG', tostring(err and err.code))"));
-  TEST_ASSERT_EQUAL_INT(0, g_read_calls);  // it did not even start reading
+  TEST_ASSERT_TRUE(run("local s = fs.read('/fake/big.txt')\n"
+                       "assert(#s == 5000, #s)"));
+  TEST_ASSERT_EQUAL_INT(10, g_read_calls);  // still in windows of 512
+  TEST_ASSERT_EQUAL_UINT32(512, g_biggest_read);
   luabind::stop();
 }
 
@@ -565,18 +568,29 @@ void test_the_heap_numbers_match_the_ceiling(void) {
   luabind::stop();
 }
 
-// The app is told the board the platform says, not a name the shell invents.
+// The app is told the board the platform says, not a name the shell invents: on the
+// bench that is the model it was told to be, and `sys.emulator` is the flag that says the
+// hardware under it is a fake (docs/50, docs/85).
 void test_the_app_sees_the_board_the_platform_says(void) {
   pal::init();
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  emu::set_options(opts);
+
   luabind::Boot boot;
   boot.board = hal::platform().id();
   boot.version = "0.1.0";
   boot.emulator = hal::platform().emulator();
-  TEST_ASSERT_EQUAL_STRING("emulator", boot.board);
+  TEST_ASSERT_EQUAL_STRING("m5stack-paper", boot.board);
   TEST_ASSERT_TRUE(luabind::start(boot, kGenerousLimit));
-  TEST_ASSERT_TRUE(run("assert(sys.board == 'emulator', sys.board)\n"
+  TEST_ASSERT_TRUE(run("assert(sys.board == 'm5stack-paper', sys.board)\n"
                        "assert(sys.emulator == true)"));
   luabind::stop();
+
+  // And with nobody saying otherwise it is the ATOM, which is a board that exists.
+  opts.board = nullptr;
+  emu::set_options(opts);
+  TEST_ASSERT_EQUAL_STRING("m5stack-atom", hal::platform().id());
 }
 
 // What is typed while the app is alive reaches the app, and Enter is what
@@ -765,7 +779,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fs_mounts_and_space_answer_without_guessing);
   RUN_TEST(test_fs_mounts_without_a_file_system_says_unsupported);
   RUN_TEST(test_fs_read_uses_a_window_of_512_bytes);
-  RUN_TEST(test_fs_read_refuses_a_file_over_the_ceiling);
+  RUN_TEST(test_fs_read_without_a_bound_reads_the_whole_file);
   RUN_TEST(test_fs_read_at_and_a_missing_file);
   RUN_TEST(test_fs_stat_and_list);
   RUN_TEST(test_there_is_no_way_to_load_a_file);

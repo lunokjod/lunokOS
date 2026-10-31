@@ -9,6 +9,7 @@
 #include "hal/hal.h"
 #include "json/json.h"
 #include "kernel/apps.h"
+#include "kernel/cfg.h"
 #include "kernel/vfs.h"
 
 void setUp(void) {}
@@ -125,9 +126,12 @@ class CountingSink : public hal::ListSink {
 
 void test_root_lists_the_mounts(void) {
   kernel::vfs::init(hal::platform());
+  // `/cfg` is not one of the mounts the VFS builds: it is a door, and it is the settings
+  // policy that opens it on a unit (docs/70). Without this the table is one row shorter.
+  kernel::cfg::boot(hal::platform());
   CountingSink sink;
   TEST_ASSERT_TRUE(kernel::vfs::list("/", sink));
-  // /littlefs, /apps, /res, /cfg, /data and /nvs (the key-value store as files).
+  // /littlefs, /apps, /res, /data, /nvs (the key-value store as files) and /cfg.
   TEST_ASSERT_EQUAL_INT(6, static_cast<int>(sink.count));
 }
 

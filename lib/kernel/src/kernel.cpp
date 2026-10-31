@@ -5,6 +5,7 @@
 #include "alarms/alarms.h"
 #include "kernel/apps.h"
 #include "kernel/button.h"
+#include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
@@ -68,6 +69,9 @@ void print_banner() {
   out(kVersion);
   out("  ");
   out(g_platform->id());
+  // On the PC both are true: the name is the board the bench was told to be, and the
+  // word says the hardware under it is a fake (docs/85).
+  if (g_platform->emulator()) out(" (emulator)");
   out("\r\n");
   out("type 'help' and Enter.\r\n");
 }
@@ -219,8 +223,14 @@ void boot(hal::IPlatform& platform) {
 
   // The filesystem is mandatory: it is where the apps live. If it does not mount,
   // the system still boots, says so in the log, and the prompt is what is left.
-  const uint32_t mounts = vfs::init(platform);
-  log_printf(pal::kLogInfo, "vfs: %u mounts", static_cast<unsigned>(mounts));
+  vfs::init(platform);
+
+  // `/cfg` is not a disk but a door, and this says which unit is behind it: the card when
+  // there is one, the flash otherwise, or whatever the person asked for (docs/70). It
+  // goes right after the mounts because it is one, and before any app can write a setting.
+  // The count is said after both, so the log and `mounts` cannot disagree.
+  cfg::boot(platform);
+  log_printf(pal::kLogInfo, "vfs: %u mounts", static_cast<unsigned>(vfs::mount_count()));
 
   // The alarms that survived the power cut come back before anything else can
   // look at the queue.

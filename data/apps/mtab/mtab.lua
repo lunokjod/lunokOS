@@ -1,9 +1,9 @@
 -- Shows fs.mounts() and fs.space() by hand (docs/30, docs/70):
 --   run mtab
 -- The room is asked mount by mount, and it is the call that costs: on the board
--- each answer walks the file system, so four names of the same partition cost
--- four walks. /apps, /res, /cfg and /data are the same disk as /littlefs and say
--- so, because it is the truth.
+-- each answer walks the file system, so three names of the same partition cost
+-- three walks. /apps, /res and /data are the same disk as /littlefs and say so,
+-- because it is the truth; /cfg is a door that may be the card (docs/70).
 
 local mounts = fs.mounts()
 console.print('mounts: ' .. #mounts)

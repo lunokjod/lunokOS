@@ -866,11 +866,10 @@ int l_alarm_caps(lua_State* L) {
 // fs: reading and writing, with the app's own ground (docs/30 and docs/70)
 // ---------------------------------------------------------------------------
 
-// Hard ceiling for one fs.read call: the file is copied into a Lua string, and a
-// string that big is already a mistake (docs/75).
-const int64_t kFsReadCap = 4096;
-// The window is what is read at a time, so a file of any size under the ceiling
-// never sits in a C buffer whole (docs/70).
+// The window is what is read from the disk at a time, and it is the only internal size
+// there is: a file of any size is copied into a Lua string window by window, so the app
+// never has the whole file in a C buffer and never has to care how big it is. The one
+// limit left is the interpreter's memory (docs/30, docs/70, docs/75).
 const size_t kFsWindow = 512;
 
 FileOps g_file_ops = {};  // every operation starts absent: install_fs_ops() fills them
@@ -900,6 +899,8 @@ const char* fs_error_code(FsError err) {
       return "E_NO_HANDLES";
     case FsError::kUnsupported:
       return "E_UNSUPPORTED";
+    case FsError::kUnavail:
+      return "E_UNAVAIL";
     default:
       return "E_IO";
   }
@@ -914,11 +915,13 @@ const char* fs_error_message(FsError err) {
     case FsError::kNoSpc:
       return "the room this app has is not enough";
     case FsError::kTooBig:
-      return "that is more than one call gives";
+      return "a path or a name that does not fit";
     case FsError::kNoHandles:
       return "every file this system can have open at once is taken";
     case FsError::kUnsupported:
       return "the file system does not do that";
+    case FsError::kUnavail:
+      return "that is not on this board right now";
     default:
       return "the file system failed";
   }
@@ -935,9 +938,8 @@ const char* node_type_name(int type) {
 int l_fs_read_at(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
   const lua_Integer offset = luaL_checkinteger(L, 2);
-  lua_Integer len = luaL_checkinteger(L, 3);
+  const lua_Integer len = luaL_checkinteger(L, 3);
   if (offset < 0 || len < 0) return push_nil_error(L, "E_INVAL", "offset and length are not negative");
-  if (len > kFsReadCap) return push_nil_error(L, "E_TOOBIG", "that is more than one read gives");
   if (g_file_ops.read_at == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "there is no file system");
   }
@@ -968,14 +970,19 @@ int l_fs_read_at(lua_State* L) {
 
 int l_fs_read(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
-  const lua_Integer max = luaL_optinteger(L, 2, kFsReadCap);
+  // The second argument is how much the caller wants, and with none the whole file is
+  // wanted. **There is no ceiling of ours**: asking for a prefix of a bigger file is fine
+  // and a file that does not fit in the memory the app has is the app's to ask around
+  // (docs/30).
+  const lua_Integer max = luaL_optinteger(L, 2, -1);
+  if (max < -1) return push_nil_error(L, "E_INVAL", "a read is not negative");
   if (g_file_ops.read_at == nullptr || g_file_ops.size == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "there is no file system");
   }
   FsError err = FsError::kOk;
-  const int64_t size = g_file_ops.size(path, err);
+  int64_t size = g_file_ops.size(path, err);
   if (size < 0) return push_fs_error(L, err);
-  if (size > max) return push_nil_error(L, "E_TOOBIG", "that file is bigger than the ceiling");
+  if (max >= 0 && size > max) size = max;  // a prefix of a file that goes on
 
   char window[kFsWindow];
   luaL_Buffer buffer;
@@ -1164,6 +1171,40 @@ int l_fs_space(lua_State* L) {
   return 1;
 }
 
+// fs.cfg([unit]): where this app's settings go, and how to move them.
+//
+// With no argument it answers a table {unit=..., dir=...}: the unit behind /cfg ("sd" or
+// "littlefs") and the real directory behind it, which is the one a person can go and look
+// at. With an argument —"auto", "sd" or "littlefs"— it asks for that unit, saves the
+// choice, and answers the same table once it is in force. Asking for a card that is not
+// there answers nil and E_UNAVAIL instead of moving the settings in silence (docs/70).
+int l_fs_cfg(lua_State* L) {
+  if (g_file_ops.cfg_unit == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "there is no file system");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    const char* want = luaL_checkstring(L, 1);
+    FsError err = FsError::kOk;
+    if (!g_file_ops.cfg_set_unit(want, err)) {
+      if (err == FsError::kOk) err = FsError::kUnavail;
+      return push_fs_error(L, err);
+    }
+  }
+  lua_createtable(L, 0, 2);
+  const char* unit = g_file_ops.cfg_unit();
+  lua_pushstring(L, (unit != nullptr) ? unit : "");
+  lua_setfield(L, -2, "unit");
+  char dir[96];
+  FsError err = FsError::kOk;
+  if (g_file_ops.cfg_dir != nullptr && g_file_ops.cfg_dir(dir, sizeof(dir), err) > 0) {
+    lua_pushstring(L, dir);
+  } else {
+    lua_pushstring(L, "");
+  }
+  lua_setfield(L, -2, "dir");
+  return 1;
+}
+
 // fs.data([sub]): where this app is allowed to write. It is the friendly face of
 // the rule that an app only writes inside its own ground (docs/70).
 int l_fs_data(lua_State* L) {
@@ -1212,10 +1253,11 @@ int l_file_read(lua_State* L) {
   if (lua_type(L, 2) == LUA_TSTRING) {
     const char* what = lua_tostring(L, 2);
     if (strcmp(what, "*a") == 0) {
+      // To the end of the file, whatever that is: the string grows in the interpreter's
+      // heap as the windows arrive (docs/70).
       luaL_Buffer buffer;
       luaL_buffinit(L, &buffer);
-      int64_t total = 0;
-      while (total < kFsReadCap) {
+      for (;;) {
         const int32_t got = g_file_ops.file_read(file->handle, window, sizeof(window), err);
         if (got < 0) {
           luaL_pushresult(&buffer);
@@ -1224,29 +1266,51 @@ int l_file_read(lua_State* L) {
         }
         if (got == 0) break;
         luaL_addlstring(&buffer, window, static_cast<size_t>(got));
-        total += got;
       }
       luaL_pushresult(&buffer);
       return 1;
     }
     if (strcmp(what, "*l") == 0) {
-      char line[256];
-      size_t used = 0;
+      // A line ends at the newline, so the window that brings it may bring the start of
+      // the next line too: what is left over goes **back** into the file and the next read
+      // starts there. Reading it a byte at a time was exact and cost one call to the disk
+      // per byte, and cutting it at 256 was worse: a long line came out short and the app
+      // could not tell (measured with a 1 000 byte line, 31/10).
+      luaL_Buffer buffer;
+      luaL_buffinit(L, &buffer);
       bool anything = false;
-      for (;;) {
-        char c = 0;
-        const int32_t got = g_file_ops.file_read(file->handle, &c, 1, err);
-        if (got < 0) return push_file_error(L, err);
+      bool ended = false;
+      while (!ended) {
+        const int32_t got = g_file_ops.file_read(file->handle, window, sizeof(window), err);
+        if (got < 0) {
+          luaL_pushresult(&buffer);
+          lua_pop(L, 1);
+          return push_file_error(L, err);
+        }
         if (got == 0) break;
-        anything = true;
-        if (c == '\n') break;
-        if (c != '\r' && used + 1 < sizeof(line)) line[used++] = c;
+        for (int32_t i = 0; i < got; ++i) {
+          anything = true;
+          if (window[i] == '\n') {
+            const int32_t back = got - i - 1;
+            if (back > 0) {
+              const int64_t here = g_file_ops.file_position(file->handle, err);
+              if (here < 0 || !g_file_ops.file_seek(file->handle, here - back, err)) {
+                luaL_pushresult(&buffer);
+                lua_pop(L, 1);
+                return push_file_error(L, err);
+              }
+            }
+            ended = true;
+            break;
+          }
+          if (window[i] != '\r') luaL_addchar(&buffer, window[i]);
+        }
       }
       if (!anything) {
         lua_pushnil(L);  // the end of the file
         return 1;
       }
-      lua_pushlstring(L, line, used);
+      luaL_pushresult(&buffer);
       return 1;
     }
     return push_nil_error(L, "E_INVAL", "read takes a number, '*a' or '*l'");
@@ -1254,7 +1318,6 @@ int l_file_read(lua_State* L) {
 
   lua_Integer wanted = luaL_optinteger(L, 2, 1);
   if (wanted < 0) return push_nil_error(L, "E_INVAL", "a read is not negative");
-  if (wanted > kFsReadCap) wanted = kFsReadCap;
 
   luaL_Buffer buffer;
   luaL_buffinit(L, &buffer);
@@ -2551,7 +2614,7 @@ void seal_globals(lua_State* L) {
   // fs: reading, writing and asking. A call that is not here is not there
   // either, so nothing is promised that the kernel does not do (docs/30).
   open_file_library(L);
-  lua_createtable(L, 0, 12);
+  lua_createtable(L, 0, 13);
   set_function(L, "open", l_fs_open);
   set_function(L, "list", l_fs_list);
   set_function(L, "stat", l_fs_stat);
@@ -2564,6 +2627,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "data", l_fs_data);
   set_function(L, "mounts", l_fs_mounts);
   set_function(L, "space", l_fs_space);
+  set_function(L, "cfg", l_fs_cfg);
   lua_setglobal(L, "fs");
 
   lua_createtable(L, 0, 3);

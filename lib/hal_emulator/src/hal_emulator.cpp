@@ -22,6 +22,8 @@ Options g_options;
 
 Options::Options()
     : fs_dir("emulator"),
+      board(nullptr),
+      sd_dir(nullptr),
       script(nullptr),
       run_app(nullptr),
       now_epoch(0),
@@ -55,6 +57,19 @@ Options::Options()
 const Options& options() { return g_options; }
 
 void set_options(const Options& opts) { g_options = opts; }
+
+const char* active_board() {
+  const char* asked = g_options.board;
+  if (asked == nullptr || asked[0] == '\0') return board::default_model();
+  // A name that is not one of the models is not a board this bench can be, and the
+  // option is checked when it is parsed; this is the belt for a caller that set the
+  // struct by hand, and the default is the honest answer there too.
+  for (uint32_t i = 0; i < board::models_count(); ++i) {
+    const char* name = board::model(i);
+    if (name != nullptr && strcmp(name, asked) == 0) return name;
+  }
+  return board::default_model();
+}
 
 namespace {
 // The bench has three keys: key 0 is the ATOM's only button and the Paper's
@@ -523,6 +538,11 @@ class EmulatorPlatform : public IPlatform {
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
 
+  // One board, and it is the one this bench was told to be: an app is accepted or
+  // refused here exactly as it would be on that board, which is the only way a manifest
+  // tried on the PC means anything on the glass (docs/40, docs/85). The default of
+  // IPlatform is already this answer, so there is nothing to override.
+
   const Caps& caps() const override {
     if (!built_) {
       built_ = true;
@@ -531,6 +551,10 @@ class EmulatorPlatform : public IPlatform {
       if (console != nullptr && console->ansi()) caps_.add(kCapAnsi);
       // /littlefs is mandatory: it is the directory <fs_dir>/littlefs.
       if (emu_storage("/littlefs") != nullptr) caps_.add(kCapLittlefs);
+      // The card is advertised only when one is in the slot, the same rule as the board
+      // and the same as the flash: a capability that is not there is not promised
+      // (docs/50, docs/70).
+      if (emu_storage("/sd") != nullptr) caps_.add(kCapSd);
       caps_.add(kCapRtc);
       // The key-value store is one file per key under <fs_dir>/nvs (docs/70).
       caps_.add(kCapNvs);

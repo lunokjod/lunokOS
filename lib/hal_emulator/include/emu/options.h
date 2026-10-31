@@ -8,6 +8,14 @@ namespace emu {
 
 struct Options {
   const char* fs_dir;    // where the emulated disks live
+  // Which board this bench is, by the name the board has in platformio.ini. nullptr is
+  // the default (`board::default_model()`, the ATOM): an app asks `sys.board` and gets a
+  // board that exists, never a name invented by the system (docs/50, docs/85).
+  const char* board;
+  // The card in the slot: the directory that is its volume, or nullptr for a board with
+  // an empty slot —which is a board with no `/sd` at all, the same as the real one
+  // (docs/70, docs/85). A card's data is somebody's, so the bench never invents one.
+  const char* sd_dir;
   const char* script;    // batch file, or nullptr
   const char* run_app;   // app to start, or nullptr
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that

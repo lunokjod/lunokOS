@@ -35,6 +35,19 @@ bool manifest_path(char* out, size_t cap, const char* id) {
   return true;
 }
 
+// A band answers to a set of board names (one on a chip, the ones it stands in for on
+// the bench) and to a chip family. An app runs here when its `boards` list names one
+// of them, or the family (docs/40, docs/50).
+bool answers_here(const Entry& entry, hal::IPlatform& band) {
+  const uint32_t count = band.board_count();
+  for (uint32_t i = 0; i < count; ++i) {
+    const char* name = band.board_name(i);
+    if (name == nullptr) continue;
+    if (compatible(entry, name, band.family())) return true;
+  }
+  return false;
+}
+
 // Reads one app into out, which lives on the caller's stack. Returns false and
 // says why when the manifest is not usable; the walk then carries on.
 bool load(const char* id, Entry& out) {
@@ -99,12 +112,13 @@ bool load(const char* id, Entry& out) {
     log_printf(pal::kLogWarn, "apps: %s does not say which boards it runs on", id);
     return false;
   }
-  // The PC is a band too, and it answers the esp32 family: an app that needs
-  // nothing of a particular board can be tried here, and one that names a board is
-  // not for the PC either —it is listed with what it needs and refused when
-  // somebody asks to run it, which is more useful than hiding it (docs/40).
+  // The boards of this band, which is the board itself on a chip and the ones it
+  // stands in for on the bench: an app that needs nothing of a particular board can
+  // be tried on the PC without saying so, and one that names a board this band is not
+  // is listed with what it needs and refused when somebody asks to run it, which is
+  // more useful than hiding it (docs/40, docs/85).
   hal::IPlatform& band = hal::platform();
-  out.works_here = compatible(out, band.id(), band.family());
+  out.works_here = answers_here(out, band);
   // opens is optional too: most apps do not open a file another app gives them.
   char raw_opens[16];
   if (lunok::json::get_string(text, len, "opens", raw_opens, sizeof(raw_opens))) {

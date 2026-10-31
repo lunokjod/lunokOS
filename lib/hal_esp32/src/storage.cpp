@@ -1,13 +1,14 @@
-// LittleFS backend for the M5 ATOM.
+// LittleFS backend for the ESP32.
 //
-// The partition is the "littlefs" one from partitions.csv and it is found by that
-// label, which is why begin() gets the name explicitly. Handles come from a fixed
-// pool: opening a file never allocates (docs/75).
+// The partition is found by the label the board's table gives, which is why begin()
+// gets the name explicitly. Handles come from a fixed pool: opening a file never
+// allocates (docs/75).
 #include <LittleFS.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
-#include "atom_storage.h"
+#include "esp32/storage.h"
 #include "hal/hal.h"
 
 namespace hal {
@@ -16,8 +17,8 @@ namespace {
 const size_t kMaxFiles = 8;
 const size_t kPathCap = 160;
 
-// Where LittleFS is mounted in the system VFS. LittleFS.open() reads paths
-// relative to it; POSIX calls (stat, mkdir, unlink, rename) need it in front.
+// Where LittleFS is mounted in the system VFS. LittleFS.open() reads paths relative
+// to it; POSIX calls (stat, mkdir, unlink, rename) need it in front.
 const char kMountPoint[] = "/littlefs";
 
 File g_files[kMaxFiles];
@@ -44,19 +45,19 @@ const char* mode_name(OpenMode mode) {
   return "r";
 }
 
-class LittleFsStorage : public IStorage {
+class Esp32Fs : public IStorage {
  public:
   bool stat(const char* rel, Stat& out) override {
-    // POSIX stat and LittleFS.open() do not take the same path: the Arduino
-    // object reads paths relative to its mount point (/apps/x), while the system
-    // VFS wants the whole thing (/littlefs/apps/x). Getting that wrong made every
-    // entry file "not found" while the directories still listed (docs/70).
+    // POSIX stat and LittleFS.open() do not take the same path: the Arduino object
+    // reads paths relative to its mount point (/apps/x), while the system VFS wants
+    // the whole thing (/littlefs/apps/x). Getting that wrong made every entry file
+    // "not found" while the directories still listed (docs/70).
     char path[kPathCap];
     const int written = snprintf(path, sizeof(path), "%s/%s", kMountPoint, rel);
     if (written <= 0 || static_cast<size_t>(written) >= sizeof(path)) return false;
-    // POSIX stat, and not LittleFS.exists(): exists() opens the file for reading
-    // and the IDF logs "does not exist, no permits for creation" for a path that
-    // is simply not there yet, which is the normal question here (docs/70).
+    // POSIX stat, and not LittleFS.exists(): exists() opens the file for reading and
+    // the IDF logs "does not exist, no permits for creation" for a path that is
+    // simply not there yet, which is the normal question here (docs/70).
     struct stat info;
     if (::stat(path, &info) != 0) return false;
     const bool dir = S_ISDIR(info.st_mode);
@@ -172,24 +173,25 @@ class LittleFsStorage : public IStorage {
   static File* file_of(FileSlot& slot) { return static_cast<File*>(slot.impl); }
 };
 
-LittleFsStorage g_littlefs;
+Esp32Fs g_littlefs;
 
 }  // namespace
 
-IStorage* atom_storage(const char* mount) {
-  if (mount == nullptr || strcmp(mount, "/littlefs") != 0) return nullptr;
+IStorage* esp32_storage(const char* mount, const char* partition) {
+  if (mount == nullptr || strcmp(mount, kMountPoint) != 0) return nullptr;
+  if (partition == nullptr || partition[0] == '\0') return nullptr;
 
   static bool tried = false;
   static bool mounted = false;
   if (!tried) {
     tried = true;
-    // The partition is found by its label, so the label has to match the one in
-    // partitions.csv. Never rely on the core's default label.
-    mounted = LittleFS.begin(false, "/littlefs", 10, "littlefs");
+    // The partition is found by its label, so the label has to match the one in the
+    // board's table. Never rely on the core's default label.
+    mounted = LittleFS.begin(false, kMountPoint, 10, partition);
     if (!mounted) {
-      // A partition that was never written has no filesystem on it. Formatting it
-      // is the only way forward, and the caller logs that nothing was found.
-      mounted = LittleFS.begin(true, "/littlefs", 10, "littlefs");
+      // A partition that was never written has no filesystem on it. Formatting it is
+      // the only way forward, and the caller logs that nothing was found.
+      mounted = LittleFS.begin(true, kMountPoint, 10, partition);
     }
   }
   return mounted ? &g_littlefs : nullptr;

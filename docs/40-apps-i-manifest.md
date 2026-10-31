@@ -23,10 +23,9 @@ app amb un nom estrany.
 
 ## On es busquen les apps
 
-Les apps es busquen a **`/littlefs/apps/<id>/`** i enlloc més. El muntatge `/sd` existeix a la VFS
-per al dia que hi hagi una targeta, i cap HAL d'aquest build no el munta (docs/50): quan n'hi hagi,
-una app de la targeta podrà **substituir** una de la flash sense esborrar-la, que és el que es vol
-per provar coses.
+Les apps es busquen a **`/littlefs/apps/<id>/`** i enlloc més. El Paper té ranura de targeta i la
+munta a `/sd` (docs/50), però **una targeta és per a dades, no per a codi**: el camí de les apps no canvia
+quan hi ha una targeta posada.
 
 ## El manifest
 
@@ -68,17 +67,19 @@ Regles de validació, totes amb error clar i el nom del camp:
   (`esp32`, que vol dir qualsevol placa d'aquest xip), i l'app corre si la placa actual hi surt pel
   seu nom o pel de la seva família. Si no hi surt, **l'app no desapareix**: `apps` la llista amb què
   necessita (`[needs m5stack-atom-matrix]`), `run` la refusa **abans de fer cap VM** i diu les dues
-  coses en una línia (`matrix runs on m5stack-atom-matrix and this board is emulator`), i no pot ser
+  coses en una línia (`elsewhere runs on m5stack-core2 and this board is m5stack-atom`), i no pot ser
   el gestor de cap extensió (un gestor que no pot arrencar no obre res). Una llista buida, o que
   falta, és una altra cosa: **no és una app** a cap banda.
 - **`esp32` és el xip, no una placa amb tot.** Una ESP32 pelada no porta cap botó, o sigui que una app
   que **necessita** tecles les ha de nomenar pel seu nom (`m5stack-atom`, `m5stack-paper`) i no pot
   dir `esp32`: el manifest diu on l'app **funciona**, i la família sencera inclouria una placa sense
-  res per prémer. L'app `keys` és el cas: nomena les tres plaques que en tenen i l'emulador.
-- **El banc també és una banda i té nom.** L'emulador respon `emulator` i la família `esp32` —fa de
-  la banda que imita, i una app que només vol un esp32 genèric s'hi pot provar—, o sigui que una app
-  que nomena plaques pel seu nom hi ha de dir `emulator` si vols veure-la al PC. Si no ho diu, hi
-  surt llistada amb l'avís i `run` la refusa (docs/85).
+  res per prémer. L'app `keys` és el cas: nomena les tres plaques que en tenen.
+- **El banc no és cap placa i no es nomena, però diu quina és.** `sys.board` a l'emulador diu el
+  **model que se li ha dit que sigui** —`--board m5stack-paper`, i sense dir res l'ATOM—, i
+  `sys.emulator` continua cert (docs/85). Com que respon **un** nom i no tres, `boards` es compara al
+  PC exactament com a la placa: una app del model corre i una d'un altre model es refusa, dient les
+  plaques que vol i quina és aquesta. Cap manifest ha de dir `emulator`, que no és cap placa; si algú
+  l'hi posa, no el troba enlloc i la prova que repassa el repositori ho vigila.
 - `opens` s'accepta amb punt o sense (`"epub"` i `".epub"` són el mateix) i es compara **sense
   distingir majúscules**.
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
@@ -100,8 +101,10 @@ la petició següent, sense reiniciar.
 ## Una app ha de saber on corre
 
 Una app pot acabar corrent en una placa que no ha vist mai. El que li ho diu és `sys.board`, amb **el
-nom que la placa té a `platformio.ini`** (`board = m5stack-atom`), i al PC `emulator`. Una app que
-toca maquinari mira això abans de res i decideix el camí; mai suposa que és a la placa on es va
+nom que la placa té a `platformio.ini`** (`board = m5stack-atom`) o el nom propi de la placa de la
+família que canvia què es pot tocar (`m5stack-atom-matrix`). Al PC, el nom és el de la placa que el
+banc ha rebut amb `--board`, i `sys.emulator` és el que diu que el maquinari de sota és fals. Una app
+que toca maquinari mira això abans de res i decideix el camí; mai suposa que és a la placa on es va
 escriure. El detall i les regles són a [`30 · API de Lua`](30-api-lua.md#saber-on-sexecuta).
 
 ## Handlers d'extensió
@@ -159,7 +162,11 @@ Quan es vol obrir un fitxer (des del prompt amb `open <camí>`, o perquè una al
 La pregunta es fa sempre i no es desa enlloc: una tria recordada faria que l'altra app fos
 inabastable des del selector. `open <app> <path>` és la via per anar de dret a una app.
 
-L'app que s'obre rep `app.args = { path = "/res/hola.txt", ext = "txt", source = "console" }`.
+L'app que s'obre rep `app.args = { path = "/sd/llibres/un.txt", ext = "txt", source = "console" }`,
+amb el camí **tal com escrit** (el de l'exemple és un que l'app pot llegir: la targeta o un lloc
+seu). El camí no es tradueix per a l'app: `/res` vol dir el `res/` **de l'app**, o sigui que
+`open res/x.txt` troba l'app per l'extensió i després l'app no pot llegir el fitxer, perquè el `/res`
+que veu és el seu (docs/70).
 
 ## Cicle de vida
 
@@ -220,7 +227,7 @@ res més.
 | Via | Estat |
 |---|---|
 | `pio run -e atom -t uploadfs` (imatge de `data/`) | És la via de la v1 |
-| Copiar el directori a `/sd/apps/` | **No es pot**: la VFS preveu el muntatge i cap placa d'aquest build té targeta (docs/50) |
+| Copiar el directori a `/sd/apps/` | **No es pot**: el Paper munta la targeta a `/sd` (docs/50), però les apps només es busquen a `/littlefs/apps` |
 | Baixar-la per Wi-Fi des del prompt | Fora de la v1 |
 
 Desinstal·lar és esborrar el directori. Les alarmes persistents d'una app que ja no hi és es

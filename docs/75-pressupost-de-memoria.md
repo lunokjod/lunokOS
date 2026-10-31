@@ -38,7 +38,7 @@ per aquests, no heretats.
 | Buffer d'ordre del nucli | 1 × 128 B | **128 B** (a la pila) |
 | Línia del log | 1 × 160 B | **160 B** (a la pila) |
 | Pila de la tasca lectora de consola | 2 048 paraules | **8 192 B** |
-| Taula de muntatges (`vfs`) | 8 entrades (7 ocupades a l'ATOM: `/littlefs`, `/apps`, `/res`, `/cfg`, `/data`, `/nvs` i `/spiffs`) | **8 × (nom + estat + 40 B)** |
+| Taula de muntatges (`vfs`) | 8 entrades (7 ocupades al Paper: `/littlefs`, `/apps`, `/res`, `/data`, `/sd`, `/nvs` i `/cfg`; 6 a l'ATOM, que no té targeta) | **8 × (nom + estat + 40 B)** |
 | Pool de fitxers (`fs_ops`) | 8 × (mànec, posició, mida) | **288 B** en total amb l'objecte de Lua (mesurat: la RAM estàtica de l'ATOM ha passat de 31 044 a 31 332 B) |
 | Cua de temporitzadors | N × mida fixa, ordenada en lloc | encara no existeix (M3) |
 | Cua d'alarmes (`lib/alarms`) | 8 entrades de 112 B | **896 B** (mesurat amb `sizeof`: `alarms::Entry` fa 112 B) |
@@ -94,13 +94,15 @@ Les files que diuen «encara no existeix» no són forats: són components de fi
 mesuren quan es fan. La resta són mides preses del codi i del mapa de l'enllaçador, amb data.
 
 Mesures de l'enllaçador a l'ATOM el 31/10 (`pio run -e atom`), amb Lua 5.4.7, `run`, les promeses i la
-baixada d'una pàgina amb TLS a dins:
+baixada d'una pàgina amb TLS a dins, més el mòdul dels ajustos (`/cfg`), la reescriptura de `/res` i el
+buitat de la consola abans de dormir: **+2 920 B de flash i +40 B de RAM** sobre la mesura anterior del
+mateix dia (2 005 361 B i 92 624 B).
 
 | Què | Valor |
 |---|---|
-| Flash | **2 000 681 B** de 3 145 728 (63,6 %) — la partició d'aplicació és de 3 MB des del 31/10 |
-| Flash lliure | **1 145 047 B** |
-| RAM estàtica | **92 456 B** de 327 680 (28,2 %) |
+| Flash | **2 008 281 B** de 3 145 728 (63,8 %) — la partició d'aplicació és de 3 MB des del 31/10 |
+| Flash lliure | **1 137 447 B** |
+| RAM estàtica | **92 664 B** de 327 680 (28,3 %) |
 | Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`) |
 | Pic de l'app `hello` a l'emulador | **14 364 B** de 65 536 (mateix codi al PC) |
 | Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `run wait` i `mem`) |
@@ -151,20 +153,22 @@ sessió `lua` i de l'app `tilt`. Un buffer més gran **no** vol dir que una app 
 vulgui: el que mana és la memòria de l'app, i el sostre és el dir quan una app no hi cap abans de
 gastar un sol byte de heap.
 
-## La M5 Paper, el primer maó (31/10)
+## La M5 Paper, amb la ràdio heretada (31/10)
 
-`pio run -e paper`, sense ràdio, sense panell i sense Bluetooth (no hi ha res d'això implementat
-encara, docs/50):
+`pio run -e paper` del 31/10, amb el que aquesta placa hereta del xip (`esp32_caps()`, `esp32_net()`,
+docs/50):
 
 | | |
 |---|---|
-| Flash | **553 665 B** de 4 194 304 (13,2 %) — la partició d'aplicació de `partitions_16mb.csv` |
-| RAM estàtica | **52 336 B** de 327 680 (16,0 %); el build informa d'un 1,2 % perquè el denominador de la placa inclou els 8 MB de PSRAM |
-| Flash lliure | 3 640 639 B per al panell, la ràdio i el que vingui |
+| Flash | **2 064 009 B** de 4 194 304 (49,2 %) — la partició d'aplicació de `partitions_16mb.csv` |
+| Flash lliure | **2 130 295 B** per al panell i el que vingui |
+| RAM estàtica | **92 924 B** de 327 680 (28,3 %); el build informa d'un 2,1 % perquè el denominador de la placa inclou els 4,5 MB de PSRAM |
 
-El que costa de flash una placa és, sobretot, el que se li ha implementat: l'ATOM gasta 2 000 681 B
-perquè hi té la ràdio amb TLS, el provisioning per Bluetooth i totes les apps; el Paper, amb el disc,
-la NVS, la consola i l'energia, en gasta 551 201.
+**El preu d'heretar la ràdio, mesurat amb els dos builds del mateix dia**: el Paper sense ràdio era de
+**553 665 B** de flash i **52 336 B** de RAM; amb `esp_wifi`, el provisioning, el NTP i
+`esp_http_client` amb el paquet de certificats és de 2 064 009 B i 92 924 B, o sigui **+1 510 344 B de
+flash i +40 588 B de RAM**. És el mateix bloc que l'ATOM ja pagava: el que costa no és la placa, és el
+xip (docs/50).
 
 ## El preu de les tecles, mesurat (31/10)
 
@@ -179,7 +183,9 @@ compostes i de quin grup— costen això:
 
 Els 24 B de RAM de l'ATOM són les taules per tecla del nucli (estat, `long` ja dit) i la descripció a
 la capa de Lua; a la Paper s'hi afegeix l'estat de tres tecles en comptes d'una. El flash que creix és
-el codi de la descripció i la crida nova, i no depèn de quantes tecles tingui la placa.
+el codi de la descripció i la crida nova, i no depèn de quantes tecles tingui la placa. **La fila del
+Paper és d'abans de la ràdio**: el delta continua essent vàlid, i els totals d'avui són a la secció
+del Paper.
 
 ## El preu del llum i del botó, mesurat (31/10)
 

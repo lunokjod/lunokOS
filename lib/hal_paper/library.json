@@ -1,6 +1,7 @@
 {
   "name": "hal_paper",
-  "version": "0.1.0",
-  "description": "Board support for the M5 Paper (v1.0 and v1.1): ESP32-D0WDQ6-V3, 16 MB of flash, 8 MB of PSRAM, serial console, LittleFS, NVS and the power of the board. The e-ink panel, the touch, the RTC chip and the radio are not here yet (docs/50, docs/90).",
-  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+  "version": "0.2.0",
+  "description": "Board support for the M5 Paper (v1.0 and v1.1): ESP32-D0WDQ6-V3, 16 MB of flash, 8 MB of PSRAM, the main power hold on GPIO2 and a dial of three keys. What is the chip's, including the reader of those keys and the radio, is in hal_esp32. The e-ink panel, the touch, the RTC chip, the gauge are not here yet (docs/50, docs/90).",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] },
+  "dependencies": { "hal_esp32": "*" }
 }

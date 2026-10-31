@@ -122,9 +122,9 @@ sense app a sota. Serveix per programar i per fer proves sense escriure un fitxe
   línia es mostra perquè a un prompt el valor **és** la resposta (31/10: la suite ho va enxampar amb
   `fs.data()` responent en blanc).
 - **Un error no es menja la sessió**: surt `lua: prompt:1: …` i les variables que ja tenies hi són.
-- **La sessió és una banda amb nom propi**: `sys.board` és el de la placa (o `emulator`), el seu
-  `fs.data()` és `/data/lua` i la llista de `boards` no la mira ningú (no hi ha manifest). Un rellotge
-  que hi armin no té app a qui tornar quan tanques la sessió.
+- **La sessió és una banda amb nom propi**: `sys.board` és el de la placa (o el del model que el
+  banc imita, docs/85), el seu `fs.data()` és `/data/lua` i la llista de `boards` no la mira ningú (no
+  hi ha manifest). Un rellotge que hi armin no té app a qui tornar quan tanques la sessió.
 - **Sortir**: `exit` (o `quit`), i el que la sessió havia pres —el llum— es deixa anar, com quan
   marxa una app (docs/75).
 - **Mentre la sessió és oberta, l'intèrpret és seu**: una finestra d'alarma no pot arrencar (només

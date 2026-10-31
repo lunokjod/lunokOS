@@ -3,6 +3,6 @@
   "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "light.lua",
-  "boards": ["m5stack-atom", "m5stack-atom-matrix", "emulator"],
+  "boards": ["m5stack-atom", "m5stack-atom-matrix"],
   "description": "A colour wheel on the LED, with the button setting how bright it is. Three taps or three ESC to leave."
 }

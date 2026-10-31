@@ -14,6 +14,8 @@
 #include "kernel/shell.h"
 #include "pal/pal.h"
 
+#include "board/identity.h"
+
 namespace {
 
 const size_t kLineBytes = 128;
@@ -25,6 +27,10 @@ const uint32_t kBatchWaitMs = 30000;
 void usage() {
   printf("lunokOS emulator\n");
   printf("  --fs <dir>        working disk (default: emulator)\n");
+  printf("  --sd <dir>        a card in the slot, as a directory (default: no card)\n");
+  printf("  --board <name>    which board this bench is: %s", board::model(0));
+  for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
+  printf(" (default: %s)\n", board::default_model());
   printf("  --mem-cap <KB>    Lua heap ceiling\n");
   printf("  --now <epoch>     fixed start time\n");
   printf("  --time-scale <N>  speed up time N times\n");
@@ -91,6 +97,27 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     if (strcmp(arg, "--fs") == 0) {
       if (!next_value(i, argc, argv, value)) return false;
       opts.fs_dir = value;
+      continue;
+    }
+    if (strcmp(arg, "--sd") == 0) {
+      if (!next_value(i, argc, argv, value)) return false;
+      opts.sd_dir = value;
+      continue;
+    }
+    if (strcmp(arg, "--board") == 0) {
+      if (!next_value(i, argc, argv, value)) return false;
+      // Refused here and not at boot: a bench told to be a board that does not exist
+      // would answer a name no manifest could ever match, and the person would see an
+      // app refused by a board they never asked for (docs/85).
+      bool known = false;
+      for (uint32_t m = 0; m < board::models_count(); ++m) {
+        if (strcmp(board::model(m), value) == 0) known = true;
+      }
+      if (!known) {
+        fprintf(stderr, "unknown board: %s\n", value);
+        return false;
+      }
+      opts.board = value;
       continue;
     }
     if (strcmp(arg, "--script") == 0) {

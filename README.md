@@ -4,8 +4,10 @@ Sistema mínim per a ESP32 que executa **una app en Lua alhora** i exposa el maq
 capacitats opcionals. El mateix codi es compila per a la placa i per al PC, on un emulador el
 fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sostre de memòria.
 
-> **Estat: M0 a M7 fets, amb M4 sense SD (no hi ha maquinari) i les mesures de camp de M5, M6 i M7
-> pendents**. Les tres bandes compilen, l'emulador és
+> **Estat: M0 a M7 fets, amb les mesures de camp de M5, M6 i M7 pendents** (M4 inclou la targeta
+> SD, que al Paper ja munta i llegeix); de **M8** ja hi ha la identitat —el banc rep la placa que ha
+> de ser (`--board`) i `sys.board` en diu el nom— i hi queden el maquinari fals seguint el model i
+> les tecles a mà. Les tres bandes compilen, l'emulador és
 > interactiu i **executa apps de Lua**: `run hello` arrenca una app de veritat i n'escriu la línia,
 > **també a la placa**. Les apps poden **esperar amb promeses** (`sys.delay(300):await()`) sense
 > aturar el nucli, **llegir línies** amb `console.read_line()`, **escriure amb colors** amb `term`,
@@ -13,16 +15,20 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **150 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **161 proves natives**
 > passen en 6 suites.
-> A l'ATOM: **2 000 681 B** de flash (63,6 % d'una partició de 3 MB) i **92 456 B** de RAM estàtica (28,2 %); `hello` fa un
+> A l'ATOM: **2 008 281 B** de flash (63,8 % d'una partició de 3 MB) i **92 664 B** de RAM estàtica (28,3 %); `hello` fa un
 > pic de **10 897 B** de 65 536 de sostre i el port sèrie **4,1 ms** d'anada i tornada.
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
 > (escriure és **atòmic**: un temporal i un reanomenament), `mkdir`/`remove`/`rename`, `fs.data()` per
 > al propi racó, i `fs.open` amb un **objecte fitxer** (`read`/`write`/`seek`/`size`/`close`, **vuit
-> oberts** com a màxim). Cada app només toca els seus camins, amb una quota de **64 KB**, i un camí
-> amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`).
+> oberts** com a màxim). Cada app toca **cinc llocs i prou** —`/data/<id>/` i `/cfg/`, que són
+> escrivibles, i `/res/` (el seu: `apps/<id>/res/`), `/apps/` i `/sd/`, que només es llegeixen— i
+> **el límit és el disc**: no hi ha
+> quota. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
+> és una porta i no un disc**: apunta a `cfg/<id>/` de la targeta si n'hi ha i de la flash si no, i qui
+> ho tria és la persona (`cfg` a la consola, `fs.cfg()` a Lua).
 >
 > **La xarxa** ja s'encén sense parar res: `net.connect(ssid, pass)` torna una **promesa** i el
 > nucli mira com va a cada torn, amb el termini comptat pel sistema (`E_TIMEOUT`) i un intent alhora
@@ -81,11 +87,12 @@ botons, targeta, xarxa, bateria— darrere d'una taula de capacitats que cada pl
 
 | | Placa | PC |
 |---|---|---|
-| Plataforma | ESP32 (M5 ATOM) | Linux |
-| Entorn de PlatformIO | `atom` i `atom_matrix` | `emulator` (i `test` per a les proves) |
-| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` | `emulator` |
+| Plataforma | ESP32 (M5 ATOM, ATOM Matrix i Paper) | Linux |
+| Entorn de PlatformIO | `atom`, `atom_matrix` i `paper` | `emulator` (i `test` per a les proves) |
+| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` / `m5stack-paper` | el model que rep a `--board` (`m5stack-atom` per defecte), mai `emulator` |
+| És de debò (`sys.emulator`) | `false` | `true` |
 | Consola | UART | stdin/stdout en mode cru |
-| Fitxers | LittleFS + NVS | un directori del disc |
+| Fitxers | LittleFS + NVS, i la targeta SD al Paper | un directori del disc, i `--sd` per a una targeta |
 | Rellotge | RTC del SoC | rellotge del PC o temps virtual |
 
 El nucli, l'intèrpret i les dependències de Lua són els mateixos a les dues bandes. Només canvien
@@ -130,6 +137,9 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 ```
 pio run -e emulator      # binari per al PC
 ./.pio/build/emulator/program --fs emulator
+# el banc es diu la placa que és: --board m5stack-atom (per defecte),
+# m5stack-atom-matrix o m5stack-paper. `sys.board` respon aquest nom
+# i `sys.emulator` continua cert
 pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
 pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
 pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
@@ -139,7 +149,8 @@ pio test -e test         # proves natives
 Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id>`,
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
 `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
-`ntp`, `http <url>`, `power [cpu [mhz]]`, `led`, `button`, `sleep [light|deep] <ms>`, `log`,
+`ntp`, `http <url>`, `power [cpu [mhz]]`, `led`, `button`, `sleep [light|deep] <ms>`, `cfg`
+(`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,
 `verbose on|off`, `clear` i `reboot`. El disc de l'emulador és el directori `emulator/littlefs`, i la
 tasca **lunokOS: seed emulator disk** de VS Code hi copia les apps de `data/apps`. Per córrer un
 guio sense seure al davant: `./.pio/build/emulator/program --fs emulator --script <fitxer>`.

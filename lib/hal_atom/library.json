@@ -1,6 +1,7 @@
 {
   "name": "hal_atom",
-  "version": "0.1.0",
-  "description": "Board support for the M5 ATOM family (Lite and Matrix): ESP32-PICO-D4, serial console, Wi-Fi, sleep, one light or a strip of twenty-five.",
-  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+  "version": "0.2.0",
+  "description": "Board support for the M5 ATOM family (Lite and Matrix): ESP32-PICO-D4, one button on GPIO39, one light or twenty-five on GPIO27, and the MPU6886 of the Matrix. The drivers for the things it puts on a pin, and everything else that is the chip's, are in hal_esp32.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] },
+  "dependencies": { "hal_esp32": "*" }
 }

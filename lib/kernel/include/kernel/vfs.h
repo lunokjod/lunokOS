@@ -15,6 +15,11 @@ namespace vfs {
 // table is empty and the caller says so, but boot carries on.
 uint32_t init(hal::IPlatform& platform);
 
+// Points `/cfg` at the unit the settings live on (kernel/cfg). It is a row of this table
+// like any other —the door, not the disk— and it moves when the person changes the unit
+// (docs/70). A null storage takes the row away.
+void set_cfg_storage(hal::IStorage* storage, const char* kind);
+
 uint32_t mount_count();
 const char* mount_path(uint32_t index);
 const char* mount_kind(uint32_t index);

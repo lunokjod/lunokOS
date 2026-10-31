@@ -19,7 +19,7 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | `IClock` | hora de paret, rellotge monòton, **un sol** despertador | ✓ | ✓ | ✓ (del SoC) | ✓ |
 | `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ |
 | `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ |
-| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | **pendent** | de mentida |
+| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | de mentida |
 | `IPower` | bateria, son, velocitat del processador | ✓ | ✓ | ✓ (sense bateria) | de mentida |
 | `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 25 |
 | `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | ✓ (3) |
@@ -33,13 +33,20 @@ capçalari**: aquí hi ha el perquè de les decisions, no una còpia de les sign
 ```cpp
 class IPlatform {
  public:
-  virtual const char* id() const = 0;      // "m5stack-atom", "m5stack-atom-matrix", "emulator"
+  virtual const char* id() const = 0;      // "m5stack-atom", "m5stack-atom-matrix"; al banc, el model
   virtual const char* family() const = 0;  // "esp32": el que un manifest vol dir amb "esp32"
   virtual bool emulator() const = 0;       // cert només al PC
+  // Les plaques a les quals aquesta banda respon: el seu `id()` i prou, també al banc,
+  // que respon el model que se li ha dit que sigui. És contra això i la família que es
+  // compara `boards` (docs/40).
+  virtual uint32_t board_count() const { return 1; }
+  virtual const char* board_name(uint32_t index) const {
+    return (index == 0) ? id() : nullptr;
+  }
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   virtual IClock* clock() = 0;
-  virtual IStorage* storage(const char* mount) = 0;   // "/littlefs" i prou
+  virtual IStorage* storage(const char* mount) = 0;   // "/littlefs", i "/sd" on hi hagi ranura
   virtual IKeyValue* nvs() = 0;
   virtual INet* net() = 0;
   virtual IPower* power() = 0;
@@ -60,6 +67,30 @@ Tres decisions que valen per a totes les interfícies:
 - **Un sol despertador.** `arm_wake` arma el pròxim termini i prou: dos despertadors volen dir que un
   d'ells no es complirà (docs/60).
 
+## El que és del xip i no de la placa
+
+Una placa no és només un xip, però tot el que és del xip és el mateix a totes les plaques d'aquest
+projecte, i escriure-ho dues vegades és escriure-ho dues vegades. Viu a **`lib/hal_esp32/`**, i una
+llibreria de placa no en copia res: ho fa servir i diu els pins.
+
+| A `lib/hal_esp32/` | Per què és del xip |
+|---|---|
+| `esp32/caps.h` | Les capacitats que el xip té a qualsevol placa: consola, ANSI, rellotge del SoC i el seu despert, NVS, els dos sons i la ràdio amb provisioning i pàgina. Una placa **les hereta i només afegeix** el que té de seu |
+| `esp32/storage.h` | LittleFS sobre la partició de dades, trobada per la seva etiqueta |
+| `esp32/nvs.h` | El magatzem clau-valor sobre la partició `nvs` |
+| `esp32/clock.h` | El rellotge del SoC i l'època a la memòria RTC, que sobreviu al son profund |
+| `esp32/power.h` | Els dos sons, el temporitzador del RTC i les tres freqüències del processador. Rep quin pin desperta el xip, o cap |
+| `esp32/gpio_keys.h` | El **lector** de tecles en un GPIO: actiu en baix, sense interrupció, 10 ms de rebot. **El xip no té cap tecla**: quines n'hi ha, en quin pin i en quina cara ho diu la taula de la placa |
+| `esp32/ws2812.h` | El **controlador** d'una tira de WS2812 per RMT. **El xip no té cap llum**: el pin i quantes n'hi ha són paràmetres de plantilla que posa la placa (els buffers són de la mida de la tira d'aquella placa, docs/75) |
+| `esp32/net.h` | La ràdio: `esp_wifi` directe, scans, provisioning (AP i Bluetooth), NTP i una pàgina amb TLS |
+| `esp32/sd_card.h` | Una targeta al **slot** de la placa: FATFS per SPI i les crides de fitxer. **El xip no té ranura**; els quatre pins i l'host SPI els diu la placa. La targeta i el panell del Paper comparteixen bus |
+
+La línia que separa les dues llibreries és aquesta: **si el codi no sap sobre quina placa corre, és
+del xip; si ha de saber un pin, una etiqueta de partició o quants llums hi ha, és de la placa.** I el
+que el xip **no** té és cap tecla i cap llum: el que hi ha a `hal_esp32` són els **lectors i els
+controladors** del que una placa hi enganxa, no els aparells. Per això `esp32_caps()` no diu `input`
+ni `led`, i els diu cada placa que de debò els té.
+
 ## La identitat de la placa
 
 La identitat no és dins de cap HAL: és una llibreria pròpia per placa, a `lib/board_<id>/include/board/`,
@@ -67,12 +98,23 @@ amb dues capçaleres de nom fix:
 
 | `board/identity.h` | Què diu |
 |---|---|
-| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `emulator` |
-| `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]` |
-| `emulator()` | cert només al PC |
-| `led_count()` | quants llums: 1 al Lite, 25 al Matrix i al banc |
+| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`; al banc, el model que se li ha dit que és |
+| `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]`, i val per a les quatre bandes |
+| `emulator()` | cert només al PC, i és el que diu que la placa de sota `id()` és de mentida |
+| `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap a la Paper ni al banc |
 | `led_max()` | el sostre d'un canal: 255 al Lite, 20 al Matrix i al banc |
 | `has_imu()` | si la placa porta sensor inercial |
+
+El banc té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
+models que sap ser —`m5stack-atom`, `m5stack-atom-matrix` i `m5stack-paper`—. No els respon tots alhora:
+la persona li diu quin és (`--board m5stack-paper`, i sense res és l'ATOM) i `id()` i
+`board_name()` responen **aquell**, de manera que una app s'accepta o es refusa al PC igual que a la
+placa (docs/40, docs/85). `sys.emulator` continua cert: el nom és el d'una placa que existeix i el
+maquinari de sota és fals.
+
+El maquinari fals és la **uniò** dels tres models —tres tecles, panell de 25 i sensor—, perquè el
+que no hi és no es pot provar. Per això una app que demani més del que té el seu model ho trobarà al
+banc i ha de mirar `sys.emulator` abans de creure's els números.
 
 `board/impl.h` arrossega les capçaleres de debò (el HAL d'aquesta placa i la seva PAL), i només
 l'inclou `src/board_link.cpp`.
@@ -291,6 +333,12 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
 - **El port sèrie no el desperta.** `esp_sleep_enable_uart_wakeup` existeix, però un caràcter que arribi
   mentre dorm es perd; i per això el sistema **no s'adorm sol**: una placa sense pantalla que s'adorm
   quan ningú escriu es menjaria les tecles de la persona (docs/90).
+- **La línia s'ha buidat abans de parar el rellotge.** Un `write()` de la consola torna quan el byte és
+  al buffer del port, no quan ha sortit pel fil, i els dos sons aturen la UART: sense esperar, l'última
+  línia que llegeix una persona arriba **tallada a mitges**. El nucli ho demana a la consola
+  (`IConsole::flush()`) just abans de cridar el `sleep` de la placa, sigui quin sigui el so; a l'ESP32
+  això és `Serial.flush()`, que espera que la FIFO i el registre de desplaçament quedin buits. És al
+  nucli i no a cada placa perquè la consola és del sistema i no del xip.
 - **El processador arrenca a 160 MHz** i es pot dur a **240 o a 80**, mai per sota: `setCpuFrequencyMhz`
   del core mou també l'APB i el tick de FreeRTOS, i per sota de 80 l'APB baixa i cap perifèric es
   reconfigura —ni el port sèrie, que és l'única interfície d'aquesta placa. Un valor que no sigui un dels
@@ -358,20 +406,18 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `led` | ✓ | ✓ | — | ✓ | El Paper no té cap llum |
 | `imu` | — | ✓ | — | ✓ | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
-| `sd` | — | — | — | — | El Paper té ranura i encara no la munta; la VFS el preveu |
+| `sd` | — | — | ✓ amb targeta | ✓ amb `--sd` | Targeta SD per SPI (FATFS), muntada a `/sd` a **10 MHz**. Només s'anuncia si una targeta de debò ha muntat: al Paper quan n'hi ha una al slot, al banc quan se li diu `--sd <dir>`. El Lite i el Matrix no tenen ranura |
 | `nvs` | ✓ | ✓ | ✓ | ✓ | Partició NVS / directori de fitxers |
-| `rtc` | ✓ | ✓ | ✓ | ✓ | Ni l'ATOM ni el Paper tenen xip amb pila en ús: l'hora ve del SoC i es perd |
+| `rtc` | ✓ | ✓ | ✓ | ✓ | El **domini RTC del xip**: el temporitzador RC i la memòria RTC. Dona l'hora mentre hi ha corrent i **la perd en desconnectar**; cap xip amb pila en ús (el BM8563 del Paper encara no es llegeix, docs/90) |
 | `rtc_wake` | ✓ | ✓ | ✓ | ✓ | Despertar pel temporitzador del RTC (i pel botó, a l'ATOM) |
-| `net_wifi` | ✓ | ✓ | — | ✓ | La ràdio de debò / la de mentida (docs/85); al Paper, pendent |
-| `net_http` | ✓ | ✓ | — | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
-| `net_prov` | ✓ | ✓ | — | ✓ | El component d'Espressif / l'AP de mentida |
+| `net_wifi` | ✓ | ✓ | ✓ | ✓ | La ràdio de debò / la de mentida (docs/85); la del Paper és la del xip i **està provada a la placa** (31/10) |
+| `net_http` | ✓ | ✓ | ✓ | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
+| `net_prov` | ✓ | ✓ | ✓ | ✓ | El component d'Espressif / l'AP de mentida |
 | `battery` | — | — | — | — | Cap d'aquestes bandes pot dir l'estat d'una bateria |
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula: **13 de 17** al Lite, **14 de 17** al
-Matrix (que hi afegeix `imu`), **9 de 17** al Paper (li falten la ràdio, la pantalla, la targeta i el
-sensor) i **14 de 17** a l'emulador.
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 17: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 17** al Lite, **14 de 17** al Matrix (que hi afegeix `imu`), **12 de 17** al Paper (hi afegeix el disc i les tres tecles; **13** quan hi ha targeta al slot) i **14 de 17** a l'emulador (**15** amb `--sd`, i 13 si el terminal no és ANSI).
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -424,6 +470,10 @@ Pins que el HAL fa servir, i que són els de la llibreria del fabricant (`M5EPD.
 | GT911 (0x14) amb INT a GPIO36 · SHT30 (0x44) · BM8563 (0x51) · FM24C02 (0x50) | al mateix bus |
 | Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
 
+El **CS del panell (GPIO15) s'ha de posar alt abans de tocar el bus**: és un pin de *strapping* que
+la placa porta a baix, o sigui que l'IT8951E arrenca **seleccionat** i comparteix MISO amb la targeta.
+El HAL el deselecciona a l'arrencada (docs/90, pas 7).
+
 **El que canvia entre v1.0 i v1.1**, i és tot:
 
 | | v1.0 (SKU K049, descatalogada) | v1.1 (SKU K049-B) |
@@ -441,14 +491,19 @@ L'única cosa que s'ha de vigilar és la del pont: si el port no apareix, és el
 CH9102, no el firmware.
 
 **Què hi ha avui en aquesta placa** (docs/90): consola, LittleFS, NVS, rellotge del SoC, les dues
-fondàries de son amb el despert pel temporitzador del RTC, la velocitat del processador i **les tres
-tecles** (docs/30). **No hi és encara** el panell (IT8951E), el toc (GT911), el rellotge BM8563, la
-bateria, la targeta i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
+fondàries de son amb el despert pel temporitzador del RTC, la velocitat del processador, **les tres
+tecles** (docs/30), **la ràdio** —la mateixa de l'ATOM, perquè és la del xip: `wifi`, `provision`,
+`ntp` i `http`—, **provada en aquest maquinari i funcionant** (31/10), i **la targeta microSD** quan
+n'hi ha una al slot (SPI: CS 4, compartint SCK/MOSI/MISO amb el panell). **No hi és encara** el panell
+(IT8951E), el toc (GT911), el rellotge BM8563 i la bateria: la taula de capacitats ho diu en comptes
+de prometre-ho.
 
 **Què està provat i què no**: `pio run -e paper` **compila net** (zero avisos propis, docs/75) i el
-binari que en surt porta la identitat del Paper i cap de les de l'ATOM, que és el que es pot comprovar
-sense la placa. **No s'ha flashejat encara**: el prompt pel port sèrie, el `caps` de debò i el
-comportament de l'alimentació són el primer que s'ha de veure amb la placa a la mà (docs/90).
+binari que en surt porta la identitat del Paper i cap de les de l'ATOM. **S'ha flashejat i arrenca**
+(31/10): el banner diu `lunokOS 0.6.0  m5stack-paper`, el prompt respon, `caps` dona **12 de 17**
+(13 amb la targeta al slot), `mounts` llista `/sd` amb **15 193 MB**, `ls sd` el llegeix, `cfg` diu la
+targeta, i **la ràdio funciona**: l'`INet` d'aquesta placa està provat en aquest maquinari (31/10).
+El que **encara no s'ha vist** en aquest maquinari és el panell, el toc, el BM8563 i la bateria.
 
 **El pont USB-sèrie: quin és, i com saber-ho.** És un xip que hi ha entre l'USB i la UART del ESP32, i
 **el firmware no el pot veure**: no hi ha cap línia de dades entre ells més enllà de TX i RX, ni I2C ni
@@ -484,10 +539,10 @@ tecla i veure quin GPIO es tanca.
 
 | | |
 |---|---|
-| Nom (`sys.board`) | `emulator` (no és una placa i no té línia `board =`) |
+| Nom (`sys.board`) | El model que se li ha dit que sigui: `m5stack-atom` (per defecte), `m5stack-atom-matrix` o `m5stack-paper`. Mai `emulator`, que no és cap placa (docs/85) |
 | Plataforma | POSIX (Linux) |
 | RAM | La del PC, però **limitada al mateix sostre que la placa** |
-| Fitxers | Un directori del disc (`emulator/`) amb `littlefs/` i `nvs/` |
+| Fitxers | Un directori del disc (`emulator/`) amb `littlefs/` i `nvs/`, i una targeta amb `--sd` |
 | Rellotge | El del PC, o virtual (`--time-scale`, `--now`) |
 | Consola | stdin/stdout en mode cru |
 | Xarxa, energia i sensor | **De mentida i ho diuen** (docs/85) |
@@ -497,8 +552,9 @@ Els detalls de cada mentida són a `85 · Emulador`.
 
 ## Afegir una placa
 
-1. Si la placa no comparteix HAL amb cap altra, copiar `lib/hal_atom/` a `lib/hal_<id>/` i canviar-ne el
-   nom al `library.json`; si en comparteix (com el Matrix amb el Lite), no es copia res.
+1. Si la placa comparteix xip amb una altra (com el Matrix amb el Lite), no es copia res: es fa servir
+   `lib/hal_esp32/` i el que queda és el que la placa decideix. Si no comparteix HAL amb cap altra,
+   `lib/hal_<id>/` amb el seu `library.json` i les seves dependències al `library.json`.
 2. Escriure `lib/board_<id>/include/board/identity.h` amb el nom, la família, `emulator()` a `false`,
    els llums que té de debò i si porta sensor, i `impl.h` amb les capçaleres d'aquesta placa i de la seva
    PAL.

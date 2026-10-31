@@ -79,6 +79,11 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return Serial.write(static_cast<const uint8_t*>(data), len);
   }
 
+  // The UART keeps a FIFO and a shift register after write() returns, and both stop when
+  // the chip sleeps: without this wait the last line before a sleep arrives cut in half
+  // (docs/50, docs/60).
+  void flush() override { Serial.flush(); }
+
   size_t read(void* data, size_t len) override {
     uint8_t* out = static_cast<uint8_t*>(data);
     size_t n = 0;

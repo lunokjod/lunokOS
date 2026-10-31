@@ -9,6 +9,7 @@
 #include "hal/hal.h"
 #include "kernel/apps.h"
 #include "kernel/button.h"
+#include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
@@ -130,6 +131,7 @@ void print_help() {
   out("  mem               free memory and buffers\r\n");
   out("  apps              the apps in /apps\r\n");
   out("  mounts            the mounted file systems and their room\r\n");
+  out("  cfg [auto|sd|littlefs]  where the apps' settings are kept\r\n");
   out("  run <id>          run an app\r\n");
   out("  wifi              the stored network and the radio\r\n");
   out("  wifi scan         the networks the radio sees\r\n");
@@ -162,6 +164,8 @@ void print_version() {
   out(kVersion);
   out("  board ");
   out(platform().id());
+  // The board and the bench are both true at once on the PC (docs/85).
+  if (platform().emulator()) out(" (emulator)");
   newline();
 }
 
@@ -261,9 +265,22 @@ void print_mounts() {
       out_num(static_cast<uint32_t>(total));
       out(" B");
     } else {
-      // Not "no room": the values of the NVS are not files, and space() cannot say
-    // anything about them. Saying "unknown" is the truth (docs/90).
-    out("space unknown");
+      // Not "no room": the values of the NVS are not files and there is no byte count to
+      // give. What there is, is a number of entries, and that is the number a person needs
+      // before the next thing that has to be saved does not fit (docs/70).
+      uint32_t used_entries = 0;
+      uint32_t total_entries = 0;
+      hal::IKeyValue* kv = platform().nvs();
+      if (kv != nullptr && kv->stats(used_entries, total_entries)) {
+        out("entries ");
+        out_num(used_entries);
+        if (total_entries > 0) {
+          out(" of ");
+          out_num(total_entries);
+        }
+      } else {
+        out("space unknown");
+      }
     }
     newline();
   }
@@ -394,6 +411,7 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
     }
     out(" and this board is ");
     out(platform().id());
+    if (platform().emulator()) out(" (the bench is told with --board)");
     newline();
     return false;
   }
@@ -1383,6 +1401,47 @@ void start() {
   prompt();
 }
 
+// cfg: where the settings of the apps are kept. `/cfg` is a door and not a disk, so the
+// person has to be able to see which unit is behind it and to move it; the choice is
+// saved in the key-value store and survives a reboot (docs/70).
+bool command_cfg(const char* argument) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(argument, words, 1, count)) return false;
+  if (count > 1) {
+    out("usage: cfg [auto|sd|littlefs]\r\n");
+    return false;
+  }
+  if (count == 1 && !cfg::set_unit(words[0])) {
+    // The reason is named: a person who asked for the card needs to know whether the
+    // word was wrong or the card is missing.
+    if (strcmp(words[0], "sd") == 0) {
+      out("cfg: there is no card\r\n");
+    } else if (strcmp(words[0], "littlefs") == 0) {
+      out("cfg: the flash is not mounted\r\n");
+    } else {
+      out("cfg: auto, sd or littlefs\r\n");
+    }
+    return false;
+  }
+  if (cfg::unit()[0] == '\0') {
+    out("settings: nowhere (neither the flash nor a card)\r\n");
+    return true;
+  }
+  out("settings: ");
+  out(cfg::unit());
+  out(" (asked for ");
+  out(cfg::preference());
+  out(")\r\n");
+  char dir[64];
+  if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {
+    out("  an app's: ");
+    out(dir);
+    newline();
+  }
+  return true;
+}
+
 // `lua`: the prompt becomes the interpreter. It is the same state an app gets —the
 // whole API of docs/30, the same ceiling, the same ground—, one line at a time and
 // with the kernel still turning between lines, so the button, the light and the
@@ -1542,6 +1601,9 @@ bool execute(char* line) {
   }
   if (strncmp(line, "power", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_power(line + 5);
+  }
+  if (strncmp(line, "cfg", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
+    return command_cfg(line + 3);
   }
   if (strncmp(line, "led", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     return command_led(line + 3);

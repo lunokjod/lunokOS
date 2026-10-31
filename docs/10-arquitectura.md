@@ -91,8 +91,8 @@ d'una app i el son es miren a cada torn (docs/60).
    després d'un reset són brossa, i el shell no ha de respondre a bytes que ningú no ha escrit.
 2. Es pregunta a la placa què té (`Platform::caps()`).
 3. Es munten els volums. `/littlefs` és **obligatori** i es munta sempre; `/nvs` hi és si la placa
-   el té, i `/sd` també —cap placa d'aquest build no el té (docs/50)—. Si `/littlefs` no munta, es
-   registra l'error i el sistema segueix sense apps.
+   el té, i `/sd` només a la placa que té ranura i amb una targeta a dins (el Paper: docs/50). Si
+   `/littlefs` no munta, es registra l'error i el sistema segueix sense apps.
 4. Es llegeix `cfg/` (si no hi és, s'agafa la configuració per defecte i es diu al log).
 5. S'inicialitza el rellotge amb la millor font disponible.
 6. Es reprodueixen les alarmes persistents que hagin vençut mentre el sistema era apagat.
@@ -127,7 +127,7 @@ si li toca. No hi ha dues apps carregades mai.
 ## Mapa del repositori
 
 ```
-platformio.ini          quatre entorns: atom, atom_matrix, emulator, test
+platformio.ini          cinc entorns: atom, atom_matrix, paper, emulator, test
 partitions.csv          particions pròpies (app + littlefs + nvs + coredump)
 src/main.cpp            setup()/loop() d'Arduino: crida al nucli, res més
 lib/
@@ -138,19 +138,24 @@ lib/
   lua/                  Lua 5.4 vendoritzat, amb els flags de 20 · Intèrpret
   luabind/              la capa de Lua: un sol fitxer amb tota l'API de 30
   hal/                  capçaleres de les interfícies (no té codi)
+  hal_esp32/            el que és del xip i no de cap placa: LittleFS, NVS,
+                        rellotge, son, tecles en un GPIO, tira de WS2812, ràdio i
+                        targeta SD (el fan servir les dues plaques d'ESP32, docs/50)
   pal/                  capçaleres de la capa de plataforma (no té codi)
-  hal_atom/             implementació de la família M5 ATOM (Lite i Matrix, que
-                        comparteixen xip, flash, taula, botó i consola)
+  hal_atom/             el que és de la família M5 ATOM: la seva identitat, el pin
+                        del llum i del botó i el MPU6886 del Matrix
   board_atom/           la identitat del Lite, només capçaleres: identity.h diu el
                         nom i 1 llum, impl.h diu què enllaçar
   board_matrix/         el mateix per al Matrix: "m5stack-atom-matrix" i 25 llums;
                         les dues no es veuen mai alhora (lib_ignore, docs/50)
   board_paper/          la identitat del Paper: "m5stack-paper", cap llum i cap
                         sensor (docs/50)
-  hal_paper/            implementació de la M5 Paper: consola, fitxers, NVS i
-                        energia; el panell, el toc i la ràdio encara no (docs/50)
+  hal_paper/            el que és de la M5 Paper: el *main power hold*, el dial de
+                        tres tecles i la targeta al slot; el panell i el toc
+                        encara no (docs/50, docs/90)
   hal_emulator/         implementació per al PC (inclou main() de l'emulador);
-                        mateixes capçaleres, amb "emulator" a dins
+                        mateixes capçaleres, i la identitat respon el model que
+                        se li ha dit (`--board`, docs/85)
   pal_esp32/            FreeRTOS/ESP-IDF
   pal_host/             POSIX
   json/                 analitzador JSON de tracció, per a manifests i cfg
@@ -183,7 +188,7 @@ Aquests documents expliquen **com funciona el projecte avui**, i tenen tres regl
 | Vull afegir… | On va |
 |---|---|
 | Una crida nova de Lua | `lib/luabind/` + contracte a `30 · API` + prova |
-| Una peça de maquinari nova | Interfície a `lib/hal/`, implementació a cada `hal_*` |
+| Una peça de maquinari nova | Interfície a `lib/hal/`; si és del xip i no d'una placa, a `lib/hal_esp32/`; si no, a cada `hal_<placa>` |
 | Una placa nova | `lib/board_<id>/` amb `include/board/identity.h` (el nom de la placa i quants llums té) i `impl.h`, el seu `-I` a `platformio.ini` i les altres plaques a `lib_ignore`; si la placa no té HAL, a més `lib/hal_<id>/` |
 | Una regla que val per a totes les plaques | `lib/kernel/` |
 | Una cosa que depèn del sistema de sota | `lib/pal/` i les dues `pal_*` |

@@ -52,7 +52,8 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_NOMEM` | S'ha exhaurit el pressupost de memòria de l'app |
 | `E_PERM` | El manifest no declara el permís |
 | `E_TOOBIG` | El resultat no cap al sostre permes |
-| `E_NOSPC` | No queda lloc: el disc, la quota de l'app o la memòria per a la resposta |
+| `E_NOSPC` | No queda lloc: el disc o la memòria per a la resposta |
+| `E_UNAVAIL` | El que es demana no hi és en aquesta placa ara (per exemple, una targeta que no s'ha muntat) |
 | `E_TLS` | El certificat del servidor no és acceptat, o la connexió xifrada no s'ha pogut fer |
 | `E_HTTP` | El servidor no hi era, o ha plegat abans d'acabar de respondre |
 | `E_BUSY` | Ja hi ha una operació en curs en aquest recurs |
@@ -67,8 +68,12 @@ fitxer `cfg/console.json` encara no es llegeix.
 `console`, `ansi`, `display`, `input`, `led`, `imu`, `littlefs`, `sd`, `nvs`, `rtc`, `rtc_wake`,
 `net_wifi`, `net_http`, `net_prov`, `battery`, `sleep_light`, `sleep_deep`.
 
-Als ATOM d'avui `caps` respon **13 de 17**, i el Matrix **14 de 17** perquè hi afegeix `imu`
-(docs/50).
+`rtc` és el **domini RTC del xip** —el temporitzador i la memòria que sobreviu al son profund—, no un
+rellotge amb pila: dona l'hora mentre hi ha corrent i **la perd en desconnectar**. `input` i `led` són
+de la placa, i per això cap xip els té per si sol.
+
+Als ATOM d'avui `caps` respon **13 de 17**, el Matrix **14 de 17** perquè hi afegeix `imu`, el Paper
+**12 de 17** (**13** amb targeta al slot) i l'emulador **14 de 17** (**15** amb `--sd`) (docs/50).
 
 ---
 
@@ -81,8 +86,8 @@ funció.
 |---|---|---|
 | `sys.name` | cadena | `"lunokOS"` |
 | `sys.version` | cadena | La versió del sistema, la mateixa que respon `version` |
-| `sys.board` | cadena | El nom de la placa **tal com surt a `board =` de `platformio.ini`** (avui `m5stack-atom`); al PC, `emulator` |
-| `sys.emulator` | booleà | Cert només al PC |
+| `sys.board` | cadena | El nom de la placa **tal com surt a `board =` de `platformio.ini`** (`m5stack-atom`), o el nom propi de la placa de la família que canvia què es pot tocar (`m5stack-atom-matrix`). Al PC és el model que el banc ha rebut a `--board` (docs/85) |
+| `sys.emulator` | booleà | Cert només al PC: diu que la placa de `sys.board` és de mentida |
 | `sys.lua` | cadena | La versió de Lua que porta el sistema |
 | `sys.caps()` | taula de capacitats | Vegeu a dalt |
 | `sys.heap()` | `{free, used, limit, peak}` | Bytes del pressupost de l'app |
@@ -97,16 +102,20 @@ funció.
 
 Una app pot acabar corrent en una placa que no ha vist mai. `sys.board` és l'única cosa que li diu
 on és, i és **el nom que la placa té a `platformio.ini`** (`board = m5stack-atom`), no cap àlies
-inventat pel sistema. Al PC no hi ha cap placa i no hi ha cap línia `board =`, i per això l'emulador
-respon `emulator`.
+inventat pel sistema. Al PC no hi ha cap placa ni cap línia `board =`, i la manera de no inventar-ne
+cap nom és dir quin model fa el banc: `sys.board` respon aquest model (l'ATOM si no es diu res) i
+`sys.emulator` diu, a part, que el maquinari de sota és fals.
 
 | `sys.board` | Què hi ha | Què no hi ha |
 |---|---|---|
 | `m5stack-atom` | consola, LittleFS, NVS, ràdio Wi-Fi amb TLS, provisioning, son, un llum, un botó, un port Grove I2C | pantalla, bateria, teclat, targeta SD, sensor inercial |
 | `m5stack-atom-matrix` | el mateix, amb **vint-i-cinc llums** i un **sensor inercial** | el mateix que el Lite |
-| `emulator` | consola, LittleFS en un directori del PC, i ràdio, energia i sensor **de mentida** | res de maquinari de debò: ni flash, ni port sèrie |
+| `m5stack-paper` | el mateix que el Lite pel que fa al xip (consola, disc, NVS, ràdio amb TLS, provisioning, son), amb **tres tecles**, **targeta SD** al slot (a `/sd`) i sense cap llum | pantalla, bateria, toc i sensor, encara (docs/90) |
 
-`sys.emulator` és el mateix que preguntar `sys.board == "emulator"`, i és cert només al PC.
+Al PC la taula d'un model és la de la placa **amb les peces falses a sobre** (docs/85): el banc té el
+dial de tecles, el panell i el sensor alhora perquè el que no hi és no es pot provar. Aquí és on entra
+`sys.emulator`, que és **cert només al PC** i no és el mateix que preguntar `sys.board == "emulator"`
+(que ja no passa mai): el nom diu on ets, el booleà diu que el maquinari és de mentida.
 
 Com s'ha de fer servir: **mirar primer i decidir després**, mai suposar. Una app que dibuixa a una
 pantalla que potser no hi és:
@@ -451,13 +460,14 @@ L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'e
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
 | `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El `E_PERM` de la taula d'errors és **reservat**: el model de permisos no existeix encara, i avui escriure el decideix el terreny de l'app, no el manifest |
 | `fs.open(path[, mode])` | objecte fitxer | `mode`: `"r"`, `"w"`, `"a"`, `"r+"` |
-| `fs.read(path[, max])` | cadena o `nil, error` | Sostre dur del sistema (`E_TOOBIG`) |
+| `fs.read(path[, max])` | cadena o `nil, error` | El fitxer sencer, o com a molt `max` bytes |
 | `fs.read_at(path, offset, len)` | cadena o `nil, error` | Accés aleatori sense obrir |
 | `fs.write(path, data)` | enters | Escriu sencers (temporal + reanomenar) |
 | `fs.data([sub])` | cadena | `/data/<id>/` o un camí a dins seu |
+| `fs.cfg([unitat])` | taula o `nil, error` | `{unit, dir}`: on van els ajustos d'aquesta app. Amb `"auto"`, `"sd"` o `"littlefs"` els mou (docs/70) |
 
 **Avui hi ha** `fs.open`, `fs.list`, `fs.stat`, `fs.read`, `fs.read_at`, `fs.write`, `fs.mkdir`,
-`fs.remove`, `fs.rename`, `fs.data`, `fs.mounts` i `fs.space`.
+`fs.remove`, `fs.rename`, `fs.data`, `fs.mounts`, `fs.space` i `fs.cfg`.
 
 De l'**objecte fitxer** (`f = fs.open(path[, "r"|"w"|"a"|"r+"])`):
 
@@ -471,17 +481,29 @@ De l'**objecte fitxer** (`f = fs.open(path[, "r"|"w"|"a"|"r+"])`):
 
 El que una app ha de saber:
 
-- `fs.read` llegeix en **finestres de 512 B**: el fitxer mai no és sencer en un buffer de C, i el
-  sostre per crida és de **4 096 B**; passar-se'n dona `E_TOOBIG` sense llegir res.
+- **Cap fitxer és massa gran per llegir-lo**: el sistema el llegeix en **finestres de 512 B** que van
+  omplint la cadena de Lua, així que ni el fitxer sencer cap en un buffer de C ni l'app ha de saber
+  res de finestres. L'únic límit és la **memòria de l'intèrpret**; per això un fitxer gran es llegeix a
+  trossos amb `fs.open` i `file:read(n)`.
+- `fs.read(path[, max])`: amb `max`, **com a molt** aquests bytes (un prefix d'un fitxer més gran);
+  sense `max`, el fitxer sencer. `file:read(n)` torna fins a `n` bytes, `file:read("*a")` fins al final
+  i `file:read("*l")` una línia **sencera**, sigui com sigui de llarga.
 - `fs.write` és **atòmica**: escriu un temporal al costat i el reanomena. Si falla a mitges, el
   fitxer vell segueix sencer. Torna els bytes escrits.
-- **Una app només escriu dins el seu terreny**, `/data/<id>/` (`fs.data([sub])` en dona el camí), i no
-  pot llegir el d'una altra: això dona `E_INVAL`, no `E_NOENT`.
-- **Quota: 64 KB per app**, comptant tots els seus fitxers. Passar-se'n dona `E_NOSPC` **abans** de
-  tocar res. Com que el sostre de la VM també és de 64 KB, una sola cadena no hi arriba: la quota
-  mossega acumulant fitxers.
+- **Una app només escriu dins el seu terreny**, `/data/<id>/` (`fs.data([sub])` en dona el camí) i
+  `/cfg/` (que és el seu `cfg/<id>/`), i no pot llegir el d'una altra: això dona `E_INVAL`, no
+  `E_NOENT`. Fora del seu terreny només pot **llegir** `/res/` —el seu, que és `apps/<id>/res/` al
+  costat de l'app—, `/apps/` i `/sd/`; les unitats del sistema (`/littlefs/`, `/nvs/`) no són
+  seves i també responen `E_INVAL` (docs/70).
+- **No hi ha quota**: el que doni el disc. Quan s'ha acabat, l'escriptura respon `E_NOSPC` i el fitxer
+  vell queda sencer, perquè `fs.write` és atòmica.
 - `fs.stat` torna `{type = "file"|"dir", size, mtime}`; `mtime` és 0 perquè cap backend el dona.
 - `fs.list` torna una taula de `{name, type, size, mtime}` en l'ordre que dona el directori.
+- **`/cfg/` és el lloc dels ajustos de l'app i no cal saber on és**: `fs.write('/cfg/s.json', s)`
+  acaba a `cfg/<id>/s.json` de la unitat que el sistema hagi triat —la targeta si n'hi ha, la flash
+  si no—, i `fs.cfg()` ho diu (`{unit = "sd"|"littlefs", dir = "/sd/cfg/<id>"}`) quan a l'app li
+  interessa ensenyar-ho. `fs.cfg("sd")` ho mou; una unitat que no hi és respon `nil, E_UNAVAIL`, i
+  els fitxers que ja hi havia **no es mouen** (docs/70).
 - **Per veure-ho de mà**: `run mtab` llista els muntatges i l'espai de cadascun.
 - **`fs.mounts()` no pregunta l'espai**: la llista surt del que el nucli té muntat, i prou. Preguntar
   l'espai vol dir passejar pel sistema de fitxers, i una app que només vol la llista no ho ha de
@@ -672,6 +694,8 @@ end
   s'analitza (`unexpected symbol near 'in'`, mesurat el 31/10).
 - **El son lleuger torna i la promesa es tanca** amb `true`: la memòria, l'intèrpret i la consola hi
   són, i l'app continua exactament on era.
+- **Abans de dormir, la línia s'ha buidat**: el que s'hagi escrit per la consola surt sencer i no
+  tallat a mitges, perquè la UART s'atura amb el xip (docs/50).
 - **El son profund no torna.** Abans de parar el xip, el sistema **desa quina app hi ha al davant** i
   la tanca amb els seus comiats (`on_pause`, `on_save`, `on_close`); en arrencar, la torna a obrir
   amb **`app.args.restore = true`** perquè llegeixi el que va desar (docs/70, `fs.data`). Per això el

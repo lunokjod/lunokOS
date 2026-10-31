@@ -174,6 +174,37 @@ class HostNvs : public IKeyValue {
     }
   }
 
+  // One file per key, so counting is walking two levels. A namespace that is not there
+  // yet is not an error: nothing has been saved, which is zero entries. There is no
+  // ceiling to report —a file costs what it costs on the PC's disk— and `total` says that
+  // by being 0 (docs/85).
+  bool stats(uint32_t& used, uint32_t& total) override {
+    used = 0;
+    total = 0;
+    char root[kPathCap];
+    join(root, sizeof(root), emu::options().fs_dir, "/nvs");
+    DIR* namespaces = opendir(root);
+    if (namespaces == nullptr) return true;
+    for (;;) {
+      struct dirent* entry = readdir(namespaces);
+      if (entry == nullptr) break;
+      if (entry->d_name[0] == '.') continue;
+      char dir[kPathCap];
+      join(dir, sizeof(dir), root, "/", entry->d_name);
+      DIR* keys = opendir(dir);
+      if (keys == nullptr) continue;
+      for (;;) {
+        struct dirent* key = readdir(keys);
+        if (key == nullptr) break;
+        if (key->d_name[0] == '.') continue;
+        ++used;
+      }
+      closedir(keys);
+    }
+    closedir(namespaces);
+    return true;
+  }
+
  private:
   DIR* dir_ = nullptr;
   DIR* ns_dir_ = nullptr;

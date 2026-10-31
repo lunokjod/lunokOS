@@ -209,6 +209,13 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   }
   save_deadline(at_epoch_ms);
 
+  // The line is emptied before the board stops: the UART keeps bytes in flight after a
+  // write returns, and both sleeps stop its clock, so the last thing a person reads would
+  // be a word cut in half. It is done here and not in each board's sleep because the
+  // console belongs to the system and not to the chip (docs/50, docs/60).
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->flush();
+
   const bool back = g_power->sleep(mode, at_epoch_ms);
   if (!back) return false;
   // A board that answers slept lightly (or is the emulator): what it was told is

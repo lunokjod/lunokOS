@@ -41,12 +41,13 @@ framework = arduino
 board_build.partitions = partitions_16mb.csv
 build_flags = -std=gnu++11 -Ilib/board_paper/include
 lib_ignore = hal_emulator, pal_host, hal_atom, board_atom, board_matrix, …
+; hal_esp32 no s'ignora: és el que aquesta placa comparteix amb l'ATOM (docs/50)
 
 [env:emulator]
 platform = native
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, pal_esp32, board_atom, board_matrix
+lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32, board_atom, board_matrix
 
 [env:test]
 platform = native
@@ -54,7 +55,7 @@ test_framework = unity
 test_build_src = yes
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, pal_esp32, board_atom, board_matrix
+lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32, board_atom, board_matrix
 ```
 
 El text de debò és a `platformio.ini`, amb un comentari per línia; aquí n'hi ha la forma. Les

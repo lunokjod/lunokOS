@@ -33,12 +33,25 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
 | `/apps` | àlies | `/littlefs/apps` |
-| `/res` | àlies | `/littlefs/res` |
-| `/cfg` | àlies | `/littlefs/cfg` |
-| `/sd` | **reservat** | La VFS sap muntar-lo i cap HAL d'aquest build no el munta: no hi ha maquinari (docs/50) |
+| `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
+| `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
+| `/sd` | targeta SD per SPI (FATFS) | **El Paper**, quan hi ha una targeta al slot: el seu `IStorage` la munta i el muntatge només existeix si el muntatge ha anat bé (docs/50, docs/90). Al PC, un directori que es posa amb `--sd <dir>`, i sense l'opció no hi ha `/sd` (docs/85) |
+
+**Una targeta i una partició no són el mateix.** FATFS munta **una** partició FAT de la targeta (la que troba), i els números de `fs.space` són d'aquella partició, no de la targeta. Amb una targeta de 16 GB que porta una partició de 2,8 GiB, `fs.space` diu 2,8 GiB i fa bé: el que no es munta no existeix per al sistema (31/10, mesurat a la placa).
+
+**Què hi pot fer una app**: **llegir** sí —llegir és lliure, excepte el racó d'una altra app—, i **escriure no**: escriure només es fa dins de `/data/<id>/` (docs/30). Una targeta és, avui, d'on les apps llegeixen.
 
 Els **àlies no són còpies**: són una entrada més a la taula de muntatges que apunta a un camí dins
-d'un altre muntatge. Ocupen una fila i una comparació de prefix, res més.
+d'un altre muntatge. Ocupen una fila i una comparació de prefix, res més. L'únic que no vol dir el
+mateix per a tothom és **`/res`**: per a una persona és el `res/` del disc —els fitxers d'exemple—, i
+per a una app és **el seu** `apps/<id>/res/` (vegeu-ho més avall).
+
+**Bytes per als sistemes de fitxers, entrades per a l'NVS.** `mounts` dona `free N of M B` on hi ha
+bytes a comptar i `entries N of M` a l'NVS, que no en té: el magatzem té un nombre fix d'entrades i
+és aquest el número que diu si el pròxim desat hi cabrà. A l'ESP32 surt de `nvs_get_stats` (usades de
+total); al PC i a l'emulador no hi ha sostre —una clau és un fitxer— i diu només quantes n'hi ha
+(`total` val 0 i no s'imprimeix). `fs.space("/nvs")` continua responent `E_UNSUPPORTED`: no hi ha
+bytes que donar.
 
 ## `/nvs` com a fitxers
 L'emmagatzematge clau-valor té espais de noms i claus. S'exposa com un arbre de dos nivells:
@@ -156,14 +169,17 @@ Regles:
 
 | Crida | Sostre |
 |---|---|
-| `f:read(n)` | `n` bytes, sense límit més que la memòria de l'app |
-| `f:read("*l")` | una línia; si és més llarga que el sostre, es parteix |
-| `f:read("*a")` | **sostre dur** (32 KB a les plaques sense PSRAM); si el fitxer és més gran, `E_TOOBIG` |
-| `fs.read(path, max)` | el que digui `max`, com a molt el sostre dur |
+| `f:read(n)` | `n` bytes; no hi ha cap límit propi més enllà de la memòria de l'app |
+| `f:read("*l")` | una línia **sencera**: la finestra que porta el salt de línia torna enrere el que sobra |
+| `f:read("*a")` | fins al final del fitxer; el límit és la memòria de l'intèrpret |
+| `fs.read(path[, max])` | el fitxer sencer, o com a molt `max` bytes si l'app en posa |
 | `http.get(url, max_bytes)` | `max_bytes`; si la pàgina és més llarga, `E_TOOBIG` i no arriba res tallat (docs/30) |
 
-`read("*a")` existeix per comoditat amb fitxers petits (un manifest, un JSON de configuració). Per a
-qualsevol cosa més gran, la finestra o `read_at`.
+**Els sostres de lectura són de l'app, no del sistema.** Fins al 31/10 hi havia un 4 096 B dur que
+responia `E_TOOBIG` sense llegir res (i `*l` tallava les línies a 256 B en silenci): era la finestra
+interna filtrada a l'API. Ara un fitxer de qualsevol mida es llegeix, i el que limita és la memòria de
+l'intèrpret: un fitxer que no hi cap es llegeix a trossos amb `fs.open`, que és el que fa tota la vida
+un lector de llibres.
 
 ## Accés aleatori
 
@@ -179,29 +195,105 @@ qualsevol cosa més gran, la finestra o `read_at`.
 - Cost: una escriptura atòmica toca la flash dues vegades (el temporal i el reanomenament). A la flash
   això compta per al desgast, i per això el log **no** va mai a fitxer.
 
-## Quotes
+## On pot anar una app
 
-| Camí | Qui hi pot escriure |
+Una app viu en cinc llocs i enlloc més (docs/30). El que no hi és no és que estigui amagat: li
+respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és seva.
+
+| Camí | Llegir | Escriure |
+|---|---|---|
+| `/data/<id>/` | sí | **sí**, i el límit és el disc |
+| `/cfg/` | sí, el seu `cfg/<id>/` | **sí**, el seu `cfg/<id>/` |
+| `/res/` | sí, el seu `apps/<id>/res/` | no: el que una app porta és estàtic |
+| `/apps/` | sí | no |
+| `/sd/` | sí | no |
+| `/littlefs/`, `/nvs/` — les unitats del sistema | **no** | no |
+| `/data/<altra>/` | no | no |
+
+**No hi ha quota.** El que doni el disc. La quota de 64 KB que hi havia fins al 31/10 va fora: el Paper
+té 11,9 MB de disc i una app que desa un llibre no hi cabia, i una quota és un número arbitrari
+mentre que l'espai lliure no ho és. Quan el disc diu que no, l'escriptura respon `E_NOSPC` i el fitxer
+vell queda sencer.
+
+**I els flags dels muntatges no són la garantia d'això.** `mounts` ensenya `ro` a `/apps` i `/res`
+perquè és el que veu **una persona**; una app no arriba mai a aquests camins amb el flag, hi
+arriba amb `fs.*` i la taula de dalt. `/littlefs` és `rw` perquè és el disc de la persona, i `/cfg`
+també, perquè és la porta al que l'app ha de poder desar.
+
+## On van els recursos d'una app
+
+`/res` és de l'app, i no del disc: `fs.read('/res/salutacio.txt')` llegeix
+**`apps/<id>/res/salutacio.txt`**, al costat de l'app i al disc d'on surt. El `res/` del disc
+(`/littlefs/res/...`) és el que una persona hi ha deixat —fitxers d'exemple, la prova del camí
+llarg— i una app **no el pot llegir**: és el disc del sistema i li respon `E_INVAL`, com qualsevol
+altre camí que no és seu.
+
+Tres coses que això compra:
+
+- **Els recursos viatgen amb l'app**: si l'app viu a una targeta (`/sd/apps/<id>/`), el seu `res/`
+  hi és al costat i se l'emporta. Un `res/` compartit al disc no pot anar amb ningú.
+- **Dos apps poden tenir el mateix nom de fitxer** sense trepitjar-se, perquè cadascuna té el seu.
+- **El camí que escriu l'app no porta el seu id dins**, que és el que fa que una app es pugui copiar
+  d'un disc a un altre sense canviar-ne el codi.
+
+I el que **no** pot: **escriure-hi**. El que una app porta és el que és; el que canvia es desa a
+`/cfg/` o a `/data/<id>/`, i `fs.write('/res/x', …)` respon `E_INVAL`. El disc d'on llegeix l'app és
+de només llegir per a ella (`/apps` és `ro`), i el rewrite no ho canvia: només hi afegeix l'id.
+
+I això té una conseqüència sobre `open`: **un fitxer que es passa a una app ha de ser un que l'app
+pugui llegir** —la targeta (`/sd/…`) o un lloc seu—. Els fitxers d'exemple del disc
+(`/littlefs/res/…`, els de `data/res/`) són per a `cat`; `open res/hola.txt` troba l'app per
+l'extensió i després l'app no el pot llegir, perquè el `/res` que veu és el seu.
+
+## On es desa la cfg d'una app
+
+`/cfg` és un **directori virtual**: no és cap disc, és una porta. Darrere hi ha `cfg/<id>/` en una
+unitat, i quina unitat és ho tria el sistema, no l'app:
+
+| | |
 |---|---|
-| `/data/<id>/` | Només l'app `<id>` |
-| `/littlefs/` fora del seu terreny, `/nvs/` | No (només el nucli) |
+| Què veu l'app | `/cfg/` → és el seu `cfg/<id>/`, i prou |
+| On és de debò, per defecte | la **targeta** si n'hi ha al slot; si no, la flash |
+| Com ho sap la persona | `cfg` a la consola, o `fs.cfg()` des de Lua: `{unit="sd"\|"littlefs", dir="/sd/cfg/<id>"}` |
+| Com se'n canvia | `cfg sd` / `cfg littlefs` / `cfg auto`, o `fs.cfg("sd")` |
+| On es desa la tria | a l'NVS, `cfg/unit`, així que sobreviu una arrencada |
 
-Una app no veu mai el directori d'una altra: la resolució de camins fa que `/data/altra` no existeixi
-per a ella. La quota per app és de **64 KB** (`kAppQuotaBytes`), comptant tots els seus fitxers, i es
-comprova **abans** d'escriure: passar-se'n dona `E_NOSPC` sense tocar res.
+Tres coses que això compra i que abans no hi eren:
+
+- **La targeta és el disc d'una persona**: es pot treure, posar en un altre aparell i tornar. Una app
+  que desa la seva configuració a la targeta se l'emporta. Per això la targeta va primer.
+- **Fallback dit en veu alta**: `cfg` amb la preferència `sd` i sense targeta deixa un `cfg: no card;
+  the settings go to the flash` al log i va a la flash. El que no fa mai és desar-ho en un lloc i
+  dir-ne un altre.
+- **Una unitat que no hi és es refusa**: `fs.cfg("sd")` sense targeta torna `nil` i `E_UNAVAIL`;
+  `cfg sd` sense targeta diu `cfg: there is no card`. Una preferència acceptada i ignorada deixaria
+  la persona confiant una targeta que no hi és.
+
+**La porta no és una escletxa.** `/cfg` es reapunta a una fila de la taula de muntatges, i el camí
+es reescriu a `/cfg/<id>/` **abans** de resoldre'l: una app no pot arribar a `/cfg/<altra>/` perquè
+no hi ha cap nom amb què demanar-ho, i un `..` es refusa igual que a la resta del sistema (prova
+`test_the_settings_of_an_app_go_behind_the_door_of_cfg`). **La consola sí que veu el `/cfg` sencer**:
+qui escriu a la shell no és cap app i no té id, així que `ls cfg` és el `cfg/` de tothom, i és com
+s'ha de poder mirar què ha desat cadascú.
+
+El que **no** fa encara: repartir-se entre dues unitats (tota la cfg d'una app viu en una de sola) ni
+canviar de unitat amb els fitxers a dins — canviar de unitat no mou els fitxers que ja hi són, i això
+és el que fa que `cfg auto` amb una targeta nova comenci amb `cfg/<id>/` buit.
 
 ## Veure els muntatges i l'espai (30/10)
 
 La comanda `mounts` de la consola diu, per a cada muntatge, el tipus, si és escrivible i **quant espai
-li queda**:
+li queda**. Les files d'avui, en l'ordre en què surten:
 
-```
-lunok> mounts
-  /littlefs   littlefs  ro  free 812345 of 917504 B
-  /apps       littlefs  ro  free 812345 of 917504 B
-  ...
-  /nvs        nvs       ro  space unknown
-```
+| Fila | Escrivible | Què diu de l'espai |
+|---|---|---|
+| `/littlefs` | **sí** | bytes: el disc de la persona |
+| `/apps` | no | els mateixos bytes, és el mateix disc |
+| `/res` | no | els mateixos bytes |
+| `/data` | **sí** | els mateixos bytes |
+| `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, al banc amb `--sd` |
+| `/nvs` | no | **entrades** (`entries N of M`), perquè el magatzem no té bytes |
+| `/cfg` | **sí** | els bytes de la unitat on és oberta la porta, i el tipus diu quina és |
 
 Dos dels números que demana M4 surten d'aquí (espai lliure després d'`uploadfs`), i el tercer
 (temps d'una escriptura atòmica) el diu l'app `scratch`, que compta els mil·lisegons del seu
@@ -238,8 +330,8 @@ surten **sense cap línia `[E]` de l'IDF**.
 L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
 
 - `fs.mounts()` torna `{path, type, writable}` de cada muntatge, sense tocar cap backend. `/apps`,
-  `/res`, `/cfg` i `/data` són la **mateixa partició** que `/littlefs` i ho diuen així: quatre noms,
-  un disc.
+  `/res` i `/data` són la **mateixa partició** que `/littlefs` i ho diuen així: tres noms, un disc.
+  `/cfg` és l'única fila que no és un disc sinó una porta, i el `type` diu on és oberta.
 - `fs.space(path)` pregunta l'espai i **camina pel sistema de fitxers**: és la que costa (la mesura
   que va fer baixar l'escriptura de 247 a 83 ms va ser treure-la del camí feliç). No informa de res
   quan el backend no ho sap: `nil` i `E_UNSUPPORTED`, que no és el mateix que «no queda espai».
@@ -293,46 +385,50 @@ pool de la HAL. El novè dona **`E_NO_HANDLES`**.
   `E_NOENT`. Es va veure amb una trencada feta amb nou llocs al pool del nucli: el novè arribava al
   pool de la HAL i l'error deia «no such file».
 
-## Llegir un fitxer: la finestra (30/10)
+## Llegir un fitxer: la finestra (31/10)
 
 L'API de Lua (`docs/30`) llegeix així:
 
-- `fs.read` i `fs.read_at` demanen el contingut **a trossos de 512 B** i el van posant en una cadena
-  de Lua. El fitxer mai no és sencer en un buffer de C, i la finestra viu a la pila: **no afegeix
-  RAM estàtica**.
-- Sostre per crida: **4 096 B**. Un fitxer més gran dona `E_TOOBIG` **sense llegir res**, i es diu
-  abans de començar.
+- `fs.read`, `fs.read_at` i `file:read` demanen el contingut **a trossos de 512 B** i el van posant en
+  una cadena de Lua. El fitxer mai no és sencer en un buffer de C, i la finestra viu a la pila: **no
+  afegeix RAM estàtica**.
+- **No hi ha sostre de mida.** Un fitxer de 15 000 B es llegeix d'una tirada, i la cadena creix al
+  heap de l'intèrpret; el límit és la memòria que l'app té (docs/75). El que no hi cap es llegeix a
+  trossos amb `fs.open`.
 - Mesurat amb un sistema de fitxers fals: 5 000 B es llegeixen en **10 crides** i la més gran demana
   **512 B** (`test_fs_read_uses_a_window_of_512_bytes`). Trencar-ho és canviar la finestra per 4 096:
   la prova cau amb «Expected 10 Was 2».
+- `file:read("*l")` fa servir la mateixa finestra i, quan el tros que porta el salt de línia porta
+  també el començament de la següent, **torna enrere** el que sobra amb `file_seek`. Abans llegia
+  byte a byte (una crida al disc per byte) i tallava la línia a 256 B sense dir-ho.
 
 Qui connecta les dues bandes: el nucli coneix el VFS i l'intèrpret no, així que a l'arrencada li
 passa quatre operacions (`read_at`, `size`, `is_dir`, `list`). Sense elles, `fs.*` respon
 `E_UNSUPPORTED`; és el que permet provar el mòdul amb un sistema de fitxers fals i comptar finestres.
 
-## Escriure: atòmic, amb terra i amb quota (30/10)
+## Escriure: atòmic, amb terra i sense quota (31/10)
 
 - **Atòmic**: `fs.write` escriu `<camí>.tmp` al costat, el tanca i el **reanomena** al lloc bo. Si
-  l'escriptura mor a mitges, el temporal esborra i el fitxer vell no s'ha tocat. Els dos backends ja
+  l'escriptura mor a mitges, el temporal s'esborra i el fitxer vell no s'ha tocat. Els dos backends ja
   sabien `rename` i `space` des de M0, així que no hi ha res nou sota.
-- **Terra d'app**: una app escriu només dins `/data/<id>/`. Un camí a `/data/<altra>` dona
-  **`E_INVAL`** (no `E_NOENT`: no es tracta de preguntar què hi ha dins). Llegir fora del propi
-  terreny també es refusa, perquè la regla és que una app no veu mai el directori d'una altra.
-- **Quota: 64 KB per app**, comptant tots els seus fitxers; es comprova **abans** d'escriure i dona
-  `E_NOSPC` sense tocar el fitxer vell. **Mesurat a l'ATOM el 30/10** amb `mounts`: `/littlefs` té
-  **671 744 B lliures** de 917 504 (el que hi ha a dins, apps i `res`, ocupa 245 760 B). Amb 64 KB per
-  app hi caben **deu apps** que omplin la seva quota del tot, que és un número raonable per a una
-  placa de 896 KB; és `kAppQuotaBytes`, i canviar-ho és una línia.
+- **Terra d'app**: una app escriu només dins `/data/<id>/`, i res més (la taula de dalt). Un camí a
+  `/data/<altra>` dona **`E_INVAL`** (no `E_NOENT`: no es tracta de preguntar què hi ha dins).
+- **Sense quota: el límit és el disc.** Fins al 31/10 hi havia 64 KB per app comptant els seus
+  fitxers, i es va treure perquè el número era arbitrari i deixava fora precisament el cas que vol
+  aquesta placa (una app que desa un llibre). `E_NOSPC` surt quan el disc diu que no, amb el fitxer
+  vell sencer.
 
 **Cost d'una escriptura atòmica, mesurat a l'ATOM el 30/10** amb l'app `scratch` (20 bytes, en
-règim): **83 ms**, i el desglossament el dona el mateix sistema (línia `fs: write … quota=… prep=…
-disk=… ms` del log):
+règim): **83 ms**, i el desglossament que donava el sistema en aquell moment era:
 
 | Part | Cost | Què és |
 |---|---|---|
-| `quota` | **15 ms** | Llistar el terreny de l'app per sumar-ne l'ús |
-| `prep` | **5 ms** | El `stat` del destí i el nom del temporal |
-| `disk` | **62 ms** | Crear el fitxer, escriure, tancar i reanomenar: és la LittleFS i no és nostre |
+| quota | **15 ms** | Llistar el terreny de l'app per sumar-ne l'ús — **aquest pas ja no hi és** |
+| prep | **5 ms** | El `stat` del destí i el nom del temporal |
+| disk | **62 ms** | Crear el fitxer, escriure, tancar i reanomenar: és la LittleFS i no és nostre |
+
+Amb la quota fora, aquesta mateixa escriptura hauria de baixar uns **15 ms**, i **pendent de tornar a
+mesurar-la** a la placa: la línia del log ara és `fs: write N B in M ms` i només dona el total.
 
 **La primera versió en feia 247**, i era culpa nostra: es consultava l'espai lliure del dispositiu a
 cada escriptura, i a l'ESP32 això vol dir recórrer el sistema de fitxers sencer (**176 ms**). Ara
@@ -341,9 +437,9 @@ altre error. Una escriptura que hi cap no necessita saber-ho.
 - **El camí es crea sol**: escriure dins el terreny crea els directoris que falten, i `fs.mkdir`
   d'un directori que ja hi és no és cap error.
 
-Conseqüència que cal dir: com que el sostre de la VM és de **64 KB**, una app **no pot** fer una
-cadena més gran que la quota. La quota només mossega **acumulant** fitxers (5 × 15 KB > 64 KB), i és
-exactament com es prova.
+Conseqüència que cal dir: com que el sostre de la VM és de **64 KB**, una sola cadena de Lua no pot
+ser més gran que això. Un fitxer gran s'escriu **a trossos** amb `fs.open` i `file:write`, que va
+escrivint el que li donen i no necessita el fitxer sencer enlloc (docs/30).
 
 **Preguntar si un camí hi és no ha de fer soroll.** A l'ATOM, `LittleFS.exists()` obre el fitxer per
 llegir, i l'IDF deixa anar `[E][vfs_api.cpp] open(): … does not exist, no permits for creation` per
@@ -364,7 +460,7 @@ que hi aparegui l'ha de fer servir.
 |---|---|
 | `E_NOENT` | El camí no hi és, o el volum no està muntat |
 | `E_NO_HANDLES` | El pool de 8 és ple |
-| `E_TOOBIG` | Passa el sostre de la crida o el del backend |
+| `E_TOOBIG` | Un camí o un nom que no hi cap (les lectures ja no tenen sostre, docs/70) |
 | `E_UNSUPPORTED` | Operació que el backend no sap fer (afegir a `/nvs`, per exemple) |
 | `E_INVAL` | Camí mal format, amb `..` o massa llarg |
 | `E_IO` | El backend ha fallat (targeta treta, sector dolent) |

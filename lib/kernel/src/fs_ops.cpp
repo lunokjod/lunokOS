@@ -1,16 +1,18 @@
 // The file system as the interpreter sees it (docs/30), with the rules of
-// docs/70: an app writes only inside its own ground, `/data/<id>/`, and every
-// write is either the whole file or nothing.
+// docs/70: an app writes only inside its own ground, `/data/<id>/`, and inside its own
+// settings, `/cfg/` —which is `cfg/<id>/` on the unit the person chose—, and every write
+// is either the whole file or nothing.
 //
 // The kernel knows the VFS and the interpreter does not, so the reading
 // operations and the writing ones are handed over at boot.
 #include "kernel/fs_ops.h"
 
 #include <stdio.h>
-
-#include "pal/pal.h"
 #include <string.h>
 
+#include "pal/pal.h"
+
+#include "kernel/cfg.h"
 #include "kernel/log.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -18,11 +20,11 @@
 namespace kernel {
 namespace {
 
-// What one app may write. Provisional until the free space is measured on the
-// board (docs/70 and docs/90): it is a constant so changing it is one line.
-const uint64_t kAppQuotaBytes = 64 * 1024;
-
 const char kData[] = "/data";
+const char kCfg[] = "/cfg";
+const char kRes[] = "/res";
+const char kApps[] = "/apps";
+const char kSd[] = "/sd";
 
 // The pool of open files. The number is the HAL's own pool size: a ninth file
 // cannot open because there is no slot, and saying E_NO_HANDLES is better than
@@ -45,12 +47,56 @@ uint32_t g_open_count = 0;
 // The id of the app that is running, or "" when this is not an app.
 const char* ground_app() { return luabind::app_id(); }
 
-// A path the VFS understands: absolute, and short enough to work with here.
+// Is `path` `root` itself, or inside it?
+bool under(const char* path, const char* root) {
+  const size_t len = strlen(root);
+  if (len == 0 || strncmp(path, root, len) != 0) return false;
+  return path[len] == '\0' || path[len] == '/';
+}
+
+// A path the VFS understands: absolute, short enough to work with here, and with `/cfg`
+// already turned into the app's own directory.
 bool absolute(const char* in, char* out, size_t cap) {
   if (in == nullptr || in[0] == '\0') return false;
-  const int written = (in[0] == '/') ? snprintf(out, cap, "%s", in)
-                                     : snprintf(out, cap, "/%s", in);
-  return written > 0 && static_cast<size_t>(written) < cap;
+  char path[128];
+  const int written = (in[0] == '/') ? snprintf(path, sizeof(path), "%s", in)
+                                     : snprintf(path, sizeof(path), "/%s", in);
+  if (written <= 0 || static_cast<size_t>(written) >= sizeof(path)) return false;
+
+  // ".." is refused and not walked back: the VFS refuses it too, but here the answer can
+  // say E_INVAL, which is what an app asking to climb out of its room should be told
+  // (docs/70).
+  if (strstr(path, "..") != nullptr) return false;
+
+  // `/cfg` and `/res` are doors and not disks: the unit behind `/cfg` is the kernel's to
+  // choose, and `/res` —an alias of the disk for a person— is the app's own `apps/<id>/res/`
+  // once the interpreter asks. Each app sees only its own room behind either (docs/70).
+  // `/cfg/x` from an app is `/cfg/<id>/x` and `/res/x` is `/apps/<id>/res/x` before the VFS
+  // resolves; from the prompt they stay as written, because the shell is not an app.
+  const char* app = ground_app();
+  if (app[0] != '\0' && under(path, kCfg)) {
+    const int placed = snprintf(out, cap, "%s/%s%s", kCfg, app, path + strlen(kCfg));
+    return placed > 0 && static_cast<size_t>(placed) < cap;
+  }
+  if (app[0] != '\0' && under(path, kRes)) {
+    const int placed = snprintf(out, cap, "%s/%s/res%s", kApps, app, path + strlen(kRes));
+    return placed > 0 && static_cast<size_t>(placed) < cap;
+  }
+  snprintf(out, cap, "%s", path);
+  return true;
+}
+
+// "/cfg/<id>" or "/cfg/<id>/..." — its own settings, on whichever unit answered.
+// `absolute` has already put the id there, so this never sees a bare "/cfg".
+bool inside_cfg(const char* path) {
+  const char* app = ground_app();
+  if (app[0] == '\0') return false;
+  char prefix[64];
+  const int written = snprintf(prefix, sizeof(prefix), "%s/%s", kCfg, app);
+  if (written <= 0 || static_cast<size_t>(written) >= sizeof(prefix)) return false;
+  const size_t len = static_cast<size_t>(written);
+  if (strncmp(path, prefix, len) != 0) return false;
+  return path[len] == '\0' || path[len] == '/';
 }
 
 // "/data/<id>" or "/data/<id>/..." — the only place an app may write.
@@ -65,24 +111,27 @@ bool inside_ground(const char* path) {
   return path[len] == '\0' || path[len] == '/';
 }
 
-bool touches_data(const char* path) {
-  const size_t len = sizeof(kData) - 1;
-  if (strncmp(path, kData, len) != 0) return false;
-  return path[len] == '\0' || path[len] == '/';
-}
-
-// Reading is free except for another app's ground, which is refused with E_INVAL
-// rather than hidden: the app should know it asked for something that is not its.
+// Where an app may go. The drives of the system are not its business: `/littlefs` is the
+// disk a person writes to from the prompt and `/nvs` is the system's bookkeeping. An app
+// has its places at the root and nowhere else (docs/70):
+//
+//   /data/<id>/   its own ground: read and write, and the disk is the limit
+//   /cfg/         its own settings, on the unit the person chose: read and write
+//   /res/         its own static files (`apps/<id>/res/`): read, they are what it ships with
+//   /apps/        the apps of any drive: read, a manifest is public
+//   /sd/          the removable media: read, never write, a card is the person's
+//
+// Anything else —another app's ground, /littlefs/apps/..., /nvs/session— answers E_INVAL
+// instead of being hidden: an app should know it asked for something that is not its.
 bool allowed(const char* path, bool writing, luabind::FsError& err) {
-  if (touches_data(path) && !inside_ground(path)) {
+  if (!writing) {
+    if (inside_ground(path) || inside_cfg(path) || under(path, kApps) || under(path, kSd)) {
+      return true;
+    }
     err = luabind::FsError::kInval;
     return false;
   }
-  if (writing && !inside_ground(path)) {
-    err = luabind::FsError::kInval;
-    return false;
-  }
-  if (writing && !vfs::is_writable(path)) {
+  if ((!inside_ground(path) && !inside_cfg(path)) || !vfs::is_writable(path)) {
     err = luabind::FsError::kInval;
     return false;
   }
@@ -205,26 +254,6 @@ bool list(const char* path, luabind::DirVisitor& visitor, luabind::FsError& err)
   return true;
 }
 
-// What the app already keeps, so the quota is about the app and not about one
-// file. It counts the files of its ground, one level deep.
-class SumSink : public hal::ListSink {
- public:
-  bool on_entry(const hal::ListEntry& entry) override {
-    if (entry.type == hal::NodeType::kFile) total += entry.size;
-    return true;
-  }
-  uint64_t total = 0;
-};
-
-uint64_t used_in_ground() {
-  char dir[64];
-  const int written = snprintf(dir, sizeof(dir), "%s/%s", kData, ground_app());
-  if (written <= 0 || static_cast<size_t>(written) >= sizeof(dir)) return 0;
-  SumSink sink;
-  vfs::list(dir, sink);
-  return sink.total;
-}
-
 // Why a write failed, asked only when it failed: the room on the device is the
 // expensive question (176 ms on this board, because it walks the whole file
 // system), and a write that fits does not need to know it (docs/75).
@@ -248,25 +277,11 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
   }
   if (!allowed(full, true, err)) return -1;
 
-  if (len > kAppQuotaBytes) {
-    err = luabind::FsError::kNoSpc;
-    return -1;
-  }
-  // Where the time of a write goes. It is a debug line: the board showed 240 ms
-  // for 20 bytes, and guessing which part was slow is not measuring (docs/75).
+  // There is no quota: **the limit is the disk**, and when it says no the answer is the
+  // disk's (`E_NOSPC`, asked only after the write failed and it has to explain itself).
+  // The time of a write is kept because on this flash it is 60-80 ms and guessing where
+  // it goes is not measuring (docs/75).
   const int64_t started_ms = pal::system().millis();
-  uint64_t used = used_in_ground();
-  const int64_t after_quota_ms = pal::system().millis();
-  const int64_t existing = size(full, err);
-  err = luabind::FsError::kOk;
-  if (existing > 0) {
-    used = (used > static_cast<uint64_t>(existing)) ? used - static_cast<uint64_t>(existing) : 0;
-  }
-  if (used + len > kAppQuotaBytes) {
-    err = luabind::FsError::kNoSpc;
-    return -1;
-  }
-  const int64_t after_space_ms = pal::system().millis();
 
   char temp[128];
   const int written = snprintf(temp, sizeof(temp), "%s.tmp", full);
@@ -308,11 +323,8 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
     return -1;
   }
   const int64_t done_ms = pal::system().millis();
-  log_printf(pal::kLogDebug, "fs: write %u B quota=%lld prep=%lld disk=%lld ms",
-             static_cast<unsigned>(len),
-             static_cast<long long>(after_quota_ms - started_ms),
-             static_cast<long long>(after_space_ms - after_quota_ms),
-             static_cast<long long>(done_ms - after_space_ms));
+  log_printf(pal::kLogDebug, "fs: write %u B in %lld ms", static_cast<unsigned>(len),
+             static_cast<long long>(done_ms - started_ms));
   return static_cast<int64_t>(len);
 }
 
@@ -439,8 +451,8 @@ int32_t open_file(const char* path, const char* mode, luabind::FsError& err) {
     return -1;
   }
 
-  // Reading needs nothing; the other modes write, so the app's ground and the
-  // quota still apply (docs/70).
+  // Reading needs nothing more than a place an app may read; the other modes write, so
+  // only its own ground is allowed (docs/70).
   char full[128];
   if (!absolute(path, full, sizeof(full))) {
     err = luabind::FsError::kInval;
@@ -607,6 +619,35 @@ bool space_at(const char* path, uint64_t& total, uint64_t& free_bytes, luabind::
   return true;
 }
 
+// Where the settings go, as the kernel decided it at boot and as the person may have
+// changed it since (docs/70). An app does not need any of these three: it writes /cfg and
+// the rewrite in `absolute` does the rest.
+const char* cfg_unit() { return cfg::unit(); }
+
+bool cfg_set_unit(const char* unit, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  if (unit == nullptr) {
+    err = luabind::FsError::kInval;
+    return false;
+  }
+  // Refused, not ignored: a unit that is not mounted has no room for settings, and a
+  // silent success would leave the person trusting a card that is not there.
+  if (!cfg::set_unit(unit)) {
+    err = luabind::FsError::kUnavail;
+    return false;
+  }
+  return true;
+}
+
+int32_t cfg_dir(char* out, size_t cap, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  if (!cfg::dir_for_app(out, cap, ground_app())) {
+    err = luabind::FsError::kUnavail;
+    return -1;
+  }
+  return static_cast<int32_t>(strlen(out));
+}
+
 void install_fs_ops() {
   luabind::FileOps ops;
   ops.read_at = &read_at;
@@ -626,6 +667,9 @@ void install_fs_ops() {
   ops.file_close = &file_close;
   ops.mounts = &mounts;
   ops.space = &space_at;
+  ops.cfg_unit = &cfg_unit;
+  ops.cfg_set_unit = &cfg_set_unit;
+  ops.cfg_dir = &cfg_dir;
   luabind::set_file_ops(ops);
 }
 

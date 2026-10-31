@@ -30,6 +30,8 @@ Aquestes són les opcions del binari:
 | Opció | Què fa |
 |---|---|
 | `--fs <dir>` | Disc de treball (per defecte `emulator/`) |
+| `--sd <dir>` | **Una targeta al slot**: aquest directori n'és el volum i es munta a `/sd`. Sense l'opció no hi ha targeta ni `/sd` (docs/70) |
+| `--board <nom>` | **Quina placa és el banc**: `m5stack-atom` (per defecte), `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50) |
 | `--mem-cap <KB>` | Fixa el sostre de la VM; posa-hi el de la placa per veure-hi el pic |
 | `--now <època>` | Fixa l'hora d'arrencada. **Sense aquesta opció no hi ha època**: el rellotge val 0 i `time.caps().source` és `"none"`, com una placa que mai s'ha sincronitzat || `--time-scale <N>` | Accelera el temps N vegades (1000 = un dia en 86 segons) |
 | `--seed <n>` | Llavor del generador aleatori |
@@ -78,8 +80,14 @@ emulator/
   nvs/<espai>/<clau>   cada clau és un fitxer, amb el valor a dins
 ```
 
-No hi ha `sd/`: el muntatge `/sd` existeix a la VFS i cap HAL d'aquest build el munta, o sigui que
-una targeta al PC no seria la mateixa targeta que a la placa (docs/50).
+**La targeta no hi és per defecte**: amb `--sd <dir>` el banc té una targeta al slot i aquell
+directori n'és el volum, muntat a `/sd` com el de la placa. Sense l'opció, `/sd` no existeix —ni el
+muntatge ni la capacitat `sd`—, que és el que fa una placa amb la ranura buida (docs/70). Amb la
+targeta posada, `cfg auto` hi desa els ajustos, i això és el que fa que el camí de la targeta es
+pugui provar sencer al PC.
+
+El que la targeta del banc **no** sap dir és l'espai: `fs.space('/sd')` respon `E_UNSUPPORTED`, com
+al disc de la flash, perquè el disc del PC no és seu per informar-ne. A la placa són números.
 
 Es pot editar amb qualsevol editor. Es pot esborrar per començar net. Es pot versionar un joc de
 proves petit dins del repositori i deixar la resta fora del git.
@@ -133,6 +141,7 @@ Res de comparar text a ulls.
 | Resolució de camins i permisos | Idèntic | Idèntic |
 | Sostre de memòria | Limitat a voluntat | 320 KB reals |
 | Cost d'una lectura | Microsegons de disc | Mil·lisegons de flash o SD |
+| Targeta (SD) | **Un directori del disc, i només amb `--sd <dir>`**: el mateix backend POSIX que la flash, o sigui que el que llegeix aquí llegeix a la placa. Sense l'opció no hi ha `/sd` ni la capacitat `sd` | FATFS per SPI a la Paper: CS GPIO4, 10 MHz i el CS del panell (GPIO15) deseleccionat abans de tocar el bus (docs/50) |
 | Desgast de la flash | No existeix | Existeix |
 | Consum | No existeix | Existeix |
 | Despertar de son | Simulat | Real o inexistent segons la placa |
@@ -146,9 +155,17 @@ Res de comparar text a ulls.
 | Tornar d'un son profund | **No passa**: l'emulador no es reinicia enmig d'una crida, i per això les proves criden `kernel::power::restore_session()` a mà, que és exactament el que fa l'arrencada | El xip es reinicia i arrenca: l'arrencada llegeix la nota del son i torna a obrir l'app amb `app.args.restore` |
 | Velocitat del processador | **De mentida**: el PC no canvia de marxa; el número es desa (arrenca a **160** i accepta 80, 160 i 240) perquè el camí i els seus refusos es puguin fer servir i provar | `setCpuFrequencyMhz` de debò, amb l'APB i el tick de FreeRTOS movent-se amb ell |
 | Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). Té **vint-i-cinc** llums, els del panell del Matrix, i `emu::led_pixel(i, …)` en llegeix un: així una app escrita per al panell es pot provar al PC | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27 |
-| Apps i manifest (`boards`) | **El banc és una banda amb nom**: respon `emulator` i la família `esp32`, i una app que demani una placa pel seu nom hi surt llistada amb l'avís i `run` la refusa; per provar-la al PC la seva llista ha de dir `emulator` (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
+| Apps i manifest (`boards`) | **El banc és una placa, la que se li diu**: `--board m5stack-atom` (per defecte), `m5stack-atom-matrix` o `m5stack-paper`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
-| Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les **tres** que té el banc, i el temps que es compta és el del PC. El banc imita la Paper: **un dial compost de tres tecles a la cara esquerra** (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC | El GPIO39 de l'ATOM (una tecla simple a la cara de dalt) i les tres de la Paper, amb 10 ms de rebot |
+| Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les **tres** que té el banc, i el temps que es compta és el del PC. Les tres són un dial compost a la cara esquerra (`centre`, `up` i `down`), com el de la Paper, o sigui que una app que tria per posició es pot provar al PC | El GPIO39 de l'ATOM (una tecla simple a la cara de dalt) i les tres de la Paper, amb 10 ms de rebot |
+
+**El que encara no fa.** El maquinari fals és la **uniò** dels tres models —el dial de tres tecles de
+la Paper, el panell de vint-i-cinc llums i el sensor del Matrix—, i no el d'una placa: una app pot
+trobar-se al banc una cosa que la seva placa no té. El que sí que és cert és el nom —`sys.board` diu
+el model que se li ha dit que sigui— i el senyal de què no és de debò, `sys.emulator`, que continua
+sent `true`. La resta és la feina de fer que el maquinari fals segueixi el model, que és a
+[`90 · Full de ruta`](90-full-de-ruta.md), M8. I no hi ha cap manera de prémer una tecla a mà:
+`emu::press_key` només el criden les proves.
 
 ## Consell de treball
 

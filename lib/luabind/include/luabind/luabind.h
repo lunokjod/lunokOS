@@ -30,9 +30,10 @@ enum class FsError : uint8_t {
   kNoEnt,       // there is no such file or directory
   kInval,       // the path is not one this app may use
   kNoSpc,       // the room this app has is not enough
-  kTooBig,      // more than one call gives, or a name that does not fit
+  kTooBig,      // a path or a name that does not fit
   kNoHandles,   // every file this system can have open at once is taken
-  kUnsupported  // the backend does not know how
+  kUnsupported,  // the backend does not know how
+  kUnavail      // what was asked for is not on this board right now
 };
 
 // A mount as the interpreter sees it: the name, the kind, and whether it takes
@@ -78,6 +79,15 @@ struct FileOps {
   // Room on the mount a path lives on, in bytes. False when the backend cannot
   // say it, and that is not the same as there being none (docs/70).
   bool (*space)(const char* path, uint64_t& total, uint64_t& free_bytes, FsError& err);
+
+  // Where the settings go: the unit behind /cfg, which is "sd" or "littlefs". An app
+  // does not need to know it —it writes /cfg/... and the kernel decides— but the person
+  // has to be able to ask and to change it, and that is what these three are for
+  // (docs/30, docs/70).
+  const char* (*cfg_unit)();
+  bool (*cfg_set_unit)(const char* unit, FsError& err);
+  // The real directory this app's settings land in, for showing: "/sd/cfg/<id>".
+  int32_t (*cfg_dir)(char* out, size_t cap, FsError& err);
 };
 
 // Installs the file operations. Without them fs.* answers E_UNSUPPORTED.

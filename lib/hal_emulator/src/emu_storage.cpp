@@ -19,18 +19,6 @@ const size_t kPathCap = 256;
 
 FILE* g_files[kMaxFiles] = {nullptr};
 
-void fs_path(const char* rel, char* out, size_t cap) {
-  size_t used = 0;
-  const char* parts[3];
-  parts[0] = emu::options().fs_dir;
-  parts[1] = "/littlefs/";
-  parts[2] = rel;
-  for (int i = 0; i < 3; ++i) {
-    for (const char* p = parts[i]; *p != '\0' && used + 1 < cap; ++p) out[used++] = *p;
-  }
-  out[used] = '\0';
-}
-
 const char* mode_name(OpenMode mode) {
   switch (mode) {
     case OpenMode::kWrite:
@@ -47,6 +35,11 @@ const char* mode_name(OpenMode mode) {
 
 class PosixStorage : public IStorage {
  public:
+  // Two volumes of the same kind: the flash is `<fs_dir>/littlefs`, and a card is the
+  // directory the person named with `--sd`. Nothing else changes between them, which is
+  // the point of the bench: a file that works here works there (docs/85).
+  explicit PosixStorage(bool card) : card_(card) {}
+
   bool stat(const char* rel, Stat& out) override {
     char path[kPathCap];
     fs_path(rel, path, sizeof(path));
@@ -170,15 +163,30 @@ class PosixStorage : public IStorage {
     (void)free;
     return false;  // the host disk is not ours to report on
   }
+
+ private:
+  void fs_path(const char* rel, char* out, size_t cap) const {
+    const char* base = card_ ? emu::options().sd_dir : emu::options().fs_dir;
+    const char* sub = card_ ? "" : "/littlefs";
+    snprintf(out, cap, "%s%s/%s", (base != nullptr) ? base : "", sub,
+             (rel != nullptr) ? rel : "");
+  }
+
+  bool card_;  // false: the flash of the chip; true: the card in the slot
 };
 
-PosixStorage g_littlefs;
+PosixStorage g_littlefs(false);
+PosixStorage g_card(true);
 
 }  // namespace
 
 IStorage* emu_storage(const char* mount) {
-  if (mount == nullptr || strcmp(mount, "/littlefs") != 0) return nullptr;
-  return &g_littlefs;
+  if (mount == nullptr) return nullptr;
+  if (strcmp(mount, "/littlefs") == 0) return &g_littlefs;
+  // A card is there only when the person put one: without `--sd` the slot is empty and
+  // `/sd` does not exist, as on a board with no card in it (docs/70, docs/85).
+  if (strcmp(mount, "/sd") == 0 && emu::options().sd_dir != nullptr) return &g_card;
+  return nullptr;
 }
 
 }  // namespace hal

@@ -1,0 +1,6 @@
+{
+  "name": "hal_esp32",
+  "version": "0.1.0",
+  "description": "The parts of the hardware that belong to the ESP32 itself and not to a board: LittleFS, the NVS store, the SoC clock, the sleep, the radio (esp_wifi, provisioning, NTP and a page) and the capabilities it gives every board. Also the drivers for what a board puts on a pin or a bus —keys read from GPIO, a strip of WS2812 and a card in an SD slot— because the reading is the chip's and the hardware is the board's (docs/50).",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

@@ -2,6 +2,7 @@
 //
 // There is no threading here on purpose: the emulator is single threaded, and
 // "block until an event or a deadline" becomes select() on stdin.
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
@@ -10,6 +11,14 @@
 #include <unistd.h>
 
 #include "pal/pal.h"
+
+namespace {
+
+// How many times the console was flushed. It lives outside `pal` because the tests ask for
+// it by name (`pal_host::console_flushes`) and the object of the PAL is private (docs/85).
+uint32_t g_flushes = 0;
+
+}  // namespace
 
 namespace pal {
 namespace {
@@ -95,6 +104,13 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   size_t write(const void* data, size_t len) override {
     ssize_t n = ::write(STDOUT_FILENO, data, len);
     return (n < 0) ? 0 : static_cast<size_t>(n);
+  }
+
+  // A pipe to a person's terminal has no buffer of ours to wait for, but the count is
+  // kept so a test can see that the kernel did ask before sleeping (docs/85).
+  void flush() override {
+    ::fflush(stdout);
+    ++g_flushes;
   }
 
   size_t read(void* data, size_t len) override {
@@ -189,3 +205,9 @@ void shutdown() { g_system.restore_terminal(); }
 ISystem& system() { return g_system; }
 
 }  // namespace pal
+
+namespace pal_host {
+
+uint32_t console_flushes() { return g_flushes; }
+
+}  // namespace pal_host

@@ -36,6 +36,9 @@ struct Caps {
 
   bool has(Capability c) const { return (bits & static_cast<uint32_t>(c)) != 0; }
   void add(Capability c) { bits |= static_cast<uint32_t>(c); }
+  // A board starts from `esp32_caps()` and takes away here the one its hardware really
+  // lacks, with the reason written next to it (docs/50).
+  void remove(Capability c) { bits &= ~static_cast<uint32_t>(c); }
 };
 
 // Capability table, indexed by position. Used by the shell and by sys.caps().
@@ -125,6 +128,11 @@ class IKeyValue {
   // The namespaces themselves, for the /nvs mount to list them as directories
   // (docs/70). Same convention: first = true starts again.
   virtual bool next_namespace(const char*& ns, bool& first) = 0;
+  // How full the store is, in **entries**: the NVS is not bytes, it holds a fixed number
+  // of entries and a store with none left refuses the next save. `used` of `total` is the
+  // number that says whether the next alarm fits; `total` is 0 when the backend has no
+  // ceiling to report, which is the emulator's case (docs/70).
+  virtual bool stats(uint32_t& used, uint32_t& total) = 0;
 };
 
 // How the network is, as the kernel keeps asking. A board never blocks on the
@@ -348,15 +356,28 @@ class IImu {
 class IPlatform {
  public:
   virtual ~IPlatform() {}
-  // The board this build runs on, as written in platformio.ini (`board = ...`).
-  // The PC build is not a board and answers "emulator".
+  // The board this build runs on, by the name the board has in platformio.ini
+  // (`board = ...`) — or the name of the board of its family that differs in what the
+  // app can touch (`m5stack-atom-matrix`). The PC build answers the model it was told
+  // to stand in for: it is never "emulator", which is not a board anybody can flash
+  // (docs/50, docs/85).
   virtual const char* id() const = 0;
   // The chip family this board belongs to ("esp32"). It is what an app means when
   // its manifest says it runs on "esp32": every board of the family accepts it
-  // (docs/40). The PC is not a chip and answers "host".
+  // (docs/40). The bench is not a chip of its own and answers the family of the model
+  // it is, because that is what it is imitating.
   virtual const char* family() const = 0;
-  // True only in the PC build: no real clock, no real flash, no real port.
+  // True only in the PC build: no real clock, no real flash, no real port. It is what
+  // tells an app that the board under `id()` is a fake.
   virtual bool emulator() const = 0;
+  // The board names this band answers to, which is what an app's `boards` list is
+  // matched against. A board answers with its own `id()` and nothing else, and the bench
+  // does the same with the model it was told to be: one name, so an app is accepted or
+  // refused on the PC exactly as it would be on the glass (docs/40, docs/85).
+  virtual uint32_t board_count() const { return 1; }
+  virtual const char* board_name(uint32_t index) const {
+    return (index == 0) ? id() : nullptr;
+  }
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   virtual IClock* clock() = 0;

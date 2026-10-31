@@ -20,11 +20,13 @@
 #include "hal/hal.h"
 #include "json/json.h"
 #include "kernel/apps.h"
+#include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
+#include "pal_host.h"
 
 namespace {
 void close_any_app();
@@ -37,7 +39,26 @@ void tearDown(void) {
   // "cannot start the interpreter" and blames code that is fine — found by breaking
   // the fake sensor on purpose (31/10). Three taps are the system's way out and a
   // person's too, so every test leaves the way a person would (docs/30).
+  //
+  // And with the dial up: a key left down is a key the next app reads as pressed, and
+  // that is how the keys app printed "value 1 (the middle of the face…)" in a window
+  // where nobody had pressed the middle (31/10).
+  for (int key = 0; key < 3; ++key) emu::press_key(key, false);
   close_any_app();
+  // And the bench goes back to the ATOM: one binary is one bench, and a test that was
+  // the Matrix would make the next one refuse an app for no reason (docs/85).
+  const bool had_card = emu::options().sd_dir != nullptr;
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.sd_dir = nullptr;
+  emu::set_options(opts);
+  if (had_card) {
+    // The mounts were built with a card in them, so out it goes with the table that knew
+    // about it: a test that left `/sd` pointing at its own directory would give the next
+    // one a card nobody inserted (docs/70).
+    kernel::vfs::init(hal::platform());
+    kernel::cfg::boot(hal::platform());
+  }
 }
 
 namespace {
@@ -186,6 +207,27 @@ void sleep_one_ms() {
   ts.tv_sec = 0;
   ts.tv_nsec = 1000 * 1000;
   nanosleep(&ts, nullptr);
+}
+
+// A card in the slot of the bench, or none. The mount table is built at boot, so a card
+// that arrives later is the same two calls boot makes —the table and the settings door—
+// and not a path of its own: on the board the card is in the slot or it is not, and the
+// far side has to be told either way (docs/70, docs/85).
+bool card_on(const char* dir) {
+  emu::Options opts = emu::options();
+  opts.sd_dir = dir;
+  emu::set_options(opts);
+  kernel::vfs::init(hal::platform());
+  kernel::cfg::boot(hal::platform());
+  return hal::platform().storage("/sd") != nullptr;
+}
+
+// The card of this run: a directory of its own, empty but for what the test writes, so a
+// leftover file from the run before cannot make a test pass.
+void make_card() {
+  char path[96];
+  snprintf(path, sizeof(path), "%s/sd", root());
+  make_dirs(path);
 }
 
 // Runs one line with the console sent to a file, so what the app writes can be
@@ -808,9 +850,11 @@ void test_the_nvs_mount_shows_the_keys_as_files(void) {
   nvs->erase("unit", "hello");
 }
 
-// fs.* works from inside an app, on the real VFS: the kernel installed the
-// operations at boot, and an app never learns what a VFS is (docs/70).
-void test_an_app_reads_a_file_with_fs(void) {
+// fs.* works from inside an app, on the real VFS: the kernel installed the operations at
+// boot, and an app never learns what a VFS is (docs/70). And `/res` is **its own**: what an
+// app ships with lives in `apps/<id>/res/`, so the `res/` of the disk —the samples of the
+// person— is not what it reads, and it cannot write either one (docs/70).
+void test_an_app_reads_its_own_resources_with_fs(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
@@ -819,24 +863,43 @@ void test_an_app_reads_a_file_with_fs(void) {
                             "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                             "local s = fs.read('res/hola.txt')\n"
                             "local st = fs.stat('res/hola.txt')\n"
-                            "console.print('read ' .. #s .. ' size ' .. st.size)\n"
+                            "console.print('read ' .. tostring(s) .. ' size ' .. tostring(st.size))\n"
                             "console.print('first ' .. fs.read_at('res/hola.txt', 0, 3))\n"
                             "local entries = fs.list('res')\n"
-                            "console.print('entries ' .. #entries)\n"));
+                            "console.print('entries ' .. #entries)\n"
+                            "local shared, err = fs.read('/littlefs/res/hola.txt')\n"
+                            "console.print('shared ' .. tostring(shared) .. ' ' .. tostring(err and err.code))\n"
+                            "local w, err2 = fs.write('res/x.txt', 'no')\n"
+                            "console.print('write ' .. tostring(w) .. ' ' .. tostring(err2 and err2.code))\n"));
+  // The app's own file, with a name that also exists on the disk: the boot of these tests
+  // writes `res/hola.txt` (`una linia`, 10 bytes) and this one is 8, so the numbers below
+  // say which of the two was read. The directory is made here because the storage is the
+  // raw backend: the one that makes the way is `fs.write`, and that is the app's side.
+  TEST_ASSERT_TRUE(storage->mkdir("apps/reader/res"));
+  TEST_ASSERT_TRUE(write_text(storage, "apps/reader/res/hola.txt", "de dins\n"));
 
   TEST_ASSERT_TRUE(run_captured("run reader", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 10 size 10"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first una"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "entries "), g_out);
+  // The file ends with a newline, so the size is what proves it read 8 bytes and not the
+  // 10 of the one on the disk with the same name.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read de dins"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "size 8"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first de "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "entries 1"), g_out);
+  // The disk of the system is not an app's, not even to read the samples on it, and its
+  // own resources are what it ships with: not a place to write.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "shared nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
 
+  storage->remove("apps/reader/res/hola.txt");
+  storage->remove("apps/reader/res");
   storage->remove("/apps/reader/app.lua");
   storage->remove("/apps/reader/manifest.json");
   storage->remove("/apps/reader");
 }
 
 // Writing: an app writes inside its own ground, atomically, and the rules of
-// docs/70 hold: nothing outside /data/<id>/, no leftovers, and the quota says no
-// before anything is touched.
+// docs/70 hold: nothing outside /data/<id>/, no leftovers, **no quota** (the disk is the
+// limit) and the drives of the system are not an app's.
 void test_an_app_writes_inside_its_own_ground(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -855,11 +918,15 @@ void test_an_app_writes_inside_its_own_ground(void) {
                             "console.print('outside ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"
                             "local other, err2 = fs.read('/data/other/x.txt')\n"
                             "console.print('other ' .. tostring(other) .. ' ' .. tostring(err2 and err2.code))\n"
-                            "for i = 1, 4 do\n"
+                            "for i = 1, 6 do\n"
                             "  assert(fs.write(fs.data('c' .. i .. '.bin'), string.rep('a', 15000)))\n"
                             "end\n"
-                            "local big, err3 = fs.write(fs.data('c5.bin'), string.rep('a', 15000))\n"
-                            "console.print('quota ' .. tostring(big) .. ' ' .. tostring(err3 and err3.code))\n"));
+                            "local info = fs.stat(fs.data('c6.bin'))\n"
+                            "console.print('big ' .. tostring(info and info.size))\n"
+                            "local sys, err4 = fs.read('/littlefs/apps/writer/manifest.json')\n"
+                            "console.print('system ' .. tostring(sys) .. ' ' .. tostring(err4 and err4.code))\n"
+                            "local okc = fs.write('/cfg/s.json', 'x')\n"
+                            "console.print('cfg ' .. tostring(okc) .. ' ' .. fs.read('/cfg/s.json'))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run writer", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ground /data/writer"), g_out);
@@ -868,19 +935,173 @@ void test_an_app_writes_inside_its_own_ground(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "entries 1"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "outside nil E_INVAL"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "other nil E_INVAL"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "quota nil E_NOSPC"), g_out);
+  // 90 000 B: over the 64 KB that used to be the limit, and it goes through because the
+  // limit is the disk (docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "big 15000"), g_out);
+  // And the drives of the system are not an app's, neither to read nor to list.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "system nil E_INVAL"), g_out);
+  // `/cfg` is not one of them: it is the door to its own settings, and fs.write answers
+  // the bytes written like every other write (docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cfg 1 x"), g_out);
 
   // And the ground is where the system said: on the disk, under data/writer.
   hal::Stat info;
   TEST_ASSERT_TRUE(storage->stat("data/writer/t.txt", info));
   TEST_ASSERT_EQUAL_UINT32(8, info.size);
 
+  storage->remove("cfg/writer/s.json");
+  storage->remove("cfg/writer");
   storage->remove("data/writer/t.txt");
+  for (int i = 1; i <= 6; ++i) {
+    char path[64];
+    snprintf(path, sizeof(path), "data/writer/c%d.bin", i);
+    storage->remove(path);
+  }
   storage->remove("data/writer");
   storage->remove("/apps/writer/app.lua");
   storage->remove("/apps/writer/manifest.json");
   storage->remove("/apps/writer");
 }
+
+// `/cfg` is a door and not a disk: an app writes `/cfg/s.json` and the system puts it in
+// `cfg/<id>/s.json` on the unit the person chose. These tests have no card, so the unit is
+// the flash, and the app is not told —it asks with fs.cfg() when it wants to know— and the
+// door does not open onto anybody else's room (docs/70).
+void test_the_settings_of_an_app_go_behind_the_door_of_cfg(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "keeper",
+                           "{\"title\":\"Keeper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local c = fs.cfg()\n"
+                           "console.print('unit ' .. c.unit .. ' dir ' .. c.dir)\n"
+                           "console.print('write ' .. tostring(fs.write('/cfg/s.json', 'set')))\n"
+                           "console.print('back ' .. tostring(fs.read('/cfg/s.json')))\n"
+                           "local moved, err = fs.cfg('sd')\n"
+                           "console.print('card ' .. tostring(moved) .. ' ' .. tostring(err and err.code))\n"
+                           "local escape, err2 = fs.write('/cfg/../data/other/x', 'no')\n"
+                           "console.print('escape ' .. tostring(escape) .. ' ' .. tostring(err2 and err2.code))\n"
+                           "local same = fs.cfg('littlefs')\n"
+                           "console.print('flash ' .. tostring(same and same.unit))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run keeper", g_out, sizeof(g_out)));
+  // The app learns where its settings are, but it never needed to: the write below went
+  // through `/cfg` and only the system knows which unit answered.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "unit littlefs dir /littlefs/cfg/keeper"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back set"), g_out);
+  // No card, so asking for one is refused instead of silently saving to the flash.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "card nil E_UNAVAIL"), g_out);
+  // And the door is not a way out: ".." is refused the same on both sides.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "escape nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flash littlefs"), g_out);
+
+  // On the disk it is cfg/<id>/, not data/<id>/.
+  hal::Stat info;
+  TEST_ASSERT_TRUE(storage->stat("cfg/keeper/s.json", info));
+  TEST_ASSERT_EQUAL_UINT32(3, info.size);
+  hal::Stat missed;
+  TEST_ASSERT_FALSE(storage->stat("data/keeper/s.json", missed));
+
+  // The app moved the preference to the flash and it stays moved, because it is the
+  // person's: the test puts it back where it found it before it leaves.
+  TEST_ASSERT_TRUE(kernel::cfg::set_unit("auto"));
+
+  storage->remove("cfg/keeper/s.json");
+  storage->remove("cfg/keeper");
+  storage->remove("cfg");
+  storage->remove("/apps/keeper/app.lua");
+  storage->remove("/apps/keeper/manifest.json");
+  storage->remove("/apps/keeper");
+}
+
+// The card is a volume of its own: `/sd` is there because a card is in the slot, an app
+// may read it and may not write it, and what the test put on the card is what the app
+// reads — the whole path, from FATFS on the board and from a directory on the PC, which
+// is the point of having a card on the bench (docs/70, docs/85).
+void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+  TEST_ASSERT_TRUE(write_text(card, "/leeme.txt", "de la targeta"));
+
+  // It is a mount the person can see and walk.
+  pump_captured(20, g_out, sizeof(g_out), "mounts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/sd"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "ls sd");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "leeme.txt"), g_out);
+
+  TEST_ASSERT_TRUE(add_app(storage, "sdreader",
+                           "{\"title\":\"Reader\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('read ' .. tostring(fs.read('/sd/leeme.txt')))\n"
+                           "local ok, err = fs.write('/sd/x.txt', 'no')\n"
+                           "console.print('write ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run sdreader", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read de la targeta"), g_out);
+  // A card is the person's: an app reads it and does not write it (docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(card->stat("x.txt", info), "an app wrote on the card");
+
+  card->remove("/leeme.txt");
+  storage->remove("/apps/sdreader/app.lua");
+  storage->remove("/apps/sdreader/manifest.json");
+  storage->remove("/apps/sdreader");
+}
+
+// The settings follow the card, and that is the reason the card comes first: a card can be
+// taken out and put in another board, and its `cfg/` goes with it (docs/70).
+void test_the_settings_of_an_app_go_to_the_card_when_there_is_one(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  // The prompt says which unit it is, and it says the card because the card answers.
+  pump_captured(20, g_out, sizeof(g_out), "cfg");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: sd (asked for auto)"), g_out);
+
+  TEST_ASSERT_TRUE(add_app(storage, "cardcfg",
+                           "{\"title\":\"Card cfg\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local c = fs.cfg()\n"
+                           "console.print('unit ' .. c.unit .. ' dir ' .. c.dir)\n"
+                           "console.print('write ' .. tostring(fs.write('/cfg/s.json', 'set')))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run cardcfg", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "unit sd dir /sd/cfg/cardcfg"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write 3"), g_out);
+
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(card->stat("cfg/cardcfg/s.json", info),
+                           "the settings are not on the card");
+  hal::Stat missed;
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("cfg/cardcfg/s.json", missed),
+                            "the settings went to the flash as well");
+
+  card->remove("cfg/cardcfg/s.json");
+  card->remove("cfg/cardcfg");
+  card->remove("cfg");
+  storage->remove("/apps/cardcfg/app.lua");
+  storage->remove("/apps/cardcfg/manifest.json");
+  storage->remove("/apps/cardcfg");
+}
+
 
 // An open file is a handle with a pool behind it: read, write, size and close,
 // and the ninth open is refused because the system has eight (docs/70).
@@ -1778,6 +1999,12 @@ void test_the_light_demo_app_from_the_disk_runs(void) {
 // docs/50).
 void test_the_matrix_app_from_the_disk_paints_the_panel(void) {
   TEST_ASSERT_TRUE(boot_once());
+  // The app says it runs on the Matrix, and the bench is told to be one: on the PC as
+  // on the glass, an app of another board is refused before a VM is built (docs/85).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-atom-matrix";
+  emu::set_options(opts);
+
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
@@ -1984,23 +2211,24 @@ void test_the_lua_command_opens_the_interpreter(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "lunokOS "), g_out);
 }
 
-// An app of another board is not hidden: `apps` lists it with what it needs, and
-// `run` refuses it by name, says which boards it wants and which band this is.
-// Losing an app without a word is exactly what this list is here to avoid
-// (docs/40).
+// An app of a board this build is not is not hidden: `apps` lists it with what it
+// needs, and `run` refuses it by name, says which boards it wants and which board this
+// is. Losing an app without a word is exactly what this list is here to avoid
+// (docs/40). The board named in the refusal is the one the bench was told to be —the
+// ATOM here— and not the word "emulator", which is not a board (docs/85).
 void test_an_app_for_another_board_is_listed_and_refused(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(add_app(storage, "elsewhere",
                            "{\"title\":\"Elsewhere\",\"version\":\"0.1.0\","
-                           "\"entry\":\"app.lua\",\"boards\":[\"m5stack-atom\"]}",
+                           "\"entry\":\"app.lua\",\"boards\":[\"m5stack-core2\"]}",
                            "console.print('elsewhere')\n"));
 
   // Listed, with the board it wants.
   pump_captured(20, g_out, sizeof(g_out), "apps");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "elsewhere"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[needs m5stack-atom]"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[needs m5stack-core2]"), g_out);
 
   // And refused before a VM is built, saying both things. The refusal is the
   // command's own answer and not "the app ended": a run that never started has
@@ -2011,7 +2239,7 @@ void test_an_app_for_another_board_is_listed_and_refused(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_FALSE(refused);
   TEST_ASSERT_NOT_NULL_MESSAGE(
-      strstr(g_out, "elsewhere runs on m5stack-atom and this board is emulator"), g_out);
+      strstr(g_out, "elsewhere runs on m5stack-core2 and this board is m5stack-atom"), g_out);
   TEST_ASSERT_FALSE(kernel::app_running());
 
   storage->remove("/apps/elsewhere/app.lua");
@@ -2019,9 +2247,64 @@ void test_an_app_for_another_board_is_listed_and_refused(void) {
   storage->remove("/apps/elsewhere");
 }
 
-// Every app of the repository says which boards it runs on. On the PC nothing is
-// discarded, so this is the only place where a manifest that forgot the list would
-// be seen before a board is in front of somebody (docs/40, docs/85).
+// The bench is not a board, and a manifest does not name it: the person says which one it
+// stands in for and the bench answers that name, so an app runs here with the list it
+// would carry on the glass — and an app of another board is refused, which is the half
+// that proves the answer is the model and not "yes to everything" (docs/40, docs/85).
+void test_the_bench_is_the_board_it_was_told_to_be(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "paperish",
+                           "{\"title\":\"Paperish\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"m5stack-paper\"]}",
+                           "console.print('from the paper')\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "panelish",
+                           "{\"title\":\"Panelish\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"m5stack-atom-matrix\"]}",
+                           "console.print('on the panel')\n"));
+
+  // Told to be a Paper: its app is listed without a pending board, runs, and says so to
+  // itself — `sys.board` is the model, and `sys.emulator` is still true (docs/50).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  emu::set_options(opts);
+
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paperish"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "[needs m5stack-paper"), g_out);
+  // Listed with what it wants: the name, the title and then the boards it needs.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "panelish"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[needs m5stack-atom-matrix]"), g_out);
+
+  pump_captured(60, g_out, sizeof(g_out), "run paperish");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the paper"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app never ended");
+
+  // And the Matrix's app, on the same bench, is refused before a VM exists.
+  capture_begin();
+  const bool refused = kernel::execute("run panelish");
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE(refused);
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "panelish runs on m5stack-atom-matrix and this board is m5stack-paper"),
+      g_out);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/paperish/app.lua");
+  storage->remove("/apps/paperish/manifest.json");
+  storage->remove("/apps/paperish");
+  storage->remove("/apps/panelish/app.lua");
+  storage->remove("/apps/panelish/manifest.json");
+  storage->remove("/apps/panelish");
+}
+
+// Every app of the repository says which boards it runs on, and none of them names
+// the bench: the bench is not a board, it is told which one it is, so writing
+// `emulator` in a list is a name no board would ever answer (docs/40, docs/85).
+// A manifest that forgot the list would still be caught here, because no list is not
+// "every board" (docs/40).
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
   static char text[1024];
@@ -2034,7 +2317,9 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
     struct dirent* item = nullptr;
     while ((item = readdir(dir)) != nullptr) {
       if (item->d_name[0] == '.') continue;
-      char manifest[256];
+      // Room for the longest path a test root can have plus the longest name: 256 was
+      // not enough for the compiler to be sure, and a silent cut would open the wrong file.
+      char manifest[560];
       snprintf(manifest, sizeof(manifest), "%s/%s/manifest.json", dir_path, item->d_name);
       FILE* file = fopen(manifest, "rb");
       if (file == nullptr) continue;
@@ -2048,6 +2333,9 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
                                    kernel::apps::Entry::kMaxBoards, count),
           item->d_name);
       TEST_ASSERT_TRUE_MESSAGE(count > 0, item->d_name);
+      for (uint32_t i = 0; i < count; ++i) {
+        TEST_ASSERT_TRUE_MESSAGE(strcmp(boards[i], "emulator") != 0, item->d_name);
+      }
       ++seen;
     }
     closedir(dir);
@@ -2056,6 +2344,78 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
   // Eighteen apps ship today: a directory that was not found would pass every
   // check above by not running any of them.
   TEST_ASSERT_TRUE_MESSAGE(seen >= 17, "the apps of the repository were not found");
+}
+
+// The store answers how full it is in **entries**, which is the number that says whether the
+// next alarm fits: the NVS is not bytes. On the PC there is no ceiling —a key is a file— and
+// the total says so by being zero (docs/70).
+void test_the_store_says_how_full_it_is(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IKeyValue* kv = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(kv);
+
+  uint32_t before_used = 0;
+  uint32_t before_total = 0;
+  TEST_ASSERT_TRUE(kv->stats(before_used, before_total));
+
+  TEST_ASSERT_TRUE(kv->set("prova", "clau", "valor", 5));
+  uint32_t used = 0;
+  uint32_t total = 0;
+  TEST_ASSERT_TRUE(kv->stats(used, total));
+  TEST_ASSERT_EQUAL_UINT32(before_used + 1, used);
+  TEST_ASSERT_EQUAL_UINT32(0, total);
+
+  // Erasing it takes the entry away, and the count goes back: a number that only grows
+  // would make the next person think the store is fuller than it is.
+  TEST_ASSERT_TRUE(kv->erase("prova", "clau"));
+  TEST_ASSERT_TRUE(kv->stats(used, total));
+  TEST_ASSERT_EQUAL_UINT32(before_used, used);
+}
+
+// A file is read whatever its size: the system moves a fixed window and the app gets the
+// bytes it asked for. The only limit is the interpreter's memory, and a line longer than a
+// window comes out whole instead of being cut at 256 bytes (docs/30, docs/70).
+void test_a_file_is_read_whatever_its_size(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "sizer",
+                           "{\"title\":\"Sizer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local path = fs.data('long.txt')\n"
+                           "assert(fs.write(path, string.rep('a', 15000)))\n"
+                           "console.print('whole ' .. #fs.read(path))\n"
+                           "console.print('prefix ' .. #fs.read(path, 1000))\n"
+                           "console.print('at ' .. #fs.read_at(path, 14000, 1000))\n"
+                           "local file = fs.open(path, 'r')\n"
+                           "local total = 0\n"
+                           "for i = 1, 3 do total = total + #file:read(4000) end\n"
+                           "total = total + #file:read(3000)\n"
+                           "file:close()\n"
+                           "console.print('windows ' .. total)\n"
+                           "local lines = fs.data('lines.txt')\n"
+                           "assert(fs.write(lines, string.rep('b', 1000) .. '\\n' .. 'short'))\n"
+                           "local lf = fs.open(lines, 'r')\n"
+                           "console.print('line ' .. #lf:read('*l') .. ' ' .. lf:read('*l'))\n"
+                           "lf:close()\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run sizer", g_out, sizeof(g_out)));
+  // 15 000 B in one call: the old 4 096 ceiling would have refused it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole 15000"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "prefix 1000"), g_out);
+  // A window far past anything the old ceiling allowed.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 1000"), g_out);
+  // The same file through the file object: 3 x 4 000 + 3 000.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "windows 15000"), g_out);
+  // A 1 000 byte line and the one after it, which is the seek back in action.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "line 1000 short"), g_out);
+
+  storage->remove("data/sizer/long.txt");
+  storage->remove("data/sizer/lines.txt");
+  storage->remove("data/sizer");
+  storage->remove("/apps/sizer/app.lua");
+  storage->remove("/apps/sizer/manifest.json");
+  storage->remove("/apps/sizer");
 }
 
 // A press reaches an app that is waiting for it, as a promise, and the answer says
@@ -2286,7 +2646,7 @@ void test_the_board_says_where_its_keys_are(void) {
                            "  .. tostring(err and err.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run keymap", g_out, sizeof(g_out)));
-  // The bench imitates the Paper: one compound dial of three keys on the left
+  // The bench is the Paper here: one compound dial of three keys on the left
   // face, with the middle one in the middle (docs/85).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 left/centre compound 0"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 left/up compound 0"), g_out);
@@ -2326,19 +2686,22 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   // down one: the function comes from the place on the board and not from the
   // number of the key (docs/30). Both are done before any long hold, so the
   // number is known.
+  // A press has to last longer than the app's own turn: it wakes every 40 ms, so a key
+  // that goes down and up in 20 ms can be a key it never sees (a finger never goes below
+  // 50 ms, docs/50). Sixty turns are still well under the half second of the repeat.
   capture_begin();
   emu::press_key(1, true);
-  pump_turns(20);
+  pump_turns(60);
   emu::press_key(1, false);
-  pump_turns(20);
+  pump_turns(60);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 1"), g_out);
 
   capture_begin();
   emu::press_key(2, true);
-  pump_turns(20);
+  pump_turns(60);
   emu::press_key(2, false);
-  pump_turns(20);
+  pump_turns(60);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 0"), g_out);
 
@@ -2404,7 +2767,13 @@ void test_a_light_sleep_comes_back_with_the_clock_moved(void) {
   const int64_t epoch = 1767225600000LL;  // 2026-01-01 00:00:00 UTC
   TEST_ASSERT_TRUE(clock->set_epoch_ms(epoch));
 
+  // The line has to be empty before the board stops, or the last line arrives cut in
+  // half: the host console has no buffer of ours, so what proves the kernel asked is the
+  // count (docs/50).
+  const uint32_t flushed = pal_host::console_flushes();
   pump_captured(20, g_out, sizeof(g_out), "sleep light 1000");
+  TEST_ASSERT_TRUE_MESSAGE(pal_host::console_flushes() > flushed,
+                           "the console was not flushed before the sleep");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sleep: light until"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "sleep: awake"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "power: woke on the timer"), g_out);
@@ -2582,6 +2951,8 @@ void test_the_handles_demo_app_from_the_disk_runs(void) {
 void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
+  // The level is the Matrix's app and it says so, so the bench has to be one (docs/85).
+  opts.board = "m5stack-atom-matrix";
   opts.imu_fail = false;
   opts.imu_ax = 0.0f;
   opts.imu_ay = 0.0f;
@@ -2713,8 +3084,12 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_persistent_alarm_comes_back_after_a_reboot);
   RUN_TEST(test_raise_calls_the_goodbye_hooks_of_the_app_in_front);
   RUN_TEST(test_the_nvs_mount_shows_the_keys_as_files);
-  RUN_TEST(test_an_app_reads_a_file_with_fs);
+  RUN_TEST(test_an_app_reads_its_own_resources_with_fs);
   RUN_TEST(test_an_app_writes_inside_its_own_ground);
+  RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
+  RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
+  RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
+  RUN_TEST(test_a_file_is_read_whatever_its_size);
   RUN_TEST(test_an_app_opens_files_and_the_ninth_is_refused);
   RUN_TEST(test_the_handles_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_mtab_demo_app_from_the_disk_runs);
@@ -2747,7 +3122,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_manifest_without_boards_is_not_an_app);
   RUN_TEST(test_the_lua_command_opens_the_interpreter);
   RUN_TEST(test_an_app_for_another_board_is_listed_and_refused);
+  RUN_TEST(test_the_bench_is_the_board_it_was_told_to_be);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
+  RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);

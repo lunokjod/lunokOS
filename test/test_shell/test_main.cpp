@@ -54,6 +54,17 @@ void test_mounts_command_lists_the_mounts(void) {  ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute("mounts"));
 }
 
+// `cfg` is the command that says where the apps' settings are kept, and it refuses a unit
+// that is not mounted instead of pretending (docs/70). The fake board has no card, so the
+// unit is the flash and asking for the card is an error.
+void test_cfg_command_says_the_unit_and_refuses_a_missing_card(void) {
+  ensure_booted();
+  TEST_ASSERT_TRUE(kernel::execute("cfg"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg sd"));
+  TEST_ASSERT_TRUE(kernel::execute("cfg littlefs"));
+  TEST_ASSERT_FALSE(kernel::execute("cfg diskette"));
+}
+
 void test_unknown_command_fails(void) {
   ensure_booted();
   TEST_ASSERT_FALSE(kernel::execute("no_existeix"));
@@ -209,6 +220,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_caps_command_is_known);
   RUN_TEST(test_mem_command_is_known);
   RUN_TEST(test_mounts_command_lists_the_mounts);
+  RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_unknown_command_fails);

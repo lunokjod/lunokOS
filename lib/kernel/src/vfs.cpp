@@ -41,11 +41,16 @@ uint32_t init(hal::IPlatform& platform) {
 
   hal::IStorage* littlefs = platform.storage("/littlefs");
   if (littlefs != nullptr) {
-    add("/littlefs", "", "littlefs", littlefs, false);
-    // Aliases cost one table row each: they resolve here, they are not copies.
+    // The disk itself is the person's: readable and writable from the prompt. The aliases
+    // below carry the flags an app-facing view needs, but what an app may touch is decided
+    // by the policy in fs_ops, not by these (docs/70).
+    add("/littlefs", "", "littlefs", littlefs, true);
+    // Aliases cost one table row each: they resolve here, they are not copies. `/res` is
+    // one for a person —the sample files of the disk— and a door for an app: the
+    // interpreter opens it onto that app's own `apps/<id>/res/` (docs/70). `/cfg` is not
+    // even an alias: it goes wherever the settings live, and that is cfg::boot's to say.
     add("/apps", "apps", "littlefs", littlefs, false);
     add("/res", "res", "littlefs", littlefs, false);
-    add("/cfg", "cfg", "littlefs", littlefs, false);
     add("/data", "data", "littlefs", littlefs, true);
   } else {
     log_printf(pal::kLogError, "vfs: /littlefs is mandatory and did not mount");
@@ -63,6 +68,27 @@ uint32_t init(hal::IPlatform& platform) {
 }
 
 uint32_t mount_count() { return g_count; }
+
+void set_cfg_storage(hal::IStorage* storage, const char* kind) {
+  static const char kPath[] = "/cfg";
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (strcmp(g_mounts[i].path, kPath) != 0) continue;
+    if (storage == nullptr) {
+      // The row goes away with the unit: a door to nowhere is not a mount.
+      for (uint32_t j = i + 1; j < g_count; ++j) g_mounts[j - 1] = g_mounts[j];
+      --g_count;
+      if (i < g_count) g_mounts[g_count] = Mount();
+      return;
+    }
+    g_mounts[i].kind = (kind != nullptr) ? kind : "";
+    g_mounts[i].storage = storage;
+    g_mounts[i].writable = true;
+    return;
+  }
+  // Writable: an app's own settings are its own ground, and making it read-only would
+  // leave every app unable to keep anything (docs/70).
+  if (storage != nullptr) add(kPath, "cfg", (kind != nullptr) ? kind : "", storage, true);
+}
 
 const char* mount_path(uint32_t index) {
   if (index >= g_count) return "";
