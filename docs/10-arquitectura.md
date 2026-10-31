@@ -4,10 +4,10 @@
 
 ```mermaid
 graph TD
-  A["apps/<id>/*.lua"] --> B["luabind<br/>sys · app · promise · console · term<br/>time · alarm · fs · store · net · power · log"]
+  A["apps/<id>/*.lua"] --> B["luabind<br/>sys · app · Promise · console · term · time<br/>alarm · fs · net · http · qr · json · led · imu · button · power"]
   B --> C["nucli (kernel)<br/>planificador · esdeveniments · alarmes<br/>apps · vfs · rellotge · memòria · log · shell"]
   C --> D["PAL<br/>cua · temporitzador · consola · log · uptime"]
-  C --> E["HAL<br/>IDisplay · IInput · IClock · IStorage · INet · IPower · ILed"]
+  C --> E["HAL<br/>IPlatform · IClock · IStorage · IKeyValue · INet<br/>IPower · ILed · IInput · IImu · IDisplay"]
   D --> F["pal_esp32 / pal_host"]
   E --> G["hal_atom / hal_emulator"]
 ```
@@ -35,40 +35,54 @@ per tocar Lua, és que s'ha trencat aquesta regla.
 ## El bucle del nucli
 
 ```
-per sempre:
-  timeout    = proper_termini − ara            (o espera indefinida si no n'hi ha cap)
-  esdeveniment = cua.rebuda(timeout)           # bloqueja fins a l'esdeveniment o el termini
+per sempre (kernel::poll):
+  espera     = el curt més proper: torn d'app, termini d'una promesa o
+               la propera alarma                      (si no n'hi ha, l'oci)
+  esdeveniment = cua.rebuda(espera)                  # bloqueja fins a l'esdeveniment o el termini
   si esdeveniment: despatxa(esdeveniment)
-  dispara_terminis_vençuts()                   # alarmes i temporitzadors, en ordre
-  reprèn_tasques_llestes()                     # coroutines amb pressupost d'instruccions
-  pas_de_recollida(BUDGET_US)                  # un pas de col·lector, mai una col·lecció sencera
-  mira_consola()                               # línia nova, o seqüència de sortida
+  net::poll()                                        # la ràdio, preguntada i mai esperada
+  entrega les alarmes que toquen, i arma la propera
+  button::poll()                                     # el botó, preguntat a cada torn
+  power::poll()                                      # un son que una app ha demanat, entre torns
+  desa les alarmes si la cua ha canviat
+  llegeix la consola i l'encamina (a l'app o a la shell)
+  shell::poll_app()                                  # el torn de l'app: reprèn la coroutine si toca
+  led::poll()                                        # el llum, pintat a final de torn i només si canvia
 ```
 
-Del bucle se'n dedueixen tres coses:
+Del bucle se'n dedueixen quatre coses:
 
 - **No hi ha cap `delay`.** Quan el sistema no té res a fer, la cua el bloqueja fins al pròxim
   termini, i així el consum en repòs depèn del maquinari i no del codi.
-- **Els terminis es disparen després de despatxar l'esdeveniment** que ha despertat el nucli, perquè
-  una alarma que venç mentre s'està atenent un altre esdeveniment no s'endarrereixi més del compte.
-- **La recollida de memòria és incremental.** Una col·lecció completa enmig d'una operació llarga
-  es nota massa.
+- **Les alarmes no són esdeveniments d'una cua**: es miren a cada torn, i per això l'espera escurça
+  fins al seu termini. Una alarma que venç mentre el nucli atenja una altra cosa no s'endarrereix
+  més d'un torn.
+- **El maquinari es pregunta, no avisa**: la ràdio, el botó i el llum són consultats a cada torn.
+  Una interrupció només serviria per guanyar mil·lisegons que aquest sistema no necessita.
+- **L'app té l'últim torn.** Quan li toca, la consola ja s'ha llegit i les alarmes ja s'han entregat,
+  o sigui que un byte que acaba d'arribar ja és a la cua quan l'app desperta.
+
+**El que no hi ha és un pressupost d'instruccions**: una app que no cedeix no torna el torn i penja
+la placa. Una app ha de cedir amb una promesa, i això és l'única cosa que protegeix el sistema
+(docs/20, docs/90).
 
 ## Esdeveniments
 
 Tots els esdeveniments són estructures de mida fixa (POD), sense cap punter a memòria dinàmica, amb
-una cua de mida fixa. Si la cua s'omple, es descarten els de menys prioritat (mai el de sortida).
+una cua de mida fixa. La cua és un `xQueueSend` del sistema: si s'omple, la cua refusa l'esdeveniment
+i qui el demanava rep `false`; no hi ha prioritats que descartar.
 
-| Tipus | Qui el genera | Qui el consumeix |
+El nucli despatxa **tres** tipus, i la resta de la feina del torn no passa per la cua:
+
+| Tipus | Qui el genera | Què fa el nucli |
 |---|---|---|
-| `CONSOLE_RX` | Consola (PAL) | Shell o app de primer pla |
-| `CONSOLE_OWNER` | Shell | Canvi d'amo del port |
-| `TIMER` | PAL / temporitzadors propis | Planificador |
-| `ALARM_DUE` | Cua d'alarmes | Planificador (finestra d'alarma) |
-| `PROMISE_DONE` | Tasca auxiliar | Planificador (reprèn la coroutine que esperava) |
-| `APP_EXIT` | App | Gestor d'apps |
-| `POWER` | HAL | Shell, i ho encua a l'app si està oberta |
-| `SYSTEM` | Mode segur, watchdog | Shell |
+| `kEventSystem` | el propi sistema (`a == 1` vol dir «plega») | atura el bucle |
+| `kEventConsoleRx` | la consola | res aquí: la consola es llegeix a cada torn |
+| `kEventTimer` | temporitzadors | res aquí: els terminis es compten a cada torn |
+
+La resta de tipus de la PAL (`kEventAlarmDue`, `kEventPromiseDone`, `kEventAppExit`, `kEventPower`)
+hi són declarats per al dia que calgui una cua de debò; avui les alarmes, les promeses, la sortida
+d'una app i el son es miren a cada torn (docs/60).
 
 ## Arrencada
 
@@ -81,14 +95,15 @@ una cua de mida fixa. Si la cua s'omple, es descarten els de menys prioritat (ma
    registra l'error i el sistema segueix sense apps.
 4. Es llegeix `cfg/` (si no hi és, s'agafa la configuració per defecte i es diu al log).
 5. S'inicialitza el rellotge amb la millor font disponible.
-6. S'escaneja `/apps/*/manifest.json` i es construeix el registre d'apps (identificador, títol,
-   versió, entry). El registre és el que fan servir les comandes de la shell.
-7. Es reprodueixen les alarmes persistents que hagin vençut mentre el sistema era apagat.
-8. S'obre el prompt `lunok>`.
+6. Es reprodueixen les alarmes persistents que hagin vençut mentre el sistema era apagat.
+7. S'obre el prompt `lunok>`.
+
+**No hi ha cap registre d'apps a l'arrencada**: `/apps` es llegeix quan algú demana la llista, i el
+temps d'arrencada no depèn de quantes apps hi hagi (docs/40).
 
 Si qualsevol pas del 2 al 6 falla, el sistema **no s'atura**: deixa el log a la consola i obre el
-prompt amb menys capacitats. Si fallen dues arrencades seguides (comptador a NVS), arrenca en mode
-segur, sense apps.
+prompt amb menys capacitats. **No hi ha mode segur** (encara): una placa que arrenca amb una app que
+peta la tanca i torna al prompt, que és el camí de recuperació que hi ha avui.
 
 ## Estats d'una app
 
