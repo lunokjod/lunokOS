@@ -29,10 +29,11 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   **`power`** (les dues menes de son, la velocitat del processador i la bateria), **`led`** (el llum),
   **`imu`** (el sensor del Matrix) i **`button`** (el botó, i el hook `on_button`).
 
-Encara no hi és, i per tant una app que ho cridi peta amb «attempt to call a nil value»:
-`sys.reboot()`, `console.flush()`, `console.read()`,
-`console.read_byte()`, `console.on_data()`, `console.is_foreground()`, i el
-mòdul `app`. La llista és el que queda de M1 (`docs/90`).
+**Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»: `sys.reboot()`,
+`console.flush()`, `console.read()`, `console.read_byte()`, `console.on_data()`, `time.utc`/`local`/
+`format`/`parse`/`set`/`tz`/`sync`, `Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`,
+`net.softap`, i els mòduls `store` i `log`. Les taules d'aquest document ho marquen amb ⏳, i el que
+queda fitat és a `docs/90`.
 
 `term.width()` i `term.height()` tornen **80 i 24**, que és el valor per defecte del contracte: el
 fitxer `cfg/console.json` encara no es llegeix.
@@ -101,8 +102,9 @@ respon `emulator`.
 
 | `sys.board` | Què hi ha | Què no hi ha |
 |---|---|---|
-| `m5stack-atom` | consola UART, LittleFS, NVS, un port Grove I2C | pantalla, bateria, teclat, targeta SD, xarxa |
-| `emulator` | consola, LittleFS en un directori del PC | res de maquinari de debò: ni rellotge, ni flash, ni port sèrie |
+| `m5stack-atom` | consola, LittleFS, NVS, ràdio Wi-Fi amb TLS, provisioning, son, un llum, un botó, un port Grove I2C | pantalla, bateria, teclat, targeta SD, sensor inercial |
+| `m5stack-atom-matrix` | el mateix, amb **vint-i-cinc llums** i un **sensor inercial** | el mateix que el Lite |
+| `emulator` | consola, LittleFS en un directori del PC, i ràdio, energia i sensor **de mentida** | res de maquinari de debò: ni flash, ni port sèrie |
 
 `sys.emulator` és el mateix que preguntar `sys.board == "emulator"`, i és cert només al PC.
 
@@ -119,8 +121,8 @@ end
 
 Dues regles:
 
-- **La comprovació grossa és el nom de la placa**; quan `sys.caps()` hi sigui, la comprovació fina serà
-  per capacitat. El nom serveix per als casos en què canvia **la manera** de fer servir el maquinari,
+- **La comprovació grossa és el nom de la placa; la fina és `sys.caps()`**, que diu què té de debò
+  aquesta banda. El nom serveix per als casos en què canvia **la manera** de fer servir el maquinari,
   no només si hi és o no.
 - **Un nom desconegut no es pot ignorar.** Si `sys.board` no és cap dels que l'app entén, ho diu i
   surt; no es queda provant maquinari a cegues.
@@ -167,12 +169,14 @@ d'alarma).
 |---|---|---|
 | `console.write(s)` | enters escrits | Síncrona, amb memòria intermèdia |
 | `console.print(...)` | — | `print` global fa el mateix |
-| `console.flush()` | — | Força la sortida |
-| `console.read_line()` ⏳ | promesa amb la cadena sense `\n` | Una lectura alhora: la segona dona `E_BUSY` |
+| `console.flush()` ⏳ | — | Força la sortida |
+| `console.read_line()` | promesa amb la cadena sense `\n` | Una lectura alhora: la segona dona `E_BUSY` |
 | `console.read(n)` ⏳ | cadena (fins a `n` bytes) o `nil` | |
 | `console.read_byte()` ⏳ | enter 0–255 o `nil` | |
-| `console.on_data(fn)` | — | Mode push: `fn(tros)` per cada tros que arribi |
+| `console.on_data(fn)` ⏳ | — | Mode push: `fn(tros)` per cada tros que arribi |
 | `console.is_foreground()` | booleà | `false` dins d'una finestra d'alarma |
+
+**Avui hi ha** `console.print`, `console.write`, `console.read_line` i `console.is_foreground`.
 
 ### Mentre una app viu, el teclat és seu
 
@@ -285,7 +289,10 @@ function on_alarm(id, payload, meta) ... end
 if not console.is_foreground() then return end   -- dins una finestra, res més
 ```
 
-Encara no hi ha `persist`: una alarma viu a la RAM i es perd en reiniciar (docs/60).
+**`persist` sí que hi és**: una alarma persistent es desa a la NVS amb l'**època a dins** (el
+monòton torna a començar a cada arrencada), i en arrencar les vençudes es disparen amb el seu
+`late_ms`. Sense època no s'escriu res, perquè una hora relativa no vol dir res després d'un
+reinici (docs/60).
 
 ## `qr`
 
@@ -442,7 +449,7 @@ L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'e
 | `fs.space([path])` | taula o `nil, error` | `{total, free}` del muntatge on viu el camí; `E_UNSUPPORTED` si el backend no ho sap |
 | `fs.list(path)` | taula | `{name, type, size, mtime}` de cada entrada |
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
-| `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | Permís `sd_write` si és a `/sd` |
+| `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El `E_PERM` de la taula d'errors és **reservat**: el model de permisos no existeix encara, i avui escriure el decideix el terreny de l'app, no el manifest |
 | `fs.open(path[, mode])` | objecte fitxer | `mode`: `"r"`, `"w"`, `"a"`, `"r+"` |
 | `fs.read(path[, max])` | cadena o `nil, error` | Sostre dur del sistema (`E_TOOBIG`) |
 | `fs.read_at(path, offset, len)` | cadena o `nil, error` | Accés aleatori sense obrir |
@@ -489,9 +496,10 @@ Objecte fitxer: `f:read(n)`, `f:read("*l")`, `f:read("*a")`, `f:write(s)`,
 `f:seek([whence[, off]])`, `f:flush()`, `f:size()`, `f:close()`. Si no es tanca, el recol·lector el
 tanca, però el comptador de fitxers oberts és de 8: tancar és cosa de l'app.
 
-## `store`
+## `store` ⏳
 
-Clau-valor petit per app, sobre `/data/<id>/store.json`. Claus de 15 caràcters com a màxim.
+**Avui no hi és.** És el contracte d'una cosa que encara no s'ha demanat: clau-valor petit per app,
+sobre `/data/<id>/store.json`, amb claus de 15 caràcters com a màxim.
 
 | Crida | Torna |
 |---|---|
@@ -501,15 +509,6 @@ Clau-valor petit per app, sobre `/data/<id>/store.json`. Claus de 15 caràcters 
 | `store.all()` | taula |
 | `store.clear()` | — |
 
-## `net`
-
-| Crida | Torna | Notes |
-|---|---|---|
-| `net.caps()` | `{wifi, http, tls, connected, ssid, ip, rssi}` | |
-| `net.wifi.connect(ssid, pass[, timeout_s])` ⏳ | promesa | Permís `net` |
-| `net.wifi.status()` | `{state, ssid, ip, rssi}` | `state`: `"off"`, `"connecting"`, `"up"`, `"fail"` |
-| `net.wifi.disconnect()` | — | |
-| `net.http.get(url[, opts])` ⏳ | `{status, headers, body}` | `opts`: `{headers, timeout_ms, max_bytes}`; el cos té sostre |
 
 ## `led`
 
@@ -657,7 +656,10 @@ power.sleep({ mode = 'deep', in_ms = 300000 }):await()   -- cinc minuts
 L'exemple de mà és `run sleepy` (`data/apps/sleepy/`), que dorm cinc minuts, desa quantes vegades ho ha
 fet i ho torna a llegir quan la placa arrenca.
 
-## `log`
+## `log` ⏳
+
+**Avui no hi és.** El contracte: un anell de línies que una app pot escriure i tornar a llegir, sense
+arribar mai a la flash.
 
 | Crida | Notes |
 |---|---|
