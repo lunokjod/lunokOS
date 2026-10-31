@@ -2264,6 +2264,42 @@ void test_three_taps_of_a_side_key_keep_the_app(void) {
   storage->remove("/apps/idleside");
 }
 
+// Where the keys are is part of the answer: an app gives a function to a position,
+// and the board says it in the same words on every board (docs/30, docs/50).
+void test_the_board_says_where_its_keys_are(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "keymap",
+                           "{\"title\":\"Key map\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local keys = button.list()\n"
+                           "for i = 1, #keys do\n"
+                           "  local k = keys[i]\n"
+                           "  console.print(k.key .. ' ' .. k.face .. '/' .. k.spot .. ' '\n"
+                           "    .. k.kind .. ' ' .. k.group)\n"
+                           "end\n"
+                           "local middle = button.info(0)\n"
+                           "console.print('middle ' .. middle.face .. '/' .. middle.spot)\n"
+                           "local missing, err = button.info(9)\n"
+                           "console.print('ninth ' .. tostring(missing) .. ' '\n"
+                           "  .. tostring(err and err.code))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run keymap", g_out, sizeof(g_out)));
+  // The bench imitates the Paper: one compound dial of three keys on the left
+  // face, with the middle one in the middle (docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 left/centre compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 left/left compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 left/right compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "middle left/centre"), g_out);
+  // A key that is not there is said, not invented.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ninth nil E_INVAL"), g_out);
+
+  storage->remove("/apps/keymap/app.lua");
+  storage->remove("/apps/keymap/manifest.json");
+  storage->remove("/apps/keymap");
+}
+
 // The example of the keys, from the disk: the sides step a number and a key that
 // stays down steps again, which is what a keyboard does (docs/30, docs/90).
 void test_the_keys_demo_app_from_the_disk_runs(void) {
@@ -2713,6 +2749,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
   RUN_TEST(test_a_key_reaches_the_app_with_its_number);
+  RUN_TEST(test_the_board_says_where_its_keys_are);
   RUN_TEST(test_three_taps_of_a_side_key_keep_the_app);
   RUN_TEST(test_the_keys_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);

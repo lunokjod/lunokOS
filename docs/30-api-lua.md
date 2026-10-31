@@ -581,6 +581,8 @@ El botó: **l'única cosa que una persona pot prémer** en aquesta placa (docs/5
 | Crida | Torna | Notes |
 |---|---|---|
 | `button.count()` | enter | Quantes tecles té la placa: **1** a l'ATOM i **3** a la Paper |
+| `button.list()` | taula | **Totes** les tecles descrites: `{key, face, spot, kind, group}` de cadascuna. És el que una app llegeix un cop a l'inici |
+| `button.info(key)` | taula o `nil, error` | La mateixa descripció d'una tecla; una que no hi és dona `E_INVAL` |
 | `button.wait([ms])` | **promesa** | Es resol amb `{key, kind = "press"\|"long", held_ms}` de la primera tecla que es premi; **20 000 ms** per defecte |
 | `button.down(key)` | booleà | Aquesta tecla és premuda **ara** (es llegeix en el moment de preguntar-ho) |
 | `button.held(key)` | enter | Quants ms fa que és premuda, o `0` si no ho està |
@@ -592,6 +594,39 @@ console.print('kind ' .. press.kind .. ', held ' .. press.held_ms .. ' ms')
 
 - **La tecla 0 és la principal**: a l'ATOM és l'única que hi ha i a la Paper és la **central**, la
   del mig del dial. Les altres són de l'app i el sistema no hi té cap gest.
+
+### On és cada tecla, i com està feta
+
+Una app no ha de saber números de GPIO ni de tecles: el que ha de saber és **on** és la tecla i **què
+és**. El sistema ho diu amb les mateixes paraules a totes les plaques:
+
+| Camp | Valors | Què vol dir |
+|---|---|---|
+| `key` | enter | El número de tecla, el mateix que es passa a `down`/`held` |
+| `face` | `"front"`, `"back"`, `"left"`, `"right"`, `"top"`, `"bottom"` | **La cara de la caixa** on és: la placa és una capsa de sis cares |
+| `spot` | `"centre"`, `"up"`, `"down"`, `"left"`, `"right"` | **On, dins d'aquella cara**: el mig i els quatre costats |
+| `kind` | `"simple"` o `"compound"` | **Com està feta**: una tecla sola, o diverses d'un sol component |
+| `group` | enter | Les tecles del **mateix component** comparteixen número de grup |
+
+Per què serveix: una app dona **una funció a una posició**, no a un número. La del mig de la cara és la
+mateixa posició en un botó sol que en un dial de tres, i el que fa amunt i avall no ha de canviar
+perquè la placa tingui una tecla o tres:
+
+```lua
+local keys = button.list()          -- {key, face, spot, kind, group}
+for i = 1, #keys do
+  local key = keys[i]
+  if key.spot == 'up' then ... elseif key.spot == 'down' then ... end
+end
+```
+
+- **`kind` no és un detall**: el botó de l'ATOM i el dial de la Paper són el mateix contacte i no són
+  la mateixa cosa de tocar. `"compound"` diu que aquelles tres tecles són **un sol component**, i
+  `group` diu **quin**: una placa amb dos botons separats i un dial tindria dos grups.
+- **Les posicions són les de la placa i no les de la pantalla**: la Paper no té pantalla encara, i el
+  dia que en tingui la rotació no canviarà on és la tecla (docs/50).
+- `button.list()` torna una taula buida en una placa sense tecles, i `button.info` d'una tecla que no
+  hi és dona `E_INVAL`: cap de les dues inventa res.
 - **Hi ha tres maneres de rebre una premuda i les tria l'app**:
   1. **Esperar-la** amb `button.wait(ms)`, que és una promesa: l'app no es congela, el nucli segueix
      girant i la resta del sistema funciona (docs/30).

@@ -254,6 +254,18 @@ class FakeInput : public IInput {
     return mono_ms() - started_ms_[key];
   }
 
+  // The bench imitates the band of the Paper: one compound dial of three keys on
+  // the left face, so an app that reads the positions can be tried on the PC
+  // (docs/85).
+  Face face(uint32_t) override { return Face::kLeft; }
+  Spot spot(uint32_t key) override {
+    if (key == 1) return Spot::kLeft;
+    if (key == 2) return Spot::kRight;
+    return Spot::kCentre;
+  }
+  KeyKind kind(uint32_t) override { return KeyKind::kCompound; }
+  uint32_t group(uint32_t) override { return 0; }
+
  private:
   static const uint32_t kKeys = 3;
   bool down_[kKeys] = {false, false, false};

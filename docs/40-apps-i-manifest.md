@@ -71,6 +71,10 @@ Regles de validació, totes amb error clar i el nom del camp:
   coses en una línia (`matrix runs on m5stack-atom-matrix and this board is emulator`), i no pot ser
   el gestor de cap extensió (un gestor que no pot arrencar no obre res). Una llista buida, o que
   falta, és una altra cosa: **no és una app** a cap banda.
+- **`esp32` és el xip, no una placa amb tot.** Una ESP32 pelada no porta cap botó, o sigui que una app
+  que **necessita** tecles les ha de nomenar pel seu nom (`m5stack-atom`, `m5stack-paper`) i no pot
+  dir `esp32`: el manifest diu on l'app **funciona**, i la família sencera inclouria una placa sense
+  res per prémer. L'app `keys` és el cas: nomena les tres plaques que en tenen i l'emulador.
 - **El banc també és una banda i té nom.** L'emulador respon `emulator` i la família `esp32` —fa de
   la banda que imita, i una app que només vol un esp32 genèric s'hi pot provar—, o sigui que una app
   que nomena plaques pel seu nom hi ha de dir `emulator` si vols veure-la al PC. Si no ho diu, hi

@@ -264,6 +264,13 @@ class AtomInput : public IInput {
     return (esp_timer_get_time() / 1000) - pressed_since_ms_;
   }
 
+  // The big button of the ATOM is on the top face, in the middle, and it is one
+  // key of its own: the only one of the board (docs/50).
+  Face face(uint32_t) override { return Face::kTop; }
+  Spot spot(uint32_t) override { return Spot::kCentre; }
+  KeyKind kind(uint32_t) override { return KeyKind::kSimple; }
+  uint32_t group(uint32_t) override { return 0; }
+
  private:
   void ensure_ready() {
     if (ready_) return;

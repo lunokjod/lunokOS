@@ -263,6 +263,25 @@ class IDisplay {
   virtual ~IDisplay() {}
 };
 
+// Where a key sits, said the same way on every board: the board is a box and a
+// key is on one of its six faces, at one of the five places of that face. An app
+// that wants "up" to mean one thing and "left" another has to be able to ask
+// (docs/30, docs/50).
+enum class Face : uint8_t { kFront = 0, kBack = 1, kLeft = 2, kRight = 3, kTop = 4, kBottom = 5 };
+
+// The five places of a face: the middle and the four sides of it.
+enum class Spot : uint8_t { kCentre = 0, kUp = 1, kDown = 2, kLeft = 3, kRight = 4 };
+
+// How a key is built. The one button of the ATOM and the three of the Paper's
+// dial are the same kind of contact, and they are not the same thing to touch: a
+// simple key is one key, and a compound one is several keys of a single component,
+// which is why they share a group (docs/50).
+enum class KeyKind : uint8_t { kSimple = 0, kCompound = 1 };
+
+const char* face_name(Face face);
+const char* spot_name(Spot spot);
+const char* kind_name(KeyKind kind);
+
 // What a person does to this board, and what the board says back. Both are
 // optional: a board without them returns nullptr and leaves the capability off
 // (docs/50).
@@ -280,6 +299,15 @@ class IInput {
   // How long it has been held, in ms, or 0 when it is not held or the key does
   // not exist (docs/50).
   virtual int64_t held_ms(uint32_t key) = 0;
+
+  // Where the key is and how it is built, so an app can give a function to a
+  // position instead of to a number (docs/30).
+  virtual Face face(uint32_t key) = 0;
+  virtual Spot spot(uint32_t key) = 0;
+  virtual KeyKind kind(uint32_t key) = 0;
+  // Keys of the same physical component share a group: the three of the Paper's
+  // dial are group 0, and a board with two separate buttons has two groups.
+  virtual uint32_t group(uint32_t key) = 0;
 };
 
 // One light or a strip of them. The system paints **the whole light** with one

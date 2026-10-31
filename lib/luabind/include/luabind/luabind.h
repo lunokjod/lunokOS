@@ -191,15 +191,27 @@ void set_imu_ops(const ImuOps& ops);
 
 // The button, as the interpreter uses it: an app asks for the next press as a
 // promise (docs/30).
+// What a key is and where it is, said in words: the interpreter does not need the
+// enumerations of the HAL, and an app is not going to compare numbers (docs/30).
+struct KeyInfo {
+  uint32_t key;
+  const char* face;    // "front", "back", "left", "right", "top", "bottom"
+  const char* spot;    // "centre", "up", "down", "left", "right"
+  const char* kind;    // "simple" or "compound"
+  uint32_t group;      // keys of the same physical component share it
+};
+
 struct ButtonOps {
   bool (*wait)(uint32_t timeout_ms);
   void (*cancel)();
   bool (*available)();
-  // Several keys: the board says how many and what each one is doing now, so a
-  // person can see the key before blaming the app (docs/30, docs/50).
+  // Several keys: the board says how many, where each one is and what it is doing
+  // now, so a person can see the key before blaming the app and an app can give a
+  // function to a position (docs/30, docs/50).
   uint32_t (*count)();
   bool (*down)(uint32_t key);
   int64_t (*held)(uint32_t key);
+  bool (*info)(uint32_t key, KeyInfo& out);
 };
 
 void set_button_ops(const ButtonOps& ops);

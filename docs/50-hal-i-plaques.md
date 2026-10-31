@@ -125,6 +125,22 @@ premuda.
 La **tecla 0 és la principal** —l'única de l'ATOM, la central de la Paper— i és l'única que compta el
 gest de tancar; les laterals són de l'app (docs/30).
 
+**I cada tecla diu on és**, perquè una app doni una funció a una posició i no a un número. El model és
+el d'una capsa: la placa té **sis cares** i la tecla és en una d'elles, en un dels **cinc llocs** de la
+cara. A sobre, la tecla diu **com està feta** i a quin **component** pertany (docs/30):
+
+| | ATOM (Lite i Matrix) | Paper |
+|---|---|---|
+| Tecles | 1 | 3 |
+| Cara | `top` (el botó gran de dalt) | `left` (el dial del costat esquerre) |
+| Lloc | `centre` | `centre` (la central), `left` i `right` (les altres dues) |
+| Com està feta | `simple` | `compound` |
+| Component (`group`) | 0 | 0 per a les tres: **és un sol dial** |
+
+El `kind` no és decoració: el botó de l'ATOM i les tres posicions del dial de la Paper són el mateix
+contacte i no són la mateixa cosa de tocar, i una app que dibuixi un menú ha de saber si té un botó o
+tres posicions d'una roda.
+
 ## El sensor inercial (Matrix)
 
 El Matrix porta un **MPU6886** de sis eixos —acceleració i gir, **sense brúixola**— a la I2C interna:

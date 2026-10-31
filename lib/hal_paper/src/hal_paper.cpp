@@ -153,6 +153,22 @@ class PaperKeys : public IInput {
     return (esp_timer_get_time() / 1000) - pressed_since_ms_[key];
   }
 
+  // The dial is on the left face of the board and its three keys are one
+  // component: `compound`, all of them in group 0, with the middle one in the
+  // middle of the face and the other two either side of it (docs/50).
+  //
+  // The maker's header calls GPIO37 the left key and GPIO39 the right one and its
+  // README says the opposite, so which of the two is the top of the dial is the
+  // one thing about this board that has to be checked by pressing it (docs/90).
+  Face face(uint32_t) override { return Face::kLeft; }
+  Spot spot(uint32_t key) override {
+    if (key == 1) return Spot::kLeft;
+    if (key == 2) return Spot::kRight;
+    return Spot::kCentre;
+  }
+  KeyKind kind(uint32_t) override { return KeyKind::kCompound; }
+  uint32_t group(uint32_t) override { return 0; }
+
  private:
   static const uint32_t kKeyCount = 3;
   // Centre (PWR), left, right.

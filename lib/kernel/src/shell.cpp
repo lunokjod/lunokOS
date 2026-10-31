@@ -1220,7 +1220,20 @@ bool command_button(const char* argument) {
   for (uint32_t key = 0; key < keys; ++key) {
     out("  ");
     out_num(key);
-    out(button::down(key) ? ": down (" : ": up");
+    button::Info where = {};
+    if (button::info(key, where)) {
+      out(": ");
+      out(hal::face_name(where.face));
+      out("/");
+      out(hal::spot_name(where.spot));
+      out(" ");
+      out(hal::kind_name(where.kind));
+      if (where.kind == hal::KeyKind::kCompound) {
+        out(" group ");
+        out_num(where.group);
+      }
+    }
+    out(button::down(key) ? ", down (" : ", up");
     if (button::down(key)) {
       out_int(static_cast<int32_t>(button::held_ms(key)));
       out(" ms)");

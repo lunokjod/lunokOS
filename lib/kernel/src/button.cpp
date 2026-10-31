@@ -60,6 +60,19 @@ void deliver(const char* kind, int64_t held_ms, uint32_t key) {
   luabind::call_button(kind, held_ms, key);
 }
 
+// The same description, in the words the interpreter hands to Lua. The HAL names
+// the faces and the spots once, so a board cannot invent a synonym (docs/30).
+bool info_for_lua(uint32_t key, luabind::KeyInfo& out) {
+  Info mine = {};
+  if (!info(key, mine)) return false;
+  out.key = mine.key;
+  out.face = hal::face_name(mine.face);
+  out.spot = hal::spot_name(mine.spot);
+  out.kind = hal::kind_name(mine.kind);
+  out.group = mine.group;
+  return true;
+}
+
 }  // namespace
 
 bool boot(hal::IPlatform& platform) {
@@ -86,6 +99,7 @@ bool boot(hal::IPlatform& platform) {
     ops.count = &count;
     ops.down = &down;
     ops.held = &held_ms;
+    ops.info = &info_for_lua;
   }
   luabind::set_button_ops(ops);
   return g_input != nullptr;
@@ -94,6 +108,16 @@ bool boot(hal::IPlatform& platform) {
 bool available() { return g_input != nullptr; }
 
 uint32_t count() { return g_key_count; }
+
+bool info(uint32_t key, Info& out) {
+  if (g_input == nullptr || key >= g_key_count) return false;
+  out.key = key;
+  out.face = g_input->face(key);
+  out.spot = g_input->spot(key);
+  out.kind = g_input->kind(key);
+  out.group = g_input->group(key);
+  return true;
+}
 
 bool down(uint32_t key) {
   return (g_input != nullptr) && (key < g_key_count) && g_input->pressed(key);

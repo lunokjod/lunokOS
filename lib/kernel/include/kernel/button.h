@@ -25,6 +25,18 @@ uint32_t count();
 bool down(uint32_t key);
 int64_t held_ms(uint32_t key);
 
+// Where a key is and how it is built, as the board described it: an app gives a
+// function to a position and not to a number (docs/30, docs/50).
+struct Info {
+  uint32_t key;
+  hal::Face face;
+  hal::Spot spot;
+  hal::KeyKind kind;
+  uint32_t group;
+};
+
+bool info(uint32_t key, Info& out);
+
 // An app asked for the next press. False when the board has no button, or when one
 // is already on its way: an app has one promise slot and a second wait would be a
 // promise nobody settles (docs/30).

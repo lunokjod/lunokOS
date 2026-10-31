@@ -2178,6 +2178,54 @@ int l_button_count(lua_State* L) {
   return 1;
 }
 
+// One description as a Lua table, used by info and by list (docs/30).
+void push_key_info(lua_State* L, const KeyInfo& info) {
+  lua_createtable(L, 0, 5);
+  lua_pushinteger(L, static_cast<lua_Integer>(info.key));
+  lua_setfield(L, -2, "key");
+  lua_pushstring(L, (info.face != nullptr) ? info.face : "?");
+  lua_setfield(L, -2, "face");
+  lua_pushstring(L, (info.spot != nullptr) ? info.spot : "?");
+  lua_setfield(L, -2, "spot");
+  lua_pushstring(L, (info.kind != nullptr) ? info.kind : "?");
+  lua_setfield(L, -2, "kind");
+  lua_pushinteger(L, static_cast<lua_Integer>(info.group));
+  lua_setfield(L, -2, "group");
+}
+
+// button.info(key): where that key is on the board and how it is built, so an app
+// can decide by position instead of by number (docs/30).
+int l_button_info(lua_State* L) {
+  if (g_button_ops.info == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  const lua_Integer key = luaL_optinteger(L, 1, 0);
+  if (key < 0) return push_nil_error(L, "E_INVAL", "a key index is not negative");
+  KeyInfo info = {};
+  if (!g_button_ops.info(static_cast<uint32_t>(key), info)) {
+    return push_nil_error(L, "E_INVAL", "this board has no such key");
+  }
+  push_key_info(L, info);
+  return 1;
+}
+
+// button.list(): every key, described as info does. This is what an app reads
+// once at the start to know what it has in its hands (docs/30).
+int l_button_list(lua_State* L) {
+  if (g_button_ops.count == nullptr || g_button_ops.info == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  const uint32_t count = g_button_ops.count();
+  lua_createtable(L, static_cast<int>(count), 0);
+  for (uint32_t key = 0; key < count; ++key) {
+    KeyInfo info = {};
+    if (!g_button_ops.info(key, info)) continue;
+    push_key_info(L, info);
+    lua_rawseti(L, -2, static_cast<lua_Integer>(key) + 1);
+  }
+  return 1;
+}
+
 // button.down(key): is that key down right now. It is what an app that repeats a
 // step while a key is held needs, and it reads the board at the moment it asks
 // (docs/30).
@@ -2486,6 +2534,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "count", l_button_count);
   set_function(L, "down", l_button_down);
   set_function(L, "held", l_button_held);
+  set_function(L, "info", l_button_info);
+  set_function(L, "list", l_button_list);
   lua_setglobal(L, "button");
 
   // power: the energy of the board and the sleep that ends the app (docs/30,

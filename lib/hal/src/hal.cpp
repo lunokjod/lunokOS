@@ -34,6 +34,50 @@ const uint32_t kCapCount = static_cast<uint32_t>(sizeof(kCaps) / sizeof(kCaps[0]
 
 }  // namespace
 
+const char* face_name(Face face) {
+  switch (face) {
+    case Face::kFront:
+      return "front";
+    case Face::kBack:
+      return "back";
+    case Face::kLeft:
+      return "left";
+    case Face::kRight:
+      return "right";
+    case Face::kTop:
+      return "top";
+    case Face::kBottom:
+      return "bottom";
+  }
+  return "?";
+}
+
+const char* spot_name(Spot spot) {
+  switch (spot) {
+    case Spot::kCentre:
+      return "centre";
+    case Spot::kUp:
+      return "up";
+    case Spot::kDown:
+      return "down";
+    case Spot::kLeft:
+      return "left";
+    case Spot::kRight:
+      return "right";
+  }
+  return "?";
+}
+
+const char* kind_name(KeyKind kind) {
+  switch (kind) {
+    case KeyKind::kSimple:
+      return "simple";
+    case KeyKind::kCompound:
+      return "compound";
+  }
+  return "?";
+}
+
 uint32_t cap_count() { return kCapCount; }
 
 const char* cap_name(uint32_t index) {
