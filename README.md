@@ -146,4 +146,6 @@ guio sense seure al davant: `./.pio/build/emulator/program --fs emulator --scrip
 
 ## Llicència
 
-Pendent de decidir.
+**GNU Affero General Public License, versió 3** — el text sencer és a `LICENSE`, a l'arrel. És
+copyleft i, a diferència de la GPL, també compta l'ús **per xarxa**: qui faci servir una versió
+modificada com a servei ha de publicar el codi que hi ha darrere.
