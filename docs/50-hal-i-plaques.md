@@ -389,7 +389,7 @@ Conseqüències que aquesta placa imposa:
 | Rellotge | **BM8563** amb pila de botó: és el que sobreviu a treure el cable (encara no es llegeix) |
 | Bateria | 1150 mAh, amb divisor a **GPIO35** (encara no es calibra) |
 | Expansió | Tres ports HY2.0-4P (A: G25/G32, B: G26/G33, C: G18/G19) i una ranura microSD |
-| Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat |
+| Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat (vegeu el bloc de sota) |
 
 Pins que el HAL fa servir, i que són els de la llibreria del fabricant (`M5EPD.h`):
 
@@ -428,6 +428,30 @@ tecles i la ràdio: la taula de capacitats ho diu en comptes de prometre-ho.
 binari que en surt porta la identitat del Paper i cap de les de l'ATOM, que és el que es pot comprovar
 sense la placa. **No s'ha flashejat encara**: el prompt pel port sèrie, el `caps` de debò i el
 comportament de l'alimentació són el primer que s'ha de veure amb la placa a la mà (docs/90).
+
+**El pont USB-sèrie: quin és, i com saber-ho.** És un xip que hi ha entre l'USB i la UART del ESP32, i
+**el firmware no el pot veure**: no hi ha cap línia de dades entre ells més enllà de TX i RX, ni I2C ni
+cap GPIO que el connecti al xip. Des del PC sí que es veu, i és el que decideix tres coses:
+
+| | CP2104 (Silicon Labs, `10c4`) | CH9102 (WCH, `1a86`) |
+|---|---|---|
+| Driver de Linux | `cp210x`, **al nucli des de sempre** | **CDC-ACM** (`cdc_acm`, al nucli també), o el `ch343` de WCH |
+| El port | `/dev/ttyUSB0` | `/dev/ttyACM0` (o `ttyCH343USB0` amb el driver de WCH) |
+| Velocitat màxima | 2 Mbaud | 4 Mbaud |
+
+A 115 200 i a 460 800 —les que fem servir— els dos van sobradament, i el circuit de reseteig per
+DTR/RTS és el mateix. La diferència pràctica és **el nom del port** i **el driver**: si la placa no
+apareix o una pujada de firmware peta, és això i no el firmware.
+
+Per saber-ho: `tools/serial_bridge.py` ho diu d'una línia, sense obrir el port,
+
+```
+$ tools/serial_bridge.py
+/dev/ttyUSB0: Silicon Labs CP2104 (10c4:ea60) driver cp210x
+```
+
+o a mà, `lsusb` (`10c4:ea60` és el CP2104 i `1a86:…` un WCH) i `ls -l /dev/serial/by-id/`, que dona
+el nom del pont i el número de sèrie de la unitat.
 
 **Una discrepància que s'ha de comprovar a la placa**: la llibreria del fabricant té els noms de les
 tecles en dos llocs i no diuen el mateix —`M5EPD.h` defineix `KEY_RIGHT_PIN 39` i `KEY_LEFT_PIN 37`,

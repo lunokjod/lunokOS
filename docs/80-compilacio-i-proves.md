@@ -172,7 +172,13 @@ tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
 ```
 
 Dona mínim, mediana i màxim. El número inclou el port, la tasca lectora de consola, el torn del nucli,
-la promesa i la tornada; no és el temps d'una operació de l'app.
+la promesa i la tornada; no és el temps d'una operació de l'app. **El port pot ser `ttyUSB0` o
+`ttyACM0`** segons el pont de la placa (docs/50), i `tools/serial_bridge.py` diu quin és sense obrir-lo.
+
+**Si una pujada de firmware falla** amb `timeout` o `Failed to write to target RAM`, abans de tocar
+res: mira quin pont és (`tools/serial_bridge.py`), i si és un WCH comprova que el port és el de debò.
+El pla B que sempre funciona és baixar la velocitat a 115 200 a `boards/<id>.json`
+(`upload.speed`).
 
 Quan un número d'aquesta llista aparegui en un report, ha de portar la paraula «mesurat a la placa» i
 amb què. Si no, va marcat com a pendent.
