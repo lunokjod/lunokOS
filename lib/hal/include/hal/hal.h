@@ -324,10 +324,29 @@ class ISurface : public IDisplay {
   virtual void clear(uint8_t level) = 0;
   virtual void fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) = 0;
   virtual void pixel(uint16_t x, uint16_t y, uint8_t level) = 0;
+  // A whole rectangle of 4-bit pixels **that is already drawn**, one byte per two of them and the
+  // left one in the high nibble: it is how the view of an app reaches the glass in one pass instead
+  // of half a million `pixel` calls (docs/30, docs/50). `stride` is the bytes of a line of the source,
+  // which is not always `w / 2` —a rectangle out of a wider canvas is the normal case— and pixels
+  // outside the panel are dropped.
+  virtual void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
+                    uint16_t stride) = 0;
   // Sends what changed and asks for it to be painted, with the mode that says how good it has to
   // look. False when the panel did not take it.
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
+  // **How the surface is turned.** 0, 90, 180 or 270 degrees: the width and height the surface reports are
+  // the ones an app draws in, and a surface that turns does the work itself when it sends what changed.
+  // A surface that cannot turn says no, and the panel of this board turns in software (docs/50).
+  virtual bool set_rotation(uint16_t degrees) {
+    (void)degrees;
+    return false;
+  }
+  virtual uint16_t rotation() const { return 0; }
+  // Why the last thing that failed failed, in words, for the line the caller writes. Empty when it did
+  // not fail. A paint that is refused without a reason is a flash to find out which of five things it
+  // was (docs/50).
+  virtual const char* last_error() const { return ""; }
 };
 
 // One finger on the glass, as the controller reports it (docs/50): where it is, how much of the

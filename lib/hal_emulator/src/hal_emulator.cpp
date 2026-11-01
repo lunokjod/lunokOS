@@ -11,6 +11,7 @@
 #include "emu/options.h"
 #include "emu/memories.h"
 #include "emu/model.h"
+#include "emu/surface.h"
 #include "emu_nvs.h"
 #include "emu_storage.h"
 #include "pal/pal.h"
@@ -713,7 +714,12 @@ class EmulatorPlatform : public IPlatform {
     static FakePower instance;
     return &instance;
   }
-  ISurface* display() override { return nullptr; }
+  ISurface* display() override {
+    // A board with a glass, when the run asked for one: the canvas of an app and the composition are
+    // tried against a real contract on the PC (docs/85).
+    if (!emu::options().display) return nullptr;
+    return emu::memory_surface();
+  }
   ILed* led() override {
     // A board with no light has no light to return, the same as the real one (docs/50).
     if (emu::model().lights == 0) return nullptr;

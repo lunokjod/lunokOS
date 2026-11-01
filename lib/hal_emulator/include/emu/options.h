@@ -53,6 +53,10 @@ struct Options {
   uint32_t time_scale;   // 1 = real time
   uint32_t seed;         // 0 = seed from the system
   bool verbose;          // mirror the log to the console
+  // A board with a glass. **Off by default**: the bench is a board without a screen unless the run
+  // asks for one, which is both the truth of the ATOM and what a test wants when it is not about the
+  // panel (docs/85). The glass is the Paper's: 960x540 and four bits per pixel.
+  bool display;
   // The network of this band is a fake and it says so (docs/85): connecting
   // takes wifi_ms of simulated time and goes nowhere. `wifi_absent` is a board
   // with no radio at all, `wifi_fail` a network that refuses.

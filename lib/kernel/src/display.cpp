@@ -1,17 +1,18 @@
-// The panel and the interpreter: what an app can draw and what it can ask to be painted. No policy of
-// its own — no redraw, no clearing, no timer — because the app is the one that knows what is on the
-// glass (docs/30, docs/50).
+// The panel of the board, as the system owns it: the surface, its size, and the one place a mode name
+// is turned into what the controller does. **Nothing here draws and nothing here is reachable from
+// Lua**: an app draws on its own canvas (`kernel/ui.h`) and asks for it to be presented, which is what
+// keeps the board's buffer the system's (docs/30, docs/50).
 #include "kernel/display.h"
 
 #include <string.h>
-
-#include "luabind/luabind.h"
 
 namespace kernel {
 namespace display {
 namespace {
 
 hal::ISurface* g_surface = nullptr;
+
+}  // namespace
 
 // The only place a mode name is turned into what the controller does: the names of the panel's own
 // table, and nothing else. An unknown name is refused instead of being rounded to a default that would
@@ -37,45 +38,16 @@ bool mode_from_name(const char* name, hal::UpdateMode& out) {
   return false;
 }
 
-uint8_t clamped(uint8_t level) { return (level > 15) ? 15 : level; }
-
-bool caps_for_lua(luabind::DisplayInfo& out) {
-  if (g_surface == nullptr) return false;
-  out.width = g_surface->width();
-  out.height = g_surface->height();
-  out.levels = 16;
-  return true;
-}
-
-void clear_for_lua(uint8_t level) {
-  if (g_surface != nullptr) g_surface->clear(clamped(level));
-}
-
-void rect_for_lua(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) {
-  if (g_surface != nullptr) g_surface->fill_rect(x, y, w, h, clamped(level));
-}
-
-void pixel_for_lua(uint16_t x, uint16_t y, uint8_t level) {
-  if (g_surface != nullptr) g_surface->pixel(x, y, clamped(level));
-}
-
-bool flush_for_lua(const char* mode) {
-  if (g_surface == nullptr) return false;
-  hal::UpdateMode chosen = hal::UpdateMode::kDu;
-  if (mode != nullptr && !mode_from_name(mode, chosen)) return false;
-  return g_surface->flush(chosen);
-}
-
-bool idle_for_lua() { return (g_surface != nullptr) && g_surface->idle(); }
-
-}  // namespace
+// **The page of this system is a portrait one by default**, whatever the glass is: 540 wide and 960 tall,
+// and turned a quarter **the other way** from the first attempt —the one the board showed upside down—.
+// It is the system's decision and not the driver's, so it is one line and the bench takes the same turn as
+// the board (docs/50).
+const uint16_t kDefaultRotation = 270;
 
 bool boot(hal::IPlatform& platform) {
   g_surface = platform.display();
   if (g_surface == nullptr) return false;
-  luabind::set_display_ops(
-      luabind::DisplayOps{caps_for_lua, clear_for_lua, rect_for_lua, pixel_for_lua, flush_for_lua,
-                          idle_for_lua});
+  g_surface->set_rotation(kDefaultRotation);
   return true;
 }
 
@@ -83,6 +55,21 @@ bool available() { return g_surface != nullptr; }
 uint16_t width() { return (g_surface != nullptr) ? g_surface->width() : 0; }
 uint16_t height() { return (g_surface != nullptr) ? g_surface->height() : 0; }
 uint8_t levels() { return 16; }
+
+uint16_t rotation() { return (g_surface != nullptr) ? g_surface->rotation() : 0; }
+
+bool set_rotation(uint16_t degrees) { return (g_surface != nullptr) && g_surface->set_rotation(degrees); }
+
+hal::ISurface* surface() { return g_surface; }
+
+bool present(hal::UpdateMode mode) {
+  if (g_surface == nullptr) return false;
+  return g_surface->flush(mode);
+}
+
+bool idle() { return (g_surface != nullptr) && g_surface->idle(); }
+
+const char* last_error() { return (g_surface != nullptr) ? g_surface->last_error() : ""; }
 
 }  // namespace display
 }  // namespace kernel

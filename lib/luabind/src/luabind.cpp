@@ -2641,7 +2641,7 @@ int l_button_held(lua_State* L) {
 // clamps.
 const uint8_t kTouchPointsInFrame = 5;
 
-DisplayOps g_display_ops = {};  // and display.*
+UIOps g_ui_ops = {};  // and ui.*
 
 TouchOps g_touch_ops = {};  // and touch.*
 
@@ -2729,37 +2729,46 @@ int l_touch_gesture(lua_State* L) {
   return 1;
 }
 
-// display.caps(): the size of the glass and how many levels it has (docs/30).
-int l_display_caps(lua_State* L) {
-  DisplayInfo info = {};
-  if (g_display_ops.caps == nullptr || !g_display_ops.caps(info)) {
+// ui.caps(): the size of the app's view, how many levels it has and where it sits on the glass
+// (docs/30).
+int l_ui_caps(lua_State* L) {
+  UIInfo info = {};
+  if (g_ui_ops.caps == nullptr || !g_ui_ops.caps(info)) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 5);
   lua_pushinteger(L, info.width);
   lua_setfield(L, -2, "width");
   lua_pushinteger(L, info.height);
   lua_setfield(L, -2, "height");
   lua_pushinteger(L, info.levels);
   lua_setfield(L, -2, "levels");
+  lua_pushinteger(L, info.x);
+  lua_setfield(L, -2, "x");
+  lua_pushinteger(L, info.y);
+  lua_setfield(L, -2, "y");
   return 1;
 }
 
-// display.clear(level) and display.rect(...): drawing on the board's own surface, which is not the
-// glass until a flush says so (docs/30).
-int l_display_clear(lua_State* L) {
-  if (g_display_ops.clear == nullptr) {
+// ui.clear(level, [mode]): the whole view in one level, and the quality it will be painted with.
+int l_ui_clear(lua_State* L) {
+  if (g_ui_ops.clear == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
   const lua_Integer level = luaL_optinteger(L, 1, 15);
+  const char* mode = luaL_optstring(L, 2, nullptr);
   if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
-  g_display_ops.clear(static_cast<uint8_t>(level));
+  if (!g_ui_ops.clear(static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
 
-int l_display_rect(lua_State* L) {
-  if (g_display_ops.rect == nullptr) {
+// ui.rect(x, y, w, h, [level], [mode]): a rectangle, and **the quality this rectangle wants** — a line
+// of text under a photo is a different paint from the photo (docs/30).
+int l_ui_rect(lua_State* L) {
+  if (g_ui_ops.rect == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
   const lua_Integer x = luaL_checkinteger(L, 1);
@@ -2767,51 +2776,138 @@ int l_display_rect(lua_State* L) {
   const lua_Integer w = luaL_checkinteger(L, 3);
   const lua_Integer h = luaL_checkinteger(L, 4);
   const lua_Integer level = luaL_optinteger(L, 5, 0);
+  const char* mode = luaL_optstring(L, 6, nullptr);
   if (w < 0 || h < 0 || level < 0 || level > 15) {
     return push_nil_error(L, "E_INVAL", "a rectangle is a size and a level of 0 to 15");
   }
-  g_display_ops.rect(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
-                     static_cast<uint16_t>(h), static_cast<uint8_t>(level));
+  if (!g_ui_ops.rect(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                     static_cast<uint16_t>(h), static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
 
-int l_display_pixel(lua_State* L) {
-  if (g_display_ops.pixel == nullptr) {
+int l_ui_pixel(lua_State* L) {
+  if (g_ui_ops.pixel == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
   const lua_Integer x = luaL_checkinteger(L, 1);
   const lua_Integer y = luaL_checkinteger(L, 2);
   const lua_Integer level = luaL_optinteger(L, 3, 0);
+  const char* mode = luaL_optstring(L, 4, nullptr);
   if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
-  g_display_ops.pixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
-                      static_cast<uint8_t>(level));
+  if (!g_ui_ops.pixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                      static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
 
-// display.flush([mode]): send what has changed and ask the glass to paint it. The mode is the app's
-// decision and names a row of the panel's own table; "du" is the default because it is the one a menu
-// or a line of text wants (docs/30, docs/50).
-int l_display_flush(lua_State* L) {
-  if (g_display_ops.flush == nullptr) {
+// ui.present([mode]): the system composes what the app drew onto the board's surface and asks for it to
+// be painted. **Without a mode each region is painted with the quality it was drawn with**; with one,
+// that quality is used for everything pending, which is what a page that must look uniform wants
+// (docs/30, docs/50).
+int l_ui_present(lua_State* L) {
+  if (g_ui_ops.present == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
-  const char* mode = luaL_optstring(L, 1, "du");
-  if (!g_display_ops.flush(mode)) {
-    return push_nil_error(L, "E_INVAL", "not a mode of this display, or the panel did not take it");
+  const char* mode = luaL_optstring(L, 1, nullptr);
+  if (!g_ui_ops.present(mode)) {
+    // **The reason the panel gave**, when it gave one: an app that only reads "it failed" has to guess
+    // between five things, and guessing costs a flash (docs/50).
+    const char* why = (g_ui_ops.last_error != nullptr) ? g_ui_ops.last_error() : "";
+    if (why != nullptr && why[0] != '\0') {
+      lua_pushnil(L);
+      lua_createtable(L, 0, 2);
+      lua_pushstring(L, "E_INVAL");
+      lua_setfield(L, -2, "code");
+      lua_pushstring(L, why);
+      lua_setfield(L, -2, "reason");
+      return 2;
+    }
+    return push_nil_error(L, "E_INVAL", "not a quality of this display, or the panel did not take it");
   }
   lua_pushboolean(L, 1);
   return 1;
 }
 
-// display.idle(): whether the paint that was asked for has finished. It is asked and not waited for,
+// ui.idle(): whether the paint that was asked for has finished. It is asked and not waited for,
 // because the ink takes 120 to 450 ms and the app has other things to do (docs/30).
-int l_display_idle(lua_State* L) {
-  if (g_display_ops.idle == nullptr) {
+int l_ui_idle(lua_State* L) {
+  if (g_ui_ops.idle == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
-  lua_pushboolean(L, g_display_ops.idle() ? 1 : 0);
+  lua_pushboolean(L, g_ui_ops.idle() ? 1 : 0);
+  return 1;
+}
+
+// ui.resize(width, height): the app asks for a view of another size. The system makes a new canvas
+// and calls `on_resize`, and the app draws it again — the system has no idea what belongs there
+// (docs/30).
+int l_ui_resize(lua_State* L) {
+  if (g_ui_ops.resize == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer width = luaL_checkinteger(L, 1);
+  const lua_Integer height = luaL_checkinteger(L, 2);
+  if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+    return push_nil_error(L, "E_INVAL", "a view is a size in pixels");
+  }
+  if (!g_ui_ops.resize(static_cast<uint16_t>(width), static_cast<uint16_t>(height))) {
+    return push_nil_error(L, "E_NOMEM", "there is no memory for a view of that size");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// ui.damage(): how many regions are waiting for a present. An app that draws more pieces than the list
+// holds sees it here, because past that they become one region painted with `gc16` (docs/30).
+int l_ui_damage(lua_State* L) {
+  if (g_ui_ops.damage == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  lua_pushinteger(L, g_ui_ops.damage());
+  return 1;
+}
+
+// ui.title([text]): the title this app shows in the bar of the system. Without an argument it answers
+// the one it has, which is the one the manifest gave it (docs/30).
+int l_ui_title(lua_State* L) {
+  if (g_ui_ops.title == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  if (lua_gettop(L) == 0 || lua_isnil(L, 1)) {
+    return push_nil_error(L, "E_INVAL", "a title is a line of text");
+  }
+  const char* text = luaL_checkstring(L, 1);
+  if (!g_ui_ops.title(text)) {
+    return push_nil_error(L, "E_INVAL", "the bar did not take the title");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// ui.rotation([degrees]): **the turn of the page** —of the glass, of the bar and of the fingers, which are
+// the same value— and with an angle it turns it. Without an argument it answers the one it has
+// (docs/50).
+int l_ui_rotation(lua_State* L) {
+  if (g_ui_ops.rotation == nullptr || g_ui_ops.set_rotation == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  if (lua_gettop(L) == 0 || lua_isnil(L, 1)) {
+    lua_pushinteger(L, g_ui_ops.rotation());
+    return 1;
+  }
+  const lua_Integer degrees = luaL_checkinteger(L, 1);
+  if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
+    return push_nil_error(L, "E_INVAL", "a turn is 0, 90, 180 or 270");
+  }
+  if (!g_ui_ops.set_rotation(static_cast<uint16_t>(degrees))) {
+    return push_nil_error(L, "E_NOMEM", "the page of that size did not fit");
+  }
+  lua_pushinteger(L, g_ui_ops.rotation());
   return 1;
 }
 
@@ -3123,17 +3219,21 @@ void seal_globals(lua_State* L) {
   set_function(L, "gesture", l_touch_gesture);
   lua_setglobal(L, "touch");
 
-  // display: the panel. Nothing is drawn by the system: clear and rect paint on the board's surface,
-  // flush sends what changed and says how good it has to look, and idle says whether the glass has
-  // finished (docs/30, docs/50).
-  lua_createtable(L, 0, 6);
-  set_function(L, "caps", l_display_caps);
-  set_function(L, "clear", l_display_clear);
-  set_function(L, "rect", l_display_rect);
-  set_function(L, "pixel", l_display_pixel);
-  set_function(L, "flush", l_display_flush);
-  set_function(L, "idle", l_display_idle);
-  lua_setglobal(L, "display");
+  // ui: the view of the app. Nothing is drawn by the system: clear and rect paint on the app's own
+  // canvas, present composes it onto the board's surface and says how good the paint has to look, and
+  // idle says whether the glass has finished (docs/30, docs/50).
+  lua_createtable(L, 0, 8);
+  set_function(L, "caps", l_ui_caps);
+  set_function(L, "clear", l_ui_clear);
+  set_function(L, "rect", l_ui_rect);
+  set_function(L, "pixel", l_ui_pixel);
+  set_function(L, "present", l_ui_present);
+  set_function(L, "idle", l_ui_idle);
+  set_function(L, "resize", l_ui_resize);
+  set_function(L, "damage", l_ui_damage);
+  set_function(L, "title", l_ui_title);
+  set_function(L, "rotation", l_ui_rotation);
+  lua_setglobal(L, "ui");
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).
@@ -3515,7 +3615,7 @@ void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 void set_touch_ops(const TouchOps& ops) { g_touch_ops = ops; }
 
 // And the panel, which the kernel installs only when the board answers with a surface (docs/50).
-void set_display_ops(const DisplayOps& ops) { g_display_ops = ops; }
+void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
 
 // The answer of a sleep: `true` when the board came back. A board that went to a
 // deep sleep never gets here, because the app was closed before it went and the
@@ -3665,6 +3765,34 @@ bool call_button(const char* kind, int64_t held_ms, uint32_t key) {
   lua_pushinteger(L, static_cast<lua_Integer>(key));
   if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
     con_text("on_button: ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_settop(L, top);
+    return false;
+  }
+  lua_settop(L, top);
+  return true;
+}
+
+// The system gave the app a view of another size: `on_resize(width, height)`. It is a hook and not a
+// call into the coroutine for the same reason the others are —it runs between turns— and an app
+// without it is legal: it will draw the same thing again on the next present, and until then the
+// canvas is white (docs/30).
+bool call_resize(uint16_t width, uint16_t height) {
+  if (g_state == nullptr) return false;
+
+  lua_State* L = g_state;
+  const int top = lua_gettop(L);
+  lua_getglobal(L, "on_resize");
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return false;
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(width));
+  lua_pushinteger(L, static_cast<lua_Integer>(height));
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+    con_text("on_resize: ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");
     con_text("\r\n");

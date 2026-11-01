@@ -68,6 +68,10 @@ const int kSpiHz = 10000000;
 // on the board has to confirm (docs/95).
 const uint8_t kWhite = 15;
 
+// The bytes of a row of the glass: 960 pixels at four bits each. The `flush` gathers a row here and sends
+// it, so this is the largest row the panel is expected to have (docs/50).
+const uint16_t kMaxRowBytes = 512;
+
 // A block of words goes to the bus in one transaction: per-word transactions would spend more time in
 // the driver than on the wire.
 const uint32_t kBlockWords = 256;
@@ -78,6 +82,16 @@ const uint32_t kBlockWords = 256;
 // hand to DMA; it copies the stretch into a DMA buffer itself, which is why this stays in one piece
 // instead of staging a copy (docs/50).
 const uint32_t kPixelChunkBytes = 2000;
+
+// How long a paint may take before the driver says so: the maker's own driver gives it three seconds,
+// which is more than the two of a `init` (docs/50).
+const uint32_t kPaintTimeoutMs = 3000;
+
+// **How long the line of busy may stay low before a word is given up on**, which is the maker's own
+// three seconds and not two: while a paint of `init` runs, the controller holds that line low for two
+// whole seconds, and a command that arrives in the middle of it must wait rather than fail
+// (measured on the board, 1/11: `busy stayed low` right after the boot) (docs/50).
+const uint32_t kBusyTimeoutMs = 3000;
 
 void pin_output(int pin, int level) {
   gpio_config_t out = {};
@@ -152,7 +166,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
   // and only then reads the word that follows (the maker's `WriteCommand` and `ReadWords` both wait
   // there, docs/50).
   spi_device_handle_t device = static_cast<spi_device_handle_t>(device_);
-  if (!wait_busy(2000)) return false;
+  if (!wait_busy(kBusyTimeoutMs)) return false;
   if (!take_bus()) return false;
   uint8_t head[2] = {static_cast<uint8_t>(prefix >> 8), static_cast<uint8_t>(prefix & 0xFF)};
   spi_transaction_t first = {};
@@ -164,7 +178,7 @@ bool It8951::word(uint16_t prefix, uint16_t value) {
     give_bus();
     return false;
   }
-  const bool ready = wait_busy(2000);
+  const bool ready = wait_busy(kBusyTimeoutMs);
   bool sent = false;
   if (ready) {
     uint8_t body[2] = {static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value & 0xFF)};
@@ -231,7 +245,7 @@ bool It8951::read_words(uint16_t* words, uint32_t count) {
   spi_device_handle_t device = static_cast<spi_device_handle_t>(device_);
   // The maker's `ReadWords`, word for word: the preamble, **a busy wait**, one dummy word, **another
   // busy wait**, and only then the answer. The two pauses are the protocol and not politeness (docs/50).
-  if (!wait_busy(2000)) return false;
+  if (!wait_busy(kBusyTimeoutMs)) return false;
   if (!take_bus()) return false;
   if (!read_while_holding(device, words, count)) {
     give_bus();
@@ -253,7 +267,7 @@ bool It8951::read_while_holding(void* handle, uint16_t* words, uint32_t count) {
     why_ = "bus refused the read prefix";
     return false;
   }
-  if (!wait_busy(2000)) return false;
+  if (!wait_busy(kBusyTimeoutMs)) return false;
   uint8_t dummy[2] = {0, 0};
   spi_transaction_t skip = {};
   skip.length = 16;
@@ -263,7 +277,7 @@ bool It8951::read_while_holding(void* handle, uint16_t* words, uint32_t count) {
     why_ = "bus refused the dummy word";
     return false;
   }
-  if (!wait_busy(2000)) return false;
+  if (!wait_busy(kBusyTimeoutMs)) return false;
 
   uint8_t buffer[kBlockWords * 2];
   uint32_t done = 0;
@@ -369,30 +383,25 @@ bool It8951::begin() {
              info[2], info[3]);
     return false;
   }
-  width_ = info[0];
-  height_ = info[1];
+  native_width_ = info[0];
+  native_height_ = info[1];
   memory_ = (static_cast<uint32_t>(info[3]) << 16) | info[2];
-  if (width_ == 0 || height_ == 0) {
+  if (native_width_ == 0 || native_height_ == 0) {
     // A controller that answers zeros has not been read: the size of this glass is not a guess, it is
     // the panel the board carries, and a zero here would make a surface of nothing (docs/50).
     snprintf(profile_, sizeof(profile_), "the controller answered no size");
     return false;
   }
-
-  const uint32_t bytes = static_cast<uint32_t>(width_) * (height_ / 2);
-  image_ = static_cast<uint8_t*>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (image_ == nullptr) {
-    snprintf(profile_, sizeof(profile_), "%ux%u but no memory for the image", width_, height_);
-    return false;
-  }
-  memset(image_, static_cast<uint8_t>((kWhite << 4) | kWhite), bytes);
-  dirty_ = false;
+  // The image is made **in the frame an app draws in**, which is the glass turned by `rotation_` —90 by
+  // default, so the page is a portrait one on a landscape glass (docs/50).
+  if (!allocate_image()) return false;
   ready_ = true;
   // The twenty words are in the line: with them the controller's map stops being a deduction (docs/50,
   // docs/95). The first four are the size and the image address; the rest identify the firmware.
-  snprintf(profile_, sizeof(profile_), "%ux%u, image at 0x%08x, words %04x %04x %04x %04x %04x %04x",
-           width_, height_, static_cast<unsigned>(memory_), info[0], info[1], info[2], info[3], info[4],
-           info[5]);
+  snprintf(profile_, sizeof(profile_),
+           "%ux%u turned %u (glass %ux%u), image at 0x%08x, words %04x %04x %04x %04x",
+           width_, height_, static_cast<unsigned>(rotation_), native_width_, native_height_,
+           static_cast<unsigned>(memory_), info[0], info[1], info[2], info[3]);
   return true;
 }
 
@@ -426,15 +435,24 @@ void It8951::fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t l
   if (x + w > width_) w = static_cast<uint16_t>(width_ - x);
   if (y + h > height_) h = static_cast<uint16_t>(height_ - y);
   const uint8_t packed = static_cast<uint8_t>(((level & 0x0F) << 4) | (level & 0x0F));
-  // A whole pair of pixels at a time, so the two nibbles of a byte are never split between two
-  // rectangles of different colours (docs/50).
-  const uint16_t first = static_cast<uint16_t>(x & ~1u);
-  const uint16_t last = static_cast<uint16_t>((x + w + 1) & ~1u);
+  // **The two ends are written a nibble at a time.** Two pixels share a byte, so a rectangle that
+  // starts or ends at an odd pixel splits one; painting the whole byte painted the pixel next to it,
+  // which belongs to whatever was drawn there before —the bar draws its glyphs this way, one run at a
+  // time— (docs/50).
+  const uint16_t end = static_cast<uint16_t>(x + w);
   for (uint16_t row = 0; row < h; ++row) {
     uint8_t* line = image_ + static_cast<uint32_t>(y + row) * (width_ / 2);
-    memset(line + first / 2, packed, static_cast<uint32_t>(last - first) / 2);
+    uint16_t at = x;
+    if ((at & 1) != 0) {
+      line[at / 2] = static_cast<uint8_t>((line[at / 2] & 0xF0) | (level & 0x0F));
+      ++at;
+    }
+    const uint16_t whole = static_cast<uint16_t>((end - at) / 2);
+    if (whole > 0) memset(line + at / 2, packed, whole);
+    at = static_cast<uint16_t>(at + whole * 2);
+    if (at < end) line[at / 2] = static_cast<uint8_t>((line[at / 2] & 0x0F) | ((level & 0x0F) << 4));
   }
-  mark(first, y, static_cast<uint16_t>(last - first), h);
+  mark(x, y, w, h);
 }
 
 void It8951::pixel(uint16_t x, uint16_t y, uint8_t level) {
@@ -448,26 +466,87 @@ void It8951::pixel(uint16_t x, uint16_t y, uint8_t level) {
   mark(x, y, 1, 1);
 }
 
+void It8951::blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
+                  uint16_t stride) {
+  if (!ready_ || packed == nullptr || image_ == nullptr || w == 0 || h == 0) return;
+  if (x >= width_ || y >= height_) return;
+  if (x + w > width_) w = static_cast<uint16_t>(width_ - x);
+  if (y + h > height_) h = static_cast<uint16_t>(height_ - y);
+  const uint32_t panel_stride = width_ / 2;
+  if ((x & 1) != 0) {
+    // An odd x puts the two pixels of a source byte in two different bytes of the panel, so this goes
+    // pixel by pixel. **The source is indexed by its own column**: `packed` starts at the first pixel
+    // of the region, and using the panel's x here read a byte that belonged to another part of the
+    // image (found while reviewing the path, 1/11).
+    for (uint16_t row = 0; row < h; ++row) {
+      const uint8_t* line = packed + static_cast<uint32_t>(row) * stride;
+      for (uint16_t column = 0; column < w; ++column) {
+        const uint8_t byte = line[column / 2];
+        const uint8_t level = ((column & 1) == 0) ? (byte >> 4) : (byte & 0x0F);
+        pixel(static_cast<uint16_t>(x + column), static_cast<uint16_t>(y + row), level);
+      }
+    }
+    return;
+  }
+  // Byte for byte: the packing of the source is the packing of the glass (docs/50).
+  const uint16_t bytes = static_cast<uint16_t>(w / 2);
+  for (uint16_t row = 0; row < h; ++row) {
+    uint8_t* to = image_ + static_cast<uint32_t>(y + row) * panel_stride + x / 2;
+    memcpy(to, packed + static_cast<uint32_t>(row) * stride, bytes);
+  }
+  mark(x, y, static_cast<uint16_t>(w & ~1u), h);
+  if ((w & 1) != 0) mark(static_cast<uint16_t>(x + w - 1), y, 1, h);
+}
+
 bool It8951::flush(UpdateMode mode) {
-  if (!ready_ || image_ == nullptr) return false;
-  // The controller wants the area and its width in whole groups of four pixels, so a rectangle that
-  // starts at 5 and is 3 wide goes as 4..8 (docs/50).
-  uint16_t x0 = dirty_ ? dirty_x0_ : 0;
-  uint16_t y0 = dirty_ ? dirty_y0_ : 0;
-  uint16_t x1 = dirty_ ? dirty_x1_ : width_;
-  uint16_t y1 = dirty_ ? dirty_y1_ : height_;
-  x0 = static_cast<uint16_t>(x0 & ~3u);
-  x1 = static_cast<uint16_t>((x1 + 3) & ~3u);
+  if (!ready_ || image_ == nullptr) {
+    why_ = "the panel is not up";
+    return false;
+  }
+  // **One paint at a time.** The controller starts one engine per `DPY_AREA` and the maker's driver asks
+  // for the previous one to be over before asking for the next (`CheckAFSR`); a second command sent
+  // while the first is still moving ink is at best ignored. A present that carries two qualities is two
+  // paints, so the wait belongs here and only here —the first one never waits, and the ink of the last
+  // one is still asked about with `idle()` and never waited on (docs/30, docs/50).
+  if (!wait_paint(kPaintTimeoutMs)) return false;
+  // **What is sent is what changed, and nothing else.** With nothing marked there is nothing to paint and
+  // the whole page is left alone: a page nobody asked to be repainted is exactly what this system must not
+  // do (docs/30, docs/50).
+  if (!dirty_) return true;
+
+  // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
+  uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
+  uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
+  uint16_t y0 = dirty_y0_;
+  uint16_t y1 = dirty_y1_;
   if (x1 > width_) x1 = width_;
   if (y1 > height_) y1 = height_;
-  const uint16_t w = static_cast<uint16_t>(x1 - x0);
-  const uint16_t h = static_cast<uint16_t>(y1 - y0);
-  if (w == 0 || h == 0) {
+  if (x1 <= x0 || y1 <= y0) {
     dirty_ = false;
     return true;
   }
 
-  const uint16_t area[5] = {kPixelFormat, x0, y0, w, h};
+  // And the same rectangle **on the glass**, which is where the pixels are written: the turn is done
+  // here, in software, because the controller is only ever told about its own frame (docs/50).
+  uint16_t nx0 = 0;
+  uint16_t nx1 = 0;
+  uint16_t ny0 = 0;
+  uint16_t ny1 = 0;
+  logical_to_native(x0, y0, x1, y1, nx0, nx1, ny0, ny1);
+  // The controller wants a width in whole groups of four pixels, so a rectangle that starts at 5 and is
+  // 3 wide goes as 4..8 (docs/50).
+  nx0 = static_cast<uint16_t>(nx0 & ~3u);
+  nx1 = static_cast<uint16_t>((nx1 + 3) & ~3u);
+  if (nx1 > native_width_) nx1 = native_width_;
+  if (ny1 > native_height_) ny1 = native_height_;
+  if (nx1 <= nx0 || ny1 <= ny0) {
+    dirty_ = false;
+    return true;
+  }
+  const uint16_t w = static_cast<uint16_t>(nx1 - nx0);
+  const uint16_t h = static_cast<uint16_t>(ny1 - ny0);
+
+  const uint16_t area[5] = {kPixelFormat, nx0, ny0, w, h};
   // The controller is told **where** its image is before being told where to write: the two words of
   // the target address, **high and then low**, which is the order of `SetTargetMemoryAddr` in the
   // maker's driver (docs/50).
@@ -477,15 +556,15 @@ bool It8951::flush(UpdateMode mode) {
     return false;
   }
 
-  // Row by row, because a row of the surface is not contiguous with the next when the rectangle does
-  // not take the whole width, and **the bus is held for the whole rectangle**: locking it per row would
-  // spend more time in the driver than on the wire (docs/50).
+  // Row by row of the glass, gathered from the image, and **the bus is held for the whole rectangle**:
+  // locking it per row would spend more time in the driver than on the wire (docs/50).
+  uint8_t row[kMaxRowBytes];
   const uint16_t row_bytes = static_cast<uint16_t>(w / 2);
   if (!take_bus()) return false;
   bool sent = true;
-  for (uint16_t row = 0; row < h && sent; ++row) {
-    const uint8_t* line = image_ + static_cast<uint32_t>(y0 + row) * (width_ / 2) + x0 / 2;
-    sent = write_pixels(device_, line, row_bytes);
+  for (uint16_t row_index = 0; row_index < h && sent; ++row_index) {
+    gather_row(row, nx0, static_cast<uint16_t>(ny0 + row_index), w);
+    sent = write_pixels(device_, row, row_bytes);
   }
   give_bus();
   if (!sent) return false;
@@ -493,7 +572,7 @@ bool It8951::flush(UpdateMode mode) {
 
   // Asking for the paint and **not waiting for it**: the ink takes 120 to 450 ms and the kernel has
   // work to do. `idle()` is the question for a later turn (docs/50).
-  uint16_t display[7] = {x0, y0, w, h, static_cast<uint16_t>(mode),
+  uint16_t display[7] = {nx0, ny0, w, h, static_cast<uint16_t>(mode),
                          static_cast<uint16_t>(memory_ & 0xFFFF),
                          static_cast<uint16_t>((memory_ >> 16) & 0xFFFF)};
   if (!command(kCmdDisplayArea, display, 7)) return false;
@@ -501,9 +580,141 @@ bool It8951::flush(UpdateMode mode) {
   return true;
 }
 
+void It8951::logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
+                                 uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const {
+  switch (rotation_) {
+    case 90:
+      // Clockwise: the top-left of the page is the top-right of the glass.
+      nx0 = static_cast<uint16_t>(height_ - y1);
+      nx1 = static_cast<uint16_t>(height_ - y0);
+      ny0 = x0;
+      ny1 = x1;
+      return;
+    case 270:
+      nx0 = y0;
+      nx1 = y1;
+      ny0 = static_cast<uint16_t>(width_ - x1);
+      ny1 = static_cast<uint16_t>(width_ - x0);
+      return;
+    case 180:
+      nx0 = static_cast<uint16_t>(width_ - x1);
+      nx1 = static_cast<uint16_t>(width_ - x0);
+      ny0 = static_cast<uint16_t>(height_ - y1);
+      ny1 = static_cast<uint16_t>(height_ - y0);
+      return;
+    default:
+      nx0 = x0;
+      nx1 = x1;
+      ny0 = y0;
+      ny1 = y1;
+      return;
+  }
+}
+
+void It8951::gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const {
+  // **The turn, pixel by pixel**: a row of the glass is a line of the page that is read in another
+  // direction, and the four bits of two neighbours of the glass may come from two different lines of the
+  // page. It is the price of turning in software, and it is paid only for what changed (docs/50).
+  const uint32_t stride = width_ / 2;
+  for (uint16_t i = 0; i + 1 < w; i += 2) {
+    uint8_t packed = 0;
+    for (uint8_t half = 0; half < 2; ++half) {
+      const uint16_t nx = static_cast<uint16_t>(nx0 + i + half);
+      int32_t x = 0;
+      int32_t y = 0;
+      switch (rotation_) {
+        case 90:
+          x = ny;
+          y = static_cast<int32_t>(height_) - 1 - nx;
+          break;
+        case 270:
+          x = static_cast<int32_t>(width_) - 1 - ny;
+          y = nx;
+          break;
+        case 180:
+          x = static_cast<int32_t>(width_) - 1 - nx;
+          y = static_cast<int32_t>(height_) - 1 - ny;
+          break;
+        default:
+          x = nx;
+          y = ny;
+          break;
+      }
+      uint8_t level = kWhite;
+      if (x >= 0 && y >= 0 && x < width_ && y < height_) {
+        const uint8_t byte = image_[static_cast<uint32_t>(y) * stride + static_cast<uint32_t>(x) / 2];
+        level = ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
+      }
+      packed = static_cast<uint8_t>((packed << 4) | (level & 0x0F));
+    }
+    out[i / 2] = packed;
+  }
+}
+
+bool It8951::allocate_image() {
+  if (image_ != nullptr) {
+    heap_caps_free(image_);
+    image_ = nullptr;
+  }
+  if (native_width_ == 0 || native_height_ == 0) return false;
+  // The frame an app draws in is the glass turned: the sides swap on a quarter turn.
+  if (rotation_ == 90 || rotation_ == 270) {
+    width_ = native_height_;
+    height_ = native_width_;
+  } else {
+    width_ = native_width_;
+    height_ = native_height_;
+  }
+  if ((width_ / 2) > kMaxRowBytes) {
+    snprintf(profile_, sizeof(profile_), "a row of %u pixels is wider than this driver carries", width_);
+    return false;
+  }
+  const uint32_t bytes = static_cast<uint32_t>(width_) * (height_ / 2);
+  image_ = static_cast<uint8_t*>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (image_ == nullptr) {
+    snprintf(profile_, sizeof(profile_), "%ux%u but no memory for the image", width_, height_);
+    return false;
+  }
+  memset(image_, static_cast<uint8_t>((kWhite << 4) | kWhite), bytes);
+  dirty_ = false;
+  return true;
+}
+
+bool It8951::set_rotation(uint16_t degrees) {
+  if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) {
+    why_ = "a turn is 0, 90, 180 or 270";
+    return false;
+  }
+  if (native_width_ == 0) {
+    // Before the glass has said what it is: it is kept and applied when the image is made.
+    rotation_ = degrees;
+    return true;
+  }
+  rotation_ = degrees;
+  if (!allocate_image()) return false;
+  // Everything the app drew in the old frame is meaningless in the new one, and the glass shows the old
+  // one: the whole page is sent again (docs/50).
+  mark(0, 0, width_, height_);
+  return true;
+}
+
 bool It8951::idle() {
   // The controller says whether the last paint is over. It is asked and not waited on (docs/50).
   return ready_ && read_register(kRegLutAfsr) == 0;
+}
+
+bool It8951::wait_paint(uint32_t timeout_ms) {
+  if (!ready_) return false;
+  const uint32_t started = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  for (;;) {
+    if (read_register(kRegLutAfsr) == 0) return true;
+    const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if ((now - started) > timeout_ms) {
+      why_ = "the previous paint did not finish";
+      return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
 }
 
 ISurface* esp32_it8951(const It8951Pins& pins) {

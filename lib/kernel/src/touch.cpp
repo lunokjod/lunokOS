@@ -1,6 +1,9 @@
 // The glass: the frame of the last turn and the gestures made out of it (docs/30, docs/50).
 #include "kernel/touch.h"
 
+#include "kernel/display.h"
+#include "kernel/orientation.h"
+#include "kernel/ui.h"
 #include "luabind/luabind.h"
 
 namespace kernel {
@@ -117,12 +120,55 @@ uint32_t isqrt(uint32_t value) {
   return x;
 }
 
-// What the interpreter asked for, answered from the frame of the last turn (docs/30).
+// **The one place where the fingers are turned into the app's frame** (docs/90): the chip counts in one
+// frame, an app draws in a view that starts under the bar of the system, and after this the frame the
+// kernel keeps is in the view's coordinates.
+//
+// **The chip speaks in the page's own frame, and it is the same way round**: there is no quarter turn
+// between the fingers and the glass and no mirror either. Measured on the board (1/11, docs/95 E-6) by
+// touching the four corners of the portrait page —the top left is the clock— and reading what the
+// chip said: 46,28 · 515,49 · 31,926 · 500,920. `x` grows to the right and `y` downwards, exactly
+// as the page is drawn, so the only turn left is the one between the page the chip was measured in and
+// the page the app asks for.
+const uint16_t kChipPage = 270;
+
+void turn_frame() {
+  if (g_count == 0) return;
+  const orientation::Frame chip = {g_glass->width(), g_glass->height()};
+  const orientation::Frame view = {ui::width(), ui::height()};
+  const uint16_t off_x = ui::canvas().x;
+  const uint16_t off_y = ui::canvas().y;
+  // Turning the page by 180 degrees turns the finger by 180 degrees too; at `kChipPage` the page and the
+  // chip are the same frame and the turn is nothing.
+  const uint16_t page_turn =
+      static_cast<uint16_t>((kChipPage + 360 - (display::rotation() % 360)) % 360);
+  for (uint8_t i = 0; i < g_count; ++i) {
+    orientation::Frame turned;
+    orientation::Point page = {g_frame[i].x, g_frame[i].y};
+    const orientation::Point raw = page;
+    const bool placed = orientation::turn(raw, chip, page_turn, turned, page);
+    if (placed) {
+      if (page.x >= off_x) page.x = static_cast<uint16_t>(page.x - off_x);
+      if (page.y >= off_y) page.y = static_cast<uint16_t>(page.y - off_y);
+      // A finger that lands on the bar belongs to the system, but it is still a finger: it is clamped to
+      // the edge of the view instead of vanishing. **A point is never dropped for not fitting what this
+      // code expects** — dropping the ones that fell outside was a touch that answered nothing at all
+      // (measured on the board, 1/11).
+      if (view.width > 0 && page.x >= view.width) page.x = static_cast<uint16_t>(view.width - 1);
+      if (view.height > 0 && page.y >= view.height) page.y = static_cast<uint16_t>(view.height - 1);
+    }
+    g_frame[i].x = page.x;
+    g_frame[i].y = page.y;
+  }
+}
+
+// What the interpreter asked for: **the frame of the view of the app**, which is the frame the fingers
+// are given in. The chip counts in its own frame and that one is not an app's business (docs/30, docs/90).
 bool caps_for_lua(luabind::TouchInfo& out) {
   if (g_glass == nullptr) return false;
   out.max_points = g_glass->max_points();
-  out.width = g_glass->width();
-  out.height = g_glass->height();
+  out.width = ui::width();
+  out.height = ui::height();
   return true;
 }
 
@@ -172,6 +218,7 @@ bool available() { return g_glass != nullptr; }
 void poll() {
   if (g_glass == nullptr) return;
   g_count = g_glass->read(g_frame, kMaxPoints);
+  turn_frame();
   const int32_t now = now_ms();
 
   // A tap waiting for its window: when the window closes it is a tap, and if another one arrived inside

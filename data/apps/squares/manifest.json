@@ -1,0 +1,6 @@
+{
+  "title": "Squares",
+  "version": "0.1.0",
+  "entry": "squares.lua",
+  "boards": ["esp32"]
+}

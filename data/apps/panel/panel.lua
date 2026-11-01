@@ -1,42 +1,50 @@
--- panel: draws a test page and asks the glass to paint it.
+-- panel: draws a test page on the app's own canvas and asks the system to put it on the glass.
 --
--- It is the first thing that can be seen on the e-ink panel, and it exists to answer three questions
+-- It is the first thing that can be seen on the e-ink panel, and it exists to answer four questions
 -- with the board in front of you (docs/95, E-7):
 --
 --   1. does the image arrive at all, and the right way up?
 --   2. do the sixteen levels come out **black at 0 and white at 15**, or the other way round?
---   3. how long does a `gc16` take, and does `display.idle()` say the truth about it?
+--   3. how long does the paint take, and does `ui.idle()` say the truth about it?
+--   4. does a present that carries **two qualities** paint twice, each region with its own?
 --
--- **Nothing of the system paints.** This app decides what is on the glass, with which mode and when:
--- when it leaves, the page stays there and nothing repaints it (docs/30, docs/50).
+-- **The app draws on its own view, not on the panel.** `ui.clear`, `ui.rect` and `ui.pixel` write to a
+-- canvas the system made for this app and record **which region was touched and how good it has to
+-- look**; `ui.present` composes that damage onto the board's buffer and asks for each region to be
+-- painted with its own quality. Nothing of the system paints, and the page stays on the glass when the
+-- app leaves (docs/30, docs/50).
 local caps = sys.caps()
 if not caps.display then
   console.print('this board has no panel')
   return
 end
 
-local panel = display.caps()
-console.print(string.format('panel %d x %d, %d levels', panel.width, panel.height, panel.levels))
+local view = ui.caps()
+console.print(string.format('view %d x %d at %d,%d, %d levels', view.width, view.height, view.x,
+  view.y, view.levels))
 
--- A white page with a black frame, a ladder of the sixteen levels and five black squares. The ladder is
--- what tells the levels apart at a glance: from black on the left to white on the right, in steps.
-display.clear(15)
-display.rect(0, 0, panel.width, 2, 0)
-display.rect(0, panel.height - 2, panel.width, 2, 0)
-display.rect(0, 0, 2, panel.height, 0)
-display.rect(panel.width - 2, 0, 2, panel.height, 0)
+-- A white page, drawn with the quality it deserves: the frame and the squares are quick changes
+-- (`du4`), and the ladder of sixteen levels is the thing that has to look right (`gc16`).
+ui.clear(15, 'du4')
+ui.rect(0, 0, view.width, 2, 0, 'du4')
+ui.rect(0, view.height - 2, view.width, 2, 0, 'du4')
+ui.rect(0, 0, 2, view.height, 0, 'du4')
+ui.rect(view.width - 2, 0, 2, view.height, 0, 'du4')
 
-local bar = math.floor(panel.width / 16)
+-- The ladder is what tells the levels apart at a glance: from black on the left to white on the right,
+-- in steps. It is drawn with `gc16` because it is the one region whose contrast matters.
+local bar = math.floor(view.width / 16)
 for level = 0, 15 do
-  display.rect(level * bar, 40, bar, 120, level)
+  ui.rect(level * bar, 40, bar, 120, level, 'gc16')
 end
 for i = 0, 4 do
-  display.rect(40 + i * 60, 220, 40, 40, 0)
+  ui.rect(40 + i * 60, 220, 40, 40, 0, 'du4')
 end
 
--- `gc16` and not `du`: this is a page nobody is going to look at twice in a row, and it is the mode
--- that shows what the glass can really do (docs/50).
-local ok, err = display.flush('gc16')
+-- What the system is about to pay for: the regions it merged and the qualities it found.
+console.print(string.format('%d region(s) with damage', ui.damage()))
+
+local ok, err = ui.present()
 if not ok then
   console.print('the panel did not take the paint: ' .. tostring(err and err.code))
   return
@@ -44,10 +52,22 @@ end
 console.print('paint asked; waiting for the glass')
 
 -- The ink takes its time and the system does not wait for it: the app asks, in its own loop, whether
--- the panel has finished (docs/30).
+-- the panel has finished. **The first question is asked after a wait on purpose**: the engine of the
+-- controller does not mark itself busy in the same instant the paint is asked for, so the first read
+-- says zero and the page reports 0 ms while it is still moving ink (measured on the board, 1/11).
+sys.delay(120):await()
 local started = sys.time_ms()
-while not display.idle() do
+while not ui.idle() do
   sys.delay(100):await()
 end
-console.print(string.format('done in about %d ms', sys.time_ms() - started))
+console.print(string.format('done in about %d ms', sys.time_ms() - started + 120))
 console.print('now try the shell: the page stays on the glass until something else paints it')
+
+-- A new size for the view —a rotation of the glass, one day— arrives here: the system has already made
+-- the canvas and this is the app being asked to draw it again (docs/30).
+function on_resize(width, height)
+  console.print(string.format('view is now %d x %d', width, height))
+  ui.clear(15, 'du4')
+  ui.rect(0, 0, width, 2, 0, 'du4')
+  ui.present()
+end

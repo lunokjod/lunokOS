@@ -61,7 +61,52 @@ namespace kernel {
 // around each one, and without it the page came out sheared), the registers of the controller carry the
 // maker's addresses (`LISAR` 0x0208, `LUTAFSR` 0x1224) and the I2C bus can be **asked** whether a chip is
 // there, so the touch probe no longer writes an error about the address it is not at (docs/50, docs/95).
-static const char kVersion[] = "0.13.0";
+// 0.14.0 (1/11): **the view of an app**, and the board's buffer back where it belongs. An app draws on
+// its own canvas (`ui.clear`, `ui.rect`, `ui.pixel`), which the system makes when the app starts and
+// re-makes —white— when the size changes, telling the app `on_resize`; `ui.present` is what composes
+// the rectangle that changed onto the system's surface and asks for the paint. The `display` table is
+// gone: no app can reach the glass directly any more (docs/30, docs/50).
+// 0.15.0 (1/11): **the damage**, and the quality of each piece of it. Every draw records its region and
+// the quality it wants, the system merges what it can (up to eight regions, and past that one `gc16`),
+// and a present paints **one region per quality** after translating it to where the view sits on the
+// glass. The view also has a place now (`ui.caps().x`/`.y`), because a canvas is not the panel, and the
+// driver waits for a paint to end before starting the next (docs/30, docs/50).
+// 0.16.0 (1/11): **the bar of the system**, in C++, on the top 28 rows of the glass: the hour on the
+// left, the title of the app in front in the middle and the charge on the right, with a 5×7 font of its
+// own. The view of an app is the glass under it, and it paints itself only when the minute, the title or
+// the charge change —`du` for a digit and `gc16` when the whole bar has to look clean— (docs/30, docs/50).
+// 0.16.1 (1/11): the bar that **does not paint without a change**. The turn of a bar with nothing new is
+// two comparisons: no read of the clock, no read of the gauge and no paint. The values are read once and
+// carried to the paint —reading them again inside it made the bar repaint itself every half minute with
+// nothing changed— and the charge has a dead band of two points against the noise of the ADC (docs/30).
+// 0.17.0 (1/11): **one orientation for the glass and for the fingers.** The chip counts in 540x960 and
+// the glass is 960x540; the system keeps the quarter turn between them in one value
+// (`display::rotation()`, 90 by default) and the touch turns every frame into the app's own frame when
+// it is read —dropping a finger that lands on the bar— so an app compares a finger with what it drew
+// without turning anything itself (docs/50, docs/90).
+// 0.18.0 (1/11): **the page turns in software, and it is a portrait one by default.** The driver keeps the
+// image in the frame an app draws in (540x960) and gathers every row of the glass from it when something
+// changes, so the controller only ever sees its own frame. `ui.rotation([degrees])` turns the glass, the
+// bar and the fingers with one value, and every app is told with `on_resize` (docs/30, docs/50).
+// 0.18.1 (1/11): **the finger arrives where it was put.** The chip counts in the page's own frame —a tap
+// on the clock, the top left corner, arrives as raw 20,31— so there is no quarter turn between the fingers
+// and the glass, and the page of today needs no turn at all (`kChipPage` is 270). The turn also read its
+// own output when a caller chained two of them into one frame (a tap on the clock came out at 539,900), and
+// no point is dropped any more for not fitting the frame this code expects: a filter that fails leaves the
+// app without a touch, which is what the board showed (docs/50, docs/95 E-6).
+// 0.18.2 (1/11): **the four corners, and the instrument put away.** The chip speaks in the page's own frame
+// and the same way round —a touch on each corner of the portrait page said 46,28 · 515,49 · 31,926 ·
+// 500,920, so `x` grows to the right and `y` downwards— and no turn or mirror is left to guess. The line
+// that printed the first frame of every touch is gone: it was the instrument that found this, and one line
+// per touch is not a console a system can be used with (docs/50, docs/95 E-6).
+// 0.18.3 (1/11): **the four holes the native suite found, the first time it was run.** A rectangle that
+// starts or ends at an odd pixel painted its neighbour —the text of the bar got one column fatter per
+// letter— in the canvas, in the panel driver and in the bench; the damage list that runs full threw the
+// last region away instead of growing to hold it (eight pieces at the top and one at the bottom came out
+// as 430 rows); the bench's glass recorded the last `blit` instead of the rectangle that changed, so the
+// bar's paint carried another copy's region; and `orientation::turn` read its own output when a caller
+// chained a turn into the same point. 230 cases in 10 suites, green (docs/30, docs/50, docs/85).
+static const char kVersion[] = "0.18.3";
 
 }  // namespace kernel
 

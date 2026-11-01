@@ -432,33 +432,40 @@ mateixa sala (±1 °C i ±5 %).
 
 ### E-6 · El tàctil (5 minuts)
 
-El driver ja hi és però encara no té crida de Lua; el que es mesura aquí és **què és aquest xip i en quin marc compta**, que és el que la crida necessita saber.
+El que es mesura aquí és **en quin marc compta aquest xip** —que és el que la crida de Lua necessita
+saber— i **la velocitat de mostra**.
 
 ```
 # a l'arrencada, abans del prompt, surt una línia:
-touch: GT911 at 0x14, config 92, 540x960, 5 fingers
-```
-
-**El que va dir la placa l'1/11 amb la 0.11.0**:
-
-```
-i2c: read of 14:8140 failed (ESP_FAIL)        ← no hi ha ningú a 0x14, i és normal
 touch: GT911 at 0x5d, config 66, 540x960, 2 fingers
 ```
 
-La primera línia **era soroll i ja no hi és** (0.13.0): preguntar a una adreça on no hi ha ningú no és
-una avaria, i el bus té ara `present(address)` —una lectura d'un byte que no diu res— perquè el probe
-pregunti qui hi ha abans de llegir-li el producte. La segona línia és l'única que queda, i és la que
-val.
+**El que va dir la placa l'1/11 amb la 0.11.0**: aquesta línia i, abans, un `i2c: read of 14:8140 failed
+(ESP_FAIL)` que **era soroll i ja no hi és** (0.13.0): preguntar a una adreça on no hi ha ningú no és una
+avaria, i el bus té ara `present(address)` —una lectura d'un byte que no diu res— perquè el probe
+pregunti qui hi ha abans de llegir-li el producte. O sigui que aquesta unitat **contesta a 0x5D** (no a
+0x14), la seva configuració és la **66**, compta en un marc de **540 × 960** i està configurada per a **dos
+dits** i no cinc: `touch.caps().points` dona 2, que és el que el xip reportarà de debò.
 
-O sigui que aquesta unitat **contesta a 0x5D** (no a 0x14), la seva configuració és la **66**, compta en
-un marc de **540 × 960** i està configurada per a **dos dits** i no cinc: `touch.caps().points` dona 2,
-que és el que el xip reportarà de debò. Falta la cantonada: tocar les quatre i apuntar-ho.
+**El marc, tancat l'1/11 amb la 0.18.1**: quatre tocs, un a cada cantonada de la pàgina vertical de
+fàbrica (270), llegint el primer marc de cada toc que deia la consola:
+
+| Toc | `raw` del xip | Pàgina |
+|---|---|---|
+| dalt a l'esquerra (el rellotge) | `46,28` | `46,0` |
+| dalt a la dreta | `515,49` | `515,21` |
+| baix a l'esquerra | `31,926` | `31,898` |
+| baix a la dreta | `500,920` | `500,892` |
+
+La `x` creix cap a la dreta i la `y` cap avall, igual que es pinta la pàgina: **ni quart de volta ni
+mirall**, i amb la pàgina de fàbrica el gir és **zero** (`kChipPage = 270`). El que va costar trobar-ho no
+va ser el xip sinó un error meu de gir encadenat —un toc al rellotge sortia a `539,900`, a baix a la
+dreta— que està explicat a `docs/50` i té prova al PC. La línia de consola que ho va dir **s'ha tret**
+(0.18.2): una línia per toc no és una consola que es pugui fer servir. Per a una altra placa o un altre
+panell, es torna a posar allà mateix.
 
 | Què apuntar | On va |
 |---|---|
-| **A quina adreça contesta** (0x14 o 0x5D) i amb quina **versió de configuració** | `docs/50` (taula del tàctil) |
-| **El marc**: tocar les quatre cantonades del panell, una a una, i apuntar què diu el primer punt. Serveix per decidir **quina de les quatre rotacions** és la bona quan la pantalla hi sigui, i si la crida de Lua ha de donar les coordenades del controlador (retrat, 540x960) o les del panell tal com es mira (docs/50, docs/90) | `docs/50`, `docs/30` (§`touch`), `docs/90` |
 | **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que compta el dit | `docs/50` |
 | Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
 
@@ -508,6 +515,7 @@ Què apuntar:
 |---|---|
 | **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
 | **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
+| **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió | `docs/50` |
 | **El temps d'un `gc16`**: `run panel` diu els mil·lisegons entre `flush` i `idle`. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`. **La primera lectura de `LUTAFSR` no serveix**: el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` (1/11) amb la pàgina encara movent tinta; la prova espera 120 ms abans de la primera pregunta | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
 
@@ -515,7 +523,7 @@ Què apuntar:
 
 ## Què **no** cal mesurar encara
 
-- **El toc**: falta comprovar cantonades i velocitat de mostra (E-6).
+- **La velocitat de mostra del tàctil**: contar frames amb el dit (E-6). El marc ja està mesurat.
 - **El desgast de la flash**: només té sentit amb el sistema escrivint de debò cada dia.
 - **L'autonomia**: es dedueix del consum i la bateria, i no es promet fins que el consum estigui
   mesurat amb el mesurador USB (docs/75).

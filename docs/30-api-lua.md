@@ -727,32 +727,70 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
   que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
 - L'exemple és l'app `air` (`run air`), que la llegeix cada dos segons.
 
-## `display`
+## `ui`
 
-El panell de tinta electrònica: una superfície de 4 bits que viu a la memòria de la placa i el pintat que
-la posa al vidre. **El sistema no dibuixa mai res pel seu compte** —ni splash, ni barra d'estat, ni
-netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan**
+La vista de l'app: **el seu propi canvas**, i el moment en què demana al sistema de posar-lo al vidre.
+El vidre té un sol buffer i és del sistema; l'app dibuixa al seu, i `ui.present` és l'única cosa que el
+fa arribar a la pantalla. **El sistema no dibuixa mai res pel seu compte** —ni splash, ni barra d'estat,
+ni netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan**
 (docs/50).
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `display.caps()` | `{width, height, levels}` | La grandària del vidre i els seus nivells (16) |
-| `display.clear(level)` | `true` | Pinta tota la superfície d'un nivell |
-| `display.rect(x, y, w, h, [level])` | `true` | Un rectangle; `level` per defecte 0 (negre) |
-| `display.pixel(x, y, [level])` | `true` | Un píxel |
-| `display.flush([mode])` | `true` o `nil, error` | Envia **només el que ha canviat** i demana el pintat. Torna **abans** que el vidre hagi acabat |
-| `display.idle()` | booleà | Si el pintat anterior ha acabat |
+| `ui.caps()` | `{width, height, levels, x, y}` | La grandària de la **vista**, els seus nivells (16) i **on està** dins del vidre |
+| `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell |
+| `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
+| `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
+| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta |
+| `ui.damage()` | número | Quantes regions esperen un `present` |
+| `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema** |
+| `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
+| `ui.idle()` | booleà | Si el pintat anterior ha acabat |
+| `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 
+- **Cada dibuix guarda la seva regió i la seva qualitat.** `ui.rect(0, 40, 60, 120, 7, 'gc16')`
+  apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du4')` apunta «aquest
+  quadre, i ràpid». `ui.present()` envia cada regió amb la seva i, com que el controlador només pot
+  pintar una cosa alhora, la segona espera que la primera acabi (docs/50).
+- **El que es pot ajuntar s'ajunta.** Dues regions de la mateixa qualitat que es toquen (a dos píxels)
+  es pinten d'un sol cop, i dues tirades de text en són una. Si una app dibuixa més de vuit regions
+  diferents abans d'un `present`, totes es tornen una de sola pintada amb `gc16`, que és la qualitat que
+  no pot quedar malament, i aquesta regió inclou la darrera que s'ha dibuixat; `ui.damage()` ho diu abans
+  de pagar-ho.
+- **La vista no és el vidre.** Un canvas té una mida i **un lloc** (`ui.caps().x`/`.y`), i tots dos són
+  del sistema: el dia que dues apps comparteixin el vidre, o que el sistema es quedi una franja, la
+  vista d'una app serà més petita i estarà en un altre lloc. El dibuix i el `present` no ho noten —les
+  coordenades són sempre de la vista— i és el sistema qui les tradueix al vidre, tallant el que queda
+  fora (docs/50).
+- **La vista és de l'app i no del vidre.** `ui.clear`, `ui.rect` i `ui.pixel` escriuen en un canvas que
+  el sistema fa quan l'app arrenca (253 KB al Paper, 4 bits per píxel); res no arriba a la pantalla fins
+  a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
+  la pàgina sencera comença amb `ui.clear(15)`.
 - **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
 - **Els modes són els del propi xip**, i una app tria el preu: `du` (260 ms, text i menús),
   `du4` (120 ms, passar pàgines amb menys contrast), `gc16` (450 ms, imatges de qualitat i netejar el
   fantasma), `gl16`, `glr16`, `gld16`, `a2` i `init` (2 s, la primera). Per defecte, `du`. Un nom que
   no és a la taula es **refusa**; no s'arrodoneix a un altre.
-- **Dibuixar no és pintar**: `clear`, `rect` i `pixel` toquen la còpia de la memòria i el vidre no se
-  n'assabenta fins al `flush`. I el `flush` només envia el **rectangle que ha canviat**, arrodonit a
-  grups de quatre píxels com demana el controlador.
+- **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia— el canvas es torna a
+  fer, blanc, i l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
+  dibuixar és de l'app. Una app sense `on_resize` és una app legal; simplement no dibuixa mai la vista
+  nova.
+
+```lua
+local view = ui.caps()
+ui.clear(15, 'gc16')                    -- la pàgina, i que quedi neta
+ui.rect(0, 200, view.width, 40, 0, 'du4')  -- un avís que es mou sovint, i ràpid
+ui.present()                            -- dues regions: dos pintats, un per qualitat
+while not ui.idle() do sys.delay(100):await() end
+
+function on_resize(width, height)
+  -- la vista és una altra: torna a dibuixar-hi el que hi hagués
+end
+```
+
 - **No hi ha text encara**: una font és una decisió pròpia i no hi és (docs/90).
-- L'exemple és l'app `panel` (`run panel`), que pinta una pàgina de prova i espera que el vidre acabi.
+- L'exemple és l'app `panel` (`run panel`), que dibuixa una pàgina de prova a la seva vista i espera que
+  el vidre acabi.
 
 ## `touch`
 

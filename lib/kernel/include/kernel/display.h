@@ -23,6 +23,31 @@ uint16_t height();
 // How many levels the glass has: sixteen on the Paper, black at 0 and white at 15 (docs/50).
 uint8_t levels();
 
+// **The one orientation of the system**: how far the content of the glass is turned from the frame the
+// touch controller counts in. 0, 90, 180 or 270, and the bar, the view of an app and the fingers all
+// read it from here instead of having an opinion of their own (docs/90). On this board it is **90**: the
+// chip counts in 540×960 and the glass is 960×540.
+uint16_t rotation();
+bool set_rotation(uint16_t degrees);
+
+// **The board's buffer, and it belongs to the system.** An app never touches it: it draws on its own
+// canvas and `ui::present` is what composes it here, which is the only way the glass changes
+// (docs/30).
+hal::ISurface* surface();
+
+// The one place a quality name becomes what the controller does: the eight names of the panel's own
+// table, and nothing else. An unknown name is refused instead of rounded to a default that would look
+// like it worked (docs/30, docs/50).
+bool mode_from_name(const char* name, hal::UpdateMode& out);
+
+// Sends what changed on the surface since the last call and asks for it to be painted **with that
+// quality**. What changed is the damage the app left there, so a present that follows one region pays
+// for one region (docs/30).
+bool present(hal::UpdateMode mode);
+bool idle();
+// Why the last paint was refused, in the panel's own words (docs/50).
+const char* last_error();
+
 }  // namespace display
 }  // namespace kernel
 

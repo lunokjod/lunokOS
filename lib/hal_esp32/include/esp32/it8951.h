@@ -57,11 +57,24 @@ class It8951 : public ISurface {
   void clear(uint8_t level) override;
   void fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) override;
   void pixel(uint16_t x, uint16_t y, uint8_t level) override;
+  void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
+            uint16_t stride) override;
   // Sends what changed and asks for it to be painted. It returns **before the glass has finished**:
   // the ink takes its time and the kernel cannot wait for it. `idle()` is how a later turn asks
   // whether the panel is done (docs/50).
   bool flush(UpdateMode mode) override;
   bool idle() override;
+  // **The turn between the frame an app draws in and the frame of the glass**, in software: the image
+  // this driver keeps is in the app's frame and the pixels are turned as they are sent, which is what
+  // lets a 540-wide page live on a 960-wide glass without the controller having an opinion (docs/50).
+  bool set_rotation(uint16_t degrees) override;
+  uint16_t rotation() const override { return rotation_; }
+  // Why the last step that failed failed, for the console: a paint that is refused without a reason is
+  // a flash to find out which of five things it was (docs/50).
+  const char* last_error() const override { return why_; }
+  // Waits —with a ceiling— until the paint engine of the controller has nothing in flight. A present
+  // with two qualities is two paints and the second one cannot start on top of the first (docs/50).
+  bool wait_paint(uint32_t timeout_ms);
 
  private:
   // A prefix and its word, with the busy line looked at in between: the controller needs that pause
@@ -84,6 +97,13 @@ class It8951 : public ISurface {
   uint16_t read_register(uint16_t reg);
   bool wait_busy(uint32_t timeout_ms);
   void power_on();
+  // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
+  void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
+                         uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
+  // One row of the glass, packed, taken from the image an app drew in.
+  void gather_row(uint8_t* out, uint16_t nx0, uint16_t ny, uint16_t w) const;
+  // Makes the image again for the turn it has now, and marks the whole of it to be sent.
+  bool allocate_image();
   void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
 
   uint8_t* image_ = nullptr;
@@ -92,6 +112,12 @@ class It8951 : public ISurface {
   bool bus_ = false;
   void* device_ = nullptr;  // spi_device_handle_t, kept out of the header
   uint32_t memory_ = 0;     // where the controller keeps the image, from `GetDeviceInfo`
+  // The frame of the glass itself, from `GetDeviceInfo`, and the frame an app draws in, which is the same
+  // one turned by `rotation_` (docs/50).
+  uint16_t native_width_ = 0;
+  uint16_t native_height_ = 0;
+  uint16_t rotation_ = 270;  // the driver starts where the system's default page is, so the image is
+                            // made once at boot (docs/50)
   uint16_t width_ = 0;
   uint16_t height_ = 0;
   uint16_t vcom_ = 0;

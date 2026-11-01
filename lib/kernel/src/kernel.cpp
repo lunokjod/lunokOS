@@ -9,8 +9,10 @@
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
 #include "kernel/display.h"
-#include "kernel/touch.h"
+#include "kernel/bar.h"
 #include "kernel/imu.h"
+#include "kernel/touch.h"
+#include "kernel/ui.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/net.h"
@@ -284,9 +286,15 @@ void boot(hal::IPlatform& platform) {
   // The panel, when the board has one. It is booted and **not polled**: nothing of the system paints,
   // so there is no turn of this loop that has anything to say to the glass (docs/30, docs/50).
   display::boot(platform);
-  // Last, because it speaks to the console and may bring an app back: a board
-  // that wakes from a deep sleep is a board that boots, and the session record is
-  // what makes the app come back where it was (docs/90).
+  // The bar of the system, which owns the top rows of the glass: the hour, the title of the app in front
+  // and the charge (docs/30).
+  bar::boot(platform);
+  // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
+  // when the system asks for another size. The board's buffer stays the system's (docs/30).
+  ui::boot(platform, bar::height());
+  // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep
+  // sleep is a board that boots, and the session record is what makes the app come back where it was
+  // (docs/90).
   power::boot(platform);
 }
 
@@ -408,6 +416,11 @@ void poll() {
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).
   led::poll();
+
+  // The bar of the system: if the minute, the title or the charge changed, it paints its own strip and
+  // nothing else. It is the only thing of the system that draws on the glass, and only its own rows
+  // (docs/30).
+  bar::poll();
 
   // A moment of the system that ended gave the app its light back, and the app may have changed
   // its mind while the light was not its own: `on_light()` is the one turn it gets to redraw

@@ -100,6 +100,7 @@ void usage() {
   printf("  --env-fail        an ambient sensor that does not answer\n");
   printf("  --run <app>       start an app\n");
   printf("  --script <file>   batch mode: run and exit\n");
+  printf("  --display         a board with a glass: 960x540 and four bits per pixel\n");
   printf("  --verbose         mirror the log to the console too\n");
   printf("  -h, --help        this text\n");
 }
@@ -138,6 +139,12 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--verbose") == 0) {
       opts.verbose = true;
+      continue;
+    }
+    if (strcmp(arg, "--display") == 0) {
+      // A board with a glass: 960x540 and four bits per pixel, kept in a buffer on this side
+      // (docs/85).
+      opts.display = true;
       continue;
     }
     if (strcmp(arg, "--fs") == 0) {

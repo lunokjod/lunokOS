@@ -14,7 +14,9 @@
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/net.h"
+#include "kernel/bar.h"
 #include "kernel/power.h"
+#include "kernel/ui.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -505,6 +507,11 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
     out("cannot start the interpreter\r\n");
     return false;
   }
+  // The app gets a view of its own, white and with nothing pending; the glass is not touched until it
+  // presents (docs/30).
+  ui::attach();
+  // And its title goes to the middle of the bar, which is the system's and not the app's (docs/30).
+  bar::title(target.title);
 
   // The app is compiled and given a task, but not run here: the first turn is
   // the first poll, and from then on the kernel keeps turning (docs/30).
@@ -1406,6 +1413,8 @@ void close_app() {
   luabind::call_hook("on_close");
   luabind::stop();
   g_app_alive = false;
+  // The bar goes back to nobody's title: the app that was in front is not any more (docs/30).
+  bar::title("");
   out("app closed\r\n");
 }
 
@@ -1438,6 +1447,8 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
   if (!luabind::start(boot, limit)) return false;
+  ui::attach();  // a fresh view for the app that is coming back (docs/30)
+  bar::title(boot.app_title);
 
   bool ok = luabind::run_source(target.path, g_source, len);
   if (ok) {
@@ -1470,6 +1481,7 @@ bool poll_app() {
   const bool died = luabind::failed();
   luabind::stop();
   g_app_alive = false;
+  bar::title("");  // the app in front is over (docs/30)
   // However the app ended, the light goes off: the console is where an error is
   // read, and a red light left on for nobody is the energy this system does not
   // spend (docs/30, docs/75).
@@ -1556,6 +1568,8 @@ bool command_lua() {
     return false;
   }
   g_lua = true;
+  ui::attach();  // the session is an app too, and it draws on a view of its own (docs/30)
+  bar::title("lua");
   out("lua: one line at a time, the whole API (docs/30). `exit` leaves.\r\n");
   return true;
 }

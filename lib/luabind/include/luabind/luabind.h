@@ -299,26 +299,49 @@ struct TouchOps {
 
 void set_touch_ops(const TouchOps& ops);
 
-// The panel, as the interpreter uses it: what the glass is and the five things an app can do with it.
-// **The system never draws**: every call here comes from an app (docs/30, docs/50).
-struct DisplayInfo {
+// The view of the app, as the interpreter uses it: the canvas it draws on and the moment it asks the
+// system to put it on the glass. **The system never draws**: every call here comes from an app, and
+// the panel's own buffer is not reachable from Lua (docs/30, docs/50).
+struct UIInfo {
   uint16_t width;
   uint16_t height;
   uint8_t levels;
+  // Where the view sits on the glass. A canvas is not the panel: it can be smaller and somewhere else,
+  // and an app that wants to place something relative to the glass needs to know (docs/30).
+  uint16_t x;
+  uint16_t y;
 };
 
-struct DisplayOps {
-  bool (*caps)(DisplayInfo& out);
-  void (*clear)(uint8_t level);
-  void (*rect)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level);
-  void (*pixel)(uint16_t x, uint16_t y, uint8_t level);
-  // The mode as the app named it: the kernel decides whether that is a mode of this glass, and an
-  // unknown name is refused instead of quietly becoming another one (docs/30).
-  bool (*flush)(const char* mode);
+struct UIOps {
+  bool (*caps)(UIInfo& out);
+  // The last argument is the quality the app asked for, or nullptr for the default. False when the name
+  // is not one of this glass, which is reported and not rounded to another one (docs/30).
+  bool (*clear)(uint8_t level, const char* mode);
+  bool (*rect)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, const char* mode);
+  bool (*pixel)(uint16_t x, uint16_t y, uint8_t level, const char* mode);
+  // nullptr is "each region with the quality it was drawn with" (docs/30).
+  bool (*present)(const char* mode);
   bool (*idle)();
+  // Another size for the view. The system answers by making a new canvas and calling `on_resize`, and
+  // an app that asks for one it cannot have is told no (docs/30).
+  bool (*resize)(uint16_t width, uint16_t height);
+  // How many regions are waiting for a present (docs/30).
+  uint8_t (*damage)();
+  // Why the last paint was refused, for the message an app reads (docs/50).
+  const char* (*last_error)();
+  // The title this app shows in the bar of the system, which is not the app's (docs/30).
+  bool (*title)(const char* text);
+  // The turn of the page: 0, 90, 180 or 270. Reading it and setting it are the same value (docs/50).
+  uint16_t (*rotation)();
+  bool (*set_rotation)(uint16_t degrees);
 };
 
-void set_display_ops(const DisplayOps& ops);
+void set_ui_ops(const UIOps& ops);
+
+// The system changed the size of the view under the app: `on_resize(width, height)` if the app has
+// one. False when it does not, which is a legal app —it just draws the same thing again— and the
+// canvas is white when it happens (docs/30).
+bool call_resize(uint16_t width, uint16_t height);
 
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).
