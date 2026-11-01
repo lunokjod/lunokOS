@@ -112,7 +112,7 @@ bateria, la ranura i la FRAM). El que **encara no** segueix el model és la **fo
 
 | Peça | Com està | Què hi falta |
 |---|---|---|
-| Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i `--battery-mv`, `kCapSd` només amb ranura i `--sd`) | res, tret de `kCapDisplay` quan hi hagi qui dibuixi el panell (avui ningú) |
+| Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i `--battery-mv`, `kCapSd` només amb ranura i `--sd`, `kCapDisplay` amb `--display`) | res |
 | Llums | Fet: el comptador és el del model (1 a l'ATOM, 25 al Matrix, **0 al Paper**) i el sostre del canal és **20 a tots**, per decisió: un banc que deixés passar 255 amagaria el límit del panell (`lib/hal_emulator/include/board/identity.h`) | decidir si el sostre ha de ser el de cada model (255 a l'ATOM) o quedar-se a 20 |
 | Tecles (quantes) | Fet: `IInput::count()` és el del model (1 a l'ATOM i al Matrix, 3 al Paper) | — |
 | Tecles (forma) | **Pendent**: la cara, el lloc i si és composta són sempre els de la Paper (`hal_emulator.cpp`, el dial de la cara esquerra) | una fila per model a `emu_model.cpp` i que `IInput::info()` la llegeixi |
@@ -130,10 +130,10 @@ de veritat nova: totes criden el mateix `emu::press_key`.
 | 1 | Prefix de terminal, `Ctrl-A` com `tmux`: `Ctrl-A 1` és un toc, `Ctrl-A 1 h` / `Ctrl-A 1 u` és prémer i deixar anar | L'ús diari i el mode lot; no depèn de res i va per SSH | Una app que llegeix una línia no veu mai aquests bytes, i una premuda es veu a `button` |
 | 2 | `--control <socket>` amb línies `key 0 down`, `key 0 up`, `tap 0 120` | Guions, proves i qualsevol eina de fora (també una finestra) | Es llegeix sense bloquejar abans de `kernel::poll()` i és apagat per defecte |
 | 3 | `--events <fitxer>` amb `ms key down` / `ms key up` | Reproduir una sessió amb `held_ms` de debò | El mateix fitxer dona sempre el mateix resultat |
-| 4 | Finestra (SDL2), **només com a client** de les portes 1 i 2 | Veure el panell i clicar les tecles del perfil | `SDL_PollEvent` dins del pump i mai `WaitEvent`; les proves i el CI han d'anar sense pantalla |
+| 4 | Finestra, **només com a client** de les portes 1 i 2 | **Prémer les tecles del perfil a la finestra**. La finestra ja hi és des de la 0.21.0 (`--gui`, X11, la pàgina sencera al mig i només ensenyant el vidre, docs/85); el que li falta és que serveixi per a alguna cosa més que mirar | Els events es llegeixen sense bloquejar dins del pump i mai esperant; les proves i el CI han d'anar sense pantalla |
 
-Ordre: 1 i 2 primer, 3 si cal, i la finestra quan hi hagi `IDisplay`, que és el motiu de debò per
-obrir una finestra (tres botons no el justifiquen).
+Ordre: 1 i 2 primer, 3 si cal, i les tecles a la finestra al final — la finestra és el motiu de debò per
+obrir-ne una, i el que li falta no és la pàgina sinó els dits.
 
 Paranys que aquesta feina ha de respectar:
 

@@ -57,6 +57,14 @@ struct Options {
   // asks for one, which is both the truth of the ATOM and what a test wants when it is not about the
   // panel (docs/85). The glass is the Paper's: 960x540 and four bits per pixel.
   bool display;
+  // **A window with the glass in it**, for the runs that are looked at instead of read: it needs the
+  // glass (`--display` is turned on with it) and it changes nothing of what the bench simulates —the
+  // window is a way to look, and the ink is still not there (docs/85).
+  bool gui;
+  // **Whether the glass moves ink or switches pixels.** On —one— a paint takes what the mode takes, a
+  // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
+  // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.
+  int32_t ink;
   // The network of this band is a fake and it says so (docs/85): connecting
   // takes wifi_ms of simulated time and goes nowhere. `wifi_absent` is a board
   // with no radio at all, `wifi_fail` a network that refuses.

@@ -1,0 +1,46 @@
+// **The ink of the bench's glass, as a model and not as a photograph** (docs/85).
+//
+// An e-ink panel does not switch pixels: it moves pigment. What was there does not go away in one paint
+// —`du` leaves a trace of the page before, and the traces add up— and only the modes that clean (`gc16`
+// and its family) take the page back. This is that, in one table and one integer blend, so the bench can
+// show what the board shows instead of a perfect picture nobody has ever seen.
+//
+// **The numbers are the maker's, not a measurement of this unit**: 450 ms for a `gc16` and 120 for a
+// `du` are the datasheet's; the trace each mode leaves and the dirt it adds are the model's. They are
+// here, in one place, so a day on the board can change them and nothing else has to move (docs/95).
+#ifndef LUNOK_EMU_INK_H
+#define LUNOK_EMU_INK_H
+
+#include <stdint.h>
+
+#include "hal/hal.h"
+
+namespace emu {
+
+struct InkMode {
+  // How long the glass takes to move the ink of a paint, in milliseconds.
+  uint16_t ms;
+  // **How much of what was shown stays**: sixteenths of the old level. Zero is a paint that cleans.
+  uint8_t keep_of_16;
+  // How much dirt this paint leaves behind, in sixteenths, added to the pixel it touches. A paint that
+  // cleans takes it back to zero instead (docs/85).
+  uint8_t dirt_add_of_16;
+  // **Of every thousand pixels of the region, how many do not land on the level they were asked for**:
+  // the speckle a real panel has, and the reason a page painted over and over is not a clean page.
+  uint16_t err_per_mille;
+};
+
+InkMode ink_mode(hal::UpdateMode mode);
+
+// The level the glass shows after a paint of `target` over what was showing, with that much dirt in the
+// pixel. Integer arithmetic and no table: one multiply, one add and one shift per pixel.
+uint8_t ink_blend(uint8_t target, uint8_t shown, uint8_t dirt, const InkMode& mode);
+
+// **Whether this pixel of the region misses**, and by how much: a deterministic hash of the place, so a
+// run is the same run twice and a test can say what it expects (docs/85).
+bool ink_misses(uint16_t x, uint16_t y, uint16_t err_per_mille);
+int8_t ink_miss_by(uint16_t x, uint16_t y);
+
+}  // namespace emu
+
+#endif  // LUNOK_EMU_INK_H

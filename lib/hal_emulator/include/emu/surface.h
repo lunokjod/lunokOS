@@ -33,6 +33,23 @@ class MemorySurface : public hal::ISurface {
   // What a test asks: the pixels themselves, and how the panel was asked to work.
   const uint8_t* bits() const { return bits_; }
   uint8_t level_at(uint16_t x, uint16_t y) const;
+
+  // **What the glass shows, which is not always what was painted** (docs/85). `level_at` is the level
+  // the paint asked for —the contract of the driver— and `shown_at` is where the pigment ended up: a
+  // `du` keeps a quarter of the page before it and the traces add up, a `gc16` cleans. With the ink off
+  // —tests— the two are the same buffer.
+  const uint8_t* shown_bits() const { return (shown_ != nullptr) ? shown_ : bits_; }
+  uint8_t shown_at(uint16_t x, uint16_t y) const;
+  // The dirt of one pixel, in sixteenths: what the paints that do not clean left behind (docs/85).
+  uint8_t dirt_at(uint16_t x, uint16_t y) const;
+  // How many pixels of the glass do not show the level they were painted with.
+  uint32_t ink_errors() const;
+  // True when this bench paints with the model of the glass instead of instantly and perfectly.
+  bool ink_on() const { return shown_ != nullptr; }
+  // **Turn the model on or off for this run.** A test that is about the ink says so and turns it on; the
+  // rest of them run with a paint that is instant and exact, and do not pay half a megabyte for a
+  // picture they are not looking at (docs/85).
+  bool set_ink(bool on);
   uint32_t blits() const { return blits_; }
   uint32_t flushes() const { return flushes_; }
   hal::UpdateMode last_mode() const { return last_mode_; }
@@ -62,6 +79,13 @@ class MemorySurface : public hal::ISurface {
   uint16_t stride_;
   uint16_t rotation_ = 0;
   uint8_t* bits_ = nullptr;
+  // **The two buffers of the ink**: what the glass shows, and how dirty each pixel is, in four bits
+  // each. They exist only when the model is on, because a test wants a paint that is instant and exact
+  // and 500 KB more of buffer to read a pixel is not what it is testing (docs/85).
+  uint8_t* shown_ = nullptr;
+  uint8_t* dirt_ = nullptr;
+  // When the ink of the last paint will have finished moving. `idle()` is the question for it.
+  uint32_t busy_until_ms_ = 0;
   uint32_t blits_ = 0;
   uint32_t flushes_ = 0;
   uint32_t paint_count_ = 0;
@@ -71,6 +95,11 @@ class MemorySurface : public hal::ISurface {
   // Keeping only the last `blit` made a paint carry another copy's region: the bar writes with
   // `fill_rect`, so its paint was recorded with the last thing an app had composed.
   void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  // **The paint, pixel by pixel**: the region that was asked for is moved towards what it was painted
+  // with, according to the quality and to the dirt it already had (docs/85).
+  void apply_ink(uint16_t x, uint16_t y, uint16_t w, uint16_t h, hal::UpdateMode mode);
+  void alloc_ink();
+  bool make_ink();
   bool dirty_ = false;
   uint16_t dirty_x0_ = 0;
   uint16_t dirty_y0_ = 0;

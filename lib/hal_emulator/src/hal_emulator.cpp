@@ -40,6 +40,12 @@ Options::Options()
       time_scale(1),
       seed(0),
       verbose(false),
+      // **The three fields of the glass that were left to whatever the stack held**: `display` and `gui`
+      // have been read before ever being written, and the ink is off here —a test wants a paint that is
+      // instant and exact— and turned on by `main`, which is what a person wants (docs/85).
+      display(false),
+      gui(false),
+      ink(0),
       wifi_ms(300),
       wifi_absent(false),
       wifi_fail(false),

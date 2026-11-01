@@ -10,6 +10,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "emu/gui.h"
+#include "emu/surface.h"
 #include "emu/options.h"
 #include "emu/memories.h"
 #include "emu/model.h"
@@ -101,6 +103,8 @@ void usage() {
   printf("  --run <app>       start an app\n");
   printf("  --script <file>   batch mode: run and exit\n");
   printf("  --display         a board with a glass: 960x540 and four bits per pixel\n");
+  printf("  --gui             that glass in an X11 window, painted as the panel is painted\n");
+  printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
   printf("  --verbose         mirror the log to the console too\n");
   printf("  -h, --help        this text\n");
 }
@@ -139,6 +143,19 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--verbose") == 0) {
       opts.verbose = true;
+      continue;
+    }
+    if (strcmp(arg, "--no-ink") == 0) {
+      // The bench of the tests: a paint is instant and exact, and the page is whatever was painted with
+      // nothing left of the one before (docs/85).
+      opts.ink = -1;  // asked for: a glass that switches pixels
+      continue;
+    }
+    if (strcmp(arg, "--gui") == 0) {
+      // **A window with the glass in it**, and the glass with it: a window of nothing is not a window
+      // (docs/85).
+      opts.gui = true;
+      opts.display = true;
       continue;
     }
     if (strcmp(arg, "--display") == 0) {
@@ -402,10 +419,29 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // And the serial port goes at the speed of the board's UART, so what a person sees arrive arrives
   // at the rate it would over the cable (docs/85).
   if (opts.baud < 0) opts.baud = kUartBaud;
+  // **The glass of a run moves ink unless the run says it does not**: a paint takes what the quality
+  // takes and leaves what it leaves. Instant and perfect is the bench of the tests, which is where the
+  // option starts (docs/85).
+  opts.ink = (opts.ink < 0) ? 0 : 1;
   return true;
 }
 
-int run_script(const char* path) {
+// **The window, once per turn.** The glass is copied into it only when the panel was painted since the
+// last frame —the count of paints of the surface is the question— and the events of the window are taken
+// without waiting, because a bench that blocks on the keyboard of a window is a bench that stopped
+// (docs/85).
+void pump_gui(uint32_t& shown_flushes) {
+  emu::gui_pump();
+  emu::MemorySurface* glass = emu::memory_surface();
+  if (glass == nullptr) return;
+  if (glass->flushes() == shown_flushes) return;
+  shown_flushes = glass->flushes();
+  // **What the glass shows and not what was painted**: the ink of a `du` keeps part of the page before
+  // it, and that is exactly what a person is looking at (docs/85).
+  emu::gui_show(glass->shown_bits(), glass->width(), glass->height());
+}
+
+int run_script(const char* path, uint32_t& shown_flushes) {
   FILE* file = fopen(path, "r");
   if (file == nullptr) {
     fprintf(stderr, "cannot open the script: %s\n", path);
@@ -432,6 +468,7 @@ int run_script(const char* path) {
     while ((kernel::app_running() || kernel::shell::native_running()) &&
            (pal::system().millis() - started) < kBatchWaitMs) {
       kernel::poll();
+      pump_gui(shown_flushes);
     }
     if (kernel::app_running() || kernel::shell::native_running()) {
       fprintf(stderr, "the line did not finish\n");
@@ -439,7 +476,10 @@ int run_script(const char* path) {
     // Two turns more, always: what the end of a turn does —the light, for one— has
     // to happen before the next line, or a script would see a board that never
     // paints anything (measured on the PC, 31/10).
-    for (int turn = 0; turn < 2; ++turn) kernel::poll();
+    for (int turn = 0; turn < 2; ++turn) {
+      kernel::poll();
+      pump_gui(shown_flushes);
+    }
   }
   fclose(file);
   return rc;
@@ -479,6 +519,29 @@ int main(int argc, char** argv) {
 
   kernel::boot(hal::platform());
 
+  // **The window, when the run asked for one.** If there is no display to open it on, the bench says so
+  // and carries on without it: a run is not lost because a screen is missing (docs/85).
+  uint32_t shown_flushes = 0xFFFFFFFFu;
+  if (opts.gui) {
+    if (!emu::gui_available()) {
+      fprintf(stderr, "this bench was built without X11: no window\n");
+    } else if (hal::platform().display() == nullptr ||
+               !emu::gui_open(emu::memory_surface()->width(), emu::memory_surface()->height())) {
+      fprintf(stderr, "no display to open the window on\n");
+    } else {
+      const uint8_t scale = emu::gui_scale();
+      if (scale <= 1) {
+        printf("gui: the page %ux%u is in a window, one pixel of the page per pixel of the screen\n",
+               emu::memory_surface()->width(), emu::memory_surface()->height());
+      } else {
+        printf("gui: the page %ux%u is in a window at half, one pixel of the window is %u of the page\n",
+               emu::memory_surface()->width(), emu::memory_surface()->height(),
+               static_cast<unsigned>(scale));
+      }
+      fflush(stdout);
+    }
+  }
+
   int rc = 0;
   if (opts.run_app != nullptr) {
     // --run is the very sentence the shell understands, nothing more, and it
@@ -486,14 +549,21 @@ int main(int argc, char** argv) {
     char command[kLineBytes];
     snprintf(command, sizeof(command), "run %s", opts.run_app);
     if (!kernel::execute(command)) rc = 1;
-    while (kernel::app_running()) kernel::poll();
+    while (kernel::app_running() && !emu::gui_close_requested()) {
+      kernel::poll();
+      pump_gui(shown_flushes);
+    }
   }
   if (opts.script != nullptr) {
-    if (rc == 0) rc = run_script(opts.script);
+    if (rc == 0) rc = run_script(opts.script, shown_flushes);
   } else if (opts.run_app == nullptr) {
-    while (kernel::running()) kernel::poll();
+    while (kernel::running() && !emu::gui_close_requested()) {
+      kernel::poll();
+      pump_gui(shown_flushes);
+    }
   }
 
+  emu::gui_close();
   pal::shutdown();
   return rc;
 }

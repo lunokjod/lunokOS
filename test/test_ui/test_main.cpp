@@ -9,12 +9,12 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <unity.h>
 
 #include "emu/options.h"
 #include "emu/surface.h"
+#include "emu/gui.h"
 #include "hal/hal.h"
 #include "kernel/display.h"
 #include "kernel/ui.h"
@@ -61,6 +61,14 @@ void fresh_view() {
   ui::attach();
   ui::clear(15, nullptr);
   ui::present();
+}
+
+// **Waiting for ink is waiting on this machine**: the bench's clock is the PC's, so the only way to see a
+// paint end is to let time pass, which is what the kernel's own queue does when it has nothing to do
+// (docs/85).
+void wait_ms(int32_t ms) {
+  pal::Event event;
+  pal::system().queue()->pop(event, ms);
 }
 
 }  // namespace
@@ -754,6 +762,114 @@ static void test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child() 
   TEST_ASSERT_EQUAL_UINT16(60, ui::damage(0).h);
 }
 
+
+// **The window shows the glass in the colours of the panel**, and the part of that which can be proved
+// without a screen is the translation: four bits per pixel with the left one in the high nibble become
+// one pixel each, black at 0 and white at 15 (docs/50, docs/85).
+static void test_the_window_shows_the_glass_in_the_colours_of_the_panel() {
+  // **The two ends are the ink and the paper of a real panel**, which is not black and white: the paper is
+  // warm and the darkest level is a very dark grey (docs/85).
+  TEST_ASSERT_EQUAL_HEX32(0x001A1B18u, emu::gui_level_colour(0));
+  TEST_ASSERT_EQUAL_HEX32(0x00EFEADCu, emu::gui_level_colour(15));
+  // A level of the middle is between the two, and it is warm too: the red is above the blue.
+  const uint32_t middle = emu::gui_level_colour(8);
+  const uint32_t middle_r = (middle >> 16) & 0xFF;
+  const uint32_t middle_b = middle & 0xFF;
+  TEST_ASSERT_TRUE(middle_r > middle_b);
+  TEST_ASSERT_TRUE(middle_r > 0x1Au && middle_r < 0xEFu);
+
+  // A byte is two pixels, the left one first: 0x3C is the level 3 and then the level 12.
+  const uint8_t packed[2] = {0x3Cu, 0xFFu};
+  uint32_t out[4] = {0, 0, 0, 0};
+  emu::gui_expand(packed, 4, 1, out, 1);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(3), out[0]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(12), out[1]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(15), out[2]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(15), out[3]);
+
+  // A glass of an odd width ends on a nibble nobody wrote, and it is white like the panel's own memory.
+  uint32_t odd[3] = {0, 0, 0};
+  emu::gui_expand(packed, 3, 1, odd, 1);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(3), odd[0]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(12), odd[1]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(15), odd[2]);
+
+  // **At half, every other pixel**: a page of four columns is two, and what is drawn is the left one of
+  // each pair, which is what lets a page taller than the screen fit instead of being cut (docs/85).
+  uint32_t half[2] = {0, 0};
+  emu::gui_expand(packed, 4, 1, half, 2);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(3), half[0]);
+  TEST_ASSERT_EQUAL_HEX32(emu::gui_level_colour(15), half[1]);
+}
+
+
+// **The glass moves ink and does not switch pixels** (docs/85): with the model on, a `du` keeps a part of
+// the page before it, the trace adds up while nothing cleans, and a `gc16` takes the page back. `level_at`
+// is what the paint asked for and `shown_at` is where the pigment ended up.
+static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  // A black square on a white page, painted with the quick quality.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  // The paint asked for black and the ink reached it; the dirt of that paint is on the glass now.
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(20, 20));
+  TEST_ASSERT_TRUE(glass().dirt_at(20, 20) > 0);
+
+  // White over it, **with the same quick quality**: a part of the black is still there, which is exactly
+  // what a person sees on a panel painted that way.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(20, 20));
+  const uint8_t trace = glass().shown_at(20, 20);
+  TEST_ASSERT_TRUE_MESSAGE(trace < 15, "the du left no trace of the black it painted over");
+  TEST_ASSERT_TRUE_MESSAGE(trace > 7, "the trace is too dark to be a du on a page");
+  // And the ink of the page is not the ink of the paint: this is the whole point of the model.
+  TEST_ASSERT_TRUE(glass().ink_errors() > 0);
+
+  // **A paint that cleans takes it back**: white with `gc16` and the pixel is white again, without dirt.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
+  // **A paint that cleans takes back the region it paints**: white with `gc16` and every pixel of it is
+  // white again, without dirt. The speckle of a paint somewhere else on the glass is somebody else's
+  // page and is not cleaned by this one (docs/85).
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  for (uint16_t y = 10; y < 50; ++y) {
+    for (uint16_t x = 10; x < 50; ++x) {
+      TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(x, y));
+      TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(x, y));
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
+// **A paint takes as long as the quality takes**: a `du` is about a tenth of a second and a `gc16` about
+// half of one, and `ui.idle()` is the question that says when the ink has stopped moving — which is what
+// makes a measurement taken on the bench mean something (docs/30, docs/85).
+static void test_a_paint_takes_the_time_of_its_quality(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 10, 10, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  // Just asked: the ink has not moved yet.
+  TEST_ASSERT_FALSE(ui::idle());
+  wait_ms(200);
+  TEST_ASSERT_TRUE_MESSAGE(ui::idle(), "a du of a few pixels is not two hundred milliseconds");
+
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 10, 10, 0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  wait_ms(200);
+  // **Half a second is still painting a `gc16`**, and this is the number the datasheet gives for it.
+  TEST_ASSERT_FALSE_MESSAGE(ui::idle(), "a gc16 is not over in two hundred milliseconds");
+  wait_ms(400);
+  TEST_ASSERT_TRUE(ui::idle());
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -794,5 +910,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_canvas_that_goes_away_is_clean_before_it_is_freed);
   RUN_TEST(test_a_canvas_takes_its_children_with_it_when_it_goes);
   RUN_TEST(test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child);
+  RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
+  RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
+  RUN_TEST(test_a_paint_takes_the_time_of_its_quality);
   return UNITY_END();
 }

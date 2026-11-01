@@ -228,7 +228,23 @@ namespace kernel {
 // entren a la suma de portes, o el mateix microsegon es comptava tres vegades i el total passava del cent
 // per cent (138 %, mesurat). Costa **1 208 B de RAM i 9 076 B de flash** al
 // Paper (docs/30, docs/50, docs/75, docs/80, docs/85).
-static const char kVersion[] = "0.20.0";
+// 0.21.0 (1/11): **el vidre del banc en una finestra**. `--gui` obre una finestra X11 amb el buffer del
+// `MemorySurface` dins, i la pinta cada cop que el panell es pinta —el comptador de pintades és la
+// pregunta, o sigui que un torn sense pintada no costa res— amb els setze nivells en grisos i la pàgina
+// com la dibuixa l'app (540x960, no el vidre ajagut). Porta `--display` amb ell, diu que no si no hi ha
+// `DISPLAY`, i tancar-la acaba el run com tres ESC. És X11 i un `-lX11` darrere de `-DLUNOK_GUI_X11`;
+// sense Xlib el banc compila igual i diu que no té finestra. **La finestra no és el panell**: no hi ha
+// tinta, ni fantasma, ni parpelleig, i la conversió de quatre bits a píxel —la part que es pot provar
+// sense pantalla— té prova a `test_ui` (docs/85).
+// 0.22.0 (1/11): **el vidre del banc mou tinta**. Un panell d'e-ink no encén píxels: una pintada de `du`
+// deixa un quart del que hi havia, la brutícia s'acumula si res no neteja, una de cada mil la falla un
+// nivell, i una pintada dura el que dura la qualitat (450 ms un `gc16`, 120 un `du`), o sigui que
+// `idle()` al banc diu la veritat i `run panel` hi dona 480 ms en lloc de 1. El paper és calent
+// (`#EFEADC`) i la tinta no és negra del tot (`#1A1B18`), perquè una pàgina llegida en un monocrom
+// perfecte és una pàgina que es veu millor que la que tindrà la persona a les mans. Tot el model és una
+// taula (`emu_ink.cpp`) i `--no-ink` el treu; les proves corren amb ell fora i n'hi ha dues que el
+// proven —el rastre d'un `du`, la neteja d'un `gc16`, i el temps de cada qualitat— (docs/50, docs/85).
+static const char kVersion[] = "0.22.0";
 
 }  // namespace kernel
 

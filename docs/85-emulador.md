@@ -39,7 +39,8 @@ Aquestes són les opcions del binari:
 | `--read-delay <us>` | Què costa **una lectura**, en microsegons: **1 000** per defecte (un mil·lisegon de flash, i el doble a la targeta) i `0` per no esperar gens. És el número que fa que una app que llegeix a cada torn no sembli ràpida aquí i lenta a la placa |
 | `--baud <n>` | La velocitat del port sèrie, en baud: **115 200** per defecte, la de l'UART de la placa, o sigui **86,8 µs per byte** (10 bits a 8N1). `0` treu l'espera, que és el que vol una prova, perquè el seu console és un fitxer i no un cable |
 | `--wake-early <ms>` | Que el banc torni d'un son **aquesta estona abans** de l'hora que se li ha donat: `0` (per defecte) és el rellotge honrat, i qualsevol altra cosa és un son que s'ha tallat —un dit al botó, un cable, una alimentació que parpelleja— per poder provar el cas en què la placa no arriba a la seva hora (docs/60) |
-| `--now <època>` | Fixa l'hora d'arrencada. **Sense aquesta opció no hi ha època**: el rellotge val 0 i `time.caps().source` és `"none"`, com una placa que mai s'ha sincronitzat || `--time-scale <N>` | Accelera el temps N vegades (1000 = un dia en 86 segons) |
+| `--now <època>` | Fixa l'hora d'arrencada. **Sense aquesta opció no hi ha època**: el rellotge val 0 i `time.caps().source` és `"none"`, com una placa que mai s'ha sincronitzat |
+| `--time-scale <N>` | Accelera el temps N vegades (1000 = un dia en 86 segons) |
 | `--seed <n>` | Llavor del generador aleatori — **encara no fa res**: es llegeix i ningú no el fa servir (docs/20) |
 | `--wifi <ms>` | Quant triga la **xarxa de mentida** a pujar (per defecte 300 ms simulats) |
 | `--no-wifi` | Una placa sense ràdio: `net()` és `nullptr` i `net.caps().wifi` és fals |
@@ -62,6 +63,8 @@ Aquestes són les opcions del binari:
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat (0 si ha anat bé) |
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
 | `--display` | **Un vidre**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i el banc deia que no—. Sense l'opció la placa no té pantalla, que és el que volen gairebé totes les proves (docs/30, docs/50) |
+| `--gui` | **El vidre en una finestra X11**, pintada cada cop que el panell es pinta: el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), no el vidre ajagut, amb els setze nivells en els colors del paper. Porta `--display` amb ell (una finestra de res no és una finestra), s'obre només quan hi ha un `DISPLAY` i, si no n'hi ha, el banc ho diu i segueix sense finestra. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu; l'únic que no hi és és el parpelleig d'`a2` (docs/85) |
+| `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, i la pàgina és la que s'ha pintat sense res del que hi havia abans. És el que fan servir les proves —no paguen mig megabyte de buffers ni mig segon per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
 | `--verbose` | El log també surt per la consola |
 
 En mode lot, cada app que arrenca es deixa acabar abans de la línia següent, i **també cada ordre que
@@ -193,6 +196,82 @@ No hi ha cap codi més: una ordre o una app que falla fan **1**, i no hi ha cap 
 Això és el que fan servir les proves del nivell «app»: un guió, una app de prova i un codi de sortida.
 Res de comparar text a ulls.
 
+## La finestra: mirar el vidre en lloc d'endevinar-lo (1/11)
+
+Sense finestra, el vidre del banc és un buffer que només veuen les proves. Amb **`--gui`** el mateix
+buffer es copia a una finestra **X11** cada cop que el panell es pinta —es pregunta pel comptador de
+pintades del `MemorySurface`, o sigui que un torn sense pintada no costa ni una conversió— i el que l'app
+ha dibuixat es veu:
+
+```
+$ .pio/build/emulator/program --board m5stack-paper --gui --script guio.txt
+gui: the page 540x960 is in a window at half, one pixel of the window is 2 of the page
+```
+
+- **És X11 i res més**: l'enllaç és un `-lX11` i el codi viu darrere de `-DLUNOK_GUI_X11`, que és a
+  `platformio.ini` a l'entorn de l'emulador. Una màquina sense Xlib treu aquelles dues línies i el banc
+  compila i corre igual, dient que no té finestra.
+- **La finestra ensenya la pàgina, no el vidre ajagut**: el `MemorySurface` viu en el marc en què l'app
+  dibuixa (540 × 960 amb la pàgina de fàbrica), i la finestra fa el mateix. El vidre físic és 960 × 540 i
+  el gir és cosa del conductor, no de la finestra.
+- **I ensenya el que el vidre mostra, no el que es va pintar** (`shown_bits()`): amb el model de tinta,
+  el fantasma d'un `du` i el gra s'hi veuen, que és exactament el que una persona tindria a les mans. Amb
+  `--no-ink` els dos buffers són el mateix i la finestra ensenya la pintada neta.
+- **L'escala la tria la finestra, i la diu**: el gestor de finestres no dona una pàgina de 960 punts
+  d'alçada, i una pàgina retallada pel marc és pitjor que una pàgina sencera a la meitat. La finestra
+  agafa **l'escala entera més petita que hi cap** (1 a 4, amb marge per a la barra del gestor) i ho diu a
+  la primera línia: en aquesta màquina, 540 × 960 queden en **270 × 480** i cada píxel de la finestra és
+  un bloc de 2 × 2 de la pàgina. El pas de quatre bits a píxel i l'escala són la funció pura
+  (`emu::gui_expand`) que té prova a `test_ui`, perquè és la part que es pot provar sense pantalla.
+- **Tancar la finestra acaba el run**, com tres ESC.
+- **El que no s'hi veu**: el **parpelleig d'`a2`**, que el panell fa i la finestra no dibuixa, i el
+  **temps** de la tinta, que només es nota perquè el prompt espera —el número es llegeix amb `stats` o
+  amb `run panel`, no a l'ull—. Per això la finestra serveix per **veure què dibuixa una app**, i el que
+  es veu a l'ull continua essent el de la placa (docs/95).
+
+## La tinta del vidre: la pàgina que ningú ha vist (1/11)
+
+Un panell d'e-ink no encén píxels: mou pigment. El que hi havia **no desapareix en una pintada**, i
+només les qualitats que netegen (`gc16` i companyia) tornen la pàgina. El banc ho simula amb una taula i
+una barreja d'enters (`lib/hal_emulator/src/emu_ink.cpp`):
+
+| Qualitat | Quant tarda | Què deixa |
+|---|---|---|
+| `gc16`, `gl16`, `glr16`, `gld16` | **450 ms** | res: netegen, i la brutícia del píxel torna a zero |
+| `du` | **120 ms** | un quart del que hi havia, i deixa un punt de brutícia |
+| `du4` | 120 ms | més: tres vuitens, i el doble de brutícia |
+| `a2` | 290 ms | gairebé res, però parpelleja (que la finestra no dibuixa) |
+| `init` | 2000 ms | tot, i la brutícia del panell sencer |
+
+- **La brutícia s'acumula**: cada pintada de `du` afegeix un setzè al píxel i fa que el rastre del que hi
+  havia sigui més fort; una de `gc16` el torna a zero. És el que es veu en una pàgina pintada deu cops
+  amb `du` i no amb `gc16`.
+- **El gra**: una de cada mil píxels d'una pintada de `du` no arriba al nivell que se li va demanar (una
+  de cada cinc-centes amb `du4`), i el píxel s'hi queda fins que alguna cosa neteja la zona. És
+  determinista —un hash del lloc i no un `random`— perquè una pàgina que canvia a cada tirada no es pot
+  provar.
+- **I la pintada ocupa el seu temps**: `idle()` no diu que sí fins que el rellotge del banc passa la
+  durada de la qualitat, o sigui que `run panel` al banc diu ara un número que s'assembla al de la placa
+  (480 ms per a una pàgina de `du` i `gc16`, on la placa en va dir 1979 — la diferència és el que encara
+  no simula la transferència, docs/95).
+- **El color és el del paper i no el d'una pantalla**: el nivell 15 és `#EFEADC` (paper calent), el 0 és
+  `#1A1B18` (la tinta més fosca que arriba el pigment) i els catorze del mig són la recta entre els dos.
+  El panell no té color i la finestra no n'inventa cap.
+
+**`--no-ink`** treu el model i deixa el vidre de sempre: pintada instantània i exacta. És el que fan servir
+les proves —que no han de pagar mig megabyte de buffers ni mig segon per pàgina— i és el que queda si algú
+vol comparar el dibuix amb el d'abans.
+
+**Quant costen aquests dos buffers**: el model guarda *el que el vidre ensenya* i *la brutícia de cada
+píxel*, quatre bits cada un, o sigui **259 200 B per buffer** a la pàgina de fàbrica —**518 400 B els
+dos—**. És memòria del PC i no de la placa, però és el motiu pel qual **el model neix apagat a les
+proves**: `set_ink(true)` és el que diu una prova que vol mirar la tinta, i la resta no paguen el mig
+megabyte ni el mig segon d'una pàgina.
+
+**El que continua sense ser el panell**: no hi ha parpelleig (`a2` no es veu diferent), no hi ha el temps
+de la transferència per SPI, i els números de la taula són els del fabricant i no una mesura d'aquesta
+unitat. Tot el que és model és en un fitxer, perquè un dia a la placa el canviï (docs/95).
+
 ## Fidelitat: què s'assembla i què no
 
 | Aspecte | A l'emulador | A la placa |
@@ -202,7 +281,7 @@ Res de comparar text a ulls.
 | Sostre de memòria | **El de la placa, i no més**: l'ATOM contesta el sostre per defecte (64 KB, `Model::app_limit_kb` = 0, que vol dir «la placa no en diu cap») i el **Paper contesta la seva PSRAM mapejada (4 096 KB, de 8 MB que en té el xip)**. `--mem-cap` el pot **baixar** per veure-hi el pic, i demanar-ne més es refusa amb el número que té el model. `sys.heap()` dona el pressupost de l'app (`free`, `used`, `limit`, `peak`) i la memòria extra del model (`extra_total`, `extra_free`), i `mem` escriu els tres números del model (`Model::psram_kb` mapejats i `Model::psram_chip_kb` del xip) | 320 KB de SRAM al xip i, al Paper, **4 MB de PSRAM mapejada** on van els blocs de 4 KB en amunt (docs/75) |
 | Cost d'una lectura | **Simulat**: cada lectura costa **1 ms** (i el doble a la targeta), o sigui que una app que llegeix un fitxer per torn va tan lenta aquí com al vidre. El número és una aproximació fins que algú el mesuri amb un cronòmetre, i es canvia amb `--read-delay <us>` (0 = cap espera) | Mil·lisegons de flash o SD |
 | Targeta (SD) | **Un directori del disc, i només si el model té ranura** (el Paper): el mateix backend POSIX que la flash, o sigui que el que llegeix aquí llegeix a la placa. Es presenta com una targeta de **16 GB** amb el lliure del PC, i el que falta fins a 16 GB és l'ocupat | FATFS per SPI a la Paper: CS GPIO4, 10 MHz i el CS del panell (GPIO15) deseleccionat abans de tocar el bus (docs/50) |
-| El vidre del banc (`--display`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. La qualitat es recorda, no es pinta de debò: no hi ha temps de tinta, ni fantasma, ni `du4` que no faci res. **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que el banc s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda, un gir obliga a tornar a enviar la pàgina sencera, i `du4` i `a2` poden no pintar res (docs/95, E-7) |
+| El vidre del banc (`--display`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. Des de la 0.22.0 **la pintada mou tinta**: un `du` deixa un quart del que hi havia i acumula brutícia, un `gc16` neteja, una de cada mil falla un nivell, i `idle()` no diu que sí fins que el rellotge passa la durada de la qualitat (docs/85). Les proves hi corren amb el model fora (`--no-ink`). **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que el banc s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda, un gir obliga a tornar a enviar la pàgina sencera, `du4` i `a2` poden no pintar res, i el temps inclou la transferència per SPI (docs/95, E-7) |
 | Desgast de la flash | No existeix | Existeix |
 | Consum | No existeix | Existeix |
 | Despertar de son | Simulat | Real o inexistent segons la placa |
@@ -244,8 +323,10 @@ només el criden les proves. Les dues coses són a [`90 · Full de ruta`](90-ful
 (`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x932 at 0,28, 251640 bytes of
 canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **al banc el temps
 d'un dispositiu és el del PC**. `vfs.list` pot costar 40 ms aquí per la lectura simulada d'1 ms per
-fitxer, i una pintada costa zero perquè no hi ha tinta. El que es mesura aquí és **quantes vegades** es
-demana una cosa i quin camí es pren; el que costa de debò es mesura a la placa (docs/95).
+fitxer. Des de la 0.22.0 una pintada **sí que costa** el que costa la seva qualitat —450 ms un `gc16`,
+120 un `du`—, però és el temps del model de la tinta i no el de la transferència. El que es mesura aquí
+és **quantes vegades** es demana una cosa i quin camí es pren; el que costa de debò es mesura a la placa
+(docs/95).
 
 ## Consell de treball
 
