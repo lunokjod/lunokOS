@@ -269,6 +269,36 @@ struct ButtonOps {
 
 void set_button_ops(const ButtonOps& ops);
 
+// The glass, as the interpreter uses it: how big it is, the fingers that are down and the last
+// gesture (docs/30, docs/50). Plain numbers: the interpreter does not need the HAL and an app is not
+// going to compare enumerations. **There is no promise**, and it is on purpose: a finger is a state
+// read in a loop, not a thing an app waits for, and an app that waits for a touch is an app that does
+// nothing else.
+struct TouchPointInfo {
+  uint8_t id;
+  uint16_t x;
+  uint16_t y;
+  uint16_t size;
+};
+
+struct TouchInfo {
+  uint8_t max_points;
+  uint16_t width;
+  uint16_t height;
+};
+
+struct TouchOps {
+  bool (*caps)(TouchInfo& out);
+  // The frame of the last turn of the kernel: the chip gives a frame once and it has already been
+  // taken, so this is not a second read of the glass (docs/30).
+  uint8_t (*points)(TouchPointInfo* out, uint8_t capacity);
+  // The last gesture, taken once. False when there is none.
+  bool (*gesture)(const char** kind, uint16_t& x, uint16_t& y, int16_t& dx, int16_t& dy,
+                  int16_t& spread, int32_t& held_ms, uint8_t& fingers);
+};
+
+void set_touch_ops(const TouchOps& ops);
+
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).
 void button_progress(const char* kind, int64_t held_ms, uint32_t key);

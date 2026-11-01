@@ -1,0 +1,6 @@
+{
+  "title": "Glass",
+  "version": "0.1.0",
+  "entry": "glass.lua",
+  "boards": ["esp32"]
+}

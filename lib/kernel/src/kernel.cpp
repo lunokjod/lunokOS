@@ -8,6 +8,7 @@
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
+#include "kernel/touch.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
@@ -276,6 +277,9 @@ void boot(hal::IPlatform& platform) {
   // The air, the same way: the Paper has an SHT30 and the ATOMs have nothing, and env.read() answers
   // which of the two this is (docs/30, docs/50).
   env::boot(platform);
+  // The glass, when the board has one: its frames become taps, long presses and drags in the turns
+  // of this loop (docs/50).
+  touch::boot(platform);
   // Last, because it speaks to the console and may bring an app back: a board
   // that wakes from a deep sleep is a board that boots, and the session record is
   // what makes the app come back where it was (docs/90).
@@ -369,6 +373,9 @@ void poll() {
   // The button is asked in every turn, and its press is turned into an event right
   // here: same place as the alarms, same reason (docs/30).
   button::poll();
+  // The glass, in the same turn: a frame becomes a tap, a long press, a drag or two fingers here,
+  // and not in the app, so every board makes the same gestures out of the same points (docs/50).
+  touch::poll();
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine
   // suspended: the interpreter is not closed from inside its own call (docs/30).

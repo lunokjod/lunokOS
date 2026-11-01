@@ -430,6 +430,33 @@ sencera amb els dos CRCs bons**. El que queda d'aquesta prova és **una** cosa, 
 número de firmware pot dir: que aquests 21,1 °C i aquest 63,5 % **quadrin amb un termòmetre** de la
 mateixa sala (±1 °C i ±5 %).
 
+### E-6 · El tàctil (5 minuts)
+
+El driver ja hi és però encara no té crida de Lua; el que es mesura aquí és **què és aquest xip i en quin marc compta**, que és el que la crida necessita saber.
+
+```
+# a l'arrencada, abans del prompt, surt una línia:
+touch: GT911 at 0x14, config 92, 540x960, 5 fingers
+```
+
+**El que va dir la placa l'1/11 amb la 0.11.0**:
+
+```
+i2c: read of 14:8140 failed (ESP_FAIL)        ← no hi ha ningú a 0x14, i és normal
+touch: GT911 at 0x5d, config 66, 540x960, 2 fingers
+```
+
+O sigui que aquesta unitat **contesta a 0x5D** (no a 0x14), la seva configuració és la **66**, compta en
+un marc de **540 × 960** i està configurada per a **dos dits** i no cinc: `touch.caps().points` dona 2,
+que és el que el xip reportarà de debò. Falta la cantonada: tocar les quatre i apuntar-ho.
+
+| Què apuntar | On va |
+|---|---|
+| **A quina adreça contesta** (0x14 o 0x5D) i amb quina **versió de configuració** | `docs/50` (taula del tàctil) |
+| **El marc**: tocar les quatre cantonades del panell, una a una, i apuntar què diu el primer punt. Serveix per decidir **quina de les quatre rotacions** és la bona quan la pantalla hi sigui, i si la crida de Lua ha de donar les coordenades del controlador (retrat, 540x960) o les del panell tal com es mira (docs/50, docs/90) | `docs/50`, `docs/30` (§`touch`), `docs/90` |
+| **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que compta el dit | `docs/50` |
+| Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
+
 ---
 
 ## Què **no** cal mesurar encara

@@ -2636,6 +2636,97 @@ int l_button_held(lua_State* L) {
   return 1;
 }
 
+// The five points a frame can hold, which is what the chips here report and what the kernel keeps
+// (docs/50). It is not a copy of a HAL constant on purpose: the interpreter asks and the kernel
+// clamps.
+const uint8_t kTouchPointsInFrame = 5;
+
+TouchOps g_touch_ops = {};  // and touch.*
+
+// `set_touch_ops` is defined further down, **outside** this file's anonymous namespace: the kernel
+// links to it (docs/30).
+
+// touch.caps(): how big the glass is and how many fingers it reports at once (docs/30).
+int l_touch_caps(lua_State* L) {
+  TouchInfo info = {};
+  if (g_touch_ops.caps == nullptr || !g_touch_ops.caps(info)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no touch");
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, info.max_points);
+  lua_setfield(L, -2, "points");
+  lua_pushinteger(L, info.width);
+  lua_setfield(L, -2, "width");
+  lua_pushinteger(L, info.height);
+  lua_setfield(L, -2, "height");
+  return 1;
+}
+
+// touch.read(): the fingers that are down, as the kernel saw them in its last turn. An empty table
+// and not nil when nobody is touching, so a loop can walk it without asking first (docs/30).
+int l_touch_read(lua_State* L) {
+  TouchPointInfo points[kTouchPointsInFrame] = {};
+  if (g_touch_ops.points == nullptr || g_touch_ops.caps == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no touch");
+  }
+  TouchInfo info = {};
+  if (!g_touch_ops.caps(info)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no touch");
+  }
+  const uint8_t count = g_touch_ops.points(points, kTouchPointsInFrame);
+  lua_createtable(L, count, 0);
+  for (uint8_t i = 0; i < count; ++i) {
+    lua_createtable(L, 0, 4);
+    lua_pushinteger(L, points[i].id);
+    lua_setfield(L, -2, "id");
+    lua_pushinteger(L, points[i].x);
+    lua_setfield(L, -2, "x");
+    lua_pushinteger(L, points[i].y);
+    lua_setfield(L, -2, "y");
+    lua_pushinteger(L, points[i].size);
+    lua_setfield(L, -2, "size");
+    lua_rawseti(L, -2, static_cast<lua_Integer>(i) + 1);
+  }
+  return 1;
+}
+
+// touch.gesture(): the last thing the kernel made out of the stream, or nil. It is **taken once**:
+// asking twice about one tap would make a loop act on it twice (docs/30).
+int l_touch_gesture(lua_State* L) {
+  const char* kind = nullptr;
+  uint16_t x = 0;
+  uint16_t y = 0;
+  int16_t dx = 0;
+  int16_t dy = 0;
+  int16_t spread = 0;
+  int32_t held_ms = 0;
+  uint8_t fingers = 0;
+  if (g_touch_ops.gesture == nullptr ||
+      !g_touch_ops.gesture(&kind, x, y, dx, dy, spread, held_ms, fingers)) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_createtable(L, 0, 7);
+  lua_pushstring(L, kind);
+  lua_setfield(L, -2, "kind");
+  lua_pushinteger(L, x);
+  lua_setfield(L, -2, "x");
+  lua_pushinteger(L, y);
+  lua_setfield(L, -2, "y");
+  lua_pushinteger(L, dx);
+  lua_setfield(L, -2, "dx");
+  lua_pushinteger(L, dy);
+  lua_setfield(L, -2, "dy");
+  // How much further apart (positive) or closer (negative) two fingers ended, for a pinch (docs/30).
+  lua_pushinteger(L, spread);
+  lua_setfield(L, -2, "spread");
+  lua_pushinteger(L, held_ms);
+  lua_setfield(L, -2, "held_ms");
+  lua_pushinteger(L, fingers);
+  lua_setfield(L, -2, "fingers");
+  return 1;
+}
+
 int l_button_wait(lua_State* L) {
   lua_Integer timeout = luaL_optinteger(L, 1, kButtonWaitDefaultMs);
   if (timeout <= 0) {
@@ -2935,6 +3026,14 @@ void seal_globals(lua_State* L) {
   set_function(L, "info", l_button_info);
   set_function(L, "list", l_button_list);
   lua_setglobal(L, "button");
+
+  // touch: the glass, read in a loop. caps says how big it is, read gives the fingers of the last
+  // turn of the kernel and gesture gives the last shape the kernel made out of them (docs/30).
+  lua_createtable(L, 0, 3);
+  set_function(L, "caps", l_touch_caps);
+  set_function(L, "read", l_touch_read);
+  set_function(L, "gesture", l_touch_gesture);
+  lua_setglobal(L, "touch");
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).
@@ -3310,6 +3409,10 @@ void set_imu_ops(const ImuOps& ops) { g_imu_ops = ops; }
 void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
 
 void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
+
+// The glass, the same way: the kernel installs it at boot and the three calls of `touch` answer from
+// it (docs/30, docs/50).
+void set_touch_ops(const TouchOps& ops) { g_touch_ops = ops; }
 
 // The answer of a sleep: `true` when the board came back. A board that went to a
 // deep sleep never gets here, because the app was closed before it went and the

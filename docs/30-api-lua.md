@@ -91,15 +91,15 @@ La regla de la llista, perquè no s'hi busqui el que no hi ha:
   7 168 B). **La FRAM és l'única peça que no hi és**: només es veu com a `/fram` a `mounts`, mentre
   que `/sd`, `/nvs` i `/rtc` tenen bit **i** muntatge. És una decisió oberta a `docs/90`.
 
-Als ATOM d'avui `caps` respon **13 de 18**, el Matrix **14 de 18** perquè hi afegeix `imu`, el Paper
-**13 de 18** amb el SHT30 contestant i sense bateria ni targeta —**14** amb la bateria llegida **o** la
-targeta, **15** amb totes dues, que és el sostre d'aquesta placa: les deu del xip, `littlefs`, `sd`,
-`input`, `battery` i `env`— i l'emulador **el que diu el model que imita**: 13 al model de l'ATOM (12
-si el terminal no és ANSI), 14 al del Matrix i 14 al del Paper (13 sense ANSI), que ja porta la
-targeta `emulator/sd` i puja a 15 amb `--battery-mv` (docs/50, docs/85). L'única que no té ningú és
-`display`, que encara no implementa cap placa. Els números del Paper **no són una previsió**: l'1/11
-la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta dins) i `run air` va donar
-`air 21.1 C 63.5 %` (docs/95, E-5).
+Als ATOM d'avui `caps` respon **13 de 19**, el Matrix **14 de 19** perquè hi afegeix `imu`, el Paper
+**14 de 19** amb el SHT30 contestant i el vidre, i sense bateria ni targeta —**15** amb la bateria
+llegida **o** la targeta, **16** amb totes dues, que és el sostre d'aquesta placa: les deu del xip,
+`littlefs`, `sd`, `input`, `battery`, `env` i `touch`— i l'emulador **el que diu el model que imita**:
+13 al model de l'ATOM (12 si el terminal no és ANSI), 14 al del Matrix i 14 al del Paper (13 sense
+ANSI), que ja porta la targeta `emulator/sd` i puja a 15 amb `--battery-mv` (docs/50, docs/85). L'única
+que no té ningú és `display`, que encara no implementa cap placa. Els números del Paper **no són una
+previsió**: l'1/11 la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta dins) i `run air` va
+donar `air 21.1 C 63.5 %` (docs/95, E-5).
 
 ---
 
@@ -726,6 +726,55 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
 - **Dos CRCs** se supervisen abans de donar el número: una lectura amb el CRC creuat és una lectura
   que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
 - L'exemple és l'app `air` (`run air`), que la llegeix cada dos segons.
+
+## `touch`
+
+El vidre de la placa: el GT911 de la Paper (docs/50). Tres crides i cap promesa, i és una decisió: un
+dit és un **estat que es llegeix en un bucle**, no una cosa que una app espera, i una app que espera un
+toc és una app que no fa res més.
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `touch.caps()` | `{points, width, height}` | Quants dits alhora i el **marc** en què compten les coordenades |
+| `touch.read()` | taula de `{id, x, y, size}` | Els dits que hi ha **ara**, del darrer torn del nucli (vint mil·lisegons com a màxim). Taula buida quan no toca ningú, no `nil`, perquè un bucle la pugui recórrer sense preguntar |
+| `touch.gesture()` | `{kind, x, y, dx, dy, spread, held_ms, fingers}` o `nil` | L'últim gest, i **es pren una vegada**: preguntar-ho dues vegades no el repeteix |
+
+- **Els gestos els fa el sistema, no el xip.** El GT911 té gestos propis i ni el driver de M5 ni el
+d'Espressif els llegeixen. Aquí són **formes del flux de punts**: `tap` (cau i s'aixeca en menys de
+400 ms sense moure's més de 20 px), `double` i `triple` (dos i tres tocs seguits, amb 350 ms entre un
+i el següent), `long` (aguantat un segon, dit quan es creua el llindar i no en aixecar-se), `drag`
+(**amb un dit o amb dos**, i `fingers` ho diu: dos dits que es mouen junts són un pan, amb `dx`/`dy`
+del punt del mig), `two` (el segon dit arriba, amb el punt del mig) i `pinch` (els dos dits s'han
+apropat o separat: `spread` és quants píxels, positiu cap enfora). Volen dir el mateix a qualsevol
+vidre i es poden provar al PC (docs/85).
+- **Un toc es diu 350 ms després de llevar el dit**, i és el preu de `double` i `triple`: fins que la
+  finestra no es tanca, un toc no se sap si és sol. L'altra manera —dir-lo de seguida i després
+  esmenar-lo— faria que cada app desfés el que ja havia fet amb el primer toc. El `triple` sí que surt
+  de seguida, perquè no hi ha res més llarg que tres.
+- **Un gest de dos dits es diu pel més gran dels dos que pot fer**: si la distància ha canviat més que
+  no s'ha mogut el mig, és `pinch`; si s'ha mogut més el mig, és `drag` amb `fingers = 2`. I **els dos
+  números van sempre al missatge** (`spread` i `dx`/`dy`), així que una app que vulgui la història
+  sencera no depèn del nom.
+- **Mentre hi ha dos dits, la màquina d'un dit està aturada**: un `pinch` no és un `drag` del dit que
+  la placa llista primer, ni una premuda llarga de dos dits és un `long`. Mesurat a la Paper l'1/11,
+  que era exactament el que passava abans d'arreglar-ho (docs/50).
+- **`size` no és una pressió**: és l'àrea que el xip mesura sota el dit. Dos dits que premen igual de
+  fort donen dues mides, i no s'inventa cap escala (docs/50).
+- **`read()` no torna a preguntar al xip**: el vidre dona un frame una vegada i qui el pren el neteja,
+  o sigui que el nucli el llegeix al seu torn i la crida dona aquesta còpia.
+- **Sense vidre**: les tres crides responen `nil, E_UNSUPPORTED` i `sys.caps().touch` diu `false`.
+- **El marc és el del xip, i això és provisional.** Les coordenades surten com les dona el GT911
+  (540 × 960 en retrat) perquè encara no hi ha cap pantalla amb què compartir-les; quan el panell hi
+  sigui, hi haurà **una sola rotació per al dibuix i per al toc** i la farà el sistema, també sobre el
+  `dx`/`dy` dels gestos, i aquesta crida donarà directament el marc del panell (docs/90). Una app no ha
+  de girar mai res.
+- **El marc és el del xip, i això és provisional.** Les coordenades surten com les dona el GT911
+  (540 × 960 en retrat) perquè encara no hi ha cap pantalla amb qui compartir-les; quan el panell hi
+  sigui, hi haurà **una sola rotació per al dibuix i per al toc** i la farà el sistema, també sobre el
+  `dx`/`dy` dels gestos, i aquesta crida donarà directament el marc del panell (docs/90). Una app no ha
+  de girar mai res.
+- L'exemple és l'app `glass` (`run glass`), que llegeix el panell en bucle i escriu els dits i els
+  gestos.
 
 ## `imu`
 

@@ -88,6 +88,20 @@ class Esp32I2c : public II2c {
     return true;
   }
 
+  // The same read with a two-byte register address, which is how the touch controller of the Paper
+  // asks to be spoken to: the two bytes and the data are one transaction (docs/50).
+  bool read16(uint8_t address, uint16_t reg, uint8_t* out, size_t len) override {
+    if (!ready_ || out == nullptr || len == 0) return false;
+    const uint8_t reg_bytes[2] = {static_cast<uint8_t>(reg >> 8), static_cast<uint8_t>(reg & 0xFF)};
+    const esp_err_t err = i2c_master_write_read_device(port_, address, reg_bytes, sizeof(reg_bytes),
+                                                       out, len, pdMS_TO_TICKS(kTimeoutMs));
+    if (err != ESP_OK) {
+      printf("i2c: read of %02x:%04x failed (%s)\n", address, reg, esp_err_to_name(err));
+      return false;
+    }
+    return true;
+  }
+
  private:
   i2c_port_t port_;
   bool ready_ = false;

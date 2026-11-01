@@ -29,8 +29,8 @@ const CapEntry kCaps[] = {
     {"net_prov", kCapProvisioning},
     {"imu", kCapImu},
     {"env", kCapEnv},
+    {"touch", kCapTouch},
 };
-
 const uint32_t kCapCount = static_cast<uint32_t>(sizeof(kCaps) / sizeof(kCaps[0]));
 
 }  // namespace

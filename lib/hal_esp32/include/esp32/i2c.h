@@ -30,6 +30,16 @@ class II2c {
     (void)len;
     return false;
   }
+  // The same read, for the chips that address their registers with **two bytes**: the touch
+  // controller is one of them (`0x814E` is a status and not a byte) and it wants the two bytes and
+  // the data in one transaction, or another master could slip in between (docs/50).
+  virtual bool read16(uint8_t address, uint16_t reg, uint8_t* out, size_t len) {
+    (void)address;
+    (void)reg;
+    (void)out;
+    (void)len;
+    return false;
+  }
 };
 
 // The bus of this chip on two pins, at 100 kHz. The same pair of pins gives the same bus,

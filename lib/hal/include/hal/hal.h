@@ -31,7 +31,10 @@ enum Capability : uint32_t {
   kCapImu = 1u << 16,
   // The air around the board: temperature and humidity, which is the SHT30 of the Paper and nothing
   // at all on the ATOMs (docs/50).
-  kCapEnv = 1u << 17
+  kCapEnv = 1u << 17,
+  // The glass: somebody can touch the board, and the kernel turns the fingers into taps, long
+  // presses and drags (docs/30, docs/50).
+  kCapTouch = 1u << 18
 };
 
 struct Caps {
@@ -294,6 +297,37 @@ class IDisplay {
   virtual ~IDisplay() {}
 };
 
+// One finger on the glass, as the controller reports it (docs/50): where it is, how much of the
+// glass it covers, and which of the fingers of this gesture it is. The number matters on a panel
+// that reports five at once: it is what tells `the same finger moved` from `one finger went and
+// another came` (docs/50).
+struct TouchPoint {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  // The area the chip measured under the finger. It is a size and not a pressure: the controller
+  // counts how much of the glass is covered, and two people pressing equally hard give two sizes
+  // (docs/50).
+  uint16_t size = 0;
+  uint8_t id = 0;
+};
+
+// The glass of the board. The chip measures by itself and keeps its last frame until somebody takes
+// it, so this is a **read and not a wait**: the kernel asks in its own turns and the answer is what
+// the glass has now (docs/50, docs/30).
+class ITouch {
+ public:
+  virtual ~ITouch() {}
+  // How many fingers the glass reports at once.
+  virtual uint8_t max_points() const = 0;
+  // The frame the coordinates come in: what the controller was configured with, which is the panel
+  // in its own portrait and not the way the board is held (docs/50).
+  virtual uint16_t width() const = 0;
+  virtual uint16_t height() const = 0;
+  // The points that are down now, up to `capacity`; 0 when nobody is touching. A frame that is
+  // taken is cleared, so a stale finger is never read twice (docs/50).
+  virtual uint8_t read(TouchPoint* out, uint8_t capacity) = 0;
+};
+
 // Where a key sits, said the same way on every board: the board is a box and a
 // key is on one of its six faces, at one of the five places of that face. An app
 // that wants "up" to mean one thing and "left" another has to be able to ask
@@ -453,6 +487,11 @@ class IPlatform {
   // board without it has to say, and a board that has it overrides this (docs/50). `const` because
   // the capabilities ask it too, and a board is not changed by being asked what it has.
   virtual ISensor* sensor() const { return nullptr; }
+  // The glass of the board, or nullptr when it has none (docs/50). It is not pure for the same
+  // reason as `sensor()`, and it is **not announced** as a capability yet: the chip answers and its
+  // frame is known, but a name an app can ask for has to come with the call that uses it, and a
+  // touch means nothing without something drawn under it — the panel (docs/90).
+  virtual ITouch* touch() const { return nullptr; }
 };
 
 // Implemented once per board library (hal_atom, hal_emulator).

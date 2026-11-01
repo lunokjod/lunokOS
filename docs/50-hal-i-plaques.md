@@ -468,7 +468,7 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **13 de 18** al Paper amb el SHT30 contestant i sense bateria ni targeta —**14** amb la bateria llegida **o** la targeta, **15** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 18** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv`. L'única que no té ningú és `display`.
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **14 de 19** al Paper amb el SHT30 contestant i el vidre, i sense bateria ni targeta —**15** amb la bateria llegida **o** la targeta, **16** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv`. L'única que no té ningú és `display`.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -520,6 +520,36 @@ Pins que el HAL fa servir, i que són els de la llibreria del fabricant (`M5EPD.
 | I2C intern: SDA, SCL | GPIO21, GPIO22 |
 | GT911 (0x14) amb INT a GPIO36 · SHT30 (0x44) · BM8563 (0x51) · FM24C02 (0x50) | al mateix bus |
 
+### El tàctil: un GT911 que parla en registres de dos bytes (1/11)
+
+El que se sap del xip, i d'on surt: del **mapa de registres** que fan servir les dues bases de codi del
+fabricant —el `Touch_GT911` de `M5GFX` (el que M5 manté) i l'`esp_lcd_touch_gt911` d'Espressif—, que
+coincideixen entre ells i amb el que la placa ja ha dit:
+
+| Què | Valor |
+|---|---|
+| Adreça | **0x14** o **0x5D**, triada pel nivell de la línia `INT` durant el reset. Aquí `INT` és **GPIO36, que és una entrada**: el firmware no pot triar-la, i per això el driver **pregunta les dues** i es queda la que contesta |
+| Identitat | `0x8140`, tres caràcters: `9`, `1`, `1` (i un zero). Un xip que contesta una altra cosa és un altre aparell als mateixos fils |
+| Registres | De **dos bytes** (`0x814E` és un estat, no un byte): el bus del HAL té una lectura de registre de 16 bits per a això (`II2c::read16`) |
+| La configuració | `0x8047`, **186 bytes** i un checksum al final. La versió és el primer byte, els dos màxims (el marc) a `0x8048` i `0x804A`, i **quants dits** a `0x804C` |
+| Un frame | L'estat a `0x814E` —bit 7 = «hi ha frame», bits 3:0 = quants dits— i fins a **cinc** punts de **vuit bytes** des de `0x814F`: `id` de traça, x, y, **mida** del contacte i un byte reservat |
+| Per tancar el frame | **S'escriu un zero a `0x814E`**. Sense això el mateix dit es llegeix per sempre més, que és la manera més fàcil de fer una app que no respira |
+| Dits alhora | El xip en pot reportar **cinc**, però **mana la seva configuració**: la unitat de la Paper diu **2** (`0x804C`, config 66, mesurat l'1/11), que és el «two-point touch» que anuncia el fabricant. El driver llegeix aquest número i el que no passarà mai és el que una app ha de rebre |
+| «Pressió» | El camp de **mida** és l'àrea que el xip mesura sota el dit, no una pressió: dos dits que premen igual de fort donen dues mides diferents. S'exposa com a `size` i no s'inventa una escala |
+| Velocitat | És un valor de la configuració del xip; el `M5GFX` el llegeix de `0x8056` i en fa `5 + (byte & 0x0F)` Hz. **No es dóna per bo**: es llegeix i es mesura al xip (docs/95, E-6) |
+| Gestos | El xip en té de propis, i **ni el driver de M5 ni el d'Espressif els llegeixen**. Aquí tampoc: un toc, una premuda llarga, un arrossegament o dos dits són **formes del flux de punts**, volen dir el mateix a qualsevol vidre i es poden provar al PC amb un fals; un gest que inventa el xip només el pot fer servir una placa (docs/85) |
+
+**El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
+el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,
+`touch.gesture`), els gestos fets pel nucli (`tap`, `double`, `triple`, `long`, `drag` amb un dit o
+amb dos, `two` i `pinch`, amb la mateixa finestra que el botó), l'app `glass` i la línia de l'arrencada —`touch: GT911 at 0x14, config N, 540x960, 5
+fingers`— que diu què és aquesta unitat sense un oscil·loscopi. **La capacitat s'anuncia** quan el xip
+contesta, perquè ara una app ho pot fer servir. **El que falta**: dos mesures al xip —**en quin marc
+compta** (es toquen les quatre cantonades) i **a quina velocitat mostreja** (docs/95, E-6)—, la
+**rotació compartida amb el panell** —una sola rotació per al dibuix i per al toc, amb els `x`/`y` i
+els `dx`/`dy` dels gestos convertits en un sol lloc (docs/90)— i, del pas 8, la política d'energia de la
+I2C i de les alimentacions.
+
 ### El bus ha de deixar que el xip aguanti el rellotge (mesurat l'1/11)
 
 Un xip de la I2C pot **aguantar la línia del rellotge a baix** mentre pensa, i això és
@@ -560,10 +590,10 @@ escriu el sostre de deu cicles). Dues notes que això deixa lligades:
 | Peça | Estat | Què falta |
 |---|---|---|
 | ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
-| 16 MB de flash | **fet**: 2 098 905 B (50,0 %, mesurat amb la 0.10.1 l'1/11) i 11,9 MB de disc | — |
+| 16 MB de flash | **fet**: 2 102 181 B (50,1 %, mesurat amb la 0.11.0 l'1/11) i 11,9 MB de disc | — |
 | **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
 | **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **res**: `IDisplay` existeix i està reservada, i `kCapDisplay` no s'anuncia | **el driver sencer**: comandes de l'IT8951E, els modes (`INIT`, `DU4`, `GC16`), el marc de 4 bits per píxel i la política d'encesa de GPIO23 (docs/90 pas 2) |
-| **GT911**, tàctil de dos dits amb gestos (I2C 0x14, INT GPIO36) | **res**: no hi ha interfície de toc al HAL | `ITouch` + la seva crida de Lua (docs/90 pas 8) |
+| **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `long`, `drag` i `two`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | comprovar al xip que el marc i els gestos quadren: tocar les quatre cantonades i contar frames amb el dit (docs/95, E-6) i, més endavant, la política d'energia del pas 8 |
 | **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
 | **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |
 | **BM8563** amb pila (I2C 0x51) i la seva alarma al SY7088 | **fet**: l'hora, el despert, i `poweroff` | les dues proves de foc (docs/95, A-2) |

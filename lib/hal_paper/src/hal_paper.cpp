@@ -40,6 +40,7 @@
 #include "esp32/rtc_clock.h"
 #include "esp32/rtc_memory.h"
 #include "esp32/sd_card.h"
+#include "esp32/gt911.h"
 #include "esp32/sht30.h"
 #include "esp32/storage.h"
 #include "hal/hal.h"
@@ -297,6 +298,9 @@ class PaperPlatform : public IPlatform {
       // arrived with its two CRCs good. A sensor that is promised and never answers is
       // worse than one that is not announced (docs/50).
       if (sensor() != nullptr) caps_.add(kCapEnv);
+      // The glass, and the capability with it: the chip answers and the kernel turns its frames into
+      // taps, long presses and drags, which is what an app needs to choose a path (docs/50).
+      if (touch() != nullptr) caps_.add(kCapTouch);
     }
     return caps_;
   }
@@ -355,6 +359,10 @@ class PaperPlatform : public IPlatform {
   // (docs/50). `const` because the capabilities ask it too, and a capability is a question about a
   // board that is not changed by asking.
   ISensor* sensor() const override { return esp32_sht30(esp32_i2c(kI2cSdaPin, kI2cSclPin)); }
+
+  // The glass of this board, on the same two wires as the clock chip, the FRAM and the air sensor
+  // (docs/50).
+  ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin)); }
 
  private:
   mutable Caps caps_;

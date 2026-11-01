@@ -48,7 +48,11 @@ namespace kernel {
 // bus cycles —100 µs at 100 kHz— and the SHT30 needs six milliseconds, so the sensor was announced as
 // absent (`i2c: read of 44 failed (ESP_ERR_TIMEOUT)`); the ceiling is now the register's maximum, 13.1 ms
 // (docs/50, docs/95).
-static const char kVersion[] = "0.10.1";
+// 0.11.0 (1/11): the glass of the Paper, up to the HAL. `ITouch` (five fingers, a frame, a size and a
+// track id), the GT911 driver on both of its addresses, and one line at boot saying which one answered,
+// in which frame and with how many fingers. **No capability and no call of Lua yet**: a touch means
+// nothing until there is something drawn under it (docs/50, docs/90).
+static const char kVersion[] = "0.11.0";
 
 }  // namespace kernel
 
