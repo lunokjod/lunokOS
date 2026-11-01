@@ -269,7 +269,6 @@ void boot(hal::IPlatform& platform) {
                static_cast<long long>(clock->epoch_ms()));
   }
 
-  shell::start();
   // The light and the button: what this board does with a person. Both are optional
   // and both say so, so a board without them boots the same (docs/50).
   led::boot(platform);
@@ -292,6 +291,11 @@ void boot(hal::IPlatform& platform) {
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
+  // **The prompt is the last thing the boot writes**, and it is not a detail: the lines of the hardware
+  // say what this board is, and one of them after the prompt is a line that looks like an answer to
+  // something the person has not typed (measured on the board and on the bench, 1/11: `ui: view ...`
+  // came out after `lunok> `).
+  shell::start();
   // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep
   // sleep is a board that boots, and the session record is what makes the app come back where it was
   // (docs/90).

@@ -136,6 +136,39 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_EQUAL_UINT32(after, glass().paint_count());
 }
 
+// **A title too long for the middle is cut at the border of its box and does not run over the hour.**
+// The box is what is left between the hour and the charge, and the strip is measured on the portrait
+// page of the board (540 wide), where the longest title a manifest can carry —47 characters, 562
+// pixels— is wider than the room it has. It was not always so: a title that did not fit was dropped
+// whole, and before that it ran under the hour (docs/30, docs/90).
+static void test_a_long_title_is_cut_at_its_box() {
+  boot_with_a_panel();
+  TEST_ASSERT_TRUE(ui::set_rotation(270));
+  bar::title("");
+  bar::poll();
+  bar::title("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+  bar::poll();
+
+  // The box starts after the hour and its air: 8 of padding, the 58 pixels of "HH:MM" and 6 of gap.
+  const uint16_t box_left = 8 + 58 + 6;
+  const uint16_t box_right = 540 - (8 + 22 + 6);  // and the charge, "--", on the right
+  bool ink_in_the_box = false;
+  for (uint16_t x = box_left; x < box_right && !ink_in_the_box; ++x) {
+    for (uint16_t y = 6; y < 19 && !ink_in_the_box; ++y) {
+      if (glass().level_at(x, y) == 0) ink_in_the_box = true;
+    }
+  }
+  TEST_ASSERT_TRUE(ink_in_the_box);
+  // And between the hour and the box the strip is still white: the title did not run over it.
+  for (uint16_t x = 66; x < box_left; ++x) {
+    for (uint16_t y = 6; y < 19; ++y) {
+      TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(x, y));
+    }
+  }
+  // Back, so the tests after this one see the frame they expect.
+  TEST_ASSERT_TRUE(ui::set_rotation(0));
+}
+
 // The title of nobody is the bar with no title, and it is a change like any other.
 static void test_the_title_goes_away_with_the_app() {
   boot_with_a_panel();
@@ -156,6 +189,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_turning_the_page_turns_the_bar_and_the_view);
   RUN_TEST(test_a_turn_with_nothing_new_paints_nothing);
   RUN_TEST(test_a_new_title_repaints_the_bar);
+  RUN_TEST(test_a_long_title_is_cut_at_its_box);
   RUN_TEST(test_the_title_goes_away_with_the_app);
   return UNITY_END();
 }

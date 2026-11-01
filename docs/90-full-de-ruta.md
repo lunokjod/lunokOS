@@ -254,6 +254,110 @@ la **DRAM interna** i no de la PSRAM, o sigui que el que faltava era memòria in
 (`docs/75`). L'`INet` del Paper s'ha provat després i **funciona**; si el `abort()` torna a sortir en
 tancar el provisioning per Bluetooth, el camí és aquest i el número de DRAM encara no hi és.
 
+## M9 · La capa de controls (disseny en curs, 1/11)
+
+**UICanvas és el control bàsic: un buffer**, i tota imatge és un UICanvas. Els controls es posen uns
+dins dels altres i es dibuixen **en cascada per capes** fins que la interfície sencera queda composta, i
+el que arriba al vidre és el resultat. **UILabel és un UICanvas amb un text a dins**, i per això el text
+**es talla a la vora del control** en lloc de trepitjar el que té al costat: no hi ha aritmètica de
+marges a fora, hi ha una vora que no es pot passar.
+
+- **Els events i els gestos es registren dins de la vista d'un UICanvas**, i cada control que en registra
+  un ha de rebre la informació **adaptada al seu espai de coordenades local**: el punt, el `dx`/`dy` i el
+  començament del gest, restant el desplaçament de cada capa que té a sobre. És la mateixa conversió que
+  avui fa `turn_frame()` una sola vegada, estesa a una cadena; i el gest és d'un sol control —el que
+  tenia el dit a sobre quan va començar— o el mateix gest el rebrien tots els de la pila.
+- **Falta per parlar i decidir**: els tipus de lletra dels UILabel, les funcions per carregar una imatge
+  dins d'un UICanvas, i tres coses que el model obliga a triar:
+  - **què vol dir compondre un control sobre un altre**: una còpia de bytes (el fill és opac i porta el
+    seu fons) o només la tinta (el fill guarda una màscara a part). Amb quatre bits i setze nivells, un
+    «nivell transparent» no hi cap sense prohibir el blanc sobre negre;
+  - **la memòria**: un canvas de pàgina sencera són 251 640 B de PSRAM al Paper (mesurat: la línia
+    d'arrencada de la 0.18.x), o sigui que un arbre de controls no pot ser de capes de pàgina sencera;
+    cada control ha de ser de la seva mida;
+  - **el preu de compondre**: cada capa és una passada de píxels, i la tinta no és gratis (docs/50).
+
+**Què hi ha, l'1/11 (0.19.0)**: el primer tros ja és codi i està provat al banc — **el canvas com a
+objecte** (`ui.canvas(w, h)` a Lua, `ui::create` al nucli): un buffer de quatre bits amb el seu lloc, un
+arbre de canvas dins de la vista, la composició en cascada a cada `ui.present` (l'ordre d'aparició és
+l'ordre de les capes), el retall a la vora de cada canvas, i **el que costa és el que ha canviat**: el pare
+només copia el que el fill ha pintat des de l'última composició, o sigui que no hi ha màscares ni alfes i
+un canvas sense res pintat no costa res. Són vuit canvas alhora amb la vista inclosa, i una vista feta de
+nou (una rotació, un `ui.resize`) se'ls emporta: l'objecte que l'app encara té respon `E_INVAL` en lloc
+d'escriure al canvas que hagi ocupat el seu lloc. L'app `layers` (`run layers`) és la prova que es veu.
+
+**I a la placa diu el mateix, número per número** (1/11, 0.19.0): `run layers` a la Paper dona
+les sis línies idèntiques a les de l'emulador amb `--display` —els comptes `1 / 1 / 2`, el pare al slot 3, el
+marc sense vista i `canvas (gone)`—, i la línia de l'arrencada diu `ui: view 540x932 at 0,28, 251640 bytes
+of canvas` (docs/95, E-8).
+
+**I les primitives, que són del canvas**: `rect` i `frame`, `line`, `circle` i `disc`, i `text` amb la
+font del sistema, la mida i el color triats —les mateixes a la vista de l'app i a qualsevol canvas, i cada
+una amb **una sola regió de dany** en lloc d'una per píxel—. El text d'un canvas **es talla a la seva
+vora** perquè el camí dels glifs (`font::runs`) ja porta la caixa de retall: és el que farà el `UILabel`
+sense res de nou.
+
+**I l'arbre de controls**: un canvas pot tenir **fills** (un sol pare, en l'ordre en què s'afegeixen, i
+aquell ordre és el de les capes) i **dibuixar-se vol dir preguntar als fills** —`cv:draw()` crida el seu
+`on_draw(self)` i després el `draw()` de cada fill—, amb el `on_draw` i el `children` guardats al costat de
+l'objecte, en un camp que l'app pot escriure.
+
+**I el redibuix, que és el que fa que això sigui un sistema i no un dibuix:** cada canvas sap si té alguna
+cosa a refer (`needs_draw`), neix amb el senyal posat i el perd quan s'ha dibuixat; el senyal es posa quan
+el canvas **es mou**, quan **canvia de pare**, quan se li assigna un **`on_draw`** nou o quan l'app diu
+`cv:invalidate()`, i **puja als pares** perquè un fill que s'ha mogut deixa els seus píxels dins del buffer
+del pare. `ui.present()` dibuixa el que ha canviat i prou: **el forat de moure un control i deixar el rastre
+enrere queda tancat**, perquè el pare es torna a dibuixar sencer (el seu `on_draw` pinta el seu canvas de
+bon principi) i el fill es compon al lloc nou.
+
+**I el redibuix és barat per construcció**: mentre un control es redibuixa perquè ha canviat, el sistema
+obre una **caixa** —el rectangle que deu— i **totes les primitives d'aquell canvas es tallen a dins**; la
+qualitat de cada tros és la que demana el dibuix, i viatja fins al vidre. El senyal no puja als pares: el
+pare només repinta quan un fill **deixa un forat** (es mou, o desapareix), i llavors repinta exactament el
+rectangle que el fill ocupava. Un control que canvia el seu contingut i un control que es mou són dos
+casos diferents i costen coses diferents. I **el que s'ha pintat queda pagat**: la caixa de la vista es
+gasta quan el `present` pinta el que hi havia, perquè una caixa que sobrevisqui al seu pintat torna a
+entrar dins del motiu següent i repinta un tros de pàgina que ja era net (el va trobar la suite, 1/11: el
+rectangle que deixava un `place` tornava dins del rectangle d'un `release`).
+
+**El que queda d'aquest pas, i està deixat per a més endavant a propòsit** (1/11, decidit amb l'amo):
+
+| Què | Per què s'ajorna | Què voldrà dir fer-ho |
+|---|---|---|
+| **Carregar una font d'un fitxer** | La de 5 × 7 del sistema cobreix el que hi ha ara: la barra i un text de prova. Una font és una **decisió de format** —una taula de glifs amb la seva mida, el seu pas i els seus bytes— i no es pren fins que hi hagi un text que ho demani | un objecte `font` a Lua (`ui.font(path)`), una capçalera de fitxer amb amplada, alçada, pas i quants nivells de gris, la taula al disc o a la PSRAM, i `text(x, y, s, font, scale, level)` amb la font com a paràmetre. La feina del camí dels glifs ja està feta: `font::runs` dona els rectangles i només canvia **d'on surten** |
+| **Carregar una imatge dins d'un canvas** | No hi ha cap app que en demani, i una imatge obre les preguntes de sempre: quin format, quanta memòria i qui la té | un objecte `image` (4 bits per píxel, la mateixa empaquetadura que el canvas) i `cv:image(x, y, img)`, que és una còpia de bytes amb retall. La composició ja està feta |
+| **`UILabel`** | És el primer control de debò, i ja no espera res: el **marc sense vista** hi és, o sigui que una etiqueta és un control sense buffer amb quatre camps | un control amb `text`, `font`, `color` i `size`; el seu `on_draw` és `clear` i `text` amb la vora que ja tallem |
+
+**I un control que se'n va es neteja abans de ser alliberat** (1/11): `cv:release()` **demana**, no fa. El
+control i els seus fills queden marcats, el control que pinta rep **un sol rectangle, el del pare** —els
+dels fills són tots a dins del seu, i omplir la llista de vuit amb trossos del mateix forat acaba en un
+`gc16` de la unió, que és el contrari de barat—, i el buffer s'esborra a blanc i l'espai torna al sistema
+**al final del `present` següent**, quan aquell tros de pàgina ja s'ha pintat a sobre. Un fantasma al paper
+i un bloc vell donat al canvas següent són el mateix error vist de dos costats.
+
+**I un objecte que apunta a un control que ja no hi és no és un punter penjat**: l'objecte de Lua es
+guarda **l'espai i la generació**, i cada crida comprova els dos. Si el control ha desaparegut, la crida
+respon `nil, E_INVAL` («aquest canvas ja no és a la pantalla»), `tostring` diu `canvas (gone)`, el recolector
+no fa res (no hi ha res a alliberar dues vegades) i cap canvas nou pot escriure's a través d'aquell objecte
+perquè la generació de l'espai ha avançat. L'únic forat teòric és que la generació doni la volta als 65 536
+canvas fets.
+
+**I el marc ja no és el buffer** (1/11): hi ha fins a **32 controls** i només **vuit** amb vista pròpia, i
+un control sense vista —una graella, una caixa, un espaiador— **pinta al canvas que el conté, tallat al seu
+marc**, i els seus fills es componen amb el desplaçament de cada capa sumat. Això és el que fa possible una
+pàgina amb vint etiquetes, i és el que fa que un `UILabel` no necessiti cap buffer.
+
+El **registre d'events i gestos per control**, amb les coordenades locals, és el següent pas: el punt, el
+`dx`/`dy` i el començament del gest es calculen **sobre el marc** (el lloc i la cadena de pares) i no sobre
+el buffer, o sigui que un control **sense vista també els ha de poder rebre** —una graella que es mou amb
+el dit, un carrusel que es passa—, i el que decideix qui els rep és qui conté el punt, no qui té píxels.
+
+Mentre el UILabel no existeixi, `bar.cpp` porta un pedaç honest, i **el pedaç és el retall**: el títol
+s'escriu al mig de la barra amb una caixa (entre l'hora i la càrrega) i el que en surt no es pinta, o
+sigui que el text ja es talla a la vora i no trepitja res. El que falta és que la caixa sigui **un
+control** i no dos números calculats a `bar.cpp`: el retall viu a `font::draw` (paràmetre `Clip`), que és
+on ha de viure perquè qualsevol text el faci servir (1/11).
+
 ## Fora de la v1
 
 | Cosa | Per què queda fora |

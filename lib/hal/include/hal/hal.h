@@ -328,11 +328,18 @@ class ISurface : public IDisplay {
   // left one in the high nibble: it is how the view of an app reaches the glass in one pass instead
   // of half a million `pixel` calls (docs/30, docs/50). `stride` is the bytes of a line of the source,
   // which is not always `w / 2` —a rectangle out of a wider canvas is the normal case— and pixels
-  // outside the panel are dropped.
+  // outside the panel are dropped. **`packed` points at the first pixel of the region**, so a source
+  // is indexed by its own column and not by the column it lands on: an odd `x` splits a byte with the
+  // neighbour, and reading the source with the panel's column is a rectangle of somebody else's
+  // pixels (docs/50).
   virtual void blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* packed,
                     uint16_t stride) = 0;
   // Sends what changed and asks for it to be painted, with the mode that says how good it has to
   // look. False when the panel did not take it.
+  //
+  // **Every write above marks the rectangle it touched**, and this call sends the one rectangle that
+  // covers them all and forgets it. With nothing marked there is nothing to paint and nothing is sent:
+  // a page nobody asked to be repainted is a page this system does not touch (docs/30, docs/50).
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
   // **How the surface is turned.** 0, 90, 180 or 270 degrees: the width and height the surface reports are

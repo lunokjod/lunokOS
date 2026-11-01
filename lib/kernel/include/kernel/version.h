@@ -106,7 +106,78 @@ namespace kernel {
 // as 430 rows); the bench's glass recorded the last `blit` instead of the rectangle that changed, so the
 // bar's paint carried another copy's region; and `orientation::turn` read its own output when a caller
 // chained a turn into the same point. 230 cases in 10 suites, green (docs/30, docs/50, docs/85).
-static const char kVersion[] = "0.18.3";
+// 0.19.0 (1/11): **the canvas of an app, which is the first piece of the control layer.** `ui.canvas(w, h)`
+// makes a buffer with a place of its own inside the view, canvases go inside canvases, and a `ui.present`
+// composes the whole tree —depth first, in the order they were made— onto the glass. A canvas is cut at
+// its border and **a parent only copies what a child painted since the last composition**, so a text over
+// a picture needs no mask and a control that painted nothing costs nothing. Eight canvases at once, and a
+// view made again takes them with it: an object that outlives it answers `E_INVAL` instead of writing
+// into the canvas that took its slot. `font::draw` grew the `Clip` a label will be made of (docs/30,
+// docs/90), and the app `layers` shows it.
+//
+// Running it said three things that were not so: the bench **never announced `display`**, so an app that
+// asked `sys.caps().display` was told no on a bench whose glass was there —and the view behind it was
+// built anyway—; the console of the bench and the kernel's `printf` were two streams, so the boot lines
+// came out after the prompt; and the prompt was written **before** the hardware boot, so every line the
+// board says about itself looked like an answer to something nobody had typed. The first is the
+// capability that was missing, the other two are one order (docs/85).
+//
+// And the **primitives of a canvas**: `rect` (filled) and `frame` (the outside), `line` —a rectangle when
+// it is straight and Bresenham when it is not—, `circle` and `disc` with the midpoint walk, and `text`
+// with the font of the system at a size and a colour chosen by the app. Each one leaves **one** region of
+// damage, the box it covers, because a diagonal line that looked like two hundred separate draws would
+// fill the list of eight and turn the whole canvas into one `gc16` paint (docs/30, docs/50).
+//
+// And the tree: **one father and ordered children** (`cv:add`), so a control holds a control and a place
+// is read in the pixels of the canvas that holds it; the children are composed in the order they were
+// added, which is the order of the layers. **Drawing a control is asking its children**: `cv:draw()`
+// calls the control's own `on_draw(self)` and then each child's `draw()`, and an object of the app can
+// carry fields of its own —the callback and the children live beside it, not in a second table to keep in
+// step— (docs/30, docs/90).
+//
+// And **a control with nothing changed is not drawn**: the flag is set when it is made, cleared when it
+// has been drawn, and set again when it moves, when it changes father, when it is given a new `on_draw` or
+// when the app says `cv:invalidate()`; it goes **up to the fathers**, so a child that moved makes its
+// father paint over what it left behind, which is the hole that was written down as open. `ui.present()`
+// draws what changed and composes it, and the view is a control too (`ui.root()`), so an app that presents
+// on every turn pays only for what it touched.
+//
+// And **a redraw paints only what it owes**: while a control draws itself the system keeps a box open —the
+// rectangle it must repaint— and every primitive of that canvas is cut at it, at the quality the drawing
+// asks for. The signal does **not** go up to the fathers: a control whose content changed is composed over
+// its father again, and the father repaints only when a child **leaves a hole** —it moved, or it went
+// away— and then only the rectangle the child was occupying (docs/30, docs/90).
+//
+// And **the frame is not the view**: a control may have no buffer at all (`ui.control`), and then it paints
+// into the first canvas that holds it, cut at its own frame, and its children are composed through it with
+// every place added. **Two ceilings instead of one** —32 controls, 8 of them with a view— which is the
+// difference between a page with twenty labels and a page with eight, and the reason a `UILabel` will need
+// no buffer (docs/30, docs/90).
+//
+// And **a control that goes away is cleaned before it is freed**: `release` marks it and its children, tells
+// the control that paints which rectangle is left, and the buffer is wiped white and the slot given back at
+// the end of the next `present`, when that part of the page has already been painted over. A ghost on the
+// paper and a stale block handed to the next canvas are the same bug seen from two sides (docs/30, docs/90).
+// **And the rectangle is the father's, one for the whole subtree**: three children inside a panel that goes
+// away are one region, not four, because theirs are all inside his —a list of eight that fills with pieces
+// of the same hole ends up in one `gc16` of the union, which is the opposite of cheap. **What has been
+// painted is paid**: the box of the view is spent when the paint happens, because a box that outlived its
+// paint came back inside the next reason and repainted a part of the page that was already clean (found by
+// this suite, 1/11). And **an object that points at a control that is gone** is not a dangling pointer:
+// the object carries the slot and the generation, every call checks both, and an object whose control is
+// no longer there answers `nil, E_INVAL` —`canvas (gone)` from `tostring`— while a new canvas in that slot
+// can never be written through it, because the generation of that slot has moved on (docs/30, docs/90).
+// 0.19.1 (1/11): **el dia a la placa, escrit**. La capa de controls diu el mateix al banc i a la Paper
+// —`run layers` dona les sis línies iguals, els comptes `1 / 1 / 2` inclosos—, i els números que falten
+// són al seu lloc: `ui: view 540x932 at 0,28, 251640 bytes of canvas`, el tàctil amb dos punts i el gest
+// de prémer llarg amb 1002 ms de debò. I dues coses que el run ha destapat i que la documentació deia al
+// revés: el `~120 ms` que imprimeix `run panel` és **l'espera de l'app** i no el temps de la tinta (el
+// `gc16` continua sense número), i la pàgina de prova es dibuixava amb `du4`, que aquí mateix està
+// mesurat com a **no pintar** —ara va amb `du` i `gc16`, i a la placa la pàgina hi és sencera i neta, o
+// sigui que qui no pintava era el mode i no el camí— (docs/95, E-6, E-7 i E-8; docs/75; docs/85;
+// docs/90). El que continua **sense número** és el temps d'un `gc16`: la mesura de l'app no el pot donar
+// (espera 120 ms i pregunta, i el bucle surt a la primera).
+static const char kVersion[] = "0.19.1";
 
 }  // namespace kernel
 

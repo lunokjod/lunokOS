@@ -21,6 +21,9 @@ const uint16_t kBarHeight = 28;
 const uint8_t kScale = 2;
 // Where the text starts, above and to the left, leaving three glyph columns of air at the edges.
 const uint16_t kPaddingX = 8;
+// The air between the hour, the title and the charge: two things that touch are two things nobody can
+// tell apart (docs/30).
+const uint16_t kTitleGap = 6;
 const uint16_t kTextTop = 5;
 // The black line under the bar.
 const uint16_t kLineHeight = 2;
@@ -116,22 +119,32 @@ void paint(hal::UpdateMode mode, const Status& status) {
   surface->fill_rect(0, 0, panel_w, kBarHeight, 15);
   surface->fill_rect(0, static_cast<uint16_t>(kBarHeight - kLineHeight), panel_w, kLineHeight, 0);
 
+  const uint16_t time_w = font::width(time_text, kScale);
+  const uint16_t charge_w = font::width(charge_text, kScale);
+
   // The hour, on the left.
   font::draw(*surface, kPaddingX, kTextTop, time_text, kScale, 0);
 
-  // The title of the app in front, in the middle. **Cut at the panel** if it is too long for the room
-  // between the hour and the charge, because a title that runs under the battery is a title nobody can
-  // read (docs/30).
+  // **The title sits in the box between the hour and the charge, and the box cuts it.** It is centred on
+  // the bar and what hangs off that box is not painted, so a long title loses its ends instead of
+  // running over the hour or under the charge: the border is what cuts a text, not the caller counting
+  // margins (docs/30, docs/90). This is the bar's stand-in for a label until the control layer exists.
   if (g_title[0] != '\0') {
     const uint16_t title_w = font::width(g_title, kScale);
     const int32_t at = (static_cast<int32_t>(panel_w) - static_cast<int32_t>(title_w)) / 2;
-    if (at > static_cast<int32_t>(kPaddingX * 4)) {
-      font::draw(*surface, static_cast<uint16_t>(at), kTextTop, g_title, kScale, 0);
+    font::Clip box;
+    box.x0 = static_cast<int32_t>(kPaddingX + time_w + kTitleGap);
+    box.x1 =
+        static_cast<int32_t>(panel_w) - static_cast<int32_t>(kPaddingX + charge_w + kTitleGap);
+    box.y0 = static_cast<int32_t>(kTextTop);
+    box.y1 = static_cast<int32_t>(kTextTop + font::kGlyphHeight * kScale);
+    if (box.x1 > box.x0) {
+      font::draw(*surface, static_cast<uint16_t>((at < 0) ? 0 : at), kTextTop, g_title, kScale, 0,
+                 box);
     }
   }
 
   // The charge, on the right.
-  const uint16_t charge_w = font::width(charge_text, kScale);
   if (charge_w + kPaddingX <= panel_w) {
     font::draw(*surface, static_cast<uint16_t>(panel_w - kPaddingX - charge_w), kTextTop,
                charge_text, kScale, 0);

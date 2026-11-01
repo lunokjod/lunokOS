@@ -640,12 +640,18 @@ Una app **no hi arriba**: dibuixa a un **canvas propi** (`kernel/ui.h`) que el s
 arrenca, i `ui.present` és el que compon el rectangle que ha canviat sobre el buffer del sistema i
 demana el pintat. Tres coses que això dona, i cap és cerimònia:
 
-- **el sistema pot ser l'amo del vidre** sense que cap app ho sàpiga: una rotació, una barra d'estat o
-  una segona vista són canvis d'un sol lloc;
+- **el sistema pot ser l'amo del vidre** sense que cap app ho sàpiga: una rotació, la barra o una
+  segona vista són canvis d'un sol lloc;
 - **una app no pot treure una altra del vidre** per accident, perquè no toca la memòria que es pinta;
-- **`ui.resize` és el forat per on entrarà la rotació**: el sistema torna a fer el canvas, blanc, i
-  avisa l'app amb `on_resize(width, height)`, que és qui sap què hi havia d'anar. El que encara no hi
-  és és girar el vidre mateix: això és la rotació conjunta de dibuix i toc (docs/90).
+- **`ui.resize` i la rotació passen pel mateix forat**: el sistema torna a fer el canvas, blanc, i
+  avisa l'app amb `on_resize(width, height)`, que és qui sap què hi havia d'anar. `ui.rotation(n)` fa
+  les tres coses alhora —el vidre, la barra i els dits— amb el mateix valor (docs/50, «La pàgina es
+  gira en software…») i la conversió dels dits és a `touch.cpp`.
+
+**I una cosa que el vidre ha dit i que el full de dades no diu** (mesurat a la placa l'1/11, docs/95
+E-7): amb la imatge de quatre bits, **`du` pinta però no neteja** i **`du4` i `a2` no van pintar res** —el
+`present` responia `true` i el vidre es quedava igual—. Per això el camí que es fa servir és **pintar amb
+`du` i esborrar amb `gc16` sobre la mateixa regió**: el blanc torna net i només costa la regió.
 
 El canvas és **4 bits per píxel amb el mateix empaquetat que el vidre** (un byte per a dos píxels, el de
 l'esquerra al nibble alt), o sigui que compondre és una còpia per files i no mig milió de píxels un a un:
@@ -654,7 +660,7 @@ l'esquerra al nibble alt), o sigui que compondre és una còpia per files i no m
 
 ### El control de danys: què s'ha tocat, i amb quina qualitat (1/11)
 
-Cada dibuix d'una app deixa una anotació: **la regió i la qualitat que vol** (`du4`, `gc16`, la que
+Cada dibuix d'una app deixa una anotació: **la regió i la qualitat que vol** (`du`, `gc16`, la que
 sigui). El sistema en guarda fins a **vuit**, ajunta les del mateix mode que es toquen (a dos píxels) i,
 quan `ui.present` arriba, pinta **una regió per mode**. Tres números que això fixa:
 
@@ -711,8 +717,8 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   durant dècades (docs/30).
 - **L'hora és la del rellotge, en UTC**, perquè el sistema té una època i cap zona: una zona és un ajust,
   i el dia que n'hi hagi serà una línia d'aquí i no una endevinalla (docs/60).
-- **La càrrega es llegeix com a molt cada cinc segons** —una lectura és l'ADC i no un registre— i sense
-  indicador de bateria la barra diu `--` (docs/50).
+- **La càrrega es llegeix com a molt cada 30 s i l'hora cada 2 s** —una lectura és l'ADC i no un
+  registre— i sense indicador de bateria la barra diu `--` (docs/50).
 
 
 ### Una sola orientació per al vidre, per a la pàgina i per als dits (1/11, mesurat)
@@ -786,7 +792,7 @@ tres girs en surten, i no queda cap número per endevinar.
 | ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
 | 16 MB de flash | **fet**: 2 108 973 B (50,3 %, mesurat amb la 0.13.0 l'1/11) i 11,9 MB de disc | — |
 | **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
-| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i `display.caps`/`clear`/`rect`/`pixel`/`flush`/`idle` a Lua. La capacitat **s'anuncia** quan el controlador contesta. **El sistema no dibuixa res mai** | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7), després el **text** (una font) i la política d'encesa de GPIO23 |
+| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i, des de la 0.14.0, res de Lua que arribi al vidre directament: una app dibuixa a la seva vista (`ui.*`) i `ui.present` és el que compon. La capacitat **s'anuncia** quan el controlador contesta. **El sistema només pinta la barra**, les 28 files de dalt; la pàgina és sempre d'una app | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7) i la política d'encesa de GPIO23. El **text** ja hi és per a la barra (una font de 5 × 7, 0.16.0) i no pas per a una app |
 | **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | la **velocitat de mostra** (contar frames amb el dit, docs/95 E-6) i la política d'energia del pas 8; el marc ja està mesurat amb quatre tocs, un a cada cantonada (1/11) |
 | **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
 | **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |

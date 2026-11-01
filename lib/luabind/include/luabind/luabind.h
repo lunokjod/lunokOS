@@ -334,6 +334,51 @@ struct UIOps {
   // The turn of the page: 0, 90, 180 or 270. Reading it and setting it are the same value (docs/50).
   uint16_t (*rotation)();
   bool (*set_rotation)(uint16_t degrees);
+  // **A canvas of the app's own**, the control layer's basic thing (docs/90): a buffer, its place
+  // inside the parent, and a number that says whether the object an app is holding still means the
+  // canvas that is there —a view made again hands the slot to somebody else, and a stale object has to
+  // be refused instead of drawing into it—.
+  bool (*canvas_create)(uint16_t width, uint16_t height, bool with_view, int8_t& slot,
+                        uint16_t& generation);
+  bool (*canvas_alive)(int8_t slot, uint16_t generation);
+  bool (*canvas_release)(int8_t slot);
+  bool (*canvas_place)(int8_t slot, uint16_t x, uint16_t y);
+  bool (*canvas_clear)(int8_t slot, uint8_t level, const char* mode);
+  bool (*canvas_rect)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+                      const char* mode);
+  bool (*canvas_pixel)(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+  uint8_t (*canvas_damage)(int8_t slot);
+  bool (*canvas_caps)(int8_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y);
+  // **The primitives of a canvas**, and the text with the font of the system. `slot` 0 is the view of the
+  // app, so `ui.line` and `cv:line` are the same call with a different canvas. `level` is the colour —0
+  // black, 15 white— and `mode` the quality, or nullptr for `du` (docs/30, docs/90).
+  bool (*canvas_frame)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+                       const char* mode);
+  bool (*canvas_line)(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
+                      const char* mode);
+  bool (*canvas_circle)(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius,
+                        uint8_t level, const char* mode);
+  bool (*canvas_disc)(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius,
+                      uint8_t level, const char* mode);
+  bool (*canvas_text)(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale,
+                      uint8_t level, const char* mode);
+  // **A canvas inside another one** (docs/90): one father, and the children in the order they were added,
+  // which is the order of the layers.
+  bool (*canvas_reparent)(int8_t slot, int8_t parent);
+  // The canvas that holds this one, or -1 for the view of the app (docs/90).
+  int8_t (*canvas_parent)(int8_t slot);
+  // **Redrawing, only when it is needed** (docs/90): whether a control has anything to redraw, that it has
+  // been drawn, that something changed and it and its fathers must draw again, and the number of the
+  // canvas a slot holds —so the object of an app can tell whether it is still the one it made—.
+  bool (*canvas_needs_draw)(int8_t slot);
+  bool (*canvas_drawn)(int8_t slot);
+  bool (*canvas_invalidate)(int8_t slot);
+  uint16_t (*canvas_generation)(int8_t slot);
+  // The box a control owes, and the window in which its drawing is cut at it: a control that redraws itself
+  // paints the smallest part of the glass, not the page (docs/30, docs/90).
+  bool (*canvas_invalidate_rect)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  bool (*canvas_begin_draw)(int8_t slot);
+  bool (*canvas_end_draw)(int8_t slot);
 };
 
 void set_ui_ops(const UIOps& ops);

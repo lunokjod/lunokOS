@@ -122,6 +122,12 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   // IConsole ----------------------------------------------------------------
 
   size_t write(const void* data, size_t len) override {
+    // **One wire, and in the order it was written.** On the board the kernel's own lines (`printf`) and
+    // the console go out of the same UART, so the order of the two is the order they were produced
+    // here a `printf` sits in a buffer of its own while the console writes with `::write`, and the boot
+    // lines came out after the prompt and after an app's output (measured on the bench, 1/11). What is
+    // buffered is pushed out first (docs/85).
+    ::fflush(stdout);
     if (g_baud == 0 || len == 0) {
       const ssize_t plain = ::write(STDOUT_FILENO, data, len);
       return (plain < 0) ? 0 : static_cast<size_t>(plain);

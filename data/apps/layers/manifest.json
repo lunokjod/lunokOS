@@ -1,0 +1,6 @@
+{
+  "title": "Layers",
+  "version": "0.1.0",
+  "entry": "layers.lua",
+  "boards": ["esp32"]
+}

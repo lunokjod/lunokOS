@@ -364,6 +364,12 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   l'ATOM** (sostre de 64 KB) i **hi cap al Paper** (sostre de 4 MB), i l'app només diu
   `sys.heap()` per ensenyar `limit 4194304  extra 4194304`. És la prova que la memòria és
   transparent: el mateix codi, la mateixa crida, i el que canvia és la placa.
+- **El canvas de la vista és un bloc de debò, i el número és el de la comptabilitat** (1/11, 0.19.0,
+  mesurat a la placa): la línia de l'arrencada diu `ui: view 540x932 at 0,28, 251640 bytes of canvas`,
+  que és **540 × 932 / 2** —quatre bits per píxel— en **un sol bloc** de la PSRAM. Els vuit canvas del
+  sostre, si tots fossin de pàgina sencera, serien **2 013 120 B** (1 966 KiB) dels 4 096 que té una app:
+  més de la meitat, i per això **cada control és de la seva mida** i un control **sense vista no gasta ni
+  un byte** (docs/90, M9).
 - **El que encara no està mesurat**: quants blocs reals van a la PSRAM en una app de debò i quants a
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.

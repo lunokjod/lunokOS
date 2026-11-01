@@ -173,6 +173,9 @@ Quatre nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_alarms/` | La cua d'alarmes: ordre, repeticions, perdudes i la còpia a la NVS |
 | **Unitat** | `test/test_qr/` | El símbol llegit de tornada com el llegiria un escàner: BCH, desmàscara i Reed-Solomon |
 | **Unitat** | `test/test_led/` | El motor dels efectes: els quatre efectes com a funció del temps, les dues capes, la interrupció pel sistema (desar, pintar, restaurar i avisar `on_light`) i el sostre de brillantor de la placa |
+| **Unitat** | `test/test_orientation/` | El gir: les quatre cantonades del Paper, el quart de volta i que encadenar un gir en el mateix objecte no llegeixi la seva pròpia sortida |
+| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, i el **marc i la generació** que fan que un objecte mort respongui `E_INVAL` |
+| **Unitat** | `test/test_bar/` | La barra: que es quedi les 28 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten |
 | **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |

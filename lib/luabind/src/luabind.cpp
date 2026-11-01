@@ -2805,6 +2805,10 @@ int l_ui_pixel(lua_State* L) {
   return 1;
 }
 
+// The view as a control, defined further down with the rest of the canvas object: `present` asks it to
+// draw before composing (docs/90).
+int l_ui_root(lua_State* L);
+
 // ui.present([mode]): the system composes what the app drew onto the board's surface and asks for it to
 // be painted. **Without a mode each region is painted with the quality it was drawn with**; with one,
 // that quality is used for everything pending, which is what a page that must look uniform wants
@@ -2812,6 +2816,17 @@ int l_ui_pixel(lua_State* L) {
 int l_ui_present(lua_State* L) {
   if (g_ui_ops.present == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  // **What changed is drawn first**: the view draws itself and asks its children, and a control with
+  // nothing changed is not asked to draw at all. Then the tree is composed and the glass asked for the
+  // paint, so an app that presents on every turn pays only for what it touched (docs/30, docs/90).
+  if (l_ui_root(L) == 1) {
+    lua_getfield(L, -1, "draw");
+    if (lua_isfunction(L, -1)) {
+      lua_pushvalue(L, -2);
+      if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
+    }
+    lua_pop(L, 2);
   }
   const char* mode = luaL_optstring(L, 1, nullptr);
   if (!g_ui_ops.present(mode)) {
@@ -2872,8 +2887,9 @@ int l_ui_damage(lua_State* L) {
   return 1;
 }
 
-// ui.title([text]): the title this app shows in the bar of the system. Without an argument it answers
-// the one it has, which is the one the manifest gave it (docs/30).
+// ui.title(text): the title this app shows in the bar of the system. **The argument is required**: the
+// bar is the only place the title lives, so asking for it would be asking the shell for something the
+// app already knows (docs/30).
 int l_ui_title(lua_State* L) {
   if (g_ui_ops.title == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
@@ -2908,6 +2924,613 @@ int l_ui_rotation(lua_State* L) {
     return push_nil_error(L, "E_NOMEM", "the page of that size did not fit");
   }
   lua_pushinteger(L, g_ui_ops.rotation());
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
+// ui.canvas: the control layer's basic thing, an object with methods (docs/90)
+// ---------------------------------------------------------------------------
+
+// **A canvas is an object and not a table of numbers**: it has a buffer, a place and a life of its own,
+// and an app holds it the way it holds a file. What it keeps is the slot and the number of the slot's
+// generation, so a canvas made again by the system is not mistaken for the one that took its place.
+//
+// **It also takes fields of its own** —`on_draw`, `children`, whatever a control needs— in a table kept
+// beside it (the uservalue of the object): reading looks there first and then in the methods, and writing
+// always goes there, so a control is a thing an app can shape without a second table to keep in step.
+struct LuaCanvas {
+  int8_t slot;
+  uint16_t generation;
+};
+
+const char kCanvasMeta[] = "lunokOS.UICanvas";
+
+// The fields of the object, and then its methods: `box.on_draw` is the app's, `box.draw` is ours.
+int l_canvas_index(lua_State* L) {
+  lua_getiuservalue(L, 1, 1);
+  if (lua_istable(L, -1)) {
+    lua_pushvalue(L, 2);
+    lua_rawget(L, -2);
+    if (!lua_isnil(L, -1)) return 1;
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  luaL_getmetatable(L, kCanvasMeta);
+  lua_getfield(L, -1, "__methods");
+  lua_pushvalue(L, 2);
+  lua_rawget(L, -2);
+  return 1;
+}
+
+int l_canvas_newindex(lua_State* L) {
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return luaL_error(L, "a canvas takes no fields");
+  }
+  lua_pushvalue(L, 2);
+  lua_pushvalue(L, 3);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+  // **A field that changes what the control draws means a redraw**, and the one that matters is the one
+  // the system calls: `on_draw` (docs/90).
+  if (lua_type(L, 2) == LUA_TSTRING && strcmp(lua_tostring(L, 2), "on_draw") == 0 &&
+      lua_type(L, 3) == LUA_TFUNCTION) {
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+    if (canvas->slot >= 0 && g_ui_ops.canvas_invalidate != nullptr) {
+      g_ui_ops.canvas_invalidate(canvas->slot);
+    }
+  }
+  return 0;
+}
+
+// **The list of children of the app and the list of the system have to say the same thing**, or the draw
+// walks a tree that is not the one being composed. Both indices are absolute.
+void append_child(lua_State* L, int parent_index, int child_index) {
+  lua_getiuservalue(L, parent_index, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  lua_getfield(L, -1, "children");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    lua_createtable(L, 4, 0);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, "children");
+  }
+  lua_pushvalue(L, child_index);
+  lua_rawseti(L, -2, static_cast<lua_Integer>(lua_rawlen(L, -2)) + 1);
+  lua_pop(L, 2);  // the list and the fields
+}
+
+bool canvas_ready(lua_State* L, int index) {
+  if (g_ui_ops.canvas_alive == nullptr) return false;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, index, kCanvasMeta));
+  if (canvas == nullptr) return false;
+  return g_ui_ops.canvas_alive(canvas->slot, canvas->generation);
+}
+
+int refuse_canvas(lua_State* L) {
+  return push_nil_error(L, "E_INVAL", "this canvas is not on the screen any more");
+}
+
+// ui.canvas(width, height): a canvas of its own inside the view of this app, white and with nothing
+// drawn. It is composed into the view when the app presents, at the place it was given (docs/90).
+// **A control and a canvas are the same thing with one difference: the view.** `ui.canvas(w, h)` makes a
+// control with a buffer of its own —an image, a graph, a panel that is composed as a layer— and
+// `ui.control(w, h)` makes one without it, which paints into the first canvas that holds it, cut at its own
+// frame. A grid, a box or a spacer is the second kind, and it costs no pixels at all (docs/90).
+int create_control(lua_State* L, bool with_view) {
+  if (g_ui_ops.canvas_create == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer width = luaL_checkinteger(L, 1);
+  const lua_Integer height = luaL_checkinteger(L, 2);
+  if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+    return push_nil_error(L, "E_INVAL", "a control is a size in pixels");
+  }
+  int8_t slot = -1;
+  uint16_t generation = 0;
+  if (!g_ui_ops.canvas_create(static_cast<uint16_t>(width), static_cast<uint16_t>(height), with_view,
+                              slot, generation)) {
+    return push_nil_error(L, "E_NOMEM",
+                          with_view ? "there is no room for another view of that size"
+                                    : "there is no room for another control");
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(lua_newuserdatauv(L, sizeof(LuaCanvas), 1));
+  canvas->slot = slot;
+  canvas->generation = generation;
+  luaL_getmetatable(L, kCanvasMeta);
+  lua_setmetatable(L, -2);
+  // The table the app's own fields live in: `on_draw`, `children`, and whatever a control needs.
+  lua_createtable(L, 0, 2);
+  lua_setiuservalue(L, -2, 1);
+  // **It is born a child of the view**, so the two trees agree from the first line: the system already
+  // put it inside the view, and the app's list of children has to say the same or `draw()` walks a tree
+  // that is not the one being composed (found running `layers` on the bench, 1/11: nothing drew).
+  const int made = lua_gettop(L);
+  lua_pushvalue(L, made);
+  const int kept = lua_gettop(L);
+  if (l_ui_root(L) == 1) {
+    append_child(L, lua_gettop(L), kept);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);  // the copy of the object
+  return 1;
+}
+
+int l_ui_canvas(lua_State* L) { return create_control(L, true); }
+
+int l_ui_control(lua_State* L) { return create_control(L, false); }
+
+int l_canvas_clear(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer level = luaL_optinteger(L, 2, 15);
+  const char* mode = luaL_optstring(L, 3, nullptr);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  if (g_ui_ops.canvas_clear == nullptr ||
+      !g_ui_ops.canvas_clear(canvas->slot, static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_canvas_rect(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  const lua_Integer w = luaL_checkinteger(L, 4);
+  const lua_Integer h = luaL_checkinteger(L, 5);
+  const lua_Integer level = luaL_optinteger(L, 6, 0);
+  const char* mode = luaL_optstring(L, 7, nullptr);
+  if (w < 0 || h < 0 || level < 0 || level > 15) {
+    return push_nil_error(L, "E_INVAL", "a rectangle is a size and a level of 0 to 15");
+  }
+  if (g_ui_ops.canvas_rect == nullptr ||
+      !g_ui_ops.canvas_rect(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                            static_cast<uint16_t>(w), static_cast<uint16_t>(h),
+                            static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_canvas_pixel(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  const lua_Integer level = luaL_optinteger(L, 4, 0);
+  const char* mode = luaL_optstring(L, 5, nullptr);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  if (g_ui_ops.canvas_pixel == nullptr ||
+      !g_ui_ops.canvas_pixel(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                             static_cast<uint8_t>(level), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// canvas:place(x, y): where it sits inside the one that holds it, in that canvas' pixels (docs/90).
+int l_canvas_place(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  if (x < 0 || y < 0) return push_nil_error(L, "E_INVAL", "a place is a column and a row");
+  if (g_ui_ops.canvas_place == nullptr ||
+      !g_ui_ops.canvas_place(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y))) {
+    return push_nil_error(L, "E_INVAL", "this canvas is not on the screen any more");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **The primitives, written once for the view and for a canvas.** `ui.line(...)` and `cv:line(...)` are the
+// same call with a different canvas in the first place, so the body is here and the difference is the slot
+// and where its arguments start (1 for the view, 2 for a method) (docs/30, docs/90).
+int8_t canvas_slot_of(lua_State* L) {
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  return canvas->slot;
+}
+
+int refuse_shape(lua_State* L) {
+  return push_nil_error(L, "E_INVAL", "not a quality of this display");
+}
+
+int frame_at(lua_State* L, int8_t slot, int base) {
+  const lua_Integer x = luaL_checkinteger(L, base);
+  const lua_Integer y = luaL_checkinteger(L, base + 1);
+  const lua_Integer w = luaL_checkinteger(L, base + 2);
+  const lua_Integer h = luaL_checkinteger(L, base + 3);
+  const lua_Integer level = luaL_optinteger(L, base + 4, 0);
+  const char* mode = luaL_optstring(L, base + 5, nullptr);
+  if (w < 0 || h < 0 || level < 0 || level > 15) {
+    return push_nil_error(L, "E_INVAL", "a box is a size and a level of 0 to 15");
+  }
+  if (g_ui_ops.canvas_frame == nullptr ||
+      !g_ui_ops.canvas_frame(slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                             static_cast<uint16_t>(w), static_cast<uint16_t>(h),
+                             static_cast<uint8_t>(level), mode)) {
+    return refuse_shape(L);
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int line_at(lua_State* L, int8_t slot, int base) {
+  const lua_Integer x0 = luaL_checkinteger(L, base);
+  const lua_Integer y0 = luaL_checkinteger(L, base + 1);
+  const lua_Integer x1 = luaL_checkinteger(L, base + 2);
+  const lua_Integer y1 = luaL_checkinteger(L, base + 3);
+  const lua_Integer level = luaL_optinteger(L, base + 4, 0);
+  const char* mode = luaL_optstring(L, base + 5, nullptr);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  if (g_ui_ops.canvas_line == nullptr ||
+      !g_ui_ops.canvas_line(slot, static_cast<int16_t>(x0), static_cast<int16_t>(y0),
+                            static_cast<int16_t>(x1), static_cast<int16_t>(y1),
+                            static_cast<uint8_t>(level), mode)) {
+    return refuse_shape(L);
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int circle_at(lua_State* L, int8_t slot, int base, bool filled) {
+  const lua_Integer cx = luaL_checkinteger(L, base);
+  const lua_Integer cy = luaL_checkinteger(L, base + 1);
+  const lua_Integer radius = luaL_checkinteger(L, base + 2);
+  const lua_Integer level = luaL_optinteger(L, base + 3, 0);
+  const char* mode = luaL_optstring(L, base + 4, nullptr);
+  if (radius < 0) return push_nil_error(L, "E_INVAL", "a radius is not negative");
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  const bool ok = filled ? (g_ui_ops.canvas_disc != nullptr &&
+                            g_ui_ops.canvas_disc(slot, static_cast<int16_t>(cx),
+                                                 static_cast<int16_t>(cy),
+                                                 static_cast<int16_t>(radius),
+                                                 static_cast<uint8_t>(level), mode))
+                         : (g_ui_ops.canvas_circle != nullptr &&
+                            g_ui_ops.canvas_circle(slot, static_cast<int16_t>(cx),
+                                                   static_cast<int16_t>(cy),
+                                                   static_cast<int16_t>(radius),
+                                                   static_cast<uint8_t>(level), mode));
+  if (!ok) return refuse_shape(L);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// A text: the letter of the system's font, `scale` times its size, in the colour asked for, and cut at
+// the border of the canvas it is drawn into (docs/30).
+int text_at(lua_State* L, int8_t slot, int base) {
+  const lua_Integer x = luaL_checkinteger(L, base);
+  const lua_Integer y = luaL_checkinteger(L, base + 1);
+  const char* text = luaL_checkstring(L, base + 2);
+  const lua_Integer scale = luaL_optinteger(L, base + 3, 1);
+  const lua_Integer level = luaL_optinteger(L, base + 4, 0);
+  const char* mode = luaL_optstring(L, base + 5, nullptr);
+  if (scale <= 0 || scale > 16) return push_nil_error(L, "E_INVAL", "a text is one to sixteen times its size");
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  if (g_ui_ops.canvas_text == nullptr ||
+      !g_ui_ops.canvas_text(slot, static_cast<int16_t>(x), static_cast<int16_t>(y), text,
+                            static_cast<uint8_t>(scale), static_cast<uint8_t>(level), mode)) {
+    return refuse_shape(L);
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_canvas_frame(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  return frame_at(L, canvas_slot_of(L), 2);
+}
+
+int l_canvas_line(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  return line_at(L, canvas_slot_of(L), 2);
+}
+
+int l_canvas_circle(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  return circle_at(L, canvas_slot_of(L), 2, false);
+}
+
+int l_canvas_disc(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  return circle_at(L, canvas_slot_of(L), 2, true);
+}
+
+int l_canvas_text(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  return text_at(L, canvas_slot_of(L), 2);
+}
+
+// The same five on the view, which is the canvas the system gave the app: slot 0 and the arguments from
+// the first one (docs/30).
+int l_ui_frame(lua_State* L) { return frame_at(L, 0, 1); }
+int l_ui_line(lua_State* L) { return line_at(L, 0, 1); }
+int l_ui_circle(lua_State* L) { return circle_at(L, 0, 1, false); }
+int l_ui_disc(lua_State* L) { return circle_at(L, 0, 1, true); }
+int l_ui_text(lua_State* L) { return text_at(L, 0, 1); }
+
+// cv:add(child): **the child goes inside this canvas**, and it is the last one, so it is the layer in
+// front. One father: a canvas added to another leaves the one it was in (docs/90).
+int l_canvas_add(lua_State* L) {
+  if (!canvas_ready(L, 1) || !canvas_ready(L, 2)) return refuse_canvas(L);
+  LuaCanvas* father = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  LuaCanvas* child = static_cast<LuaCanvas*>(luaL_checkudata(L, 2, kCanvasMeta));
+  if (g_ui_ops.canvas_reparent == nullptr || !g_ui_ops.canvas_reparent(child->slot, father->slot)) {
+    return push_nil_error(L, "E_INVAL", "a canvas cannot go inside that one");
+  }
+  // The tree the drawing follows is the app's, in its own table: the kernel keeps the layers in the order
+  // they were added and this keeps the same order, so a child drawn later is the one in front. The list of
+  // the father it leaves keeps a stale entry, and the draw skips it because the system has already said
+  // that canvas belongs to somebody else (docs/90).
+  append_child(L, 1, 2);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// cv:draw(): **a control draws itself and then asks its children**, in the order they were added. That is
+// what composing a view is: a control that painted its canvas and forgot its children is a control with a
+// hole in it (docs/90). `on_draw(control)` is a field the app sets, and a control without one is a control
+// that only passes the turn on.
+//
+// **And it only draws if it has something to redraw.** A control with nothing changed is a control that
+// does nothing at all —no call, no pixels— which on a glass that pays for every region is the difference
+// between a page and a page repainted on every turn. It returns **true when it drew**, so the caller (and
+// the present) can tell the difference (docs/90).
+int l_canvas_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  const lua_Integer depth = luaL_optinteger(L, 2, 0);
+  if (depth > 16) return push_nil_error(L, "E_INVAL", "a control is nested too deep");
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const bool owed = (g_ui_ops.canvas_needs_draw != nullptr) && g_ui_ops.canvas_needs_draw(canvas->slot);
+  if (owed) {
+    // **The box opens here**: from this line to `end_draw`, every primitive of this canvas is cut at what
+    // the control owes, so a control that repaints itself paints the smallest part of the glass and not
+    // the page (docs/30, docs/90).
+    if (g_ui_ops.canvas_begin_draw != nullptr) g_ui_ops.canvas_begin_draw(canvas->slot);
+    lua_getiuservalue(L, 1, 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "on_draw");
+      if (lua_isfunction(L, -1)) {
+        lua_pushvalue(L, 1);
+        if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
+      } else {
+        lua_pop(L, 1);
+      }
+    }
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_end_draw != nullptr) g_ui_ops.canvas_end_draw(canvas->slot);
+  }
+
+  // **The children are asked even when this control has nothing to redraw**: a child that changed has to
+  // paint even if its father did not. And the list is **rebuilt as it is walked**: a child that the system
+  // no longer says is ours —one that went away, or one that changed father— is dropped there and then, so
+  // the father's list does not keep a dead object alive and does not grow with ghosts (docs/90).
+  bool drew = owed;
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, 1, 1);
+  if (lua_istable(L, base + 1)) {
+    lua_getfield(L, base + 1, "children");
+    if (lua_istable(L, base + 2)) {
+      const lua_Integer count = static_cast<lua_Integer>(lua_rawlen(L, base + 2));
+      lua_createtable(L, static_cast<int>(count), 0);
+      for (lua_Integer i = 1; i <= count; ++i) {
+        lua_rawgeti(L, base + 2, i);
+        LuaCanvas* kid = static_cast<LuaCanvas*>(luaL_testudata(L, base + 4, kCanvasMeta));
+        if (kid == nullptr || g_ui_ops.canvas_parent == nullptr ||
+            g_ui_ops.canvas_parent(kid->slot) != canvas->slot) {
+          lua_pop(L, 1);
+          continue;
+        }
+        lua_pushvalue(L, base + 4);
+        lua_rawseti(L, base + 3, static_cast<lua_Integer>(lua_rawlen(L, base + 3)) + 1);
+        lua_getfield(L, base + 4, "draw");
+        if (lua_isfunction(L, base + 5)) {
+          lua_pushvalue(L, base + 4);
+          lua_pushinteger(L, depth + 1);
+          if (lua_pcall(L, 2, 1, 0) != LUA_OK) return lua_error(L);
+          if (lua_toboolean(L, -1)) drew = true;
+          lua_pop(L, 1);
+        } else {
+          lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+      }
+      lua_setfield(L, base + 1, "children");
+      lua_pop(L, 1);
+    } else {
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+  lua_pushboolean(L, drew ? 1 : 0);
+  return 1;
+}
+
+// cv:invalidate(): the control changed what it shows —a number, a state, a word— and it has to be drawn
+// again. It goes up to the fathers, because a child that changed leaves its father's buffer wrong
+// (docs/90).
+int l_canvas_invalidate(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  // **With a box, that is what has to be painted.** An app that knows what changed —the digit of a clock,
+  // one row of a list— says so and its `on_draw` is cut there; without it, the whole canvas (docs/30).
+  if (lua_gettop(L) >= 5) {
+    const lua_Integer x = luaL_checkinteger(L, 2);
+    const lua_Integer y = luaL_checkinteger(L, 3);
+    const lua_Integer w = luaL_checkinteger(L, 4);
+    const lua_Integer h = luaL_checkinteger(L, 5);
+    if (w <= 0 || h <= 0) return push_nil_error(L, "E_INVAL", "a box is a size");
+    if (g_ui_ops.canvas_invalidate_rect == nullptr ||
+        !g_ui_ops.canvas_invalidate_rect(canvas->slot, static_cast<uint16_t>(x),
+                                         static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                                         static_cast<uint16_t>(h))) {
+      return push_nil_error(L, "E_INVAL", "this canvas is not on the screen any more");
+    }
+  } else if (g_ui_ops.canvas_invalidate == nullptr ||
+             !g_ui_ops.canvas_invalidate(canvas->slot)) {
+    return push_nil_error(L, "E_INVAL", "this canvas is not on the screen any more");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// canvas:parent(): the canvas that holds this one, or nil when it is the view of the app (docs/90).
+int l_canvas_parent(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.canvas_parent == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "no display");
+  const int8_t father = g_ui_ops.canvas_parent(canvas->slot);
+  if (father < 0) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_pushinteger(L, father);
+  return 1;
+}
+
+// canvas:caps(): how big it is and where it sits, which is what a control needs to place what it holds.
+int l_canvas_caps(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  uint16_t width = 0;
+  uint16_t height = 0;
+  uint16_t x = 0;
+  uint16_t y = 0;
+  if (g_ui_ops.canvas_caps == nullptr ||
+      !g_ui_ops.canvas_caps(canvas->slot, width, height, x, y)) {
+    return push_nil_error(L, "E_INVAL", "this canvas is not on the screen any more");
+  }
+  lua_createtable(L, 0, 4);
+  lua_pushinteger(L, width);
+  lua_setfield(L, -2, "width");
+  lua_pushinteger(L, height);
+  lua_setfield(L, -2, "height");
+  lua_pushinteger(L, x);
+  lua_setfield(L, -2, "x");
+  lua_pushinteger(L, y);
+  lua_setfield(L, -2, "y");
+  return 1;
+}
+
+// canvas:damage(): how many regions of it are waiting to be composed (docs/90).
+int l_canvas_damage(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.canvas_damage == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "no display");
+  lua_pushinteger(L, g_ui_ops.canvas_damage(canvas->slot));
+  return 1;
+}
+
+// canvas:release(): gives the buffer back now instead of waiting for the collector. The object is spent
+// afterwards (docs/90).
+int l_canvas_release(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.canvas_release != nullptr) g_ui_ops.canvas_release(canvas->slot);
+  canvas->slot = -1;
+  canvas->generation = 0;
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_canvas_gc(lua_State* L) {
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (canvas->slot >= 0 && g_ui_ops.canvas_alive != nullptr &&
+      g_ui_ops.canvas_alive(canvas->slot, canvas->generation) && g_ui_ops.canvas_release != nullptr) {
+    g_ui_ops.canvas_release(canvas->slot);
+  }
+  canvas->slot = -1;
+  return 0;
+}
+
+int l_canvas_tostring(lua_State* L) {
+  if (!canvas_ready(L, 1)) {
+    lua_pushstring(L, "canvas (gone)");
+    return 1;
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  uint16_t width = 0;
+  uint16_t height = 0;
+  uint16_t x = 0;
+  uint16_t y = 0;
+  char text[48];
+  if (g_ui_ops.canvas_caps != nullptr && g_ui_ops.canvas_caps(canvas->slot, width, height, x, y)) {
+    snprintf(text, sizeof(text), "canvas %ux%u at %u,%u", width, height, x, y);
+  } else {
+    snprintf(text, sizeof(text), "canvas (gone)");
+  }
+  lua_pushstring(L, text);
+  return 1;
+}
+
+void open_canvas_library(lua_State* L) {
+  luaL_newmetatable(L, kCanvasMeta);
+  lua_createtable(L, 0, 14);
+  set_function(L, "clear", l_canvas_clear);
+  set_function(L, "rect", l_canvas_rect);
+  set_function(L, "pixel", l_canvas_pixel);
+  set_function(L, "place", l_canvas_place);
+  set_function(L, "frame", l_canvas_frame);
+  set_function(L, "line", l_canvas_line);
+  set_function(L, "circle", l_canvas_circle);
+  set_function(L, "disc", l_canvas_disc);
+  set_function(L, "text", l_canvas_text);
+  set_function(L, "add", l_canvas_add);
+  set_function(L, "draw", l_canvas_draw);
+  set_function(L, "invalidate", l_canvas_invalidate);
+  set_function(L, "parent", l_canvas_parent);
+  set_function(L, "damage", l_canvas_damage);
+  set_function(L, "caps", l_canvas_caps);
+  set_function(L, "release", l_canvas_release);
+  lua_setfield(L, -2, "__methods");
+  lua_pushcfunction(L, &l_canvas_index);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, &l_canvas_newindex);
+  lua_setfield(L, -2, "__newindex");
+  lua_pushcfunction(L, &l_canvas_gc);
+  lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, &l_canvas_tostring);
+  lua_setfield(L, -2, "__tostring");
+  lua_pop(L, 1);
+}
+
+// **The view of the app, as a control of its own.** It is the same object every time —kept in the
+// registry— so `ui.root():add(box)` and `box:add(other)` build the same tree, and `ui.line(...)` is the
+// same control as `ui.root():line(...)` (docs/30, docs/90).
+const char kRootCanvasKey[] = "lunokOS.ui.root";
+
+int l_ui_root(lua_State* L) {
+  if (g_ui_ops.canvas_generation == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  lua_getfield(L, LUA_REGISTRYINDEX, kRootCanvasKey);
+  if (lua_type(L, -1) == LUA_TUSERDATA) {
+    // The view can be made again (a turn, a resize): the slot is the same and the canvas is another one,
+    // so the number is refreshed instead of holding an object that answers `E_INVAL` for ever.
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+    canvas->slot = 0;
+    canvas->generation = g_ui_ops.canvas_generation(0);
+    return 1;
+  }
+  lua_pop(L, 1);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(lua_newuserdatauv(L, sizeof(LuaCanvas), 1));
+  canvas->slot = 0;
+  canvas->generation = g_ui_ops.canvas_generation(0);
+  luaL_getmetatable(L, kCanvasMeta);
+  lua_setmetatable(L, -2);
+  lua_createtable(L, 0, 2);
+  lua_setiuservalue(L, -2, 1);
+  lua_pushvalue(L, -1);
+  lua_setfield(L, LUA_REGISTRYINDEX, kRootCanvasKey);
   return 1;
 }
 
@@ -3233,7 +3856,16 @@ void seal_globals(lua_State* L) {
   set_function(L, "damage", l_ui_damage);
   set_function(L, "title", l_ui_title);
   set_function(L, "rotation", l_ui_rotation);
+  set_function(L, "canvas", l_ui_canvas);
+  set_function(L, "control", l_ui_control);
+  set_function(L, "root", l_ui_root);
+  set_function(L, "frame", l_ui_frame);
+  set_function(L, "line", l_ui_line);
+  set_function(L, "circle", l_ui_circle);
+  set_function(L, "disc", l_ui_disc);
+  set_function(L, "text", l_ui_text);
   lua_setglobal(L, "ui");
+  open_canvas_library(L);
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).

@@ -61,7 +61,7 @@ Aquestes són les opcions del binari:
 | `--env-fail` | Un sensor d'ambient que hi és i no contesta: `env.read()` respon `E_IO`, que no és el mateix que una placa sense sensor |
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat (0 si ha anat bé) |
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
-| `--display` | **Un vidre**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`). Sense l'opció la placa no té pantalla, que és el que volen gairebé totes les proves (docs/30, docs/50) |
+| `--display` | **Un vidre**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i el banc deia que no—. Sense l'opció la placa no té pantalla, que és el que volen gairebé totes les proves (docs/30, docs/50) |
 | `--verbose` | El log també surt per la consola |
 
 En mode lot, cada app que arrenca es deixa acabar abans de la línia següent, i **també cada ordre que
@@ -157,6 +157,14 @@ disk**.
 editar una app a `data/apps` **no canvia res** en aquella còpia; el que corre és el disc de treball.
 Amb el disc real —el camí per defecte— això no passa.
 
+## Una sola sortida, i en ordre
+
+El nucli escriu les seves línies amb `printf` i la consola amb `IConsole::write`. A la placa les dues
+surten pel mateix UART, o sigui que l'ordre és l'ordre en què s'han escrit; al banc són dos fluxos
+diferents i les línies de l'arrencada sortien **després del prompt** i després del que havia escrit una
+app (mesurat l'1/11). La consola del banc buida `stdout` abans d'escriure, i així el que es veu és el
+mateix que veuria una persona amb la placa endollada (docs/85).
+
 ## Temps virtual
 
 El rellotge de paret i el monòton avancen de pressa quan hi ha `--time-scale`, però **el sistema no ho
@@ -219,6 +227,12 @@ Res de comparar text a ulls.
 nou amb els bytes de cadascun, i `help` ensenya `sleep at <epoch seconds>`. La línia `free heap` **no
 hi és al PC** i `mem` ho diu (`heap not available on this build`): la RAM interna del xip no té un
 equivalent al banc, i inventar-ne un número seria pitjor que dir-ho.
+
+**I la capa de controls diu el mateix a les dues bandes** (1/11, 0.19.0): `run layers` dona **les sis
+línies iguals** al banc amb `--display` i a la Paper —els comptes `1 / 1 / 2`, el pare al slot 3, el marc
+sense vista i `canvas (gone)`—, o sigui que la composició i el dany que es proven aquí són els que passen
+allà (docs/95, E-8). L'única cosa que el banc no pot dir és el **temps de tinta**, que és justament el que
+`docs/95` encara té pendent.
 
 **El que encara no fa.** El maquinari fals **ja segueix el model** —capacitats, llums, nombre de tecles,
 sensor, indicador de bateria, ranura i FRAM surten de `emu::model()`—, i el que queda és la **forma de

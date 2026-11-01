@@ -667,12 +667,17 @@ class EmulatorPlatform : public IPlatform {
       caps_.add(kCapSleepLight);
       caps_.add(kCapSleepDeep);
       caps_.add(kCapRtcWake);
+      if (emu::options().display) caps_.add(kCapDisplay);
       // The light and the sensor are the hardware of the model and of nobody else (docs/50).
       if (emu::model().lights > 0) caps_.add(kCapLed);
       caps_.add(kCapInput);
       if (emu::model().imu) caps_.add(kCapImu);
       // The air: the model's, and only the model's (docs/50, docs/85).
       if (emu::model().env) caps_.add(kCapEnv);
+      // **The glass: the bench has one when the run asked for it** (`--display`). It is not a trait of
+      // the model —no board of this family has a panel without the bench being told— and without this
+      // line an app that asks `sys.caps().display` was told no on a bench that had one, while the view
+      // behind it was there and the boot line said so (found running `layers` on the bench, 1/11).
     }
     return caps_;
   }

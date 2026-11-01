@@ -464,6 +464,21 @@ dreta— que està explicat a `docs/50` i té prova al PC. La línia de consola 
 (0.18.2): una línia per toc no és una consola que es pugui fer servir. Per a una altra placa o un altre
 panell, es torna a posar allà mateix.
 
+**L'1/11 amb la 0.19.0, l'app `glass`** (un minut de dit a sobre del vidre): la línia de l'arrencada és la
+de dalt, i el que va dir la consola és el que es volia veure:
+
+```
+glass 540 x 932, up to 2 fingers
+long at 294,171 after 1002 ms
+#0 432,323 s28  #1 104,787 s30        (sis torns seguits mentre els dos dits no es movien; al sisè, 427,330 i 110,784)
+```
+
+Tres coses queden mesurades aquí: **els dos punts alhora** (el xip en dona dos i la crida els torna tots dos,
+cadascun amb la seva mida de contacte), **el gest de prémer llarg** amb la seva durada —1002 ms, o sigui que
+el llindar de 1000 ms es compleix amb la dada de la placa i no amb la del banc— i **que els punts no es
+congelen**: mentre el dit no es mou les coordenades es repeteixen (és el que ha de fer), i es mouen de
+seguida que el dit es mou.
+
 | Què apuntar | On va |
 |---|---|
 | **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que compta el dit | `docs/50` |
@@ -509,6 +524,53 @@ no tornar-hi:
 | `LISAR` (mot alt) | `+ 0x000A` | **0x020A** | escrivia a `0x0202` |
 | `LUTAFSR` | `DISPLAY_REG_BASE (0x1000) + 0x0224` | **0x1224** | preguntava a `0x0000`, així que `display.idle()` no s'acabava mai |
 
+**L'1/11 amb la 0.19.0, l'app `panel`**:
+
+```
+panel: 540x960 turned 270 (glass 960x540), image at 0x001236e0, words 03c0 021c 36e0 0012
+ui: view 540x932 at 0,28, 251640 bytes of canvas
+
+lunok> run panel
+view 540 x 932 at 0,28, 16 levels
+2 region(s) with damage
+paint asked; waiting for the glass
+done in about 120 ms
+```
+
+Les **dues regions** són les dues qualitats que la pàgina demana (la vora i els quadres d'un costat, l'escala
+de setze nivells de l'altre), i és el que la pregunta 4 volia veure: un sol `present` que en porta dues.
+
+**I una cosa que aquest número no diu, i que s'ha de dir clar: `~120 ms` no és el temps del pintat.** L'app
+espera 120 ms **ella mateixa** (`sys.delay(120)`, perquè la primera lectura de `LUTAFSR` no serveix) i
+després pregunta `ui.idle()`; el que el número vol dir és «als 120 ms ja no pintava», i el `+120` de la
+suma és la mateixa espera. Amb el fabricant dient **450 ms** per a `GC16`, una espera de 120 ms **no pot
+mesurar-lo**: el bucle surt a la primera pregunta. Per tenir el número de debò cal comptar des d'abans del
+`present` i no donar la primera lectura per bona, i això és una feina de l'app (o del nucli, amb l'instant
+del `flush` desat): queda **pendent**.
+
+**I una segona cosa que aquest run ha destapat**: la pàgina de `panel` es dibuixava amb **`du4`** —la vora,
+el blanc i els quadres— i `du4` és, precisament, un dels modes que aquí dalt està mesurat com a **no pinta**.
+La pàgina que es veu a la placa amb aquella versió pot ser la de l'app anterior. Des de la 0.19.1 l'app fa
+servir `du` per a les regions ràpides i `gc16` per a l'escala.
+
+**L'1/11 amb la 0.19.1, la mateixa app amb `du`** (i mirant el vidre):
+
+```
+lunok> run panel
+view 540 x 932 at 0,28, 16 levels
+2 region(s) with damage
+paint asked; waiting for the glass
+done in about 120 ms
+```
+
+La sortida és la mateixa —**dues regions**, perquè les regions del mateix mode s'ajunten: la pàgina i la
+vora amb `du` d'un costat, l'escala amb `gc16` de l'altre— i **la pàgina hi és sencera**: dit per qui mira
+el vidre, «no veig cap problema al redibuixat». O sigui que qui no pintava era **el mode** i no el camí de
+la composició ni la mida de la vista, i el que la 0.19.1 canvia és el mode. `du4` continua com a mesura
+dient el que deia `squares` (no va pintar), i **no s'ha tornat a provar** amb aquesta app: si algun dia es
+vol saber si pinta «a vegades», la prova és pintar dues meitats de la pàgina, una amb cada mode, i mirar
+quina hi és.
+
 Què apuntar:
 
 | Què apuntar | On va |
@@ -518,6 +580,46 @@ Què apuntar:
 | **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió | `docs/50` |
 | **El temps d'un `gc16`**: `run panel` diu els mil·lisegons entre `flush` i `idle`. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`. **La primera lectura de `LUTAFSR` no serveix**: el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` (1/11) amb la pàgina encara movent tinta; la prova espera 120 ms abans de la primera pregunta | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
+
+### E-8 · La capa de controls a la placa (5 minuts)
+
+El que es mesura aquí és **que la composició i el dany no depenguin del vidre**: les mateixes línies a la
+placa que al banc. La línia de l'arrencada
+diu la mida de la vista i quants bytes té el canvas de l'app:
+
+```
+ui: view 540x932 at 0,28, 251640 bytes of canvas
+```
+
+Són **540 × 932** (960 menys els 28 de la barra, i això és el que la vista té a sota) i **251 640 B**, que
+són els mateixos bytes que `docs/75` compta per a una pàgina de quatre bits: `540 × 932 / 2`.
+
+**L'1/11 amb la 0.19.0, `run layers` a la placa**:
+
+```
+layers: view 540 x 932 at 0,28
+layers: 1 draw of the panel, and the page is on the glass
+layers: 1 draw of the panel after a present with nothing new
+layers: 2 draw of the panel after the button moved
+layers: button is canvas 120x40 at 30,20, its father is slot 3
+layers: the box that holds it is canvas 160x60 at 20,60 and has no view of its own
+layers: after the dot went away, canvas (gone)
+```
+
+**I són exactament les mateixes sis línies que dona l'emulador** (`program --board m5stack-paper --display
+--script …`), número per número: els comptes `1 / 1 / 2`, el pare al **slot 3**, el marc sense vista i
+`canvas (gone)`. O sigui que la capa de controls no depèn del vidre: el que es prova al PC és el que passa a
+la placa.
+
+**I `run squares` amb la 0.19.0**, que és el dany en mans de l'app:
+
+```
+square at 443,110 44x44 (du), 1 region(s) with damage
+painted, 0 region(s) left, idle says true
+```
+
+Una regió per quadrat, i cap deixa enrere. El `idle says true` és immediatament després del `present` i diu
+el que ha de dir: `du` d'un quadrat de 44 × 44 no és una pàgina.
 
 ---
 

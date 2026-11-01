@@ -731,9 +731,12 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
 
 La vista de l'app: **el seu propi canvas**, i el moment en què demana al sistema de posar-lo al vidre.
 El vidre té un sol buffer i és del sistema; l'app dibuixa al seu, i `ui.present` és l'única cosa que el
-fa arribar a la pantalla. **El sistema no dibuixa mai res pel seu compte** —ni splash, ni barra d'estat,
-ni netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan**
-(docs/50).
+fa arribar a la pantalla. **El sistema no dibuixa mai la pàgina d'una app** —ni splash, ni netejar quan
+una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan** (docs/50).
+
+L'únic que el sistema pinta són **les 28 files de dalt**: la barra amb l'hora, el títol de l'app i la
+càrrega, que no és de cap app (docs/50, «La barra del sistema»). Per això la vista d'una app comença a
+la fila 28 i `ui.caps().y` ho diu.
 
 | Crida | Torna | Notes |
 |---|---|---|
@@ -747,9 +750,16 @@ ni netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **q
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
+| `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
+| `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això |
+| `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
+| `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
+| `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
+| `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
+| `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
 
 - **Cada dibuix guarda la seva regió i la seva qualitat.** `ui.rect(0, 40, 60, 120, 7, 'gc16')`
-  apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du4')` apunta «aquest
+  apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du')` apunta «aquest
   quadre, i ràpid». `ui.present()` envia cada regió amb la seva i, com que el controlador només pot
   pintar una cosa alhora, la segona espera que la primera acabi (docs/50).
 - **El que es pot ajuntar s'ajunta.** Dues regions de la mateixa qualitat que es toquen (a dos píxels)
@@ -763,14 +773,17 @@ ni netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **q
   coordenades són sempre de la vista— i és el sistema qui les tradueix al vidre, tallant el que queda
   fora (docs/50).
 - **La vista és de l'app i no del vidre.** `ui.clear`, `ui.rect` i `ui.pixel` escriuen en un canvas que
-  el sistema fa quan l'app arrenca (253 KB al Paper, 4 bits per píxel); res no arriba a la pantalla fins
-  a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
+  el sistema fa quan l'app arrenca (**251 640 B al Paper**, 4 bits per píxel: 540 × 932, que és la pàgina
+  de 540 × 960 menys les 28 files de la barra); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
   la pàgina sencera comença amb `ui.clear(15)`.
 - **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
-- **Els modes són els del propi xip**, i una app tria el preu: `du` (260 ms, text i menús),
-  `du4` (120 ms, passar pàgines amb menys contrast), `gc16` (450 ms, imatges de qualitat i netejar el
-  fantasma), `gl16`, `glr16`, `gld16`, `a2` i `init` (2 s, la primera). Per defecte, `du`. Un nom que
-  no és a la taula es **refusa**; no s'arrodoneix a un altre.
+- **Els modes són els del propi xip**, i una app tria el preu: `du` (text i menús), `du4`, `gc16`
+  (imatges de qualitat i netejar el fantasma), `gl16`, `glr16`, `gld16`, `a2` i `init` (la primera, la
+  de dos segons). Per defecte, `du`. Un nom que no és a la taula es **refusa**; no s'arrodoneix a un
+  altre. **Els temps del full de dades no són el que fa la placa**: mesurat l'1/11 (docs/95, E-7),
+  `gc16` pinta i neteja (450 ms), `du` pinta però deixa rastre (120 ms), i **`du4` i `a2` no van pintar
+  res** —`present` deia `true` i el vidre no canviava—. Fins que això no estigui resolt, pintar amb `du` i
+  **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net.
 - **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia— el canvas es torna a
   fer, blanc, i l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
   dibuixar és de l'app. Una app sense `on_resize` és una app legal; simplement no dibuixa mai la vista
@@ -779,7 +792,7 @@ ni netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **q
 ```lua
 local view = ui.caps()
 ui.clear(15, 'gc16')                    -- la pàgina, i que quedi neta
-ui.rect(0, 200, view.width, 40, 0, 'du4')  -- un avís que es mou sovint, i ràpid
+ui.rect(0, 200, view.width, 40, 0, 'du')   -- un avís que es mou sovint, i ràpid
 ui.present()                            -- dues regions: dos pintats, un per qualitat
 while not ui.idle() do sys.delay(100):await() end
 
@@ -788,9 +801,99 @@ function on_resize(width, height)
 end
 ```
 
-- **No hi ha text encara**: una font és una decisió pròpia i no hi és (docs/90).
+- **Una app no pot escriure text encara.** La font de 5 × 7 hi és i la fa servir la barra
+  (`lib/kernel/font.cpp`, 295 bytes de taula, només majúscules), però no hi ha cap `ui.text`: quan n'hi
+  hagi serà una crida més d'aquesta taula i no un canvi de res del que ja hi ha (docs/90).
 - L'exemple és l'app `panel` (`run panel`), que dibuixa una pàgina de prova a la seva vista i espera que
   el vidre acabi.
+
+### `ui.canvas`: el canvas d'una app, que és un control
+
+**Un canvas és un buffer amb un lloc dins del que el conté.** La vista de l'app és el canvas arrel (el que
+fan servir `ui.clear`, `ui.rect` i `ui.pixel`), i `ui.canvas(w, h)` en fa un altre **a dins de la vista**.
+Els canvas es guarden en un **arbre**: quan l'app fa `ui.present`, cada canvas es compon al seu lloc dins
+del seu pare, i el pare dins del seu, fins que la vista és una sola imatge al vidre. L'ordre és el
+d'aparició: **un canvas fet després queda al davant** del que ja hi era.
+
+| Mètode | Torna | Notes |
+|---|---|---|
+| `cv:rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Com `ui.rect`, però al canvas propi |
+| `cv:pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
+| `cv:clear([level], [mode])` | `true` o `nil, error` | Tot el canvas |
+| `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
+| `cv:rect`, `cv:frame`, `cv:line`, `cv:circle`, `cv:disc`, `cv:text` | `true` o `nil, error` | Les mateixes primitives que la vista, dibuixades al canvas propi |
+| `cv:add(fill)` | `true` o `nil, error` | El fill passa a estar **dins** d'aquest canvas, i és l'últim (la capa del davant). Un canvas té **un sol pare** |
+| `cv:draw()` | `true` si ha dibuixat, `false` si no hi havia res | **Es dibuixa ell i després pregunta als fills**, en l'ordre en què es van afegir. **Si no té cap canvi, no fa res** |
+| `cv:invalidate([x, y, w, h])` | `true` o `nil, error` | «Ha canviat el que ensenyo». Amb una caixa, **això** és el que s'ha de pintar; sense, tot el canvas |
+| `ui.root()` | **l'objecte de la vista** | El mateix cada vegada: la vista també és un control, amb els seus `add`, `draw` i fills |
+| `cv:parent()` | el pare, o `nil` | El canvas que el conté; `nil` vol dir que és la vista |
+| `cv.on_draw` | el camp que posa l'app | `function(self)` que pinta el canvas propi; opcional |
+| `cv.children` | taula | Els fills, en l'ordre en què s'han afegit (la manté `cv:add`) |
+| `cv:caps()` | `{width, height, x, y}` | La seva mida i el seu lloc |
+| `cv:damage()` | número | Quantes regions seves esperen ser compostes |
+| `cv:release()` | `true` | **Demana** que el control desaparegui: l'objecte queda mort de seguida, i el buffer es neteja i es torna **al final del proper `present`**, quan la pàgina ja ha estat tapada |
+
+- **Un control és un canvas amb fills, i dibuixar-lo és preguntar-los.** `cv:draw()` crida el seu
+  `on_draw(self)` i **després cada fill amb el seu `draw()`**, en l'ordre en què es van afegir: la vista
+  d'un control es compon cridant els fills, i el que es va afegir després queda al davant. Un control
+  sense `on_draw` és un control que només passa el torn. L'ordre dels fills és el de les capes, i el
+  sistema composa amb el mateix ordre quan l'app fa `ui.present`.
+- **Qui es redibuixa només pinta el que deu.** Mentre corre un `on_draw`, **totes les primitives d'aquell
+  canvas es tallen a la caixa del canvi**: una app pot demanar el canvas sencer i el sistema li'n deixa
+  pintar només el tros. I amb la qualitat que demana cada primitiva, que és la que viatja fins al vidre.
+  Un control que pinta un dígit de rellotge que ha canviat paga la caixa del dígit, no la pàgina.
+- **El senyal no puja sempre.** Un control que ha canviat el seu contingut **no fa repintar el pare**: la
+  seva capa es compon a sobre del buffer del pare al `present`. Qui fa repintar el pare és el que deixa un
+  forat: **moure** un control (el pare repinta exactament el rectangle que el fill ocupava) i **treure'l**
+  (el pare repinta el lloc on era).
+- **Un control que marxa es neteja abans de ser alliberat.** `cv:release()` **no allibera res**: marca el
+  control (i els seus fills), diu al primer control que pinta **un sol rectangle —el del control que marxa**,
+  no un per fill, perquè els dels fills són tots a dins del seu— i al final del `present` següent —quan
+  aquella zona ja ha estat tapada— **esborra el buffer** (el deixa blanc) i torna el lloc. Així no queda cap
+  resta fantasma ni al paper ni al buffer que rebrà un altre canvas. **El destructor no és a l'abast de
+  Lua**: el que l'app crida és la petició, i l'alliberament el fa el sistema quan la pàgina és neta.
+- **Un objecte que apunta a un control que ja no hi és no és un punter penjat.** L'objecte de Lua es guarda
+  **l'espai i la generació**, i cada crida comprova els dos: si el control ha marxat, la crida respon
+  `nil, E_INVAL` («aquest canvas ja no és a la pantalla»), `tostring` diu `canvas (gone)`, i el recolector
+  no allibera res dues vegades. Un canvas nou pot ocupar aquell espai, però **no es pot escriure a través de
+  l'objecte vell**, perquè la generació de l'espai ha avançat.
+- **Un control amb res de nou no es dibuixa.** Cada canvas sap si té alguna cosa a refer: neix amb el
+  senyal posat, el perd quan s'ha dibuixat, i el torna a tenir quan **es mou**, quan canvia de pare, quan
+  se li assigna un `on_draw` nou o quan l'app crida `cv:invalidate()`. El senyal **puja als pares**,
+  perquè un fill que s'ha mogut deixa els seus píxels dins del buffer del pare i és el pare qui els ha de
+  tapar. `ui.present()` dibuixa el que ha canviat i prou: **`on_draw` no es crida si no hi ha res a
+  fer**, i el segon `present` seguit d'un canvi qualsevol no pinta ni una regió.
+- **Un sol pare.** `cv:add(fill)` treu el fill del canvas on era i el posa al final d'aquest; el seu
+  `place(x, y)` passa a comptar-se en els píxels del pare nou. Un canvas no pot anar dins d'ell mateix
+  ni dins d'un dels seus fills, i la vista de l'app no és filla de ningú.
+- **Les primitives són les mateixes a la vista i a un canvas**, i cada una deixa **una sola regió de
+  dany** —la caixa que ocupa— i no una per píxel: una línia diagonal no ha de semblar dos-cents dibuixos,
+  o la llista de vuit s'omple i tot el canvas es pinta d'un sol cop amb `gc16` (docs/50). Una línia recta
+  horitzontal o vertical es pinta com un rectangle i és exacta; la resta és Bresenham. El cercle i el disc
+  són l'algorisme del punt mitjà, sense coma flotant.
+- **El color és el nivell**, de 0 (negre) a 15 (blanc), perquè és el que té el vidre: no hi ha color de
+  debò en aquest panell i no se'n inventa cap (docs/50).
+- **Un canvas té vora.** El que es dibuixa fora de la seva mida **no es pinta** —ni al canvas ni al pare,
+  ni a la pàgina— i un rectangle més gran que el canvas queda tallat a la vora. És el mateix que fa un
+  text amb la caixa on no pot entrar (`docs/50`).
+- **El que costa és el que ha canviat.** Un canvas recorda què ha pintat des de l'última composició, i el
+  pare només copia això: un canvas que no ha pintat res **no costa res**, i un text sobre una imatge no
+  necessita cap transparència ni cap màscara (docs/90).
+- **La qualitat viatja amb la tinta**: el `mode` amb què s'ha pintat una regió és el que s'usa quan la
+  regió arriba al vidre, passi pels canvas que passi.
+- **Dos sostres i no un**: hi ha fins a **32 controls**, i només **vuit** poden tenir vista pròpia (la de
+  l'app inclosa). Un control sense vista no gasta ni un byte de píxel; si no hi ha lloc, `ui.canvas` o
+  `ui.control` responen `nil` amb `E_NOMEM`.
+- **Un control sense vista no és cap forat a l'arbre**: els seus fills es componen igual, amb el
+  desplaçament de cada capa sumat, i el que ell dibuixa cau al canvas que el conté (el primer que en té) i
+  **es talla al seu marc**: no pot pintar fora de la seva caixa. Un `UILabel` no necessitarà cap buffer.
+- **Una vista feta de nou se'ls emporta**: si el sistema torna a fer la vista (una rotació, un `ui.resize`),
+  els canvas de dins moren, i un objecte que l'app encara tingui **respon `nil, E_INVAL`** en lloc
+  d'escriure al canvas que hagi ocupat el seu lloc.
+- **Moure un canvas sí que torna a pintar el que deixa enrere**: el pare (o el primer control que pinta,
+  si el pare no té buffer) rep exactament el rectangle que el fill ocupava, i el fill es compon al lloc nou.
+- L'exemple és l'app `layers` (`run layers`), que fa dos canvas, els col·loca i els compon amb un sol
+  `ui.present`.
 
 ## `touch`
 
@@ -800,8 +903,8 @@ toc és una app que no fa res més.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `touch.caps()` | `{points, width, height}` | Quants dits alhora i el **marc** en què compten les coordenades |
-| `touch.read()` | taula de `{id, x, y, size}` | Els dits que hi ha **ara**, del darrer torn del nucli (vint mil·lisegons com a màxim). Taula buida quan no toca ningú, no `nil`, perquè un bucle la pugui recórrer sense preguntar |
+| `touch.caps()` | `{points, width, height}` | Quants dits alhora i **la mida de la vista de l'app**, que és el marc en què compten les coordenades (`ui.caps()` diu el mateix) |
+| `touch.read()` | taula de `{id, x, y, size}` | Els dits que hi ha **ara**, de la darrera lectura del nucli (el nucli pregunta al xip a cada torn). Taula buida quan no toca ningú, no `nil`, perquè un bucle la pugui recórrer sense preguntar |
 | `touch.gesture()` | `{kind, x, y, dx, dy, spread, held_ms, fingers}` o `nil` | L'últim gest, i **es pren una vegada**: preguntar-ho dues vegades no el repeteix |
 
 - **Els gestos els fa el sistema, no el xip.** El GT911 té gestos propis i ni el driver de M5 ni el
@@ -828,16 +931,12 @@ vidre i es poden provar al PC (docs/85).
 - **`read()` no torna a preguntar al xip**: el vidre dona un frame una vegada i qui el pren el neteja,
   o sigui que el nucli el llegeix al seu torn i la crida dona aquesta còpia.
 - **Sense vidre**: les tres crides responen `nil, E_UNSUPPORTED` i `sys.caps().touch` diu `false`.
-- **El marc és el del xip, i això és provisional.** Les coordenades surten com les dona el GT911
-  (540 × 960 en retrat) perquè encara no hi ha cap pantalla amb què compartir-les; quan el panell hi
-  sigui, hi haurà **una sola rotació per al dibuix i per al toc** i la farà el sistema, també sobre el
-  `dx`/`dy` dels gestos, i aquesta crida donarà directament el marc del panell (docs/90). Una app no ha
-  de girar mai res.
-- **El marc és el del xip, i això és provisional.** Les coordenades surten com les dona el GT911
-  (540 × 960 en retrat) perquè encara no hi ha cap pantalla amb qui compartir-les; quan el panell hi
-  sigui, hi haurà **una sola rotació per al dibuix i per al toc** i la farà el sistema, també sobre el
-  `dx`/`dy` dels gestos, i aquesta crida donarà directament el marc del panell (docs/90). Una app no ha
-  de girar mai res.
+- **El marc és el de la vista de l'app, i no el del xip.** El xip compta en 540 × 960 i la pàgina que
+  veu una app també, i a sobre **del dret**: es va mesurar l'1/11 tocant les quatre cantonades (docs/95,
+  E-6) i el dit arriba on s'ha posat, amb un sol gir que amb la pàgina de fàbrica (270) val zero. La
+  conversió la fa el sistema en un sol lloc (`turn_frame()` de `lib/kernel/src/touch.cpp`) i el `dx`/`dy`
+  dels gestos surten ja girats: **una app no ha de girar mai res**. Un dit que cau a la barra arriba
+  filtrat a la vora de la vista i no desapareix (docs/50).
 - L'exemple és l'app `glass` (`run glass`), que llegeix el panell en bucle i escriu els dits i els
   gestos.
 

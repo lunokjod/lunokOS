@@ -25,22 +25,8 @@
 namespace kernel {
 namespace ui {
 
-// The app's canvas: four bits per pixel, one byte per two of them and the left one in the high
-// nibble, so it is the same packing the glass takes and a present is a copy (docs/50).
-struct Canvas {
-  uint16_t width = 0;
-  uint16_t height = 0;
-  uint16_t stride = 0;  // bytes of a line: half the width, rounded up to a whole byte
-  uint8_t* bits = nullptr;
-  uint32_t bytes = 0;
-  // Where the view sits on the glass, in panel pixels. The system decides it and an app only reads it
-  // (docs/30).
-  uint16_t x = 0;
-  uint16_t y = 0;
-};
-
-// One region the app drew and the quality it asked for, **in the canvas' own coordinates**. The system
-// keeps a short list, merges what it can, and paints each quality once per present (docs/30).
+// One region a canvas painted and the quality it asked for, **in that canvas' own coordinates**. Each
+// canvas keeps a short list, merges what it can, and a present paints each quality once (docs/30).
 struct Damage {
   uint16_t x = 0;
   uint16_t y = 0;
@@ -52,6 +38,77 @@ struct Damage {
 // How many regions the list holds. Past this, everything pending becomes one region with the quality
 // that cannot look wrong (`gc16`), and `damage_count()` is how an app sees it happening (docs/30).
 const uint8_t kMaxDamage = 8;
+
+// **Two ceilings and not one.** A control is cheap —a frame and its lists— and there can be many; a view
+// is four bits per pixel and there can be few. It is the difference between a page with twenty labels and
+// a page with eight (docs/90).
+const uint8_t kMaxControls = 32;
+// How many of those controls may own a buffer at once, the root included.
+const uint8_t kMaxCanvases = 8;
+
+// **A control is a frame, and a frame may or may not have a view.** The frame is the size and the place it
+// occupies inside the one that holds it, its father, its ordered children, what it owes and what it draws;
+// the view is a buffer of four bits per pixel —one byte per two, the left one in the high nibble, the same
+// packing the glass takes—, and **it is optional**: a `UICanvas` has one, a grid or a box or a spacer does
+// not and paints into the first canvas that holds it, cut at its own frame. The app's view is the root and
+// it always has one. At a present each view is composed into the first canvas that holds it, in the order
+// the controls were added, until the tree is one picture on the glass (docs/90).
+struct Canvas {
+  uint16_t width = 0;
+  uint16_t height = 0;
+  uint16_t stride = 0;  // bytes of a line: half the width, because a canvas is a whole number of bytes
+  // The view of this control, or nullptr when it is a control that only holds children and paints nothing
+  // (a box, a grid, a spacer). **`bits == nullptr` is not "a free slot"**: that is `in_use` (docs/90).
+  uint8_t* bits = nullptr;
+  uint32_t bytes = 0;
+  bool in_use = false;
+  // Where this canvas sits in its parent, in the parent's pixels. For the root, where the view sits on
+  // the glass. The system decides it and an app only reads it (docs/30).
+  uint16_t x = 0;
+  uint16_t y = 0;
+  // What it painted since the last composition: **that is all a parent copies**, which is why a text
+  // over a picture is transparent without a mask and a layer costs what it changes (docs/90).
+  Damage damage[kMaxDamage];
+  uint8_t damage_count = 0;
+  // **One father and ordered children.** The canvases inside this one are here in the order they were
+  // added, and that order is the order of the layers: the one added later is in front (docs/90).
+  int8_t parent = -1;
+  int8_t children[kMaxControls];
+  uint8_t child_count = 0;
+  // A number that changes every time the slot is handed out again: an app that keeps an object past the
+  // moment the view was made again holds a stale slot and has to be told, not write into whatever took
+  // its place (docs/90).
+  uint16_t generation = 0;
+  // **What this canvas has to redraw itself.** A control with nothing changed is a control that does
+  // nothing at all: no `on_draw`, no pixels, no paint. It is set when the canvas is made, when it moves,
+  // when it changes father, and when the app says so, and **it goes up to the fathers**, because a child
+  // that moved left its pixels inside its father's buffer and the father is the one that has to paint
+  // them over (docs/90).
+  bool needs_draw = true;
+  // **A control on its way out.** A control with a view cannot be freed the moment the app says so: its
+  // pixels are still in the canvas that holds it, and they have to be painted over first. It is marked,
+  // the painter is told the rectangle it leaves, its buffer is wiped white and only **after the clean
+  // paint** is the slot given back —no ghost on the paper and nothing stale left in a buffer somebody else
+  // will get— (docs/90).
+  bool pending_release = false;
+  // **What it owes, and while it is drawing itself it may paint nothing else.** A control that has to be
+  // redrawn because a child moved owes the rectangle that child left behind, not the page: the box is
+  // kept here and every primitive of the canvas is cut against it while the control draws (docs/30,
+  // docs/90).
+  int32_t redraw_x = 0;
+  int32_t redraw_y = 0;
+  int32_t redraw_w = 0;
+  int32_t redraw_h = 0;
+  bool in_draw = false;
+  // **The frame of the control that is drawing on this canvas**, when the drawing comes from a control
+  // without a view of its own: a control cannot paint outside its frame, and its children cannot either.
+  // It is the same cut as the redraw box and it is applied first (docs/90).
+  bool clipped = false;
+  int32_t clip_x = 0;
+  int32_t clip_y = 0;
+  int32_t clip_x1 = 0;
+  int32_t clip_y1 = 0;
+};
 
 // Makes the canvas, at the size of the glass **minus the rows the system keeps at the top** and just
 // below them. Called once, after `display::boot` (docs/30).
@@ -75,6 +132,78 @@ bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode);
 // What is pending, for a test or for an app that wants to know how much it is about to pay for.
 uint8_t damage_count();
 const Damage& damage(uint8_t index);
+
+// ---- the canvases inside the view: a control is one of these (docs/90) ----
+
+// The canvas at that slot, or nullptr. Slot 0 is the view of the app, which the system owns.
+const Canvas* at(int8_t slot);
+// A control of its own inside `parent` (`-1` is the view). **With a buffer or without one**: a control with
+// a buffer (`ui.canvas`) is composed onto its father as a layer of its own; a control without one
+// (`ui.control`) paints into the first canvas that holds it, cut at its own frame, and costs no pixels at
+// all. False when there is no slot left, when there is no room for another buffer and one was asked for,
+// or when the extra memory does not take it.
+bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8_t& slot);
+// Gives the buffer back and moves the slot's generation on: an object of an app that still points here
+// is refused instead of writing into whoever took the slot (docs/90).
+bool release(int8_t slot);
+// Where the canvas sits in its parent, in the parent's pixels.
+bool place(int8_t slot, uint16_t x, uint16_t y);
+// **Puts a canvas inside another one**, which is what a control holding a control is: it becomes the
+// last child of `parent` —so it is in front of the ones already there— and its place is now read in the
+// new parent's pixels. The view of the app is the one canvas an app cannot move into another (docs/90).
+bool reparent(int8_t slot, int8_t parent);
+// The father of a canvas, or -1 (the view of the app has none).
+int8_t parent_of(int8_t slot);
+
+// ---- redrawing, and only when it is needed (docs/90) ----
+
+// **Marks this canvas and every canvas that holds it** as needing a redraw. A child that changed is a
+// father whose buffer is not what the child has on it any more. Without a rectangle it is the whole
+// canvas; with one, **that** is what has to be painted, which is what keeps a repaint cheap (docs/90).
+bool invalidate(int8_t slot);
+bool invalidate_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+// The turn of a redraw: the system opens the box before asking a control to draw itself and closes it
+// after, and only while it is open is the drawing cut at the box (docs/90).
+bool begin_draw(int8_t slot);
+bool end_draw(int8_t slot);
+// Whether it has to be drawn. False is "nothing changed": the control is not asked to draw at all.
+bool needs_draw(int8_t slot);
+// It has been drawn: nothing more to do until something changes it again.
+bool mark_drawn(int8_t slot);
+// How many times the slot has been handed out (`at(slot)->generation`), for the object of an app that has
+// to know whether the canvas it holds is still the one it made.
+uint16_t generation_of(int8_t slot);
+
+// Drawing into a canvas that is not the view. The same calls the view has, and the same rules: a region
+// is kept in whole nibbles and nothing is painted outside the canvas (docs/30).
+bool canvas_clear(int8_t slot, uint8_t level, const char* mode);
+bool canvas_fill_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+                      const char* mode);
+bool canvas_pixel(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+uint8_t canvas_damage(int8_t slot);
+
+// ---- the primitives of a canvas, and the text (docs/30, docs/90) ----
+//
+// Each one paints **inside the canvas and nowhere else** and leaves **one** region of damage —the box the
+// shape covers— instead of one per pixel: a line must not look like two hundred separate pixels, or the
+// list of eight fills and the whole canvas becomes one `gc16` paint (docs/50).
+//
+// `level` is the colour, and on this glass the colour is a level from 0 (black) to 15 (white); `mode` is
+// the quality, and `nullptr` is `du`. A `frame` is a rectangle of one pixel drawn round the outside of
+// the box and a `rect` is the box filled; a `circle` is the line round and a `disc` is the inside.
+bool canvas_frame(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+                  const char* mode);
+bool canvas_line(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
+                 const char* mode);
+bool canvas_circle(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+                   const char* mode);
+bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+                 const char* mode);
+// A text drawn into the canvas with the font of the system, `scale` times its size and **cut at the
+// border of the canvas**: that is what a label is made of, and the font is the same one the bar uses
+// until a font can be loaded from a file (docs/30, docs/90).
+bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
+                 const char* mode);
 
 // Composes the damage onto the board's surface —translated to where the view sits— and asks for each
 // region to be painted with the quality it was drawn with. Returns **before the ink has moved**

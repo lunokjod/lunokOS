@@ -133,7 +133,11 @@ src/main.cpp            setup()/loop() d'Arduino: crida al nucli, res més
 lib/
   kernel/               planificador, esdeveniments, gestor d'apps, vfs,
                         rellotge, memòria, log, shell, la política del llum,
-                        del botó, de l'energia i de la ràdio
+                        del botó, de l'energia i de la ràdio; la vista d'una
+                        app (ui.cpp), el buffer del vidre (display.cpp), la
+                        barra del sistema (bar.cpp) i la seva font (font.cpp),
+                        i el tàctil amb els gestos i el gir (touch.cpp,
+                        orientation.cpp)
   alarms/               la cua d'alarmes, sense res de Lua a dins
   lua/                  Lua 5.4 vendoritzat, amb els flags de 20 · Intèrpret
   luabind/              la capa de Lua: un sol fitxer amb tota l'API de 30
@@ -151,8 +155,9 @@ lib/
   board_paper/          la identitat del Paper: "m5stack-paper", cap llum i cap
                         sensor (docs/50)
   hal_paper/            el que és de la M5 Paper: el *main power hold*, el dial de
-                        tres tecles i la targeta al slot; el panell i el toc
-                        encara no (docs/50, docs/90)
+                        tres tecles, la targeta al slot i el bus de la I2C
+                        intern, amb el panell (IT8951) i el tàctil (GT911)
+                        damunt del que és del xip, a hal_esp32 (docs/50)
   hal_emulator/         implementació per al PC (inclou main() de l'emulador);
                         mateixes capçaleres, i la identitat respon el model que
                         se li ha dit (`--board`, docs/85)

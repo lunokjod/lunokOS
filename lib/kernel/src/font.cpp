@@ -102,11 +102,11 @@ uint16_t width(const char* text, uint8_t scale) {
   return static_cast<uint16_t>(chars * step - scale);
 }
 
-uint16_t draw(hal::ISurface& surface, uint16_t x, uint16_t y, const char* text, uint8_t scale,
-              uint8_t level) {
-  if (text == nullptr || scale == 0) return 0;
-  const uint16_t step = static_cast<uint16_t>((kGlyphWidth + 1) * scale);
-  uint16_t at_x = x;
+uint16_t runs(const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip, RunFn fn,
+              void* user) {
+  if (text == nullptr || scale == 0 || fn == nullptr) return 0;
+  const int32_t step = (kGlyphWidth + 1) * scale;
+  int32_t at_x = x;
   for (const char* at = text; *at != '\0'; ++at) {
     const Glyph& glyph = glyph_for(*at);
     for (uint8_t row = 0; row < kGlyphHeight; ++row) {
@@ -120,15 +120,45 @@ uint16_t draw(hal::ISurface& surface, uint16_t x, uint16_t y, const char* text, 
         // One rectangle per run of lit columns: a glyph is a few rectangles and not thirty-five.
         uint8_t run = column;
         while (run < kGlyphWidth && (((glyph.column[run] >> row) & 1u) != 0)) ++run;
-        surface.fill_rect(static_cast<uint16_t>(at_x + column * scale),
-                          static_cast<uint16_t>(y + row * scale),
-                          static_cast<uint16_t>((run - column) * scale), scale, level);
+        // **The run is cut against the border of the box**, column by column, so a letter that hangs out
+        // of a label loses the part that is outside and nothing else (docs/30).
+        int32_t left = at_x + static_cast<int32_t>(column) * scale;
+        int32_t right = at_x + static_cast<int32_t>(run) * scale;
+        const int32_t top = y + static_cast<int32_t>(row) * scale;
+        const int32_t bottom = top + scale;
+        if (left < clip.x0) left = clip.x0;
+        if (right > clip.x1) right = clip.x1;
+        if (left < right && top >= clip.y0 && bottom <= clip.y1) {
+          fn(user, left, top, right - left, scale);
+        }
         column = run;
       }
     }
-    at_x = static_cast<uint16_t>(at_x + step);
+    at_x += step;
   }
   return width(text, scale);
+}
+
+namespace {
+
+// The sink of a surface: a run is one `fill_rect` of the level the caller asked for.
+struct SurfaceSink {
+  hal::ISurface* surface;
+  uint8_t level;
+};
+
+void surface_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
+  SurfaceSink* sink = static_cast<SurfaceSink*>(user);
+  sink->surface->fill_rect(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                           static_cast<uint16_t>(w), static_cast<uint16_t>(h), sink->level);
+}
+
+}  // namespace
+
+uint16_t draw(hal::ISurface& surface, uint16_t x, uint16_t y, const char* text, uint8_t scale,
+              uint8_t level, const Clip& clip) {
+  SurfaceSink sink = {&surface, level};
+  return runs(text, x, y, scale, clip, surface_run, &sink);
 }
 
 }  // namespace font

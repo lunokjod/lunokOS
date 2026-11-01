@@ -295,8 +295,7 @@ class PaperPlatform : public IPlatform {
       // The card slot: advertised only when a card really mounts, the same rule as the
       // filesystem of the flash (docs/70).
       if (esp32_sd("/sd", kSdPins) != nullptr) caps_.add(kCapSd);
-      // Three keys, read in every turn of the kernel like the ATOM's one. The panel
-      // and the touch are still absent (docs/90).
+      // Three keys, read in every turn of the kernel like the ATOM's one.
       caps_.add(kCapInput);
       // The battery, advertised only when the divider gives a number that could be a
       // cell: the same rule as the card and the disk (docs/50).
@@ -310,10 +309,10 @@ class PaperPlatform : public IPlatform {
       // taps, long presses and drags, which is what an app needs to choose a path (docs/50).
       if (touch() != nullptr) caps_.add(kCapTouch);
       // The panel: the controller answers and an app can draw on it, so the capability is announced.
-      // **Nothing of the system paints** —no splash, no status line—: what an app leaves on the glass
-      // is what stays there (docs/30, docs/50). Its supply stays on until the power policy of step 8
-      // says otherwise (docs/50), and `display()` is the one accessor here that is not `const`, which
-      // is why this one ask needs the cast.
+      // **The system paints the bar and nothing else** (28 rows at the top): an app's page is the
+      // app's, and what it leaves on the glass is what stays there (docs/30, docs/50). Its supply
+      // stays on until the power policy of step 8 says otherwise (docs/50), and `display()` is the one
+      // accessor here that is not `const`, which is why this one ask needs the cast.
       if (const_cast<PaperPlatform*>(this)->display() != nullptr) caps_.add(kCapDisplay);
 
     }
