@@ -299,6 +299,27 @@ struct TouchOps {
 
 void set_touch_ops(const TouchOps& ops);
 
+// The panel, as the interpreter uses it: what the glass is and the five things an app can do with it.
+// **The system never draws**: every call here comes from an app (docs/30, docs/50).
+struct DisplayInfo {
+  uint16_t width;
+  uint16_t height;
+  uint8_t levels;
+};
+
+struct DisplayOps {
+  bool (*caps)(DisplayInfo& out);
+  void (*clear)(uint8_t level);
+  void (*rect)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level);
+  void (*pixel)(uint16_t x, uint16_t y, uint8_t level);
+  // The mode as the app named it: the kernel decides whether that is a mode of this glass, and an
+  // unknown name is refused instead of quietly becoming another one (docs/30).
+  bool (*flush)(const char* mode);
+  bool (*idle)();
+};
+
+void set_display_ops(const DisplayOps& ops);
+
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).
 void button_progress(const char* kind, int64_t held_ms, uint32_t key);

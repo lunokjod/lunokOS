@@ -40,6 +40,14 @@ class II2c {
     (void)len;
     return false;
   }
+  // **Does anything answer at this address?** It is a question and not a failure, and it says nothing
+  // in the log: a board may carry a chip at one of two addresses —the touch controller of the Paper
+  // answers at 0x14 or at 0x5D— and asking the empty one must not read as a fault (docs/50). The
+  // default assumes the chip is there, so a bus that cannot ask keeps behaving as it did.
+  virtual bool present(uint8_t address) {
+    (void)address;
+    return true;
+  }
 };
 
 // The bus of this chip on two pins, at 100 kHz. The same pair of pins gives the same bus,

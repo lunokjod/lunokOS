@@ -446,6 +446,11 @@ i2c: read of 14:8140 failed (ESP_FAIL)        ← no hi ha ningú a 0x14, i és 
 touch: GT911 at 0x5d, config 66, 540x960, 2 fingers
 ```
 
+La primera línia **era soroll i ja no hi és** (0.13.0): preguntar a una adreça on no hi ha ningú no és
+una avaria, i el bus té ara `present(address)` —una lectura d'un byte que no diu res— perquè el probe
+pregunti qui hi ha abans de llegir-li el producte. La segona línia és l'única que queda, i és la que
+val.
+
 O sigui que aquesta unitat **contesta a 0x5D** (no a 0x14), la seva configuració és la **66**, compta en
 un marc de **540 × 960** i està configurada per a **dos dits** i no cinc: `touch.caps().points` dona 2,
 que és el que el xip reportarà de debò. Falta la cantonada: tocar les quatre i apuntar-ho.
@@ -457,13 +462,60 @@ que és el que el xip reportarà de debò. Falta la cantonada: tocar les quatre 
 | **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que compta el dit | `docs/50` |
 | Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
 
+### E-7 · El panell: el handshake i la primera pàgina (5 minuts)
+
+El controlador contesta per SPI i el que es mesura aquí és **si la imatge arriba sencera i recta**, en
+quin sentit van els nivells i quant triga un `gc16`. La línia de l'arrencada és el handshake sencer:
+
+```
+panel: 960x540, image at 0x001236e0, words 03c0 021c 36e0 0012 6d35 7374
+```
+
+**El que va dir la placa l'1/11 amb la 0.12.0**: exactament la línia de dalt, i el número que la fa
+de fiar és `0x001236e0`, perquè és **l'adreça que el fabricant té escrita a mà al seu
+driver** (`_tar_memaddr = 0x001236E0`) quan va deixar de refiar-se de `GetDeviceInfo`. Que el
+controlador me'n torni la mateixa vol dir que el que he llegit i el que hi ha al vidre són la mateixa
+placa. Els quatre mots següents (`03c0 021c` = 960 i 540, i `36e0 0012` = l'adreça) són els que es
+comproven a ull.
+
+**I la pàgina surt recta amb la 0.13.0** (dit a la placa l'1/11): el marc, l'escala de 16 nivells i els
+cinc quadres arriben sencers després d'enviar **un sol preàmbul de dades per trama** en lloc d'un per
+mot. El que encara no està mesurat és el temps del `gc16` i el sentit dels nivells: el número que dirà
+`run panel` quan es torni a córrer.
+
+Abans d'això, el handshake va fallar de quatre maneres i cadascuna té el seu nom al log. Serveix per
+no tornar-hi:
+
+| Línia | Què vol dir |
+|---|---|
+| `SYS_RUN did not go out: busy stayed low (busy reads 0)` | el rail del panell (GPIO23) no ha pujat: el fabricant hi espera **1000 ms** i no n'hi ha prou amb 100 |
+| `…: bus refused the prefix` | `ESP_ERR_INVALID_ARG` d'`spi_master.c`: un `CS_KEEP_ACTIVE` sense `spi_device_acquire_bus()` |
+| `…: the pack-write register did not take` | el registre `0x0004` no ha acceptat l'escriptura |
+| `GetDeviceInfo did not come back (…; words …)` | la lectura dels 20 mots no ha tornat; `ffff` és un MISO en alt, `0000` un en baix |
+
+**I l'error que va costar la pàgina torçada**: `LISAR` no és `0x0200`. Les adreces de debò són a
+`utility/IT8951_Defines.h` del fabricant, que les escriu com a sumes i no com a números:
+
+| Registre | Suma del fabricant | Adreça | Què passava amb la meva |
+|---|---|---|---|
+| `LISAR` (mot baix) | `MCSR_BASE_ADDR (0x0200) + 0x0008` | **0x0208** | escrivia a `0x0200`, que és **`MCSR`**, un registre d'estat del convertidor |
+| `LISAR` (mot alt) | `+ 0x000A` | **0x020A** | escrivia a `0x0202` |
+| `LUTAFSR` | `DISPLAY_REG_BASE (0x1000) + 0x0224` | **0x1224** | preguntava a `0x0000`, així que `display.idle()` no s'acabava mai |
+
+Què apuntar:
+
+| Què apuntar | On va |
+|---|---|
+| **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
+| **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
+| **El temps d'un `gc16`**: `run panel` diu els mil·lisegons entre `flush` i `idle`. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`. **La primera lectura de `LUTAFSR` no serveix**: el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` (1/11) amb la pàgina encara movent tinta; la prova espera 120 ms abans de la primera pregunta | `docs/50`, `docs/75` |
+| **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
+
 ---
 
 ## Què **no** cal mesurar encara
 
-- **El panell (IT8951E)**: no hi ha driver; quan n'hi hagi, els modes `INIT` i `GC16` i el temps
-  d'un refresc complet (docs/90 pas 2).
-- **El toc**: no hi ha driver (docs/90 pas 8).
+- **El toc**: falta comprovar cantonades i velocitat de mostra (E-6).
 - **El desgast de la flash**: només té sentit amb el sistema escrivint de debò cada dia.
 - **L'autonomia**: es dedueix del consum i la bateria, i no es promet fins que el consum estigui
   mesurat amb el mesurador USB (docs/75).

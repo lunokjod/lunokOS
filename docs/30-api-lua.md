@@ -727,6 +727,33 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
   que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
 - L'exemple és l'app `air` (`run air`), que la llegeix cada dos segons.
 
+## `display`
+
+El panell de tinta electrònica: una superfície de 4 bits que viu a la memòria de la placa i el pintat que
+la posa al vidre. **El sistema no dibuixa mai res pel seu compte** —ni splash, ni barra d'estat, ni
+netejar quan una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan**
+(docs/50).
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `display.caps()` | `{width, height, levels}` | La grandària del vidre i els seus nivells (16) |
+| `display.clear(level)` | `true` | Pinta tota la superfície d'un nivell |
+| `display.rect(x, y, w, h, [level])` | `true` | Un rectangle; `level` per defecte 0 (negre) |
+| `display.pixel(x, y, [level])` | `true` | Un píxel |
+| `display.flush([mode])` | `true` o `nil, error` | Envia **només el que ha canviat** i demana el pintat. Torna **abans** que el vidre hagi acabat |
+| `display.idle()` | booleà | Si el pintat anterior ha acabat |
+
+- **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
+- **Els modes són els del propi xip**, i una app tria el preu: `du` (260 ms, text i menús),
+  `du4` (120 ms, passar pàgines amb menys contrast), `gc16` (450 ms, imatges de qualitat i netejar el
+  fantasma), `gl16`, `glr16`, `gld16`, `a2` i `init` (2 s, la primera). Per defecte, `du`. Un nom que
+  no és a la taula es **refusa**; no s'arrodoneix a un altre.
+- **Dibuixar no és pintar**: `clear`, `rect` i `pixel` toquen la còpia de la memòria i el vidre no se
+  n'assabenta fins al `flush`. I el `flush` només envia el **rectangle que ha canviat**, arrodonit a
+  grups de quatre píxels com demana el controlador.
+- **No hi ha text encara**: una font és una decisió pròpia i no hi és (docs/90).
+- L'exemple és l'app `panel` (`run panel`), que pinta una pàgina de prova i espera que el vidre acabi.
+
 ## `touch`
 
 El vidre de la placa: el GT911 de la Paper (docs/50). Tres crides i cap promesa, i és una decisió: un

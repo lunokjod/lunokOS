@@ -713,7 +713,7 @@ class EmulatorPlatform : public IPlatform {
     static FakePower instance;
     return &instance;
   }
-  IDisplay* display() override { return nullptr; }
+  ISurface* display() override { return nullptr; }
   ILed* led() override {
     // A board with no light has no light to return, the same as the real one (docs/50).
     if (emu::model().lights == 0) return nullptr;

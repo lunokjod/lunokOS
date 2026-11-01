@@ -183,7 +183,7 @@ class AtomPlatform : public IPlatform {
   IKeyValue* nvs() override { return esp32_nvs(); }
   INet* net() override { return esp32_net(); }
   IPower* power() override { return &power_; }
-  IDisplay* display() override { return nullptr; }
+  ISurface* display() override { return nullptr; }
   ILed* led() override { return &led_; }
   IInput* input() override { return &input_; }
   IImu* imu() override { return board::has_imu() ? &imu_ : nullptr; }

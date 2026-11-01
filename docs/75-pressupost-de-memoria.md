@@ -165,9 +165,9 @@ docs/50):
 
 | | |
 |---|---|
-| Flash | **2 102 181 B** de 4 194 304 (50,1 %) — la partició d'aplicació de `partitions_16mb.csv`, **mesurat amb la 0.11.0** l'1/11 |
-| Flash lliure | **2 092 123 B** per al panell i el que vingui |
-| RAM estàtica | **93 652 B** de 327 680 (28,4 %); el build informa d'un 2,1 % perquè el denominador de la placa inclou els 4,5 MB de PSRAM |
+| Flash | **2 108 973 B** de 4 194 304 (50,3 %) — la partició d'aplicació de `partitions_16mb.csv`, **mesurat amb la 0.13.0** l'1/11 |
+| Flash lliure | **2 085 331 B** per al que vingui (el text i les fonts són el primer) |
+| RAM estàtica | **94 188 B** de 327 680 (28,7 %); el build informa d'un 2,1 % perquè el denominador de la placa inclou els 4,5 MB de PSRAM |
 
 **La bateria i el rellotge amb pila són el que l'ATOM no paga**; la mesura del despert, en canvi, és
 codi de nucli i hi arriba. El de les dues primeres és del xip: `hal_esp32/battery.cpp` (l'ADC1 i

@@ -102,6 +102,16 @@ class Esp32I2c : public II2c {
     return true;
   }
 
+  // A single byte read and no word about it: an address with nobody on it answers with a NACK, and
+  // that NACK **is** the answer. It is how the touch controller is looked for without writing an
+  // error to the boot log for the address it is not at (measured on the board, 1/11).
+  bool present(uint8_t address) override {
+    if (!ready_) return false;
+    uint8_t ignored = 0;
+    return i2c_master_read_from_device(port_, address, &ignored, 1, pdMS_TO_TICKS(kTimeoutMs)) ==
+           ESP_OK;
+  }
+
  private:
   i2c_port_t port_;
   bool ready_ = false;

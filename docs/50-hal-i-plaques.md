@@ -528,7 +528,7 @@ coincideixen entre ells i amb el que la placa ja ha dit:
 
 | Què | Valor |
 |---|---|
-| Adreça | **0x14** o **0x5D**, triada pel nivell de la línia `INT` durant el reset. Aquí `INT` és **GPIO36, que és una entrada**: el firmware no pot triar-la, i per això el driver **pregunta les dues** i es queda la que contesta |
+| Adreça | **0x14** o **0x5D**, triada pel nivell de la línia `INT` durant el reset. Aquí `INT` és **GPIO36, que és una entrada**: el firmware no pot triar-la, i per això el driver **pregunta les dues** i es queda la que contesta. La pregunta és `II2c::present(address)` —una lectura d'un byte que no diu res— i no una lectura del producte id: preguntar a l'adreça on no hi ha ningú **no és una avaria** i no ha d'escriure cap línia d'error a l'arrencada (era `i2c: read of 14:8140 failed (ESP_FAIL)` fins a la 0.13.0) |
 | Identitat | `0x8140`, tres caràcters: `9`, `1`, `1` (i un zero). Un xip que contesta una altra cosa és un altre aparell als mateixos fils |
 | Registres | De **dos bytes** (`0x814E` és un estat, no un byte): el bus del HAL té una lectura de registre de 16 bits per a això (`II2c::read16`) |
 | La configuració | `0x8047`, **186 bytes** i un checksum al final. La versió és el primer byte, els dos màxims (el marc) a `0x8048` i `0x804A`, i **quants dits** a `0x804C` |
@@ -585,15 +585,64 @@ escriu el sostre de deu cicles). Dues notes que això deixa lligades:
 `air 21.1 C 63.5 %` dues vegades seguides, sense cap línia `i2c:` al log (docs/95, E-5).
 
 
-### Què en fa el sistema, avui (31/10)
+### El CS no es queda baix sense el bus bloquejat (mesurat l'1/11)
+
+El panell no és un dispositiu qualsevol del bus de la targeta: la seva trama és **un prefix i el
+seu mot amb el CS baix entre tots dos**, i el controlador vol mirar la línia BUSY entremig. Amb
+`spi_device_transmit()` això es fa amb `SPI_TRANS_CS_KEEP_ACTIVE`, i l'IDF **el refusa** si el
+dispositiu no ha bloquejat el bus abans (`spi_master.c` de la v4.4.6, dins `spi_device_queue_trans`):
+
+```c
+/* Even when using interrupt transfer, the CS can only be kept activated if the bus has been
+ * acquired with `spi_device_acquire_bus()` first. */
+if (host->device_acquiring_lock != handle && (trans_desc->flags & SPI_TRANS_CS_KEEP_ACTIVE)) {
+    return ESP_ERR_INVALID_ARG;
+}
+```
+
+La conseqüència a la placa és una línia que enganya, perquè parla del bus i no del que passa:
+
+```
+panel: SYS_RUN did not go out: bus refused the prefix (busy reads 1) (no panel)
+```
+
+El `busy reads 1` és la meitat bona de la notícia —el panell hi és— i el `refused the prefix` és
+`ESP_ERR_INVALID_ARG` per la regla de dalt. El driver ara fa el mateix que el de la targeta SD:
+`spi_device_acquire_bus(handle, portMAX_DELAY)` abans de la primera transacció que ha de deixar el CS
+baix, i `spi_device_release_bus()` quan la trama s'ha acabat. Tres coses més que la placa ha ensenyat
+el mateix dia:
+
+- **el rail del panell vol un segon**: `M5EPD::begin` encén GPIO23 i espera **1000 ms** abans del
+  primer mot. Amb 100 ms la línia BUSY encara llegeix baixa i el handshake es rendeix a `SYS_RUN`
+  (`M5EPD_Driver::begin` no prem cap reset: el seu `rst` val `-1` de sèrie);
+- **un sol preàmbul de dades per trama, i després els bytes tal com són**: el fabricant posa un
+  `0x0000` davant de cada mot (`write32(0x0000FFFF)` a `Clear()`), però **aixeca el CS a cada parell de
+  mots** i el controlador es resincronitza en aquell flanc. Amb el CS aguantat tota la fila —que és el
+  que fa aquest driver— un segon preàmbul es llegeix com dos píxels més, la fila desborda la següent i
+  la pàgina surt **torçada** (mesurat a la placa l'1/11, docs/95 E-7). Dins d'una trama: un `0x0000` i
+  el raig de bytes de la superfície, sense res entremig, en trossos de fins a 2000 bytes (el sostre del
+  bus són 4000);
+- **cada pas diu el seu nom**: les quatre maneres de fallar el handshake (busy baixa, bus que no
+  bloqueja, escriptura refusada, lectura que no torna) donen quatre línies diferents, perquè endevinar
+  entre elles costa un flashatge cada cop.
+
+**I les adreces dels registres són sumes, no números.** `utility/IT8951_Defines.h` del fabricant les
+escriu com a `IT8951_MCSR_BASE_ADDR + 0x0008` i `IT8951_DISPLAY_REG_BASE + 0x0224`, i això dona
+**`LISAR` a 0x0208 (mot baix) i 0x020A (mot alt)** i **`LUTAFSR` a 0x1224**. Escriure-hi `0x0200` —que
+és `IT8951_MCSR`, un registre d'estat del convertidor de memòria— deixa la imatge a l'adreça per
+defecte del controlador mentre `DPY_AREA` en pinta una altra, i al vidre surt una pàgina **torçada**
+(mesurat a la placa l'1/11, docs/95 E-7).
+
+
+### Què en fa el sistema, avui (1/11)
 
 | Peça | Estat | Què falta |
 |---|---|---|
 | ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
-| 16 MB de flash | **fet**: 2 102 181 B (50,1 %, mesurat amb la 0.11.0 l'1/11) i 11,9 MB de disc | — |
+| 16 MB de flash | **fet**: 2 108 973 B (50,3 %, mesurat amb la 0.13.0 l'1/11) i 11,9 MB de disc | — |
 | **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
-| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **res**: `IDisplay` existeix i està reservada, i `kCapDisplay` no s'anuncia | **el driver sencer**: comandes de l'IT8951E, els modes (`INIT`, `DU4`, `GC16`), el marc de 4 bits per píxel i la política d'encesa de GPIO23 (docs/90 pas 2) |
-| **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `long`, `drag` i `two`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | comprovar al xip que el marc i els gestos quadren: tocar les quatre cantonades i contar frames amb el dit (docs/95, E-6) i, més endavant, la política d'energia del pas 8 |
+| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i `display.caps`/`clear`/`rect`/`pixel`/`flush`/`idle` a Lua. La capacitat **s'anuncia** quan el controlador contesta. **El sistema no dibuixa res mai** | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7), després el **text** (una font) i la política d'encesa de GPIO23 |
+| **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | comprovar al xip que el marc i els gestos quadren: tocar les quatre cantonades i contar frames amb el dit (docs/95, E-6) i, més endavant, la política d'energia del pas 8 |
 | **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
 | **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |
 | **BM8563** amb pila (I2C 0x51) i la seva alarma al SY7088 | **fet**: l'hora, el despert, i `poweroff` | les dues proves de foc (docs/95, A-2) |
@@ -606,8 +655,7 @@ escriu el sostre de deu cicles). Dues notes que això deixa lligades:
 | Ràdio 2,4 GHz (Wi-Fi i BLE) | **fet**: `wifi`, provisioning, `ntp`, `http` | el `net.softap`, que ningú no ha demanat |
 | **No hi ha** llum, ni sensor inercial, ni altaveu | **correcte**: `kCapLed` i `kCapImu` no s'anuncien mai en aquesta placa | — |
 
-És a dir: **14 de les 17 capacitats**, que és el màxim d'aquesta placa; l'única que hi és i falta és la
-**pantalla**.
+És a dir: **17 de les 19 capacitats**, i l'única que falta a aquesta placa és `imu`, que no hi és.
 | Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
 
 ### Apagar-se de debò: el son profund d'aquesta placa no és un son

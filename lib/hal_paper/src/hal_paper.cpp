@@ -41,6 +41,7 @@
 #include "esp32/rtc_memory.h"
 #include "esp32/sd_card.h"
 #include "esp32/gt911.h"
+#include "esp32/it8951.h"
 #include "esp32/sht30.h"
 #include "esp32/storage.h"
 #include "hal/hal.h"
@@ -58,6 +59,13 @@ namespace {
 const int kMainPowerPin = 2;
 const int kPanelPowerPin = 23;
 const int kExtPowerPin = 5;
+
+// The wires of the panel, from the maker's pin map. SCK, MOSI and MISO are the card's own wires: the
+// two devices share one bus and the panel is just another device on it (docs/50).
+const int kPanelSckPin = 14;
+const int kPanelMosiPin = 12;
+const int kPanelMisoPin = 13;
+const int kPanelBusyPin = 27;
 
 // A switched supply taken down: the pin becomes an output held low. It is set as an output first,
 // because a pin left as an input would not switch anything off.
@@ -301,6 +309,13 @@ class PaperPlatform : public IPlatform {
       // The glass, and the capability with it: the chip answers and the kernel turns its frames into
       // taps, long presses and drags, which is what an app needs to choose a path (docs/50).
       if (touch() != nullptr) caps_.add(kCapTouch);
+      // The panel: the controller answers and an app can draw on it, so the capability is announced.
+      // **Nothing of the system paints** —no splash, no status line—: what an app leaves on the glass
+      // is what stays there (docs/30, docs/50). Its supply stays on until the power policy of step 8
+      // says otherwise (docs/50), and `display()` is the one accessor here that is not `const`, which
+      // is why this one ask needs the cast.
+      if (const_cast<PaperPlatform*>(this)->display() != nullptr) caps_.add(kCapDisplay);
+
     }
     return caps_;
   }
@@ -350,7 +365,6 @@ class PaperPlatform : public IPlatform {
   // missing here is trying it on this hardware, not the code (docs/90).
   INet* net() override { return esp32_net(); }
   IPower* power() override { return &power_; }
-  IDisplay* display() override { return nullptr; }
   ILed* led() override { return nullptr; }
   IInput* input() override { return &keys_; }
   IImu* imu() override { return nullptr; }
@@ -363,6 +377,14 @@ class PaperPlatform : public IPlatform {
   // The glass of this board, on the same two wires as the clock chip, the FRAM and the air sensor
   // (docs/50).
   ITouch* touch() const override { return esp32_gt911(esp32_i2c(kI2cSdaPin, kI2cSclPin)); }
+
+  // The panel and its controller, on the wires the card uses (docs/50). The driver powers it and
+  // says what it answered; **nothing paints yet**, because a paint needs something to paint and the
+  // drawing surface is the next step (docs/90).
+  ISurface* display() override {
+    return esp32_it8951(It8951Pins{kPanelCsPin, kPanelSckPin, kPanelMosiPin, kPanelMisoPin,
+                                   kPanelBusyPin, kPanelPowerPin});
+  }
 
  private:
   mutable Caps caps_;

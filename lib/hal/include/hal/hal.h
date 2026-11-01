@@ -297,6 +297,39 @@ class IDisplay {
   virtual ~IDisplay() {}
 };
 
+// How the glass paints (docs/50). The panel of the Paper has these and they are the whole vocabulary
+// of an e-ink refresh: `kInit` is the two-second beginning, `kDu` and `kDu4` are the quick ones for
+// text and menus, and `kGc16` is the one that cleans the ghost of the quick ones.
+enum class UpdateMode : uint8_t {
+  kInit = 0,
+  kDu = 1,
+  kGc16 = 2,
+  kGl16 = 3,
+  kGlr16 = 4,
+  kGld16 = 5,
+  kDu4 = 6,
+  kA2 = 7,
+};
+
+// A surface an app can draw on, and the paint that puts it on the glass. It is a **surface** and not a
+// streaming driver: what is drawn lives in the board's own memory, a rectangle remembers what changed,
+// and `flush` sends only that rectangle. An e-ink glass takes 120 to 450 ms to move its ink, so a
+// paint is asked for and **not waited on**: `idle()` is how a later turn knows it is done (docs/50).
+class ISurface : public IDisplay {
+ public:
+  virtual uint16_t width() const = 0;
+  virtual uint16_t height() const = 0;
+  // 0 is black and 15 is white: the four bits of the panel, which is what every level here means
+  // (docs/50).
+  virtual void clear(uint8_t level) = 0;
+  virtual void fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level) = 0;
+  virtual void pixel(uint16_t x, uint16_t y, uint8_t level) = 0;
+  // Sends what changed and asks for it to be painted, with the mode that says how good it has to
+  // look. False when the panel did not take it.
+  virtual bool flush(UpdateMode mode) = 0;
+  virtual bool idle() = 0;
+};
+
 // One finger on the glass, as the controller reports it (docs/50): where it is, how much of the
 // glass it covers, and which of the fingers of this gesture it is. The number matters on a panel
 // that reports five at once: it is what tells `the same finger moved` from `one finger went and
@@ -479,7 +512,7 @@ class IPlatform {
   virtual IKeyValue* nvs() = 0;
   virtual INet* net() = 0;
   virtual IPower* power() = 0;
-  virtual IDisplay* display() = 0;
+  virtual ISurface* display() = 0;
   virtual ILed* led() = 0;
   virtual IInput* input() = 0;
   virtual IImu* imu() = 0;

@@ -52,7 +52,16 @@ namespace kernel {
 // track id), the GT911 driver on both of its addresses, and one line at boot saying which one answered,
 // in which frame and with how many fingers. **No capability and no call of Lua yet**: a touch means
 // nothing until there is something drawn under it (docs/50, docs/90).
-static const char kVersion[] = "0.11.0";
+// 0.12.0 (1/11): the panel of the Paper, up to an app. `ISurface` in the HAL, the IT8951 driver on the
+// bus of the card —its handshake, its image in PSRAM, the rectangle that changed and a paint that is
+// asked for and not waited on— and `display` and `touch` in Lua with a gesture for every thing a finger
+// can do. **The system draws nothing of its own**: an app decides what, how and when (docs/30, docs/50).
+// 0.13.0 (1/11): the page on the glass, and a log without a lie. The image of the panel goes out with
+// **one data preamble per frame** and then the bytes of the surface (a preamble per word needs a CS edge
+// around each one, and without it the page came out sheared), the registers of the controller carry the
+// maker's addresses (`LISAR` 0x0208, `LUTAFSR` 0x1224) and the I2C bus can be **asked** whether a chip is
+// there, so the touch probe no longer writes an error about the address it is not at (docs/50, docs/95).
+static const char kVersion[] = "0.13.0";
 
 }  // namespace kernel
 

@@ -42,6 +42,11 @@ bool Gt911::probe() {
   uint8_t id[4] = {0};
   bool found = false;
   for (uint8_t i = 0; i < 2 && !found; ++i) {
+    // **Ask who is there before reading anything.** This unit answers at one of the two addresses and
+    // the other one is nobody: reading its product id from the empty one is what put
+    // `i2c: read of 14:8140 failed (ESP_FAIL)` in the boot log of a board where nothing was wrong
+    // (measured 1/11, docs/50).
+    if (!bus_->present(addresses[i])) continue;
     address_ = addresses[i];
     if (!bus_->read16(address_, kRegProductId, id, sizeof(id))) continue;
     // The product id is the three characters `911` and a zero: a chip that answers something else

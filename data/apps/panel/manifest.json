@@ -1,0 +1,6 @@
+{
+  "title": "Panel",
+  "version": "0.1.0",
+  "entry": "panel.lua",
+  "boards": ["esp32"]
+}

@@ -8,6 +8,7 @@
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
+#include "kernel/display.h"
 #include "kernel/touch.h"
 #include "kernel/imu.h"
 #include "kernel/led.h"
@@ -280,6 +281,9 @@ void boot(hal::IPlatform& platform) {
   // The glass, when the board has one: its frames become taps, long presses and drags in the turns
   // of this loop (docs/50).
   touch::boot(platform);
+  // The panel, when the board has one. It is booted and **not polled**: nothing of the system paints,
+  // so there is no turn of this loop that has anything to say to the glass (docs/30, docs/50).
+  display::boot(platform);
   // Last, because it speaks to the console and may bring an app back: a board
   // that wakes from a deep sleep is a board that boots, and the session record is
   // what makes the app come back where it was (docs/90).

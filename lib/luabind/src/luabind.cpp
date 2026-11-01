@@ -2641,6 +2641,8 @@ int l_button_held(lua_State* L) {
 // clamps.
 const uint8_t kTouchPointsInFrame = 5;
 
+DisplayOps g_display_ops = {};  // and display.*
+
 TouchOps g_touch_ops = {};  // and touch.*
 
 // `set_touch_ops` is defined further down, **outside** this file's anonymous namespace: the kernel
@@ -2724,6 +2726,92 @@ int l_touch_gesture(lua_State* L) {
   lua_setfield(L, -2, "held_ms");
   lua_pushinteger(L, fingers);
   lua_setfield(L, -2, "fingers");
+  return 1;
+}
+
+// display.caps(): the size of the glass and how many levels it has (docs/30).
+int l_display_caps(lua_State* L) {
+  DisplayInfo info = {};
+  if (g_display_ops.caps == nullptr || !g_display_ops.caps(info)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushinteger(L, info.width);
+  lua_setfield(L, -2, "width");
+  lua_pushinteger(L, info.height);
+  lua_setfield(L, -2, "height");
+  lua_pushinteger(L, info.levels);
+  lua_setfield(L, -2, "levels");
+  return 1;
+}
+
+// display.clear(level) and display.rect(...): drawing on the board's own surface, which is not the
+// glass until a flush says so (docs/30).
+int l_display_clear(lua_State* L) {
+  if (g_display_ops.clear == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer level = luaL_optinteger(L, 1, 15);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  g_display_ops.clear(static_cast<uint8_t>(level));
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_display_rect(lua_State* L) {
+  if (g_display_ops.rect == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer x = luaL_checkinteger(L, 1);
+  const lua_Integer y = luaL_checkinteger(L, 2);
+  const lua_Integer w = luaL_checkinteger(L, 3);
+  const lua_Integer h = luaL_checkinteger(L, 4);
+  const lua_Integer level = luaL_optinteger(L, 5, 0);
+  if (w < 0 || h < 0 || level < 0 || level > 15) {
+    return push_nil_error(L, "E_INVAL", "a rectangle is a size and a level of 0 to 15");
+  }
+  g_display_ops.rect(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                     static_cast<uint16_t>(h), static_cast<uint8_t>(level));
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_display_pixel(lua_State* L) {
+  if (g_display_ops.pixel == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer x = luaL_checkinteger(L, 1);
+  const lua_Integer y = luaL_checkinteger(L, 2);
+  const lua_Integer level = luaL_optinteger(L, 3, 0);
+  if (level < 0 || level > 15) return push_nil_error(L, "E_INVAL", "a level is 0 to 15");
+  g_display_ops.pixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                      static_cast<uint8_t>(level));
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// display.flush([mode]): send what has changed and ask the glass to paint it. The mode is the app's
+// decision and names a row of the panel's own table; "du" is the default because it is the one a menu
+// or a line of text wants (docs/30, docs/50).
+int l_display_flush(lua_State* L) {
+  if (g_display_ops.flush == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const char* mode = luaL_optstring(L, 1, "du");
+  if (!g_display_ops.flush(mode)) {
+    return push_nil_error(L, "E_INVAL", "not a mode of this display, or the panel did not take it");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// display.idle(): whether the paint that was asked for has finished. It is asked and not waited for,
+// because the ink takes 120 to 450 ms and the app has other things to do (docs/30).
+int l_display_idle(lua_State* L) {
+  if (g_display_ops.idle == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  lua_pushboolean(L, g_display_ops.idle() ? 1 : 0);
   return 1;
 }
 
@@ -3034,6 +3122,18 @@ void seal_globals(lua_State* L) {
   set_function(L, "read", l_touch_read);
   set_function(L, "gesture", l_touch_gesture);
   lua_setglobal(L, "touch");
+
+  // display: the panel. Nothing is drawn by the system: clear and rect paint on the board's surface,
+  // flush sends what changed and says how good it has to look, and idle says whether the glass has
+  // finished (docs/30, docs/50).
+  lua_createtable(L, 0, 6);
+  set_function(L, "caps", l_display_caps);
+  set_function(L, "clear", l_display_clear);
+  set_function(L, "rect", l_display_rect);
+  set_function(L, "pixel", l_display_pixel);
+  set_function(L, "flush", l_display_flush);
+  set_function(L, "idle", l_display_idle);
+  lua_setglobal(L, "display");
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).
@@ -3413,6 +3513,9 @@ void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 // The glass, the same way: the kernel installs it at boot and the three calls of `touch` answer from
 // it (docs/30, docs/50).
 void set_touch_ops(const TouchOps& ops) { g_touch_ops = ops; }
+
+// And the panel, which the kernel installs only when the board answers with a surface (docs/50).
+void set_display_ops(const DisplayOps& ops) { g_display_ops = ops; }
 
 // The answer of a sleep: `true` when the board came back. A board that went to a
 // deep sleep never gets here, because the app was closed before it went and the
