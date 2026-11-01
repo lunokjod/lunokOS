@@ -1,6 +1,7 @@
 // One I2C bus of the ESP32, on the legacy driver of this IDF (4.4): it is the one that has
 // `i2c_master_write_read_device`, which is exactly the frame every device of this family
 // wants —the register address, then the bytes— in a single transaction (docs/50).
+#include "hal/log.h"
 #include "esp32/i2c.h"
 
 #include <cstdio>
@@ -44,9 +45,9 @@ class Esp32I2c : public II2c {
     // does not take, because the next symptom —a sensor that is there and never answers— reads as a
     // dead chip and this line is the reason.
     if (ready_ && i2c_set_timeout(port_, kStretchCycles) != ESP_OK) {
-      printf("i2c: the bus on %d/%d kept its default clock limit\n", sda_pin, scl_pin);
+      hal::logf(pal::kLogInfo, "I2C", "the bus on %d/%d kept its default clock limit", sda_pin, scl_pin);
     }
-    if (!ready_) printf("i2c: the bus on %d/%d did not come up\n", sda_pin, scl_pin);
+    if (!ready_) hal::logf(pal::kLogWarn, "I2C", "the bus on %d/%d did not come up", sda_pin, scl_pin);
   }
 
   bool ready() const { return ready_; }
@@ -56,7 +57,7 @@ class Esp32I2c : public II2c {
     const esp_err_t err = i2c_master_write_to_device(
         port_, address, data, len, pdMS_TO_TICKS(kTimeoutMs));
     if (err != ESP_OK) {
-      printf("i2c: write to %02x failed (%s)\n", address, esp_err_to_name(err));
+      hal::logf(pal::kLogWarn, "I2C", "write to %02x failed (%s)", address, esp_err_to_name(err));
       return false;
     }
     return true;
@@ -67,7 +68,7 @@ class Esp32I2c : public II2c {
     const esp_err_t err = i2c_master_write_read_device(port_, address, &first_register, 1, out,
                                                        len, pdMS_TO_TICKS(kTimeoutMs));
     if (err != ESP_OK) {
-      printf("i2c: read of %02x failed (%s)\n", address, esp_err_to_name(err));
+      hal::logf(pal::kLogWarn, "I2C", "read of %02x failed (%s)", address, esp_err_to_name(err));
       return false;
     }
     return true;
@@ -82,7 +83,7 @@ class Esp32I2c : public II2c {
     const esp_err_t err = i2c_master_read_from_device(port_, address, out, len,
                                                       pdMS_TO_TICKS(kTimeoutMs));
     if (err != ESP_OK) {
-      printf("i2c: read of %02x failed (%s)\n", address, esp_err_to_name(err));
+      hal::logf(pal::kLogWarn, "I2C", "read of %02x failed (%s)", address, esp_err_to_name(err));
       return false;
     }
     return true;
@@ -96,7 +97,7 @@ class Esp32I2c : public II2c {
     const esp_err_t err = i2c_master_write_read_device(port_, address, reg_bytes, sizeof(reg_bytes),
                                                        out, len, pdMS_TO_TICKS(kTimeoutMs));
     if (err != ESP_OK) {
-      printf("i2c: read of %02x:%04x failed (%s)\n", address, reg, esp_err_to_name(err));
+      hal::logf(pal::kLogWarn, "I2C", "read of %02x:%04x failed (%s)", address, reg, esp_err_to_name(err));
       return false;
     }
     return true;
@@ -134,7 +135,7 @@ II2c* esp32_i2c(int sda_pin, int scl_pin) {
     if (g_bus.sda != sda_pin || g_bus.scl != scl_pin) {
       // Said out loud: a second bus is a board this driver does not have, and a silent
       // return of the first one would put a device's bytes on the wrong wires.
-      printf("i2c: the bus is already on %d/%d\n", g_bus.sda, g_bus.scl);
+      hal::logf(pal::kLogInfo, "I2C", "the bus is already on %d/%d", g_bus.sda, g_bus.scl);
       return nullptr;
     }
     return g_bus.instance;

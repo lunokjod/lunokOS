@@ -299,6 +299,28 @@ struct TouchOps {
 
 void set_touch_ops(const TouchOps& ops);
 
+// **What a call into the system costs.** Every call the app makes to the API —`fs.read`, `ui.rect`,
+// `sys.delay`, all of them— is counted and timed by the interpreter's own hook, and the total is handed
+// here so the kernel can keep it in its meters: this library does not know the kernel and must not
+// (docs/30, docs/75).
+struct MeterOps {
+  uint32_t (*now_us)();
+  // The time one call into the system took, added to the app's total.
+  void (*add_call)(uint32_t us);
+  // **The time the interpreter spent running** —the app's own code and the calls into the system
+  // together— so `stats` can say which of the two the app is paying (docs/30).
+  void (*add_run)(uint32_t us);
+  // **A block of the extra memory**, taken or given back: the PSRAM of this board is a device like any
+  // other (docs/75).
+  void (*add_extra)(uint32_t us, bool allocated);
+  // **The part of a turn that was the app's own code**: what is left of the turn when the calls into the
+  // system are taken away. It needs the running total of those calls, which is why it is asked for.
+  uint64_t (*call_us)();
+  void (*add_own)(uint32_t us);
+};
+
+void set_meter_ops(const MeterOps& ops);
+
 // The view of the app, as the interpreter uses it: the canvas it draws on and the moment it asks the
 // system to put it on the glass. **The system never draws**: every call here comes from an app, and
 // the panel's own buffer is not reachable from Lua (docs/30, docs/50).

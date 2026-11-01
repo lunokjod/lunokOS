@@ -374,6 +374,16 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.
 
+## Els comptadors de la porta (1/11)
+
+La taula de comptadors és **fixa i petita a propòsit**: **quaranta-sis files** de vint bytes (comptes,
+moment de l'última crida, microsegons acumulats, mínim i màxim), els noms al *flash* i una fila de
+`stats` per cada una que s'hagi fet servir.
+**Mesurat**: la imatge del Paper passa de **2 130 497 B a 2 139 573 B** de flash (**+9 076 B**, els
+noms de les quaranta-sis files, els comptadors i l'escala de temps) i la RAM de **100 188 B a 101 396 B**
+(**+1 208 B**). És el preu de saber què costa cada
+cosa, i cap app el paga: la taula és del sistema i no del pressupost de l'app (docs/30, docs/95).
+
 ## El motor dels efectes del llum (31/10)
 
 Els quatre efectes (`breathe`, `blink`, `sos`, `bounce`) i les dues capes no costen ni un byte

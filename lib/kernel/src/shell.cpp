@@ -13,6 +13,7 @@
 #include "kernel/kernel.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
+#include "kernel/meter.h"
 #include "kernel/net.h"
 #include "kernel/bar.h"
 #include "kernel/power.h"
@@ -168,6 +169,7 @@ void print_help() {
   out("  cat <path>        print a file\r\n");
   out("  lua               the prompt becomes the interpreter (`exit` leaves)\r\n");
   out("  log               last lines of the log ring\r\n");
+  out("  stats [reset]     what each device cost: calls, time, last call\r\n");
   out("  verbose on|off    mirror the log to the console too\r\n");
   out("  clear             clear the screen\r\n");
   out("  reboot            restart\r\n");
@@ -507,6 +509,8 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
     out("cannot start the interpreter\r\n");
     return false;
   }
+  // The app is measured on its own from here (docs/30).
+  meter::note_app_start(boot.app_id);
   // The app gets a view of its own, white and with nothing pending; the glass is not touched until it
   // presents (docs/30).
   ui::attach();
@@ -1447,6 +1451,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
   if (!luabind::start(boot, limit)) return false;
+  meter::note_app_start(boot.app_id);
   ui::attach();  // a fresh view for the app that is coming back (docs/30)
   bar::title(boot.app_title);
 
@@ -1567,6 +1572,8 @@ bool command_lua() {
     out("cannot start the interpreter\r\n");
     return false;
   }
+  // The app is measured on its own from here (docs/30).
+  meter::note_app_start(boot.app_id);
   g_lua = true;
   ui::attach();  // the session is an app too, and it draws on a view of its own (docs/30)
   bar::title("lua");
@@ -1668,6 +1675,18 @@ bool execute(char* line) {
   }
   if (strcmp(line, "log") == 0) {
     log_dump();
+    return true;
+  }
+  // **What the system costs, counted at the door.** A count, a time and the moment of the last call for
+  // every device the system has touched, and `stats reset` for a run that has to be measured from zero
+  // (docs/30, docs/95).
+  if (strcmp(line, "stats") == 0) {
+    meter::dump();
+    return true;
+  }
+  if (strcmp(line, "stats reset") == 0) {
+    meter::reset();
+    out("meters: back to zero\r\n");
     return true;
   }
   if (strcmp(line, "clear") == 0) {

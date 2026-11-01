@@ -10,6 +10,7 @@
 // FreeRTOS tick when the frequency changes (read on disk, docs/50).
 #include <esp32-hal-cpu.h>
 
+#include "hal/log.h"
 #include "esp32/clock.h"
 #include "esp32/power.h"
 
@@ -37,8 +38,8 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
   } else if (wake_pin_ < 0) {
     return false;
   }
-  printf("power: %s sleep until %lld\n", (mode == SleepMode::kDeep) ? "deep" : "light",
-         static_cast<long long>(at_epoch_ms));
+  hal::logf(pal::kLogInfo, "POWER", "%s sleep until %lld",
+            (mode == SleepMode::kDeep) ? "deep" : "light", static_cast<long long>(at_epoch_ms));
   // The chip goes quiet with the clocks: what is still in the UART has to leave
   // before, or the line that says why it sleeps never arrives.
   fflush(stdout);
@@ -49,9 +50,9 @@ bool Esp32Power::sleep(SleepMode mode, int64_t at_epoch_ms) {
   }
   const int64_t before = esp32_wall_ms();
   esp_light_sleep_start();
-  printf("power: awake after %lld ms (%d)\n",
-         static_cast<long long>(esp32_wall_ms() - before),
-         static_cast<int>(esp_sleep_get_wakeup_cause()));
+  hal::logf(pal::kLogInfo, "POWER", "awake after %lld ms (%d)",
+            static_cast<long long>(esp32_wall_ms() - before),
+            static_cast<int>(esp_sleep_get_wakeup_cause()));
   return true;
 }
 

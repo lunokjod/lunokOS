@@ -24,55 +24,58 @@ console.print(string.format('view %d x %d at %d,%d, %d levels', view.width, view
   view.y, view.levels))
 
 -- A white page, drawn with the quality it deserves: the frame and the squares are quick changes
--- (`du`), and the ladder of sixteen levels is the thing that has to look right (`gc16`).
+-- (`du`), and the ladder of sixteen levels is the thing that has to look right (`gc16`). The two names
+-- are written once, because the console says which ones the page used and a page that says one thing and
+-- paints another is how the first run of this app lied (docs/95, E-7).
 --
 -- **Not `du4`, and that is a measurement and not a taste**: on the board of 1/11 `du4` and `a2`
 -- answered `true` and left the glass as it was (docs/95, E-7), so a page drawn with `du4` is a page that
 -- may not arrive at all. `du` paints —with the trace it leaves, which this page does not care about
 -- because it is drawn once and read once—.
-ui.clear(15, 'du')
-ui.rect(0, 0, view.width, 2, 0, 'du')
-ui.rect(0, view.height - 2, view.width, 2, 0, 'du')
-ui.rect(0, 0, 2, view.height, 0, 'du')
-ui.rect(view.width - 2, 0, 2, view.height, 0, 'du')
+local kQuick = 'du'
+local kFine = 'gc16'
+ui.clear(15, kQuick)
+ui.rect(0, 0, view.width, 2, 0, kQuick)
+ui.rect(0, view.height - 2, view.width, 2, 0, kQuick)
+ui.rect(0, 0, 2, view.height, 0, kQuick)
+ui.rect(view.width - 2, 0, 2, view.height, 0, kQuick)
 
 -- The ladder is what tells the levels apart at a glance: from black on the left to white on the right,
 -- in steps. It is drawn with `gc16` because it is the one region whose contrast matters.
 local bar = math.floor(view.width / 16)
 for level = 0, 15 do
-  ui.rect(level * bar, 40, bar, 120, level, 'gc16')
+  ui.rect(level * bar, 40, bar, 120, level, kFine)
 end
 for i = 0, 4 do
-  ui.rect(40 + i * 60, 220, 40, 40, 0, 'du')
+  ui.rect(40 + i * 60, 220, 40, 40, 0, kQuick)
 end
 
 -- What the system is about to pay for: the regions it merged and the qualities it found.
-console.print(string.format('%d region(s) with damage', ui.damage()))
+console.print(string.format('%d region(s) with damage, %s and %s', ui.damage(), kQuick, kFine))
 
+-- **The clock starts before the paint is asked for, and it is stopped by `ui.idle()` and by nothing
+-- else.** `ui.present` returns at once —the ink takes its time and the system does not wait for it—, so
+-- the number below is the wait for the glass and not a sleep of the app's own. A sleep here would be a
+-- number dressed up as a measurement, which is what this app printed until the 0.19.2 (a flat 120 ms).
+local started = sys.time_ms()
 local ok, err = ui.present()
 if not ok then
   console.print('the panel did not take the paint: ' .. tostring(err and err.code))
   return
 end
-console.print('paint asked; waiting for the glass')
-
--- The ink takes its time and the system does not wait for it: the app asks, in its own loop, whether
--- the panel has finished. **The first question is asked after a wait on purpose**: the engine of the
--- controller does not mark itself busy in the same instant the paint is asked for, so the first read
--- says zero and the page reports 0 ms while it is still moving ink (measured on the board, 1/11).
-sys.delay(120):await()
-local started = sys.time_ms()
+-- The first question is safe to ask immediately: the driver does not say "over" before the engine has
+-- had the time to mark itself busy (docs/50), so `idle()` cannot answer while the ink has not started.
 while not ui.idle() do
-  sys.delay(100):await()
+  sys.delay(10):await()
 end
-console.print(string.format('done in about %d ms', sys.time_ms() - started + 120))
+console.print(string.format('the ink took %d ms (asked with a poll of 10 ms)', sys.time_ms() - started))
 console.print('now try the shell: the page stays on the glass until something else paints it')
 
 -- A new size for the view —a rotation of the glass, one day— arrives here: the system has already made
 -- the canvas and this is the app being asked to draw it again (docs/30).
 function on_resize(width, height)
   console.print(string.format('view is now %d x %d', width, height))
-  ui.clear(15, 'du')
-  ui.rect(0, 0, width, 2, 0, 'du')
+  ui.clear(15, kQuick)
+  ui.rect(0, 0, width, 2, 0, kQuick)
   ui.present()
 end

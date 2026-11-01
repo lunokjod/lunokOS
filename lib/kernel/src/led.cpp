@@ -1,5 +1,6 @@
 // The light of the board: the policy of what it says, and nothing of how it is
 // painted (docs/30, docs/50).
+#include "kernel/meter.h"
 #include "kernel/led.h"
 
 #include <stddef.h>
@@ -107,6 +108,7 @@ const uint32_t kBounceLimit = 12;
 int64_t now_ms() {
   if (g_platform == nullptr) return 0;
   hal::IClock* clock = g_platform->clock();
+  meter::Scope scope(meter::kClockMono);
   return (clock != nullptr) ? clock->monotonic_ms() : 0;
 }
 
@@ -251,6 +253,8 @@ void paint(uint8_t r, uint8_t g, uint8_t b, int32_t pixel) {
   const uint8_t cb = channel(b);
   const bool same = cr == g_shown_red && cg == g_shown_green && cb == g_shown_blue;
   if (same && !g_dirty) return;
+  // The frame on the wire, which is the only part of the light that costs a device call (docs/75).
+  meter::Scope scope(meter::kLedShow);
   if (pixel >= 0) {
     // A strip shows one light and the rest is dark: the frame is the whole strip, so the
     // rest of it has to be cleared or the light of last frame stays on (docs/30).
@@ -561,8 +565,12 @@ bool boot(hal::IPlatform& platform) {
   // The light starts off: a chip that restarted with a lit light would be saying
   // something the new boot has not decided (docs/50). The white breath of the boot says
   // it on the turn after this one (docs/30).
-  g_led->fill(0, 0, 0);
-  g_led->show();
+  {
+    // One frame of the wire, the same cost as any other (docs/75).
+    meter::Scope scope(meter::kLedShow);
+    g_led->fill(0, 0, 0);
+    g_led->show();
+  }
   note(Trigger::kBoot);
   return true;
 }

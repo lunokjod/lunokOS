@@ -1,5 +1,6 @@
 // The button of the board: the taps the system keeps for itself and the same taps
 // handed to the app (docs/30).
+#include "kernel/meter.h"
 #include "kernel/button.h"
 
 #include <stdio.h>
@@ -39,7 +40,11 @@ uint32_t g_taps = 0;
 bool g_waiting = false;
 int64_t g_wait_deadline_ms = 0;
 
-int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; }
+int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
+  // The RTC chip, read once a turn (docs/30, docs/50).
+  meter::Scope scope(meter::kClockMono);
+  return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
+}
 
 // Said through the console and not with printf, which is buffered and would come
 // out in another order than the shell (measured on the PC, 31/10).
@@ -142,6 +147,9 @@ bool wait_start(uint32_t timeout_ms) {
 }
 
 void poll() {
+  // The board says which keys are held: one read per turn, and the taps are arithmetic over it
+  // (docs/30, docs/50).
+  meter::Scope scope(meter::kKeysRead);
   if (g_input == nullptr) return;
   const int64_t now = now_ms();
 

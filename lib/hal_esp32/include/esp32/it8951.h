@@ -63,6 +63,10 @@ class It8951 : public ISurface {
   // the ink takes its time and the kernel cannot wait for it. `idle()` is how a later turn asks
   // whether the panel is done (docs/50).
   bool flush(UpdateMode mode) override;
+  // **A paint is not over before it has had time to start.** The engine does not mark itself busy in the
+  // same instant the paint is asked for, so a question asked a millisecond later reads "nothing in
+  // flight" while the ink has not begun (measured on the board, 1/11: `ui.idle()` said 0 ms with the
+  // page still moving). `idle` and the wait for a previous paint both answer with that in mind (docs/50).
   bool idle() override;
   // **The turn between the frame an app draws in and the frame of the glass**, in software: the image
   // this driver keeps is in the app's frame and the pixels are turned as they are sent, which is what
@@ -96,6 +100,9 @@ class It8951 : public ISurface {
   bool write_register(uint16_t reg, uint16_t value);
   uint16_t read_register(uint16_t reg);
   bool wait_busy(uint32_t timeout_ms);
+  // Whether the engine of the controller has nothing in flight **and the last paint has had the time to
+  // start**: the one question `idle()` and `wait_paint` both ask (docs/50).
+  bool engine_over();
   void power_on();
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
@@ -128,6 +135,9 @@ class It8951 : public ISurface {
   uint16_t dirty_x1_ = 0;
   uint16_t dirty_y1_ = 0;
   bool dirty_ = false;
+  // When the last paint was asked for, in the board's milliseconds: it is what says that a paint cannot
+  // be over yet, because the engine has not had the time to mark itself busy (docs/50).
+  uint32_t painted_ms_ = 0;
   // Why the last step that failed did fail. The handshake already reported four different faults
   // under one sentence and each one cost a flash to tell apart (measured on the board, 1/11).
   const char* why_ = "";

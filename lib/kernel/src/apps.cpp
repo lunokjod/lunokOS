@@ -56,14 +56,14 @@ bool load(const char* id, Entry& out) {
 
   char path[96];
   if (!manifest_path(path, sizeof(path), id)) {
-    log_printf(pal::kLogWarn, "apps: %s has a name that is too long", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has a name that is too long", id);
     return false;
   }
 
   char text[kManifestCap];
   size_t len = 0;
   if (!vfs::read_file(path, text, sizeof(text) - 1, len)) {
-    log_printf(pal::kLogWarn, "apps: %s has no readable manifest", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has no readable manifest", id);
     return false;
   }
   text[len] = '\0';
@@ -71,17 +71,17 @@ bool load(const char* id, Entry& out) {
   memset(&out, 0, sizeof(out));
   memcpy(out.id, id, id_len + 1);
   if (!lunok::json::get_string(text, len, "title", out.title, sizeof(out.title))) {
-    log_printf(pal::kLogWarn, "apps: %s has no title", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has no title", id);
     return false;
   }
   if (!lunok::json::get_string(text, len, "entry", out.entry_file, sizeof(out.entry_file))) {
-    log_printf(pal::kLogWarn, "apps: %s has no entry", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has no entry", id);
     return false;
   }
   // The entry has to stay inside the app and has to be there: an app that is
   // listed and cannot be run is a lie (docs/40).
   if (out.entry_file[0] == '/' || strstr(out.entry_file, "..") != nullptr) {
-    log_printf(pal::kLogWarn, "apps: %s has an entry outside the app", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has an entry outside the app", id);
     return false;
   }
   char entry_path[128];
@@ -91,14 +91,14 @@ bool load(const char* id, Entry& out) {
   if (slash == nullptr) return false;
   const size_t room = sizeof(entry_path) - static_cast<size_t>(slash - entry_path) - 2;
   if (strlen(out.entry_file) > room) {
-    log_printf(pal::kLogWarn, "apps: %s has an entry name that is too long", id);
+    log_printf(pal::kLogWarn, "APPS", "%s has an entry name that is too long", id);
     return false;
   }
   slash[1] = '\0';
   strcat(entry_path, out.entry_file);
   hal::Stat info;
   if (!vfs::stat(entry_path, info) || info.type != hal::NodeType::kFile) {
-    log_printf(pal::kLogWarn, "apps: %s has no entry file (%s)", id, entry_path);
+    log_printf(pal::kLogWarn, "APPS", "%s has no entry file (%s)", id, entry_path);
     return false;
   }
   // Version is optional: an app without one is still an app.
@@ -109,7 +109,7 @@ bool load(const char* id, Entry& out) {
   // says what it needs (see `works_here` below).
   if (!lunok::json::get_strings(text, len, "boards", out.boards, Entry::kMaxBoards,
                                 out.board_count)) {
-    log_printf(pal::kLogWarn, "apps: %s does not say which boards it runs on", id);
+    log_printf(pal::kLogWarn, "APPS", "%s does not say which boards it runs on", id);
     return false;
   }
   // The boards of this band, which is the board itself on a chip and the ones it
@@ -123,7 +123,7 @@ bool load(const char* id, Entry& out) {
   char raw_opens[16];
   if (lunok::json::get_string(text, len, "opens", raw_opens, sizeof(raw_opens))) {
     if (!normalise_extension(raw_opens, out.opens, sizeof(out.opens))) {
-      log_printf(pal::kLogWarn, "apps: %s declares an opens that is not an extension", id);
+      log_printf(pal::kLogWarn, "APPS", "%s declares an opens that is not an extension", id);
     }
   }
   return true;
@@ -177,7 +177,7 @@ uint32_t for_each(const char* only_id, Visitor visitor, void* context) {
   if (visitor == nullptr) return 0;
   WalkSink sink(only_id, visitor, context);
   if (!vfs::list("/apps", sink)) {
-    log_printf(pal::kLogWarn, "apps: cannot list /apps");
+    log_printf(pal::kLogWarn, "APPS", "cannot list /apps");
     return 0;
   }
   return sink.visited();

@@ -748,7 +748,7 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema** |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
-| `ui.idle()` | booleà | Si el pintat anterior ha acabat |
+| `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present` |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això |
@@ -758,6 +758,14 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
 
+- **`ui.idle()` és la pregunta del pintat, i el número surt de comptar des d'abans.** `ui.present` no
+  espera el vidre: **torna de seguida** i la tinta continua pel seu compte, i `ui.idle()` és el que diu
+  quan ha acabat. Per mesurar quant triga una pàgina es compta **des d'abans del `present`** fins que
+  `idle()` diu que sí, i **no s'hi posa cap dormida pel mig**: una app que dorm 120 ms i després pregunta
+  treu un 120 ms que és seu i no de la tinta (és el que va passar amb `run panel` fins a la 0.19.2, i
+  està escrit a `docs/95`, E-7). El motor del controlador no es marca ocupat en el mateix instant que rep
+  la comanda, i per això el sistema no respon «ha acabat» fins passats uns mil·lisegons: és una guarda
+  del conductor i no una mesura (`docs/50`).
 - **Cada dibuix guarda la seva regió i la seva qualitat.** `ui.rect(0, 40, 60, 120, 7, 'gc16')`
   apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du')` apunta «aquest
   quadre, i ràpid». `ui.present()` envia cada regió amb la seva i, com que el controlador només pot
@@ -894,6 +902,115 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   si el pare no té buffer) rep exactament el rectangle que el fill ocupava, i el fill es compon al lloc nou.
 - L'exemple és l'app `layers` (`run layers`), que fa dos canvas, els col·loca i els compon amb un sol
   `ui.present`.
+
+## El que costa, contat a la porta
+
+**`stats` no és una línia de log i no porta etiquetes**: és una taula, i la llegeix una persona. Les
+columnes són fixes i alineades (`meter`, `calls`, `total`, `mean`, `last call`) i cada temps va en
+l'escala que es llegeix.
+
+**Cada crida que arriba a un dispositiu es conta i es cronometra**, i també el moment en què es va fer
+l'última. No és un registre de depuració que s'encén: és una taula fixa que sempre hi és i que el prompt
+ensenya amb `stats` (docs/30, docs/50, docs/75).
+
+```
+lunok> stats
+meter           calls      total       mean        min        max       last
+boot                1    108.2ms    108.2ms    108.2ms    108.2ms    108.0ms
+flash.read         36     83.5ms      2.3ms      2.1ms      4.0ms      2.16s
+flash.list          3    136.4ms     45.4ms      2.4ms     80.0ms      2.15s
+flash.stat         71      517us        7us        2us       24us      2.15s
+glass.flush         4        2us        0us        0us        1us      3.20s
+clock.mono          9        3us        0us        0us        1us      4.20s
+keys.read           4        1us        0us        0us        1us      4.20s
+kv.get              1       45us       45us       45us       45us        0us
+kernel.loop         4      4.00s      1.00s      1.00s      1.00s      4.20s
+lua.run             1     40.1ms     40.1ms     40.1ms     40.1ms      2.20s
+lua.own             1        6us        6us        6us        6us      2.20s
+psram.alloc         3       31us       10us        0us       25us      2.16s
+lua.call            2     40.3ms     20.1ms      177us     40.1ms      2.20s
+layers: 1 calls into the system, 40.1ms in them
+turns 4, kernel 4.00s of 4.33s up, idle 334.3ms
+lua 40.1ms: 19us the app's own code (the rest is calls into it)
+doors 220.5ms (5.0 % of the uptime)
+```
+
+**Què hi ha a la taula, i què no.** Hi és tot el que es pot comptar a la porta:
+
+| Grup | Files |
+|---|---|
+| Arrencada | `boot` — el sistema des del primer byte fins al prompt |
+| Disc | **cinc unitats × quatre portes**: `flash.*`, `sd.*`, `nvs.*`, `rtc.*`, `fram.*`, cadascuna amb `.read`, `.write`, `.list`, `.stat` |
+| Vidre | `glass.flush` (totes les pintades), `glass.gc16` (les que netegen), `glass.idle` |
+| Tàctil | `touch.read` |
+| Rellotge | `clock.now`, `clock.mono`, `clock.wake` |
+| Tecles | `keys.read` |
+| Ajustos | `kv.get`, `kv.set` |
+| Nucli i intèrpret | `kernel.loop`, `lua.run`, `lua.own`, `lua.call` |
+| Memòria extra | `psram.alloc`, `psram.free` |
+| Energia | `power.battery`, `power.sleep`, `power.cpu` |
+| Llum | `led.show` |
+| Sensors | `imu.read`, `env.read` |
+| Ràdio | `net.wifi`, `net.http`, `net.ntp` |
+
+Els sensors i la FRAM surten quan algú els toca: si no hi ha la fila, és que ningú no ha demanat res
+d'aquell dispositiu, no que no es compti.
+
+- **Cada temps va en l'escala que es llegeix** —`845us`, `12.3ms`, `1.98s`, `3m07s`, `1h23m`— i mai en un
+  compte de mil·lisegons que s'hagi de dividir al cap. Sense espais, perquè la taula ha de capir en
+  vuitanta columnes amb sis columnes de números.
+- **Les tres xifres d'una fila**: quantes vegades, quant de temps en total (i la mitjana), i **quan va
+  ser l'última**, comptat des de l'últim `stats reset` i no des de l'encesa: un número absolut d'una
+  placa que fa hores que està encesa no el llegeix ningú. I **el mínim i el màxim d'una sola crida**,
+  perquè una mitjana de dos mil·lisegons pot ser una crida de quatre i mil d'un: són dos problemes
+  diferents i la mitjana els amaga.
+- **Una porta i una unitat, un comptador.** El sistema de fitxers té una fila per unitat i per porta
+  perquè una targeta i una flash no costen el mateix i un sol número amagaria el que importa (docs/70).
+  I el rellotge també: el **comptador monòton** (`clock.mono`) és una lectura del xip RTC com l'hora, i
+  el botó, la llum i la ràdio el demanen cada torn.
+- **`lua.call` és cada crida d'una app a l'API** —`fs.read`, `ui.rect`, `sys.delay`, totes— amb el ganxo
+  del propi intèrpret i sense un tanc per funció: l'ATOM dona 64 KB a una app i els tancs en menjarien
+  cinc. I com que l'intèrpret es fa de nou a cada app, la fila **`app <id>`** dona la diferència des que
+  la seva va arrencar — això és el «per app».
+- **I una crida que torna una promesa es mesura fins que la promesa es resol**, no fins que la crida
+  torna. `sys.delay(50)` torna de seguida i no costa els vuit microsegons de la trucada: costa els
+  **cinquanta mil·lisegons** que l'app va esperar. Mesurat al banc: `lua.call 2 51.1ms` i
+  `probe: 1 calls into the system, 50.8ms in them`.
+- **El compte és complet, i res no es conta dues vegades.** Les tres línies del final ho diuen:
+  - `turns N, kernel X of Y up, idle Z` — els torns del nucli, el que hi ha costat, i el que queda de
+    vida sense el nucli donant voltes.
+  - `lua R: O the app's own code` — el torn de l'app sencer, i la part que és codi seu (la resta són
+    crides al sistema).
+  - `doors D (P % of the uptime)` — la suma de les portes. **Els medidors que en contenen d'altres**
+    (`boot`, `kernel.loop`, `lua.run`, `lua.own`, `lua.call`) **no entren a la suma**, o el mateix
+    microsegon es comptaria tres vegades i el total passaria del cent per cent (va passar: 138 %).
+- **La vida del sistema es compta des de l'arrencada** (el rellotge dels comptadors comença amb el
+  `boot`) **o des de l'últim `stats reset`**. `stats reset` posa la taula i el rellotge a zero: la
+  mesura és d'una tirada i no d'una vida.
+- **El que encara no hi és**: el pic de memòria d'una crida i el repartiment de les pintades per cada
+  mode (avui només `gc16` té fila pròpia).
+
+## El log
+
+**Totes les línies del sistema tenen la mateixa forma**, les escrigui el nucli o un conductor:
+
+```
+[I][CFG] /cfg on littlefs (asked for littlefs)
+[I][VFS] 9 mounts
+[I][BOOT] board=m5stack-paper caps=14/19
+[I][UI] view 540x932 at 0,28, 251640 bytes of canvas
+[W][I2C] read of 5d failed (ESP_FAIL)
+```
+
+- **`[nivell][etiqueta] missatge`**: el nivell és una lletra (`D`, `I`, `W`, `E`) i l'etiqueta és el
+  conductor o la part del sistema que parla —`PANEL`, `TOUCH`, `SD`, `I2C`, `WIFI`, `POWER`, `FS`,
+  `VFS`, `APPS`, `UI`, `METER`…—. Una línia sense etiqueta no existeix.
+- **El log es mira a la consola mentre el sistema arrenca** (`verbose off` el calla) i es queda al
+  **cercle de 2 KB** que `log` aboca. Els conductors no depenen del nucli i no poden cridar-lo: formategen
+  la línia i la donen a un *sink* que el nucli instal·la, i per això la línia d'un conductor acaba al
+  mateix cercle que les altres (docs/50, docs/85).
+- **Una línia diu números**: quants bytes, quants mil·lisegons, quina adreça. Una frase sense cap número
+  és una línia que no serveix per a res quan la placa és a la mà.
 
 ## `touch`
 

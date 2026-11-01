@@ -5,6 +5,7 @@
 //
 // The kernel knows the VFS and the interpreter does not, so the reading
 // operations and the writing ones are handed over at boot.
+#include "kernel/meter.h"
 #include "kernel/fs_ops.h"
 
 #include <stdio.h>
@@ -166,6 +167,7 @@ void make_dirs(hal::IStorage* storage, char* rel) {
 
 int32_t read_at(const char* path, int64_t offset, char* buf, uint32_t len,
                 luabind::FsError& err) {
+  // A whole file read: open, read and close are one cost to the app and one row here (docs/70).
   err = luabind::FsError::kOk;
   char full[128];
   if (!absolute(path, full, sizeof(full))) {
@@ -180,6 +182,9 @@ int32_t read_at(const char* path, int64_t offset, char* buf, uint32_t len,
     err = luabind::FsError::kNoEnt;
     return -1;
   }
+  // **One row for the whole read of a file**, open and close included: what an app pays is the read
+  // (docs/30, docs/70).
+  meter::Scope scope(meter::storage_id(meter::kOpRead, vfs::unit_of(storage)));
   hal::FileSlot slot;
   if (!storage->open(rel, hal::OpenMode::kRead, slot)) {
     err = luabind::FsError::kNoEnt;
@@ -333,7 +338,7 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
     return -1;
   }
   const int64_t done_ms = pal::system().millis();
-  log_printf(pal::kLogDebug, "fs: write %u B in %lld ms", static_cast<unsigned>(len),
+  log_printf(pal::kLogDebug, "FS", "write %u B in %lld ms", static_cast<unsigned>(len),
              static_cast<long long>(done_ms - started_ms));
   return static_cast<int64_t>(len);
 }
@@ -353,6 +358,7 @@ bool mkdir(const char* path, luabind::FsError& err) {
     err = luabind::FsError::kNoEnt;
     return false;
   }
+  meter::Scope scope(meter::storage_id(meter::kOpWrite, vfs::unit_of(storage)));
   make_dirs(storage, rel);
   hal::Stat info;
   if (vfs::stat(full, info) && info.type == hal::NodeType::kDir) return true;  // already there
@@ -378,6 +384,7 @@ bool remove(const char* path, luabind::FsError& err) {
     err = luabind::FsError::kNoEnt;
     return false;
   }
+  meter::Scope scope(meter::storage_id(meter::kOpWrite, vfs::unit_of(storage)));
   if (!storage->remove(rel)) {
     err = luabind::FsError::kNoEnt;
     return false;
@@ -410,6 +417,7 @@ bool rename_file(const char* from, const char* to, luabind::FsError& err) {
     err = luabind::FsError::kInval;  // a rename does not cross mounts
     return false;
   }
+  meter::Scope scope(meter::storage_id(meter::kOpWrite, vfs::unit_of(from_store)));
   if (!from_store->rename(from_rel, to_rel)) {
     err = luabind::FsError::kNoEnt;
     return false;
@@ -497,9 +505,14 @@ int32_t open_file(const char* path, const char* mode, luabind::FsError& err) {
   }
 
   OpenFile& file = g_open[static_cast<uint32_t>(handle) - 1];
-  if (!storage->open(rel, how, file.slot)) {
-    err = writing ? failure_code(full, 0) : luabind::FsError::kNoHandles;
-    return -1;
+  {
+    // The open itself, against the unit it opens on (docs/30).
+    meter::Scope scope(meter::storage_id(writing ? meter::kOpWrite : meter::kOpRead,
+                                          vfs::unit_of(storage)));
+    if (!storage->open(rel, how, file.slot)) {
+      err = writing ? failure_code(full, 0) : luabind::FsError::kNoHandles;
+      return -1;
+    }
   }
   file.storage = storage;
   file.used = true;
@@ -522,7 +535,10 @@ int32_t file_read(int32_t handle, char* buf, uint32_t len, luabind::FsError& err
     err = luabind::FsError::kInval;
     return -1;
   }
-  const int32_t got = file->storage->read(file->slot, buf, len);
+  const int32_t got = [&]() {
+    meter::Scope scope(meter::storage_id(meter::kOpRead, vfs::unit_of(file->storage)));
+    return file->storage->read(file->slot, buf, len);
+  }();
   if (got < 0) {
     err = luabind::FsError::kUnsupported;
     return -1;
@@ -538,7 +554,10 @@ int64_t file_write(int32_t handle, const char* data, size_t len, luabind::FsErro
     err = luabind::FsError::kInval;
     return -1;
   }
-  const int32_t put = file->storage->write(file->slot, data, static_cast<uint32_t>(len));
+  const int32_t put = [&]() {
+    meter::Scope scope(meter::storage_id(meter::kOpWrite, vfs::unit_of(file->storage)));
+    return file->storage->write(file->slot, data, static_cast<uint32_t>(len));
+  }();
   if (put < 0 || static_cast<size_t>(put) != len) {
     err = luabind::FsError::kUnsupported;
     return -1;
@@ -565,7 +584,12 @@ bool file_seek(int32_t handle, int64_t position, luabind::FsError& err) {
     err = luabind::FsError::kInval;
     return false;
   }
-  if (!file->storage->seek(file->slot, static_cast<uint32_t>(position))) {
+  bool moved = false;
+  {
+    meter::Scope scope(meter::storage_id(meter::kOpRead, vfs::unit_of(file->storage)));
+    moved = file->storage->seek(file->slot, static_cast<uint32_t>(position));
+  }
+  if (!moved) {
     err = luabind::FsError::kInval;
     return false;
   }

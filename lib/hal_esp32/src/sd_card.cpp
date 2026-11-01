@@ -3,6 +3,7 @@
 //
 // There is no Arduino SD class here on purpose: it brings `<Arduino.h>` and its own bus,
 // and this slot shares the bus with the panel (docs/50).
+#include "hal/log.h"
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -199,7 +200,7 @@ bool take_bus(const SdPins& pins) {
   const esp_err_t err = spi_bus_initialize(static_cast<spi_host_device_t>(pins.host), &bus,
                                            SPI_DMA_CH_AUTO);
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-    printf("sd: the SPI bus did not come up (%s)\n", esp_err_to_name(err));
+    hal::logf(pal::kLogWarn, "SD", "the SPI bus did not come up (%s)", esp_err_to_name(err));
     return false;
   }
   return true;
@@ -228,11 +229,11 @@ bool mount_card(const char* mount, const SdPins& pins) {
   if (err != ESP_OK || card == nullptr) {
     // A slot with no card in it is not a failure of the system: the mount is simply not
     // there and the capability stays off (docs/70).
-    printf("sd: no card mounted at %s (%s)\n", mount, esp_err_to_name(err));
+    hal::logf(pal::kLogWarn, "SD", "no card mounted at %s (%s)", mount, esp_err_to_name(err));
     return false;
   }
   const uint64_t bytes = static_cast<uint64_t>(card->csd.capacity) * card->csd.sector_size;
-  printf("sd: %s mounted, %u MB\n", mount, static_cast<unsigned>(bytes / (1024u * 1024u)));
+  hal::logf(pal::kLogInfo, "SD", "%s mounted, %u MB", mount, static_cast<unsigned>(bytes / (1024u * 1024u)));
   return true;
 }
 

@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include "hal/log.h"
 #include "kernel/led.h"
 
 namespace kernel {
@@ -16,20 +17,6 @@ size_t g_head = 0;   // next byte to write
 size_t g_count = 0;  // bytes currently stored
 bool g_echo = false;
 
-char level_tag(pal::LogLevel level) {
-  switch (level) {
-    case pal::kLogDebug:
-      return 'D';
-    case pal::kLogInfo:
-      return 'I';
-    case pal::kLogWarn:
-      return 'W';
-    case pal::kLogError:
-      return 'E';
-  }
-  return '?';
-}
-
 void append(const char* data, size_t len) {
   for (size_t i = 0; i < len; ++i) {
     g_ring[g_head] = data[i];
@@ -38,12 +25,28 @@ void append(const char* data, size_t len) {
   }
 }
 
+// **The ring is where a line from a driver lands too.** The drivers do not depend on the kernel —they
+// cannot, the arrow goes the other way— so they format their line and hand it to this sink, installed
+// when the log comes up (docs/30, docs/50).
+void sink(const char* line, size_t len) {
+  if (g_echo) {
+    pal::IConsole* console = pal::system().console();
+    if (console != nullptr) console->write(line, len);
+  }
+  append(line, len);
+}
+
 }  // namespace
 
 void log_init() {
   g_head = 0;
   g_count = 0;
-  g_echo = false;
+  // **The log is mirrored to the console while the system comes up**, because the lines that say what
+  // the board found —the panel, the card, the finger— are the ones a person reads with the board in
+  // front of them and they cost nothing on a wire that is idle anyway. `verbose off` silences it
+  // (docs/30, docs/50).
+  g_echo = true;
+  hal::set_log_sink(&sink);
 }
 
 void log_echo(bool on) { g_echo = on; }
@@ -52,11 +55,8 @@ bool log_echo_enabled() { return g_echo; }
 
 size_t log_bytes() { return g_count; }
 
-void log_printf(pal::LogLevel level, const char* fmt, ...) {
+void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
   char line[kLineBytes];
-  size_t used = 0;
-  line[used++] = level_tag(level);
-  line[used++] = ' ';
 
   // A failure is also a light. The SOS is asked for here and not at every place that logs
   // one, because a place that has to remember to say it is a place that will forget, and
@@ -67,14 +67,9 @@ void log_printf(pal::LogLevel level, const char* fmt, ...) {
 
   va_list args;
   va_start(args, fmt);
-  const int written = vsnprintf(line + used, sizeof(line) - used - 1, fmt, args);
+  const size_t used = hal::vformat_log(line, sizeof(line), level, tag, fmt, args);
   va_end(args);
-
-  if (written > 0) {
-    used += static_cast<size_t>(written);
-    if (used > sizeof(line) - 2) used = sizeof(line) - 2;
-  }
-  line[used++] = '\n';
+  if (used == 0) return;
 
   if (g_echo) {
     pal::IConsole* console = pal::system().console();

@@ -8,9 +8,17 @@
 #include <unity.h>
 
 #include "hal/hal.h"
+#include "hal/log.h"
 #include "kernel/apps.h"
 #include "kernel/kernel.h"
+#include "kernel/log.h"
+#include "kernel/meter.h"
+#include "kernel/vfs.h"
 #include "pal/pal.h"
+
+// The meters and the test file are in different namespaces: one line and the rest reads the same as in
+// the kernel (docs/30).
+namespace meter = kernel::meter;
 
 void setUp(void) {}
 
@@ -19,6 +27,17 @@ void tearDown(void) {}
 namespace {
 
 bool g_booted = false;
+
+// **The filesystem is counted per unit and per door**, so a test that asks "was it asked" adds the four
+// units of that door: the fake board has the flash and the key-value store, and a card that a test
+// mounts would be one more (docs/30, docs/70).
+uint32_t storage_calls(meter::Op op) {
+  uint32_t total = 0;
+  for (uint8_t unit = 0; unit < meter::kUnitCount; ++unit) {
+    total += meter::calls(meter::storage_id(op, unit));
+  }
+  return total;
+}
 
 void ensure_booted() {
   if (g_booted) return;
@@ -211,6 +230,81 @@ void test_cat_of_a_missing_file_fails(void) {
   TEST_ASSERT_FALSE(kernel::execute("cat /res"));
 }
 
+
+// **What the system costs is counted at the door** (docs/30): a call through the VFS is one call in its
+// meter, it carries its time, and the moment of the last one is on the table for `stats` to print.
+void test_a_call_through_the_vfs_is_counted_and_timed(void) {
+  ensure_booted();
+  meter::reset();
+  TEST_ASSERT_EQUAL_UINT32(0, storage_calls(meter::kOpStat));
+  uint64_t total = 0;
+  uint64_t free_bytes = 0;
+  TEST_ASSERT_TRUE(kernel::vfs::space("/littlefs", total, free_bytes));
+  TEST_ASSERT_TRUE(kernel::vfs::space("/littlefs", total, free_bytes));
+  // Two calls of the same door of the same unit are two: the count is a count and not a flag.
+  TEST_ASSERT_EQUAL_UINT32(2, storage_calls(meter::kOpStat));
+  // A different door is a different meter: asking for the room is not listing a directory.
+  TEST_ASSERT_EQUAL_UINT32(0, storage_calls(meter::kOpList));
+  // And the time is a time: microseconds, not a number that could be negative.
+  for (uint8_t unit = 0; unit < meter::kUnitCount; ++unit) {
+    const uint8_t id = meter::storage_id(meter::kOpStat, unit);
+    if (meter::calls(id) == 0) continue;
+    TEST_ASSERT_TRUE(meter::us(id) < 10000000ULL);
+    TEST_ASSERT_TRUE(meter::max_us(id) >= meter::min_us(id));
+  }
+}
+
+// `stats` is a command of the prompt, and `stats reset` puts the table back to zero: a measurement is of
+// a run and not of a life (docs/30, docs/95).
+void test_stats_prints_the_table_and_resets_it(void) {
+  ensure_booted();
+  // **A directory of a unit and not the root**: the root is the mount table and answers without asking a
+  // device, so listing it is not a call anybody can meter (docs/70).
+  TEST_ASSERT_TRUE(kernel::execute("ls /littlefs"));
+  TEST_ASSERT_TRUE(storage_calls(meter::kOpList) > 0);
+  TEST_ASSERT_TRUE(kernel::execute("stats"));
+  TEST_ASSERT_TRUE(kernel::execute("stats reset"));
+  TEST_ASSERT_EQUAL_UINT32(0, storage_calls(meter::kOpList));
+  TEST_ASSERT_EQUAL_UINT32(0, storage_calls(meter::kOpStat));
+  // And the clock of the table starts again with it: the uptime is of this run.
+  TEST_ASSERT_TRUE(meter::uptime_ms() < 10000);
+}
+
+// **One shape for every line**: the level, the tag, the message, and a newline that the formatter adds so
+// that a line can never be split in two (docs/30, docs/85).
+void test_a_log_line_carries_its_level_and_its_tag(void) {
+  char line[160];
+  const size_t len = hal::format_log(line, sizeof(line), pal::kLogWarn, "PANEL", "the glass said %d", 4);
+  TEST_ASSERT_EQUAL_STRING("[W][PANEL] the glass said 4\n", line);
+  // What it says it wrote is what it wrote, newline included.
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(strlen(line)), static_cast<uint32_t>(len));
+  // The level is a letter and never a word, and an info line has the same two brackets.
+  hal::format_log(line, sizeof(line), pal::kLogInfo, "FS", "mounted");
+  TEST_ASSERT_EQUAL_STRING("[I][FS] mounted\n", line);
+  // A line longer than the buffer is cut, not left without an end.
+  char small[24];
+  hal::format_log(small, sizeof(small), pal::kLogError, "TAG", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  TEST_ASSERT_EQUAL_UINT8('\n', static_cast<uint8_t>(small[strlen(small) - 1]));
+  TEST_ASSERT_TRUE(strlen(small) < sizeof(small));
+}
+
+
+// **Every time of `stats` is written in a scale a person reads** (docs/30): microseconds, milliseconds,
+// seconds, minutes, hours, and never a raw count of five million milliseconds.
+void test_a_duration_is_written_in_the_scale_that_reads(void) {
+  char out[16];
+  kernel::meter::human_us(out, sizeof(out), 845);
+  TEST_ASSERT_EQUAL_STRING("845us", out);
+  kernel::meter::human_us(out, sizeof(out), 12340);
+  TEST_ASSERT_EQUAL_STRING("12.3ms", out);
+  kernel::meter::human_us(out, sizeof(out), 1985000);
+  TEST_ASSERT_EQUAL_STRING("1.98s", out);
+  kernel::meter::human_us(out, sizeof(out), 187000000ULL);
+  TEST_ASSERT_EQUAL_STRING("3m07s", out);
+  kernel::meter::human_us(out, sizeof(out), 4988744000ULL);
+  TEST_ASSERT_EQUAL_STRING("1h23m", out);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -230,6 +324,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_kernel_is_running);
   RUN_TEST(test_an_app_without_its_entry_file_is_not_listed);
   RUN_TEST(test_the_extension_finder_counts_every_app_that_opens_it);
+  RUN_TEST(test_a_call_through_the_vfs_is_counted_and_timed);
+  RUN_TEST(test_stats_prints_the_table_and_resets_it);
+  RUN_TEST(test_a_log_line_carries_its_level_and_its_tag);
+  RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
   UNITY_END();
   return 0;
 }

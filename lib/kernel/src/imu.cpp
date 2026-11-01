@@ -4,6 +4,8 @@
 // (docs/30, docs/50).
 #include "kernel/imu.h"
 
+#include "kernel/meter.h"
+
 #include "luabind/luabind.h"
 
 namespace kernel {
@@ -28,6 +30,8 @@ bool available() { return g_imu != nullptr; }
 
 bool read(float& ax, float& ay, float& az, float& gx, float& gy, float& gz,
           float& celsius) {
+  // One burst of registers over the I2C, once per turn an app asks for it (docs/50).
+  meter::Scope scope(meter::kImuRead);
   if (g_imu == nullptr) return false;
   return g_imu->read(ax, ay, az, gx, gy, gz, celsius);
 }

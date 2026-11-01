@@ -23,6 +23,7 @@
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
+#include "kernel/meter.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/vfs.h"
@@ -3909,6 +3910,35 @@ void test_a_sensor_that_does_not_answer_is_said(void) {
   emu::set_options(opts);
 }
 
+
+// **A call that returns a promise is over when the promise settles**, not when it returns (docs/30): an
+// app that asks for fifty milliseconds pays fifty milliseconds in the meter of that call, and the eight
+// microseconds the C function took to come back are not the number anyone wants.
+void test_a_call_that_returns_a_promise_is_timed_until_it_settles(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static const char kManifest[] =
+      "{\"name\":\"waits\",\"title\":\"waits\",\"version\":\"0.1\",\"boards\":[\"esp32\"],"
+      "\"entry\":\"waits.lua\"}";
+  static const char kSource[] = "sys.delay(50):await()\n";
+  // The entry has to be the name the manifest declares, or the app is refused before it runs and the
+  // meter has nothing to show (docs/40).
+  TEST_ASSERT_TRUE(add_app_file(storage, "waits", kManifest, kSource, "waits.lua"));
+
+  kernel::meter::reset();
+  TEST_ASSERT_TRUE(run_captured("run waits", g_out, sizeof(g_out)));
+  // One call out of the app, and the fifty milliseconds it waited are in it — **and not an hour**: a
+  // promise whose start field held rubbish put one and a half hours into this meter from five calls
+  // (measured on the board, 1/11), which is why the ceiling is half of the assertion.
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(1, kernel::meter::calls(kernel::meter::kLuaCall));
+  const uint64_t spent = kernel::meter::us(kernel::meter::kLuaCall);
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32(40000, static_cast<uint32_t>(spent));
+  TEST_ASSERT_LESS_THAN_UINT32(2000000, static_cast<uint32_t>(spent));
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -3977,6 +4007,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
   RUN_TEST(test_the_page_demo_app_from_the_disk_runs);
+  RUN_TEST(test_a_call_that_returns_a_promise_is_timed_until_it_settles);
   RUN_TEST(test_the_power_command_says_what_the_board_can_do);
   RUN_TEST(test_the_power_command_moves_the_cpu);
   RUN_TEST(test_the_led_command_paints_and_gives_it_back);

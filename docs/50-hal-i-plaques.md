@@ -648,6 +648,59 @@ demana el pintat. Tres coses que això dona, i cap és cerimònia:
   les tres coses alhora —el vidre, la barra i els dits— amb el mateix valor (docs/50, «La pàgina es
   gira en software…») i la conversió dels dits és a `touch.cpp`.
 
+### El log dels conductors, i el que es compta (1/11)
+
+**Un conductor no escriu frases soltes a la consola.** Formatega la línia amb `hal::logf(level, tag, fmt,
+...)` —`[I][PANEL] 540x960 turned 270 (glass 960x540), …`— i la deixa a un *sink* que el nucli instal·la:
+d'aquesta manera la línia d'un conductor i la del nucli són la mateixa cosa al mateix cercle, i el
+conductor no ha de saber que el nucli existeix (docs/30, docs/85). Abans de la 0.20.0 eren **trenta-vuit
+`printf`** amb el prefix escrit a mà dins del text; ara la lletra de nivell i l'etiqueta les posa el
+format, i una línia que no porta etiqueta no compila.
+
+**I el que es compta a la porta** (docs/30). El repàs és aquest, i és el que diu quina fila de `stats`
+paga cada cosa:
+
+| Dispositiu | Crida | Es compta a |
+|---|---|---|
+| `IStorage` | `stat`, `list`, `space`, i obrir/llegir/escriure/cercar/tancar/esborrar/renombrar | **una fila per unitat i porta**: `flash.read`, `sd.read`, `nvs.write`, `rtc.stat`, `fram.list`… |
+| `ISurface` | `flush` | `glass.flush` (totes les pintades) |
+| | `flush` d'un mode que neteja (`gc16`, `gl16`, `glr16`, `gld16`) | `glass.gc16` (les lentes, les que treuen el fantasma) |
+| | `idle` | `glass.idle` |
+| | `set_rotation` | `glass.flush` — un gir torna a fer la imatge i envia la pàgina sencera |
+| `ITouch` | `read` | `touch.read` |
+| `IClock` | `epoch_ms` | `clock.now` |
+| | `monotonic_ms` | `clock.mono` — **també és el xip**, i el botó, la llum i la ràdio el demanen cada torn |
+| | `arm_wake`, `disarm_wake`, `last_wake` | `clock.wake` |
+| `IInput` | `pressed`, `held_ms`, una vegada per torn | `keys.read` |
+| `ILed` | `fill`, `pixel`, `show` | `led.show` |
+| `IImu` | `read` | `imu.read` |
+| `ISensor` | `read` | `env.read` |
+| `IPower` | `battery` / `sleep` / `set_cpu_mhz` | `power.battery` / `power.sleep` / `power.cpu` |
+| `IKeyValue` | `get`, `set` (i l'`erase`) | `kv.get`, `kv.set` |
+| **La PSRAM** | un bloc demanat o donat (`pal::extra_memory`) | `psram.alloc`, `psram.free` |
+| **El nucli** | un torn sencer | `kernel.loop` |
+| **L'intèrpret** | un torn d'una app, i què se'n va en codi de l'app | `lua.run`, `lua.own`, `lua.call` |
+| `INet` | escaneig, connexió, desar i oblidar la xarxa | `net.wifi` |
+| | una pàgina | `net.http` |
+| | l'hora | `net.ntp` |
+
+**El que no es compta, i per què**: `count()`, `width()`, `height()`, `caps()`, `rotation()`,
+`max_value()`, `face`/`spot`/`kind`/`group`, `last_error()`, `wifi_state()` i `prov_provisioned()` són
+camps en memòria del conductor o de la placa, no viatges al maquinari: comptar-los ompliria la taula de
+files que sempre costen zero i amagaria les que no.
+
+El conductor del panell no compta les seves crides una a una: el compte el porta el nucli, que és qui sap
+de qui és la crida i qui ho ha de poder ensenyar amb `stats` (docs/75).
+
+**I el `idle()` que no deia la veritat** (1/11, 0.19.2): el controlador **no es marca ocupat en el mateix
+instant** que rep la comanda de pintar, i una pregunta feta un mil·lisegon després llegia zero amb la
+pàgina encara per començar. Dues conseqüències, totes dues dolentes: una app que mesurava deia «0 ms», i
+un `present` de dues qualitats podia enviar el segon pintat a sobre d'un primer que no havia començat. El
+conductor guarda ara **quan es va demanar el pintat** i no diu que s'ha acabat fins passats **20 ms**
+(`kEngineStartMs`), que és una **guarda i no una mesura** —ningú no ha cronometrat quant triga el motor a
+marcar-se ocupat, i el número només pot fer la resposta més tard, mai més aviat—. Es nota igual a `idle()`
+i a l'espera del pintat anterior, perquè els dos fan la mateixa pregunta.
+
 **I una cosa que el vidre ha dit i que el full de dades no diu** (mesurat a la placa l'1/11, docs/95
 E-7): amb la imatge de quatre bits, **`du` pinta però no neteja** i **`du4` i `a2` no van pintar res** —el
 `present` responia `true` i el vidre es quedava igual—. Per això el camí que es fa servir és **pintar amb

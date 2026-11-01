@@ -177,7 +177,58 @@ namespace kernel {
 // sigui que qui no pintava era el mode i no el camí— (docs/95, E-6, E-7 i E-8; docs/75; docs/85;
 // docs/90). El que continua **sense número** és el temps d'un `gc16`: la mesura de l'app no el pot donar
 // (espera 120 ms i pregunta, i el bucle surt a la primera).
-static const char kVersion[] = "0.19.1";
+// 0.19.2 (1/11): **`ui.idle()` no diu la veritat, i ara sí**. El controlador del panell no es marca ocupat
+// en el mateix instant que rep la comanda de pintar, i una pregunta feta un mil·lisegon després llegia zero
+// amb la pàgina encara per començar: `run panel` treia un `0 ms` que no era cap mesura, i un `present` de
+// dues qualitats podia enviar el segon pintat a sobre d'un primer que no havia començat. El conductor
+// guarda ara quan es va demanar el pintat i no contesta que sí fins passats `kEngineStartMs` (20 ms), una
+// **guarda** i no una mesura, i la mateixa pregunta la fan `idle()` i l'espera del pintat anterior. I
+// `run panel` compta des d'abans del `present` i pregunta cada 10 ms en lloc de dormir 120 ms i restar-ho:
+// el número que ara imprimeix és el del vidre (docs/30, docs/50, docs/95 E-7).
+// 0.19.3 (1/11): **el primer número de debò del vidre**. `run panel` a la placa amb la 0.19.2 diu
+// `the ink took 1985 ms` per a una pàgina de dues regions (`du` i `gc16`), i aquest número porta a dins
+// l'enviament de la pàgina sencera per SPI i els dos pintats: és **tres o quatre vegades** el que voldrien
+// dir els 450 ms del fabricant per a un `gc16`, i no se sap encara quina de les tres parts paga. La
+// mesura que ho separa és `squares`, que pinta una sola qualitat per `present` i ara imprimeix
+// `painted with du in N ms` i `erased with gc16 in N ms` d'un quadrat de 40 × 40, on la transferència és
+// 800 B i el número és el motor (docs/95, E-7).
+// 0.20.0 (1/11): **el sistema diu el que costa, i el log té una sola forma**. Cada porta d'un
+// dispositiu —el sistema de fitxers per portes, la vista amb `flush` i la pregunta d'`idle()`, la lectura
+// del tàctil— té un comptador amb **quantes vegades, quant de temps i quan va ser l'última**, i `stats`
+// les ensenya en una taula que es pot posar a zero amb `stats reset`. **Cada crida d'una app a l'API es
+// compta i es cronometra** amb el ganxo del propi intèrpret —un ganxo i cap tanc per funció, perquè una
+// app de l'ATOM té 64 KB i els tancs se'n menjarien cinc— i la fila `app <id>` dona el que aquella app ha
+// costat des que va arrencar. I el log: **`[nivell][etiqueta] missatge`**, amb la lletra de nivell i
+// l'etiqueta posades pel format i no a mà dins del text, els trenta-vuit `printf` dels conductors
+// convertits a `hal::logf` amb un *sink* que el nucli instal·la, i el mirall a la consola encès mentre el
+// sistema arrenca. I **el temps d'una crida es compta fins que es resol**: una crida que torna una
+// promesa no ha acabat quan torna, i `sys.delay(50)` costa cinquanta mil·lisegons a `lua.call` i no els
+// vuit microsegons de la trucada. El repàs de cada porta del HAL —el que es compta i el que no, amb el
+// per què— és a `docs/50`. **I un error que va sortir al banc**: la memòria d'un *userdata* de Lua no ve
+// a zero, i el camp del comptador d'una promesa hi portava escombraries; una promesa sense temps hi
+// va posar **una hora i mitja** des de cinc crides (`lua.call 4988744 ms`, mesurat a la placa l'1/11).
+// El camp s'inicia en fer la promesa i el tancament refusa un començament que no ha passat mai. I **cada
+// temps de `stats` s'escriu en l'escala que es llegeix** (`845 us`, `12.3 ms`, `1.98 s`, `3 min 07 s`,
+// `1 h 23 min`), perquè `4988744 ms` no diu res i `1 h 23 min` sí. **I el repàs de debò, que va destapar
+// tres forats**: el sistema de fitxers té ara **una fila per unitat i porta** (`flash.read`, `sd.read`,
+// `nvs.write`, `rtc.stat`…) perquè una targeta no és una flash; `clock.mono` hi és perquè el comptador
+// monòton **és una lectura del xip RTC** i el botó, la llum i la ràdio el demanen cada torn (abans
+// `clock.now` deia una crida en dos minuts); i la vista té dues files, `glass.flush` i `glass.gc16`,
+// perquè una pintada que neteja no és una pintada qualsevol. **I la suma amb el repartiment**: la darrera
+// línia de `stats` diu el **temps de sistema** (el que sumen les files) contra el **temps d'usuari** (la
+// resta de la vida del sistema, comptada des de l'última arrencada o l'últim `stats reset`), que és el
+// que separa «l'app és lenta» de «el dispositiu és lent». **I `stats` no és una línia de log**: no porta
+// nivell ni etiqueta, perquè ningú no fa `grep` d'una taula —es llegeix— i amb les etiquetes a sobre les
+// columnes no s'alineaven; ara és una taula de columnes fixes. **I el compte complet**: `kernel.loop` (el
+// torn del nucli), `lua.run`/`lua.own` (el torn de l'app i el que és codi seu), `psram.alloc`/`psram.free`
+// (la memòria extra és un dispositiu d'aquesta placa), i **el mínim i el màxim** de cada fila a més de la
+// mitjana. **I el `boot` era un comptador mort** —hi havia l'identificador i ningú no hi apuntava res, o
+// sigui que la fila no hauria sortit mai— i ara compta el que el sistema triga a venir: 108 ms al banc.
+// I els medidors que **contenen** d'altres (`boot`, `kernel.loop`, `lua.run`, `lua.own`, `lua.call`) no
+// entren a la suma de portes, o el mateix microsegon es comptava tres vegades i el total passava del cent
+// per cent (138 %, mesurat). Costa **1 208 B de RAM i 9 076 B de flash** al
+// Paper (docs/30, docs/50, docs/75, docs/80, docs/85).
+static const char kVersion[] = "0.20.0";
 
 }  // namespace kernel
 

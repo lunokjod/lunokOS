@@ -41,6 +41,8 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return static_cast<int64_t>(esp_timer_get_time() / 1000);
   }
 
+  int64_t micros() const override { return esp_timer_get_time(); }
+
   void reboot() override { ESP.restart(); }
   bool reboot_requested() const override { return false; }
 

@@ -1,6 +1,7 @@
 // The GT911 driver: ask who is there, ask for a frame, and turn eight bytes into one finger. The
 // chip keeps its own state, so this driver keeps none: what is read is what the glass has now
 // (docs/50).
+#include "hal/log.h"
 #include "esp32/gt911.h"
 
 #include <stdio.h>
@@ -128,7 +129,7 @@ ITouch* esp32_gt911(II2c* bus) {
   static bool said = false;
   if (!said) {
     said = true;
-    printf("touch: %s\n", chip.profile());
+    hal::logf(pal::kLogInfo, "TOUCH", "%s", chip.profile());
   }
   return there ? &chip : nullptr;
 }

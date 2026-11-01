@@ -33,6 +33,7 @@
 #include "esp32/net.h"
 #include "esp32/nvs.h"
 #include "hal/hal.h"
+#include "hal/log.h"
 
 // Arduino releases the memory of the Bluetooth controller at boot **unless**
 // `btInUse()` says somebody wants it (`cores/esp32/esp32-hal-misc.c`:
@@ -78,8 +79,8 @@ void say_internal_ram(const char* when) {
   const uint32_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   const uint32_t largest =
       heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  printf("ram at %s: internal %u free, largest block %u\n", when,
-         static_cast<unsigned>(free_bytes), static_cast<unsigned>(largest));
+  hal::logf(pal::kLogInfo, "HEAP", "at %s: internal %u B free, largest block %u B", when,
+            static_cast<unsigned>(free_bytes), static_cast<unsigned>(largest));
 }
 
 bool own_record(char* out, size_t cap) {
@@ -143,7 +144,7 @@ esp_netif_t* g_ap_netif = nullptr;
 void bt_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data) {
   wifi_prov_scheme_ble_event_cb_free_btdm(user_data, event, event_data);
   if (event == WIFI_PROV_END || event == WIFI_PROV_DEINIT) {
-    printf("prov: bluetooth freed\n");
+    hal::logf(pal::kLogInfo, "PROV", "bluetooth freed");
   }
 }
 
@@ -163,7 +164,7 @@ void wifi_event_cb(void* user_data, esp_event_base_t base, int32_t id, void* dat
         g_connect_asked = true;
         const esp_err_t err = esp_wifi_connect();
         if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-          printf("wifi: the radio refused to connect (%s)\n", esp_err_to_name(err));
+          hal::logf(pal::kLogWarn, "WIFI", "the radio refused to connect (%s)", esp_err_to_name(err));
         }
       }
       break;
@@ -185,7 +186,7 @@ void wifi_event_cb(void* user_data, esp_event_base_t base, int32_t id, void* dat
       g_sta_failed = true;
       // One line per drop. Without it a board that never associates looks like a
       // board that is thinking (measured on the board, 31/10).
-      printf("wifi: dropped, reason %d\n", static_cast<int>(g_sta_reason));
+      hal::logf(pal::kLogWarn, "WIFI", "dropped, reason %d", static_cast<int>(g_sta_reason));
       break;
     default:
       break;
@@ -207,7 +208,7 @@ void ip_event_cb(void* user_data, esp_event_base_t base, int32_t id, void* data)
   if (id != IP_EVENT_STA_GOT_IP || data == nullptr) return;
   const ip_event_got_ip_t* event = static_cast<const ip_event_got_ip_t*>(data);
   g_sta_got_ip = true;
-  printf("wifi: address " IPSTR "\n", IP2STR(&event->ip_info.ip));
+  hal::logf(pal::kLogInfo, "WIFI", "address " IPSTR "\n", IP2STR(&event->ip_info.ip));
 }
 
 // The list of networks the phone sees is built by the prebuilt provisioning
@@ -239,10 +240,10 @@ void prov_scan_probe_cb(void* user_data, esp_event_base_t base, int32_t id, void
   // What is left to read says who took the list, and the heap goes with it
   // because the reply to the phone is built with one small allocation per network
   // (docs/50).
-  printf("prov: scan done (status %d, %u ap in the event, %u left for us, %s)\n",
-         (event != nullptr) ? static_cast<int>(event->status) : -1,
-         (event != nullptr) ? static_cast<unsigned>(event->number) : 0u,
-         static_cast<unsigned>(read), esp_err_to_name(err));
+  hal::logf(pal::kLogInfo, "PROV", "scan done (status %d, %u ap in the event, %u left for us, %s)",
+            (event != nullptr) ? static_cast<int>(event->status) : -1,
+            (event != nullptr) ? static_cast<unsigned>(event->number) : 0u,
+            static_cast<unsigned>(read), esp_err_to_name(err));
   say_internal_ram("the end of a provisioning scan");
 }
 
@@ -254,7 +255,7 @@ void prov_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data
   static const char* const kNames[] = {"INIT", "START", "CRED_RECV", "CRED_FAIL",
                                        "CRED_SUCCESS", "END", "DEINIT"};
   const uint32_t index = static_cast<uint32_t>(event);
-  printf("prov: %s\n", (index < 7) ? kNames[index] : "?");
+  hal::logf(pal::kLogInfo, "PROV", "%s", (index < 7) ? kNames[index] : "?");
   // Every one of these is printed with what is left in the internal RAM, because the
   // manager stops provisioning by creating a task of its own on CRED_SUCCESS, and that
   // is the moment a board with too little internal RAM aborts (measured on the Paper,
@@ -287,7 +288,7 @@ void prov_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data
           if (esp_wifi_get_config(WIFI_IF_STA, &conf) == ESP_OK && conf.sta.ssid[0] != '\0') {
             own_record_write(reinterpret_cast<const char*>(conf.sta.ssid));
           } else {
-            printf("prov: the credentials came with no name\n");
+            hal::logf(pal::kLogWarn, "PROV", "the credentials came with no name");
           }
         }
       }
@@ -307,7 +308,7 @@ void prov_event_cb(void* user_data, wifi_prov_cb_event_t event, void* event_data
         g_manager_ready = false;
       }
       if (g_prov_state == ProvState::kRunning) g_prov_state = ProvState::kDone;
-      printf("prov: the radio is ours again\n");
+      hal::logf(pal::kLogInfo, "PROV", "the radio is ours again");
       break;
     default:
       break;
@@ -332,7 +333,7 @@ bool manager_for(ProvTransport transport) {
   config.app_event_handler.event_cb = &prov_event_cb;
   config.app_event_handler.user_data = nullptr;
   if (wifi_prov_mgr_init(config) != ESP_OK) {
-    printf("prov: the manager did not init\n");
+    hal::logf(pal::kLogWarn, "PROV", "the manager did not init");
     return false;
   }
   g_manager_scheme = transport;
@@ -418,7 +419,7 @@ void http_fetch(HttpJob& job) {
   uint32_t len = 0;
   esp_err_t err = esp_http_client_open(client, 0);
   if (err != ESP_OK) {
-    printf("http: could not open %s (%s)\n", job.url, esp_err_to_name(err));
+    hal::logf(pal::kLogWarn, "HTTP", "could not open %s (%s)", job.url, esp_err_to_name(err));
     job.error = http_error_for(err);
   } else {
     esp_http_client_fetch_headers(client);
@@ -437,7 +438,7 @@ void http_fetch(HttpJob& job) {
       if (got < 0) {
         // The socket stopped talking. The cause is the driver's to say and not
         // this file's to invent, so the message carries the count and no verdict.
-        printf("http: the page stopped after %u bytes\n", static_cast<unsigned>(len));
+        hal::logf(pal::kLogWarn, "HTTP", "the page stopped after %u bytes", static_cast<unsigned>(len));
         job.error = HttpError::kConnect;
         break;
       }
@@ -527,7 +528,7 @@ class Esp32Net : public INet {
     esp_sntp_setservername(0, name);
     esp_sntp_set_time_sync_notification_cb(&ntp_sync_cb);
     esp_sntp_init();
-    printf("ntp: asking %s\n", name);
+    hal::logf(pal::kLogInfo, "NTP", "asking %s", name);
     return true;
   }
 
@@ -568,7 +569,7 @@ class Esp32Net : public INet {
     if (mode != WIFI_MODE_STA) {
       if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
         g_want_station = false;
-        printf("wifi: the radio did not take the station mode\n");
+        hal::logf(pal::kLogWarn, "WIFI", "the radio did not take the station mode");
         return false;
       }
       esp_wifi_start();
@@ -579,7 +580,7 @@ class Esp32Net : public INet {
     const esp_err_t err = esp_wifi_connect();
     if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
       g_want_station = false;
-      printf("wifi: the radio refused to connect (%s)\n", esp_err_to_name(err));
+      hal::logf(pal::kLogWarn, "WIFI", "the radio refused to connect (%s)", esp_err_to_name(err));
       return false;
     }
     return true;
@@ -593,7 +594,7 @@ class Esp32Net : public INet {
     if (g_sta_failed) {
       // The reason goes to the console: a failed association that says only
       // "failed" is a failed investigation (docs/50).
-      printf("wifi: association failed, reason %d\n", static_cast<int>(g_sta_reason));
+      hal::logf(pal::kLogWarn, "WIFI", "association failed, reason %d", static_cast<int>(g_sta_reason));
       // The attempt is over, so the next one can start: without this the board
       // answered E_BUSY for ever after one failure (measured on the board).
       started_ = false;
@@ -642,8 +643,8 @@ class Esp32Net : public INet {
       if (esp_wifi_scan_get_ap_records(&wanted, g_records) == ESP_OK) record_count_ = wanted;
     }
     fetched_ = true;
-    printf("scan: %u records of %u\n", static_cast<unsigned>(record_count_),
-           static_cast<unsigned>(seen));
+    hal::logf(pal::kLogInfo, "WIFI", "scan: %u records of %u",
+              static_cast<unsigned>(record_count_), static_cast<unsigned>(seen));
     return true;
   }
 
@@ -679,18 +680,18 @@ class Esp32Net : public INet {
   // board answering E_NONET with a network stored (measured on the board, 30/10).
   bool wifi_start_stored() override {
     if (started_) {
-      printf("wifi: an attempt of our own is still open\n");
+      hal::logf(pal::kLogInfo, "WIFI", "an attempt of our own is still open");
       return false;
     }
     if (!espWifiReady()) return false;
     wifi_config_t conf;
     memset(&conf, 0, sizeof(conf));
     if (esp_wifi_get_config(WIFI_IF_STA, &conf) != ESP_OK) {
-      printf("wifi: the driver has no station config\n");
+      hal::logf(pal::kLogWarn, "WIFI", "the driver has no station config");
       return false;
     }
     if (conf.sta.ssid[0] == '\0') {
-      printf("wifi: the driver has no name stored\n");
+      hal::logf(pal::kLogWarn, "WIFI", "the driver has no name stored");
       return false;
     }
     // The provisioning manager puts the station on the network itself to check
@@ -698,11 +699,11 @@ class Esp32Net : public INet {
     // with an address. Nothing is restarted then: restarting it was what dropped
     // the address the phone had just proved (measured on the board, 31/10).
     if (g_sta_got_ip && !g_sta_failed) {
-      printf("wifi: already on %s\n", reinterpret_cast<const char*>(conf.sta.ssid));
+      hal::logf(pal::kLogInfo, "WIFI", "already on %s", reinterpret_cast<const char*>(conf.sta.ssid));
       started_ = true;
       return true;
     }
-    printf("wifi: connecting to %s\n", reinterpret_cast<const char*>(conf.sta.ssid));
+    hal::logf(pal::kLogInfo, "WIFI", "connecting to %s", reinterpret_cast<const char*>(conf.sta.ssid));
     // A new attempt starts clean: a failure or an address from the previous one
     // would answer for this one (docs/50).
     g_sta_got_ip = false;
@@ -772,10 +773,10 @@ class Esp32Net : public INet {
     // for (docs/50).
     if (!ble) {
       if (mdns_init() != ESP_OK) {
-        printf("prov: mdns did not start\n");
+        hal::logf(pal::kLogWarn, "PROV", "mdns did not start");
       } else {
         mdns_hostname_set("lunokos");
-        printf("prov: mdns up\n");
+        hal::logf(pal::kLogInfo, "PROV", "mdns up");
       }
     }
 
@@ -796,17 +797,17 @@ class Esp32Net : public INet {
     // cannot scan, which is what made the phone's list empty. Over Bluetooth the
     // station is the only thing needed, and there is no access point to add.
     if (ble) {
-      printf("prov: bluetooth, name %s\n", service_name);
+      hal::logf(pal::kLogInfo, "PROV", "bluetooth, name %s", service_name);
       return true;
     }
     wifi_mode_t mode = WIFI_MODE_NULL;
     if (esp_wifi_get_mode(&mode) == ESP_OK) {
-      printf("prov: mode %d (1 STA, 2 AP, 3 APSTA)\n", static_cast<int>(mode));
+      hal::logf(pal::kLogInfo, "PROV", "mode %d (1 STA, 2 AP, 3 APSTA)", static_cast<int>(mode));
       if (mode != WIFI_MODE_APSTA) {
         if (esp_wifi_set_mode(WIFI_MODE_APSTA) == ESP_OK) {
-          printf("prov: mode forced to APSTA\n");
+          hal::logf(pal::kLogInfo, "PROV", "mode forced to APSTA");
         } else {
-          printf("prov: could not set APSTA\n");
+          hal::logf(pal::kLogWarn, "PROV", "could not set APSTA");
         }
       }
     }
@@ -885,7 +886,7 @@ class Esp32Net : public INet {
       taskENTER_CRITICAL(&g_http_mux);
       g_http_op = 0;
       taskEXIT_CRITICAL(&g_http_mux);
-      printf("http: no room for the download task\n");
+      hal::logf(pal::kLogWarn, "HTTP", "no room for the download task");
       return 0;
     }
     return op;

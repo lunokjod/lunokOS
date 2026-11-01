@@ -1,5 +1,7 @@
 // The canvas of the app, the damage it leaves on it and the copy that puts it on the glass
 // (docs/30): see `ui.h` for what the separation is for.
+#include "kernel/log.h"
+#include "kernel/meter.h"
 #include "kernel/ui.h"
 
 #include <stdio.h>
@@ -210,7 +212,10 @@ void release_slot(int8_t slot) {
   unlink_from_parent(slot);
   if (g_canvases[slot].bits != nullptr) {
     memset(g_canvases[slot].bits, 0xFF, g_canvases[slot].bytes);
-    pal::extra_memory().release(g_canvases[slot].bits);
+    {
+      meter::Scope scope(meter::kExtraRelease);
+      pal::extra_memory().release(g_canvases[slot].bits);
+    }
   }
   g_canvases[slot] = Canvas{};
 }
@@ -877,8 +882,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
-  printf("ui: view %ux%u at %u,%u, %u bytes of canvas\n", root().width, root().height, root().x,
-         root().y, static_cast<unsigned>(root().bytes));
+  log_printf(pal::kLogInfo, "UI", "view %ux%u at %u,%u, %u bytes of canvas", root().width,
+             root().height, root().x, root().y, static_cast<unsigned>(root().bytes));
   return true;
 }
 
@@ -973,7 +978,11 @@ bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8
   made.stride = static_cast<uint16_t>(width / 2);
   if (with_view) {
     made.bytes = static_cast<uint32_t>(made.stride) * height;
-    void* block = pal::extra_memory().allocate(made.bytes, true);
+    void* block = [&]() {
+      // **The PSRAM is a device of this board**: a block taken from it is a call like any other (docs/75).
+      meter::Scope scope(meter::kExtraAlloc);
+      return pal::extra_memory().allocate(made.bytes, true);
+    }();
     if (block == nullptr) {
       made = Canvas{};
       return false;

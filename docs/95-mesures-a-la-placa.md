@@ -545,8 +545,44 @@ espera 120 ms **ella mateixa** (`sys.delay(120)`, perquè la primera lectura de 
 després pregunta `ui.idle()`; el que el número vol dir és «als 120 ms ja no pintava», i el `+120` de la
 suma és la mateixa espera. Amb el fabricant dient **450 ms** per a `GC16`, una espera de 120 ms **no pot
 mesurar-lo**: el bucle surt a la primera pregunta. Per tenir el número de debò cal comptar des d'abans del
-`present` i no donar la primera lectura per bona, i això és una feina de l'app (o del nucli, amb l'instant
-del `flush` desat): queda **pendent**.
+`present` i no donar la primera lectura per bona: fins a la 0.19.1 **aquest número no existia**.
+
+**I des de la 0.19.2 es pot prendre, perquè les dues meitats del problema s'han tancat:**
+
+- **El conductor ja no diu que ha acabat abans que el motor hagi començat.** Guarda **quan es va demanar
+  el pintat** i no contesta que sí fins passats **20 ms** (`kEngineStartMs`, a `it8951.cpp`). És una
+  **guarda i no una mesura** —ningú no ha cronometrat quant triga el motor a marcar-se ocupat, i el número
+  només pot fer la resposta més tard, mai més aviat—, i serveix també per a l'espera del pintat anterior,
+  que tenia el mateix forat: un `present` de dues qualitats podia enviar el segon a sobre d'un primer que
+  encara no havia començat.
+- **L'app compta des d'abans del `present`** i pregunta cada 10 ms, sense cap dormida pel mig. La línia
+  que ara imprimeix és `the ink took %d ms` i **és el que es volia mesurar**.
+
+**El primer número de debò, mesurat a la placa l'1/11 amb la 0.19.2:**
+
+```
+2 region(s) with damage, du and gc16
+the ink took 1985 ms (asked with a poll of 10 ms)
+```
+
+**Què hi ha dins d'aquest 1985 ms**, perquè no és una sola cosa: el rellotge comença **abans** del
+`present`, o sigui que inclou (a) l'enviament per SPI de les dues regions —la de `du` és la pàgina sencera,
+**251 640 B**—, (b) el pintat de `du`, (c) l'espera del pintat anterior dins del segon `flush` i (d) el
+pintat de `gc16` de l'escala. Són **dos pintats seguits** i no un.
+
+**I el número no quadra amb el fabricant, i això és el resultat**: 450 ms per a un `gc16` de pàgina sencera
+voldrien dir uns 0,6 s per a aquesta pàgina, i el que s'ha mesurat és **tres o quatre vegades més**. No se
+sap encara si el que costa és **el motor, l'enviament o les dues coses**, i la mesura que ho separa és
+l'app `squares`: pinta **una sola qualitat per `present`** i des de la 0.19.3 imprimeix
+`painted with du in N ms` i `erased with gc16 in N ms` d'un quadrat de 40 × 40 —uns 800 B de transferència,
+o sigui que el que surti allà és **el motor i prou**—. Amb els dos números al costat, el que queda és
+l'enviament, i es pot atacar a part (l'amplada del bus i les trames per fila, `docs/50`).
+
+**Què s'hi ha de veure, i què no.** El número **inclou els dos pintats de la pàgina** (la de `du` i
+després la de `gc16`, que no poden anar alhora), o sigui que el que s'ha d'esperar és la **suma**: uns
+120 + 450 = **570 ms** si els números del fabricant són els d'aquesta unitat. Per separar-los, la prova
+és pintar **una sola qualitat** per `present` (una app de tres línies, o `squares`, que ja pinta d'un
+mode cada vegada).
 
 **I una segona cosa que aquest run ha destapat**: la pàgina de `panel` es dibuixava amb **`du4`** —la vora,
 el blanc i els quadres— i `du4` és, precisament, un dels modes que aquí dalt està mesurat com a **no pinta**.
@@ -578,7 +614,7 @@ Què apuntar:
 | **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
 | **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
 | **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió | `docs/50` |
-| **El temps d'un `gc16`**: `run panel` diu els mil·lisegons entre `flush` i `idle`. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`. **La primera lectura de `LUTAFSR` no serveix**: el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` (1/11) amb la pàgina encara movent tinta; la prova espera 120 ms abans de la primera pregunta | `docs/50`, `docs/75` |
+| **El temps d'un `gc16`**: `run panel` diu `the ink took N ms`, comptat **des d'abans del `present`** fins que `ui.idle()` diu que sí. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`, i la pàgina porta **dos pintats** (du i gc16), o sigui que el número és la suma. La primera lectura de `LUTAFSR` no servia —el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` l'1/11 amb la pàgina encara movent tinta— i des de la 0.19.2 el conductor no deixa respondre abans de 20 ms | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
 
 ### E-8 · La capa de controls a la placa (5 minuts)
@@ -620,6 +656,32 @@ painted, 0 region(s) left, idle says true
 
 Una regió per quadrat, i cap deixa enrere. El `idle says true` és immediatament després del `present` i diu
 el que ha de dir: `du` d'un quadrat de 44 × 44 no és una pàgina.
+
+### E-9 · El que costa, amb `stats` (2 minuts)
+
+La primera mesura de qualsevol cosa lenta és aquesta, i no cal cronòmetre: `stats` dona **quantes
+vegades, quant de temps, la mitjana, el mínim, el màxim i quan va ser l'última** de cada porta del
+sistema, i tres línies que ho tanquen —els torns del nucli, el torn de l'app i la suma de les portes
+contra la vida del sistema— (docs/30).
+
+```
+lunok> stats reset     # la mesura d'una tirada i no d'una vida
+lunok> run <app>
+lunok> stats
+```
+
+**Què buscar-hi**:
+
+| Símptoma | Què vol dir |
+|---|---|
+| Una porta amb moltes crides i un total alt | el camí passa per allà massa vegades: es mira qui la crida |
+| Una porta amb poques crides i un **màxim** alt | hi ha una crida lenta de tant en tant: el mínim diu si és sempre o només de vegades |
+| `doors` a prop del 100 % de la vida | el sistema no fa res més que esperar dispositius: el coll és al maquinari |
+| `lua.run` alt i `lua.own` baix | l'app passa el temps demanant coses, no calculant |
+| `turns` alt amb `kernel` baix | el nucli dona moltes voltes curtes: el que espera és un esdeveniment |
+
+**El que el banc no pot dir**: el temps d'un dispositiu, perquè al PC el disc és el disc i no hi ha
+tinta (docs/85). Allà valen els comptes i el camí; els temps es prenen a la placa.
 
 ---
 

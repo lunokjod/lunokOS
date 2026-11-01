@@ -1,4 +1,5 @@
 // Where the settings of an app are kept, and which unit is behind `/cfg`.
+#include "kernel/meter.h"
 #include "kernel/cfg.h"
 
 #include <stdio.h>
@@ -28,6 +29,9 @@ bool same(const char* a, const char* b) { return a != nullptr && b != nullptr &&
 
 void remember() {
   if (g_nvs == nullptr) return;
+  // **The settings live in the key-value store**, which is a write to the flash and not a variable
+  // (docs/70, docs/75).
+  meter::Scope scope(meter::kKvSet);
   g_nvs->set(kNamespace, kKey, g_preference, strlen(g_preference));
 }
 
@@ -47,7 +51,7 @@ void apply() {
   }
 
   if (same(g_preference, "sd") && g_card == nullptr) {
-    log_printf(pal::kLogWarn, "cfg: no card; the settings go to the flash");
+    log_printf(pal::kLogWarn, "CFG", "no card; the settings go to the flash");
   }
   hal::IStorage* storage = same(g_unit, "sd") ? g_card : g_flash;
   vfs::set_cfg_storage((g_unit[0] != '\0') ? storage : nullptr, g_unit);
@@ -62,14 +66,21 @@ void boot(hal::IPlatform& platform) {
 
   char raw[kNameCap] = {0};
   size_t len = 0;
-  if (g_nvs != nullptr && g_nvs->get(kNamespace, kKey, raw, sizeof(raw) - 1, len) && len > 0) {
+  // **The setting is read from the key-value store**, which is a chip and not a variable, and the
+  // meter counts it like any other door (docs/70).
+  bool found = false;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    found = g_nvs->get(kNamespace, kKey, raw, sizeof(raw) - 1, len) && len > 0;
+  }
+  if (found) {
     raw[len] = '\0';
     if (same(raw, "auto") || same(raw, "sd") || same(raw, "littlefs")) {
       snprintf(g_preference, sizeof(g_preference), "%s", raw);
     }
   }
   apply();
-  log_printf(pal::kLogInfo, "cfg: /cfg on %s (asked for %s)", (g_unit[0] != '\0') ? g_unit : "nowhere",
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s)", (g_unit[0] != '\0') ? g_unit : "nowhere",
              g_preference);
 }
 

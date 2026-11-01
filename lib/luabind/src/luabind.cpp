@@ -105,9 +105,16 @@ enum PromiseState { kPending = 0, kOk = 1, kErr = 2 };
 
 // A promise is a userdata with two words of state and a table for the rest
 // (value, jobs, watch). Nothing is allocated outside Lua: see docs/75.
+// Where the kernel puts what a call costs; empty until it does, and the hook then does nothing.
+MeterOps g_meter_ops = {};
+
 struct Promise {
   int state;
   int64_t deadline_ms;  // 0 = no timer; something else settles it
+  // **When the call that made this promise started**, in microseconds, or zero when the system is not
+  // metering. A call that returns a promise is not over when it returns: it is over when the promise
+  // settles, and the meter reads this to know how long it took (docs/30).
+  uint32_t meter_start_us;
 };
 
 void con_write(const char* text, size_t len) {
@@ -191,6 +198,10 @@ int push_promise(lua_State* L, int64_t deadline_ms) {
   Promise* p = static_cast<Promise*>(lua_newuserdatauv(L, sizeof(Promise), 1));
   p->state = kPending;
   p->deadline_ms = deadline_ms;
+  // **A userdata comes from Lua's heap and is not zeroed.** A promise that nobody timed must not be
+  // handed to the meter as if it had a start: that read rubbish once and put an hour and a half into
+  // `lua.call` from five calls (measured on the board, 1/11).
+  p->meter_start_us = 0;
   luaL_getmetatable(L, kPromiseMeta);
   lua_setmetatable(L, -2);
   lua_newtable(L);  // uservalue: what the promise carries
@@ -221,6 +232,15 @@ void promise_settle(lua_State* L, int pidx, int state, int vidx) {
   if (p == nullptr || p->state != kPending) return;
   p->state = state;
   p->deadline_ms = 0;
+  // **The call is measured until here and not until it returned**: a promise that takes five hundred
+  // milliseconds to settle is a call that cost five hundred milliseconds (docs/30).
+  if (p->meter_start_us != 0 && g_meter_ops.add_call != nullptr && g_meter_ops.now_us != nullptr) {
+    const uint32_t now = g_meter_ops.now_us();
+    // A start in the future is not a start: it is a field that never held one, and subtracting it
+    // would wrap around and add hours to a call of microseconds (docs/30).
+    if (p->meter_start_us <= now) g_meter_ops.add_call(now - p->meter_start_us);
+    p->meter_start_us = 0;
+  }
   lua_getiuservalue(L, pidx, 1);
   lua_pushvalue(L, vidx);
   lua_setfield(L, -2, "value");
@@ -536,6 +556,57 @@ void open_promises(lua_State* L) {
   lua_pushcfunction(L, &l_promise_is);
   lua_setfield(L, -2, "is");
   lua_setglobal(L, "Promise");
+}
+
+// ---------------------------------------------------------------------------
+// What a call into the system costs
+// ---------------------------------------------------------------------------
+
+// **One hook and no wrapper per function.** A closure per function of the API would be around five
+// kilobytes of the app's own heap, and the ATOM gives an app sixty-four; the interpreter's hook costs
+// nothing but a call, and it sees every call and every return. A call whose `currentline` is -1 is a C
+// function, which is exactly what a call to this system is —a function of Lua that an app wrote is its
+// own business and is not counted (docs/30, docs/75).
+int g_call_depth = 0;
+bool g_timing_call = false;
+bool g_timing_c = false;  // the call being timed is a C function and not one of the app's
+uint32_t g_call_start = 0;
+
+void meter_hook(lua_State* L, lua_Debug* ar) {
+  (void)L;
+  if (ar == nullptr) return;
+  if (ar->event == LUA_HOOKCALL) {
+    ++g_call_depth;
+    // **The outermost call is timed whoever it is**: a function of the app counts as the interpreter
+    // working, and a C function counts in both —the interpreter and a call into the system— (docs/30).
+    if (g_call_depth == 1 && g_meter_ops.now_us != nullptr) {
+      g_timing_call = true;
+      g_timing_c = (ar->currentline < 0);
+      g_call_start = g_meter_ops.now_us();
+    }
+    return;
+  }
+  if (ar->event != LUA_HOOKRET) return;
+  if (g_call_depth == 1 && g_timing_call) {
+    const uint32_t elapsed = g_meter_ops.now_us() - g_call_start;
+    if (g_timing_c) {
+      // **A call that returns a promise is not over.** The time goes to the promise and the call is
+      // closed when it settles: a read of the card that answers later costs until it answers, which is
+      // what the app waited for (docs/30).
+      bool handled = false;
+      if (lua_gettop(L) >= 1 && is_promise(L, -1)) {
+        Promise* promise = promise_at(L, -1);
+        if (promise != nullptr && promise->state == kPending) {
+          promise->meter_start_us = g_call_start;
+          handled = true;
+        }
+      }
+      if (!handled && g_meter_ops.add_call != nullptr) g_meter_ops.add_call(elapsed);
+    }
+    g_timing_call = false;
+    g_timing_c = false;
+  }
+  if (g_call_depth > 0) --g_call_depth;
 }
 
 // ---------------------------------------------------------------------------
@@ -2643,7 +2714,7 @@ const uint8_t kTouchPointsInFrame = 5;
 
 UIOps g_ui_ops = {};  // and ui.*
 
-TouchOps g_touch_ops = {};  // and touch.*
+TouchOps g_touch_ops = {};  // and touch.
 
 // `set_touch_ops` is defined further down, **outside** this file's anonymous namespace: the kernel
 // links to it (docs/30).
@@ -4064,6 +4135,10 @@ bool start(const Boot& boot, size_t limit_bytes) {
     g_alloc.limit = 0;
     return false;
   }
+  // The meter of a call into the system, from the first line the app runs (docs/30).
+  g_call_depth = 0;
+  g_timing_call = false;
+  lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET, 0);
 
   lua_pushcfunction(g_state, &open_everything);
   if (lua_pcall(g_state, 0, 0, 0) != LUA_OK) {
@@ -4245,6 +4320,8 @@ void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 // The glass, the same way: the kernel installs it at boot and the three calls of `touch` answer from
 // it (docs/30, docs/50).
 void set_touch_ops(const TouchOps& ops) { g_touch_ops = ops; }
+
+void set_meter_ops(const MeterOps& ops) { g_meter_ops = ops; }
 
 // And the panel, which the kernel installs only when the board answers with a surface (docs/50).
 void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
@@ -4540,7 +4617,22 @@ bool poll() {
   if (!ready) return true;
 
   int results = 0;
+  // **The turn of the app is the resume**: everything it does between being woken and yielding again,
+  // its own code and the calls it makes into the system. `stats` shows that total and the part that was
+  // calls, and the difference is the app's own (docs/30).
+  const uint32_t turn_start = (g_meter_ops.now_us != nullptr) ? g_meter_ops.now_us() : 0;
+  const uint64_t calls_before = (g_meter_ops.call_us != nullptr) ? g_meter_ops.call_us() : 0;
   const int status = lua_resume(g_task, nullptr, 0, &results);
+  if (turn_start != 0 && g_meter_ops.now_us != nullptr) {
+    const uint32_t elapsed = g_meter_ops.now_us() - turn_start;
+    if (g_meter_ops.add_run != nullptr) g_meter_ops.add_run(elapsed);
+    // **What is left when the calls into the system are taken out is the app's own code**, and it is
+    // measured by difference against the running total of those calls (docs/30).
+    if (g_meter_ops.add_own != nullptr && g_meter_ops.call_us != nullptr) {
+      const uint64_t in_calls = g_meter_ops.call_us() - calls_before;
+      g_meter_ops.add_own((in_calls < elapsed) ? static_cast<uint32_t>(elapsed - in_calls) : 0u);
+    }
+  }
   if (status == LUA_YIELD) {
     // It has to be waiting for something, or nothing would ever wake it up.
     if (g_waiting_ref != LUA_NOREF) return true;

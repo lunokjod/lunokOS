@@ -2,6 +2,7 @@
 #include "kernel/touch.h"
 
 #include "kernel/display.h"
+#include "kernel/meter.h"
 #include "kernel/orientation.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
@@ -217,6 +218,9 @@ bool available() { return g_glass != nullptr; }
 
 void poll() {
   if (g_glass == nullptr) return;
+  // **The read of the chip, and only the read**: the gestures are arithmetic over two frames and cost
+  // nothing, so what is measured here is what the I2C costs once per turn (docs/30, docs/50).
+  meter::Scope scope(meter::kTouchRead);
   g_count = g_glass->read(g_frame, kMaxPoints);
   turn_frame();
   const int32_t now = now_ms();

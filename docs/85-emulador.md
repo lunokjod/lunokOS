@@ -240,6 +240,13 @@ les tecles**: el dial compost de la Paper és el de tots tres models, quan el mo
 de tenir una de simple a la cara de dalt. També falta poder prémer una tecla **a mà**: `emu::press_key`
 només el criden les proves. Les dues coses són a [`90 · Full de ruta`](90-full-de-ruta.md), M8.
 
+**I el log del banc és el de la placa** (1/11, 0.20.0): les mateixes línies amb la mateixa forma
+(`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x932 at 0,28, 251640 bytes of
+canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **al banc el temps
+d'un dispositiu és el del PC**. `vfs.list` pot costar 40 ms aquí per la lectura simulada d'1 ms per
+fitxer, i una pintada costa zero perquè no hi ha tinta. El que es mesura aquí és **quantes vegades** es
+demana una cosa i quin camí es pren; el que costa de debò es mesura a la placa (docs/95).
+
 ## Consell de treball
 
 1. Escriure l'app amb l'emulador, amb `--mem-cap` posat al número de la placa.

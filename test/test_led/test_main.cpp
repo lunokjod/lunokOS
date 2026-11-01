@@ -317,7 +317,7 @@ void test_the_board_breathes_white_when_it_boots(void) {
 void test_an_error_in_the_log_is_a_red_sos(void) {
   TEST_ASSERT_TRUE(boot_once());
   TEST_ASSERT_TRUE(reboot());
-  kernel::log_printf(pal::kLogError, "the test failed on purpose");
+  kernel::log_printf(pal::kLogError, "TEST", "the test failed on purpose");
   step(100);  // the first dot of the sos
   // The system's effects are dim on purpose: twenty out of 255 (docs/30, docs/75).
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, emu::led_red(), "the sos is red at the maker's dim level");

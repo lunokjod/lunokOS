@@ -30,6 +30,10 @@ bool mount_writable(uint32_t index);
 // bytes or more.
 bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t rel_cap);
 
+// **Which unit is behind a storage**, for the meters: flash, card, the key-value store, the RTC memory
+// or the FRAM (docs/30, docs/70).
+uint8_t unit_of(const hal::IStorage* storage);
+
 bool stat(const char* path, hal::Stat& out);
 bool list(const char* path, hal::ListSink& sink);
 

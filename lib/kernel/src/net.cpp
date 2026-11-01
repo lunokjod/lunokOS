@@ -1,5 +1,6 @@
 // The network policy of the system: one attempt, one deadline, and the answer
 // given as a promise. docs/30 has the rule; this file is the rule in code.
+#include "kernel/meter.h"
 #include "kernel/net.h"
 
 #include <stddef.h>
@@ -38,7 +39,11 @@ enum Phase : uint8_t {
 Phase g_phase = kIdle;
 int64_t g_deadline_ms = 0;
 
-int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; }
+int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
+  // The RTC chip, read once a turn (docs/30, docs/50).
+  meter::Scope scope(meter::kClockMono);
+  return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
+}
 
 // ------------------------------------------------------------------ the queue
 // The radio belongs to the system and an app (or the shell) only **asks**: the
@@ -393,7 +398,28 @@ Request make(RequestKind kind, uint32_t timeout_ms, bool needs_network) {
 // Begins the request that is at the front. False when the radio refused it, and
 // then the answer goes out at once: a request that cannot start must not wait for
 // a deadline nobody is going to meet (docs/30).
+// **A request of the radio is metered by what it asks of the device**: a scan, a page or the hour. The
+// wait for an answer is not in this number —the request is a promise, and the promise carries its own
+// time until it settles (docs/30).
+uint8_t request_meter(uint8_t kind) {
+  switch (kind) {
+    case kReqScan:
+    case kReqConnect:
+    case kReqConnectStored:
+    case kReqAdd:
+    case kReqForget:
+      return meter::kNetWifi;
+    case kReqHttp:
+      return meter::kNetHttp;
+    case kReqNtp:
+      return meter::kNetNtp;
+    default:
+      return meter::kNetWifi;
+  }
+}
+
 bool begin(Request& request) {
+  meter::Scope scope(request_meter(request.kind));
   g_radio_on = true;
   // The light says the radio is working: on a board with no screen, "is it doing
   // something?" is the first question a person asks (docs/30, docs/50).

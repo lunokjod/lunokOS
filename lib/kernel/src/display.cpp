@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include "kernel/meter.h"
+
 namespace kernel {
 namespace display {
 namespace {
@@ -58,16 +60,37 @@ uint8_t levels() { return 16; }
 
 uint16_t rotation() { return (g_surface != nullptr) ? g_surface->rotation() : 0; }
 
-bool set_rotation(uint16_t degrees) { return (g_surface != nullptr) && g_surface->set_rotation(degrees); }
+// **A turn is the most expensive call this module has**: the image of the board is made again and the
+// whole page is sent to the controller (docs/50).
+bool set_rotation(uint16_t degrees) {
+  meter::Scope scope(meter::kGlassFlush);
+  return (g_surface != nullptr) && g_surface->set_rotation(degrees);
+}
 
 hal::ISurface* surface() { return g_surface; }
 
+// **Two meters, because they answer two different questions**: how long a paint costs to ask for —which
+// is the transfer of the rectangle and the command, and is paid on the spot— and how often the system
+// asks whether the ink is over, which is a register read per turn (docs/30, docs/50).
 bool present(hal::UpdateMode mode) {
   if (g_surface == nullptr) return false;
+  meter::Scope whole(meter::kGlassFlush);
+  // **Not every paint is the same paint.** `gc16` and its family clean the ghost of what was there and
+  // are the slow ones; `du` and `du4` are quick and leave a trace. How many of each a page costs is the
+  // difference between a page that flickers and one that does not, so they are two rows (docs/50, docs/95).
+  const bool cleans = (mode == hal::UpdateMode::kGc16 || mode == hal::UpdateMode::kGl16 ||
+                       mode == hal::UpdateMode::kGlr16 || mode == hal::UpdateMode::kGld16);
+  if (cleans) {
+    meter::Scope slow(meter::kGlassGc16);
+    return g_surface->flush(mode);
+  }
   return g_surface->flush(mode);
 }
 
-bool idle() { return (g_surface != nullptr) && g_surface->idle(); }
+bool idle() {
+  meter::Scope scope(meter::kGlassIdle);
+  return (g_surface != nullptr) && g_surface->idle();
+}
 
 const char* last_error() { return (g_surface != nullptr) ? g_surface->last_error() : ""; }
 

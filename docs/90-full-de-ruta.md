@@ -358,6 +358,21 @@ sigui que el text ja es talla a la vora i no trepitja res. El que falta és que 
 control** i no dos números calculats a `bar.cpp`: el retall viu a `font::draw` (paràmetre `Clip`), que és
 on ha de viure perquè qualsevol text el faci servir (1/11).
 
+## El que costa, i com es mira (fet l'1/11)
+
+**Quaranta-sis comptadors a la porta** i `stats` al prompt (docs/30, docs/50): cada dispositiu, cada
+unitat del disc, el rellotge, el tàctil, la PSRAM, el nucli i l'intèrpret, amb comptes, temps, mínim,
+màxim i el moment de l'última crida. Costa **9 076 B de flash i 1 208 B de RAM** al Paper (docs/75) i
+el log de tot el sistema té una sola forma, `[nivell][etiqueta] missatge` (docs/30, docs/85).
+
+**El que queda d'aquest tros**, i no és gaire:
+
+| Què | Per què |
+|---|---|
+| El pic de memòria d'una crida | avui es compta el temps i no els bytes; `sys.heap()` dona el pic de l'app sencera i no el d'una crida |
+| El repartiment de les pintades per mode | només `gc16` té fila pròpia: `du`, `du4` i `a2` van juntes amb `glass.flush` |
+| Un `stats` en format JSON o en una ordre a part | per a un guió de proves que vulgui els números sense llegir una taula d'ulls |
+
 ## Fora de la v1
 
 | Cosa | Per què queda fora |

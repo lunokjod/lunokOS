@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "kernel/log.h"
+#include "kernel/meter.h"
 #include "kernel/nvs_fs.h"
 
 namespace kernel {
@@ -27,13 +28,34 @@ struct Mount {
 Mount g_mounts[kMaxMounts];
 uint32_t g_count = 0;
 
+}  // namespace
+
+// **Which unit is behind a storage.** The mount table is the only place that knows, and the meters ask
+// it: a read of the card and a read of the flash are two rows and not one (docs/30, docs/70).
+uint8_t unit_of(const hal::IStorage* storage) {
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (g_mounts[i].storage != storage) continue;
+    const char* kind = g_mounts[i].kind;
+    if (kind != nullptr) {
+      if (strcmp(kind, "sd") == 0) return meter::kUnitSd;
+      if (strcmp(kind, "nvs") == 0) return meter::kUnitNvs;
+      if (strcmp(kind, "rtc") == 0) return meter::kUnitRtc;
+      if (strcmp(kind, "fram") == 0) return meter::kUnitFram;
+    }
+    return meter::kUnitFlash;
+  }
+  return meter::kUnitFlash;
+}
+
+namespace {
+
 void add(const char* path, const char* rel, const char* kind, hal::IStorage* storage,
          bool writable) {
   if (storage == nullptr) return;
   if (g_count >= kMaxMounts) {
     // A mount that does not fit is a path that stops existing, and a person would see the file
     // system lose a row for no reason: it is said, and the number is one to raise (docs/70).
-    log_printf(pal::kLogError, "vfs: no room for %s, the table has %u rows", path,
+    log_printf(pal::kLogError, "VFS", "no room for %s, the table has %u rows", path,
                static_cast<unsigned>(kMaxMounts));
     return;
   }
@@ -64,7 +86,7 @@ uint32_t init(hal::IPlatform& platform) {
     add("/res", "res", "littlefs", littlefs, false);
     add("/data", "data", "littlefs", littlefs, true);
   } else {
-    log_printf(pal::kLogError, "vfs: /littlefs is mandatory and did not mount");
+    log_printf(pal::kLogError, "VFS", "/littlefs is mandatory and did not mount");
   }
 
   hal::IStorage* sd = platform.storage("/sd");
@@ -189,6 +211,9 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
   return true;
 }
 
+// **Every door of the filesystem is metered**, because a card and a flash cost very different things:
+// a read of 4 KB from the flash and a read of 4 KB from the card are not the same number and only a
+// meter per door can say which one a slow app is paying (docs/30, docs/70).
 bool stat(const char* path, hal::Stat& out) {
   // The root is the mount table itself, not a backend: it is a directory as long
   // as there is something mounted.
@@ -201,6 +226,7 @@ bool stat(const char* path, hal::Stat& out) {
   hal::IStorage* storage = nullptr;
   char rel[kMaxPathBytes];
   if (!resolve(path, storage, rel, sizeof(rel))) return false;
+  meter::Scope scope(meter::storage_id(meter::kOpStat, unit_of(storage)));
   return storage->stat(rel, out);
 }
 
@@ -222,9 +248,10 @@ bool list(const char* path, hal::ListSink& sink) {
   hal::IStorage* storage = nullptr;
   char rel[kMaxPathBytes];
   if (!resolve(path, storage, rel, sizeof(rel))) {
-    log_printf(pal::kLogWarn, "vfs: cannot resolve %s", path);
+    log_printf(pal::kLogWarn, "VFS", "cannot resolve %s", path);
     return false;
   }
+  meter::Scope scope(meter::storage_id(meter::kOpList, unit_of(storage)));
   return storage->list(rel, sink);
 }
 
@@ -245,6 +272,7 @@ bool space(const char* path, uint64_t& total, uint64_t& free_bytes) {
   hal::IStorage* storage = nullptr;
   char rel[kMaxPathBytes];
   if (!resolve(path, storage, rel, sizeof(rel))) return false;
+  meter::Scope scope(meter::storage_id(meter::kOpStat, unit_of(storage)));
   return storage->space(total, free_bytes);
 }
 
@@ -261,6 +289,9 @@ bool read_file(const char* path, char* buf, size_t cap, size_t& out_len) {
   hal::Stat info;
   if (!stat(path, info) || info.type != hal::NodeType::kFile) return false;
 
+  // **The whole file, open, read and close included**: what an app pays to read a file is one number and
+  // not three (docs/30).
+  meter::Scope scope(meter::storage_id(meter::kOpRead, unit_of(storage)));
   hal::FileSlot slot;
   if (!storage->open(rel, hal::OpenMode::kRead, slot)) return false;
 

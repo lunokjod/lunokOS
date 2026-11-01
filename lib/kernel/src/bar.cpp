@@ -1,4 +1,5 @@
 // The strip of the system at the top of the glass: the hour, the title and the charge (docs/30).
+#include "kernel/meter.h"
 #include "kernel/bar.h"
 
 #include <stdio.h>
@@ -75,7 +76,12 @@ Status read_status(bool clock_due, bool battery_due) {
   Status status = g_read;
   if (clock_due) {
     hal::IClock* clock = (g_platform != nullptr) ? g_platform->clock() : nullptr;
-    const int64_t epoch_ms = (clock != nullptr) ? clock->epoch_ms() : 0;
+    int64_t epoch_ms = 0;
+    if (clock != nullptr) {
+      // The hour, from the chip, on every turn of the bar (docs/30, docs/50).
+      meter::Scope scope(meter::kClockNow);
+      epoch_ms = clock->epoch_ms();
+    }
     status.minute = (epoch_ms < 0) ? 0 : static_cast<uint32_t>(epoch_ms / 60000);
   }
   if (battery_due) {
@@ -171,7 +177,11 @@ bool boot(hal::IPlatform& platform) {
   g_read = read_status(true, true);
   paint(hal::UpdateMode::kGc16, g_read);
   hal::IClock* clock = platform.clock();
-  const int64_t mono = (clock != nullptr) ? clock->monotonic_ms() : 0;
+  int64_t mono = 0;
+  if (clock != nullptr) {
+    meter::Scope scope(meter::kClockMono);
+    mono = clock->monotonic_ms();
+  }
   g_clock_read_ms = mono;
   g_battery_read_ms = mono;
   return true;
@@ -193,7 +203,11 @@ void refresh() {
 void poll() {
   if (!g_drawn || g_platform == nullptr) return;
   hal::IClock* clock = g_platform->clock();
-  const int64_t mono = (clock != nullptr) ? clock->monotonic_ms() : 0;
+  int64_t mono = 0;
+  if (clock != nullptr) {
+    meter::Scope scope(meter::kClockMono);
+    mono = clock->monotonic_ms();
+  }
   const bool clock_due = (mono - g_clock_read_ms) >= kClockEveryMs;
   const bool battery_due = (mono - g_battery_read_ms) >= kBatteryEveryMs;
   // **Nothing due and nothing said: no read and no paint.** This is the whole turn of a bar that has not

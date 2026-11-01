@@ -76,6 +76,9 @@ class ISystem {
   virtual IConsole* console() = 0;
   // Monotonic milliseconds. Never goes backwards, never jumps.
   virtual int64_t millis() const = 0;
+  // Monotonic microseconds, for the meters: a call to a device is measured in microseconds or it is not
+  // measured at all, and it is the same clock the milliseconds come from (docs/30).
+  virtual int64_t micros() const = 0;
   virtual void reboot() = 0;
   // True once reboot() has been called on systems that cannot reboot in place.
   virtual bool reboot_requested() const = 0;

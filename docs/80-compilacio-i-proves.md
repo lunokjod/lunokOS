@@ -177,8 +177,8 @@ Quatre nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, i el **marc i la generació** que fan que un objecte mort respongui `E_INVAL` |
 | **Unitat** | `test/test_bar/` | La barra: que es quedi les 28 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
-| **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten |
-| **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |
+| **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten, **i el que costa es conta**: una crida pel VFS és una fila del seu comptador amb el seu temps, `stats` l'ensenya i `stats reset` la torna a zero, i una línia de log porta sempre la seva lletra de nivell i la seva etiqueta |
+| **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts, **i el comptador d'una crida que torna una promesa, que ha de portar el temps de l'espera i no el de la trucada**. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra |
 | **Maquinari** | `test/device/` | Una llista de comprovacions que només es poden fer amb la placa a la mà (encara no hi és) |
 
 Regles:

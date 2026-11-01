@@ -77,6 +77,11 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     return static_cast<int64_t>(ts.tv_sec) * 1000 + static_cast<int64_t>(ts.tv_nsec / 1000000);
   }
 
+  int64_t micros() const override {
+    const struct timespec ts = now_ts();
+    return static_cast<int64_t>(ts.tv_sec) * 1000000 + static_cast<int64_t>(ts.tv_nsec / 1000);
+  }
+
   void reboot() override { reboot_ = true; }
   bool reboot_requested() const override { return reboot_; }
 

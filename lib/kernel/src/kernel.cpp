@@ -15,6 +15,7 @@
 #include "kernel/ui.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
+#include "kernel/meter.h"
 #include "kernel/net.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
@@ -24,6 +25,20 @@
 #include "pal/pal.h"
 
 namespace kernel {
+namespace {
+
+// The three lines that connect the interpreter's meters to this module's table: a call into the system,
+// a stretch of the interpreter running, and a block of the extra memory taken or given back.
+void app_call_cost(uint32_t us) { meter::add(meter::kLuaCall, us); }
+void app_run_cost(uint32_t us) { meter::add(meter::kLuaRun, us); }
+void app_own_cost(uint32_t us) { meter::add(meter::kLuaOwn, us); }
+uint64_t lua_calls_total() { return meter::us(meter::kLuaCall); }
+void app_extra_cost(uint32_t us, bool allocated) {
+  meter::add(allocated ? meter::kExtraAlloc : meter::kExtraRelease, us);
+}
+
+}  // namespace
+
 namespace {
 
 // How long the queue may block before the loop wakes up and looks around.
@@ -94,6 +109,9 @@ void count_caps(uint32_t& present, uint32_t& total) {
 // is what a deadline needs; the wall clock is only for what a person reads.
 int64_t clock_mono() {
   hal::IClock* clock = (g_platform != nullptr) ? g_platform->clock() : nullptr;
+  // **The monotonic count is also a read of the RTC chip** on this board, and the button, the light and
+  // the radio ask for it several times a turn: it is a device call like any other (docs/30, docs/50).
+  meter::Scope scope(meter::kClockMono);
   if (clock != nullptr) return clock->monotonic_ms();
   return pal::system().millis();
 }
@@ -114,6 +132,9 @@ bool g_alarms_stored = false;
 
 int64_t clock_epoch() {
   hal::IClock* clock = (g_platform != nullptr) ? g_platform->clock() : nullptr;
+  // **The hour is a chip on a bus**, and the bar asks for it on every turn: it is a call and it is
+  // counted like any other (docs/30, docs/50).
+  meter::Scope scope(meter::kClockNow);
   return (clock != nullptr) ? clock->epoch_ms() : 0;
 }
 
@@ -136,7 +157,7 @@ void save_alarms() {
     return;
   }
   if (!nvs->set(kAlarmNs, kAlarmKey, blob, len)) {
-    log_printf(pal::kLogWarn, "alarms: cannot write the queue to nvs");
+    log_printf(pal::kLogWarn, "ALARM", "cannot write the queue to nvs");
     return;
   }
   g_alarms_stored = true;
@@ -151,6 +172,9 @@ void arm_nearest_alarm() {
 
   const int64_t next_mono = alarms::next_due_mono_ms();
   if (next_mono == g_armed_at) return;
+  // **Arming a wake is a write to the RTC**, the chip that has to keep counting with the board asleep
+  // (docs/30, docs/50).
+  meter::Scope scope(meter::kClockWake);
   g_armed_at = next_mono;
   if (next_mono < 0) {
     clock->disarm_wake();
@@ -158,7 +182,7 @@ void arm_nearest_alarm() {
   }
   const int64_t at_epoch = clock->epoch_ms() + (next_mono - clock->monotonic_ms());
   if (!clock->arm_wake(at_epoch)) {
-    log_printf(pal::kLogWarn, "clock: cannot arm the wake for %lld",
+    log_printf(pal::kLogWarn, "CLOCK", "cannot arm the wake for %lld",
                static_cast<long long>(at_epoch));
   }
 }
@@ -178,22 +202,22 @@ void deliver_alarms() {
     const bool owner_running =
         luabind::running() && (strcmp(luabind::app_id(), entry.app) == 0);
     if (owner_running && !luabind::call_alarm(entry, late)) {
-      log_printf(pal::kLogWarn, "alarm %u for %s: the app has no on_alarm",
+      log_printf(pal::kLogWarn, "ALARM", "%u for %s: the app has no on_alarm",
                  static_cast<unsigned>(entry.id), entry.app);
     } else if (!owner_running && entry.raise_to_front) {
       // raise: the app of the alarm takes the foreground, and whatever was in
       // front of it is closed first (docs/60).
-      log_printf(pal::kLogInfo, "alarm %u raises %s", static_cast<unsigned>(entry.id),
+      log_printf(pal::kLogInfo, "ALARM", "%u raises %s", static_cast<unsigned>(entry.id),
                  entry.app);
       shell::raise_app(entry.app);
     } else if (!owner_running) {
       // Nobody has the app loaded: it gets a window, and the foreground does not
       // notice anything but a line in the log.
       if (!shell::run_window(entry.app, entry, late)) {
-        log_printf(pal::kLogWarn, "alarm %u for %s: no window (app gone or no on_alarm)",
+        log_printf(pal::kLogWarn, "ALARM", "%u for %s: no window (app gone or no on_alarm)",
                    static_cast<unsigned>(entry.id), entry.app);
       } else {
-        log_printf(pal::kLogInfo, "alarm %u delivered to %s in a window (%lld ms late)",
+        log_printf(pal::kLogInfo, "ALARM", "%u delivered to %s in a window (%lld ms late)",
                    static_cast<unsigned>(entry.id), entry.app,
                    static_cast<long long>(late));
       }
@@ -213,7 +237,7 @@ void dispatch(const pal::Event& ev) {
     case pal::kEventTimer:
       break;
     default:
-      log_printf(pal::kLogDebug, "unhandled event type %u", static_cast<unsigned>(ev.type));
+      log_printf(pal::kLogDebug, "SYS", "unhandled event type %u", static_cast<unsigned>(ev.type));
       break;
   }
 }
@@ -221,9 +245,20 @@ void dispatch(const pal::Event& ev) {
 }  // namespace
 
 void boot(hal::IPlatform& platform) {
+  // **The clock of the meters starts with the boot**, so the uptime of `stats` covers the boot too and
+  // the doors can never add up to more than the life of the system (docs/30).
+  (void)meter::uptime_ms();
+  // **How long the system takes to come up**: from here to the prompt, which is the number a person
+  // feels every time the board is switched on (docs/30, docs/95).
+  meter::Scope boot_time(meter::kBoot);
   g_platform = &platform;
   g_running = true;
   log_init();
+  // **A call from an app into the system is counted from the first line an app runs**: the interpreter
+  // asks for the clock and for a way to add, and knows nothing else about the kernel (docs/30).
+  luabind::set_meter_ops(
+      luabind::MeterOps{&meter::now_us, &app_call_cost, &app_run_cost, &app_extra_cost,
+                        &lua_calls_total, &app_own_cost});
   // The settle is for the board: the UART bridge leaves a run of bytes behind
   // when the port opens. On the PC there is no such noise, and the bytes that do
   // arrive (a pipe, a script, a hand on the keyboard) are for the person.
@@ -239,7 +274,7 @@ void boot(hal::IPlatform& platform) {
   // goes right after the mounts because it is one, and before any app can write a setting.
   // The count is said after both, so the log and `mounts` cannot disagree.
   cfg::boot(platform);
-  log_printf(pal::kLogInfo, "vfs: %u mounts", static_cast<unsigned>(vfs::mount_count()));
+  log_printf(pal::kLogInfo, "VFS", "%u mounts", static_cast<unsigned>(vfs::mount_count()));
 
   // The alarms that survived the power cut come back before anything else can
   // look at the queue.
@@ -251,22 +286,26 @@ void boot(hal::IPlatform& platform) {
   net::boot(platform);
   // Apps are not kept in any list: this only counts them for the log. Walking
   // /apps is what the commands do, and only when they are asked.
-  log_printf(pal::kLogInfo, "apps: %u found", static_cast<unsigned>(apps::count()));
+  log_printf(pal::kLogInfo, "APPS", "%u found", static_cast<unsigned>(apps::count()));
 
   uint32_t present = 0;
   uint32_t total = 0;
   count_caps(present, total);
-  log_printf(pal::kLogInfo, "boot board=%s caps=%u/%u", platform.id(),
+  log_printf(pal::kLogInfo, "BOOT", "board=%s caps=%u/%u", platform.id(),
              static_cast<unsigned>(present), static_cast<unsigned>(total));
 
   // Where the epoch comes from, said once at boot: a board with no epoch is not
   // broken, it just cannot answer `time.now()` until somebody sets it (docs/60).
   hal::IClock* clock = platform.clock();
   if (clock == nullptr) {
-    log_printf(pal::kLogWarn, "clock: none");
+    log_printf(pal::kLogWarn, "CLOCK", "none");
   } else {
-    log_printf(pal::kLogInfo, "clock: source %s epoch %lld", clock->source(),
-               static_cast<long long>(clock->epoch_ms()));
+    const int64_t boot_epoch = [&]() {
+      meter::Scope scope(meter::kClockNow);
+      return clock->epoch_ms();
+    }();
+    log_printf(pal::kLogInfo, "CLOCK", "source %s epoch %lld", clock->source(),
+               static_cast<long long>(boot_epoch));
   }
 
   // The light and the button: what this board does with a person. Both are optional
@@ -311,7 +350,7 @@ void alarms_restore() {
   if (epoch <= 0) {
     // Without an epoch the stored lines cannot be placed on the monotonic clock,
     // and firing them at the wrong time is worse than saying nothing (docs/60).
-    log_printf(pal::kLogInfo, "alarms: no epoch yet, nothing restored");
+    log_printf(pal::kLogInfo, "ALARM", "no epoch yet, nothing restored");
     return;
   }
 
@@ -321,11 +360,11 @@ void alarms_restore() {
   blob[len] = '\0';
 
   if (alarms::load(clock_mono(), epoch, blob)) {
-    log_printf(pal::kLogInfo, "alarms: %u restored from nvs",
+    log_printf(pal::kLogInfo, "ALARM", "%u restored from nvs",
                static_cast<unsigned>(alarms::count()));
     g_alarms_stored = true;
   } else {
-    log_printf(pal::kLogWarn, "alarms: the nvs queue could not be used");
+    log_printf(pal::kLogWarn, "ALARM", "the nvs queue could not be used");
     nvs->erase(kAlarmNs, kAlarmKey);
     g_alarms_stored = false;
   }
@@ -336,6 +375,9 @@ void alarms_restore() {
 
 void poll() {
   if (!g_running) return;
+  // **The turn of the kernel, counted whole**: what it costs to keep the system going, with the waiting
+  // between turns left out because the wait is not the kernel working (docs/30).
+  meter::Scope turn(meter::kLoop);
 
   // An app that waits for a promise must not wait for the next event: the sleep
   // is cut down to its next deadline, or it would never wake up on time.
@@ -364,7 +406,11 @@ void poll() {
   int64_t next_alarm_epoch = 0;
   if (next_alarm >= 0 && g_platform != nullptr) {
     hal::IClock* clock = g_platform->clock();
-    const int64_t epoch = (clock != nullptr) ? clock->epoch_ms() : 0;
+    int64_t epoch = 0;
+    if (clock != nullptr) {
+      meter::Scope scope(meter::kClockNow);
+      epoch = clock->epoch_ms();
+    }
     if (epoch > 0) next_alarm_epoch = epoch + (next_alarm - clock_mono());
   }
 

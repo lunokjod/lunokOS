@@ -41,25 +41,31 @@ while true do
   local x = math.random(0, view.width - size)
   local y = math.random(0, view.height - size)
 
+  -- The first square says everything the system knows: the region it recorded, what the panel answered
+  -- **and how long the ink took**, counted from before the draw until `ui.idle()` says it is over, with
+  -- no sleep of the app's own in between (docs/95, E-7). One quality per present, which is what makes
+  -- this the app that can tell what each one costs.
+  local first = (painted == 0)
   local ok, err = ui.rect(x, y, size, size, 0, kDrawQuality)
   if not ok then
     console.print('the view refused the square: ' .. tostring(err and err.code))
     return
   end
-  -- The first square says everything the system knows: the region it recorded and what the panel
-  -- answered. If a paint is dropped, this is the line that says why (docs/95).
-  if painted == 0 then
+  if first then
     console.print(string.format('square at %d,%d %dx%d (%s), %d region(s) with damage', x, y, size,
       size, kDrawQuality, ui.damage()))
   end
+  -- The clock starts **after the app has drawn and before the panel is asked**, and it is the poll of
+  -- `ui.idle()` that stops it: the number is the glass and nothing else (docs/95, E-7).
+  local started = sys.time_ms()
   local asked, why = ui.present()
   if not asked then
     console.print('the panel did not take the paint: ' .. tostring(why and why.reason))
     return
   end
-  if painted == 0 then
-    console.print(string.format('painted, %d region(s) left, idle says %s', ui.damage(),
-      tostring(ui.idle())))
+  if first then
+    while not ui.idle() do sys.delay(10):await() end
+    console.print(string.format('painted with %s in %d ms', kDrawQuality, sys.time_ms() - started))
   end
   sys.delay(kSettleMs):await()
 
@@ -67,7 +73,12 @@ while true do
   -- know what is behind it — and there is nothing behind it. **With `gc16`**, which is the quality that
   -- leaves no history: the ink of the previous square is taken away, not painted over.
   ui.rect(x, y, size, size, 15, kEraseQuality)
+  started = sys.time_ms()
   ui.present()
+  if first then
+    while not ui.idle() do sys.delay(10):await() end
+    console.print(string.format('erased with %s in %d ms', kEraseQuality, sys.time_ms() - started))
+  end
   sys.delay(kSettleMs):await()
 
   painted = painted + 1

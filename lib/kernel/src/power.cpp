@@ -1,5 +1,6 @@
 // The energy policy: the board can stop its clocks, and this is the one place that
 // says when, what is said to the app first and what is read afterwards (docs/90).
+#include "kernel/meter.h"
 #include "kernel/power.h"
 
 #include <stdarg.h>
@@ -66,7 +67,11 @@ int64_t g_last_activity_ms = 0;
 // (docs/60).
 int64_t g_coming_back_at = 0;
 
-int64_t mono_now() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; }
+int64_t mono_now() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
+  // The RTC chip, read once a turn (docs/30, docs/50).
+  meter::Scope scope(meter::kClockMono);
+  return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
+}
 
 // Every line this file says to a person goes out through the console and not
 // through printf: `printf` is buffered and the shell is not, so a line written
@@ -88,12 +93,15 @@ void sayf(const char* format, ...) {
 
 void write_in(const char* ns, const char* key, const char* text) {
   if (g_nvs == nullptr) return;
+  // **One row for every write to the store**, erasing included: an erase is a write to the flash like
+  // any other and it is the one that wears it (docs/70, docs/75).
+  meter::Scope scope(meter::kKvSet);
   if (text == nullptr || text[0] == '\0') {
     g_nvs->erase(ns, key);
     return;
   }
   if (!g_nvs->set(ns, key, text, strlen(text) + 1)) {
-    log_printf(pal::kLogWarn, "power: the nvs did not take '%s'", key);
+    log_printf(pal::kLogWarn, "POWER", "the nvs did not take '%s'", key);
   }
 }
 
@@ -201,7 +209,7 @@ void report_wake(bool restarted) {
          static_cast<long long>(error));
     // Picked up by the log ring as well, so `log` shows it after the console has
     // scrolled.
-    log_printf(pal::kLogInfo, "power: woke %+lld ms from the hour it was given",
+    log_printf(pal::kLogInfo, "POWER", "woke %+lld ms from the hour it was given",
                static_cast<long long>(error));
     return;
   }
@@ -231,7 +239,7 @@ void report_wake(bool restarted) {
   keep_measurement(-early, marked);
   sayf("power: the sleep was cut short by %s, %lld ms before the hour it was given\r\n", how,
        static_cast<long long>(early));
-  log_printf(pal::kLogInfo, "power: sleep cut short by %s, %lld ms before its hour", cause,
+  log_printf(pal::kLogInfo, "POWER", "sleep cut short by %s, %lld ms before its hour", cause,
              static_cast<long long>(early));
 }
 
@@ -325,6 +333,9 @@ int64_t light_sleep_until(int64_t at_epoch_ms) {
 }
 
 bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
+  // **A sleep is a call that does not come back until the board wakes**, so it is measured whole
+  // (docs/30, docs/50).
+  meter::Scope scope(meter::kSleep);
   if (g_power == nullptr) return false;
   if (!can_sleep(mode)) return false;
   // A deep sleep with no hour to come back at is a board that waits for somebody
@@ -418,7 +429,7 @@ void idle_sleep(int64_t next_alarm_epoch_ms) {
   g_coming_back_at = 0;
   sayf("power: nothing to do for %lld s, sleeping until the next alarm\r\n",
        static_cast<long long>(wait / 1000));
-  log_printf(pal::kLogInfo, "power: idle sleep, %lld ms to the next alarm",
+  log_printf(pal::kLogInfo, "POWER", "idle sleep, %lld ms to the next alarm",
              static_cast<long long>(wait));
   // Does not come back: on this board the power goes and the clock chip brings it back.
   // If it does come back (a cable in the slot), the board is being used again.
@@ -463,6 +474,8 @@ bool keep_awake(bool on) {
 bool keeping_awake() { return g_keep_awake; }
 
 bool battery(int& mv, int& pct, bool& charging) {
+  // The gauge answers over the I2C and the bar asks for it on every turn (docs/50).
+  meter::Scope scope(meter::kPowerBattery);
   if (g_power == nullptr) return false;
   return g_power->battery(mv, pct, charging);
 }
@@ -470,6 +483,8 @@ bool battery(int& mv, int& pct, bool& charging) {
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
 
 bool set_cpu_mhz(uint32_t mhz) {
+  // The processor changes market: it is a call to the board and not a variable (docs/30).
+  meter::Scope scope(meter::kCpuSet);
   if (g_power == nullptr) return false;
   // The steps are the board's, and the kernel does not invent them: 80 is the
   // floor because below it the APB goes down with the CPU and the serial port

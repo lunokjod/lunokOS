@@ -4,6 +4,8 @@
 // (docs/30, docs/50).
 #include "kernel/env.h"
 
+#include "kernel/meter.h"
+
 #include "luabind/luabind.h"
 
 namespace kernel {
@@ -27,6 +29,7 @@ bool boot(hal::IPlatform& platform) {
 bool available() { return g_sensor != nullptr; }
 
 bool read(float& celsius, float& humidity) {
+  meter::Scope scope(meter::kEnvRead);
   if (g_sensor == nullptr) return false;
   return g_sensor->read(celsius, humidity);
 }

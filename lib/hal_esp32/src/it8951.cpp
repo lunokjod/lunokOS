@@ -1,5 +1,6 @@
 // The IT8951E of the Paper: the frames, the commands, the image and the rectangle that changed
 // (docs/50).
+#include "hal/log.h"
 #include "esp32/it8951.h"
 
 #include <stdio.h>
@@ -52,6 +53,13 @@ const uint16_t kRegLisLow = 0x0208;
 const uint16_t kRegLisHigh = 0x020A;
 const uint16_t kRegLutAfsr = 0x1224;
 const uint16_t kRegI80Cpcr = 0x0004;
+// **A paint is not over before it has had time to start.** The controller does not mark its engine busy in
+// the same instant it is told to paint: a question asked one millisecond later reads zero and the ink has
+// not begun. That is how `run panel` came to report 0 ms with the page still moving (measured on the
+// board, 1/11), and how a present of two qualities could send the second paint over a first one that had
+// not started. **This is a guard and not a measurement**: nobody has timed how long the engine takes to
+// mark itself busy, and it can only make the answer later, never earlier (docs/50, docs/95).
+const uint32_t kEngineStartMs = 20;
 // The first argument of the area command says how the image is written: the two pixels of a byte in
 // the order the controller expects (`B_ENDIAN`), **four bits per pixel** (the value 2 at bits 7:4) and
 // no rotation, because the surface is already in the panel's own frame (docs/50).
@@ -576,6 +584,7 @@ bool It8951::flush(UpdateMode mode) {
                          static_cast<uint16_t>(memory_ & 0xFFFF),
                          static_cast<uint16_t>((memory_ >> 16) & 0xFFFF)};
   if (!command(kCmdDisplayArea, display, 7)) return false;
+  painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   dirty_ = false;
   return true;
 }
@@ -698,16 +707,25 @@ bool It8951::set_rotation(uint16_t degrees) {
   return true;
 }
 
+// **The one question both callers ask**: nothing in flight, and enough time since the paint was asked for
+// that the engine would have said so if it were working (docs/50).
+bool It8951::engine_over() {
+  if (!ready_) return false;
+  if (read_register(kRegLutAfsr) != 0) return false;
+  const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  return (now - painted_ms_) >= kEngineStartMs;
+}
+
 bool It8951::idle() {
   // The controller says whether the last paint is over. It is asked and not waited on (docs/50).
-  return ready_ && read_register(kRegLutAfsr) == 0;
+  return engine_over();
 }
 
 bool It8951::wait_paint(uint32_t timeout_ms) {
   if (!ready_) return false;
   const uint32_t started = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   for (;;) {
-    if (read_register(kRegLutAfsr) == 0) return true;
+    if (engine_over()) return true;
     const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     if ((now - started) > timeout_ms) {
       why_ = "the previous paint did not finish";
@@ -728,7 +746,7 @@ ISurface* esp32_it8951(const It8951Pins& pins) {
   const bool there = chip.begin();
   // Said out loud once, like the sensor and the glass: it is the only way to know what this controller
   // answered without a scope (docs/50, docs/95).
-  printf("panel: %s%s\n", chip.profile(), there ? "" : " (no panel)");
+  hal::logf(pal::kLogInfo, "PANEL", "%s%s", chip.profile(), there ? "" : " (no panel)");
   if (there) panel = &chip;
   return panel;
 }
