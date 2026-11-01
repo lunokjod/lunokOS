@@ -23,6 +23,8 @@ Model model_of(const char* name) {
     out.imu = false;
     // The SHT30 of this board, on the internal I2C next to the clock and the FRAM (docs/50).
     out.env = true;
+    // The GT911 of the panel, on the same bus as the clock and the FRAM (docs/50).
+    out.touch = true;
     out.gauge = true;
     out.slot = true;
     out.fram = true;
@@ -44,6 +46,7 @@ Model model_of(const char* name) {
     out.keys = 1;
     out.imu = true;
     out.env = false;
+    out.touch = false;
     out.gauge = false;
     out.slot = false;
     out.fram = false;
@@ -63,6 +66,7 @@ Model model_of(const char* name) {
   out.keys = 1;
   out.imu = false;
   out.env = false;
+  out.touch = false;
   out.gauge = false;
   out.slot = false;
   out.fram = false;

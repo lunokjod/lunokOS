@@ -454,6 +454,7 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
 | `display` | — | — | — | — | **Reservat**: la interfície hi és i encara no la implementa cap placa (docs/90) |
 | `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, al banc, les del model |
+| `touch` | — | — | ✓ amb el GT911 contestant | ✓ amb `--touch`, al model de la Paper | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **al banc quan el run ho demana** i el model imitat en té, que és la Paper; un ATOM no en té de cap manera. El que el banc simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
 | `led` | ✓ | ✓ | — | ✓ al model que en té (no al del Paper) | El Paper no té cap llum |
 | `imu` | — | ✓ | — | ✓ al model del Matrix | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
@@ -468,7 +469,7 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **14 de 19** al Paper amb el SHT30 contestant i el vidre, i sense bateria ni targeta —**15** amb la bateria llegida **o** la targeta, **16** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv`. L'única que no té ningú és `display`.
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv` o amb `--touch` i a **16** amb totes dues. L'única que no té ningú és `display`.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -538,6 +539,7 @@ coincideixen entre ells i amb el que la placa ja ha dit:
 | «Pressió» | El camp de **mida** és l'àrea que el xip mesura sota el dit, no una pressió: dos dits que premen igual de fort donen dues mides diferents. S'exposa com a `size` i no s'inventa una escala |
 | Velocitat | És un valor de la configuració del xip; el `M5GFX` el llegeix de `0x8056` i en fa `5 + (byte & 0x0F)` Hz. **No es dóna per bo**: es llegeix i es mesura al xip (docs/95, E-6) |
 | Gestos | El xip en té de propis, i **ni el driver de M5 ni el d'Espressif els llegeixen**. Aquí tampoc: un toc, una premuda llarga, un arrossegament o dos dits són **formes del flux de punts**, volen dir el mateix a qualsevol vidre i es poden provar al PC amb un fals; un gest que inventa el xip només el pot fer servir una placa (docs/85) |
+| Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **800 µs** (vuit bytes i dues transaccions), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i al banc, 1/11, docs/85) |
 
 **El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
 el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,

@@ -174,7 +174,8 @@ Quatre nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_qr/` | El símbol llegit de tornada com el llegiria un escàner: BCH, desmàscara i Reed-Solomon |
 | **Unitat** | `test/test_led/` | El motor dels efectes: els quatre efectes com a funció del temps, les dues capes, la interrupció pel sistema (desar, pintar, restaurar i avisar `on_light`) i el sostre de brillantor de la placa |
 | **Unitat** | `test/test_orientation/` | El gir: les quatre cantonades del Paper, el quart de volta i que encadenar un gir en el mateix objecte no llegeixi la seva pròpia sortida |
-| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16` i el temps de cada qualitat) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala) |
+| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16`, el temps de cada qualitat, el parpelleig d'`a2` en tres moments i el preu del bus que quadra amb els 1 985 ms de la placa) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala) |
+| **Unitat** | `test/test_touch/` | El panell de la Paper al banc: **què costa una lectura** (800 µs sense dit, 1 830 amb un i 2 550 amb dos, i el probe de 186 bytes de l'arrencada), **un marc per escombrat** —la segona lectura de la mateixa finestra diu que no hi ha ningú—, la configuració d'aquesta unitat (dos dits, mides 28 i 30, el punt fora del marc refusat), el dit que se'n va, el **xip més lent que el torn** (40 ms contra 20: la meitat de les lectures diuen ningú), i un dit que acaba en un gest `long` amb les coordenades de la vista (100,200 del vidre són 100,172 de la vista) |
 | **Unitat** | `test/test_bar/` | La barra: que es quedi les 28 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és** |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten, **i el que costa es conta**: una crida pel VFS és una fila del seu comptador amb el seu temps, `stats` l'ensenya i `stats reset` la torna a zero, i una línia de log porta sempre la seva lletra de nivell i la seva etiqueta |
@@ -190,6 +191,11 @@ Regles:
   que vigila. Una prova que no s'ha vist fallar no se sap si mira res.
 - La prova nova d'una crida de Lua ha d'incloure el **cas de la capacitat absent**: és el camí que
   més vegades es trencarà.
+- **Cap prova no paga el temps del maquinari.** `Options::delays` neix **fals**, o sigui que una suite
+  no espera els 1 ms d'una lectura del disc, ni els 86,8 µs d'un byte del port, ni el bus i la tinta
+  d'una pintada, ni les tres transaccions del tàctil; la que mesura temps el posa a cert i ho diu
+  (`test_ui`, `test_touch`). Al binari és al revés: els temps es paguen sempre, i `--no-delay` és el
+  mateix commutador per a un guió (docs/85).
 
 ## Que una app Lua funcioni a l'emulador vol dir…
 

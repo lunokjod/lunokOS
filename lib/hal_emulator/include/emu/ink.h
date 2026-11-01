@@ -28,9 +28,18 @@ struct InkMode {
   // **Of every thousand pixels of the region, how many do not land on the level they were asked for**:
   // the speckle a real panel has, and the reason a page painted over and over is not a clean page.
   uint16_t err_per_mille;
+  // **Whether the glass blinks before it settles** —the page goes white and then black before the image
+  // arrives—, which is what `a2` is for and the reason it is only used for a clock (docs/50, docs/85).
+  bool flashes;
 };
 
 InkMode ink_mode(hal::UpdateMode mode);
+
+// **What sending a region to the glass costs, in microseconds**: the pixels over the wire and the row
+// around them. A byte is two pixels in four bits, the driver's bus runs at ten megahertz —eight hundred
+// nanoseconds a byte— and a row costs more than its bytes, because the driver hands the bus one row at a
+// time and every row is a transaction of its own (docs/50, docs/85).
+uint32_t ink_transfer_us(uint16_t w, uint16_t h);
 
 // The level the glass shows after a paint of `target` over what was showing, with that much dirt in the
 // pixel. Integer arithmetic and no table: one multiply, one add and one shift per pixel.

@@ -50,6 +50,14 @@ class MemorySurface : public hal::ISurface {
   // rest of them run with a paint that is instant and exact, and do not pay half a megabyte for a
   // picture they are not looking at (docs/85).
   bool set_ink(bool on);
+  // **The flash of an `a2`, one stage at a time**: the page goes white, then black, then the image, and
+  // this is what moves it from one stage to the next. It is asked by `idle()`, which is what an app that
+  // waits for the ink calls, and by the window, which is what a person looks at (docs/85).
+  void step_ink();
+  // **How many times the glass changed on its own**, without a paint: the two stages of a flash. A
+  // window that only redrew on `flushes()` would miss them, and a flash nobody sees is not a flash
+  // (docs/85).
+  uint32_t ink_steps() const { return ink_steps_; }
   uint32_t blits() const { return blits_; }
   uint32_t flushes() const { return flushes_; }
   hal::UpdateMode last_mode() const { return last_mode_; }
@@ -86,6 +94,18 @@ class MemorySurface : public hal::ISurface {
   uint8_t* dirt_ = nullptr;
   // When the ink of the last paint will have finished moving. `idle()` is the question for it.
   uint32_t busy_until_ms_ = 0;
+  // **A flash that is running**: the region, the quality that asked for it, when it started and when it
+  // is over. Zero in `flash_until_ms_` is no flash, and `flash_stage_` says which of the three moments
+  // the glass is in (white, black, the image) (docs/85).
+  uint32_t flash_start_ms_ = 0;
+  uint32_t flash_until_ms_ = 0;
+  uint8_t flash_stage_ = 0;
+  uint16_t flash_x_ = 0;
+  uint16_t flash_y_ = 0;
+  uint16_t flash_w_ = 0;
+  uint16_t flash_h_ = 0;
+  hal::UpdateMode flash_mode_ = hal::UpdateMode::kA2;
+  uint32_t ink_steps_ = 0;
   uint32_t blits_ = 0;
   uint32_t flushes_ = 0;
   uint32_t paint_count_ = 0;
@@ -98,6 +118,10 @@ class MemorySurface : public hal::ISurface {
   // **The paint, pixel by pixel**: the region that was asked for is moved towards what it was painted
   // with, according to the quality and to the dirt it already had (docs/85).
   void apply_ink(uint16_t x, uint16_t y, uint16_t w, uint16_t h, hal::UpdateMode mode);
+  // What a flash writes on the glass while it is running, and the end of it: the image and the ink of
+  // the paint (docs/85).
+  void flash_fill(uint8_t level);
+  void flash_settle();
   void alloc_ink();
   bool make_ink();
   bool dirty_ = false;

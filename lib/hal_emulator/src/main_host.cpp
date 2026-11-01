@@ -105,6 +105,9 @@ void usage() {
   printf("  --display         a board with a glass: 960x540 and four bits per pixel\n");
   printf("  --gui             that glass in an X11 window, painted as the panel is painted\n");
   printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
+  printf("  --touch           the touch panel of the model: reads the bus and hands a frame over once\n");
+  printf("  --touch-scan <ms> how often that panel reports (0 is the chip's own, 10 ms)\n");
+  printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");
   printf("  --verbose         mirror the log to the console too\n");
   printf("  -h, --help        this text\n");
 }
@@ -132,6 +135,10 @@ bool parse_real(const char* text, float& out) {
 }
 
 bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
+  // **The switch of every wait in this bench**: one flag and not one per device, because a run either
+  // pays the hardware's time or it is a test, and a test that pays half of it measures nothing
+  // (docs/85).
+  bool no_delay = false;
   for (int i = 1; i < argc; ++i) {
     const char* arg = argv[i];
     const char* value = nullptr;
@@ -145,10 +152,27 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.verbose = true;
       continue;
     }
+    if (strcmp(arg, "--no-delay") == 0) {
+      no_delay = true;
+      continue;
+    }
     if (strcmp(arg, "--no-ink") == 0) {
       // The bench of the tests: a paint is instant and exact, and the page is whatever was painted with
       // nothing left of the one before (docs/85).
       opts.ink = -1;  // asked for: a glass that switches pixels
+      continue;
+    }
+    if (strcmp(arg, "--touch") == 0) {
+      // **A finger goes through the glass**, so the panel of the model is on when the run says so and
+      // off otherwise: a bench nobody is touching does not read a bus once per turn (docs/85).
+      opts.touch = true;
+      continue;
+    }
+    if (strcmp(arg, "--touch-scan") == 0) {
+      // How often the chip reports. A number larger than the turn of the kernel is a glass that answers
+      // the kernel with nothing every other turn, which is the case worth trying (docs/85).
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
+      opts.touch_scan_ms = static_cast<int32_t>(number);
       continue;
     }
     if (strcmp(arg, "--gui") == 0) {
@@ -419,6 +443,18 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // And the serial port goes at the speed of the board's UART, so what a person sees arrive arrives
   // at the rate it would over the cable (docs/85).
   if (opts.baud < 0) opts.baud = kUartBaud;
+  // **The times of the hardware: paid by default, and off with one flag.** A window is for watching
+  // what a board costs, so it needs both the waits and the ink: a glass that switches pixels and
+  // charges nothing is a picture of a board that does not exist (docs/85).
+  opts.delays = !no_delay;
+  if (opts.gui && no_delay) {
+    fprintf(stderr, "--gui needs the times of the hardware: a window is for watching what a board costs\n");
+    return false;
+  }
+  if (opts.gui && opts.ink < 0) {
+    fprintf(stderr, "--gui needs the ink of the glass: --no-ink paints a page no panel has\n");
+    return false;
+  }
   // **The glass of a run moves ink unless the run says it does not**: a paint takes what the quality
   // takes and leaves what it leaves. Instant and perfect is the bench of the tests, which is where the
   // option starts (docs/85).
@@ -426,22 +462,26 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   return true;
 }
 
-// **The window, once per turn.** The glass is copied into it only when the panel was painted since the
-// last frame —the count of paints of the surface is the question— and the events of the window are taken
-// without waiting, because a bench that blocks on the keyboard of a window is a bench that stopped
-// (docs/85).
-void pump_gui(uint32_t& shown_flushes) {
+// **The window, once per turn.** The glass is copied into it only when it has something new to show —a
+// paint, or one of the blinks of an `a2`, which is a frame without a paint— and the events of the window
+// are taken without waiting, because a bench that blocks on the keyboard of a window is a bench that
+// stopped (docs/85).
+void pump_gui(uint32_t& shown_frames) {
   emu::gui_pump();
   emu::MemorySurface* glass = emu::memory_surface();
   if (glass == nullptr) return;
-  if (glass->flushes() == shown_flushes) return;
-  shown_flushes = glass->flushes();
+  // **A flash is walked here too**: the app may not ask `idle()` for a while, and a blink nobody draws is
+  // a blink nobody sees (docs/85).
+  glass->step_ink();
+  const uint32_t frames = glass->flushes() + glass->ink_steps();
+  if (frames == shown_frames) return;
+  shown_frames = frames;
   // **What the glass shows and not what was painted**: the ink of a `du` keeps part of the page before
   // it, and that is exactly what a person is looking at (docs/85).
   emu::gui_show(glass->shown_bits(), glass->width(), glass->height());
 }
 
-int run_script(const char* path, uint32_t& shown_flushes) {
+int run_script(const char* path, uint32_t& shown_frames) {
   FILE* file = fopen(path, "r");
   if (file == nullptr) {
     fprintf(stderr, "cannot open the script: %s\n", path);
@@ -468,7 +508,7 @@ int run_script(const char* path, uint32_t& shown_flushes) {
     while ((kernel::app_running() || kernel::shell::native_running()) &&
            (pal::system().millis() - started) < kBatchWaitMs) {
       kernel::poll();
-      pump_gui(shown_flushes);
+      pump_gui(shown_frames);
     }
     if (kernel::app_running() || kernel::shell::native_running()) {
       fprintf(stderr, "the line did not finish\n");
@@ -478,7 +518,7 @@ int run_script(const char* path, uint32_t& shown_flushes) {
     // paints anything (measured on the PC, 31/10).
     for (int turn = 0; turn < 2; ++turn) {
       kernel::poll();
-      pump_gui(shown_flushes);
+      pump_gui(shown_frames);
     }
   }
   fclose(file);
@@ -515,13 +555,13 @@ int main(int argc, char** argv) {
   }
   // The console is a terminal, but the board it stands for talks over a UART at 115200 baud: the
   // bytes are handed over at that speed, not all at once (docs/85).
-  pal::set_console_baud(static_cast<uint32_t>(opts.baud));
+  pal::set_console_baud(static_cast<uint32_t>(opts.delays ? opts.baud : 0));
 
   kernel::boot(hal::platform());
 
   // **The window, when the run asked for one.** If there is no display to open it on, the bench says so
   // and carries on without it: a run is not lost because a screen is missing (docs/85).
-  uint32_t shown_flushes = 0xFFFFFFFFu;
+  uint32_t shown_frames = 0xFFFFFFFFu;
   if (opts.gui) {
     if (!emu::gui_available()) {
       fprintf(stderr, "this bench was built without X11: no window\n");
@@ -551,15 +591,15 @@ int main(int argc, char** argv) {
     if (!kernel::execute(command)) rc = 1;
     while (kernel::app_running() && !emu::gui_close_requested()) {
       kernel::poll();
-      pump_gui(shown_flushes);
+      pump_gui(shown_frames);
     }
   }
   if (opts.script != nullptr) {
-    if (rc == 0) rc = run_script(opts.script, shown_flushes);
+    if (rc == 0) rc = run_script(opts.script, shown_frames);
   } else if (opts.run_app == nullptr) {
     while (kernel::running() && !emu::gui_close_requested()) {
       kernel::poll();
-      pump_gui(shown_flushes);
+      pump_gui(shown_frames);
     }
   }
 

@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "emu/ink.h"
 #include "emu/options.h"
@@ -33,6 +34,8 @@ void MemorySurface::alloc_ink() {
   shown_ = nullptr;
   dirt_ = nullptr;
   busy_until_ms_ = 0;
+  flash_until_ms_ = 0;
+  flash_stage_ = 0;
   if (options().ink == 0) return;
   (void)make_ink();
 }
@@ -60,6 +63,8 @@ bool MemorySurface::set_ink(bool on) {
   shown_ = nullptr;
   dirt_ = nullptr;
   busy_until_ms_ = 0;
+  flash_until_ms_ = 0;
+  flash_stage_ = 0;
   return on ? make_ink() : true;
 }
 
@@ -175,6 +180,14 @@ bool MemorySurface::set_rotation(uint16_t degrees) {
 bool MemorySurface::flush(hal::UpdateMode mode) {
   ++flushes_;
   last_mode_ = mode;
+  // **One paint at a time**, as on the board: the controller starts an engine per paint and the driver
+  // asks for the previous one to be over before sending the next (`wait_paint`, docs/50). A present of
+  // two qualities is two paints, so the second waits here for the first —and a flash still running is
+  // finished before the glass is asked for another page (docs/85).
+  if (shown_ != nullptr && options().delays) {
+    while (static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) ::usleep(1000);
+    step_ink();
+  }
   // **With nothing marked there is nothing to paint**, which is what the panel driver does: a page that
   // nobody asked to be repainted is exactly what this system must not do (docs/30, docs/50).
   if (!dirty_) return true;
@@ -196,11 +209,88 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // the quality —a `du` keeps a quarter of what was there, a `gc16` cleans— and the paint takes as long
   // as the mode takes on the glass, which is what `idle()` will say (docs/50, docs/85).
   const InkMode ink = ink_mode(mode);
-  if (shown_ != nullptr) apply_ink(paint.x, paint.y, paint.w, paint.h, mode);
-  if (shown_ != nullptr && ink.ms > 0) {
-    busy_until_ms_ = static_cast<uint32_t>(pal::system().millis()) + ink.ms;
+  if (shown_ != nullptr) {
+    // **The bus first, and it holds the kernel.** The driver sends the region over the wire before it
+    // asks the controller to paint, and the loop does not turn while that happens; the bench pays the
+    // same wait the board pays, at the speed the board pays it (docs/50, docs/85). With the waits off
+    // (`--no-delay`, every test) the model is the same and the clock is not asked.
+    const bool pay = options().delays;
+    const uint32_t bus_us = pay ? ink_transfer_us(paint.w, paint.h) : 0;
+    if (bus_us > 0) ::usleep(static_cast<useconds_t>(bus_us));
+    if (pay && ink.flashes && ink.ms > 0) {
+      // **The blink of an `a2`**: the page goes white and then black before the image arrives, and the
+      // ink has not moved yet when the paint is asked for. `step_ink()` walks the three moments, and
+      // `idle()` —or the window— is what asks (docs/85).
+      flash_start_ms_ = static_cast<uint32_t>(pal::system().millis());
+      flash_until_ms_ = flash_start_ms_ + ink.ms;
+      flash_stage_ = 0;
+      flash_x_ = paint.x;
+      flash_y_ = paint.y;
+      flash_w_ = paint.w;
+      flash_h_ = paint.h;
+      flash_mode_ = mode;
+      flash_fill(15);
+      ++ink_steps_;
+      busy_until_ms_ = flash_until_ms_;
+    } else {
+      apply_ink(paint.x, paint.y, paint.w, paint.h, mode);
+      if (pay && ink.ms > 0) {
+        busy_until_ms_ = static_cast<uint32_t>(pal::system().millis()) + ink.ms;
+      }
+    }
   }
   return true;
+}
+
+// **The three moments of a flash**: white, black, and the image. Two thirds of the wait are the blinks and
+// the last third is the ink arriving, which is what makes the blink visible at all —a blink that ends the
+// same moment it starts is not a blink, and this is the one thing of the model a person can see in the
+// window (docs/85).
+void MemorySurface::step_ink() {
+  if (shown_ == nullptr || flash_until_ms_ == 0) return;
+  const uint32_t now = static_cast<uint32_t>(pal::system().millis());
+  const uint32_t span = flash_until_ms_ - flash_start_ms_;
+  const uint32_t elapsed = (now > flash_start_ms_) ? (now - flash_start_ms_) : 0;
+  uint8_t stage = 0;
+  if (elapsed * 3u >= span * 2u) {
+    stage = 2;
+  } else if (elapsed * 3u >= span) {
+    stage = 1;
+  }
+  if (stage == flash_stage_) return;
+  flash_stage_ = stage;
+  if (stage == 1) {
+    flash_fill(0);
+  } else {
+    flash_settle();
+  }
+  ++ink_steps_;
+}
+
+// What a flash puts on the glass while it blinks: the region it was asked for, filled with the one level.
+void MemorySurface::flash_fill(uint8_t level) {
+  if (shown_ == nullptr || flash_w_ == 0 || flash_h_ == 0) return;
+  const uint8_t packed = static_cast<uint8_t>(((level & 0x0F) << 4) | (level & 0x0F));
+  const uint16_t end = static_cast<uint16_t>(flash_x_ + flash_w_);
+  for (uint16_t row = 0; row < flash_h_; ++row) {
+    uint8_t* line = shown_ + static_cast<size_t>(flash_y_ + row) * stride_;
+    uint16_t at = flash_x_;
+    if ((at & 1) != 0) {
+      line[at / 2] = static_cast<uint8_t>((line[at / 2] & 0xF0) | (level & 0x0F));
+      ++at;
+    }
+    const uint16_t whole = static_cast<uint16_t>((end - at) / 2);
+    if (whole > 0) memset(line + at / 2, packed, whole);
+    at = static_cast<uint16_t>(at + whole * 2);
+    if (at < end) line[at / 2] = static_cast<uint8_t>((line[at / 2] & 0x0F) | ((level & 0x0F) << 4));
+  }
+}
+
+// The end of the blink: the image the paint asked for, with the ink of its quality over what is there.
+// The paint is still not over —`busy_until_ms_` is what says that— but the glass already shows it.
+void MemorySurface::flash_settle() {
+  apply_ink(flash_x_, flash_y_, flash_w_, flash_h_, flash_mode_);
+  flash_until_ms_ = 0;
 }
 
 void MemorySurface::apply_ink(uint16_t x, uint16_t y, uint16_t w, uint16_t h, hal::UpdateMode mode) {
@@ -277,9 +367,11 @@ const MemorySurface::Paint* MemorySurface::paint_at(uint32_t index) const {
 
 // **A paint takes as long as the glass takes**, and `idle()` is the question for it: this is what makes
 // `run panel` in the bench say a number that means something, and what an app that waits for the ink
-// sees (docs/30, docs/85).
+// sees (docs/30, docs/85). It is also the question that walks a flash, because an app that waits for the
+// ink is an app that is waiting for the blinks too.
 bool MemorySurface::idle() {
   if (!ink_on()) return true;
+  step_ink();
   return static_cast<uint32_t>(pal::system().millis()) >= busy_until_ms_;
 }
 

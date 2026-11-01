@@ -244,7 +244,31 @@ namespace kernel {
 // perfecte és una pàgina que es veu millor que la que tindrà la persona a les mans. Tot el model és una
 // taula (`emu_ink.cpp`) i `--no-ink` el treu; les proves corren amb ell fora i n'hi ha dues que el
 // proven —el rastre d'un `du`, la neteja d'un `gc16`, i el temps de cada qualitat— (docs/50, docs/85).
-static const char kVersion[] = "0.22.0";
+// 0.23.0 (1/11): **el banc paga el bus i dibuixa el parpelleig**. Una pintada val ara el que val a la
+// placa: la regió que canvia s'envia abans de demanar el pintat (`ink_transfer_us`) a 0,8 µs el byte —el
+// bus del driver, 10 MHz— **més 1 100 µs per fila**, que és l'únic número d'aquest model que surt d'una
+// mesura: la pàgina de `run panel` va costar 1 985 ms a la placa i els seus comptes deixen això per fila,
+// i el camí sencer al banc dona 1 970 ms (docs/95, E-7). L'espera és dins del `flush`, com a la placa: el
+// bus atura el nucli i el banc fa el mateix amb un `usleep`, i una pintada espera la tinta de l'anterior
+// (`wait_paint`). I **`a2` parpelleja**: blanc, després negre i després la imatge (`step_ink`), que és el
+// que diu el full del fabricant i no el que va fer aquesta unitat, on `a2` no va pintar res (docs/95,
+// E-7). `--no-ink` segueix essent el vidre de les proves: tampoc hi ha res a enviar (docs/50, docs/85).
+// 0.24.0 (1/11): **el vidre del banc té dits**. `--touch` dona al model de la Paper el seu GT911
+// (`emu::Gt911Panel`): el marc de la pàgina —un dit a (100,200) és a (100,172) de la vista—, els **dos**
+// dits de la seva configuració, la mida del contacte que va donar la placa (28 i 30) i el que costa
+// llegir-lo: **800 µs** sense dit, **1 830** amb un i **2 550** amb dos, tres transaccions a 100 kHz i nou
+// bits per byte, més els ~17 ms del probe de 186 bytes. **I el problema de debò**: el xip escombra sol i
+// dona el marc **una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» amb un dit a
+// sobre; `--touch-scan <ms>` és com es reprodueix (40 ms contra un torn de 20) i `Gt911Panel::missed()` ho
+// compta. Al banc no hi ha bus, i això també es diu (docs/50, docs/85, docs/95).
+// 0.25.0 (1/11): **un commutador per a tots els temps del banc**. `Options::delays` —que neix **fals**, que
+// és com sempre han corregut les proves, i que el binari encén— decideix si una lectura del disc, un byte
+// del port, el bus i la tinta d'una pintada i les tres transaccions del tàctil es paguen o no. El model
+// no canvia: el fantasma, la brutícia i el marc d'una vegada hi són igual. `--no-delay` el deixa apagat, i
+// `--gui` **l'exigeix**: un run amb finestra i sense esperes, o amb un vidre que canvia píxels
+// (`--no-ink`), es refusa, perquè és una foto d'una placa que no existeix. Mesurat: `run panel` 2 899 ms
+// amb els temps i 24 ms sense, i el run sencer 3,11 s contra 0,03 s (docs/85).
+static const char kVersion[] = "0.25.0";
 
 }  // namespace kernel
 

@@ -15,6 +15,7 @@
 #include "emu/options.h"
 #include "emu/surface.h"
 #include "emu/gui.h"
+#include "emu/ink.h"
 #include "hal/hal.h"
 #include "kernel/display.h"
 #include "kernel/ui.h"
@@ -40,6 +41,9 @@ void boot_with_a_panel() {
   emu::Options opts = emu::options();
   opts.display = true;
   opts.read_delay_us = 0;
+  // **The times of the hardware are paid in this suite**: it measures the ink and the bus of the glass,
+  // and a paint that costs nothing is a paint no panel has (docs/85).
+  opts.delays = true;
   emu::set_options(opts);
   kernel::display::boot(hal::platform());
   // **In the glass' own frame**, which is 960x540: this suite is about the damage and the copy, and the
@@ -870,6 +874,76 @@ static void test_a_paint_takes_the_time_of_its_quality(void) {
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
+// **The waits are one switch**: with them off —`--no-delay`, and every suite except this one— the model
+// is the same and the clock is never asked, so a `du` still leaves its trace and `ui.idle()` is true the
+// moment the paint is asked for. It is what makes a test that is not about time run in milliseconds
+// (docs/85).
+static void test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink() {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  emu::Options opts = emu::options();
+  opts.delays = false;
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  // Nothing of the clock: no bus, no ink, and the glass is over at once.
+  TEST_ASSERT_TRUE_MESSAGE(ui::idle(), "a paint with the waits off is not over at once");
+  // **And the ink is still the ink**: the dirt of the paint is on the pixel, which is the model and not
+  // the clock.
+  TEST_ASSERT_TRUE(glass().dirt_at(20, 20) > 0);
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+  opts = emu::options();
+  opts.delays = true;
+  emu::set_options(opts);
+}
+
+// **The bus is part of the paint, and not a detail of the bench**: the page of `run panel` is the whole
+// view with `du` (540 x 932) and the ladder of sixteen levels with `gc16` (528 x 120), and on 1/11 it
+// came to **1 970 ms at the bench** and **1 985 ms on the board** (docs/95, E-7). This is the arithmetic
+// that makes those two numbers the same number: if it moves, a constant in `emu_ink.cpp` moved and the
+// documents have to move with it (docs/85).
+static void test_a_page_costs_what_the_board_says_a_page_costs(void) {
+  const uint32_t du_ms = emu::ink_mode(hal::UpdateMode::kDu).ms;
+  const uint32_t gc16_ms = emu::ink_mode(hal::UpdateMode::kGc16).ms;
+  const uint32_t bus = emu::ink_transfer_us(540, 932) + emu::ink_transfer_us(528, 120);
+  const uint32_t page = bus + (du_ms + gc16_ms) * 1000u;
+  TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 1970000, page, "the page of run panel is not the page the bench painted");
+  TEST_ASSERT_UINT32_WITHIN_MESSAGE(40000, 1985000, page, "the page of run panel is not the page the board painted");
+  // A region of nothing costs nothing, and a full page of the glass is over half a second of wire and rows.
+  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(0, 540));
+  TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(540, 0));
+  TEST_ASSERT_TRUE(emu::ink_transfer_us(960, 540) > 540000u);
+  // Twice the rows is twice the price.
+  TEST_ASSERT_EQUAL_UINT32(2 * emu::ink_transfer_us(960, 270), emu::ink_transfer_us(960, 540));
+}
+
+// **An `a2` blinks**: the page goes white, then black, and only then the image, and what an app waits for
+// with `ui.idle()` is all three. The two blinks are frames with no paint behind them, which is why the
+// surface counts them and the window redraws on the count (docs/85).
+static void test_an_a2_flashes_the_page_before_the_image_arrives(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  const uint32_t steps_before = glass().ink_steps();
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 5, "a2"));
+  TEST_ASSERT_TRUE(ui::present());
+  // The paint asked for the grey and the glass is white: the blink has begun and the ink has not moved.
+  TEST_ASSERT_EQUAL_UINT8(5, glass().level_at(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(20, 20));
+  TEST_ASSERT_FALSE(ui::idle());
+  TEST_ASSERT_TRUE(glass().ink_steps() > steps_before);
+
+  // A third of the wait in, the page is black.
+  wait_ms(120);
+  TEST_ASSERT_FALSE(ui::idle());
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass().shown_at(20, 20), "an a2 does not blink black");
+
+  // And the last third is the image arriving, with the ink of its quality over what was there.
+  wait_ms(240);
+  TEST_ASSERT_TRUE(ui::idle());
+  TEST_ASSERT_UINT8_WITHIN(2, 5, glass().shown_at(20, 20));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -913,5 +987,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
   RUN_TEST(test_a_paint_takes_the_time_of_its_quality);
+  RUN_TEST(test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink);
+  RUN_TEST(test_a_page_costs_what_the_board_says_a_page_costs);
+  RUN_TEST(test_an_a2_flashes_the_page_before_the_image_arrives);
   return UNITY_END();
 }

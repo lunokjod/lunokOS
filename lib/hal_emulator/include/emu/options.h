@@ -65,6 +65,21 @@ struct Options {
   // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
   // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.
   int32_t ink;
+  // **A board with a touch panel** (`--touch`), and the same opt-in rule as the glass: the model of the
+  // Paper has a GT911 and a bench nobody is touching does not read a bus once per turn for it. Without
+  // the option the model's panel is a chip that does not answer, and `sys.caps().touch` says so
+  // (docs/50, docs/85).
+  bool touch;
+  // How often the panel reports, in milliseconds: **0 is the chip's own** (10 ms, the datasheet's and
+  // a measurement the board still owes, docs/95 E-6). A larger number is a chip slower than the turn of
+  // the kernel, which is the hardware problem a caller that polls too fast has to survive (docs/85).
+  int32_t touch_scan_ms;
+  // **Whether the bench pays the time the hardware takes.** On —the binary— a read of the disk sleeps
+  // what the flash sleeps, a paint sleeps the bus and the ink, a read of the panel sleeps its three
+  // transactions and the console goes out at the speed of the UART: that is what makes a run with
+  // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
+  // only the clock is skipped, which is what a test that is not about time wants (docs/85).
+  bool delays;
   // The network of this band is a fake and it says so (docs/85): connecting
   // takes wifi_ms of simulated time and goes nowhere. `wifi_absent` is a board
   // with no radio at all, `wifi_fail` a network that refuses.

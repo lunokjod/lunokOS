@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "emu/options.h"
+#include "emu/gt911.h"
 #include "emu/memories.h"
 #include "emu/model.h"
 #include "emu/surface.h"
@@ -46,6 +47,13 @@ Options::Options()
       display(false),
       gui(false),
       ink(0),
+      // **The panel of the bench is off unless the run asked for it**: a bench nobody is touching does
+      // not read a bus once a turn, and a test wants a board that answers nothing here (docs/85).
+      touch(false),
+      touch_scan_ms(0),
+      // **The times of the hardware are not paid unless the run asks for them**: a test wants the model
+      // and not the clock, and `main` turns them on for the binary —`--no-delay` leaves them off (docs/85).
+      delays(false),
       wifi_ms(300),
       wifi_absent(false),
       wifi_fail(false),
@@ -674,6 +682,9 @@ class EmulatorPlatform : public IPlatform {
       caps_.add(kCapSleepDeep);
       caps_.add(kCapRtcWake);
       if (emu::options().display) caps_.add(kCapDisplay);
+      // The finger goes through the glass, and the same rule as the glass: the model has one and the
+      // run has to ask for it (docs/85).
+      if (emu::model().touch && emu::options().touch) caps_.add(kCapTouch);
       // The light and the sensor are the hardware of the model and of nobody else (docs/50).
       if (emu::model().lights > 0) caps_.add(kCapLed);
       caps_.add(kCapInput);
@@ -750,6 +761,13 @@ class EmulatorPlatform : public IPlatform {
   IInput* input() override {
     static FakeInput instance;
     return &instance;
+  }
+  ITouch* touch() const override {
+    // **The panel of the model when the run asked for it** (`--touch`): a GT911 in the frame of this
+    // unit that costs what the bus costs and hands a frame over once. Without the option the model's
+    // panel is a chip that does not answer, the same way the ATOMs have no panel at all (docs/85).
+    if (!emu::model().touch || !emu::options().touch) return nullptr;
+    return emu::touch_panel();
   }
 
  private:

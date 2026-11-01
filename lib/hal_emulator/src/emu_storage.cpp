@@ -147,9 +147,12 @@ class PosixStorage : public IStorage {
     const size_t got = fread(buf, 1, len, file);
     // The time is part of what is being emulated: on the glass a read is a block out of SPI and a few
     // metadata hops, and a card is slower than the flash (docs/85). The amount is an approximation
-    // until somebody measures it with a stopwatch on the board, and it is one number to change.
+    // until somebody measures it with a stopwatch on the board, and it is one number to change. With
+    // the waits off (`--no-delay`, every test) the read is the model and no clock.
     const int32_t delay = emu::options().read_delay_us;
-    if (delay > 0) ::usleep(static_cast<useconds_t>(card_ ? delay * 2 : delay));
+    if (delay > 0 && emu::options().delays) {
+      ::usleep(static_cast<useconds_t>(card_ ? delay * 2 : delay));
+    }
     return static_cast<int32_t>(got);
   }
 

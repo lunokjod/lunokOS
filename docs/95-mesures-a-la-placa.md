@@ -479,9 +479,16 @@ el llindar de 1000 ms es compleix amb la dada de la placa i no amb la del banc�
 congelen**: mentre el dit no es mou les coordenades es repeteixen (és el que ha de fer), i es mouen de
 seguida que el dit es mou.
 
+**El banc ja simula el xip (1/11, 0.24.0)**: `--touch` dona al banc un GT911 en el marc d'aquesta unitat
+—540 × 960, dos dits, mides 28 i 30— que costa **800 µs per torn sense dit i 2 550 amb dos** (tres
+transaccions a 100 kHz) i que **dona el marc una vegada per escombrat**, o sigui que un lector més ràpid
+que el vidre llegeix «ningú» (docs/85). Les dues coses que falten aquí es poden comparar amb ell: la fila
+`touch.read` de `stats` i els marcs que compta el dit.
+
 | Què apuntar | On va |
 |---|---|
-| **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que compta el dit | `docs/50` |
+| **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que conta el dit | `docs/50` |
+| **El cost d'una lectura**: `stats` i apuntar la fila `touch.read`. Al banc són **800 µs** per torn sense dit i **1 830 amb un dit** (l'estat, el marc i el zero, a 100 kHz, docs/50) i a la placa ha de ser el mateix o més, perquè el bus és compartit amb el rellotge, la FRAM i el SHT30 | `docs/50`, `docs/75` |
 | Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
 
 ### E-7 · El panell: el handshake i la primera pàgina (5 minuts)
@@ -584,6 +591,16 @@ després la de `gc16`, que no poden anar alhora), o sigui que el que s'ha d'espe
 és pintar **una sola qualitat** per `present` (una app de tres línies, o `squares`, que ja pinta d'un
 mode cada vegada).
 
+**El banc el descompon, i el que en surt és una pista i no una resposta (1/11, 0.23.0)**: el model de la
+tinta (`docs/85`) fa aquesta pàgina amb **1 954 ms** —570 de tinta, 1 227 de cable i files per al `du` de
+la vista (540 × 932) i 157 per al `gc16` de l'escala—, **1 970 ms** el camí sencer mesurat al banc el
+mateix dia, i per quadrar-la amb els 1 985 de la placa li cal suposar que **una fila costa un mil·lisegon
+fora del cable**. Aquest mil·lisegon és el que no està mesurat, i les dues preguntes que el tanquen són
+quant costa un `spi_device_transmit` d'una fila de 480 B i quantes files caben en una sola transacció. La
+prova que ho separa és pintar **una línia fina al llarg de tot el vidre** (960 × 2, unes 960 files d'un
+byte) i una **columna fina** (2 × 960, o sigui una fila de 270 bytes per cada costat): si la columna surt
+molt més cara que la línia, el que es paga és la fila; si surten igual, el que es paga és el byte.
+
 **I una segona cosa que aquest run ha destapat**: la pàgina de `panel` es dibuixava amb **`du4`** —la vora,
 el blanc i els quadres— i `du4` és, precisament, un dels modes que aquí dalt està mesurat com a **no pinta**.
 La pàgina que es veu a la placa amb aquella versió pot ser la de l'app anterior. Des de la 0.19.1 l'app fa
@@ -613,7 +630,7 @@ Què apuntar:
 |---|---|
 | **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
 | **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
-| **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió | `docs/50` |
+| **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió. **El banc és més optimista que aquesta unitat**: simula el parpelleig d'`a2` i el rastre de `du4` del full del fabricant, i aquí el que cal és tornar a mirar si el vidre els fa (docs/85) | `docs/50` |
 | **El temps d'un `gc16`**: `run panel` diu `the ink took N ms`, comptat **des d'abans del `present`** fins que `ui.idle()` diu que sí. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`, i la pàgina porta **dos pintats** (du i gc16), o sigui que el número és la suma. La primera lectura de `LUTAFSR` no servia —el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` l'1/11 amb la pàgina encara movent tinta— i des de la 0.19.2 el conductor no deixa respondre abans de 20 ms | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
 

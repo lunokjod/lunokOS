@@ -16,6 +16,9 @@ struct Model {
   uint32_t keys;         // one button, or the Paper's three
   bool imu;              // a sensor
   bool env;              // an ambient sensor: temperature and humidity (docs/50)
+  // **A touch panel**: the glass that a finger goes through, which on this board is a GT911 that
+  // counts in the page's own frame and reports two fingers (docs/50, docs/85).
+  bool touch;
   bool gauge;            // a battery it can read
   bool slot;             // a card slot
   bool fram;             // an FRAM chip, which is non-volatile memory

@@ -1,6 +1,20 @@
 #include "emu/ink.h"
 
 namespace emu {
+namespace {
+
+// **The bus of the panel, and what a row costs on top of its bytes.** The clock is the driver's (ten
+// megahertz, `kSpiHz` in `esp32/it8951.h`), and the per-row cost is the one number that comes out of a
+// measurement instead of a datasheet: on 1 November the board painted the page of `run panel` in
+// **1 985 ms** (docs/95, E-7) — a `du` of the whole view and a `gc16` of the ladder — and that is 570 ms
+// of ink and 227 ms of wire over the 1 068 rows of the glass, so the rows cost the rest, about **1 112 µs
+// each**. A row is sent by a transaction of its own (`It8951::flush` hands the bus one row at a time), and
+// why that transaction costs a millisecond outside the wire is not answered here; the number is, and it is
+// the number the bench uses so that a page here costs what a page costs there (docs/85, docs/95).
+const uint32_t kBusHz = 10000000;
+const uint32_t kRowUs = 1100;
+
+}  // namespace
 
 InkMode ink_mode(hal::UpdateMode mode) {
   // **Which mode costs what, and what it leaves.** The times are the datasheet's for this glass (450 ms
@@ -11,25 +25,33 @@ InkMode ink_mode(hal::UpdateMode mode) {
     case hal::UpdateMode::kInit:
       // The two seconds of the maker's own init, and the only paint that also takes the dirt of the
       // panel away (docs/50).
-      return InkMode{2000, 0, 0, 0};
+      return InkMode{2000, 0, 0, 0, false};
     case hal::UpdateMode::kGc16:
     case hal::UpdateMode::kGl16:
-      return InkMode{450, 0, 0, 0};
+      return InkMode{450, 0, 0, 0, false};
     case hal::UpdateMode::kGlr16:
     case hal::UpdateMode::kGld16:
-      return InkMode{450, 0, 0, 0};
+      return InkMode{450, 0, 0, 0, false};
     case hal::UpdateMode::kDu:
       // The quick one: a quarter of what was there stays, and it leaves a little dirt.
-      return InkMode{120, 4, 1, 1};
+      return InkMode{120, 4, 1, 1, false};
     case hal::UpdateMode::kDu4:
       // Quicker and dirtier: it is meant for a cursor and not for a page.
-      return InkMode{120, 6, 2, 2};
+      return InkMode{120, 6, 2, 2, false};
     case hal::UpdateMode::kA2:
       // The flashing one: it gets close to the level and leaves no dirt, but it blinks the page white
       // and black first, which on this glass is the reason it is only used for a clock (docs/50).
-      return InkMode{290, 1, 0, 0};
+      return InkMode{290, 1, 0, 0, true};
   }
-  return InkMode{120, 4, 1, 1};
+  return InkMode{120, 4, 1, 1, false};
+}
+
+uint32_t ink_transfer_us(uint16_t w, uint16_t h) {
+  if (w == 0 || h == 0) return 0;
+  // Four bits a pixel, so a row of `w` pixels is `w` over two bytes, and eight bits a byte.
+  const uint32_t bytes = static_cast<uint32_t>(w + 1) / 2;
+  const uint32_t wire_us = bytes * 8000u / (kBusHz / 1000u);
+  return static_cast<uint32_t>(h) * (wire_us + kRowUs);
 }
 
 uint8_t ink_blend(uint8_t target, uint8_t shown, uint8_t dirt, const InkMode& mode) {

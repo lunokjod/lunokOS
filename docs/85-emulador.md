@@ -64,7 +64,10 @@ Aquestes són les opcions del binari:
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
 | `--display` | **Un vidre**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i el banc deia que no—. Sense l'opció la placa no té pantalla, que és el que volen gairebé totes les proves (docs/30, docs/50) |
 | `--gui` | **El vidre en una finestra X11**, pintada cada cop que el panell es pinta: el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), no el vidre ajagut, amb els setze nivells en els colors del paper. Porta `--display` amb ell (una finestra de res no és una finestra), s'obre només quan hi ha un `DISPLAY` i, si no n'hi ha, el banc ho diu i segueix sense finestra. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu; l'únic que no hi és és el parpelleig d'`a2` (docs/85) |
-| `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, i la pàgina és la que s'ha pintat sense res del que hi havia abans. És el que fan servir les proves —no paguen mig megabyte de buffers ni mig segon per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
+| `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, la pàgina és la que s'ha pintat sense res del que hi havia abans i **no s'envia res al bus**. És el que fan servir les proves —no paguen mig megabyte de buffers, ni mig segon de tinta, ni un segon de bus per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
+| `--touch` | **El panell tàctil del model**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —800 µs per torn sense dit, 2 550 amb dos— i que **dona el marc una vegada**. Porta la capacitat `touch` amb ell; sense l'opció el banc és una Paper amb un panell que no contesta, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
+| `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms) i un número més gran que el torn del nucli és un vidre que contesta «ningú» a la meitat de les lectures, que és exactament el cas que es vol poder reproduir (docs/85) |
+| `--no-delay` | **Cap espera**: el model del disc, del port, de la tinta i del tàctil és el mateix i el rellotge no es toca. És el que fa servir una prova o una mesura que no és de temps, i el que un run amb `--gui` **no pot** demanar (docs/85) |
 | `--verbose` | El log també surt per la consola |
 
 En mode lot, cada app que arrenca es deixa acabar abans de la línia següent, i **també cada ordre que
@@ -224,10 +227,11 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   un bloc de 2 × 2 de la pàgina. El pas de quatre bits a píxel i l'escala són la funció pura
   (`emu::gui_expand`) que té prova a `test_ui`, perquè és la part que es pot provar sense pantalla.
 - **Tancar la finestra acaba el run**, com tres ESC.
-- **El que no s'hi veu**: el **parpelleig d'`a2`**, que el panell fa i la finestra no dibuixa, i el
-  **temps** de la tinta, que només es nota perquè el prompt espera —el número es llegeix amb `stats` o
-  amb `run panel`, no a l'ull—. Per això la finestra serveix per **veure què dibuixa una app**, i el que
-  es veu a l'ull continua essent el de la placa (docs/95).
+- **El que no s'hi veu**: el **temps** de la tinta, que només es nota perquè la finestra s'espera i el
+  prompt no torna —el número es llegeix amb `stats` o amb `run panel`, no a l'ull—, i el moviment del
+  pigment dins de cada moment (la finestra ensenya blanc, negre i la imatge, no els passos entremig). Per
+  això la finestra serveix per **veure què dibuixa una app**, i el que es veu a l'ull continua essent el de
+  la placa (docs/95).
 
 ## La tinta del vidre: la pàgina que ningú ha vist (1/11)
 
@@ -240,7 +244,7 @@ una barreja d'enters (`lib/hal_emulator/src/emu_ink.cpp`):
 | `gc16`, `gl16`, `glr16`, `gld16` | **450 ms** | res: netegen, i la brutícia del píxel torna a zero |
 | `du` | **120 ms** | un quart del que hi havia, i deixa un punt de brutícia |
 | `du4` | 120 ms | més: tres vuitens, i el doble de brutícia |
-| `a2` | 290 ms | gairebé res, però parpelleja (que la finestra no dibuixa) |
+| `a2` | 290 ms | gairebé res, i **parpelleja**: la pàgina va blanca, després negra, i aleshores arriba la imatge |
 | `init` | 2000 ms | tot, i la brutícia del panell sencer |
 
 - **La brutícia s'acumula**: cada pintada de `du` afegeix un setzè al píxel i fa que el rastre del que hi
@@ -250,17 +254,53 @@ una barreja d'enters (`lib/hal_emulator/src/emu_ink.cpp`):
   de cada cinc-centes amb `du4`), i el píxel s'hi queda fins que alguna cosa neteja la zona. És
   determinista —un hash del lloc i no un `random`— perquè una pàgina que canvia a cada tirada no es pot
   provar.
-- **I la pintada ocupa el seu temps**: `idle()` no diu que sí fins que el rellotge del banc passa la
-  durada de la qualitat, o sigui que `run panel` al banc diu ara un número que s'assembla al de la placa
-  (480 ms per a una pàgina de `du` i `gc16`, on la placa en va dir 1979 — la diferència és el que encara
-  no simula la transferència, docs/95).
+- **I la pintada ocupa el seu temps**: `idle()` no diu que sí fins que el rellotge del banc passa el bus
+  de la regió **i** la durada de la qualitat, o sigui que `run panel` al banc dona el número de la placa
+  (vegeu el bus, a sota).
 - **El color és el del paper i no el d'una pantalla**: el nivell 15 és `#EFEADC` (paper calent), el 0 és
   `#1A1B18` (la tinta més fosca que arriba el pigment) i els catorze del mig són la recta entre els dos.
   El panell no té color i la finestra no n'inventa cap.
+- **El parpelleig d'`a2`, en tres moments**: el primer terç del temps és la pàgina **blanca**, el segon és
+  **negra** i l'últim és la imatge arribant. `step_ink()` és el que els mou, i el demanen les dues coses
+  que miren el vidre: `idle()` —una app que espera la tinta espera els tres moments— i la finestra, que
+  per això redibuixa també quan canvia el comptador de blincades (`ink_steps()`) i no només quan canvia
+  el de pintades. Un parpelleig que no es dibuixa no és un parpelleig. **I és el parpelleig del full del
+  fabricant i no d'aquesta unitat**: a la placa, `a2` es va mesurar com a no pintar res (docs/95, E-7), o
+  sigui que aquí el banc és més optimista que el vidre que té algú a les mans.
 
-**`--no-ink`** treu el model i deixa el vidre de sempre: pintada instantània i exacta. És el que fan servir
-les proves —que no han de pagar mig megabyte de buffers ni mig segon per pàgina— i és el que queda si algú
-vol comparar el dibuix amb el d'abans.
+### El bus, que no és la tinta i també es paga (1/11)
+
+Entre l'app i la tinta hi ha el cable. El driver envia **la regió que canvia** al controlador abans de
+demanar-li que pinti (`It8951::flush`), i aquell enviament té dos preus: els bytes i les files.
+
+| Peça | Quant costa | D'on surt |
+|---|---|---|
+| Un byte | **0,8 µs** | el bus del driver, **10 MHz** (`kSpiHz`): quatre bits per píxel, o sigui dos píxels per byte |
+| Una fila | **1 100 µs** | **d'una mesura** i no d'un full del fabricant: la pàgina de `run panel` va costar **1 985 ms** a la placa l'1/11, i els seus comptes —570 ms de tinta, 233 ms de cable i 1 080 files— deixen uns 1 095 µs per fila. El driver envia **una fila per transacció**, i per què una transacció costa un mil·lisegon fora del cable no es respon aquí (docs/95) |
+
+- **La pàgina sencera són 1 227 ms de bus**: 932 files de 270 bytes a 0,8 µs més les 932 transaccions (la
+  vista d'una app fa 540 × 932, sota les 28 files de la barra). La barra dels setze nivells, 157 ms. Amb
+  la tinta (570 ms), la pàgina de `run panel` dona **1 954 ms** al model i **1 970 ms mesurats al banc**
+  —`stats` diu 1 240 ms pel pintat de `du`, 280 pel de `gc16` i 450 de tinta—, contra els **1 985 ms** de
+  la placa: **un 0,8 %** (docs/95, E-7).
+- **I el que `run panel` imprimeix al banc és més gran, i amb raó**: 2 469 ms, perquè la **barra del
+  sistema** es repinta amb `gc16` mentre l'app espera la tinta —un `present` de 477 ms, que és 450 de la
+  tinta de la barra més el seu enviament— i `ui.idle()` de l'app espera també aquella tinta. És el que fa
+  la placa quan la barra canvia; a la mesura de l'1/11 la barra no es va moure i per això no hi és.
+- **I una pintada espera l'anterior**: un `present` de dues qualitats és **dos pintats**, i el segon no
+  envia res fins que el primer ha acabat la tinta (`wait_paint`, docs/50). És el que fa que la pàgina sigui
+  la **suma** —1 263 de bus del `du`, 120 de la seva tinta, 157 de bus del `gc16` i 450 de la seva— i no
+  una cursa entre dues coses que al vidre van d'una en una.
+- **I el bus atura el nucli, com a la placa**: el banc fa l'espera amb un `usleep` dins del `flush` i el
+  fil no avança, que és el que passa mentre el bus està ocupat. És el mateix criteri que el port sèrie a
+  115 200 baud i que les lectures del disc: el cost s'hi paga, no es desa en un número.
+- **Per això una pàgina al banc es nota**: amb `--gui`, una pintada de pàgina sencera té la finestra quieta
+  més d'un segon. No és un defecte de la finestra: és el que fa la placa.
+
+**`--no-ink`** treu el model i deixa el vidre de sempre: pintada instantània i exacta **i cap enviament**
+(un vidre que canvia píxels no té res a enviar). És el que fan servir les proves —que no han de pagar mig
+megabyte de buffers, mig segon de tinta ni un segon de bus per pàgina— i és el que queda si algú vol
+comparar el dibuix amb el d'abans.
 
 **Quant costen aquests dos buffers**: el model guarda *el que el vidre ensenya* i *la brutícia de cada
 píxel*, quatre bits cada un, o sigui **259 200 B per buffer** a la pàgina de fàbrica —**518 400 B els
@@ -268,9 +308,63 @@ dos—**. És memòria del PC i no de la placa, però és el motiu pel qual **el
 proves**: `set_ink(true)` és el que diu una prova que vol mirar la tinta, i la resta no paguen el mig
 megabyte ni el mig segon d'una pàgina.
 
-**El que continua sense ser el panell**: no hi ha parpelleig (`a2` no es veu diferent), no hi ha el temps
-de la transferència per SPI, i els números de la taula són els del fabricant i no una mesura d'aquesta
-unitat. Tot el que és model és en un fitxer, perquè un dia a la placa el canviï (docs/95).
+**El que continua sense ser el panell**: la tinta no es mou davant dels ulls —el vidre passa d'un moment
+al següent sense cap pas entremig, i el parpelleig és de tres fotogrames i no d'una corba—, el cost d'una
+fila no està descompon·gut (1 100 µs és el que surt dels comptes d'una mesura, no una mesura d'ençà), i
+el temps de la tinta i els del full del fabricant no s'han vist en aquesta unitat. Tot el que és model és
+en un fitxer (`emu_ink.cpp`), perquè un dia a la placa el canviï (docs/95).
+
+## El tàctil: un dit que costa el que costa (1/11)
+
+El vidre del banc tenia ulls i no dits. Amb **`--touch`** el model de la Paper té el seu **GT911**, i el
+que se simula no és «on és el dit» sinó el xip: en aquesta placa el que escanya una app és el que hi ha
+entre el dit i el full de dades (`lib/hal_emulator/src/emu_gt911.cpp`, docs/50).
+
+| Què | El banc | D'on surt |
+|---|---|---|
+| El marc | **540 × 960**, i és el de la pàgina: un dit a (100, 200) és a (100, 172) de la vista, sota les 28 files de la barra | la configuració d'aquesta unitat, mesurada amb quatre tocs l'1/11 (docs/95, E-6) |
+| Els dits | **2**, no els cinc que caben al marc | `0x804C` = 2 a la config 66 d'aquesta unitat |
+| La mida del contacte | **28** al primer dit i **30** al segon | els dos números que va donar la placa amb dos dits (docs/95, E-6) |
+| Què costa una lectura | **800 µs** sense dit, **1 830** amb un i **2 550** amb dos: l'estat, el marc i el zero que el tanca, a 100 kHz i nou bits per byte. Mesurat al banc, `touch.read` diu **935 µs – 1,1 ms** per a una lectura de 800: l'espera és un `usleep` i el planificador del PC hi afegeix la resta | la física del bus del xip (docs/50) |
+| El probe de l'arrencada | **~17 ms**, una vegada: el producte id i els 186 bytes de configuració, i la línia `[I][TOUCH] GT911 at 0x5d, config 66, 540x960, 2 fingers` | el driver de la placa (docs/50) |
+| El temps entre mostres | **10 ms** (`--touch-scan`), i una lectura es pot trobar el marc ja pres | el full del fabricant; **la placa encara no ho ha comptat** (docs/95, E-6) |
+
+**El problema de debò, i el motiu de simular-lo**: el xip **escombra sol i dona el marc una vegada**. El
+driver se l'emporta amb un zero al registre d'estat, i una lectura que arriba dins de la mateixa finestra
+troba **ningú** encara que hi hagi un dit a sobre. Si el que llegeix va més de pressa que el vidre —un
+torn de 20 ms contra un xip de 40— la meitat de les lectures diuen que no hi ha ningú, i el que ha de
+sobreviure això és el nucli, no el banc. `--touch-scan 40` és exactament aquest cas, i
+`Gt911Panel::missed()` compta les vegades que el marc ja era pres.
+
+- **Els dits són del test o del guió**, com les tecles: `emu::touch_panel()->finger_down(0, 100, 200)`,
+  `finger_move`, `finger_up`. Un punt fora del marc no és un dit i es refusa; el tercer dit també.
+- **El que no hi és, i s'ha de saber**: al banc **no hi ha bus**, o sigui que el tàctil no comparteix res
+  amb el rellotge, la FRAM ni el SHT30 i no hi ha cap NAK ni cap conflict; el xip del banc contesta
+  sempre a la primera, quan a la placa el probe va haver de preguntar a dues adreces (docs/50); i el marc
+  que dona és el de fa menys de `--touch-scan` ms i no el d'un escombrat concret.
+- **El que la placa ha de dir encara**: la **velocitat de mostra** (comptar marcs amb el dit, docs/95
+  E-6) i **el cost d'una lectura**, que al banc és la física del bus i que `stats` ja compta a la fila
+  `touch.read` a les dues bandes.
+
+## Els temps del banc, i el commutador que els apaga (1/11)
+
+Un run del banc **paga la mateixa estona que la placa**, perquè una app que aquí va bé i allà va malament
+no serveix de res: el disc (**1 ms** per lectura, el doble a la targeta), el **port sèrie** (86,8 µs per byte
+a 115 200), la **tinta** (0,8 µs per byte i 1 100 µs per fila, i la qualitat de cada pintada) i el
+**tàctil** (800 µs per torn sense dit, 1 830 amb un i 2 550 amb dos). **Els quatre són un sol
+commutador** (`Options::delays`), perquè un run o paga el temps del maquinari o és una prova, i qui en
+paga la meitat no mesura res:
+
+| Com s'engega | Els temps | Per a què |
+|---|---|---|
+| **el binari, per defecte** | **es paguen** | mirar què costa una placa: `run panel` diu **2 899 ms** de pintada i el run sencer **3,11 s** |
+| **`--gui`** | **es paguen, i és obligatori** | una finestra és per veure què costa una placa; `--gui --no-delay` i `--gui --no-ink` **es refusen**, amb una línia que diu per què |
+| **`--no-delay`** | **cap espera** | un guió o una mesura que no sigui de temps: el mateix `run panel` dona **24 ms** i el run sencer **0,03 s** — **104 vegades més ràpid** |
+| **les proves** | **cap espera** (el camp neix fals) | cap suite paga el rellotge; la que mesura temps (`test_ui`, `test_touch`) el posa a cert |
+
+**El model no canvia amb el commutador**: el fantasma d'un `du`, la brutícia, la mida del contacte i el
+marc que es dona una vegada hi són igual. El que s'estalvia és el rellotge i no el model, que és
+exactament el que vol una prova de píxels.
 
 ## Fidelitat: què s'assembla i què no
 
@@ -281,7 +375,7 @@ unitat. Tot el que és model és en un fitxer, perquè un dia a la placa el canv
 | Sostre de memòria | **El de la placa, i no més**: l'ATOM contesta el sostre per defecte (64 KB, `Model::app_limit_kb` = 0, que vol dir «la placa no en diu cap») i el **Paper contesta la seva PSRAM mapejada (4 096 KB, de 8 MB que en té el xip)**. `--mem-cap` el pot **baixar** per veure-hi el pic, i demanar-ne més es refusa amb el número que té el model. `sys.heap()` dona el pressupost de l'app (`free`, `used`, `limit`, `peak`) i la memòria extra del model (`extra_total`, `extra_free`), i `mem` escriu els tres números del model (`Model::psram_kb` mapejats i `Model::psram_chip_kb` del xip) | 320 KB de SRAM al xip i, al Paper, **4 MB de PSRAM mapejada** on van els blocs de 4 KB en amunt (docs/75) |
 | Cost d'una lectura | **Simulat**: cada lectura costa **1 ms** (i el doble a la targeta), o sigui que una app que llegeix un fitxer per torn va tan lenta aquí com al vidre. El número és una aproximació fins que algú el mesuri amb un cronòmetre, i es canvia amb `--read-delay <us>` (0 = cap espera) | Mil·lisegons de flash o SD |
 | Targeta (SD) | **Un directori del disc, i només si el model té ranura** (el Paper): el mateix backend POSIX que la flash, o sigui que el que llegeix aquí llegeix a la placa. Es presenta com una targeta de **16 GB** amb el lliure del PC, i el que falta fins a 16 GB és l'ocupat | FATFS per SPI a la Paper: CS GPIO4, 10 MHz i el CS del panell (GPIO15) deseleccionat abans de tocar el bus (docs/50) |
-| El vidre del banc (`--display`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. Des de la 0.22.0 **la pintada mou tinta**: un `du` deixa un quart del que hi havia i acumula brutícia, un `gc16` neteja, una de cada mil falla un nivell, i `idle()` no diu que sí fins que el rellotge passa la durada de la qualitat (docs/85). Les proves hi corren amb el model fora (`--no-ink`). **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que el banc s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda, un gir obliga a tornar a enviar la pàgina sencera, `du4` i `a2` poden no pintar res, i el temps inclou la transferència per SPI (docs/95, E-7) |
+| El vidre del banc (`--display`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. Des de la 0.22.0 **la pintada mou tinta** —un `du` deixa un quart del que hi havia i acumula brutícia, un `gc16` neteja, una de cada mil falla un nivell— i des de la 0.23.0 **paga el bus**: 0,8 µs per byte a 10 MHz i 1 100 µs per fila, i `idle()` no diu que sí fins que han passat el bus i la tinta (docs/85). Les proves hi corren amb el model fora (`--no-ink`). **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que el banc s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda i un gir obliga a tornar a enviar la pàgina sencera. El número de `run panel` és el mateix a les dues bandes (1 985 ms a la placa, 1 970 mesurats al banc, 1 954 al model) i el que queda obert és el perquè del cost d'una fila (docs/95, E-7) |
 | Desgast de la flash | No existeix | Existeix |
 | Consum | No existeix | Existeix |
 | Despertar de son | Simulat | Real o inexistent segons la placa |
@@ -299,6 +393,7 @@ unitat. Tot el que és model és en un fitxer, perquè un dia a la placa el canv
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
 | Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **El banc no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que el banc llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
 | Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les tecles **del model** (fins a tres; una a l'ATOM i al Matrix, tres al Paper), i el temps que es compta és el del PC. La forma, però, encara és la de la Paper a tots els models: un dial compost a la cara esquerra (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC. Fer que la forma segueixi el model és el que queda de M8 (docs/90) | El GPIO39 de l'ATOM (una tecla simple a la cara de dalt) i les tres de la Paper, amb 10 ms de rebot |
+| Tàctil (`touch.*`, `on_touch`) | **Un GT911 simulat** (`--touch`, `emu::Gt911Panel`): el marc de la pàgina, dos dits, la mida del contacte i les tres transaccions del bus a 100 kHz (**800, 1 830 i 2 550 µs** segons els dits). **Escombra sol i dona el marc una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» la meitat de les vegades (docs/85) | El GT911 de debò: el mateix protocol, i a sobre un bus que comparteix amb el rellotge, la FRAM i el SHT30, amb clock stretching de fins a 6 ms del sensor i NAKs possibles |
 
 **Comprovat al banc el 31/10 amb la 0.8.2**, amb `--board m5stack-paper --sd <dir>` i un guió:
 `mem` diu `extra memory 4096 of 4096 KB usable, of 8192 KB on the chip (psram)`, `mounts` diu
@@ -324,9 +419,10 @@ només el criden les proves. Les dues coses són a [`90 · Full de ruta`](90-ful
 canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **al banc el temps
 d'un dispositiu és el del PC**. `vfs.list` pot costar 40 ms aquí per la lectura simulada d'1 ms per
 fitxer. Des de la 0.22.0 una pintada **sí que costa** el que costa la seva qualitat —450 ms un `gc16`,
-120 un `du`—, però és el temps del model de la tinta i no el de la transferència. El que es mesura aquí
-és **quantes vegades** es demana una cosa i quin camí es pren; el que costa de debò es mesura a la placa
-(docs/95).
+120 un `du`— i des de la 0.23.0 hi entra també el bus de la regió, 0,8 µs per byte i 1 100 µs per fila,
+que és el que fa que `glass.flush` a `stats` ensenyi mig segon per una pàgina. El que es mesura aquí és
+**quantes vegades** es demana una cosa i quin camí es pren; el que costa de debò amb el maquinari de debò
+es mesura a la placa (docs/95).
 
 ## Consell de treball
 
