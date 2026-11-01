@@ -619,8 +619,10 @@ int32_t pcf_i16(const char* at, bool big) {
 }
 
 // The number at an offset of a table, in the order that table says, and only if the whole of it is there.
+// **The check is a subtraction and not a sum**: a number of a file that says `0xFFFFFFFF` would wrap around to
+// a small offset and be believed (the suite caught this in 0.40.0, docs/30).
 bool pcf_number(const char* text, uint32_t length, uint32_t at, uint32_t size, bool big, int32_t& value) {
-  if (at + size > length) return false;
+  if (at > length || length - at < size) return false;
   value = (size == 2) ? pcf_i16(text + at, big) : static_cast<int32_t>(pcf_u32(text + at, big));
   return true;
 }
@@ -643,7 +645,7 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
     const uint32_t entry = 8 + i * 16;
     const uint32_t type = pcf_u32(text + entry, false);
     const uint32_t offset = pcf_u32(text + entry + 12, false);
-    if (offset + 4 > length) return "a table starts past the end of the file";
+    if (offset > length || length - offset < 4) return "a table starts past the end of the file";
     if (type == kPcfMetricsTable) {
       metrics_at = static_cast<int32_t>(offset);
     } else if (type == kPcfBitmapsTable) {
@@ -695,6 +697,7 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
     return "the bitmaps are cut";
   }
   if (glyph_count <= 0) return "a pcf with no glyph";
+  if (static_cast<uint32_t>(glyph_count) > length / 4) return "the bitmaps are cut";
   const uint32_t offsets_first = static_cast<uint32_t>(bitmaps_at) + 8;
   const uint32_t data_first = offsets_first + static_cast<uint32_t>(glyph_count) * 4 + 16;
   if (data_first > length) return "the bitmaps are cut";
@@ -715,7 +718,7 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
     if (glyph < 0 || glyph == 0x7FFF) continue;  // a code the font does not have
     if (glyph >= glyph_count || glyph >= metrics_count) return "a code points past the glyphs";
     const uint32_t at = metrics_first + static_cast<uint32_t>(glyph) * metrics_step;
-    if (at + metrics_step > length) return "the metrics are cut";
+    if (at > length || length - at < metrics_step) return "the metrics are cut";
     int32_t metric[5] = {0, 0, 0, 0, 0};
     if (compressed) {
       // A compressed metric is the value with 0x80 added to it, and that is how a byte holds a minus one.

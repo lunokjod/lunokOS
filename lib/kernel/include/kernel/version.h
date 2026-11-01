@@ -397,7 +397,13 @@ namespace kernel {
 // at three sizes, which is the three faces the system keeps at once. What a real font asked for: **a glyph
 // with more edges than the block holds is now refused** instead of being drawn with the ones that fitted
 // (`kMaxEdges` 384, the curve cut in six) (docs/30).
-static const char kVersion[] = "0.42.0";
+// 0.42.1 (1/11): **the first time the two new readers were ever run, and the suite found a way into the page.**
+// A PCF whose table directory says an offset of `0xFFFFFFFF` was read as if it were a small one, because the
+// check was `offset + 4 > length` and that sum wraps around in a `uint32_t`: the reader then read past its
+// buffer and answered with a face. Every check of a number that comes from a file is now a subtraction from
+// the length (`at > length || length - at < size`), in both readers. Of 299 cases, **this one was the only
+// red**: the first run of the two formats was 297 green and one that had found a real hole (docs/30, docs/80).
+static const char kVersion[] = "0.42.1";
 
 }  // namespace kernel
 

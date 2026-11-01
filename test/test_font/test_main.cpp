@@ -105,6 +105,24 @@ int32_t table_of(const char* pcf, uint32_t type) {
   return -1;
 }
 
+// **Where the entry of a table is written**, which is not where the table is: the type, the format, the size
+// and the offset are four numbers of the directory, and a file is broken by breaking one of those.
+int32_t entry_of(const char* pcf, uint32_t type) {
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(pcf);
+  if (p == nullptr) return -1;
+  const auto u32 = [p](uint32_t at) {
+    return static_cast<uint32_t>(p[at]) | (static_cast<uint32_t>(p[at + 1]) << 8) |
+           (static_cast<uint32_t>(p[at + 2]) << 16) | (static_cast<uint32_t>(p[at + 3]) << 24);
+  };
+  const uint32_t tables = u32(4);
+  if (tables == 0 || tables > 64) return -1;
+  for (uint32_t i = 0; i < tables; ++i) {
+    const uint32_t at = 8 + i * 16;
+    if (u32(at) == type) return static_cast<int32_t>(at);
+  }
+  return -1;
+}
+
 }  // namespace
 
 // **A file that is a face is a face**: the size it says, the gap it says, the codes in order, and one bit
@@ -385,14 +403,18 @@ static void test_a_pcf_that_is_not_one_says_why() {
   // **A directory that is cut** is not read table by table to see how far it goes.
   memcpy(scratch, pcf, length);
   TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, 10, g_bits, face));
-  // **A table that starts past the end of the file.**
+  // **A table that starts past the end of the file**, which is a number of the directory and not of the table:
+  // `0xFFFFFFFF` would wrap back to a small offset if the reader added to it instead of subtracting from the
+  // length (the suite found that in 0.40.0, docs/30).
   memcpy(scratch, pcf, length);
   const int32_t bitmaps = table_of(scratch, 0x08);
   TEST_ASSERT_TRUE(bitmaps > 0);
-  scratch[bitmaps + 12] = static_cast<char>(0xFF);
-  scratch[bitmaps + 13] = static_cast<char>(0xFF);
-  scratch[bitmaps + 14] = static_cast<char>(0xFF);
-  scratch[bitmaps + 15] = static_cast<char>(0xFF);
+  const int32_t bitmaps_entry = entry_of(scratch, 0x08);
+  TEST_ASSERT_TRUE(bitmaps_entry > 0);
+  scratch[bitmaps_entry + 12] = static_cast<char>(0xFF);
+  scratch[bitmaps_entry + 13] = static_cast<char>(0xFF);
+  scratch[bitmaps_entry + 14] = static_cast<char>(0xFF);
+  scratch[bitmaps_entry + 15] = static_cast<char>(0xFF);
   TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
   // **The bits the other way round** would mirror every letter, so the file is refused instead (`0x0e` is
   // most-significant bits first; `0x06` is the same file with the bit the other way).

@@ -273,7 +273,9 @@ const char* open(const uint8_t* data, uint32_t length, Face& out) {
     const uint32_t tag = u32(entry);
     const uint32_t offset = u32(entry + 8);
     const uint32_t size = u32(entry + 12);
-    if (offset > length || offset + size > length) return "a table starts past the end of the file";
+    // **A table that starts past the end, or that runs past it, is refused**: both numbers come from the file
+    // and both are checked as a subtraction, because a sum of two of them can wrap around (docs/30).
+    if (offset > length || size > length - offset) return "a table starts past the end of the file";
     // The four bytes of a tag are its name, read as a number: `cmap` is 0x636D6170.
     if (tag == 0x636D6170u) {
       out.cmap = offset;
