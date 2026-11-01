@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "emu/disk.h"
 #include "emu/options.h"
 #include "emu_nvs.h"
 #include "hal/hal.h"
@@ -100,6 +101,9 @@ class HostNvs : public IKeyValue {
   bool get(const char* ns, const char* key, void* buf, size_t cap, size_t& len) override {
     char path[kPathCap];
     if (buf == nullptr || cap == 0 || !key_path(path, sizeof(path), ns, key, false)) return false;
+    // **The key-value store is a partition of the flash**, so a read of it is a block of the nor and a
+    // write is a page programme plus the sector it took (docs/70, docs/85).
+    emu::disk_pay(emu::Disk::kFlash, emu::disk_timing(emu::Disk::kFlash).block_bytes, false);
     FILE* file = fopen(path, "rb");
     if (file == nullptr) return false;
     const size_t got = fread(buf, 1, cap, file);
@@ -111,6 +115,7 @@ class HostNvs : public IKeyValue {
   bool set(const char* ns, const char* key, const void* buf, size_t len) override {
     char path[kPathCap];
     if (buf == nullptr || !key_path(path, sizeof(path), ns, key, true)) return false;
+    emu::disk_pay(emu::Disk::kFlash, static_cast<uint32_t>(len), true);
     FILE* file = fopen(path, "wb");
     if (file == nullptr) return false;
     const size_t put = fwrite(buf, 1, len, file);

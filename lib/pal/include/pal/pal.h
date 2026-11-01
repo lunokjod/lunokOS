@@ -99,6 +99,19 @@ ISystem& system();
 // wait at all: a file is not a wire. Only a host whose console is a terminal calls this.
 void set_console_baud(uint32_t baud);
 
+// **What handing out a block of the extra memory costs**, in microseconds. On the board the allocator
+// walks its free lists and the block is not there until it does; on the PC it is a `malloc` and the
+// walk is instant, so the bench is told what to charge (docs/85). Zero —the default, and every test
+// that does not say otherwise— is no wait at all. What this does **not** model is the bytes: reading
+// and writing the PSRAM is CPU time against a cache, and this bench has no CPU clock.
+void set_extra_memory_us(uint32_t us);
+
+// **Wait this many microseconds.** The kernel does not use it —its waits are events and alarms— and it
+// is here for the one thing that has to spend time on purpose: a bench that simulates a processor it is
+// not running on, where the interpreter's instructions cost what they cost on the board (docs/85). On
+// the board it is the chip's own busy wait and nothing calls it with a number.
+void delay_us(uint32_t us);
+
 // The extra memory of the board (PSRAM on the M5Paper) as a place to allocate from.
 //
 // It exists so the interpreter does not have to ask which board it is on: it asks for big blocks

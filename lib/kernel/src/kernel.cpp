@@ -226,6 +226,17 @@ void deliver_alarms() {
   }
 }
 
+// **Where the time of the interpreter's instructions is spent**: the band's own wait, which on the PC
+// is a sleep and on the board is never asked for, because a board's instruction already takes the time
+// it takes (docs/85).
+void spend_the_cpu(uint32_t us) { pal::delay_us(us); }
+
+// **What one instruction costs on the band being run**: asked once per block of instructions, and zero on
+// a board, where the time is the real one (docs/85).
+uint32_t instruction_ns() {
+  return (g_platform != nullptr) ? g_platform->simulated_instruction_ns() : 0;
+}
+
 void dispatch(const pal::Event& ev) {
   switch (ev.type) {
     case pal::kEventSystem:
@@ -258,7 +269,7 @@ void boot(hal::IPlatform& platform) {
   // asks for the clock and for a way to add, and knows nothing else about the kernel (docs/30).
   luabind::set_meter_ops(
       luabind::MeterOps{&meter::now_us, &app_call_cost, &app_run_cost, &app_extra_cost,
-                        &lua_calls_total, &app_own_cost});
+                        &lua_calls_total, &app_own_cost, &instruction_ns, &spend_the_cpu});
   // The settle is for the board: the UART bridge leaves a run of bytes behind
   // when the port opens. On the PC there is no such noise, and the bytes that do
   // arrive (a pipe, a script, a hand on the keyboard) are for the person.

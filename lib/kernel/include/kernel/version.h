@@ -268,7 +268,113 @@ namespace kernel {
 // `--gui` **l'exigeix**: un run amb finestra i sense esperes, o amb un vidre que canvia píxels
 // (`--no-ink`), es refusa, perquè és una foto d'una placa que no existeix. Mesurat: `run panel` 2 899 ms
 // amb els temps i 24 ms sense, i el run sencer 3,11 s contra 0,03 s (docs/85).
-static const char kVersion[] = "0.25.0";
+// 0.26.0 (1/11): **el disc costa el que costa cada dispositiu, i la PSRAM no és gratis**. S'ha acabat el
+// "1 ms per lectura" per a tot: cada volum passa pel seu temps (`emu/disk.h`) — la flash a 40 MHz, blocs
+// de 4 KB (819 µs de cable), pàgines de 256 B (0,4 ms) i **sectors de 45 ms que s'han d'esborrar abans
+// d'escriure**; la targeta a 10 MHz, sectors de 512 B (410 µs) i una comanda de 200; i la FRAM, que és I2C
+// a 100 kHz i on **un byte són 90 µs**. La NVS és una partició de la flash i paga el mateix. I el bloc de
+// la PSRAM que demana el nucli costa el recorregut de l'assignador (20 µs): els bytes són temps de CPU i
+// aquest banc no té rellotge de CPU, i es diu. `--read-delay` desapareix perquè el rellotge pla era part
+// del que s'ha arreglat (docs/50, docs/85).
+// 0.27.0 (1/11): **la bateria d'on corre el banc, prestada a la placa**. La cel·la del Paper és de
+// **1150 mAh** i es llegeix com a mil·livolts darrere d'un divisor a GPIO35; la màquina del banc en diu un
+// percentatge. `--battery-host` agafa aquest percentatge i el passa per **la corba de la cel·la del model**
+// (`hal::battery_mv`, la inversa de `battery_percent`), o sigui que 63 % del portàtil són 3 847 mV del
+// Paper i no els 11 V de la seva bateria. I es paga el que costa preguntar-ho: **quatre conversions d'ADC
+// a ~100 µs i ~1 ms de caracterització la primera vegada**. Amb `--no-delay`, res (docs/50, docs/85).
+// 0.28.0 (1/11): **tres apps que proven el banc i la placa amb la mateixa pàgina**. `ghost` pinta vuit
+// passades de `du` sobre el mateix bloc i les neteja amb un `gc16` —el fantasma, amb el temps de cada
+// pintada—; `draw` fa un traç que segueix el dit i té un quadre que neteja la pàgina, i diu on cau cada
+// punt; i `cost` mesura a on corre el que costa un `stat`, una llista, un llegir, un escriure, una
+// pintada de cada qualitat, el gauge, el tàctil i la memòria, per posar les dues taules al costat
+// (docs/85).
+// 0.28.1 (1/11): **el fantasma es veu**. El model de la tinta deixava un quart i, sobretot, la brutícia
+// podia arribar a quinze setzens i congelar la pàgina, o sigui que el fantasma s'esvaïa en dues passades
+// i el d'una pàgina de setze nivells no es distingia del d'una de dues. Ara el `du` deixa **cinc setzens**
+// (un `du4`, set), la brutícia suma fins a un sostre d'onze —la imatge enganxada, que és el que fa el
+// vidre i no un píxel que es para— i el gra és **vuit de cada mil** amb una fallada de dos nivells una
+// vegada de cada quatre. La prova que ho mesura: un esglaó de setze nivells repintat amb `du` deixa cinc
+// nivells de recorregut a les bandes, i la mateixa pintada sobre una pàgina plana en deixa zero.
+// 0.29.0 (1/11): **el codi de l'app també costa**. El banc executava les instruccions de Lua a la
+// velocitat d'un PC, o sigui que un bucle que al vidre dura un segon aquí durava un mil·lisegon i cap
+// número de `lua.own` volia dir res. El ganxo de l'intèrpret en compta **dos mil** i en paga el preu quan
+// la suma passa de mig mil·lisegon, i el que queda es paga al final del torn (`--lua-cpu`, **60 ns a
+// 160 MHz**, dividit per la freqüència simulada). La banda diu quant costa una instrucció —zero en una
+// placa, on el temps és el de debò— i el banc és qui en diu seixanta (docs/85).
+// 0.30.0 (1/11): **la bateria del banc ja no s'ha de demanar**. Un model amb indicador contesta
+// `power.battery()` a la primera, perquè el `%` d'aquesta màquina es llegeix sol a l'arrencada i passa per
+// la corba de la cel·la del Paper; una màquina sense bateria deixa la cel·la al **seu càrrec nominal
+// (3 700 mV, 42 %)**, ho diu, i `--battery-mv` mana sobre el préstec. Abans d'això `run battery` al Paper
+// deia «this board does not know its battery», que és el que diu la placa només quan no en té (docs/50,
+// docs/85).
+// 0.31.0 (1/11): **el maquinari del model hi és des de l'arrencada, i no s'ha de demanar**. El vidre i el
+// GT911 eren opt-in, i `run draw` en una Paper del banc deia «this board needs a touch panel and a glass
+// for this»: una placa que algú té a les mans no té aquest estat. `Model::glass` passa a dir quina placa
+// dibuixa (la Paper; els ATOM no tenen pantalla), el binari encén el vidre i els dits que el model té, i
+// `--no-display` / `--no-touch` els treuen per a la mesura que no és de píxels. Un `--display` o un
+// `--gui` a un ATOM es refusa dient-ho, i `sys.caps()` només anuncia el que la placa té (docs/50, docs/85).
+// 0.32.0 (1/11): **el ratolí de la finestra és un dit del GT911**. Una Paper del banc amb `--gui` tenia el
+// vidre a la pantalla i cap manera de tocar-lo: `run draw` i `run glass` demanaven un dit que ningú no
+// podia posar. Prémer és el dit que baixa, moure amb el botó premut és el dit que es mou i deixar-lo anar
+// és el dit que puja, en el marc del xip —i el píxel de la finestra es tradueix al píxel de la pàgina pel
+// centre del bloc d'escala (`gui_page_point`, amb prova). El que el ratolí no pot fer és un pessic de dos
+// dits: això és del test o del guió (docs/50, docs/85).
+// 0.33.0 (1/11): **les tecles de la placa, en una finestra de les seves**. Amb `--gui` el vidre es veu i
+// s'hi pot posar un dit, però les tres tecles del dial no hi eren: `run keys` demanava una tecla que
+// ningú no podia prémer. Ara hi ha una segona finestra amb un botó per tecla —a dalt la de pujar, al mig la
+// del centre i a baix la de baixar, la forma de la roda de la placa— i prémer és `press_key(key, true)` i
+// deixar anar `press_key(key, false)`, el mateix camí que fa servir una prova o un guió. El mapa del clic a
+// tecla (`gui_key_at`) és una funció pura amb prova, perquè un botó que prem la tecla del costat és un
+// error que no es veu. I `--gui` passa a ser «les finestres del que la placa té»: un ATOM, sense vidre,
+// treu només la de les tecles en lloc de refusar-se (docs/50, docs/85).
+// 0.34.0 (1/11): **una sola finestra**: el vidre i les tecles junts. Dues finestres eren dues coses per
+// col·locar i per mirar, i el gestor de finestres les posava on volia. Les tecles passen a estar dins de la
+// finestra del vidre, i un clic a un botó és una tecla i un clic a la pàgina és un dit, amb els botons
+// mesurats en píxels de finestra perquè no s'enconguin amb l'escala (docs/85).
+// 0.34.1 (1/11): **el costat dels botons el diu el descriptor de l'entrada, i no el banc**. A la 0.34.0 la
+// tira era a l'esquerra i prou, quan el que mana és `IInput::face()`: el dial del Paper és a la **cara
+// esquerra** (key 0 = GPIO38 centre, key 1 = GPIO37 `Spot::kUp`, key 2 = GPIO39 `Spot::kDown`) i la tecla
+// d'un ATOM és a la **cara de dalt**. Ara el costat surt de la cara i l'ordre de les posicions, o sigui que
+// un dial és una columna en aquell costat i una tecla de cara de dalt és una fila sota la pàgina, i la
+// pàgina es pinta on les tecles li deixen (docs/50, docs/85).
+// 0.34.2 (1/11): **el dial del Paper és a la dreta de la pàgina, i el descriptor deia que a l'esquerra**.
+// Qui té la placa a les mans ho diu clar, i `Face::kLeft` era una suposició del full del fabricant (el
+// seu README es contradiu sobre esquerra i dreta, docs/50). `hal_paper` i el banc passen a dir
+// `Face::kRight`, i la finestra dibuixa els tres botons a la dreta de la pàgina, que és on són. Quina de
+// les dues tecles del costat és `up` segueix pendent de prémer-les (docs/95, E-1).
+// 0.35.0 (1/11): **la finestra sembla una placa i diu si un clic arriba**. El que no és la pàgina es pinta en
+// el **gris fosc de la carcassa** —la tira de les tecles i la resta de la finestra— i els botons són grisos
+// amb el text clar, de manera que el que mira va a la pàgina i no a un marc blanc; **un botó premut es pinta
+// amb el color del paper** del panell, que és l'única manera de veure que el clic ha arribat. I amb
+// `--verbose` cada tecla diu `gui: key 0 (Centre) down` i `up`, per distingir un botó que no fa res d'un botó
+// que ningú no ha premut (docs/85).
+// 0.36.0 (1/11): **el text té cares, i una cara és un fitxer de text**. Fins ara hi havia una sola lletra: la
+// de 5 × 7 de la barra, a la flash i només en majúscules. Ara `UICanvas` pot carregar-ne d'altres amb
+// `ui.load_font` d'un fitxer de `/res/fonts` (`lunok-font 1`, `width`, `height`, `gap` i un bloc de `#` i `.`
+// per glif: portable, llegible i sense descodificador) i dibuixar-hi el seu text; `ui.font` i `cv:font`
+// trien la cara, `font:text_width` i `font:size` la deixen mesurar, i el bloc és de l'app i torna quan ella
+// el deixa anar o quan s'acaba. La font del sistema passa a ser **una cara més** del mateix camí, i dues
+// apps de prova ho ensenyen: `run fonts` i `run sheet` (docs/30, docs/80).
+// 0.37.0 (1/11): **el sistema tria com neteja la pàgina entre una app i la següent**. Fins ara la vista es
+// posava blanca i el vidre s'esperava que la pintada de l'app que venia ho tapés; ara, quan una app marxa, el
+// sistema mira **quins dels setze nivells ha ensenyat la pàgina i quantes pintades ràpides ha pres**
+// (`ui::levels_shown`, `ui::cleaner_for`) i demana el rentat que toca: `a2` si només hi ha hagut negre i
+// blanc, `gl16` si hi ha hagut uns quants grisos, `gc16` si era una fotografia o si la brutícia de tantes
+// pintades ja és el que es veu. Són 290 ms contra 450 per canvi d'app, i no ho decideix cap app perquè cap app
+// no sap què hi havia abans (docs/50, docs/90).
+// 0.38.0 (1/11): **el deflate llegit de tornada**, que és el que cal per obrir un zip —i un epub és un zip—.
+// `lib/inflate` descomprimeix els tres tipus de bloc del format (stored, taula fixa i taula dinàmica) cap a un
+// buffer que és del qui crida i que fa de finestra, sense reservar res: la distància cap enrere d'un stream
+// mira dins del que ja s'ha escrit, i un stream que demana més enllà del principi es refusa. Amb els dos
+// checksums dels contenidors (Adler-32 del zlib/woff i CRC-32 del zip) i quatre proves fetes amb blocs que ha
+// comprimit el zlib de debò, no inventats. El lector del zip i la lectura de l'epub venen darrera (docs/70).
+// 0.39.0 (1/11): **a face can come out of a BDF**, the bitmap format an X server read: plain text with
+// `STARTFONT`, a box, and for every glyph its rows in hexadecimal. `font::load_bdf` reads it into the same
+// block as always (eight by eight, ninety-six codes, in order) and `font::load_any` looks at **what the file
+// says of itself** —`STARTFONT` or `lunok-font`— to pick the reader, so `ui.load_font` takes either and no
+// app has to know which format its face came in. `run font-bdf` shows the face of the file beside the one of
+// the system (docs/30).
+static const char kVersion[] = "0.39.0";
 
 }  // namespace kernel
 

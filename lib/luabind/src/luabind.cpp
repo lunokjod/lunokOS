@@ -572,9 +572,34 @@ bool g_timing_call = false;
 bool g_timing_c = false;  // the call being timed is a C function and not one of the app's
 uint32_t g_call_start = 0;
 
+// **The instructions of the app, priced** (docs/85). The board runs every instruction of the interpreter
+// at a few tens of nanoseconds and the PC at a fraction of that, so a loop that takes a second on the
+// glass takes a millisecond here. What one instruction costs is the band's answer —zero on a board,
+// where the time is the real one— and this counts them in blocks of `kHookInstructions` and pays in one
+// go, because a sleep per instruction would be a bench that asks for time more often than it simulates
+// it.
+const uint32_t kHookInstructions = 2000;
+const uint32_t kPayThresholdUs = 500;
+uint32_t g_pending_us = 0;
+
+void pay_the_instructions(uint32_t pending) {
+  if (g_meter_ops.spend_us != nullptr && pending > 0) g_meter_ops.spend_us(pending);
+}
+
 void meter_hook(lua_State* L, lua_Debug* ar) {
   (void)L;
   if (ar == nullptr) return;
+  if (ar->event == LUA_HOOKCOUNT) {
+    if (g_meter_ops.instruction_ns == nullptr) return;
+    const uint32_t ns = g_meter_ops.instruction_ns();
+    if (ns == 0) return;
+    g_pending_us += (kHookInstructions * ns) / 1000u;
+    if (g_pending_us >= kPayThresholdUs) {
+      pay_the_instructions(g_pending_us);
+      g_pending_us = 0;
+    }
+    return;
+  }
   if (ar->event == LUA_HOOKCALL) {
     ++g_call_depth;
     // **The outermost call is timed whoever it is**: a function of the app counts as the interpreter
@@ -3329,6 +3354,164 @@ int l_ui_circle(lua_State* L) { return circle_at(L, 0, 1, false); }
 int l_ui_disc(lua_State* L) { return circle_at(L, 0, 1, true); }
 int l_ui_text(lua_State* L) { return text_at(L, 0, 1); }
 
+// ---- the faces of a text (docs/30) ----
+
+// **A face an app loaded from a portable font file**: the object holds a handle into the table of the
+// kernel, and the block of glyphs goes back when the object is collected or the app ends (docs/30).
+struct LuaFont {
+  int8_t handle;
+};
+
+const char kFontMeta[] = "lunokOS.UIFont";
+
+bool font_ready(lua_State* L, int index) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_testudata(L, index, kFontMeta));
+  return font != nullptr && font->handle >= 0;
+}
+
+int push_font(lua_State* L, int8_t handle) {
+  LuaFont* font = static_cast<LuaFont*>(lua_newuserdatauv(L, sizeof(LuaFont), 0));
+  font->handle = handle;
+  luaL_getmetatable(L, kFontMeta);
+  lua_setmetatable(L, -2);
+  return 1;
+}
+
+// `ui.load_font(path)`: a face from a file, or nil and the reason the file is not one (docs/30).
+int l_ui_load_font(lua_State* L) {
+  const char* path = luaL_checkstring(L, 1);
+  if (g_ui_ops.font_load == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no faces");
+  }
+  const char* reason = nullptr;
+  const int8_t handle = g_ui_ops.font_load(path, reason);
+  if (handle < 0) return push_nil_error(L, "E_INVAL", (reason != nullptr) ? reason : "not a font");
+  return push_font(L, handle);
+}
+
+int l_font_gc(lua_State* L) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
+  if (font->handle >= 0 && g_ui_ops.font_release != nullptr) g_ui_ops.font_release(font->handle);
+  font->handle = -1;
+  return 0;
+}
+
+int l_font_release(lua_State* L) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
+  if (font->handle >= 0 && g_ui_ops.font_release != nullptr) g_ui_ops.font_release(font->handle);
+  font->handle = -1;
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// `font:text_width(text [, scale])`: how wide it is, which is what centring it needs (docs/30).
+int l_font_text_width(lua_State* L) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
+  const char* text = luaL_checkstring(L, 2);
+  const lua_Integer scale = luaL_optinteger(L, 3, 1);
+  if (font->handle < 0 || g_ui_ops.font_text_width == nullptr || scale <= 0 || scale > 16) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  lua_pushinteger(L, g_ui_ops.font_text_width(font->handle, text, static_cast<uint8_t>(scale)));
+  return 1;
+}
+
+// `font:size()`: how big a glyph is and how many codes the face carries, which is what placing a line needs
+// (docs/30).
+int l_font_size(lua_State* L) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
+  uint8_t width = 0;
+  uint8_t height = 0;
+  uint8_t gap = 0;
+  uint8_t glyphs = 0;
+  if (font->handle < 0 || g_ui_ops.font_info == nullptr ||
+      !g_ui_ops.font_info(font->handle, width, height, gap, glyphs)) {
+    lua_pushinteger(L, 0);
+    lua_pushinteger(L, 0);
+    lua_pushinteger(L, 0);
+    return 3;
+  }
+  lua_pushinteger(L, width);
+  lua_pushinteger(L, height);
+  lua_pushinteger(L, glyphs);
+  return 3;
+}
+
+// `ui.text_width(text [, scale])`: how wide it is with the font of the system, which is what centring a
+// line needs and what used to be a number an app guessed (docs/30).
+int l_ui_text_width(lua_State* L) {
+  const char* text = luaL_checkstring(L, 1);
+  const lua_Integer scale = luaL_optinteger(L, 2, 1);
+  if (g_ui_ops.font_text_width == nullptr || scale <= 0 || scale > 16) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  lua_pushinteger(L, g_ui_ops.font_text_width(-1, text, static_cast<uint8_t>(scale)));
+  return 1;
+}
+
+int l_font_tostring(lua_State* L) {
+  LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
+  char text[64];
+  uint8_t width = 0;
+  uint8_t height = 0;
+  uint8_t gap = 0;
+  uint8_t glyphs = 0;
+  if (font->handle >= 0 && g_ui_ops.font_info != nullptr &&
+      g_ui_ops.font_info(font->handle, width, height, gap, glyphs)) {
+    snprintf(text, sizeof(text), "font %ux%u gap %u, %u glyphs", static_cast<unsigned>(width),
+             static_cast<unsigned>(height), static_cast<unsigned>(gap),
+             static_cast<unsigned>(glyphs));
+  } else {
+    snprintf(text, sizeof(text), "font (given back)");
+  }
+  lua_pushstring(L, text);
+  return 1;
+}
+
+// **The face a canvas draws its text with** (`cv:font(font)`), and the one of the view (`ui.font(font)`):
+// nil is the font of the system (docs/30).
+int8_t font_handle_of(lua_State* L, int index) {
+  if (lua_isnoneornil(L, index)) return -1;
+  if (!font_ready(L, index)) return -2;
+  return static_cast<LuaFont*>(luaL_checkudata(L, index, kFontMeta))->handle;
+}
+
+int l_canvas_font(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  const int8_t handle = font_handle_of(L, 2);
+  if (handle == -2 || g_ui_ops.canvas_set_font == nullptr ||
+      !g_ui_ops.canvas_set_font(canvas_slot_of(L), handle)) {
+    return refuse_shape(L);
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_ui_font(lua_State* L) {
+  const int8_t handle = font_handle_of(L, 1);
+  if (handle == -2 || g_ui_ops.app_set_font == nullptr || !g_ui_ops.app_set_font(handle)) {
+    return refuse_shape(L);
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+void open_font_library(lua_State* L) {
+  luaL_newmetatable(L, kFontMeta);
+  lua_createtable(L, 0, 3);
+  set_function(L, "text_width", l_font_text_width);
+  set_function(L, "size", l_font_size);
+  set_function(L, "release", l_font_release);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, &l_font_gc);
+  lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, &l_font_tostring);
+  lua_setfield(L, -2, "__tostring");
+  lua_pop(L, 1);
+}
+
 // cv:add(child): **the child goes inside this canvas**, and it is the last one, so it is the layer in
 // front. One father: a canvas added to another leaves the one it was in (docs/90).
 int l_canvas_add(lua_State* L) {
@@ -3555,6 +3738,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "circle", l_canvas_circle);
   set_function(L, "disc", l_canvas_disc);
   set_function(L, "text", l_canvas_text);
+  set_function(L, "font", l_canvas_font);
   set_function(L, "add", l_canvas_add);
   set_function(L, "draw", l_canvas_draw);
   set_function(L, "invalidate", l_canvas_invalidate);
@@ -3935,8 +4119,12 @@ void seal_globals(lua_State* L) {
   set_function(L, "circle", l_ui_circle);
   set_function(L, "disc", l_ui_disc);
   set_function(L, "text", l_ui_text);
+  set_function(L, "text_width", l_ui_text_width);
+  set_function(L, "load_font", l_ui_load_font);
+  set_function(L, "font", l_ui_font);
   lua_setglobal(L, "ui");
   open_canvas_library(L);
+  open_font_library(L);
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).
@@ -4138,7 +4326,16 @@ bool start(const Boot& boot, size_t limit_bytes) {
   // The meter of a call into the system, from the first line the app runs (docs/30).
   g_call_depth = 0;
   g_timing_call = false;
-  lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  // **The count hook is installed only where instructions are priced**: on a board they are not, and a
+  // hook that runs every two thousand instructions to do nothing is a tax on the thing being measured
+  // (docs/85). A band that answers with a price is a bench that is simulating a slower processor.
+  const uint32_t instruction_ns =
+      (g_meter_ops.instruction_ns != nullptr) ? g_meter_ops.instruction_ns() : 0;
+  if (instruction_ns > 0) {
+    lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, kHookInstructions);
+  } else {
+    lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  }
 
   lua_pushcfunction(g_state, &open_everything);
   if (lua_pcall(g_state, 0, 0, 0) != LUA_OK) {
@@ -4623,6 +4820,10 @@ bool poll() {
   const uint32_t turn_start = (g_meter_ops.now_us != nullptr) ? g_meter_ops.now_us() : 0;
   const uint64_t calls_before = (g_meter_ops.call_us != nullptr) ? g_meter_ops.call_us() : 0;
   const int status = lua_resume(g_task, nullptr, 0, &results);
+  // **What the turn still owes is paid when it ends**: a loop of three thousand instructions never
+  // reaches the block the hook pays in, and an app that leaves would leave its time behind (docs/85).
+  pay_the_instructions(g_pending_us);
+  g_pending_us = 0;
   if (turn_start != 0 && g_meter_ops.now_us != nullptr) {
     const uint32_t elapsed = g_meter_ops.now_us() - turn_start;
     if (g_meter_ops.add_run != nullptr) g_meter_ops.add_run(elapsed);

@@ -12,6 +12,7 @@
 
 #include "emu/gui.h"
 #include "emu/surface.h"
+#include "emu/hostbattery.h"
 #include "emu/options.h"
 #include "emu/memories.h"
 #include "emu/model.h"
@@ -29,7 +30,18 @@ const size_t kLineBytes = 128;
 // What a read of the flash costs on the board, in microseconds: the block out of SPI plus the few
 // metadata hops LittleFS does for a small file. It is an approximation until somebody measures it
 // with a stopwatch, and it is one number to change (docs/85).
-const int32_t kFlashReadUs = 1000;
+const int32_t kExtraMemoryUs = 20;
+
+// **The cell of the model**, which is what an M5Paper carries: 1150 mAh at 3,7 V, full at 4,2 V
+// (docs/50). It is here for the line the bench says when it lends the battery of the machine it runs
+// on: the voltage itself is the curve's business (`hal/battery.h`).
+const uint32_t kBoardMilliampHours = 1150;
+const int kCellFullMv = 4200;
+
+// **What one instruction of the interpreter costs at 160 MHz**, in nanoseconds: the model's number for
+// an ESP32 running Lua, and the one the bench pays so that a loop costs here what it costs on the glass.
+// It is not a measurement of this unit, and docs/95 says how to take one (docs/85).
+const int32_t kLuaInstructionNs = 60;
 
 // The UART of the board, in baud: the console of the bench is a terminal and not a wire, but the
 // speed is part of what a person sees —a screen of text is a third of a second on the glass— so the
@@ -66,13 +78,12 @@ void usage() {
   printf("  --fs <dir>        working disk for a bench that copies its own (default: emulator)\n");
   printf("  --sd <dir>        the card in the slot, as a directory (default: emulator/sd, and a\n");
   printf("                    card is a directory that exists: without it the slot is empty)\n");
-  printf("  --battery-mv <mv> what the fake battery reads (default: no battery)\n");
+  printf("  --battery-mv <mv> the cell the board reads, in millivolts; it wins over this machine's\n");
+  printf("  --battery-host    say it aloud: a board with a gauge lends this machine's battery by itself\n");
   printf("  --board <name>    which board this bench is (required): %s", board::model(0));
   for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
   printf("\n");
   printf("  --mem-cap <KB>    Lua heap ceiling, never above the board's memory\n");
-  printf("  --read-delay <us> what one read costs, in microseconds (1000 = a millisecond of flash,\n");
-  printf("                    and twice that on the card; 0 = no wait)\n");
   printf("  --baud <n>        speed of the serial port in baud, as the board's UART has it (%d;\n",
          kUartBaud);
   printf("                    0 = no wait, which is a console that is a file and not a wire)\n");
@@ -102,11 +113,15 @@ void usage() {
   printf("  --env-fail        an ambient sensor that does not answer\n");
   printf("  --run <app>       start an app\n");
   printf("  --script <file>   batch mode: run and exit\n");
-  printf("  --display         a board with a glass: 960x540 and four bits per pixel\n");
+  printf("  --display         the glass of the board, which is there by itself: 960x540, four bits\n");
+  printf("  --no-display      no glass at all: the console only, and no buffer of the page\n");
   printf("  --gui             that glass in an X11 window, painted as the panel is painted\n");
   printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
-  printf("  --touch           the touch panel of the model: reads the bus and hands a frame over once\n");
+  printf("  --touch           the finger of the board, which is there by itself: a GT911 on the bus\n");
+  printf("  --no-touch        no finger: the panel is not read once per turn\n");
   printf("  --touch-scan <ms> how often that panel reports (0 is the chip's own, 10 ms)\n");
+  printf("  --lua-cpu <ns>    what one instruction of an app costs at 160 MHz (%d; 0 = free)\n",
+         kLuaInstructionNs);
   printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");
   printf("  --verbose         mirror the log to the console too\n");
   printf("  -h, --help        this text\n");
@@ -139,6 +154,12 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // pays the hardware's time or it is a test, and a test that pays half of it measures nothing
   // (docs/85).
   bool no_delay = false;
+  // The hardware of the model comes on by itself and these take it away: a bench that is a Paper and
+  // has no glass and no fingers is a board nobody can buy (docs/85).
+  bool no_display = false;
+  bool no_touch = false;
+  bool ask_display = false;
+  bool ask_touch = false;
   for (int i = 1; i < argc; ++i) {
     const char* arg = argv[i];
     const char* value = nullptr;
@@ -162,10 +183,29 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.ink = -1;  // asked for: a glass that switches pixels
       continue;
     }
+    if (strcmp(arg, "--lua-cpu") == 0) {
+      // What one instruction of an app costs, in nanoseconds at 160 MHz: zero is a bench that does not
+      // price the app's own code at all (docs/85).
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
+      opts.lua_ns_160 = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--battery-host") == 0) {
+      // **The battery of the machine this bench runs on**, lent to the board: what is lent is the charge
+      // and not the voltage, because 63 % of a laptop is 63 % of the Paper's cell (docs/85).
+      opts.battery_from_host = true;
+      continue;
+    }
     if (strcmp(arg, "--touch") == 0) {
-      // **A finger goes through the glass**, so the panel of the model is on when the run says so and
-      // off otherwise: a bench nobody is touching does not read a bus once per turn (docs/85).
-      opts.touch = true;
+      // **A finger goes through the glass**: the panel of the model is there unless the run says it is
+      // not, because a Paper always has one (docs/85).
+      ask_touch = true;
+      continue;
+    }
+    if (strcmp(arg, "--no-touch") == 0) {
+      // A glass nobody touches: no bus read per turn, which is what a run about something else wants
+      // (docs/85).
+      no_touch = true;
       continue;
     }
     if (strcmp(arg, "--touch-scan") == 0) {
@@ -183,9 +223,16 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       continue;
     }
     if (strcmp(arg, "--display") == 0) {
-      // A board with a glass: 960x540 and four bits per pixel, kept in a buffer on this side
-      // (docs/85).
-      opts.display = true;
+      // A board with a glass: 960x540 and four bits per pixel, kept in a buffer on this side. It is
+      // the glass of the model and it is there by itself; asking for it is only how a script says it
+      // needs one (docs/85).
+      ask_display = true;
+      continue;
+    }
+    if (strcmp(arg, "--no-display") == 0) {
+      // A board with no screen, with everything else of the model: it is what a run that only wants the
+      // console wants, and it does not pay the four hundred kilobytes of buffers (docs/85).
+      no_display = true;
       continue;
     }
     if (strcmp(arg, "--fs") == 0) {
@@ -246,14 +293,6 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.mem_cap_kb = static_cast<int32_t>(number);
       continue;
     }
-    if (strcmp(arg, "--read-delay") == 0) {
-      if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) {
-        return false;
-      }
-      opts.read_delay_us = static_cast<int32_t>(number);
-      continue;
-    }
-    // How early the bench comes back from a sleep: the sleep that never reaches its hour.
     if (strcmp(arg, "--wake-early") == 0) {
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) {
         return false;
@@ -425,6 +464,27 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     return false;
   }
 
+  // **The glass and the fingers are the model's, and they come on by themselves**: a bench of a Paper
+  // with no screen and no touch panel is a board nobody can buy, and the flags to take them away exist
+  // for the run that only wants the console. A test builds its own options and pays neither (docs/85).
+  if (ask_display && !memory.glass) {
+    fprintf(stderr, "--display: %s has no glass, and a bench of it has no screen\n", memory.name);
+    return false;
+  }
+  if (ask_touch && !memory.touch) {
+    fprintf(stderr, "--touch: %s has no touch panel, and a bench of it has no finger\n", memory.name);
+    return false;
+  }
+  // **A window of what the board has**: a model with a glass shows it, and every model of this family has
+  // at least one key, so `--gui` on a board with no screen is the window of its button and not an error —
+  // the bench of an ATOM still has the button a person presses (docs/85).
+  opts.display = memory.glass && !no_display;
+  opts.touch = memory.touch && !no_touch;
+  if (opts.gui && !opts.display && memory.keys == 0) {
+    fprintf(stderr, "--gui: %s has no glass and no key, so there is no window to open\n", memory.name);
+    return false;
+  }
+
   // The defaults of the **binary**, and only of the binary: a test builds its own options and
   // points everything at one directory it will wipe, which is why these are set here and not in
   // `Options()` (docs/85).
@@ -436,13 +496,44 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   if (opts.flash_dir == nullptr) opts.flash_dir = "data";
   if (opts.state_dir == nullptr) opts.state_dir = "emulator";
   if (opts.sd_dir == nullptr) opts.sd_dir = "emulator/sd";
-  // And a read costs what it costs on the board: a millisecond of flash, and twice that for a card.
-  // Without this a bench with the PC's page cache would let an app that reads a file per turn look
-  // fine here and crawl on the glass (docs/85).
-  if (opts.read_delay_us < 0) opts.read_delay_us = kFlashReadUs;
+  // **What the disk costs is the disk's business**: every volume goes through the table of
+  // `emu/disk.h` —a block of the flash, a sector of the card, a byte of the FRAM— so there is no one
+  // number for a read any more (docs/85).
   // And the serial port goes at the speed of the board's UART, so what a person sees arrive arrives
   // at the rate it would over the cable (docs/85).
   if (opts.baud < 0) opts.baud = kUartBaud;
+  // **The battery of the machine, lent to the board, and by itself**: a board with a gauge reads a cell,
+  // and the only cell the bench has to offer is this machine's. What is lent is the percentage, because a
+  // laptop speaks in percentages and the Paper in millivolts, and the curve of the board's cell turns it
+  // into a voltage. It happens without asking because a Paper with no battery is a board nobody has, and
+  // a run that wants another one types it with `--battery-mv` (docs/85).
+  if (opts.battery_from_host && opts.battery_mv > 0) {
+    fprintf(stderr, "--battery-host and --battery-mv are two different batteries; pick one\n");
+    return false;
+  }
+  if (opts.battery_mv <= 0 && memory.gauge) {
+    const emu::HostBattery host = emu::host_battery();
+    opts.battery_mv = emu::lent_cell_mv(host);
+    if (!host.present) {
+      // A desk has no cell to lend and the board still has one: the cell starts at its nominal charge and
+      // the bench says the number it made up, because a number nobody typed has to be announced
+      // (docs/85).
+      fprintf(stderr,
+              "battery: this machine has no battery to lend; the cell of the board starts at %d mV (%d %%)\n",
+              opts.battery_mv, emu::kNominalCellPct);
+    } else {
+      fprintf(stderr, "battery: %d %% of this machine is %d mV of the cell of the board (%u mAh, %d full)%s\n",
+              host.percent, opts.battery_mv, kBoardMilliampHours, kCellFullMv,
+              host.on_cable ? ", and this machine is on a cable, which the Paper cannot tell" : "");
+    }
+  } else if (opts.battery_from_host) {
+    // A board of its own with no gauge has nothing to lend it to: the ATOMs have no cell to read, and
+    // saying so is cheaper than a run that wonders why the battery never shows up (docs/50, docs/85).
+    fprintf(stderr, "battery: %s has no gauge of its own, so there is nothing to lend it\n", memory.name);
+  }
+  // **The app's own code is CPU time**: the interpreter is priced at what it would cost on the board, and
+  // `--lua-cpu` is where the model's number is changed or taken away (0) (docs/85).
+  if (opts.lua_ns_160 < 0) opts.lua_ns_160 = kLuaInstructionNs;
   // **The times of the hardware: paid by default, and off with one flag.** A window is for watching
   // what a board costs, so it needs both the waits and the ink: a glass that switches pixels and
   // charges nothing is a picture of a board that does not exist (docs/85).
@@ -451,7 +542,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     fprintf(stderr, "--gui needs the times of the hardware: a window is for watching what a board costs\n");
     return false;
   }
-  if (opts.gui && opts.ink < 0) {
+  if (opts.gui && opts.ink < 0 && opts.display) {
     fprintf(stderr, "--gui needs the ink of the glass: --no-ink paints a page no panel has\n");
     return false;
   }
@@ -556,6 +647,10 @@ int main(int argc, char** argv) {
   // The console is a terminal, but the board it stands for talks over a UART at 115200 baud: the
   // bytes are handed over at that speed, not all at once (docs/85).
   pal::set_console_baud(static_cast<uint32_t>(opts.delays ? opts.baud : 0));
+  // **A block of the extra memory is not free either**: the board's allocator walks its free lists and
+  // the PC's answers at once, so the bench is told what that walk costs when it is paying the times of
+  // the hardware (docs/85).
+  pal::set_extra_memory_us(opts.delays ? kExtraMemoryUs : 0);
 
   kernel::boot(hal::platform());
 
@@ -563,20 +658,45 @@ int main(int argc, char** argv) {
   // and carries on without it: a run is not lost because a screen is missing (docs/85).
   uint32_t shown_frames = 0xFFFFFFFFu;
   if (opts.gui) {
+    // **Where the keys go is the descriptor's to say**, not this bench's: the board's input names the face a
+    // key is on and the spot it holds, and a dial on a side face is a column down that side while a key on
+    // the top is a row under the page (docs/50, docs/85).
+    emu::KeySide side = emu::KeySide::kBottom;
+    hal::IInput* input = hal::platform().input();
+    if (input != nullptr && input->count() > 0) {
+      const hal::Face face = input->face(0);
+      if (face == hal::Face::kLeft) side = emu::KeySide::kLeft;
+      if (face == hal::Face::kRight) side = emu::KeySide::kRight;
+    }
     if (!emu::gui_available()) {
       fprintf(stderr, "this bench was built without X11: no window\n");
-    } else if (hal::platform().display() == nullptr ||
-               !emu::gui_open(emu::memory_surface()->width(), emu::memory_surface()->height())) {
+    } else if (opts.display && (hal::platform().display() == nullptr ||
+                                !emu::gui_open(emu::memory_surface()->width(),
+                                               emu::memory_surface()->height(),
+                                               static_cast<uint8_t>(hw.keys), side))) {
+      fprintf(stderr, "no display to open the window on\n");
+    } else if (!opts.display && !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side)) {
+      // **A board with no glass has its button and nothing else**: the window is the keys, and an ATOM still
+      // gets the button a person presses (docs/85).
       fprintf(stderr, "no display to open the window on\n");
     } else {
-      const uint8_t scale = emu::gui_scale();
-      if (scale <= 1) {
-        printf("gui: the page %ux%u is in a window, one pixel of the page per pixel of the screen\n",
-               emu::memory_surface()->width(), emu::memory_surface()->height());
-      } else {
-        printf("gui: the page %ux%u is in a window at half, one pixel of the window is %u of the page\n",
-               emu::memory_surface()->width(), emu::memory_surface()->height(),
-               static_cast<unsigned>(scale));
+      if (opts.display) {
+        const uint8_t scale = emu::gui_scale();
+        if (scale <= 1) {
+          printf("gui: the page %ux%u is in a window, one pixel of the page per pixel of the screen\n",
+                 emu::memory_surface()->width(), emu::memory_surface()->height());
+        } else {
+          printf("gui: the page %ux%u is in a window at half, one pixel of the window is %u of the page\n",
+                 emu::memory_surface()->width(), emu::memory_surface()->height(),
+                 static_cast<unsigned>(scale));
+        }
+      }
+      if (hw.keys > 0) {
+        const char* where = (side == emu::KeySide::kLeft)    ? "a column on the left of the page"
+                            : (side == emu::KeySide::kRight) ? "a column on the right of the page"
+                                                             : "a row under the page";
+        printf("gui: the %u keys of the board are %s, where the descriptor of the board puts them\n",
+               static_cast<unsigned>(hw.keys), where);
       }
       fflush(stdout);
     }

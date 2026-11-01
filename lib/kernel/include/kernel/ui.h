@@ -108,6 +108,10 @@ struct Canvas {
   int32_t clip_y = 0;
   int32_t clip_x1 = 0;
   int32_t clip_y1 = 0;
+  // **The face its text is drawn with**, as a handle (`ui::font_load`), and -1 is the font of the system.
+  // It is a number and not a pointer because the face lives in a table that an app may give back: the
+  // canvas that used it draws with the system's again instead of pointing at a freed block (docs/30).
+  int8_t face = -1;
 };
 
 // Makes the canvas, at the size of the glass **minus the rows the system keeps at the top** and just
@@ -199,11 +203,46 @@ bool canvas_circle(int8_t slot, int16_t center_x, int16_t center_y, int16_t radi
                    const char* mode);
 bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
                  const char* mode);
-// A text drawn into the canvas with the font of the system, `scale` times its size and **cut at the
-// border of the canvas**: that is what a label is made of, and the font is the same one the bar uses
-// until a font can be loaded from a file (docs/30, docs/90).
+// A text drawn into the canvas with **the face the canvas was given**, or with the font of the system when
+// it was given none, `scale` times its size and **cut at the border of the canvas**: that is what a label is
+// made of (docs/30, docs/90).
 bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode);
+
+// ---- the faces a text can be drawn with (docs/30) ----
+//
+// The system has one font and it is in the flash; an app may load another from a **portable font file**
+// (`res/fonts/*.lfont`, plain text, one glyph per block) and use it on any canvas it owns. The block of
+// glyphs is the app's —it comes from the extra memory and counts against its budget— and it lives until the
+// app gives it back or the app ends (docs/30, docs/75).
+//
+// A handle is a number; -1 is the face of the system. `reason` says why a file is not a face, and it is the
+// string an app shows.
+const uint8_t kMaxFaces = 3;
+int8_t font_load(const char* path, const char*& reason);
+bool font_release(int8_t handle);
+// What a face says of itself: how big a glyph is, the space between two, and how many codes it carries.
+bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs);
+// **The face of a canvas**, and the face of the app's view for the shorthand calls (`ui.text`). -1 is the
+// font of the system. A canvas whose face is given back draws with the system's again, which is why the
+// number is checked every time and never trusted (docs/30).
+bool canvas_set_font(int8_t slot, int8_t handle);
+bool app_set_font(int8_t handle);
+// How wide a text is with that face, in pixels, which is what centring it needs (docs/30).
+uint16_t font_text_width(int8_t handle, const char* text, uint8_t scale);
+
+// ---- what it takes to leave the page clean (docs/50, docs/90) ----
+//
+// Between two apps the system owes a clean screen, and **what that costs is the system's to choose**: a page
+// of text —levels 0 and 15 and nothing else— is washed with `a2`, which is the two-level wash; a page with a
+// few grays takes `gl16`, which washes sixteen levels without the black flash; a photograph takes `gc16`, and
+// so does any page that has taken many quick paints, because what it leaves is ghost and only a full wash
+// takes ghost away. On this glass that is 290 ms against 450, per app change (docs/50).
+hal::UpdateMode cleaner_for(uint16_t levels, uint16_t paints);
+// Which levels the page has shown since it was last cleaned, as a bit per level, and how many boxes of
+// pixels have been put down: what `cleaner_for` reads, and what a test asks (docs/90).
+uint16_t levels_shown();
+uint16_t paints_since_clean();
 
 // Composes the damage onto the board's surface —translated to where the view sits— and asks for each
 // region to be painted with the quality it was drawn with. Returns **before the ink has moved**

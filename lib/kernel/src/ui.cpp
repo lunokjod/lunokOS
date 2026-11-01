@@ -10,6 +10,8 @@
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
+#include "kernel/fs_ops.h"
+#include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
 
@@ -25,6 +27,25 @@ bool g_attached = false;
 // The number the next canvas takes, so an object of an app that points at a slot that was given back
 // never matches the one that took its place (docs/90).
 uint16_t g_generation = 0;
+
+// The faces an app loaded are given back when the app ends; the table is at the bottom of this file, with
+// the rest of the font work (docs/30).
+void release_faces();
+// The face a handle means, which is the font of the system when the handle is -1 or was given back.
+const font::Face& face_of(int8_t handle);
+
+// **What the page has shown since it was last cleaned**: which of the sixteen levels were painted, and how
+// many boxes of pixels were put down. It is what the system reads to choose the cleaner between two apps: a
+// page of text does not need the cleaner a photograph needs, and a page that has taken many quick paints
+// needs a full one even if it is only text (docs/50, docs/90).
+uint16_t g_levels = 0;
+uint16_t g_paints = 0;
+
+void note_level(uint8_t level) {
+  if (level > 15) return;
+  g_levels = static_cast<uint16_t>(g_levels | (1u << level));
+  ++g_paints;
+}
 
 Canvas& root() { return g_canvases[0]; }
 
@@ -444,6 +465,7 @@ void put_pixel(Canvas& canvas, int32_t x, int32_t y, uint8_t level) {
   int32_t h = 1;
   if (!clip_to_redraw(canvas, x, y, w, h)) return;
   if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return;
+  note_level(level);
   uint8_t& byte = canvas.bits[static_cast<uint32_t>(y) * canvas.stride + static_cast<uint32_t>(x) / 2];
   if ((x & 1) == 0) {
     byte = static_cast<uint8_t>((byte & 0x0F) | (level << 4));
@@ -467,6 +489,7 @@ void put_rect(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint8_
   if (x + w > canvas.width) w = canvas.width - x;
   if (y + h > canvas.height) h = canvas.height - y;
   if (w <= 0 || h <= 0) return;
+  note_level(level);
   const uint8_t packed = static_cast<uint8_t>((level << 4) | level);
   const int32_t end = x + w;
   for (int32_t row = 0; row < h; ++row) {
@@ -630,7 +653,7 @@ void draw_text(Canvas& canvas, int32_t x, int32_t y, const char* text, uint8_t s
     if (canvas.redraw_y + canvas.redraw_h < box.y1) box.y1 = canvas.redraw_y + canvas.redraw_h;
   }
   CanvasSink sink = {&canvas, level};
-  font::runs(text, x, y, scale, box, canvas_run, &sink);
+  font::runs(face_of(canvas.face), text, x, y, scale, box, canvas_run, &sink);
   // What a text covers is its box, cut at the canvas: the runs are many and the damage is one.
   const int32_t text_w = font::width(text, scale);
   const int32_t text_h = font::kGlyphHeight * scale;
@@ -878,7 +901,13 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      generation_of,
                                      invalidate_rect,
                                      begin_draw,
-                                     end_draw});
+                                     end_draw,
+                                     font_load,
+                                     font_release,
+                                     font_info,
+                                     canvas_set_font,
+                                     app_set_font,
+                                     font_text_width});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -899,8 +928,22 @@ void attach() {
   // A white view, nothing drawn and nothing pending, and **no controls inside it**: the app that had
   // them is gone (docs/30, docs/90). The glass is not touched until the app presents.
   for (uint8_t i = 1; i < kMaxControls; ++i) release_slot(static_cast<int8_t>(i));
+  // **And the faces it loaded go back too**: the block of an app is the app's, and an app that ends with a
+  // font loaded would leave a kilobyte of the extra memory spoken for by nobody (docs/30, docs/75).
+  release_faces();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
+  // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
+  // here painted something and the next one starts on white paper, and what that wash costs is the
+  // system's to choose —`a2` for a page of text, `gl16` for a few grays, `gc16` for a photograph— and not
+  // the app's, because no app knows what the one before it left (docs/50, docs/90). The paint is asked for
+  // and not waited on: the next app's own paint queues behind it.
+  if (g_levels != 0) {
+    damage_add(root(), 0, 0, root().width, root().height, cleaner_for(g_levels, g_paints));
+    paint_root();
+  }
+  g_levels = 0;
+  g_paints = 0;
   // **A view that has never been drawn owes a draw**, like a canvas that has just been made: the app that
   // is starting is the one that has to fill it (docs/90).
   root().needs_draw = true;
@@ -1316,6 +1359,192 @@ bool set_rotation(uint16_t degrees) {
 }
 
 uint16_t rotation() { return display::rotation(); }
+
+// ---- the faces a text can be drawn with (docs/30) ----
+
+namespace {
+
+// **The faces an app has loaded**, each with its own block of glyphs. Three is what fits a bar, a title and
+// a page of an app that wants three sizes, and a fourth is a face nobody needs (docs/30).
+struct LoadedFace {
+  bool in_use = false;
+  font::Face face;
+  uint8_t* bits = nullptr;
+};
+
+LoadedFace g_faces[kMaxFaces];
+// The face of the view and of the shorthand calls, or -1 for the font of the system.
+int8_t g_app_face = -1;
+
+void release_faces() {
+  for (uint8_t i = 0; i < kMaxFaces; ++i) {
+    if (g_faces[i].in_use) font_release(static_cast<int8_t>(i));
+  }
+  g_app_face = -1;
+}
+
+const font::Face& face_of(int8_t handle) {
+  if (handle < 0 || handle >= static_cast<int8_t>(kMaxFaces)) return font::system_face();
+  const LoadedFace& loaded = g_faces[handle];
+  if (!loaded.in_use || loaded.bits == nullptr) return font::system_face();
+  return loaded.face;
+}
+
+// The biggest font file this system reads: **a face of ninety-six glyphs of eight rows is about four
+// kilobytes of text**, and a file past this is not a font anybody wrote by hand (docs/30).
+const uint32_t kFontFileBytes = 8192;
+
+}  // namespace
+
+int8_t font_load(const char* path, const char*& reason) {
+  reason = nullptr;
+  if (path == nullptr) {
+    reason = "no path";
+    return -1;
+  }
+  // **The path is the app's, not the kernel's**: `/res/x` from an app is `apps/<id>/res/x`, which is where
+  // the files an app ships with live, so the same rule that the `fs.*` calls obey is applied here (docs/70).
+  char full[128];
+  if (!app_path(path, full, sizeof(full))) {
+    reason = "that is not a path an app may name";
+    return -1;
+  }
+  hal::Stat info;
+  if (!vfs::stat(full, info)) {
+    reason = "there is no such file";
+    return -1;
+  }
+  if (info.size == 0 || info.size > kFontFileBytes) {
+    reason = "a font is one to eight kilobytes of text";
+    return -1;
+  }
+  // A free slot first: a face that cannot be kept is not worth reading the file for.
+  int8_t slot = -1;
+  for (uint8_t i = 0; i < kMaxFaces; ++i) {
+    if (!g_faces[i].in_use) {
+      slot = static_cast<int8_t>(i);
+      break;
+    }
+  }
+  if (slot < 0) {
+    reason = "there is no room for another face";
+    return -1;
+  }
+  // **The text of the file and the glyphs are two blocks of the app's memory**, and the text is given back
+  // as soon as it has been read: what a face keeps is the glyphs (docs/30, docs/75).
+  void* text = nullptr;
+  {
+    meter::Scope scope(meter::kExtraAlloc);
+    text = pal::extra_memory().allocate(static_cast<size_t>(info.size) + 1, true);
+  }
+  if (text == nullptr) {
+    reason = "there is no memory for the file";
+    return -1;
+  }
+  size_t read = 0;
+  char* as_text = static_cast<char*>(text);
+  const bool ok = vfs::read_file(full, as_text, static_cast<size_t>(info.size), read);
+  as_text[read] = '\0';
+  if (!ok) {
+    pal::extra_memory().release(text);
+    reason = "the file could not be read";
+    return -1;
+  }
+  uint8_t* bits = static_cast<uint8_t*>(pal::extra_memory().allocate(font::kFaceBytes, true));
+  if (bits == nullptr) {
+    pal::extra_memory().release(text);
+    reason = "there is no memory for the glyphs";
+    return -1;
+  }
+  LoadedFace& made = g_faces[slot];
+  const char* why = font::load_any(as_text, static_cast<uint32_t>(read), bits, made.face);
+  pal::extra_memory().release(text);
+  if (why != nullptr) {
+    pal::extra_memory().release(bits);
+    reason = why;
+    return -1;
+  }
+  made.bits = bits;
+  made.in_use = true;
+  return slot;
+}
+
+bool font_release(int8_t handle) {
+  if (handle < 0 || handle >= static_cast<int8_t>(kMaxFaces)) return false;
+  LoadedFace& loaded = g_faces[handle];
+  if (!loaded.in_use) return false;
+  // **The block goes back and the slot is free**, and every canvas that was drawing with it falls back to
+  // the font of the system: a face is data, and data that an app gave back cannot be drawn from (docs/30).
+  pal::extra_memory().release(loaded.bits);
+  loaded = LoadedFace{};
+  if (g_app_face == handle) g_app_face = -1;
+  return true;
+}
+
+bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs) {
+  if (handle < 0) {
+    const font::Face& face = font::system_face();
+    width = face.width;
+    height = face.height;
+    gap = face.gap;
+    glyphs = face.count;
+    return true;
+  }
+  if (handle >= static_cast<int8_t>(kMaxFaces) || !g_faces[handle].in_use) return false;
+  const font::Face& face = g_faces[handle].face;
+  width = face.width;
+  height = face.height;
+  gap = face.gap;
+  glyphs = face.count;
+  return true;
+}
+
+bool canvas_set_font(int8_t slot, int8_t handle) {
+  if (!live(slot)) return false;
+  if (handle >= static_cast<int8_t>(kMaxFaces)) return false;
+  if (handle >= 0 && !g_faces[handle].in_use) return false;
+  g_canvases[slot].face = handle;
+  return true;
+}
+
+bool app_set_font(int8_t handle) {
+  if (handle >= static_cast<int8_t>(kMaxFaces)) return false;
+  if (handle >= 0 && !g_faces[handle].in_use) return false;
+  g_app_face = handle;
+  // The view is the canvas the app draws on with the shorthand calls, so it wears the face too.
+  g_canvases[0].face = handle;
+  return true;
+}
+
+uint16_t font_text_width(int8_t handle, const char* text, uint8_t scale) {
+  return font::width(face_of(handle), text, scale);
+}
+
+// **The number of quick paints after which what is left is ghost**, which is what a panel shows after a few
+// dozen partial updates: past this a page of text needs the full wash too, and the number is one constant to
+// change after somebody counts it on the board (docs/50).
+const uint16_t kManyPaints = 32;
+
+hal::UpdateMode cleaner_for(uint16_t levels, uint16_t paints) {
+  // Nothing was painted: there is nothing to clean and the cheapest answer is the one that does nothing.
+  if (levels == 0) return hal::UpdateMode::kDu;
+  // **A page that has taken many quick paints owes a full wash whatever it showed** (docs/50).
+  if (paints >= kManyPaints) return hal::UpdateMode::kGc16;
+  // **Text**: black and white and nothing between them is a page the two-level wash takes away.
+  const uint16_t text_only = static_cast<uint16_t>((1u << 0) | (1u << 15));
+  if ((levels & static_cast<uint16_t>(~text_only)) == 0) return hal::UpdateMode::kA2;
+  // A few grays: the sixteen-level wash, which is the same time as the full one but does not flash black.
+  uint8_t grays = 0;
+  for (uint8_t level = 0; level < 16; ++level) {
+    if ((levels & (1u << level)) != 0) ++grays;
+  }
+  if (grays <= 4) return hal::UpdateMode::kGl16;
+  // **A photograph**: all sixteen, or most of them, and only the full wash leaves the paper clean.
+  return hal::UpdateMode::kGc16;
+}
+
+uint16_t levels_shown() { return g_levels; }
+uint16_t paints_since_clean() { return g_paints; }
 
 }  // namespace ui
 }  // namespace kernel

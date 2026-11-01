@@ -551,6 +551,10 @@ class IPlatform {
   // frame is known, but a name an app can ask for has to come with the call that uses it, and a
   // touch means nothing without something drawn under it — the panel (docs/90).
   virtual ITouch* touch() const { return nullptr; }
+  // **What one instruction of the interpreter costs when this band has to simulate a processor it is
+  // not running on**, in nanoseconds: zero on a board, where the time is the real one, and a number on
+  // a bench that is paying for it, scaled by `power()->cpu_mhz()` (docs/85).
+  virtual uint32_t simulated_instruction_ns() { return 0; }
 };
 
 // Implemented once per board library (hal_atom, hal_emulator).

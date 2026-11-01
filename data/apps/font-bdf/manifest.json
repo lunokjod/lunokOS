@@ -1,0 +1,8 @@
+{
+  "title": "Font bdf",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "font-bdf.lua",
+  "boards": ["esp32"],
+  "description": "A face loaded from a BDF, the bitmap format an X server read, next to the font of the system and at two sizes."
+}

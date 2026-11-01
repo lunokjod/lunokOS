@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <Esp.h>
 #include <esp_heap_caps.h>
+#include <esp_rom_sys.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -185,5 +186,13 @@ void shutdown() {}
 ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }
+
+void set_extra_memory_us(uint32_t us) { (void)us; }
+
+void delay_us(uint32_t us) {
+  // **The chip's own busy wait**: on the board nothing asks for this —the time is the real one— and the
+  // honest answer to "wait" is to wait (docs/85).
+  if (us > 0) esp_rom_delay_us(us);
+}
 
 }  // namespace pal

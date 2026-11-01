@@ -1,0 +1,8 @@
+{
+  "title": "Font mix",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "font-mix.lua",
+  "boards": ["esp32"],
+  "description": "A face that carries three letters and nothing else, in the same line as the font of the system: the codes it lacks are holes and the line does not shift."
+}

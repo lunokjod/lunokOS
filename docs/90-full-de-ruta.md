@@ -115,7 +115,7 @@ bateria, la ranura i la FRAM). El que **encara no** segueix el model és la **fo
 | Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i `--battery-mv`, `kCapSd` només amb ranura i `--sd`, `kCapDisplay` amb `--display`) | res |
 | Llums | Fet: el comptador és el del model (1 a l'ATOM, 25 al Matrix, **0 al Paper**) i el sostre del canal és **20 a tots**, per decisió: un banc que deixés passar 255 amagaria el límit del panell (`lib/hal_emulator/include/board/identity.h`) | decidir si el sostre ha de ser el de cada model (255 a l'ATOM) o quedar-se a 20 |
 | Tecles (quantes) | Fet: `IInput::count()` és el del model (1 a l'ATOM i al Matrix, 3 al Paper) | — |
-| Tecles (forma) | **Pendent**: la cara, el lloc i si és composta són sempre els de la Paper (`hal_emulator.cpp`, el dial de la cara esquerra) | una fila per model a `emu_model.cpp` i que `IInput::info()` la llegeixi |
+| Tecles (forma) | **Pendent**: la cara, el lloc i si és composta són sempre els de la Paper (`hal_emulator.cpp`, el dial de la cara dreta) | una fila per model a `emu_model.cpp` i que `IInput::info()` la llegeixi |
 
 Els perfils **viuen en una taula en temps d'execució** (`emu_model.cpp`): la identitat de les plaques
 de xip és una capçalera triada per `-I` (docs/50) i l'emulador no en pot veure tres de cop. Les
@@ -267,8 +267,9 @@ marges a fora, hi ha una vora que no es pot passar.
   començament del gest, restant el desplaçament de cada capa que té a sobre. És la mateixa conversió que
   avui fa `turn_frame()` una sola vegada, estesa a una cadena; i el gest és d'un sol control —el que
   tenia el dit a sobre quan va començar— o el mateix gest el rebrien tots els de la pila.
-- **Falta per parlar i decidir**: els tipus de lletra dels UILabel, les funcions per carregar una imatge
-  dins d'un UICanvas, i tres coses que el model obliga a triar:
+- **Falta per parlar i decidir**: les funcions per carregar una imatge dins d'un UICanvas, i tres coses
+  que el model obliga a triar (els tipus de lletra d'un UILabel ja no són una pregunta: són una cara, i es
+  carreguen amb `ui.load_font` i es posen amb `cv:font`):
   - **què vol dir compondre un control sobre un altre**: una còpia de bytes (el fill és opac i porta el
     seu fons) o només la tinta (el fill guarda una màscara a part). Amb quatre bits i setze nivells, un
     «nivell transparent» no hi cap sense prohibir el blanc sobre negre;
@@ -324,9 +325,22 @@ rectangle que deixava un `place` tornava dins del rectangle d'un `release`).
 
 | Què | Per què s'ajorna | Què voldrà dir fer-ho |
 |---|---|---|
-| **Carregar una font d'un fitxer** | La de 5 × 7 del sistema cobreix el que hi ha ara: la barra i un text de prova. Una font és una **decisió de format** —una taula de glifs amb la seva mida, el seu pas i els seus bytes— i no es pren fins que hi hagi un text que ho demani | un objecte `font` a Lua (`ui.font(path)`), una capçalera de fitxer amb amplada, alçada, pas i quants nivells de gris, la taula al disc o a la PSRAM, i `text(x, y, s, font, scale, level)` amb la font com a paràmetre. La feina del camí dels glifs ja està feta: `font::runs` dona els rectangles i només canvia **d'on surten** |
 | **Carregar una imatge dins d'un canvas** | No hi ha cap app que en demani, i una imatge obre les preguntes de sempre: quin format, quanta memòria i qui la té | un objecte `image` (4 bits per píxel, la mateixa empaquetadura que el canvas) i `cv:image(x, y, img)`, que és una còpia de bytes amb retall. La composició ja està feta |
-| **`UILabel`** | És el primer control de debò, i ja no espera res: el **marc sense vista** hi és, o sigui que una etiqueta és un control sense buffer amb quatre camps | un control amb `text`, `font`, `color` i `size`; el seu `on_draw` és `clear` i `text` amb la vora que ja tallem |
+| **`UILabel`** | És el primer control de debò, i ja no espera res: el **marc sense vista** hi és, o sigui que una etiqueta és un control sense buffer amb quatre camps | un control amb `text`, `face`, `color` i `size`; el seu `on_draw` és `clear` i `text` amb la vora que ja tallem |
+
+**I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
+0.39.0). La lletra de 5 × 7 del sistema passa a ser **una cara més del mateix camí**: `font::system_face()`
+i les cares d'un fitxer comparteixen `font::width` i `font::runs`, i el dibuix llegeix rectangles i no sap
+d'on vénen. `ui.load_font(path)` dona **un objecte `font`** amb `:text_width`, `:size` i `:release`;
+`cv:font(f)` i `ui.font(f)` el posen a un canvas o a la vista (`nil` torna a la del sistema); i el bloc de
+glifs és de l'app i compta al seu pressupost —768 B per cara, tres cares alhora—. Una cara és de **fins a
+8 × 8** i de **96 codis del 0x20 al 0x7F, en ordre i sense forats**, i n'hi ha **dos formats i el fitxer
+mateix diu quin**: el propi (`lunok-font 1`, una línia de directives i els glifs en `#` i `.`) i el **BDF**
+d'un servidor X (`STARTFONT`, les files del `BITMAP` en hexadecimal). Un fitxer que no és ni una cosa ni
+l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de vuit columnes. Cinc apps ho ensenyen
+(`run sheet`, `run fonts`, `run font-sizes`, `run font-mix`, `run font-bdf`) i sis casos de `test/test_font`
+ho proven, refusos inclosos. **Qui converteix una cara en píxels és el nucli i no l'app**: Lua demana
+`text` i prou, perquè el retall, les escales i la comptabilitat del dany viuen en un sol lloc.
 
 **I un control que se'n va es neteja abans de ser alliberat** (1/11): `cv:release()` **demana**, no fa. El
 control i els seus fills queden marcats, el control que pinta rep **un sol rectangle, el del pare** —els

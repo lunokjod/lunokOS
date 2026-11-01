@@ -1,0 +1,8 @@
+{
+  "title": "Font sizes",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "font-sizes.lua",
+  "boards": ["esp32"],
+  "description": "The same word at six sizes, which is the system multiplying a glyph and not the app drawing one."
+}

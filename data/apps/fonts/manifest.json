@@ -1,0 +1,8 @@
+{
+  "title": "Fonts",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "fonts.lua",
+  "boards": ["esp32"],
+  "description": "The font of the system and a face loaded from a portable font file on the same page, with the numbers each face says of itself."
+}

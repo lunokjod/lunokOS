@@ -1,0 +1,8 @@
+{
+  "title": "Draw",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "draw.lua",
+  "boards": ["esp32"],
+  "description": "A finger paint: the trail follows the finger with the quick quality and a tap cleans the page."
+}

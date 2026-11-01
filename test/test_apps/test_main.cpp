@@ -2943,12 +2943,13 @@ void test_the_board_says_where_its_keys_are(void) {
                            "  .. tostring(err and err.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run keymap", g_out, sizeof(g_out)));
-  // The bench is the Paper here: one compound dial of three keys on the left
-  // face, with the middle one in the middle (docs/85).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 left/centre compound 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 left/up compound 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 left/down compound 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "middle left/centre"), g_out);
+  // The bench is the Paper here: one compound dial of three keys on the **right** face of the page, with the
+  // middle one in the middle. It said `left` until 0.34.2, which is the face the maker's sheet guesses and
+  // not the one a person with the board in their hands sees (docs/50, docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 right/centre compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 right/up compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 right/down compound 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "middle right/centre"), g_out);
   // A key that is not there is said, not invented.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ninth nil E_INVAL"), g_out);
 

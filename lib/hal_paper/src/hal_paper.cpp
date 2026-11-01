@@ -100,10 +100,15 @@ void hold_power() {
 // system counts three taps on (docs/30). Its README says the opposite about left and
 // right, so which of the two is the top of the dial is the one thing about this board
 // that has to be checked by pressing it (docs/90).
+//
+// **The dial is on the right of the page as an app draws it** (1/11): whoever has the board in their
+// hands says the three keys are on the right of the portrait page, not on the left, and that is what
+// `Face::kRight` says. It used to say `kLeft`, which put the bench's buttons on the wrong side of the
+// page (docs/50, docs/85).
 const KeySpot kKeys[] = {
-    {38, Face::kLeft, Spot::kCentre, KeyKind::kCompound, 0},  // centre (PWR)
-    {37, Face::kLeft, Spot::kUp, KeyKind::kCompound, 0},
-    {39, Face::kLeft, Spot::kDown, KeyKind::kCompound, 0},
+    {38, Face::kRight, Spot::kCentre, KeyKind::kCompound, 0},  // centre (PWR)
+    {37, Face::kRight, Spot::kUp, KeyKind::kCompound, 0},
+    {39, Face::kRight, Spot::kDown, KeyKind::kCompound, 0},
 };
 
 // The label of the data partition in partitions_16mb.csv (docs/70).

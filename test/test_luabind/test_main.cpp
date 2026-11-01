@@ -776,6 +776,53 @@ void test_app_knows_its_id_and_its_file(void) {
   luabind::stop();
 }
 
+namespace {
+
+// What the band says about the interpreter, in the test's hands: a price for one instruction and a
+// pocket to collect what is paid (docs/85).
+uint32_t g_spent_us = 0;
+uint32_t g_instruction_ns = 60;
+
+void count_the_spend(uint32_t us) { g_spent_us += us; }
+uint32_t price_of_an_instruction() { return g_instruction_ns; }
+
+}  // namespace
+
+// **The instructions of an app are CPU time** (docs/85): the interpreter asks the band what one costs and
+// pays for them, so a loop costs here what it costs on the glass. On a board the answer is zero —its
+// instruction already takes the time it takes— and nothing is spent; on the bench it is the sixty
+// nanoseconds of the model, times what the turn did.
+static void test_the_instructions_of_an_app_are_paid_for(void) {
+  // **The ops go in before the interpreter opens**, because the count hook is only installed on a band
+  // that prices instructions: a board installs the cheap one (docs/85).
+  luabind::MeterOps ops = {};
+  ops.instruction_ns = &price_of_an_instruction;
+  ops.spend_us = &count_the_spend;
+  luabind::set_meter_ops(ops);
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+
+  g_spent_us = 0;
+  TEST_ASSERT_TRUE(run("local x = 0\nfor i = 1, 2000 do x = x + i end\n"));
+  const uint32_t paid = g_spent_us;
+  TEST_ASSERT_TRUE_MESSAGE(paid > 0, "a loop of two thousand additions was free");
+
+  // Twice the work, twice the price, within the block the hook pays in: what is charged is the count of
+  // instructions and not the clock of the PC (docs/85).
+  g_spent_us = 0;
+  TEST_ASSERT_TRUE(run("local x = 0\nfor i = 1, 4000 do x = x + i end\n"));
+  TEST_ASSERT_UINT32_WITHIN(paid, 2 * paid, g_spent_us);
+
+  // A band that prices nothing is a board, and a board spends nothing: the time is the real one.
+  g_instruction_ns = 0;
+  g_spent_us = 0;
+  TEST_ASSERT_TRUE(run("local x = 0\nfor i = 1, 4000 do x = x + i end\n"));
+  TEST_ASSERT_EQUAL_UINT32(0, g_spent_us);
+
+  g_instruction_ns = 60;
+  luabind::stop();
+  luabind::set_meter_ops(luabind::MeterOps{});
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -820,6 +867,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_hundred_waits_in_a_row_work);
   RUN_TEST(test_app_exit_ends_the_app_with_a_code);
   RUN_TEST(test_app_knows_its_id_and_its_file);
+  RUN_TEST(test_the_instructions_of_an_app_are_paid_for);
   UNITY_END();
   return 0;
 }

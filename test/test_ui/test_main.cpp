@@ -12,6 +12,7 @@
 
 #include <unity.h>
 
+#include "emu/model.h"
 #include "emu/options.h"
 #include "emu/surface.h"
 #include "emu/gui.h"
@@ -32,15 +33,17 @@ namespace {
 
 bool g_booted = false;
 
-// A bench **with a glass**: the option is what turns the panel on, and a board without one is the
-// default of every other suite (docs/85). Only the two pieces this suite is about are booted —the
-// board's surface and the app's canvas— because a full boot drags the disk and the radio in for
-// nothing.
+// A bench **with a glass**: the glass is the model's (`Model::glass`, the Paper) and it is on unless the
+// run says no, which is what the binary does by itself. Only the two pieces this suite is about are
+// booted —the board's surface and the app's canvas— because a full boot drags the disk and the radio in
+// for nothing.
 void boot_with_a_panel() {
   if (g_booted) return;
   emu::Options opts = emu::options();
+  // **The board that has the panel**: the default model of the bench is the ATOM, which has no screen to
+  // try anything against (docs/50, docs/85).
+  opts.board = "m5stack-paper";
   opts.display = true;
-  opts.read_delay_us = 0;
   // **The times of the hardware are paid in this suite**: it measures the ink and the bus of the glass,
   // and a paint that costs nothing is a paint no panel has (docs/85).
   opts.delays = true;
@@ -851,6 +854,66 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
+// **The level a band of the glass shows**, averaged over twenty pixels: one pixel can be a miss of the
+// speckle, and what the test below is about is the shape of the trace and not the grain of it (docs/85).
+static uint8_t band_of_the_glass(uint16_t y) {
+  uint32_t sum = 0;
+  uint16_t count = 0;
+  for (uint16_t x = 30; x < 50; ++x) {
+    sum += glass().shown_at(x, y);
+    ++count;
+  }
+  return static_cast<uint8_t>((sum + count / 2) / count);
+}
+
+// **A rich page leaves a rich trace, and a flat one leaves almost nothing** (docs/85): a quick paint
+// cannot take what it finds, so what is left of a ladder of sixteen levels is that ladder at lower
+// contrast —its dark end still dark, its light end still light— and what is left of a page that was all
+// one colour is a page that is all one grey. That difference is exactly what a person sees as ghosting,
+// and it is the reason this model exists.
+static void test_the_trace_of_a_rich_page_is_richer_than_a_flat_one(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+
+  // A ladder of sixteen levels, a band each, painted with the quality that cleans.
+  for (uint8_t level = 0; level < 16; ++level) {
+    TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, static_cast<uint16_t>(10 + level * 8), 80, 8, level,
+                                          "gc16"));
+  }
+  TEST_ASSERT_TRUE(ui::present());
+
+  // White over it with the quick quality: what comes out is the ladder at lower contrast.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 15, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  uint8_t rich_low = 15;
+  uint8_t rich_high = 0;
+  for (uint8_t level = 0; level < 16; ++level) {
+    const uint8_t shown = band_of_the_glass(static_cast<uint16_t>(10 + level * 8 + 3));
+    if (shown < rich_low) rich_low = shown;
+    if (shown > rich_high) rich_high = shown;
+  }
+  const uint8_t rich_spread = static_cast<uint8_t>(rich_high - rich_low);
+
+  // The same white with the same quick quality over a page that was all black: the result is one grey
+  // with no shape in it, which is what a person sees when a page of text is repainted.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 15, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  uint8_t flat_low = 15;
+  uint8_t flat_high = 0;
+  for (uint8_t level = 0; level < 16; ++level) {
+    const uint8_t shown = band_of_the_glass(static_cast<uint16_t>(10 + level * 8 + 3));
+    if (shown < flat_low) flat_low = shown;
+    if (shown > flat_high) flat_high = shown;
+  }
+  const uint8_t flat_spread = static_cast<uint8_t>(flat_high - flat_low);
+
+  TEST_ASSERT_TRUE_MESSAGE(rich_spread >= 4, "a page of sixteen levels left no shape in its trace");
+  TEST_ASSERT_TRUE_MESSAGE(flat_spread <= 1, "a flat page left a shape in its trace");
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
 // **A paint takes as long as the quality takes**: a `du` is about a tenth of a second and a `gc16` about
 // half of one, and `ui.idle()` is the question that says when the ink has stopped moving — which is what
 // makes a measurement taken on the bench mean something (docs/30, docs/85).
@@ -944,6 +1007,155 @@ static void test_an_a2_flashes_the_page_before_the_image_arrives(void) {
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
+// **Only the board that has a glass announces one**, and the same for the finger: the hardware is the
+// model's (`Model::glass`, `Model::touch`) and an option cannot give a screen to a board that has none —
+// a bench that did is a board nobody can buy. It is the rule the binary obeys to turn both on by itself
+// on a Paper, and the reason `run draw` works there without a flag (docs/50, docs/85).
+static void test_only_the_board_that_has_a_glass_announces_one() {
+  // The model is the one list of the hardware, and nothing else needs to be asked.
+  TEST_ASSERT_TRUE_MESSAGE(emu::model_of("m5stack-paper").glass, "the Paper has no glass");
+  TEST_ASSERT_TRUE_MESSAGE(emu::model_of("m5stack-paper").touch, "the Paper has no touch panel");
+  TEST_ASSERT_FALSE_MESSAGE(emu::model_of("m5stack-atom").glass, "an ATOM has a glass");
+  TEST_ASSERT_FALSE_MESSAGE(emu::model_of("m5stack-atom").touch, "an ATOM has a touch panel");
+  TEST_ASSERT_FALSE_MESSAGE(emu::model_of("m5stack-atom-matrix").glass, "a Matrix has a glass");
+
+  // **The options are not enough**: with the glass and the finger asked for, a Paper announces both and
+  // an ATOM announces neither (docs/50).
+  const emu::Options before = emu::options();
+  emu::Options opts = before;
+  opts.display = true;
+  opts.touch = true;
+  opts.board = "m5stack-paper";
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(hal::platform().caps().has(hal::kCapDisplay));
+  TEST_ASSERT_TRUE(hal::platform().caps().has(hal::kCapTouch));
+
+  opts.board = "m5stack-atom";
+  emu::set_options(opts);
+  TEST_ASSERT_FALSE(hal::platform().caps().has(hal::kCapDisplay));
+  TEST_ASSERT_FALSE(hal::platform().caps().has(hal::kCapTouch));
+  emu::set_options(before);
+}
+
+// **A pixel of the window is a block of the page**, and the finger of the mouse lands in the middle of it:
+// the window draws one pixel for every `scale` of the glass, and the way back is what makes a click a tap
+// on the pixel a person is pointing at. A point outside the page is pinned to its edge instead of being a
+// finger on no glass (docs/85).
+static void test_a_pixel_of_the_window_lands_in_the_middle_of_its_block() {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  // The page as it is: the window pixel is the page pixel.
+  emu::gui_page_point(10, 20, 1, 540, 960, x, y);
+  TEST_ASSERT_EQUAL_UINT16(10, x);
+  TEST_ASSERT_EQUAL_UINT16(20, y);
+  // At half, one window pixel stands for four page pixels and the finger is on the middle one.
+  emu::gui_page_point(10, 20, 2, 540, 960, x, y);
+  TEST_ASSERT_EQUAL_UINT16(21, x);
+  TEST_ASSERT_EQUAL_UINT16(41, y);
+  // The two corners of the window are the two corners of the page, without one pixel left over.
+  emu::gui_page_point(0, 0, 2, 540, 960, x, y);
+  TEST_ASSERT_EQUAL_UINT16(1, x);
+  TEST_ASSERT_EQUAL_UINT16(1, y);
+  emu::gui_page_point(269, 479, 2, 540, 960, x, y);
+  TEST_ASSERT_EQUAL_UINT16(539, x);
+  TEST_ASSERT_EQUAL_UINT16(959, y);
+  // And a pointer that is not on the page is the edge of it, not a finger off the glass.
+  emu::gui_page_point(9999, -5, 2, 540, 960, x, y);
+  TEST_ASSERT_EQUAL_UINT16(539, x);
+  TEST_ASSERT_EQUAL_UINT16(0, y);
+}
+
+// **The strip of the keys is the dial of the board**: a column of buttons whose middle is the middle key,
+// up on top and down at the bottom, on the side the descriptor of the input says —the left face on the
+// Paper— with the gaps between them pressing nothing. A button that presses the wrong key is a bug nobody
+// sees —the light blinks and the number does not move— so the map is a function with proof of its own
+// (docs/50, docs/85).
+static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
+  // **The descriptor of the bench says what the board says** (1/11): the dial is on the right of the page and
+  // the two side keys are up and down, which is what the window reads to place the buttons (docs/50).
+  TEST_ASSERT_NOT_NULL(hal::platform().input());
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().input()->face(0) == hal::Face::kRight,
+                           "the bench's dial is not on the right of the page");
+  TEST_ASSERT_TRUE(hal::platform().input()->spot(1) == hal::Spot::kUp);
+  TEST_ASSERT_TRUE(hal::platform().input()->spot(2) == hal::Spot::kDown);
+  TEST_ASSERT_TRUE(hal::platform().input()->spot(0) == hal::Spot::kCentre);
+
+  // The order of the column, for the three keys of the Paper and for the one of an ATOM.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, emu::gui_key_of_slot(3, 0), "the top of the dial is not the up key");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, emu::gui_key_of_slot(3, 1), "the middle of the dial is not the middle key");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, emu::gui_key_of_slot(3, 2), "the bottom of the dial is not the down key");
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_of_slot(1, 0));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_of_slot(3, 3));
+
+  // **A column takes 96 of window** (a button of 80 and two margins of 8), a row takes 70 of height, the
+  // buttons are 54 tall with 8 between: a column of three is 178 and one button is 54.
+  TEST_ASSERT_EQUAL_UINT16(96, emu::gui_key_strip_width());
+  TEST_ASSERT_EQUAL_UINT16(70, emu::gui_key_row_height());
+  TEST_ASSERT_EQUAL_UINT16(54 * 3 + 8 * 2, emu::gui_keys_height(3));
+  TEST_ASSERT_EQUAL_UINT16(54, emu::gui_keys_height(1));
+  TEST_ASSERT_EQUAL_UINT16(0, emu::gui_keys_height(0));
+  TEST_ASSERT_EQUAL_UINT16(80 * 3 + 8 * 2, emu::gui_keys_width(3));
+  // And both are **centred**: the column of three in a window of 480 starts at 151 (178 + 151 + 151 = 480),
+  // and the row of three in a page of 366 starts at 55 ((366 - 256) / 2).
+  TEST_ASSERT_EQUAL_INT(151, emu::gui_keys_top(480, 3));
+  TEST_ASSERT_EQUAL_INT(213, emu::gui_keys_top(480, 1));
+  TEST_ASSERT_EQUAL_INT(55, emu::gui_keys_left(366, 3));
+  TEST_ASSERT_EQUAL_INT(95, emu::gui_keys_left(270, 1));
+  // A window smaller than the keys starts them at the edge instead of cutting the first button.
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_keys_top(100, 3));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_keys_left(100, 3));
+
+  // **A dial on the left face is a column down the left**: the strip is 0..96 and the buttons 8..88.
+  const int top = emu::gui_keys_top(480, 3);
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(48, top + 27, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(48, top + 54 + 8 + 27, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(48, top + 2 * (54 + 8) + 27, 3, 366, 480, emu::KeySide::kLeft));
+  // A click in a gap, on the margin, above the column, past the last button or on the page is no key at all.
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 54 + 2, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(4, top + 27, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top - 1, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 178, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(200, top + 27, 3, 366, 480, emu::KeySide::kLeft));
+  // **The same dial on the right face is the same column on the other side**: the buttons are 278..358 and
+  // the left of the window is the page.
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(278 + 40, top + 27, 3, 366, 480, emu::KeySide::kRight));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(278 + 40, top + 54 + 8 + 27, 3, 366, 480, emu::KeySide::kRight));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 27, 3, 366, 480, emu::KeySide::kRight));
+  // **A key on the top face is a row under the page**: the row is the last 70 rows of the window, the
+  // buttons 54 tall and 80 wide with 8 between, starting at 7 of a 270-wide window.
+  const int row_top = 550 - 70 + 8;
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(47, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(135, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(223, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(91, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(47, 480, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(0, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  // A board of one key has its button in the middle of the window, and nothing under it.
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(48, 240, 1, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, 400, 1, 366, 480, emu::KeySide::kLeft));
+}
+
+// **The system chooses the wash between two apps, and it chooses it from what the page showed** (docs/50):
+// black and white and nothing else is a page the two-level wash takes away in 290 ms, a few grays take the
+// sixteen-level wash without the black flash, and a photograph —or a page that has taken many quick paints,
+// because what is left is ghost— takes the full wash in 450. No app says which one: it cannot know what the
+// one before it left.
+static void test_the_cleaner_between_apps_follows_the_page() {
+  const uint16_t text = static_cast<uint16_t>((1u << 0) | (1u << 15));
+  TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kA2 == kernel::ui::cleaner_for(text, 3),
+                           "a page of text does not take the two-level wash");
+  // A mid grey is no longer a page of text, and a pair of them is still few grays.
+  TEST_ASSERT_TRUE(hal::UpdateMode::kGl16 == kernel::ui::cleaner_for(text | (1u << 8) | (1u << 4), 3));
+  TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kGc16 == kernel::ui::cleaner_for(0xFFFF, 3),
+                           "a photograph does not take the full wash");
+  // **Many quick paints leave ghost, and only a full wash takes ghost away.**
+  TEST_ASSERT_TRUE(hal::UpdateMode::kA2 == kernel::ui::cleaner_for(text, 31));
+  TEST_ASSERT_TRUE_MESSAGE(hal::UpdateMode::kGc16 == kernel::ui::cleaner_for(text, 32),
+                           "a page of text that has taken many quick paints needs the full wash");
+  // Nothing painted is nothing to clean.
+  TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -986,9 +1198,14 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child);
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
+  RUN_TEST(test_the_trace_of_a_rich_page_is_richer_than_a_flat_one);
   RUN_TEST(test_a_paint_takes_the_time_of_its_quality);
   RUN_TEST(test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink);
   RUN_TEST(test_a_page_costs_what_the_board_says_a_page_costs);
   RUN_TEST(test_an_a2_flashes_the_page_before_the_image_arrives);
+  RUN_TEST(test_only_the_board_that_has_a_glass_announces_one);
+  RUN_TEST(test_a_pixel_of_the_window_lands_in_the_middle_of_its_block);
+  RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
+  RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();
 }

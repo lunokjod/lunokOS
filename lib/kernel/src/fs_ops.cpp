@@ -682,6 +682,8 @@ int32_t cfg_dir(char* out, size_t cap, luabind::FsError& err) {
   return static_cast<int32_t>(strlen(out));
 }
 
+bool app_path(const char* in, char* out, size_t cap) { return absolute(in, out, cap); }
+
 void install_fs_ops() {
   luabind::FileOps ops;
   ops.read_at = &read_at;

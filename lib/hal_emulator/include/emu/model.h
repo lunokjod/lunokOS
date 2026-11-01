@@ -16,6 +16,10 @@ struct Model {
   uint32_t keys;         // one button, or the Paper's three
   bool imu;              // a sensor
   bool env;              // an ambient sensor: temperature and humidity (docs/50)
+  // **The screen it draws on**: the IT8951 panel of the Paper, 960x540 and four bits per pixel. The
+  // ATOMs of this family have no screen at all, and a bench of one with a glass would be a board
+  // nobody can buy (docs/50, docs/85).
+  bool glass;
   // **A touch panel**: the glass that a finger goes through, which on this board is a GT911 that
   // counts in the page's own frame and reports two fingers (docs/50, docs/85).
   bool touch;

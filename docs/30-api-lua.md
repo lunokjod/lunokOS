@@ -92,14 +92,14 @@ La regla de la llista, perquè no s'hi busqui el que no hi ha:
   que `/sd`, `/nvs` i `/rtc` tenen bit **i** muntatge. És una decisió oberta a `docs/90`.
 
 Als ATOM d'avui `caps` respon **13 de 19**, el Matrix **14 de 19** perquè hi afegeix `imu`, el Paper
-**14 de 19** amb el SHT30 contestant i el vidre, i sense bateria ni targeta —**15** amb la bateria
-llegida **o** la targeta, **16** amb totes dues, que és el sostre d'aquesta placa: les deu del xip,
-`littlefs`, `sd`, `input`, `battery`, `env` i `touch`— i l'emulador **el que diu el model que imita**:
-13 al model de l'ATOM (12 si el terminal no és ANSI), 14 al del Matrix i 14 al del Paper (13 sense
-ANSI), que ja porta la targeta `emulator/sd` i puja a 15 amb `--battery-mv` (docs/50, docs/85). L'única
-que no té ningú és `display`, que encara no implementa cap placa. Els números del Paper **no són una
-previsió**: l'1/11 la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta dins) i `run air` va
-donar `air 21.1 C 63.5 %` (docs/95, E-5).
+**15 de 19** amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la
+bateria llegida **o** la targeta, **17** amb totes dues, que és el sostre d'aquesta placa: les deu del
+xip, `littlefs`, `sd`, `input`, `battery`, `env`, `touch` i `display`— i l'emulador **el que diu el
+model que imita**: 13 al model de l'ATOM (12 si el terminal no és ANSI), 14 al del Matrix i **17** al
+del Paper (16 sense ANSI), que ja porta la targeta `emulator/sd`, el vidre, el GT911 i la bateria que el
+banc es presta sol, i els treu amb `--no-display` / `--no-touch` (docs/50, docs/85). Els números del
+Paper **no són una previsió**: l'1/11 la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta
+dins) i `run air` va donar `air 21.1 C 63.5 %` (docs/95, E-5).
 
 ---
 
@@ -756,7 +756,12 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
 | `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
-| `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
+| `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
+| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer de text** (`/res/*.lfont` o `/res/*.bdf`); el bloc de glifs és de l'app i compta al seu pressupost |
+| `ui.font(font)` · `cv:font(font)` | `true` o `nil, error` | La cara de la vista i la d'un canvas; `nil` torna a la del sistema |
+| `font:text_width(text, [scale])` | píxels | Quant fa de llarg una línia amb aquesta cara |
+| `font:size()` | ample, alt, glifs | El que la cara diu de si mateixa |
+| `font:release()` | `true` | Torna el bloc; el canvas que la feia servir torna a la del sistema |
 
 - **`ui.idle()` és la pregunta del pintat, i el número surt de comptar des d'abans.** `ui.present` no
   espera el vidre: **torna de seguida** i la tinta continua pel seu compte, i `ui.idle()` és el que diu
@@ -792,6 +797,15 @@ la fila 28 i `ui.caps().y` ho diu.
   `gc16` pinta i neteja (450 ms), `du` pinta però deixa rastre (120 ms), i **`du4` i `a2` no van pintar
   res** —`present` deia `true` i el vidre no canviava—. Fins que això no estigui resolt, pintar amb `du` i
   **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net.
+- **Una cara pot venir de dos formats, i el fitxer mateix diu de quin.** `ui.load_font` mira la primera
+  línia: `lunok-font 1` és el format propi —una línia de directives i els glifs en `#` i `.`— i
+  `STARTFONT` és un **BDF**, el mapa de bits que llegia un servidor X: `FONTBOUNDINGBOX` amb la caixa, i
+  per a cada `STARTCHAR` el seu `ENCODING` i les files del `BITMAP` en hexadecimal, amb el píxel de
+  l'esquerra al bit de més pes. El que en surt és **el mateix bloc de sempre** —vuit per vuit, fins a 96
+  codis del 0x20 al 0x7F, en ordre— i per tant res del que dibuixa no canvia: `run font-bdf` ensenya la
+  cara d'un BDF al costat de la del sistema. Un fitxer que no comença per cap de les dues coses es
+  refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok font nor a bdf`), i un BDF amb una caixa
+  de més de vuit columnes o de més de vuit files també (`a bdf glyph is up to eight columns wide`).
 - **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia— el canvas es torna a
   fer, blanc, i l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
   dibuixar és de l'app. Una app sense `on_resize` és una app legal; simplement no dibuixa mai la vista
@@ -809,11 +823,35 @@ function on_resize(width, height)
 end
 ```
 
-- **Una app no pot escriure text encara.** La font de 5 × 7 hi és i la fa servir la barra
-  (`lib/kernel/font.cpp`, 295 bytes de taula, només majúscules), però no hi ha cap `ui.text`: quan n'hi
-  hagi serà una crida més d'aquesta taula i no un canvi de res del que ja hi ha (docs/90).
+- **El text i les cares.** `ui.text` i `cv:text` dibuixen amb **la cara del canvas** i, si no en té cap,
+  amb la font del sistema (5 × 7, només majúscules, 295 bytes de taula a `lib/kernel/font.cpp`). Una app pot
+  carregar-ne d'altres amb `ui.load_font` des de `/res/fonts`, que són fitxers de text (vegeu la secció de
+  les cares, més avall).
 - L'exemple és l'app `panel` (`run panel`), que dibuixa una pàgina de prova a la seva vista i espera que
   el vidre acabi.
+
+### Les cares: un tipus de lletra que és un fitxer de text
+
+**Una cara és una taula de glifs i una manera de llegir-los**, i la font del sistema és una cara com qualsevol
+altra. Una app carrega una altra cara d'un fitxer de `/res/fonts` amb `ui.load_font`, i el que hi ha dins és
+**text pla**: un glif per bloc i `#` per tinta. El format, els motius pels quals un fitxer es refusa i com es
+paga la memòria són a [`85 · Emulador`](85-emulador.md), que és on viuen les eines de treball; el que aquesta
+taula fixa és la crida i el contracte.
+
+- **Una cara pot ser parcial**: un codi que no hi és es dibuixa com un forat i la línia avança igual, o sigui
+  que una cara de deu xifres és una cara legal i el text del voltant no es desplaça.
+- **Qui converteix la cara en píxels és el nucli, i ningú més.** La cadena sencera és
+  `cv:text`/`ui.text` → `luabind` (`text_at`) → `ui::canvas_text` (`lib/kernel/src/ui.cpp`) → `draw_text` →
+  `font::runs(face_of(canvas.face), …)`, que camina els glifs i deixa cada tros com un rectangle al buffer
+  del canvas. **El mapa de bits d'un tipus de lletra no surt mai del nucli**: a Lua arriben un número de mà
+  (`ui.load_font`), tres números que descriuen la cara (`font:size`) i una amplada (`font:text_width`). Una
+  app no processa cap font, i si ho intentés no tindria amb què: l'objecte `font` no té cap camp de glifs ni
+  cap crida que els torni.
+- **La memòria és de l'app**: el bloc de glifs (`96 × 8 = 768` bytes) compta al pressupost (docs/75) i torna
+  quan l'app crida `font:release()` o quan l'app s'acaba; un canvas que la feia servir torna a la font del
+  sistema en comptes de llegir un bloc que ja no hi és.
+- **Dues apps per mirar-ho**: `run fonts` (la font del sistema i una cara carregada a la mateixa pàgina, amb
+  els números de cada cara a la consola) i `run sheet` (tots els glifs del sistema amb la seva cel·la).
 
 ### `ui.canvas`: el canvas d'una app, que és un control
 

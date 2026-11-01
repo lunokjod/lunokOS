@@ -40,7 +40,6 @@ void boot_with_a_touch_panel() {
   opts.board = "m5stack-paper";
   opts.display = true;
   opts.touch = true;
-  opts.read_delay_us = 0;
   emu::set_options(opts);
   kernel::display::boot(hal::platform());
   kernel::display::set_rotation(270);

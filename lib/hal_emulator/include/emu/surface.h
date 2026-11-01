@@ -136,8 +136,8 @@ class MemorySurface : public hal::ISurface {
 };
 
 // The panel of this bench, made the first time it is asked for. It is 960x540 —the Paper's glass— and
-// it exists only when the run asked for one (`--display`), because a board without a screen is the
-// default and the one most tests want (docs/85).
+// it exists when `Options::display` says so, which is what the binary does for a model that has one
+// (`Model::glass`) and what a test leaves off unless it is about the panel (docs/85).
 MemorySurface* memory_surface();
 
 }  // namespace emu

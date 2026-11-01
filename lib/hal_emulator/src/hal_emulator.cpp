@@ -1,5 +1,6 @@
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "hal/hal.h"
 
@@ -31,11 +32,11 @@ Options::Options()
       board(nullptr),
       sd_dir(nullptr),
       battery_mv(0),
+      battery_from_host(false),
       script(nullptr),
       run_app(nullptr),
       now_epoch(0),
       mem_cap_kb(0),
-      read_delay_us(-1),
       wake_early_ms(0),
       baud(-1),
       time_scale(1),
@@ -54,6 +55,10 @@ Options::Options()
       // **The times of the hardware are not paid unless the run asks for them**: a test wants the model
       // and not the clock, and `main` turns them on for the binary —`--no-delay` leaves them off (docs/85).
       delays(false),
+      // **The app's own code is CPU time and it is not free on the glass**: sixty nanoseconds an
+      // instruction at 160 MHz is the model's number, and `main` turns it on with the rest of the times
+      // (-1 is "the bench's own number" and 0 is "free") (docs/85).
+      lua_ns_160(-1),
       wifi_ms(300),
       wifi_absent(false),
       wifi_fail(false),
@@ -339,9 +344,9 @@ class FakeInput : public IInput {
   }
 
   // The bench imitates the band of the Paper: one compound dial of three keys on
-  // the left face, so an app that reads the positions can be tried on the PC
-  // (docs/85).
-  Face face(uint32_t) override { return Face::kLeft; }
+  // the right face of the page, so an app that reads the positions can be tried on the PC
+  // (docs/50, docs/85).
+  Face face(uint32_t) override { return Face::kRight; }
   Spot spot(uint32_t key) override {
     // The bench has the Paper's shape: a vertical dial of three keys (docs/85).
     if (key == 1) return Spot::kUp;
@@ -357,6 +362,13 @@ class FakeInput : public IInput {
   int64_t started_ms_[kKeys] = {0, 0, 0};
 };
 
+// **What reading the battery costs on this chip**: four conversions of a twelve-bit ADC averaged, at
+// about a hundred microseconds each, plus the characterisation of the channel the first time, which
+// reads the eFuse (docs/50, docs/85). The numbers are the datasheet's and the driver's, not a
+// measurement of this unit.
+const uint32_t kAdcConversionUs = 100;
+const uint32_t kAdcSetupUs = 1000;
+
 class FakePower : public IPower {
  public:
   bool battery(int& mv, int& pct, bool& charging) override {
@@ -366,6 +378,18 @@ class FakePower : public IPower {
     // without a gauge cannot say even when the person put a number in: the ATOMs have no cell to
     // read (docs/50).
     if (set <= 0 || !emu::model().gauge) return false;
+    // **The reading is an ADC behind a divider and it is not free**: four conversions of the chip's ADC
+    // at about a hundred microseconds each, and the characterisation of the channel once, which reads
+    // the eFuse (docs/50, docs/85). It is paid only when the run is paying the times of the hardware.
+    if (emu::options().delays) {
+      static bool characterised = false;
+      uint32_t us = 4 * kAdcConversionUs;
+      if (!characterised) {
+        characterised = true;
+        us += kAdcSetupUs;
+      }
+      ::usleep(static_cast<useconds_t>(us));
+    }
     mv = static_cast<int>(set);
     pct = static_cast<int>(battery_percent(mv));
     // The bench is not on a cable any more than the Paper can tell: the same false and the
@@ -681,9 +705,11 @@ class EmulatorPlatform : public IPlatform {
       caps_.add(kCapSleepLight);
       caps_.add(kCapSleepDeep);
       caps_.add(kCapRtcWake);
-      if (emu::options().display) caps_.add(kCapDisplay);
-      // The finger goes through the glass, and the same rule as the glass: the model has one and the
-      // run has to ask for it (docs/85).
+      // **The glass and the finger are the model's** (`Model::glass`, `Model::touch`): the Paper draws
+      // and a finger goes through it, and the binary turns both on unless the run says no. Without this
+      // line an app that asks `sys.caps().display` was told no on a bench that had one, while the view
+      // behind it was there and the boot line said so (found running `layers` on the bench, 1/11).
+      if (emu::model().glass && emu::options().display) caps_.add(kCapDisplay);
       if (emu::model().touch && emu::options().touch) caps_.add(kCapTouch);
       // The light and the sensor are the hardware of the model and of nobody else (docs/50).
       if (emu::model().lights > 0) caps_.add(kCapLed);
@@ -691,10 +717,6 @@ class EmulatorPlatform : public IPlatform {
       if (emu::model().imu) caps_.add(kCapImu);
       // The air: the model's, and only the model's (docs/50, docs/85).
       if (emu::model().env) caps_.add(kCapEnv);
-      // **The glass: the bench has one when the run asked for it** (`--display`). It is not a trait of
-      // the model —no board of this family has a panel without the bench being told— and without this
-      // line an app that asks `sys.caps().display` was told no on a bench that had one, while the view
-      // behind it was there and the boot line said so (found running `layers` on the bench, 1/11).
     }
     return caps_;
   }
@@ -737,9 +759,10 @@ class EmulatorPlatform : public IPlatform {
     return &instance;
   }
   ISurface* display() override {
-    // A board with a glass, when the run asked for one: the canvas of an app and the composition are
-    // tried against a real contract on the PC (docs/85).
-    if (!emu::options().display) return nullptr;
+    // **The glass of the model**: the Paper draws on a panel and the ATOMs have no screen, so an option
+    // cannot make one appear — a bench of an ATOM with a glass is a board nobody can buy. The binary
+    // turns `Options::display` on for a model that has one (docs/85).
+    if (!emu::model().glass || !emu::options().display) return nullptr;
     return emu::memory_surface();
   }
   ILed* led() override {
@@ -762,10 +785,21 @@ class EmulatorPlatform : public IPlatform {
     static FakeInput instance;
     return &instance;
   }
+  uint32_t simulated_instruction_ns() override {
+    // **The instructions of the app at the frequency the board is set to**: a bench that is not paying the
+    // times of the hardware does not pay these either, and a board is not asked because its instruction
+    // already takes the time it takes (docs/85). 160 MHz is the frequency every board of this family
+    // starts at, and the number the option is given is the cost at that speed.
+    const emu::Options& opts = emu::options();
+    if (!opts.delays || opts.lua_ns_160 <= 0) return 0;
+    IPower* supply = power();
+    const uint32_t mhz = (supply != nullptr && supply->cpu_mhz() > 0) ? supply->cpu_mhz() : 160;
+    return static_cast<uint32_t>(opts.lua_ns_160) * 160u / mhz;
+  }
   ITouch* touch() const override {
-    // **The panel of the model when the run asked for it** (`--touch`): a GT911 in the frame of this
-    // unit that costs what the bus costs and hands a frame over once. Without the option the model's
-    // panel is a chip that does not answer, the same way the ATOMs have no panel at all (docs/85).
+    // **The panel of the model**, when the run has not taken it away (`--no-touch`): a GT911 in the frame
+    // of this unit that costs what the bus costs and hands a frame over once. The ATOMs have no panel at
+    // all (docs/85).
     if (!emu::model().touch || !emu::options().touch) return nullptr;
     return emu::touch_panel();
   }

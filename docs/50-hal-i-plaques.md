@@ -198,7 +198,7 @@ cara. A sobre, la tecla diu **com està feta** i a quin **component** pertany (d
 | | ATOM (Lite i Matrix) | Paper |
 |---|---|---|
 | Tecles | 1 | 3 |
-| Cara | `top` (el botó gran de dalt) | `left` (el dial del costat esquerre) |
+| Cara | `top` (el botó gran de dalt) | `right` (el dial del costat dret de la pàgina) |
 | Lloc | `centre` | `centre` (la central), `up` i `down` (les altres dues, que són el **damunt i el sota** del dial) |
 | Com està feta | `simple` | `compound` |
 | Component (`group`) | 0 | 0 per a les tres: **és un sol dial** |
@@ -452,9 +452,9 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 |---|---|---|---|---|---|
 | `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
 | `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
-| `display` | — | — | — | — | **Reservat**: la interfície hi és i encara no la implementa cap placa (docs/90) |
+| `display` | — | — | ✓ amb l'IT8951 contestant | ✓ al model de la Paper (`Model::glass`), i `--no-display` el treu | El vidre: una app hi dibuixa i el nucli no hi pinta res de seu. S'anuncia quan `display()` no és nul —el controlador va contestar a l'arrencada—, i **al banc el diu el model** (docs/50, docs/85) |
 | `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, al banc, les del model |
-| `touch` | — | — | ✓ amb el GT911 contestant | ✓ amb `--touch`, al model de la Paper | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **al banc quan el run ho demana** i el model imitat en té, que és la Paper; un ATOM no en té de cap manera. El que el banc simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
+| `touch` | — | — | ✓ amb el GT911 contestant | ✓ al model de la Paper (`Model::touch`), i `--no-touch` el treu | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **al banc quan el model en té** (la Paper; un ATOM no en té de cap manera), i el dit pot ser el **ratolí de la finestra** de `--gui`. El que el banc simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
 | `led` | ✓ | ✓ | — | ✓ al model que en té (no al del Paper) | El Paper no té cap llum |
 | `imu` | — | ✓ | — | ✓ al model del Matrix | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
@@ -465,11 +465,11 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 | `net_wifi` | ✓ | ✓ | ✓ | ✓ | La ràdio de debò / la de mentida (docs/85); la del Paper és la del xip i **està provada a la placa** (31/10) |
 | `net_http` | ✓ | ✓ | ✓ | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
 | `net_prov` | ✓ | ✓ | ✓ | ✓ | El component d'Espressif / l'AP de mentida |
-| `battery` | — | — | ✓ | ✓ amb `--battery-mv`, si el model té indicador | El Paper la llegeix del divisor de GPIO35 i el banc del número que se li diu, **i només si el model imitat en té** (el Paper; els ATOM no). Només s'anuncia quan la lectura és un número que pot ser una cel·la; `charging` és **fals sempre** perquè cap d'aquestes bandes no té un pin per preguntar-ho (docs/30) |
+| `battery` | — | — | ✓ | ✓ si el model té indicador, i **sense cap bandera** | El Paper la llegeix del divisor de GPIO35 i el banc, amb un model que en té (**el Paper; els ATOM no**), de **la bateria d'aquesta màquina passada per la mateixa corba** —el percentatge, no la tensió— o de `--battery-mv` si la línia de comandes en diu un, que mana. Només s'anuncia quan la lectura és un número que pot ser una cel·la; `charging` és **fals sempre** perquè cap d'aquestes bandes no té un pin per preguntar-ho (docs/30, docs/85) |
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **14** al del Paper (que ja hi té la targeta `emulator/sd`), que puja a **15** amb `--battery-mv` o amb `--touch` i a **16** amb totes dues. L'única que no té ningú és `display`.
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 18: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 18** al Lite, **14 de 18** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **17** al del Paper (que ja hi té la targeta `emulator/sd`, el vidre, el GT911 i **la bateria que es presta sola**; **16** si el terminal no és ANSI), que baixa a **15** amb `--no-touch --no-display`. I les dinou existeixen en algun model, comptant-hi el banc.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -503,10 +503,10 @@ Conseqüències que aquesta placa imposa:
 | Xip | ESP32-D0WDQ6-V3, 240 MHz, **8 MB de PSRAM** |
 | Flash | **16 MB**, amb la taula de `partitions_16mb.csv`: 4 MB d'aplicació i 11,9 MB de disc |
 | Pantalla | **E-ink de 4,7 polzades, 960 × 540** (540 × 960 en vertical), **16 nivells de gris**, controlador **IT8951E** per SPI |
-| Entrada | **Tres tecles** (esquerra, central `PWR`, dreta) **i panell tàctil GT911** per I2C |
+| Entrada | **Tres tecles** (una central `PWR` i les dues del costat) **i panell tàctil GT911** per I2C |
 | Sensor | SHT30 (temperatura i humitat) i una EEPROM FM24C02 |
 | Rellotge | **BM8563** amb pila de botó, a la I2C interna (0x51): es llegeix a l'arrencada i s'hi escriu l'hora a cada canvi d'època, o sigui que **sobreviu a treure el cable**. El seu `INT` **no arriba a cap GPIO** —al mapa del fabricant només el té la GT911, a GPIO36—: arriba al **circuit d'alimentació** (el SY7088), i per això la seva alarma és el que **torna a encendre la placa** quan s'ha apagat del tot (vegeu «Apagar-se de debò», a sota) |
-| Bateria | 1150 mAh, amb divisor a **GPIO35** (×2): es llegeix (`esp32_battery`, ADC1 canal 7) i el % surt de la corba de `hal/battery.h`. **Pendent de creuar amb un multímetre**, que és l'única cosa que diu si el divisor i l'ADC diuen la veritat. De mà: `run battery` |
+| Bateria | 1150 mAh, amb divisor a **GPIO35** (×2): es llegeix (`esp32_battery`, ADC1 canal 7) i el % surt de la corba de `hal/battery.h`. La lectura són **quatre conversions d'ADC** (~100 µs cada una) i la caracterització del canal una vegada (~1 ms), o sigui **~400 µs per lectura**, que al banc es paguen amb els temps engegats. **Pendent de creuar amb un multímetre**, que és l'única cosa que diu si el divisor i l'ADC diuen la veritat. De mà: `run battery`. Al banc la cel·la és **la d'aquesta màquina, prestada sola**: el **percentatge** passa per aquesta mateixa corba i no la tensió del portàtil, i `--battery-mv` hi posa un número si el vols triar (docs/85) |
 | Expansió | Tres ports HY2.0-4P (A: G25/G32, B: G26/G33, C: G18/G19) i una ranura microSD |
 | Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat (vegeu el bloc de sota) |
 

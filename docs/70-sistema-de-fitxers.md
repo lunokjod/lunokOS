@@ -360,6 +360,10 @@ L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
   els fitxers, amb el que quedi al PC com a sostre; la targeta val 16 GB i el lliure és el del PC, i
   el que falta fins als 16 GB surt com a ocupat. Són les mateixes xifres que a la placa (31/10,
   mesurat a l'emulador i a `docs/85`).
+- **I el que costa llegir-hi és el del dispositiu i no un número per a tot** (1/11): al banc, la flash
+  paga blocs de 4 KB i els 45 ms d'esborrar el sector d'una escriptura, la targeta sectors de 512 B i la
+  FRAM **90 µs per byte**, amb la taula a `emu/disk.h` (docs/85). La NVS és una partició de la flash i
+  paga el mateix, i la RTC RAM no paga res perquè és RAM.
 - `fs.mounts` i `fs.space` no són una sola crida perquè una app que només vol la llista no ha de
   pagar la passejada.
 
@@ -472,6 +476,55 @@ el camí **sencer** (`/littlefs/apps/burst/burst.lua`). El 30/10 el `stat` nou e
 la placa va dir `apps: 0 found` amb tots els directoris llistant-se: els fitxers hi eren i el `stat`
 els buscava al lloc equivocat. El port té `kMountPoint` i l'hi posa davant; qualsevol crida POSIX nova
 que hi aparegui l'ha de fer servir.
+
+## El deflate, llegit de tornada (1/11, 0.38.0)
+
+Un **zip és el format en què viatja un epub**, i el que porta a dins està comprimit amb **deflate** (RFC 1951).
+`lib/inflate` és el descompressor, i no té res més: en una placa que llegeix, comprimir no serveix de res.
+
+| Crida | Què fa |
+|---|---|
+| `inflate::raw(in, in_len, out, cap, written)` | Deflate **pelat**, que és el que hi ha dins d'una entrada d'un zip |
+| `inflate::zlib(in, in_len, out, cap, written)` | El **wrapper del zlib** (RFC 1950) amb els dos bytes de capçalera i l'Adler-32 — és el que porta un `.woff` |
+| `inflate::adler32(data, len, seed)` | El checksum del zlib, que es pot fer en trossos |
+| `inflate::crc32(data, len, seed)` | El del zip, per al nom i per als bytes d'una entrada |
+| Resultat | `kOk`, `kTruncated`, `kBadData`, `kNoRoom`, `kAdler` |
+
+**El format, en quatre coses que cal saber**
+
+1. **Els bits van del menys significatiu al més significatiu**, però els codis de Huffman es llegeixen al revés
+   dins d'aquests bits. És la trampa número u del format i per això el lector té un sol `take()` i un sol
+   camí de taula.
+2. **Tres menes de bloc**, i les tres són al mateix bucle: `stored` (els bytes tal qual, amb la longitud i el
+   seu complement), **taula fixa** (les longituds que el format fixa: 8, 9, 7 i 8 bits pels literals i 5 pels
+   distàncies) i **taula dinàmica** (les longituds vénen al stream, comprimides elles mateixes amb una tercera
+   taula i el codi 16/17/18 per a les repeticions).
+3. **Les taules són canòniques**: es construeixen comptant codis per longitud i posant els símbols en ordre.
+   Una taula **sobre-subscrita** no es pot descodificar i es refusa; una d'incompleta també, perquè vol dir
+   que al stream li falten codis.
+4. **El 258 i el 285**: les longituds de 3 a 258 es diuen amb 29 codis (257 a 285) i els quatre últims porten
+   bits extra; les distàncies, amb 30 codis i fins a 13 bits extra.
+
+**Les tres decisions d'aquesta implementació, i per què**
+
+- **Cap reserva pròpia, i la finestra és el buffer d'esortida.** Una distància d'un deflate només mira enrere
+  cap al que ja s'ha escrit, o sigui que el bloc on s'escriu *és* la finestra de 32 KB, i no cal una segona.
+  Qui crida dóna el bloc i en diu la mida (una entrada de zip la diu a la seva capçalera).
+- **Una distància més enllà del començament del que s'ha escrit és un stream trencat** i es refusa amb
+  `kBadData`, no es llegeix memòria d'abans del bloc.
+- **Les taules són estàtiques i no de la pila**: una taula són 608 bytes i un bloc en fa servir tres, i la pila
+  del `loopTask` és de 8 KB (docs/50). Un stream es llegeix a la vegada, com tota la resta de lectors d'aquí.
+- **Els dos checksums es poden fer en trossos** (`seed`), que és el que necessita un zip per comprovar una
+  entrada mentre la descomprimeix.
+
+**Com es prova**: `test/test_inflate/` amb **bytes que ha comprimit el zlib de debò** i no inventats —la mateixa
+frase en bloc dinàmic, en bloc fix i en bloc `stored`, el wrapper amb l'Adler bo i amb un bit canviat, un
+stream truncat, un quart tipus de bloc que no existeix, un `stored` que menteix amb la longitud, una sortida
+massa petita— i els dos checksums amb els valors de sempre (`adler32("Wikipedia") = 0x11E60398`,
+`crc32("123456789") = 0xCBF43926`).
+
+**El que encara no hi és**: el **contenidor zip** (fi del directori central, capçaleres, i el nom de cada
+entrada) i la capa d'epub a sobre. El deflate era la peça que no existia; el zip és recórrer estructures.
 
 ## Errors típics
 

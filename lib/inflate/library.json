@@ -1,0 +1,11 @@
+{
+  "name": "inflate",
+  "version": "0.1.0",
+  "description": "Deflate read the other way (RFC 1951) and the two checksums a container needs (RFC 1950, zip), with no allocation of its own.",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}

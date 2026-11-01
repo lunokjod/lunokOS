@@ -32,8 +32,10 @@ bool g_booted = false;
 void boot_with_a_panel() {
   if (g_booted) return;
   emu::Options opts = emu::options();
+  // **The board that has the panel** (`Model::glass`): an ATOM of the bench has no screen, and
+  // `display()` says so even with the option on (docs/50, docs/85).
+  opts.board = "m5stack-paper";
   opts.display = true;
-  opts.read_delay_us = 0;
   emu::set_options(opts);
   kernel::display::boot(hal::platform());
   kernel::display::set_rotation(0);  // the glass' own frame; the portrait page is tried below

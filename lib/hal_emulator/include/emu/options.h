@@ -29,17 +29,15 @@ struct Options {
   // report. The percentage is the curve of a cell and not a second number to set, so the
   // bench cannot say 3,9 V and 100 % at once (docs/50, docs/85).
   int32_t battery_mv;
+  // **A battery lent by the machine the bench runs on** (`--battery-host`): its percentage on the curve
+  // of the board's cell, which is 1150 mAh and full at 4,2 V (docs/85). Off by default, because a test
+  // that changed its answer with the hardware of whoever runs it is not a test.
+  bool battery_from_host;
   const char* script;    // batch file, or nullptr
   const char* run_app;   // app to start, or nullptr
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that
                          //     never synced; anything else is the start time
   int32_t mem_cap_kb;    // 0 = board default
-  // What one read **costs**, in microseconds, the way it costs on the board: a flash access is a
-  // block out of SPI plus a few metadata hops, and a card is slower still. On the PC the same read
-  // is microseconds of page cache, so the bench waits the difference instead of being faster than
-  // the thing it emulates (docs/85). -1 is "the bench's own number", 0 is no wait at all, which is
-  // what a test wants.
-  int32_t read_delay_us;
   // How much earlier than its hour the bench comes back from a sleep, in milliseconds: zero is the
   // honest clock and anything else is a sleep that was cut short —a finger on the button, a cable
   // that blinked— so the case where the board never reaches its hour can be tried on the PC
@@ -53,9 +51,10 @@ struct Options {
   uint32_t time_scale;   // 1 = real time
   uint32_t seed;         // 0 = seed from the system
   bool verbose;          // mirror the log to the console
-  // A board with a glass. **Off by default**: the bench is a board without a screen unless the run
-  // asks for one, which is both the truth of the ATOM and what a test wants when it is not about the
-  // panel (docs/85). The glass is the Paper's: 960x540 and four bits per pixel.
+  // A board with a glass. **Off in `Options()`, which is what a test builds**: the binary turns it on
+  // when the model has one (`Model::glass`, the Paper) and `--no-display` takes it away, because a bench
+  // of a Paper with no screen is a board nobody can buy (docs/85). The glass is the Paper's: 960x540
+  // and four bits per pixel.
   bool display;
   // **A window with the glass in it**, for the runs that are looked at instead of read: it needs the
   // glass (`--display` is turned on with it) and it changes nothing of what the bench simulates —the
@@ -65,10 +64,9 @@ struct Options {
   // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
   // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.
   int32_t ink;
-  // **A board with a touch panel** (`--touch`), and the same opt-in rule as the glass: the model of the
-  // Paper has a GT911 and a bench nobody is touching does not read a bus once per turn for it. Without
-  // the option the model's panel is a chip that does not answer, and `sys.caps().touch` says so
-  // (docs/50, docs/85).
+  // **A board with a touch panel**: the same as the glass —off in `Options()` and on in the binary when
+  // the model has one (`Model::touch`, the Paper)— and `--no-touch` takes it away. Without it the model's
+  // panel is a chip that does not answer, and `sys.caps().touch` says so (docs/50, docs/85).
   bool touch;
   // How often the panel reports, in milliseconds: **0 is the chip's own** (10 ms, the datasheet's and
   // a measurement the board still owes, docs/95 E-6). A larger number is a chip slower than the turn of
@@ -80,6 +78,11 @@ struct Options {
   // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
   // only the clock is skipped, which is what a test that is not about time wants (docs/85).
   bool delays;
+  // **What one instruction of the app costs at 160 MHz**, in nanoseconds: zero is a bench that does not
+  // price the app's own code. It is the number that makes a loop cost here what it costs on the glass,
+  // and it is the model's —a measurement of this board's interpreter is still owed (docs/95)—
+  // (docs/85).
+  int32_t lua_ns_160;
   // The network of this band is a fake and it says so (docs/85): connecting
   // takes wifi_ms of simulated time and goes nowhere. `wifi_absent` is a board
   // with no radio at all, `wifi_fail` a network that refuses.

@@ -22,6 +22,9 @@ uint32_t g_flushes = 0;
 // a test wants, and the emulator asks for 115200 (docs/85).
 uint32_t g_baud = 0;
 int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
+// What handing a block of the extra memory costs, in microseconds: zero is a heap that answers at once,
+// which is the PC's, and the emulator sets it to the walk the board's allocator does (docs/85).
+uint32_t g_extra_memory_us = 0;
 
 int64_t now_ns() {
   struct timespec ts;
@@ -258,17 +261,31 @@ class HostExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
     (void)prefer_extra;
+    pay();
     return (bytes == 0) ? nullptr : ::malloc(bytes);
   }
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
     (void)prefer_extra;
+    pay();
     if (bytes == 0) {
       ::free(block);
       return nullptr;
     }
     return ::realloc(block, bytes);
   }
-  void release(void* block) override { ::free(block); }
+  void release(void* block) override {
+    pay();
+    ::free(block);
+  }
+
+ private:
+  // **The allocator's walk**, which is what the board pays before it hands a block over. The bytes are
+  // not charged: reading and writing the PSRAM is a cache miss and a bus, and the bench has no CPU
+  // clock (docs/85).
+  static void pay() {
+    if (g_extra_memory_us == 0) return;
+    ::usleep(static_cast<useconds_t>(g_extra_memory_us));
+  }
 };
 
 HostExtraMemory g_extra;
@@ -286,6 +303,13 @@ IExtraMemory& extra_memory() { return g_extra; }
 void set_console_baud(uint32_t baud) {
   g_baud = baud;
   g_wire_free_ns = 0;  // a new speed starts from a wire that is free
+}
+
+void set_extra_memory_us(uint32_t us) { g_extra_memory_us = us; }
+
+void delay_us(uint32_t us) {
+  if (us == 0) return;
+  ::usleep(static_cast<useconds_t>(us));
 }
 
 }  // namespace pal

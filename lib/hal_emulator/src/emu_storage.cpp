@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "emu/disk.h"
 #include "emu/memories.h"
 #include "emu/model.h"
 #include "emu/options.h"
@@ -144,16 +145,9 @@ class PosixStorage : public IStorage {
   int32_t read(FileSlot& slot, void* buf, uint32_t len) override {
     FILE* file = static_cast<FILE*>(slot.impl);
     if (file == nullptr) return -1;
-    const size_t got = fread(buf, 1, len, file);
-    // The time is part of what is being emulated: on the glass a read is a block out of SPI and a few
-    // metadata hops, and a card is slower than the flash (docs/85). The amount is an approximation
-    // until somebody measures it with a stopwatch on the board, and it is one number to change. With
-    // the waits off (`--no-delay`, every test) the read is the model and no clock.
-    const int32_t delay = emu::options().read_delay_us;
-    if (delay > 0 && emu::options().delays) {
-      ::usleep(static_cast<useconds_t>(card_ ? delay * 2 : delay));
-    }
-    return static_cast<int32_t>(got);
+    // The bytes are moved and the **cost of moving them** is paid by the volume that wraps this one:
+    // a flash block, a sector of the card or a byte of the FRAM (docs/85, `emu/disk.h`).
+    return static_cast<int32_t>(fread(buf, 1, len, file));
   }
 
   int32_t write(FileSlot& slot, const void* buf, uint32_t len) override {
@@ -244,8 +238,66 @@ class PosixStorage : public IStorage {
   bool card_;  // false: the flash of the chip; true: the card in the slot
 };
 
+// **The time of the device, wrapped around the volume** (docs/85). A directory of the PC does not care
+// what a read costs and the board does: every volume of this bench goes through here, and the numbers
+// are the table in `emu/disk.h` —a block of the flash, a sector of the card, a byte of the FRAM—. The
+// RTC memory is **not** wrapped: it is the RAM of the chip and a byte of it is a byte of RAM.
+class TimedStorage : public IStorage {
+ public:
+  TimedStorage(IStorage* inner, emu::Disk disk) : inner_(inner), disk_(disk) {}
+
+  bool stat(const char* rel, Stat& out) override {
+    emu::disk_pay(disk_, 0, false);
+    return inner_->stat(rel, out);
+  }
+  bool list(const char* rel, ListSink& sink) override {
+    // A directory read is one transaction and, at least, the block its metadata sits in; a listing that
+    // walks a whole directory pays that block once, which is what a cached directory costs (docs/85).
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, false);
+    return inner_->list(rel, sink);
+  }
+  bool open(const char* rel, OpenMode mode, FileSlot& slot) override {
+    // The directory entry, which on both filesystems is a block nobody asked for by name.
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, false);
+    return inner_->open(rel, mode, slot);
+  }
+  int32_t read(FileSlot& slot, void* buf, uint32_t len) override {
+    emu::disk_pay(disk_, len, false);
+    return inner_->read(slot, buf, len);
+  }
+  int32_t write(FileSlot& slot, const void* buf, uint32_t len) override {
+    emu::disk_pay(disk_, len, true);
+    return inner_->write(slot, buf, len);
+  }
+  bool seek(FileSlot& slot, uint32_t pos) override { return inner_->seek(slot, pos); }
+  bool close(FileSlot& slot) override { return inner_->close(slot); }
+  bool remove(const char* rel) override {
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, true);
+    return inner_->remove(rel);
+  }
+  bool mkdir(const char* rel) override {
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, true);
+    return inner_->mkdir(rel);
+  }
+  bool rename(const char* from, const char* to) override {
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, true);
+    return inner_->rename(from, to);
+  }
+  bool space(uint64_t& total, uint64_t& free) override {
+    emu::disk_pay(disk_, 0, false);
+    return inner_->space(total, free);
+  }
+
+ private:
+  IStorage* inner_;
+  emu::Disk disk_;
+};
+
 PosixStorage g_littlefs(false);
 PosixStorage g_card(true);
+// The two volumes of a filesystem, wrapped in the time of their device (docs/85).
+TimedStorage g_littlefs_timed(&g_littlefs, emu::Disk::kFlash);
+TimedStorage g_card_timed(&g_card, emu::Disk::kCard);
 
 // The RTC memory of the bench is the one `emu/rtc.bin` holds, and `/rtc` is that same memory as one
 // file of its size: the board and the bench show the same thing (docs/50, docs/85). Built on first
@@ -262,14 +314,17 @@ IStorage* fram_storage() {
   uint8_t* bytes = emu::fram();
   if (bytes == nullptr) return nullptr;
   static MemoryFile file(bytes, emu::kFramBytes);
-  return &file;
+  // **The chip is I2C, and a byte of it is ninety microseconds** (docs/50, docs/85): /fram reads and
+  // writes through the bus, and the volume is the chip and not a RAM nobody pays for.
+  static TimedStorage timed(&file, emu::Disk::kFram);
+  return &timed;
 }
 
 }  // namespace
 
 IStorage* emu_storage(const char* mount) {
   if (mount == nullptr) return nullptr;
-  if (strcmp(mount, "/littlefs") == 0) return &g_littlefs;
+  if (strcmp(mount, "/littlefs") == 0) return &g_littlefs_timed;
   // The RTC memory is a file of the chip and it is there on every board (docs/50).
   if (strcmp(mount, "/rtc") == 0) return rtc_storage();
   // The FRAM is only on the model that carries the chip: the board decides and not the bench
@@ -283,7 +338,7 @@ IStorage* emu_storage(const char* mount) {
     // not the PC. An ATOM with a `/sd` is a board nobody has (docs/50, docs/85).
     if (!emu::model().slot) return nullptr;
     const char* card = emu::options().sd_dir;
-    if (card != nullptr && access(card, F_OK) == 0) return &g_card;
+    if (card != nullptr && access(card, F_OK) == 0) return &g_card_timed;
   }
   return nullptr;
 }

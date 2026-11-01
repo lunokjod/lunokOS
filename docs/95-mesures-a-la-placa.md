@@ -211,6 +211,7 @@ Respon si el divisor ×2 de GPIO35 i l'ADC diuen la veritat (docs/50).
 | Què apuntar | On va |
 |---|---|
 | mV multímetre / mV que diu el sistema / % de la corba, als dos punts | `docs/50` (fila Bateria), `docs/90` pas 5 |
+| **Què costa llegir-la**: la fila `power.battery` de `stats` (al banc són **400 µs** de quatre conversions d'ADC i ~1 ms de caracterització la primera vegada) | `docs/50`, `docs/85` |
 | Si cal corregir el factor (avui `{35, 2}` a `lib/hal_paper/`) | Una línia del HAL |
 
 **Vist el 31/10, amb el cable posat (o sigui carregant)**: `4246 mV, 100 %`. Els 4 246 mV són per
@@ -631,6 +632,7 @@ Què apuntar:
 | **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
 | **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
 | **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió. **El banc és més optimista que aquesta unitat**: simula el parpelleig d'`a2` i el rastre de `du4` del full del fabricant, i aquí el que cal és tornar a mirar si el vidre els fa (docs/85) | `docs/50` |
+| **Quant fantasma deixa un `du`, en nivells**: pintar un esglaó de setze nivells amb `gc16`, repintar-lo de blanc amb `du` (`run ghost` fa exactament això) i mirar quina diferència queda entre les bandes. És el número que fixa `keep_of_16` a `emu_ink.cpp`: avui **cinc setzens** al `du` i **set** al `du4`, amb un sostre de brutícia d'**onze setzens** (docs/85). I el gra: vuit píxels de cada mil fallen un nivell o dos | `docs/50`, `docs/85` |
 | **El temps d'un `gc16`**: `run panel` diu `the ink took N ms`, comptat **des d'abans del `present`** fins que `ui.idle()` diu que sí. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`, i la pàgina porta **dos pintats** (du i gc16), o sigui que el número és la suma. La primera lectura de `LUTAFSR` no servia —el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` l'1/11 amb la pàgina encara movent tinta— i des de la 0.19.2 el conductor no deixa respondre abans de 20 ms | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
 
@@ -696,9 +698,14 @@ lunok> stats
 | `doors` a prop del 100 % de la vida | el sistema no fa res més que esperar dispositius: el coll és al maquinari |
 | `lua.run` alt i `lua.own` baix | l'app passa el temps demanant coses, no calculant |
 | `turns` alt amb `kernel` baix | el nucli dona moltes voltes curtes: el que espera és un esdeveniment |
+| `lua.own` d'un bucle conegut | **el preu d'una instrucció d'aquest intèrpret**: un bucle de deu mil sumes i la fila `lua.own` dona els ns per instrucció que s'han de posar a `--lua-cpu` (avui el model en diu **60 ns a 160 MHz**, docs/85) |
 
-**El que el banc no pot dir**: el temps d'un dispositiu, perquè al PC el disc és el disc i no hi ha
-tinta (docs/85). Allà valen els comptes i el camí; els temps es prenen a la placa.
+**Què diu el banc i què no**: des de la 0.26.0 el banc **paga els temps de cada dispositiu** —blocs de
+flash i sectors de targeta, el bus i la tinta del panell, les tres transaccions del tàctil, les quatre
+conversions del gauge— i des de la 0.29.0 **també el codi de l'app** a la freqüència simulada, o sigui
+que les files `flash.read`, `glass.flush`, `touch.read`, `power.battery` i `lua.own` es poden comparar
+directament amb les de la placa. El que el banc **no** pot dir és el que no modela: el consum, la
+freqüència real del xip i si el maquinari fa el que diu el full (docs/85).
 
 ---
 

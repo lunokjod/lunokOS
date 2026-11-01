@@ -317,6 +317,13 @@ struct MeterOps {
   // system are taken away. It needs the running total of those calls, which is why it is asked for.
   uint64_t (*call_us)();
   void (*add_own)(uint32_t us);
+  // **What one instruction of this interpreter costs on the board being imitated**, in nanoseconds: zero
+  // on a board, where the time of an instruction is the time it takes, and a number on a bench that is
+  // paying for it (docs/85).
+  uint32_t (*instruction_ns)();
+  // **Where the time of those instructions is spent**: the band's own wait, which on the PC is a sleep
+  // and on the board is never asked for (docs/85).
+  void (*spend_us)(uint32_t us);
 };
 
 void set_meter_ops(const MeterOps& ops);
@@ -401,6 +408,16 @@ struct UIOps {
   bool (*canvas_invalidate_rect)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   bool (*canvas_begin_draw)(int8_t slot);
   bool (*canvas_end_draw)(int8_t slot);
+  // **The faces of a text** (docs/30): one loaded from a portable font file, the one a canvas draws with,
+  // and the one the app's own view uses. `handle` -1 is the font of the system, and a handle that was given
+  // back is refused instead of read.
+  int8_t (*font_load)(const char* path, const char*& reason);
+  bool (*font_release)(int8_t handle);
+  bool (*font_info)(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs);
+  bool (*canvas_set_font)(int8_t slot, int8_t handle);
+  bool (*app_set_font)(int8_t handle);
+  // How wide a text is with that face and that scale, in pixels (docs/30).
+  uint16_t (*font_text_width)(int8_t handle, const char* text, uint8_t scale);
 };
 
 void set_ui_ops(const UIOps& ops);
