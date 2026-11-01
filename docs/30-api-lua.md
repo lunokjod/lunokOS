@@ -757,7 +757,7 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
 | `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
-| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer de text** (`/res/*.lfont` o `/res/*.bdf`); el bloc de glifs és de l'app i compta al seu pressupost |
+| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer** (`/res/*.lfont`, `/res/*.bdf` o `/res/*.pcf`); el bloc de glifs és de l'app i compta al seu pressupost |
 | `ui.font(font)` · `cv:font(font)` | `true` o `nil, error` | La cara de la vista i la d'un canvas; `nil` torna a la del sistema |
 | `font:text_width(text, [scale])` | píxels | Quant fa de llarg una línia amb aquesta cara |
 | `font:size()` | ample, alt, glifs | El que la cara diu de si mateixa |
@@ -797,15 +797,46 @@ la fila 28 i `ui.caps().y` ho diu.
   `gc16` pinta i neteja (450 ms), `du` pinta però deixa rastre (120 ms), i **`du4` i `a2` no van pintar
   res** —`present` deia `true` i el vidre no canviava—. Fins que això no estigui resolt, pintar amb `du` i
   **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net.
-- **Una cara pot venir de dos formats, i el fitxer mateix diu de quin.** `ui.load_font` mira la primera
+- **Una cara pot venir de tres formats, i el fitxer mateix diu de quin.** `ui.load_font` mira la primera
   línia: `lunok-font 1` és el format propi —una línia de directives i els glifs en `#` i `.`— i
   `STARTFONT` és un **BDF**, el mapa de bits que llegia un servidor X: `FONTBOUNDINGBOX` amb la caixa, i
   per a cada `STARTCHAR` el seu `ENCODING` i les files del `BITMAP` en hexadecimal, amb el píxel de
-  l'esquerra al bit de més pes. El que en surt és **el mateix bloc de sempre** —vuit per vuit, fins a 96
-  codis del 0x20 al 0x7F, en ordre— i per tant res del que dibuixa no canvia: `run font-bdf` ensenya la
-  cara d'un BDF al costat de la del sistema. Un fitxer que no comença per cap de les dues coses es
-  refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok font nor a bdf`), i un BDF amb una caixa
-  de més de vuit columnes o de més de vuit files també (`a bdf glyph is up to eight columns wide`).
+  l'esquerra al bit de més pes. El tercer és un **PCF**, que és un BDF compilat: comença per quatre bytes
+  que no són text (`01 66 63 70`), porta les taules indexades —mètriques, bitmaps i codificació— i els
+  números de cada taula van en l'ordre de bytes que diu **aquella** taula (el directori, sempre petit). El
+  que en surt és **el mateix bloc de sempre** —vuit per vuit, fins a 96 codis del 0x20 al 0x7F, en ordre— i
+  per tant res del que dibuixa no canvia: `run font-bdf` i `run font-pcf` ensenyen la cara del fitxer al
+  costat de la del sistema, i les dues surten del **mateix font** (el `.pcf` de l'app està fet amb
+  `bdftopcf` del `.bdf` de l'altra, i la prova comprova que el bloc és idèntic byte a byte). Un fitxer que
+  no comença per cap de les tres coses es refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok
+  font, a bdf nor a pcf`), i també un BDF o un PCF amb un glif de més de vuit columnes
+  (`a bdf glyph is up to eight columns wide`, `a pcf glyph is up to eight columns wide`). D'un PCF no es
+  llegeix el que no se sap i no s'endevina: una codificació de dos bytes, una unitat d'escombrat més gran
+  que un byte, o els bits al revés es refusen amb el seu motiu. Un **`.pcf.gz`** (el que tenen les
+  distribucions de Linux) encara no s'obre: li falta el gzip, que és el mateix deflate amb una capçalera.
+- **Els contorns d'un TrueType, llegits i dibuixats** (1/11, 0.41.0, `lib/ttf`). Un `.ttf` no és una taula de
+  glifs sinó **un directori de taules**, i el que una pàgina necessita són set: `head` (la mida del cos i com
+  són els offsets), `hhea` i `hmtx` (el pas de cada glif), `maxp` (quants glifs hi ha), `loca` i `glyf` (on
+  comença cada contorn) i un `cmap` **de format 4**, que és el mapa de segments de l'ASCII. Un glif és una
+  llista de contorns de punts: els que la corba travessa i els que la dobleguen, o sigui **quadràtiques**, que
+  es tallen en sis trossos rectes —fins a **384 arestes** per glif, i un glif que en demani més es **refusa**
+  en lloc de dibuixar-se a mitges— i s'omplen per **regla de gir**: cada aresta que travessa el mig d'una fila
+  diu cap a on va, i un píxel és tinta quan el compte a la seva esquerra no és zero —això és el que fa que el
+  forat d'una lletra sigui un forat i no una segona taca—. El que no es llegeix es refusa amb el motiu:
+  `OTTO` (contorns CFF, un altre format), un glif fet de peces (`kComposite`), una corba amb més arestes que
+  el bloc, i un codi que el mapa no porta (`kNoGlyph`). **I arriba a les apps**: `ui.load_font('/res/x.ttf')`
+  el reconeix pels quatre primers bytes, i el que canvia respecte de les cares de bits és doble: **el bloc de
+  la cara és el fitxer sencer** (comptat al pressupost de l'app, fins a 128 KB, i els 768 B dels glifs no es
+  gasten) i **`scale` vol dir la mida del cos en vuitens de píxel** (`kOutlineBody` = 8), o sigui que
+  `text(x, y, s, 3)` és una línia de 24 píxels de cos. `font:text_width` suma els passos de cada glif en lloc
+  de multiplicar una cel·la, `font:size()` diu `0, 8, 0` (l'amplada és de cada glif i el nombre de glifs és
+  del fitxer). **Hi ha dues apps i no fan el mateix**: `run font-ttf` dibuixa el `.ttf` d'aquest repositori
+  —les mateixes sis lletres de `font-bdf` i `font-pcf`, a dues, quatre i sis mides—, que és el que prova que
+  el lector llegeix el que han de llegir els altres dos; i `run fonts-ttf` dibuixa **fonts de debò**: DejaVu
+  Sans, Serif i Sans Mono, retallades a l'ASCII imprimible amb `pyftsubset --unicodes=U+0020-007E` (8 084 a
+  10 896 B cada una) i amb la seva llicència al costat (`/res/LICENCE.txt`). Són tres perquè **tres és el que
+  el sistema guarda alhora**, i la quarta —la negreta— hi entra quan l'app torna el mono: `release()` és el
+  que fa lloc.
 - **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia— el canvas es torna a
   fer, blanc, i l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
   dibuixar és de l'app. Una app sense `on_resize` és una app legal; simplement no dibuixa mai la vista

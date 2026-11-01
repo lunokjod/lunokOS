@@ -334,13 +334,18 @@ i les cares d'un fitxer comparteixen `font::width` i `font::runs`, i el dibuix l
 d'on vénen. `ui.load_font(path)` dona **un objecte `font`** amb `:text_width`, `:size` i `:release`;
 `cv:font(f)` i `ui.font(f)` el posen a un canvas o a la vista (`nil` torna a la del sistema); i el bloc de
 glifs és de l'app i compta al seu pressupost —768 B per cara, tres cares alhora—. Una cara és de **fins a
-8 × 8** i de **96 codis del 0x20 al 0x7F, en ordre i sense forats**, i n'hi ha **dos formats i el fitxer
-mateix diu quin**: el propi (`lunok-font 1`, una línia de directives i els glifs en `#` i `.`) i el **BDF**
-d'un servidor X (`STARTFONT`, les files del `BITMAP` en hexadecimal). Un fitxer que no és ni una cosa ni
-l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de vuit columnes. Cinc apps ho ensenyen
-(`run sheet`, `run fonts`, `run font-sizes`, `run font-mix`, `run font-bdf`) i sis casos de `test/test_font`
-ho proven, refusos inclosos. **Qui converteix una cara en píxels és el nucli i no l'app**: Lua demana
-`text` i prou, perquè el retall, les escales i la comptabilitat del dany viuen en un sol lloc.
+8 × 8** i de **96 codis del 0x20 al 0x7F, en ordre i sense forats**, i n'hi ha **quatre formats i el fitxer
+mateix diu quin**: el propi (`lunok-font 1`, una línia de directives i els glifs en `#` i `.`), el **BDF**
+d'un servidor X (`STARTFONT`, les files del `BITMAP` en hexadecimal), el **PCF**, que és un BDF compilat
+(`bdftopcf`), amb les taules indexades i cada taula en l'ordre de bytes que ella mateixa diu, i el **TTF**,
+que no és una taula de bits sinó **contorns** (`lib/ttf`): una cara d'aquest últim no té cel·la, el seu bloc
+és el fitxer sencer i `scale` vol dir la mida del cos en vuitens de píxel. Un fitxer que
+no és ni una cosa ni l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de vuit columnes. Sis
+apps ho ensenyen (`run sheet`, `run fonts`, `run font-sizes`, `run font-mix`, `run font-bdf`, `run
+font-pcf`) més `run font-ttf` i `run fonts-ttf`, i vuit casos de `test/test_font` i tres de `test/test_ttf` ho proven, refusos
+inclosos, amb el `.pcf` de debò que surt **idèntic al `.bdf`** del qual es va compilar i amb la `A` del `.ttf`
+que surt **amb les vuit files del `.bdf`**. **Qui converteix una cara en píxels és el nucli i no l'app**:
+Lua demana `text` i prou, perquè el retall, les escales i la comptabilitat del dany viuen en un sol lloc.
 
 **I un control que se'n va es neteja abans de ser alliberat** (1/11): `cv:release()` **demana**, no fa. El
 control i els seus fills queden marcats, el control que pinta rep **un sol rectangle, el del pare** —els

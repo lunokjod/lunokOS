@@ -1,0 +1,9 @@
+{
+  "name": "ttf",
+  "version": "0.1.0",
+  "description": "TrueType outlines read the way a page needs them: the tables of a font, the glyph of a code, and the outline of that glyph drawn at the size it is asked for (docs/30).",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  }
+}

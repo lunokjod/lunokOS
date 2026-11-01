@@ -1,0 +1,8 @@
+{
+  "title": "Font ttf",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "font-ttf.lua",
+  "boards": ["esp32"],
+  "description": "A face of TrueType outlines drawn at three sizes: the same letters the bdf and pcf apps show, but drawn again at every size instead of stretched."
+}

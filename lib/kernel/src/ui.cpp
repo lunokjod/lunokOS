@@ -14,6 +14,7 @@
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
+#include "ttf/ttf.h"
 
 namespace kernel {
 namespace ui {
@@ -1370,6 +1371,10 @@ struct LoadedFace {
   bool in_use = false;
   font::Face face;
   uint8_t* bits = nullptr;
+  // **A face of outlines keeps its file**: its glyphs are contours inside the bytes, so the file cannot be
+  // given back when it has been read — it *is* the face, and the block of bits is never allocated (docs/30).
+  ttf::Face outline;
+  char* file = nullptr;
 };
 
 LoadedFace g_faces[kMaxFaces];
@@ -1386,13 +1391,15 @@ void release_faces() {
 const font::Face& face_of(int8_t handle) {
   if (handle < 0 || handle >= static_cast<int8_t>(kMaxFaces)) return font::system_face();
   const LoadedFace& loaded = g_faces[handle];
-  if (!loaded.in_use || loaded.bits == nullptr) return font::system_face();
+  if (!loaded.in_use) return font::system_face();
+  if (loaded.bits == nullptr && loaded.outline.data == nullptr) return font::system_face();
   return loaded.face;
 }
 
-// The biggest font file this system reads: **a face of ninety-six glyphs of eight rows is about four
-// kilobytes of text**, and a file past this is not a font anybody wrote by hand (docs/30).
-const uint32_t kFontFileBytes = 8192;
+// **The biggest font file this system reads**: a face of ninety-six glyphs of eight rows is about four
+// kilobytes of text, and a TrueType font of a page is a few tens of kilobytes —a whole family of them is
+// past this and is not a face a page needs— (docs/30, docs/75).
+const uint32_t kFontFileBytes = 131072;
 
 }  // namespace
 
@@ -1415,7 +1422,7 @@ int8_t font_load(const char* path, const char*& reason) {
     return -1;
   }
   if (info.size == 0 || info.size > kFontFileBytes) {
-    reason = "a font is one to eight kilobytes of text";
+    reason = "a font file is up to a hundred and twenty-eight kilobytes";
     return -1;
   }
   // A free slot first: a face that cannot be kept is not worth reading the file for.
@@ -1450,13 +1457,27 @@ int8_t font_load(const char* path, const char*& reason) {
     reason = "the file could not be read";
     return -1;
   }
+  // **A TrueType file is a face of outlines and not a table of bits** (docs/30): the file is what the face is
+  // made of, so it stays in the app's memory and the block of glyphs is never allocated for it.
+  LoadedFace& made = g_faces[slot];
+  if (font::looks_like_ttf(as_text, static_cast<uint32_t>(read))) {
+    const char* outline_why = font::load_ttf(as_text, static_cast<uint32_t>(read), made.outline, made.face);
+    if (outline_why == nullptr) {
+      made.file = as_text;
+      made.bits = nullptr;
+      made.in_use = true;
+      return slot;
+    }
+    pal::extra_memory().release(text);
+    reason = outline_why;
+    return -1;
+  }
   uint8_t* bits = static_cast<uint8_t*>(pal::extra_memory().allocate(font::kFaceBytes, true));
   if (bits == nullptr) {
     pal::extra_memory().release(text);
     reason = "there is no memory for the glyphs";
     return -1;
   }
-  LoadedFace& made = g_faces[slot];
   const char* why = font::load_any(as_text, static_cast<uint32_t>(read), bits, made.face);
   pal::extra_memory().release(text);
   if (why != nullptr) {
@@ -1476,6 +1497,7 @@ bool font_release(int8_t handle) {
   // **The block goes back and the slot is free**, and every canvas that was drawing with it falls back to
   // the font of the system: a face is data, and data that an app gave back cannot be drawn from (docs/30).
   pal::extra_memory().release(loaded.bits);
+  if (loaded.file != nullptr) pal::extra_memory().release(loaded.file);
   loaded = LoadedFace{};
   if (g_app_face == handle) g_app_face = -1;
   return true;

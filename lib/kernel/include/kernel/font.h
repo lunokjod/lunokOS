@@ -32,6 +32,12 @@
 
 #include "hal/hal.h"
 
+// **A face of outlines is a TrueType file**, and its reader is a library of its own: this header points at it
+// without knowing what is inside (docs/30).
+namespace ttf {
+struct Face;
+}
+
 namespace kernel {
 namespace font {
 
@@ -61,6 +67,11 @@ struct Face {
   // lowercase letter into its capital and knows nothing outside its table, and a face from a file carries
   // exactly the codes it was given (docs/30).
   uint8_t (*code)(uint8_t c);
+  // **Null when the face is a table of bits and not a font of outlines**: then `bits` is null too, the size is
+  // what the file says of itself, and every glyph is drawn at the size it is asked for instead of being read
+  // from a block (docs/30). `width`, `height`, `count` and `has()` say nothing for such a face: a text is laid
+  // out with the advance of each glyph and not with a cell.
+  const ttf::Face* outline;
 };
 
 // The face of the system, which is what the bar and every text without a font of its own are drawn with.
@@ -83,9 +94,29 @@ const char* load(const char* text, uint32_t length, uint8_t* bits, Face& out);
 // with the reason.
 const char* load_bdf(const char* text, uint32_t length, uint8_t* bits, Face& out);
 
-// **The loader an app gets**: it looks at what the file says of itself —`lunok-font 1` or `STARTFONT`— and
-// hands the bytes to the right reader, so `ui.load_font` takes either and an app does not care which
-// (docs/30). nullptr means the face is loaded and `out` is ready.
+// **A face read from a PCF**, which is a BDF compiled: the same tables in binary —the metrics, the bitmaps
+// and the encodings— with the numbers of a table in the byte order that the table itself says. It is what
+// `bdftopcf` writes and what an X server served, and it is the smallest real binary format there is. The
+// same block and the same `Face` come out as from the other two readers; the glyphs are up to eight by
+// eight, the codes are printable ascii, and what this reader does not know —two-byte codes, a scan unit, the
+// bits the other way round— is refused with the reason (docs/30).
+const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out);
+
+// **A face of outlines** (docs/30): the file is TrueType, `storage` is where this library keeps what it found
+// in it, and the face points at that storage — so both have to live as long as the face does. There is no
+// block of bits: a glyph is drawn when a text is drawn, at the size that text asks for, and the pen moves by
+// the advance of the file. `kOutlineBody` is what one step of `scale` means: a body of eight pixels, so
+// `scale` 3 is a line of twenty-four pixels of body and not a glyph eight times as big.
+const uint8_t kOutlineBody = 8;
+const char* load_ttf(const char* text, uint32_t length, ttf::Face& storage, Face& out);
+
+// **Whether these bytes are a font of outlines** and not text: a table directory of TrueType (`0x00010000`,
+// `true`) or the other flavour (`OTTO`, which is CFF and is refused by the reader with its reason).
+bool looks_like_ttf(const char* text, uint32_t length);
+
+// **The loader an app gets**: it looks at what the file says of itself —`lunok-font 1`, `STARTFONT` or the
+// four bytes a PCF opens with— and hands the bytes to the right reader, so `ui.load_font` takes any of the
+// three and an app does not care which (docs/30). nullptr means the face is loaded and `out` is ready.
 const char* load_any(const char* text, uint32_t length, uint8_t* bits, Face& out);
 
 // How wide a text is with that face and that scale, in pixels, counting the one-glyph separation between

@@ -66,6 +66,45 @@ void keep_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
   ++runs->count;
 }
 
+// The bytes of a file of the repository, read from the machine the suite runs on —`test_apps` reads its apps
+// the same way— so the vector of a compiled font is the one `bdftopcf` wrote and not a copy of it.
+uint32_t read_file(const char* path, char* out, uint32_t cap) {
+  FILE* file = fopen(path, "rb");
+  if (file == nullptr) return 0;
+  const size_t got = fread(out, 1, cap, file);
+  fclose(file);
+  return static_cast<uint32_t>(got);
+}
+
+// The PCF the app `font-pcf` ships with, read once: it is the vector of the two cases of the binary format.
+const char* pcf_file(uint32_t& length) {
+  static char bytes[4096];
+  static uint32_t stored = 0;
+  if (stored == 0) {
+    stored = read_file("data/apps/font-pcf/res/abcdef-8x8.pcf", bytes, sizeof(bytes));
+  }
+  length = stored;
+  return bytes;
+}
+
+// The offset of a table of a pcf, walking the directory the way the reader does: the directory is always
+// little-endian, whatever the tables say of themselves.
+int32_t table_of(const char* pcf, uint32_t type) {
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(pcf);
+  if (p == nullptr) return -1;
+  const auto u32 = [p](uint32_t at) {
+    return static_cast<uint32_t>(p[at]) | (static_cast<uint32_t>(p[at + 1]) << 8) |
+           (static_cast<uint32_t>(p[at + 2]) << 16) | (static_cast<uint32_t>(p[at + 3]) << 24);
+  };
+  const uint32_t tables = u32(4);
+  if (tables == 0 || tables > 64) return -1;
+  for (uint32_t i = 0; i < tables; ++i) {
+    const uint32_t at = 8 + i * 16;
+    if (u32(at) == type) return static_cast<int32_t>(u32(at + 12));
+  }
+  return -1;
+}
+
 }  // namespace
 
 // **A file that is a face is a face**: the size it says, the gap it says, the codes in order, and one bit
@@ -299,6 +338,80 @@ static void test_a_bdf_that_is_not_a_face_says_why() {
   TEST_ASSERT_NOT_NULL(kernel::font::load_any("hello", 5, g_bits, made));
 }
 
+// **A PCF and the BDF it was compiled from give the same face**, byte for byte: that is what "compiled" is
+// supposed to mean, and it is the one thing a reader of a binary format has to get exactly right (docs/30).
+// The vector is the file the app `font-pcf` ships with, written by `bdftopcf` from the BDF of `font-bdf`.
+static void test_a_pcf_becomes_the_same_face_as_its_bdf() {
+  uint32_t pcf_length = 0;
+  const char* pcf = pcf_file(pcf_length);
+  TEST_ASSERT_GREATER_THAN(8, pcf_length);
+  kernel::font::Face from_pcf = kernel::font::system_face();
+  TEST_ASSERT_NULL_MESSAGE(kernel::font::load_pcf(pcf, pcf_length, g_bits, from_pcf), "a pcf of six glyphs");
+  TEST_ASSERT_EQUAL_UINT8(8, from_pcf.width);
+  TEST_ASSERT_EQUAL_UINT8(8, from_pcf.height);
+  TEST_ASSERT_EQUAL_UINT8('A', from_pcf.first);
+  TEST_ASSERT_EQUAL_UINT8(6, from_pcf.count);
+  TEST_ASSERT_EQUAL_UINT8(1, from_pcf.gap);
+  TEST_ASSERT_EQUAL_UINT16(53, kernel::font::width(from_pcf, "ABCDEF", 1));  // 6 * 8 + 5 gaps
+
+  static char bdf[4096];
+  const uint32_t bdf_length = read_file("data/apps/font-bdf/res/abcdef-8x8.bdf", bdf, sizeof(bdf));
+  TEST_ASSERT_GREATER_THAN(0, bdf_length);
+  static uint8_t bdf_bits[kernel::font::kFaceBytes];
+  kernel::font::Face from_bdf = kernel::font::system_face();
+  TEST_ASSERT_NULL(kernel::font::load_bdf(bdf, bdf_length, bdf_bits, from_bdf));
+  TEST_ASSERT_EQUAL_UINT8(from_bdf.width, from_pcf.width);
+  TEST_ASSERT_EQUAL_UINT8(from_bdf.height, from_pcf.height);
+  TEST_ASSERT_EQUAL_UINT8(from_bdf.first, from_pcf.first);
+  TEST_ASSERT_EQUAL_UINT8(from_bdf.count, from_pcf.count);
+  for (uint32_t i = 0; i < from_pcf.count * kernel::font::kMaxGlyphHeight; ++i) {
+    TEST_ASSERT_EQUAL_UINT8(bdf_bits[i], g_bits[i]);
+  }
+  // And the loader an app calls takes the file without being told what it is: a PCF opens with four bytes
+  // that are not a line of text, so nothing can mistake it for a bdf (docs/30).
+  kernel::font::Face any = kernel::font::system_face();
+  TEST_ASSERT_NULL(kernel::font::load_any(pcf, pcf_length, g_bits, any));
+  TEST_ASSERT_EQUAL_UINT8('A', any.first);
+}
+
+// **What is not a pcf, and what is one this reader does not know, is refused with the reason** (docs/30).
+static void test_a_pcf_that_is_not_one_says_why() {
+  uint32_t length = 0;
+  const char* pcf = pcf_file(length);
+  TEST_ASSERT_GREATER_THAN(8, length);
+  kernel::font::Face face = kernel::font::system_face();
+  TEST_ASSERT_NOT_NULL_MESSAGE(kernel::font::load_pcf("hello", 5, g_bits, face), "not a pcf");
+  static char scratch[4096];
+  // **A directory that is cut** is not read table by table to see how far it goes.
+  memcpy(scratch, pcf, length);
+  TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, 10, g_bits, face));
+  // **A table that starts past the end of the file.**
+  memcpy(scratch, pcf, length);
+  const int32_t bitmaps = table_of(scratch, 0x08);
+  TEST_ASSERT_TRUE(bitmaps > 0);
+  scratch[bitmaps + 12] = static_cast<char>(0xFF);
+  scratch[bitmaps + 13] = static_cast<char>(0xFF);
+  scratch[bitmaps + 14] = static_cast<char>(0xFF);
+  scratch[bitmaps + 15] = static_cast<char>(0xFF);
+  TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
+  // **The bits the other way round** would mirror every letter, so the file is refused instead (`0x0e` is
+  // most-significant bits first; `0x06` is the same file with the bit the other way).
+  memcpy(scratch, pcf, length);
+  scratch[bitmaps] = static_cast<char>(0x06);
+  TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
+  // **A two-byte encoding**, which is where the codes stop being ascii.
+  const int32_t encodings = table_of(pcf, 0x20);
+  TEST_ASSERT_TRUE(encodings > 0);
+  memcpy(scratch, pcf, length);
+  scratch[encodings + 9] = static_cast<char>(0x01);  // `min_byte1`, most significant byte first
+  TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
+  // **A code that points past the glyphs**: the first entry of the encoding table says glyph 200 of six.
+  memcpy(scratch, pcf, length);
+  scratch[encodings + 14] = static_cast<char>(0x00);
+  scratch[encodings + 15] = static_cast<char>(200);
+  TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -309,5 +422,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_file_that_is_not_a_face_says_why);
   RUN_TEST(test_a_bdf_becomes_a_face);
   RUN_TEST(test_a_bdf_that_is_not_a_face_says_why);
+  RUN_TEST(test_a_pcf_becomes_the_same_face_as_its_bdf);
+  RUN_TEST(test_a_pcf_that_is_not_one_says_why);
   return UNITY_END();
 }

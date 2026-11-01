@@ -1,6 +1,8 @@
 // The five by seven glyphs and the two functions that put them on a surface (docs/30).
 #include "kernel/font.h"
 
+#include "ttf/ttf.h"
+
 #include <stddef.h>
 
 namespace kernel {
@@ -115,12 +117,26 @@ uint8_t file_code(uint8_t c) { return c; }
 const Face& system_face() {
   static const Face face = {kGlyphWidth, kGlyphHeight, 1u, static_cast<uint8_t>(kFirst),
                             static_cast<uint8_t>(kCount), reinterpret_cast<const uint8_t*>(kGlyphs),
-                            &builtin_lit, &builtin_code};
+                            &builtin_lit, &builtin_code, nullptr};
   return face;
 }
 
 uint16_t width(const Face& face, const char* text, uint8_t scale) {
   if (text == nullptr || text[0] == '\0' || scale == 0) return 0;
+  // **A face of outlines is laid out glyph by glyph**: every one of them has its own advance in the file, and
+  // the size of the body is what one step of `scale` means (docs/30).
+  if (face.outline != nullptr) {
+    const uint16_t px = static_cast<uint16_t>(kOutlineBody * scale);
+    uint16_t total = 0;
+    for (const char* at = text; *at != '\0'; ++at) {
+      const uint8_t code = static_cast<uint8_t>(*at);
+      if (code < 0x20 || code > 0x7F) continue;
+      uint16_t glyph = 0;
+      if (ttf::glyph_of(*face.outline, code, glyph) != ttf::kOk) continue;
+      total = static_cast<uint16_t>(total + ttf::advance(*face.outline, glyph, px));
+    }
+    return total;
+  }
   const uint16_t step = static_cast<uint16_t>((face.width + face.gap) * scale);
   uint16_t chars = 0;
   for (const char* at = text; *at != '\0'; ++at) ++chars;
@@ -130,8 +146,72 @@ uint16_t width(const Face& face, const char* text, uint8_t scale) {
 
 uint16_t width(const char* text, uint8_t scale) { return width(system_face(), text, scale); }
 
+// ---- a face of outlines, drawn as runs (docs/30) ----
+//
+// The other two kinds of face are tables of bits and this one is not: a glyph of a TrueType file is a drawing
+// that only becomes pixels at a size. So the block is drawn here, one glyph at a time, into a block of rows
+// that is the biggest glyph this system draws in one piece, and what comes out of it are **the same runs as
+// ever** —so the retall, the dany and the composition below do not learn anything new (docs/90).
+namespace {
+
+const uint16_t kOutlineMaxWidth = 64;
+const uint16_t kOutlineMaxHeight = 64;
+const uint16_t kOutlineRowBytes = kOutlineMaxWidth / 8;
+uint8_t g_outline_rows[kOutlineRowBytes * kOutlineMaxHeight];
+
+uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale,
+                      const Clip& clip, RunFn fn, void* user) {
+  if (text == nullptr || scale == 0 || fn == nullptr) return 0;
+  const ttf::Face& font = *face.outline;
+  const uint16_t px = static_cast<uint16_t>(kOutlineBody * scale);
+  const uint32_t body = (font.units_per_em == 0) ? 1 : font.units_per_em;
+  const int32_t ascent = static_cast<int32_t>((static_cast<int32_t>(font.ascent) * px) / static_cast<int32_t>(body));
+  int32_t pen = x;
+  for (const char* at = text; *at != '\0'; ++at) {
+    const uint8_t code = static_cast<uint8_t>(*at);
+    if (code < 0x20 || code > 0x7F) continue;
+    uint16_t glyph = 0;
+    if (ttf::glyph_of(font, code, glyph) != ttf::kOk) continue;
+    ttf::Bitmap box;
+    const ttf::Status drawn =
+        ttf::render(font, glyph, px, g_outline_rows, static_cast<uint8_t>(kOutlineRowBytes),
+                    kOutlineMaxWidth, kOutlineMaxHeight, box);
+    if (drawn == ttf::kOk) {
+      // **The box says where the ink lands**: `left` from the pen and `top` from the baseline, so the rows walk
+      // down from there and every run of lit pixels is one rectangle of one row (docs/30).
+      for (uint16_t row = 0; row < box.height; ++row) {
+        const int32_t top = y + ascent + box.top + static_cast<int32_t>(row);
+        uint16_t column = 0;
+        while (column < box.width) {
+          const uint8_t bits = g_outline_rows[row * kOutlineRowBytes + (column >> 3)];
+          if ((bits & (0x80u >> (column & 7))) == 0) {
+            ++column;
+            continue;
+          }
+          uint16_t run = column;
+          while (run < box.width &&
+                 (g_outline_rows[row * kOutlineRowBytes + (run >> 3)] & (0x80u >> (run & 7))) != 0) {
+            ++run;
+          }
+          int32_t left = pen + box.left + static_cast<int32_t>(column);
+          int32_t right = pen + box.left + static_cast<int32_t>(run);
+          if (left < clip.x0) left = clip.x0;
+          if (right > clip.x1) right = clip.x1;
+          if (left < right && top >= clip.y0 && top + 1 <= clip.y1) fn(user, left, top, right - left, 1);
+          column = run;
+        }
+      }
+    }
+    pen += ttf::advance(font, glyph, px);
+  }
+  return width(face, text, scale);
+}
+
+}  // namespace
+
 uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip,
               RunFn fn, void* user) {
+  if (face.outline != nullptr) return outline_runs(face, text, x, y, scale, clip, fn, user);
   if (text == nullptr || scale == 0 || fn == nullptr || face.bits == nullptr || face.lit == nullptr) {
     return 0;
   }
@@ -310,6 +390,7 @@ const char* load(const char* text, uint32_t length, uint8_t* bits, Face& out) {
   out.bits = bits;
   out.lit = &file_lit;
   out.code = &file_code;
+  out.outline = nullptr;
   return nullptr;
 }
 
@@ -500,11 +581,229 @@ const char* load_bdf(const char* text, uint32_t length, uint8_t* bits, Face& out
   out.bits = bits;
   out.lit = &file_lit;
   out.code = &file_code;
+  out.outline = nullptr;
   return nullptr;
+}
+
+// ---- a face from a PCF (docs/30) ----
+//
+// PCF is a BDF compiled: the same tables in binary, and the numbers of a table in the byte order that the
+// table itself says. What a page needs is three of them —the metrics, the bitmaps and the encodings— and
+// **a table this reader does not know is refused rather than guessed**, which is the rule everywhere here.
+namespace {
+
+constexpr uint32_t kPcfMetricsTable = 0x04;
+constexpr uint32_t kPcfBitmapsTable = 0x08;
+constexpr uint32_t kPcfEncodingsTable = 0x20;
+constexpr uint32_t kPcfByteOrderMsb = 0x04;
+constexpr uint32_t kPcfBitOrderMsb = 0x08;
+constexpr uint32_t kPcfCompressedMetrics = 0x0100;
+
+// **The table directory is little-endian always**, because it has to be read before a table's own order is
+// known; the numbers inside a table follow the table's format.
+uint32_t pcf_u32(const char* at, bool big) {
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(at);
+  if (big) {
+    return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+           (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+  }
+  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
+         (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
+}
+
+int32_t pcf_i16(const char* at, bool big) {
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(at);
+  const uint32_t raw = big ? ((static_cast<uint32_t>(p[0]) << 8) | static_cast<uint32_t>(p[1]))
+                           : (static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8));
+  return static_cast<int32_t>(static_cast<int16_t>(raw));
+}
+
+// The number at an offset of a table, in the order that table says, and only if the whole of it is there.
+bool pcf_number(const char* text, uint32_t length, uint32_t at, uint32_t size, bool big, int32_t& value) {
+  if (at + size > length) return false;
+  value = (size == 2) ? pcf_i16(text + at, big) : static_cast<int32_t>(pcf_u32(text + at, big));
+  return true;
+}
+
+}  // namespace
+
+const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out) {
+  if (text == nullptr || bits == nullptr || length == 0) return "there is nothing to read";
+  if (length < 8 || static_cast<uint8_t>(text[0]) != 0x01 || text[1] != 'f' || text[2] != 'c' ||
+      text[3] != 'p') {
+    return "not a pcf";
+  }
+  for (uint32_t i = 0; i < kFaceBytes; ++i) bits[i] = 0;
+  const uint32_t tables = pcf_u32(text + 4, false);
+  if (tables == 0 || 8 + tables * 16 > length) return "the table directory is cut";
+  int32_t metrics_at = -1;
+  int32_t bitmaps_at = -1;
+  int32_t encodings_at = -1;
+  for (uint32_t i = 0; i < tables; ++i) {
+    const uint32_t entry = 8 + i * 16;
+    const uint32_t type = pcf_u32(text + entry, false);
+    const uint32_t offset = pcf_u32(text + entry + 12, false);
+    if (offset + 4 > length) return "a table starts past the end of the file";
+    if (type == kPcfMetricsTable) {
+      metrics_at = static_cast<int32_t>(offset);
+    } else if (type == kPcfBitmapsTable) {
+      bitmaps_at = static_cast<int32_t>(offset);
+    } else if (type == kPcfEncodingsTable) {
+      encodings_at = static_cast<int32_t>(offset);
+    }
+  }
+  if (metrics_at < 0 || bitmaps_at < 0 || encodings_at < 0) {
+    return "a pcf needs its metrics, its bitmaps and its encodings";
+  }
+  const bool metrics_big = (pcf_u32(text + metrics_at, false) & kPcfByteOrderMsb) != 0;
+  const uint32_t bitmaps_format = pcf_u32(text + bitmaps_at, false);
+  const bool bitmaps_big = (bitmaps_format & kPcfByteOrderMsb) != 0;
+  const bool encodings_big = (pcf_u32(text + encodings_at, false) & kPcfByteOrderMsb) != 0;
+  // **The bits of a glyph are read most significant first**, which is the way this system's own face is
+  // stored; a file that says otherwise is refused instead of mirrored (docs/30).
+  if ((bitmaps_format & kPcfBitOrderMsb) == 0) return "a pcf with its bits the other way is not read";
+  const uint32_t glyph_pad = 1u << (bitmaps_format & 0x03u);
+  if ((bitmaps_format & 0x30u) != 0) return "a pcf whose glyphs are a scan unit wide is not read";
+
+  // ---- the encodings: one byte of code, or nothing ----
+  int32_t range[5] = {0, 0, 0, 0, 0};
+  for (uint32_t i = 0; i < 5; ++i) {
+    if (!pcf_number(text, length, static_cast<uint32_t>(encodings_at) + 4 + i * 2, 2, encodings_big,
+                    range[i])) {
+      return "the encodings are cut";
+    }
+  }
+  if (range[2] != 0 || range[3] != 0) return "a pcf of two-byte codes is not read";
+  const int32_t low = range[0];
+  const int32_t high = range[1];
+  if (high < low) return "the encodings are not a range";
+  if (static_cast<uint32_t>(high - low) + 1 > kMaxGlyphs) return "a face is at most ninety-six glyphs";
+
+  // ---- the metrics, compressed to five signed bytes to a glyph or not ----
+  const bool compressed = (pcf_u32(text + metrics_at, false) & kPcfCompressedMetrics) != 0;
+  int32_t metrics_count = 0;
+  uint32_t metrics_step = compressed ? 5 : 10;
+  if (!pcf_number(text, length, static_cast<uint32_t>(metrics_at) + 4, compressed ? 2 : 4, metrics_big,
+                  metrics_count)) {
+    return "the metrics are cut";
+  }
+  const uint32_t metrics_first = static_cast<uint32_t>(metrics_at) + (compressed ? 6 : 8);
+
+  // ---- the bitmaps ----
+  int32_t glyph_count = 0;
+  if (!pcf_number(text, length, static_cast<uint32_t>(bitmaps_at) + 4, 4, bitmaps_big, glyph_count)) {
+    return "the bitmaps are cut";
+  }
+  if (glyph_count <= 0) return "a pcf with no glyph";
+  const uint32_t offsets_first = static_cast<uint32_t>(bitmaps_at) + 8;
+  const uint32_t data_first = offsets_first + static_cast<uint32_t>(glyph_count) * 4 + 16;
+  if (data_first > length) return "the bitmaps are cut";
+
+  int32_t first = -1;
+  int32_t count = 0;
+  uint32_t widest = 0;
+  uint32_t tallest = 0;
+  for (int32_t code = low; code <= high; ++code) {
+    // **The face this system draws is printable ascii** and nothing else, so what is outside it is not a
+    // hole and is not read (docs/30).
+    if (code < 0x20 || code > 0x7F) continue;
+    int32_t glyph = 0;
+    if (!pcf_number(text, length, static_cast<uint32_t>(encodings_at) + 14 + (code - low) * 2, 2,
+                    encodings_big, glyph)) {
+      return "the encodings are cut";
+    }
+    if (glyph < 0 || glyph == 0x7FFF) continue;  // a code the font does not have
+    if (glyph >= glyph_count || glyph >= metrics_count) return "a code points past the glyphs";
+    const uint32_t at = metrics_first + static_cast<uint32_t>(glyph) * metrics_step;
+    if (at + metrics_step > length) return "the metrics are cut";
+    int32_t metric[5] = {0, 0, 0, 0, 0};
+    if (compressed) {
+      // A compressed metric is the value with 0x80 added to it, and that is how a byte holds a minus one.
+      for (uint32_t i = 0; i < 5; ++i) {
+        metric[i] = static_cast<int32_t>(static_cast<uint8_t>(text[at + i])) - 0x80;
+      }
+    } else {
+      for (uint32_t i = 0; i < 5; ++i) {
+        metric[i] = pcf_i16(text + at + i * 2, metrics_big);
+      }
+    }
+    const int32_t box_width = metric[1] - metric[0];  // right bearing less left bearing
+    const int32_t box_height = (metric[3] > 0 ? metric[3] : 0) + (metric[4] > 0 ? metric[4] : 0);
+    if (box_width < 0 || box_width > kMaxGlyphWidth) return "a pcf glyph is up to eight columns wide";
+    if (box_height < 0 || box_height > kMaxGlyphHeight) return "a pcf glyph is up to eight rows tall";
+    // The codes come in order, one by one, like they do in a `.lfont` and in a bdf.
+    if (first < 0) {
+      first = code;
+    } else if (code != first + count) {
+      return "the glyphs of a face come in order";
+    }
+    int32_t offset = 0;
+    if (!pcf_number(text, length, offsets_first + static_cast<uint32_t>(glyph) * 4, 4, bitmaps_big,
+                    offset)) {
+      return "the bitmaps are cut";
+    }
+    const uint32_t row_bytes = (static_cast<uint32_t>(box_width) + 7) / 8;
+    if (row_bytes > 0) {
+      const uint32_t stride = (row_bytes + glyph_pad - 1) / glyph_pad * glyph_pad;
+      for (uint32_t row = 0; row < static_cast<uint32_t>(box_height); ++row) {
+        const uint32_t byte_at = data_first + static_cast<uint32_t>(offset) + row * stride;
+        if (byte_at + row_bytes > length) return "a glyph is cut";
+        // **The leftmost pixel is the top bit of the first byte**, which is the layout of `file_lit`.
+        bits[static_cast<uint32_t>(count) * kMaxGlyphHeight + row] =
+            static_cast<uint8_t>(text[byte_at]);
+      }
+    }
+    if (static_cast<uint32_t>(box_width) > widest) widest = static_cast<uint32_t>(box_width);
+    if (static_cast<uint32_t>(box_height) > tallest) tallest = static_cast<uint32_t>(box_height);
+    ++count;
+  }
+  if (count == 0) return "a face with no glyph";
+  out.width = static_cast<uint8_t>(widest > 0 ? widest : 1);
+  out.height = static_cast<uint8_t>(tallest > 0 ? tallest : 1);
+  out.gap = 1;
+  out.first = static_cast<uint8_t>(first);
+  out.count = static_cast<uint8_t>(count);
+  out.bits = bits;
+  out.lit = &file_lit;
+  out.code = &file_code;
+  out.outline = nullptr;
+  return nullptr;
+}
+
+const char* load_ttf(const char* text, uint32_t length, ttf::Face& storage, Face& out) {
+  if (text == nullptr || length == 0) return "there is nothing to read";
+  const char* why = ttf::open(reinterpret_cast<const uint8_t*>(text), length, storage);
+  if (why != nullptr) return why;
+  // **A face of outlines has no cell and no codes of its own**: the size is the body of the file at scale one,
+  // the advance is the file's, and every glyph is drawn when a text is drawn (docs/30).
+  out.width = 0;
+  out.height = kOutlineBody;
+  out.gap = 0;
+  out.first = 0x20;
+  out.count = 0;
+  out.bits = nullptr;
+  out.lit = nullptr;
+  out.code = nullptr;
+  out.outline = &storage;
+  return nullptr;
+}
+
+bool looks_like_ttf(const char* text, uint32_t length) {
+  if (text == nullptr || length < 4) return false;
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(text);
+  const bool truetype = p[0] == 0x00 && p[1] == 0x01 && p[2] == 0x00 && p[3] == 0x00;
+  const bool sfnt_true = p[0] == 't' && p[1] == 'r' && p[2] == 'u' && p[3] == 'e';
+  const bool cff = p[0] == 'O' && p[1] == 'T' && p[2] == 'T' && p[3] == 'O';
+  return truetype || sfnt_true || cff;
 }
 
 const char* load_any(const char* text, uint32_t length, uint8_t* bits, Face& out) {
   if (text == nullptr || length == 0) return "there is nothing to read";
+  // **A PCF is binary and its first four bytes are its own**, so there is no first line to read in it.
+  if (length >= 4 && static_cast<uint8_t>(text[0]) == 0x01 && text[1] == 'f' && text[2] == 'c' &&
+      text[3] == 'p') {
+    return load_pcf(text, length, bits, out);
+  }
   // **What the file says of itself decides the reader**, and nothing else: the first line of a lunok font and
   // the first line of a bdf cannot be mistaken for one another (docs/30). Blank lines, the `;` comments of a
   // lunok font and the `COMMENT` lines of a bdf come before that first line like they do in both readers.
@@ -518,7 +817,7 @@ const char* load_any(const char* text, uint32_t length, uint8_t* bits, Face& out
     if (starts_with(line, line_length, "lunok-font")) return load(text, length, bits, out);
     break;
   }
-  return "not a font: neither a lunok font nor a bdf";
+  return "not a font: neither a lunok font, a bdf nor a pcf";
 }
 
 }  // namespace font

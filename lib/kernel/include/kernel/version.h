@@ -374,7 +374,30 @@ namespace kernel {
 // says of itself** —`STARTFONT` or `lunok-font`— to pick the reader, so `ui.load_font` takes either and no
 // app has to know which format its face came in. `run font-bdf` shows the face of the file beside the one of
 // the system (docs/30).
-static const char kVersion[] = "0.39.0";
+// 0.40.0 (1/11): **a face can also come out of a PCF**, the binary form of a BDF --`bdftopcf` writes it and
+// an X server served it--: the table directory (always little-endian) names the encodings, the metrics
+// (five signed bytes a glyph, or five sixteen-bit numbers) and the bitmaps, and the numbers inside a table
+// follow the byte order that table declares. The block that comes out is the same as the BDF it was
+// compiled from, **byte for byte**, which is what the suite proves with the real file; and what this reader
+// does not know --two-byte codes, a scan unit bigger than a byte, the bits the other way round-- is refused
+// with its reason instead of guessed. `run font-pcf` shows the face beside the one of the system (docs/30).
+// 0.41.0 (1/11): **the outlines of a TrueType font, read and drawn** (`lib/ttf`): the table directory, the
+// seven tables a text is laid out with (head, hhea, hmtx, maxp, loca, glyf, cmap of format 4), the glyph a
+// code asks for and that glyph's contours —quadratic curves and straight lines— flattened to edges and filled
+// by the winding rule into a block of rows the caller owns. No allocation of its own: the file is the caller's
+// bytes and the drawing happens in the caller's block. A font of the other flavour (`OTTO`, CFF), a glyph made
+// of pieces and an outline with more edges than the block holds are refused with the reason. The vector is a
+// font this repository builds, so the `A` at eight pixels has to come out as the eight rows of `font-bdf`.
+// And the last step, the same day: **`ui.load_font` takes a `.ttf`** --the file *is* the face, so it stays in
+// the app's memory and no block of bits is allocated for it-- and **`scale` means the body in eighths of a
+// pixel**, so `text(x, y, s, 3)` is a line of twenty-four and every size is the letter drawn again. `run
+// font-ttf` shows the same six letters at two, four and six (docs/30).
+// 0.42.0 (1/11): **real fonts on the page**. `run fonts-ttf` draws DejaVu Sans, DejaVu Serif and DejaVu Sans
+// Mono —cut down to the printable ascii with `pyftsubset`, eight to eleven kilobytes each, licence included—
+// at three sizes, which is the three faces the system keeps at once. What a real font asked for: **a glyph
+// with more edges than the block holds is now refused** instead of being drawn with the ones that fitted
+// (`kMaxEdges` 384, the curve cut in six) (docs/30).
+static const char kVersion[] = "0.42.0";
 
 }  // namespace kernel
 
