@@ -84,6 +84,10 @@ class ISystem {
   virtual bool reboot_requested() const = 0;
   virtual uint32_t random() = 0;
   virtual HeapInfo heap() const = 0;
+  // **How much of the task's own stack is left at its lowest point**, in bytes, or -1 on a build that
+  // cannot ask. A page of controls, a font of outlines and the interpreter share one task, and a stack that
+  // overflows does not say so: it corrupts a backtrace and reboots (measured on the Paper, 2/11).
+  virtual int32_t stack_free() const = 0;
 };
 
 // Brings the layer up: console mode, queue allocation, reader tasks.

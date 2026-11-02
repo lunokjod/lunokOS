@@ -40,8 +40,9 @@ uint32_t g_taps = 0;
 bool g_waiting = false;
 int64_t g_wait_deadline_ms = 0;
 
-int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
-  // The RTC chip, read once a turn (docs/30, docs/50).
+int64_t now_ms() {
+  // **The clock is read once a turn and once per key, and that is what `stats` has to see**: the scope goes
+  // before the answer and not after it, where it was dead code the compiler threw away (docs/30, docs/50).
   meter::Scope scope(meter::kClockMono);
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
 }

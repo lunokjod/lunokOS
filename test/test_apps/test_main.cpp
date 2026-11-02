@@ -3062,6 +3062,77 @@ void test_three_taps_of_a_side_key_keep_the_app(void) {
   storage->remove("/apps/idleside");
 }
 
+// **The dial reaches the callbacks of a page of controls**: the centre presses the control that has the
+// focus, a side key walks to the next one, and `on_click` and `on_activate` are the two names a press can
+// arrive with (docs/30, docs/90). It is the whole chain —the key, the focus, the hook and the label that
+// changes— and the app ends itself when it has counted two presses, which is how the suite knows it ran.
+void test_the_dial_walks_the_buttons_of_a_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "dial",
+                           "{\"title\":\"Dial\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local presses = 0\n"
+                           "local done = false\n"
+                           "local function make(name, x, how)\n"
+                           "  local b = ui.button(200, 80)\n"
+                           "  b:place(x, 100)\n"
+                           "  local l = ui.label(180, 60)\n"
+                           "  l.text = name\n"
+                           "  l.align = 'center'\n"
+                           "  l.valign = 'middle'\n"
+                           "  l:place(10, 10)\n"
+                           "  b:add(l)\n"
+                           "  local hook = function(self)\n"
+                           "    presses = presses + 1\n"
+                           "    l.text = name .. ' ' .. presses\n"
+                           "    console.print('press ' .. name .. ' ' .. presses)\n"
+                           "    if presses >= 2 then done = true end\n"
+                           "  end\n"
+                           "  if how == 'activate' then b.on_activate = hook else b.on_click = hook end\n"
+                           "  b.on_focus = function(self, focused)\n"
+                           "    if focused then console.print('focus ' .. name) end\n"
+                           "  end\n"
+                           "end\n"
+                           "make('one', 20, 'click')\n"
+                           "make('two', 260, 'activate')\n"
+                           "ui.present()\n"
+                           "while not done do sys.delay(10):await() end\n"
+                           "console.print('presses ' .. presses)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run dial");
+  capture_begin();
+  pump_turns(20);
+  // The centre presses the control that has the focus, and the first one is the one the system focused when
+  // it appeared.
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  // A side key walks the focus to the next control and the centre presses that one, which answers
+  // `on_activate` because that is the name it declared.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press one 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus two"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "press two 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "presses 2"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its two presses");
+
+  storage->remove("/apps/dial/app.lua");
+  storage->remove("/apps/dial/manifest.json");
+  storage->remove("/apps/dial");
+}
+
 // Where the keys are is part of the answer: an app gives a function to a position,
 // and the board says it in the same words on every board (docs/30, docs/50).
 void test_the_board_says_where_its_keys_are(void) {
@@ -4173,6 +4244,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_key_reaches_the_app_with_its_number);
   RUN_TEST(test_the_board_says_where_its_keys_are);
   RUN_TEST(test_three_taps_of_a_side_key_keep_the_app);
+  RUN_TEST(test_the_dial_walks_the_buttons_of_a_page);
   RUN_TEST(test_the_keys_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);

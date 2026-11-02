@@ -27,15 +27,35 @@
 
 namespace kernel {
 namespace shell {
+
+bool ansi_reply(const char* data, size_t len) {
+  if (data == nullptr || len < 4) return false;
+  for (size_t i = 0; i + 2 < len; ++i) {
+    if (data[i] != 0x1b || data[i + 1] != '[') continue;
+    // A reply is `ESC [ ?` and then digits and semicolons until a `c`. An arrow (`ESC [ A`) and a cursor
+    // report (`ESC [ 12 ; 40 R`) are not answers, and neither is anything a person typed.
+    size_t at = i + 2;
+    if (at >= len || data[at] != '?') continue;
+    ++at;
+    while (at < len && ((data[at] >= '0' && data[at] <= '9') || data[at] == ';')) ++at;
+    if (at < len && data[at] == 'c') return true;
+  }
+  return false;
+}
+
 namespace {
 
 const size_t kPrintCap = 1024;
-// Largest entry chunk that will be run. It was 4 096 B and the `matrix` app grew
-// past it, which is a limit saying no to an app that fits the board, so it is
-// 8 192 B now; it is static RAM and it costs that, so it does not grow again
-// without a number (docs/75).
-const size_t kSourceCap = 8192;
+// Largest entry chunk that will be run. It was 4 096 B and the `matrix` app grew past it; it was 8 192 B and
+// the `buttons` example grew past it at 9 329 B, which is a limit saying no to an app that fits the board. It
+// is **16 384 B now**, it is static RAM and it costs +8 192, so it does not grow again without a number and a
+// paragraph in docs/75.
+const size_t kSourceCap = 16384;
 const size_t kDefaultHeapBytes = 64 * 1024;   // used until the board ceiling is measured
+// A word of a command line is 127 bytes at most, and a path with spaces goes between quotes:
+// `cat "res/el meu fitxer.txt"`. There is no escaping, because a quote is a quote and nothing in a file
+// system of this size needs more.
+const size_t kWordCap = 128;
 
 line::Editor g_editor;
 // The prompt is kept because redrawing the line after a cursor move has to put it back: the prompt of
@@ -79,10 +99,55 @@ void spaces(size_t count) {
   }
 }
 
-// A word of a command line is 127 bytes at most, and a path with spaces goes
-// between quotes: `cat "res/el meu fitxer.txt"`. There is no escaping, because a
-// quote is a quote and nothing in a file system of this size needs more.
-const size_t kWordCap = 128;
+// **Whether the terminal speaks ANSI is asked, not assumed.** The Device Attributes query is one sequence
+// (`ESC [ c`), a terminal that understands it answers `ESC [ ? ... c`, and a terminal that does not stays
+// quiet: that is a detection and not the guess `TERM` and `isatty` make (docs/85).
+//
+// The answer is cached, because asking is a wait and the redraw of a line asks on every key. **The platform's
+// own belief is the gate**: a console that already says it is not a terminal is not asked, which is what keeps
+// a pipe, a file and the native suite from paying 150 ms and from reading escape bytes that nobody sent.
+const uint32_t kAnsiProbeMs = 150;
+bool g_ansi = false;
+bool g_ansi_known = false;
+// What arrived while the question was in the air. It is fed to the line afterwards if it was not an answer,
+// so the first thing a person types at boot is not eaten by the boot.
+char g_early[32];
+size_t g_early_len = 0;
+
+// **The question and the wait**, asked once by `start` and remembered: it is the only place that reads the
+// port before there is a prompt.
+void detect_terminal() {
+  g_early_len = 0;
+  g_ansi_known = true;
+  g_ansi = false;
+  pal::IConsole* console = pal::system().console();
+  // **Not a terminal, not asked**: a pipe, a file, or the native suite. Nobody is going to answer, and paying
+  // 150 ms to hear nothing is not a detection (docs/85).
+  const bool asks = (console != nullptr) && console->ansi();
+  if (asks) {
+    const char ask[] = "\x1b[c";
+    console->write(ask, sizeof(ask) - 1);
+    console->flush();
+    const int64_t deadline = pal::system().millis() + static_cast<int64_t>(kAnsiProbeMs);
+    while (pal::system().millis() < deadline) {
+      char byte = 0;
+      if (console->read(&byte, 1) == 0) continue;
+      if (g_early_len < sizeof(g_early)) g_early[g_early_len++] = byte;
+      // The reply ends at its `c`, and the collection stops with it.
+      if (byte == 'c' && ansi_reply(g_early, g_early_len)) {
+        g_ansi = true;
+        g_early_len = 0;
+        break;
+      }
+    }
+  }
+  // **What was detected is said in one line**, because a terminal that is not what the platform believed is
+  // exactly the thing a person has to be able to see without guessing (docs/85).
+  log_printf(pal::kLogInfo, "TERM", "%s",
+             !asks ? "no terminal, ansi not asked"
+                   : (g_ansi ? "ansi" : "no ansi, spaces and backspaces"));
+}
+
 const size_t kWordsBad = static_cast<size_t>(-1);
 
 // Words of an argument, or kWordsBad: a quote left open, a word too long, or
@@ -151,6 +216,9 @@ void out_num(uint32_t value) {
 }
 
 bool console_ansi() {
+  // **What the terminal said of itself at start is the answer**, and the platform's belief is only the gate
+  // that decides whether asking is worth 150 ms (docs/85).
+  if (g_ansi_known) return g_ansi;
   pal::IConsole* console = pal::system().console();
   return console != nullptr && console->ansi();
 }
@@ -268,6 +336,15 @@ void print_mem() {
     newline();
   } else {
     out("  heap               not available on this build\r\n");
+  }
+  // **What is left of the stack of this task**: a page of controls, a font of outlines and the interpreter
+  // share it, and an overflow does not say so —it corrupts a backtrace and reboots— so the number is here
+  // (docs/75).
+  const int32_t stack_left = pal::system().stack_free();
+  if (stack_left >= 0) {
+    out("  stack left         ");
+    out_num(static_cast<uint32_t>(stack_left));
+    out(" B\r\n");
   }
   // The extra memory of the board (the PSRAM of the Paper), with the three numbers that are not the
   // same: what the chip says it has, what the CPU can address, and what is left. It was one number
@@ -623,10 +700,19 @@ bool hexdump_file(const char* path) {
   return true;
 }
 
-// The entry chunk is handed to the interpreter whole, because Lua compiles a
-// script from its source and cannot be fed a line at a time. The buffer is static
-// and the ceiling is checked before reading (docs/20).
-char g_source[kSourceCap];
+// The entry chunk is handed to the interpreter whole, because Lua compiles a script from its source and cannot
+// be fed a line at a time. **It is taken from the heap and given back as soon as it has been compiled**, and
+// not kept as a static block: sixteen kilobytes reserved for the millisecond of a `run_source` are sixteen
+// kilobytes the plain ESP32 does not have to give away for ever —with a static buffer the ATOM Matrix came out
+// **1 184 B over `dram0`** (measured, 2/11, docs/75). The ceiling is still checked before reading (docs/20).
+char* g_source = nullptr;
+
+void drop_source() {
+  if (g_source != nullptr) {
+    free(g_source);
+    g_source = nullptr;
+  }
+}
 
 struct RunTarget {
   char path[96];
@@ -696,13 +782,20 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
     newline();
     return false;
   }
+  g_source = static_cast<char*>(malloc(kSourceCap));
+  if (g_source == nullptr) {
+    out("no memory for the source\r\n");
+    return false;
+  }
   if (!vfs::read_file(target.path, g_source, kSourceCap - 1, len)) {
+    drop_source();
     out("cannot read: ");
     out(target.path);
     newline();
     return false;
   }
   if (len == kSourceCap - 1) {
+    drop_source();
     out("too big to run: ");
     out(target.path);
     newline();
@@ -737,7 +830,17 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
 
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
+  // **A breadcrumb before the interpreter takes over the task**: a page of controls, a font of outlines and
+  // Lua share one stack, and when that stack dies the only thing left is what was said before it did
+  // (measured on the Paper with `run buttons`, 2/11, docs/75).
+  const int32_t stack_left = pal::system().stack_free();
+  if (stack_left >= 0) {
+    log_printf(pal::kLogInfo, "APPS", "%s, stack %d B free", boot.app_id, static_cast<int>(stack_left));
+  } else {
+    log_printf(pal::kLogInfo, "APPS", "%s", boot.app_id);
+  }
   if (!luabind::start(boot, limit)) {
+    drop_source();  // the text was read and nobody is going to compile it
     out("cannot start the interpreter\r\n");
     return false;
   }
@@ -751,7 +854,11 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
 
   // The app is compiled and given a task, but not run here: the first turn is
   // the first poll, and from then on the kernel keeps turning (docs/30).
-  if (!luabind::run_source(target.path, g_source, len)) {
+  const bool compiled = luabind::run_source(target.path, g_source, len);
+  // **The text is the interpreter's from here**, which has compiled it into its own state: the block goes back
+  // before the app runs a single line (docs/20, docs/75).
+  drop_source();
+  if (!compiled) {
     luabind::stop();
     return false;
   }
@@ -1700,12 +1807,18 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
 
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
-  if (!luabind::start(boot, limit)) return false;
+  if (!luabind::start(boot, limit)) {
+    drop_source();  // the text was read and nobody is going to compile it
+    return false;
+  }
   meter::note_app_start(boot.app_id);
   ui::attach();  // a fresh view for the app that is coming back (docs/30)
   bar::title(boot.app_title);
 
   bool ok = luabind::run_source(target.path, g_source, len);
+  // **The text is the interpreter's now**, which has compiled it into its own state: the block goes back before
+  // the app runs a single line (docs/20, docs/75).
+  drop_source();
   if (ok) {
     // One turn: the entry runs to its first wait or to its end. A window is not a
     // session, and it does not get the keyboard.
@@ -1758,8 +1871,18 @@ void start() {
   g_esc = 0;
   g_escape = Escape::kNone;
   g_visible = 0;
+  // **The terminal is asked what it is before the first line is written**, because what a person is about to
+  // see depends on the answer: with ANSI the line is redrawn with its codes, and without it the shell washes
+  // the old tail with spaces and backspaces (docs/85).
+  detect_terminal();
   newline();
   prompt();
+  if (g_early_len > 0) {
+    // What arrived while the question was in the air was not an answer: it is a key, and it is not lost.
+    const size_t early = g_early_len;
+    g_early_len = 0;
+    feed(g_early, early);
+  }
 }
 
 // cfg: where the settings of the apps are kept. `/cfg` is a door and not a disk, so the

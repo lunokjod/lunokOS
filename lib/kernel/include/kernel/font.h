@@ -44,14 +44,21 @@ namespace font {
 const uint8_t kGlyphWidth = 5;
 const uint8_t kGlyphHeight = 7;
 
-// **How big a glyph of a face can be**: one byte per row, and the leftmost column is the highest bit, which
-// is the order a text file is written in (docs/30).
-const uint8_t kMaxGlyphWidth = 8;
-const uint8_t kMaxGlyphHeight = 8;
+// **How big a glyph of a face can be**: sixteen columns by sixteen rows, which is what a body of sixteen
+// pixels of a rounded font needs to be legible, and it was eight until 0.55.0 —eight was all a five by seven
+// doubled ever asked (docs/30).
+const uint8_t kMaxGlyphWidth = 16;
+const uint8_t kMaxGlyphHeight = 16;
 const uint8_t kMaxGlyphs = 96;  // 0x20 to 0x7F
 
-// The block of glyphs an app hands over for a face it loads from a file, in bytes (96 glyphs of eight rows).
-const uint32_t kFaceBytes = static_cast<uint32_t>(kMaxGlyphs) * kMaxGlyphHeight;
+// **Two bytes for a row of a glyph**: sixteen columns do not fit in one. The block of a face is a row-major
+// table —`index * kMaxGlyphHeight + row`, and then these bytes— and **the leftmost pixel is the highest bit of
+// the first of them**, with the second byte holding the columns eight to fifteen (docs/30).
+const uint8_t kGlyphRowBytes = 2;
+
+// The block of glyphs an app hands over for a face it loads from a file, in bytes (96 glyphs of sixteen rows).
+const uint32_t kFaceBytes =
+    static_cast<uint32_t>(kMaxGlyphs) * kMaxGlyphHeight * kGlyphRowBytes;
 
 // **A face**: the size of a glyph, the space between two of them, the codes it carries, its bits, and the
 // one function that knows how those bits are laid out (docs/30).

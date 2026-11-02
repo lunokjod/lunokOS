@@ -582,6 +582,36 @@ sistema ho compta sol, i no ho pregunta a l'app, perquè **cap app sap què hi h
 - **Què es veu al banc**: `docs/85` ja sap com costa cada qualitat; el que això afegeix és que el canvi d'app
   costa 290 ms i no 450 quan l'app era de text, i que una app que no hagi pintat res no costa res.
 
+## El terminal es pregunta, no s'endevina (2/11, 0.53.0)
+
+La línia del prompt es redibuixa a cada tecla, i com es redibuixa depèn del terminal: amb **ANSI** es fa amb
+`ESC [ K` i `ESC [ n D` (esborrar i tornar enrere); sense, amb **espais i backspaces**, que és el mateix
+dibuix amb els codis que qualsevol port entén. Fins la 0.52.0 això es decidia **endevinant** (`isatty` i la
+variable `TERM` al PC, i «sempre sí» a la placa), i una placa amb un pont sèrie sense ANSI rebia caràcters
+d'escapament com a brossa.
+
+Ara, a l'arrencada, el shell **pregunta**: envia la consulta *Device Attributes* (`ESC [ c`) i busca la
+resposta `ESC [ ? … c` en el que arriba, amb un màxim de **150 ms**. Un terminal ANSI contesta, un de ximple
+no contesta i el sistema ho apunta:
+
+```
+[I][TERM] ansi
+[I][TERM] no ansi, spaces and backspaces
+[I][TERM] no terminal, ansi not asked
+```
+
+Tres detalls que són la diferència entre detectar i fer veure que es detecta:
+
+- **El que creu la plataforma és la porta.** Un console que ja diu que no és un terminal (una canonada, un
+  fitxer, la suite) **no es pregunta**: no hi ha ningú per contestar i 150 ms d'espera són un peatge per res.
+- **El que arriba mentre la pregunta és a l'aire no es llença**: si no és una resposta, s'entrega a la línia
+  quan el prompt ja hi és. La primera tecla d'una persona no se la menja l'arrencada.
+- **La regla és pura** (`kernel::shell::ansi_reply`) i la suite la prova amb la resposta d'un VT100
+  (`ESC [ ? 1 ; 2 c`), la d'un xterm, una fletxa, un informe de cursor, una tecla i un text qualsevol.
+
+Mesurat al banc: amb una canonada, `no terminal, ansi not asked`; dins d'un pseudo-terminal que no contesta,
+`no ansi, spaces and backspaces`; i donant-li la resposta pel seu `stdin`, `ansi`.
+
 ## Què mirar, i amb quina app (1/11)
 
 **Al banc, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que `run draw` i `run glass` van amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.

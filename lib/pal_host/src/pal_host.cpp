@@ -95,6 +95,10 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     return info;
   }
 
+  // **The host has no task of its own to measure**: the process has a stack the kernel gave it and nobody
+  // here knows where it started (-1 is "not measured", which is not zero, docs/75).
+  int32_t stack_free() const override { return -1; }
+
   // IQueue ------------------------------------------------------------------
 
   bool push(const Event& ev, uint32_t timeout_ms) override {

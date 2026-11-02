@@ -442,7 +442,76 @@ namespace kernel {
 // and the pressed state. `focusable` and `focused`, `on_focus`, `on_click` and `on_activate` are the
 // contract; a page with controls does not close on three centre taps, and a generic control that sets
 // `focusable = true` is in the same walk as a `ui.button` (docs/30, docs/90).
-static const char kVersion[] = "0.49.0";
+// 0.49.1 (2/11): **three numbers the review of the UI found, and one of them was a lie.** The clock of the
+// dial (`button::now_ms`) had its `meter::Scope` after the `return`, so `stats` never counted the read it
+// does once a turn and once per key; `label_draw` kept a kilobyte of its line buffer on the stack of the
+// eight the loop task has, and it is static now; and `font:size()` said **zero glyphs** about a face of
+// outlines, which is DejaVu saying it has no letters —the count is the file's now, and it is sixteen bits
+// wide because a font of a thousand letters does not fit a byte— (docs/30, docs/75).
+// 0.50.0 (2/11): **the example of the buttons answers a press, and the entry chunk it needed is bigger.**
+// `run buttons` gives every button a real `on_click` (one of them `on_activate`, to show the other name a
+// press can arrive with) and an `on_focus`, and each one counts its presses in its own label: a click is
+// **one label that changes and not one button**, which the app counts to the console. It went to 9 329 B and
+// the 8 KB entry cap said no, so `kSourceCap` is **16 384 B** now: +8 192 B of static RAM, +0 B of flash,
+// measured (docs/75). And the suite drives the dial through a page of two buttons —the centre presses, a side
+// key walks, `on_click` and `on_activate` both arrive— which is the chain nothing had tried (docs/30, docs/90).
+// 0.51.0 (2/11): **a button looks like a button**. Its frame is a box with twelve pixels of round corner, a
+// two-pixel border and a bevel inside it — light on the top and the left, shadow on the bottom and the right,
+// the two swapped while it is held— and the focus is a **ring two pixels thick** five pixels in, black on a
+// light button and white on a dark one, because the old second border could not be told from the first. One
+// pixel of ink and not a ramp: the panel has sixteen levels and what a person sees is an edge (docs/30, docs/90).
+// 0.52.0 (2/11): **the bar of the system is twice the bar it was**: 48 rows and the font at four times instead
+// of 28 rows and twice, which read only from close up. Nine rows of air, twenty-eight of glyph, nine more and
+// the black line of two, at 12 pixels of side padding and 8 between the three things. The page of an app is
+// **540 × 912** now and its buffer **246 240 B** (it was 932 and 251 640): the six thousand bytes go back to
+// the pool, and the touch frame of a finger follows the view down by twenty rows (docs/30, docs/50).
+// 0.53.0 (2/11): **the terminal is asked what it is instead of being guessed at.** At start the shell sends the
+// Device Attributes query (`ESC [ c`) and scans what comes back for `ESC [ ? ... c`: an ANSI terminal answers,
+// a dumb one stays quiet, and the answer is what the redraw of a line uses from then on (`erase` and `move`
+// against spaces and backspaces). **The platform's own belief is the gate** —a pipe, a file or the suite is not
+// asked, so nothing pays 150 ms for an answer nobody was going to give— and what arrived while the question was
+// in the air is fed to the line, so the first key a person presses is not eaten by the boot. The rule is pure
+// (`shell::ansi_reply`) and the suite tries it with the replies of a VT100, an xterm, an arrow and a keystroke
+// (docs/85). Measured on the bench: a pipe says `no terminal, ansi not asked`, a pseudo-terminal that does not
+// answer says `no ansi, spaces and backspaces`, and one that is handed the reply says `ansi`.
+// 0.53.1 (2/11): **a page of controls on the board rebooted with a corrupted backtrace.** `run buttons` on the
+// Paper died before its first line: the UI of a page, the reader of a TrueType font and the interpreter all run
+// in the loop task, and that task had the eight kilobytes the core defaults to. It is **16 KB now**
+// (`-DARDUINO_LOOP_STACK_SIZE`, the core's own macro, written in all three board environments because a child
+// does not inherit its father's flags). And the number is no longer a matter of opinion: `mem` prints **the
+// stack left** at its lowest point (`ISystem::stack_free`, FreeRTOS' own high-water mark) and every app says
+// its name and that number before the interpreter takes the task, so the next crash has a place to be
+// (docs/75).
+// 0.54.0 (2/11): **a press of a button does not flash any more.** `button_draw` and `label_draw` painted their
+// frame and their word with `gc16`, the wash that flashes a whole box black and white, and a button painted it
+// twice —once when the finger went down and once when it came up—, which on the glass is a flicker for every
+// press. The two controls paint with **`du`** now, the quick paint, and it is the page that asks for the one
+// wash it needs with `ui.present('gc16')` when it comes out. What that costs is ghost on a word that changes
+// in place, and the example says so (docs/50, docs/90). And `run buttons` is **black on white in the system's
+// own face at scale three** instead of four DejaVu faces at four sizes: a button is a frame and a word, and the
+// word is read from a metre away (docs/30).
+// 0.54.1 (2/11): **pressing a button is a hole and the word goes down with it.** Out, a button is a line of
+// light on the top and the left and a shadow on the bottom and the right; held, the shadow is **two pixels of a
+// much darker level** (`background - 8`) instead of one line, because a button pushed in is a hole and a hole
+// has a mouth. And `run buttons` moves the label **three pixels down and to the right** while the button is
+// held — a frame that sinks with a word that does not is a picture of a button— which it does in the button's
+// own `on_draw`, before the children are composed, so the word is in its place in the same page (docs/30,
+// docs/90).
+// 0.55.0 (2/11): **a face of bits is sixteen by sixteen, and the buttons wear a real font.** The cell was eight
+// because a five by seven doubled never asked for more; it is **16 × 16 with two bytes a row** now
+// (`kGlyphRowBytes`), so the block of a face is **3 072 B** instead of 768 and a letter of a rounded font has
+// room to be one. And `tools/ttf_to_lfont.py` turns a `.ttf` into a `.lfont` —Pillow, the glyph centred in the
+// cell because the table is fixed pitch, the stroke optional— so a page can have a big rounded face with upper
+// and lower case and **nothing to decode when it draws**. `run buttons` loads one made out of **Nunito
+// SemiBold at 14 px**: 16 × 16, 96 glyphs, 27 049 bytes of text, OFL licence beside it (docs/30).
+// 0.56.0 (2/11): **the system builds for a bare ESP32, and the sixteen kilobytes that the entry chunk needed
+// are no longer reserved for ever.** A new environment, `esp32` (`esp32dev`, four megabytes of flash and no
+// PSRAM, the most ordinary board there is), proves the minimum: same `hal_esp32` and same `pal_esp32` as the
+// ATOM, nothing on GPIO27 for the light and nothing on GPIO39 for the key, the console as the only way in and
+// out (docs/50, docs/80). And the buffer that holds an app's Lua while it is compiled is **asked from the heap
+// and given back the moment the interpreter has it**: the ATOM Matrix came out **1 184 B over `dram0`** with
+// the static one, and the ATOM goes from **123 392 to 107 008 B of static RAM** (docs/75).
+static const char kVersion[] = "0.56.0";
 
 }  // namespace kernel
 

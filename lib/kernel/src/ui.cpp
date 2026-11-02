@@ -541,7 +541,72 @@ void draw_frame(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint
   mark_box(canvas, x, y, w, h, mode);
 }
 
-// **A line that is straight up, down, left or right is a rectangle**, and a rectangle is exact; the rest
+// **How far a corner pushes the ink in on a row**, which is a quarter of a circle and therefore a square root
+// of integers: no floating point, and a table of radii would be more code than this loop (docs/90).
+int32_t corner_inset(int32_t radius, int32_t down) {
+  if (radius <= 0 || down >= radius) return 0;
+  const int32_t left = radius * radius - down * down;
+  int32_t root = 0;
+  while ((root + 1) * (root + 1) <= left) ++root;
+  return radius - root;
+}
+
+// **A box with the corners rounded off**, row by row: a control with volume needs a shape, and a rounded one
+// is what a button of this panel looks like (docs/90).
+void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius,
+                     uint8_t level, hal::UpdateMode mode) {
+  if (w <= 0 || h <= 0) return;
+  const int32_t most = ((w < h) ? w : h) / 2;
+  if (radius > most) radius = most;
+  if (radius < 0) radius = 0;
+  for (int32_t row = 0; row < h; ++row) {
+    int32_t down = radius;
+    if (row < radius) {
+      down = radius - row - 1;
+    } else if (row >= h - radius) {
+      down = row - (h - radius);
+    }
+    const int32_t inset = corner_inset(radius, down);
+    put_rect(canvas, x + inset, y + row, w - 2 * inset, 1, level);
+  }
+  mark_box(canvas, x, y, w, h, mode);
+}
+
+// **The edge of a rounded box, one pixel of it, split into a light half and a dark one**: that is what makes
+// a button look like it comes out of the page, and swapping the two makes it look pressed in (docs/90).
+void draw_round_bevel(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius,
+                      uint8_t top_left_level, uint8_t bottom_right_level, hal::UpdateMode mode) {
+  if (w <= 2 || h <= 2) return;
+  if (radius > (w < h ? w : h) / 2) radius = (w < h ? w : h) / 2;
+  if (radius < 0) radius = 0;
+  for (int32_t row = 0; row < h; ++row) {
+    int32_t down = radius;
+    if (row < radius) {
+      down = radius - row - 1;
+    } else if (row >= h - radius) {
+      down = row - (h - radius);
+    }
+    const int32_t inset = corner_inset(radius, down);
+    const int32_t left = x + inset;
+    const int32_t right = x + w - 1 - inset;
+    if (left >= right) continue;
+    const bool on_top = (row == 0);
+    const bool on_bottom = (row == h - 1);
+    if (on_top) {
+      put_rect(canvas, left, y, right - left + 1, 1, top_left_level);
+      continue;
+    }
+    if (on_bottom) {
+      put_rect(canvas, left, y + h - 1, right - left + 1, 1, bottom_right_level);
+      continue;
+    }
+    put_pixel(canvas, left, y + row, top_left_level);
+    put_pixel(canvas, right, y + row, bottom_right_level);
+  }
+  mark_box(canvas, x, y, w, h, mode);
+}
+
+// A line that is straight up, down, left or right is a rectangle, and a rectangle is exact; the rest
 // is Bresenham, which is the same line the panel would draw and no floating point (docs/50).
 void draw_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t level,
                hal::UpdateMode mode) {
@@ -1352,14 +1417,19 @@ bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background
   // **The frame is the label's, and the background is paid before the text**: a control without a buffer
   // writes into the canvas that holds it, and what it owed is the hole the text leaves when it changes
   // (docs/30, docs/90).
-  // **A label is a page of text in miniature, so it is painted with the quality that leaves no ghost of
-  // the word before it**: the whole frame is one `gc16`, and a text that changes is clean on the next
-  // present (docs/50, docs/90).
+  //
+  // **`du` and not `gc16`**: a label that changes is a press or a number, and `gc16` is the wash that flashes
+  // the whole box — two of them, one when the finger goes down and one when it comes up, is what a button did
+  // until 0.54.0 (measured on the Board, 2/11). A page that has to come out clean says so once, with
+  // `ui.present('gc16')`, and the rest of the presses are quick (docs/50, docs/90).
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
-                 width, height, background, hal::UpdateMode::kGc16);
+                 width, height, background, hal::UpdateMode::kDu);
   if (text != nullptr && text[0] != '\0') {
     const font::Face& face = face_of(label.face);
-    char shown[1024];
+    // **The line a label shows lives in a static block and not on the stack**: a kilobyte of the eight the
+    // loop task has is not something a control that is drawn may borrow, and labels are drawn one at a time
+    // (docs/75).
+    static char shown[1024];
     const uint16_t shown_w = label_text(label.face, text, width, scale, shown, sizeof(shown));
     const uint16_t line_h =
         static_cast<uint16_t>((face.height != 0) ? face.height * scale : font::kGlyphHeight * scale);
@@ -1376,7 +1446,7 @@ bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background
       y = static_cast<int32_t>(height) - static_cast<int32_t>(line_h);
     }
     draw_text(*target.canvas, face, target.x + x, target.y + y, shown, scale, color,
-              hal::UpdateMode::kGc16);
+              hal::UpdateMode::kDu);
   }
   close_draw(target);
   return true;
@@ -1390,22 +1460,52 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
   if (width == 0 || height == 0) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
-  // **The frame is the button**: a fill and one border, and a second border while it is held. The child
-  // is not painted here —the tree draws it after this control, clipped to the same frame— and that is
-  // what makes a label inside a button move with it (docs/30, docs/90).
-  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
-                 width, height, background, hal::UpdateMode::kGc16);
-  draw_frame(*target.canvas, target.x, target.y, width, height, border, hal::UpdateMode::kGc16);
-  if (pressed && width > 4 && height > 4) {
-    draw_frame(*target.canvas, target.x + 1, target.y + 1, static_cast<int32_t>(width) - 2,
-               static_cast<int32_t>(height) - 2, border, hal::UpdateMode::kGc16);
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  // **Twelve pixels of corner**, which is what a button of this panel looks like, and never more than a third
+  // of the smaller side: a button that is all corner is a pill and not a button (docs/90).
+  int32_t radius = 12;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  const int32_t thickness = (width > 12 && height > 12) ? 2 : 1;
+  // **The body is a rounded box in the border colour with a rounded hole of the background in it**, which is
+  // a frame of a given thickness whose corners are rounded on both sides (docs/90).
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
+  draw_round_fill(*target.canvas, target.x + thickness, target.y + thickness, width - 2 * thickness,
+                  height - 2 * thickness, radius - thickness, background, mode);
+  // **The volume**: a light edge on the top and the left, a shadow on the bottom and the right. While the
+  // button is held the two swap, which is the whole difference between a button that is out and one that is
+  // pushed in — and it is one pixel of ink, not a gradient, because the panel has sixteen levels and a person
+  // looking at a page sees an edge and not a ramp (docs/50, docs/90).
+  const uint8_t light = (background >= 15) ? 15 : static_cast<uint8_t>(background + 4);
+  const uint8_t dark = (background == 0) ? 0 : static_cast<uint8_t>(background - 4);
+  const int32_t face_w = width - 2 * thickness;
+  const int32_t face_h = height - 2 * thickness;
+  if (!pressed) {
+    draw_round_bevel(*target.canvas, target.x + thickness, target.y + thickness, face_w, face_h,
+                     radius - thickness, light, dark, mode);
+  } else {
+    // **A button that is pushed in is a hole, and a hole has a mouth**: the shadow on the top and the left is
+    // **two pixels of a darker level** and not one line, and the light goes to the bottom and the right. Two
+    // rings instead of one is the difference between "held" and "drawn twice" (docs/30, docs/90).
+    const uint8_t deep = (background >= 8) ? static_cast<uint8_t>(background - 8) : 0;
+    draw_round_bevel(*target.canvas, target.x + thickness, target.y + thickness, face_w, face_h,
+                     radius - thickness, deep, light, mode);
+    draw_round_bevel(*target.canvas, target.x + thickness + 1, target.y + thickness + 1, face_w - 2,
+                     face_h - 2, radius - thickness - 1, deep, light, mode);
   }
-  // **The focus is a second border, two pixels in**: a button that is held already has one at one
-  // pixel, and the two can be there at once. The child is drawn after and may cover it if it fills
-  // the whole frame; the app owns that (docs/30, docs/90).
-  if (focused && width > 6 && height > 6) {
-    draw_frame(*target.canvas, target.x + 2, target.y + 2, static_cast<int32_t>(width) - 4,
-               static_cast<int32_t>(height) - 4, border, hal::UpdateMode::kGc16);
+  // **The focus is a ring two pixels thick**, inset so the border and the bevel stay where they are, in the
+  // colour that cannot be missed on that background: black on a light button and white on a dark one (docs/30,
+  // docs/90).
+  if (focused && width > 16 && height > 16) {
+    const uint8_t ring = (background >= 8) ? 0 : 15;
+    const int32_t inset = thickness + 3;
+    const int32_t ring_radius = (radius > inset + 1) ? radius - inset : 2;
+    const int32_t ring_width = width - 2 * inset;
+    const int32_t ring_height = height - 2 * inset;
+    draw_round_fill(*target.canvas, target.x + inset, target.y + inset, ring_width, ring_height,
+                    ring_radius, ring, mode);
+    draw_round_fill(*target.canvas, target.x + inset + 2, target.y + inset + 2, ring_width - 4,
+                    ring_height - 4, ring_radius - 2, background, mode);
   }
   // **The frame is opaque, and it covers everything inside it**: a child that did not redraw would be
   // erased by the button's own fill. The button has no buffer to compose under the child, so the child
@@ -1625,7 +1725,7 @@ bool font_release(int8_t handle) {
   return true;
 }
 
-bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs) {
+bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint16_t& glyphs) {
   if (handle < 0) {
     const font::Face& face = font::system_face();
     width = face.width;
@@ -1639,7 +1739,9 @@ bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uin
   width = face.width;
   height = face.height;
   gap = face.gap;
-  glyphs = face.count;
+  // **A face of outlines has no cell and its count is the font's, not a table's**: `face.count` is zero for it
+  // and a page that says "zero glyphs" about DejaVu is a number that is not true (docs/30).
+  glyphs = (face.outline != nullptr) ? face.outline->glyphs : face.count;
   return true;
 }
 

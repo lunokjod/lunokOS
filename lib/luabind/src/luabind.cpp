@@ -3687,7 +3687,7 @@ int l_font_size(lua_State* L) {
   uint8_t width = 0;
   uint8_t height = 0;
   uint8_t gap = 0;
-  uint8_t glyphs = 0;
+  uint16_t glyphs = 0;
   if (font->handle < 0 || g_ui_ops.font_info == nullptr ||
       !g_ui_ops.font_info(font->handle, width, height, gap, glyphs)) {
     lua_pushinteger(L, 0);
@@ -3720,7 +3720,7 @@ int l_font_tostring(lua_State* L) {
   uint8_t width = 0;
   uint8_t height = 0;
   uint8_t gap = 0;
-  uint8_t glyphs = 0;
+  uint16_t glyphs = 0;
   if (font->handle >= 0 && g_ui_ops.font_info != nullptr &&
       g_ui_ops.font_info(font->handle, width, height, gap, glyphs)) {
     snprintf(text, sizeof(text), "font %ux%u gap %u, %u glyphs", static_cast<unsigned>(width),

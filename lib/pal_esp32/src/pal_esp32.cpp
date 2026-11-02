@@ -62,6 +62,14 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
     return info;
   }
 
+  // **What is left of the stack of this task, at its lowest point**: FreeRTOS counts the words nobody has
+  // touched since the task started, and a task whose stack overflows does not report it — it corrupts a
+  // backtrace and reboots (measured on the Paper with `run buttons`, 2/11, docs/75).
+  int32_t stack_free() const override {
+    const UBaseType_t words = uxTaskGetStackHighWaterMark(nullptr);
+    return static_cast<int32_t>(words * sizeof(StackType_t));
+  }
+
   // IQueue ------------------------------------------------------------------
 
   bool push(const Event& ev, uint32_t timeout_ms) override {

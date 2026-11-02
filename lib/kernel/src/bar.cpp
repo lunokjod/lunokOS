@@ -13,19 +13,21 @@ namespace kernel {
 namespace bar {
 namespace {
 
-// The height of the strip. It leaves room for a glyph of seven rows doubled to fourteen, with four rows
-// of air above and below and a black line of two at the bottom: 4 + 14 + 6 + 2 + 2 = 28 (docs/50).
-const uint16_t kBarHeight = 28;
+// **The height of the strip, and the size of its letters.** It was 28 rows —a glyph doubled to fourteen and
+// air— and 28 rows with a doubled glyph is a bar that reads only from close up. It is **48 rows with the
+// glyphs at four times** now: nine rows of air, twenty-eight of glyph, nine more and the black line of two at
+// the bottom, which is 9 + 28 + 9 + 2 = 48 (docs/50).
+const uint16_t kBarHeight = 48;
 
-// Glyphs at twice their size: five by seven scaled to ten by fourteen, which is the smallest that reads
-// on an e-ink glass from a normal distance (docs/50).
-const uint8_t kScale = 2;
-// Where the text starts, above and to the left, leaving three glyph columns of air at the edges.
-const uint16_t kPaddingX = 8;
+// Glyphs at four times their size: five by seven scaled to twenty by twenty-eight, which is what reads on an
+// e-ink glass from an arm's length (docs/50).
+const uint8_t kScale = 4;
+// Where the text starts, above and to the left, leaving air at the edges.
+const uint16_t kPaddingX = 12;
 // The air between the hour, the title and the charge: two things that touch are two things nobody can
 // tell apart (docs/30).
-const uint16_t kTitleGap = 6;
-const uint16_t kTextTop = 5;
+const uint16_t kTitleGap = 8;
+const uint16_t kTextTop = 9;
 // The black line under the bar.
 const uint16_t kLineHeight = 2;
 

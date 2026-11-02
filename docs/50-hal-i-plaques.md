@@ -494,6 +494,35 @@ Conseqüències que aquesta placa imposa:
 - **El Grove és I2C lliure**: si cal provar el camí d'un xip RTC de debò, s'hi pot posar un mòdul sense
   canviar de placa.
 
+## Fitxa: ESP32 de DevKit (la placa del mínim)
+
+| | |
+|---|---|
+| Nom (`sys.board`) | `esp32dev` |
+| Entorn | `esp32`, amb la placa `esp32dev` que la plataforma ja porta |
+| Xip | ESP32 estàndard (WROOM-32), 240 MHz, arrenca a 160 |
+| Flash | 4 MB |
+| RAM | 320 KB, **sense PSRAM** |
+| Pantalla | No |
+| Entrada | **Cap tecla**: la família llegeix la **GPIO39**, i a un DevKit no hi ha res connectat |
+| Llum | **Cap**: la família pinta a la **GPIO27**, i no hi ha cap xip que ho escolti |
+| Sensor | Cap |
+| Rellotge | Només el del SoC |
+| Consola | La del pont USB-sèrie |
+
+**Per a què hi és: per provar el mínim.** És el `esp32dev` de tota la vida, la placa més corrent que
+hi ha, i és el terra de la memòria i de les capacitats: si un canvi no hi cap, no cap enlloc. **No és
+la fitxa de cap aparell venut**: només s'ha compilat, no s'ha flashejat mai, i això es diu.
+
+Què hi fa el sistema: el mateix que a l'ATOM menys el que aquesta placa no té —el llum, la tecla, el
+sensor inercial i el vidre—. Comparteix `hal_esp32` (que és el HAL de la família) i `pal_esp32`, i el
+que és seu és només la identitat, a `lib/board_esp32/`. El camí d'entrada i de sortida d'una app és la
+consola, i la sortida del llum no té xip que la rebi: `led.play` escriu a un pin que no va enlloc.
+
+Es mesura amb `pio run -e esp32` cada cop que es toca la memòria: **107 008 B de RAM estàtica de
+327 680 (32,7 %) i 2 081 225 B de flash de 3 145 728 (66,2 %)** (2/11). No té fila a la taula de
+capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades el mateix.
+
 ## Fitxa: M5 Paper v1.0 i v1.1
 
 | | |
@@ -750,7 +779,7 @@ enviar el segon damunt del primer i que el controlador l'ignorés, que al vidre 
 
 El sistema té una franja pròpia a dalt del vidre (`lib/kernel/bar.cpp`, **en C++ i no en Lua**) amb
 l'hora a l'esquerra, el títol de l'app del davant al mig i la càrrega a la dreta, sobre blanc i amb una
-línia negra de dos píxels a sota. **28 files**, i la vista d'una app comença a la fila 28: una pàgina que
+línia negra de dos píxels a sota. **48 files**, i la vista d'una app comença a la fila 48: una pàgina que
 surt malament no es pot emportar l'hora per davant (docs/30).
 
 - **Es pinta ella mateixa i només quan canvia alguna cosa seva**: un minut nou, un títol nou, una càrrega
@@ -797,7 +826,7 @@ pintava un botó i comprovava si l'han tocat havia de girar els números ella ma
 | Qui | Què dona |
 |---|---|
 | `display.rotation()` | 0, 90, 180 o 270: quant està girat el contingut del vidre respecte del marc del xip (270 de fàbrica) |
-| `touch.caps()` | **la mida de la vista de l'app** (540 × 932 amb la barra de 28 files), que és on es dibuixa |
+| `touch.caps()` | **la mida de la vista de l'app** (540 × 912 amb la barra de 48 files), que és on es dibuixa |
 | `touch.read()` i `touch.gesture()` | coordenades **de la vista de l'app**, no del xip |
 
 La conversió es fa **una sola vegada**, a `turn_frame()` de `lib/kernel/src/touch.cpp`, just quan el marc
@@ -847,7 +876,7 @@ tres girs en surten, i no queda cap número per endevinar.
 | ESP32-D0WDQ6-V3, 240 MHz, 520 KB de SRAM | **fet**: consola, disc, NVS, xarxa, son | — |
 | 16 MB de flash | **fet**: 2 108 973 B (50,3 %, mesurat amb la 0.13.0 l'1/11) i 11,9 MB de disc | — |
 | **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
-| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i, des de la 0.14.0, res de Lua que arribi al vidre directament: una app dibuixa a la seva vista (`ui.*`) i `ui.present` és el que compon. La capacitat **s'anuncia** quan el controlador contesta. **El sistema només pinta la barra**, les 28 files de dalt; la pàgina és sempre d'una app | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7) i la política d'encesa de GPIO23. El **text** ja hi és per a la barra (una font de 5 × 7, 0.16.0) i no pas per a una app |
+| **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i, des de la 0.14.0, res de Lua que arribi al vidre directament: una app dibuixa a la seva vista (`ui.*`) i `ui.present` és el que compon. La capacitat **s'anuncia** quan el controlador contesta. **El sistema només pinta la barra**, les 48 files de dalt; la pàgina és sempre d'una app | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7) i la política d'encesa de GPIO23. El **text** ja hi és per a la barra (una font de 5 × 7, 0.16.0) i no pas per a una app |
 | **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | la **velocitat de mostra** (contar frames amb el dit, docs/95 E-6) i la política d'energia del pas 8; el marc ja està mesurat amb quatre tocs, un a cada cantonada (1/11) |
 | **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
 | **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |

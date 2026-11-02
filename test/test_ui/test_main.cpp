@@ -1140,26 +1140,29 @@ static void test_a_label_places_its_line_by_alignment() {
   ui::release(slot);
 }
 
-// **A button is a frame with a border**, and while it is held it paints a second border inside the first:
-// the child does not move and the frame does not grow. The fill and the border are two levels of the
-// same canvas, and a level outside the sixteen is refused (docs/30, docs/90).
+// **A button is a rounded frame with a border and a body**, and while it is held the bevel swaps: the child
+// does not move and the frame does not grow. The fill and the border are two levels of the same canvas, and a
+// level outside the sixteen is refused (docs/30, docs/90).
 static void test_a_button_paints_a_frame_and_a_second_border_when_pressed() {
   fresh_view();
   int8_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 10));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(49, 10));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 29));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(11, 11));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(48, 28));
+  // **Six pixels of corner on a button twenty tall**: the corner of the frame is the page, the top edge is
+  // ink, and the body is inside the two pixels of border.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(16, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 20));
+  // The bevel of a white button is the shadow along its bottom, and held it is the light.
+  TEST_ASSERT_EQUAL_UINT8(11, view_level(29, 27));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 25));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, true));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(11, 11));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(48, 11));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 12));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(47, 27));
+  TEST_ASSERT_EQUAL_UINT8(7, view_level(29, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 27));
   TEST_ASSERT_FALSE(ui::button_draw(slot, 16, 0, false));
   ui::release(slot);
 }
@@ -1196,7 +1199,8 @@ static void test_a_label_inside_a_button_is_clipped_to_the_button() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 15));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(48, 38));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 40));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 10));
+  // **The corner of the button is round, so the pixel of its corner was never ink**: what is there is the page.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 10));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 14));
   ui::release(button);
 }
@@ -1311,12 +1315,62 @@ static void test_the_cleaner_between_apps_follows_the_page() {
   TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
 }
 
+// **A button comes out of the page**: twelve pixels of round corner, a light edge on the top and the left and
+// a shadow on the bottom and the right, the two swapped while it is held, and a ring two pixels thick when it
+// has the focus that a button without it does not have. It is a test of pixels and not of counts, because what
+// changed is what a person sees (docs/30, docs/90).
+void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
+  fresh_view();
+  int8_t button = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 100, -1, false, button));
+  TEST_ASSERT_TRUE(button >= 0);
+  TEST_ASSERT_TRUE(ui::place(button, 40, 40));
+
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
+  // **The corner of the frame is not the border**: the box is rounded, so the pixel of the corner is the view
+  // behind it and not ink. The middle of the same top edge is ink, two pixels of it.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(40, 40));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(44, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(52, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));  // the body, white
+  // **The volume of a light button is its shadow**: a white button has no lighter edge to draw, so what says
+  // it comes out of the page is a grey line along the bottom.
+  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 137));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 135));
+  // **And the dark one's is the highlight**, which is the same idea the other way round.
+  TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, false, false));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 42));
+  // **Held, the two swap**: the light goes to the bottom and the shadow to the top, which is a button pushed in.
+  TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, true, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 137));
+  // **And on a white button the hole has a mouth**: the shadow is two pixels of a much darker level and not one
+  // line of the grey that was there when it was out, which is what a person reads as pressed (docs/90).
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, true, false));
+  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 42));
+  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));  // the border is still the border, and it is black here
+  // **The ring of the focus**: two black pixels five in from the frame, and the body again inside them.
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 45));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 46));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 47));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 70));  // and the middle of the button is untouched
+  // Without the focus those two pixels are the body, which is what makes the ring the focus and not a border.
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 45));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_without_an_app_there_is_no_view);
   RUN_TEST(test_the_canvas_is_the_glass_and_starts_white);
+  RUN_TEST(test_a_button_has_a_round_corner_a_bevel_and_a_ring);
   RUN_TEST(test_drawing_stays_on_the_canvas_and_leaves_damage);
   RUN_TEST(test_present_sends_the_damage_with_its_quality);
   RUN_TEST(test_two_qualities_are_two_paints);

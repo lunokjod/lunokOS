@@ -280,9 +280,10 @@ static void test_a_bdf_becomes_a_face() {
   TEST_ASSERT_EQUAL_UINT8(1, face.gap);
   // **The rows are hexadecimal bytes with the leftmost pixel in the top bit**, so `0x18` is two pixels and
   // `0x7E` is six of them, in the row the file puts them.
-  TEST_ASSERT_EQUAL_UINT8(0x18, g_bits[0 * kernel::font::kMaxGlyphHeight + 0]);
-  TEST_ASSERT_EQUAL_UINT8(0x7E, g_bits[0 * kernel::font::kMaxGlyphHeight + 3]);
-  TEST_ASSERT_EQUAL_UINT8(0x7C, g_bits[1 * kernel::font::kMaxGlyphHeight + 0]);
+  const uint32_t row_bytes = kernel::font::kGlyphRowBytes;
+  TEST_ASSERT_EQUAL_UINT8(0x18, g_bits[(0 * kernel::font::kMaxGlyphHeight + 0) * row_bytes]);
+  TEST_ASSERT_EQUAL_UINT8(0x7E, g_bits[(0 * kernel::font::kMaxGlyphHeight + 3) * row_bytes]);
+  TEST_ASSERT_EQUAL_UINT8(0x7C, g_bits[(1 * kernel::font::kMaxGlyphHeight + 0) * row_bytes]);
   // And it is a face like any other from there on: the width of a line, and the runs of a glyph.
   TEST_ASSERT_EQUAL_UINT16(17, kernel::font::width(face, "AB", 1));  // 8 + 1 + 8
   Runs runs = {};
@@ -382,7 +383,8 @@ static void test_a_pcf_becomes_the_same_face_as_its_bdf() {
   TEST_ASSERT_EQUAL_UINT8(from_bdf.height, from_pcf.height);
   TEST_ASSERT_EQUAL_UINT8(from_bdf.first, from_pcf.first);
   TEST_ASSERT_EQUAL_UINT8(from_bdf.count, from_pcf.count);
-  for (uint32_t i = 0; i < from_pcf.count * kernel::font::kMaxGlyphHeight; ++i) {
+  for (uint32_t i = 0; i < from_pcf.count * kernel::font::kMaxGlyphHeight * kernel::font::kGlyphRowBytes;
+       ++i) {
     TEST_ASSERT_EQUAL_UINT8(bdf_bits[i], g_bits[i]);
   }
   // And the loader an app calls takes the file without being told what it is: a PCF opens with four bytes

@@ -13,6 +13,7 @@
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/shell.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
 
@@ -315,11 +316,30 @@ void test_a_duration_is_written_in_the_scale_that_reads(void) {
   TEST_ASSERT_EQUAL_STRING("1h23m", out);
 }
 
+// **Whether the terminal speaks ANSI is asked, not assumed** (docs/85): the answer to the Device Attributes
+// query is `ESC [ ? ... c`, and everything else —an arrow, a cursor report, a keystroke, nothing at all— is
+// not an answer. The rule is pure, so the question can be tried without a port.
+static void test_only_a_device_attributes_reply_is_an_answer() {
+  // What a VT100 and what an xterm send back.
+  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("\x1b[?1;2c", 7));
+  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("\x1b[?62;c", 7));
+  // An arrow key, which is a key and not an answer, and a cursor position report.
+  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("\x1b[A", 3));
+  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("\x1b[12;40R", 8));
+  // A person typing `ls` while the question was in the air is a person, not a terminal.
+  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("ls\r", 3));
+  TEST_ASSERT_FALSE(kernel::shell::ansi_reply("", 0));
+  TEST_ASSERT_FALSE(kernel::shell::ansi_reply(nullptr, 5));
+  // The answer may come after something else, because a serial line does not deliver it alone.
+  TEST_ASSERT_TRUE(kernel::shell::ansi_reply("ab\x1b[?1;2c", 9));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_version_command_is_known);
+  RUN_TEST(test_only_a_device_attributes_reply_is_an_answer);
   RUN_TEST(test_help_command_is_known);
   RUN_TEST(test_caps_command_is_known);
   RUN_TEST(test_mem_command_is_known);

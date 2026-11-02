@@ -734,7 +734,7 @@ El vidre té un sol buffer i és del sistema; l'app dibuixa al seu, i `ui.presen
 fa arribar a la pantalla. **El sistema no dibuixa mai la pàgina d'una app** —ni splash, ni netejar quan
 una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** i **quan** (docs/50).
 
-L'únic que el sistema pinta són **les 28 files de dalt**: la barra amb l'hora, el títol de l'app i la
+L'únic que el sistema pinta són **les 48 files de dalt**: la barra amb l'hora, el títol de l'app i la
 càrrega, que no és de cap app (docs/50, «La barra del sistema»). Per això la vista d'una app comença a
 la fila 28 i `ui.caps().y` ho diu.
 
@@ -788,8 +788,8 @@ la fila 28 i `ui.caps().y` ho diu.
   coordenades són sempre de la vista— i és el sistema qui les tradueix al vidre, tallant el que queda
   fora (docs/50).
 - **La vista és de l'app i no del vidre.** `ui.clear`, `ui.rect` i `ui.pixel` escriuen en un canvas que
-  el sistema fa quan l'app arrenca (**251 640 B al Paper**, 4 bits per píxel: 540 × 932, que és la pàgina
-  de 540 × 960 menys les 28 files de la barra); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
+  el sistema fa quan l'app arrenca (**246 240 B al Paper**, 4 bits per píxel: 540 × 912, que és la pàgina
+  de 540 × 960 menys les 48 files de la barra); res no arriba a la pantalla fins a `ui.present`. Una app que dibuixa una cantonada deixa la pàgina anterior al voltant, i una que vol
   la pàgina sencera comença amb `ui.clear(15)`.
 - **Els nivells són 0 (negre) a 15 (blanc)**, que és el que tenen els quatre bits del panell (docs/50).
 - **Els modes són els del propi xip**, i una app tria el preu: `du` (text i menús), `du4`, `gc16`
@@ -806,13 +806,13 @@ la fila 28 i `ui.caps().y` ho diu.
   l'esquerra al bit de més pes. El tercer és un **PCF**, que és un BDF compilat: comença per quatre bytes
   que no són text (`01 66 63 70`), porta les taules indexades —mètriques, bitmaps i codificació— i els
   números de cada taula van en l'ordre de bytes que diu **aquella** taula (el directori, sempre petit). El
-  que en surt és **el mateix bloc de sempre** —vuit per vuit, fins a 96 codis del 0x20 al 0x7F, en ordre— i
+  que en surt és **el mateix bloc de sempre** —setze per setze, fins a 96 codis del 0x20 al 0x7F, en ordre— i
   per tant res del que dibuixa no canvia: `run font-bdf` i `run font-pcf` ensenyen la cara del fitxer al
   costat de la del sistema, i les dues surten del **mateix font** (el `.pcf` de l'app està fet amb
   `bdftopcf` del `.bdf` de l'altra, i la prova comprova que el bloc és idèntic byte a byte). Un fitxer que
   no comença per cap de les tres coses es refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok
   font, a bdf nor a pcf`), i també un BDF o un PCF amb un glif de més de vuit columnes
-  (`a bdf glyph is up to eight columns wide`, `a pcf glyph is up to eight columns wide`). D'un PCF no es
+  (`a bdf glyph is up to sixteen columns wide`, `a pcf glyph is up to sixteen columns wide`). D'un PCF no es
   llegeix el que no se sap i no s'endevina: una codificació de dos bytes, una unitat d'escombrat més gran
   que un byte, o els bits al revés es refusen amb el seu motiu. Un **`.pcf.gz`** (el que tenen les
   distribucions de Linux) encara no s'obre: li falta el gzip, que és el mateix deflate amb una capçalera.
@@ -1033,8 +1033,8 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 |---|---|---|
 | `button.background` | 0–15 (15 per defecte) | El nivell del fons del marc |
 | `button.border` | 0–15 (0 per defecte) | El nivell de la vora |
-| `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, el marc pinta una segona vora interior |
-| `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta una segona vora interior dues passes enfora de la vora premuda |
+| `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, **el relleu s'inverteix** i el botó sembla enfonsat |
+| `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **un anell de dos píxels** cinc passes endins (negre sobre fons clar, blanc sobre fons fosc) |
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
 
 | Callback | Què fa |
@@ -1043,6 +1043,26 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.on_activate(self)` | El mateix clic quan no hi ha `on_click`; és el nom genèric per a un control que no és un botó |
 | `button.on_focus(self, focused)` | Quan el dial o el tàctil mouen el focus: arriba (`true`) o se'n va (`false`). El primer control d'una pàgina ja neix enfocat, i per això el seu `on_focus` no es crida en crear-lo |
 
+- **Una cara de bits és de setze per setze, i la dels botons ve d'una font de debò** (2/11, 0.55.0). La cel·la
+  era de vuit per vuit —el que demanava una 5 × 7 doblada— i ara és de **setze per setze amb dues bytes per
+  fila** (`kGlyphRowBytes`), perquè setze columnes no caben en un byte: el bloc d'una cara passa de 768 a
+  **3 072 B** i el que no canvia és el camí que el dibuixa. I per tenir una lletra gran, arrodonida i amb
+  majúscules i minúscules sense pagar un rasteritzador a cada pàgina, hi ha **`tools/ttf_to_lfont.py`**:
+  converteix un `.ttf` en un `.lfont` a una mida triada (Pillow, el glif centrat a la cel·la perquè la taula és
+  d'amplada fixa, el traç opcional) i refusa el que no cap a setze. `run buttons` en fa servir un de fet amb
+  **Nunito SemiBold a 14 px**, cel·la de 16 × 16, 96 glifs i **27 049 B** de text — i la seva llicència OFL va
+  al costat (`/res/LICENCE-nunito.txt`). El preu de la taula fixa: cada glif ocupa tota la cel·la, o sigui que
+  un text amb una `.lfont` és més ample que el mateix text amb el `.ttf` (169 px contra 138 per a
+  `Handgloves`), i per això les dues cares existeixen.
+
+- **El botó té forma i volum, i el focus no es pot perdre de vista** (2/11, 0.51.0): el marc és una **caixa
+  amb els cantons rodons** (dotze píxels, i mai més d'un terç del costat més petit — un botó que és tot
+  cantó és una pastilla i no un botó), amb una vora de dos píxels. A dins hi ha el **relleu**: una aresta
+  clara a dalt i a l'esquerra i una ombra a baix i a la dreta (`fons + 4` i `fons − 4`, o sigui que un botó
+  blanc té ombra grisa i un de negre té lluentor grisa), i **mentre es prem les dues canvien de lloc**, que és
+  tota la diferència entre un botó que surt i un que s'enfonsa. El **focus és un anell de dos píxels** cinc
+  passes endins, en el nivell que no es pot confondre: negre sobre un botó clar i blanc sobre un de fosc. És
+  un píxel de tinta i no un degradat, perquè el panell té setze nivells i el que es veu és una aresta.
 - **El fill és un control de debò**: `button:add(label)` el treu del pare anterior i el posa dins del botó;
   `label:place(x, y)` passa a comptar-se en píxels del botó. `button:add` i `button:place` són els
   mateixos mètodes de qualsevol canvas (docs/30).
@@ -1194,7 +1214,7 @@ d'aquell dispositiu, no que no es compti.
 [I][CFG] /cfg on littlefs (asked for littlefs)
 [I][VFS] 9 mounts
 [I][BOOT] board=m5stack-paper caps=14/19
-[I][UI] view 540x932 at 0,28, 251640 bytes of canvas
+[I][UI] view 540x912 at 0,48, 246240 bytes of canvas
 [W][I2C] read of 5d failed (ESP_FAIL)
 ```
 

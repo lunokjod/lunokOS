@@ -52,9 +52,9 @@ emu::MemorySurface& glass() { return *emu::memory_surface(); }
 // cannot take the hour with it (docs/30).
 static void test_the_bar_keeps_the_top_of_the_glass() {
   boot_with_a_panel();
-  TEST_ASSERT_EQUAL_UINT16(28, bar::height());
-  TEST_ASSERT_EQUAL_UINT16(540 - 28, ui::height());
-  TEST_ASSERT_EQUAL_UINT16(28, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(48, bar::height());
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().x);
   // A present of the whole view cannot reach the bar, because the view does not start there.
   ui::attach();
@@ -63,8 +63,8 @@ static void test_the_bar_keeps_the_top_of_the_glass() {
   const uint32_t paints = glass().paint_count();
   const emu::MemorySurface::Paint* last = glass().paint_at(paints - 1);
   TEST_ASSERT_NOT_NULL(last);
-  TEST_ASSERT_EQUAL_UINT16(28, last->y);
-  TEST_ASSERT_EQUAL_UINT16(540 - 28, last->h);
+  TEST_ASSERT_EQUAL_UINT16(48, last->y);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, last->h);
 }
 
 // The bar draws itself: white behind, a black line under it, and the hour on the left.
@@ -74,18 +74,19 @@ static void test_the_bar_paints_its_own_strip() {
   const emu::MemorySurface::Paint* first = glass().paint_at(0);
   TEST_ASSERT_NOT_NULL(first);
   TEST_ASSERT_EQUAL_UINT16(0, first->y);
-  TEST_ASSERT_EQUAL_UINT16(28, first->h);
+  TEST_ASSERT_EQUAL_UINT16(48, first->h);
   TEST_ASSERT_EQUAL_UINT16(0, first->x);
   TEST_ASSERT_EQUAL_UINT16(960, first->w);
-  // The line under the bar is black and the rows above it are white, except where a glyph is.
-  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(0, 26));
-  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(959, 27));
+  // The line under the bar is black and the rows above it are white, except where a glyph is. The line is
+  // the last two rows of the strip, which is 48 now and was 28.
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(0, 46));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(959, 47));
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(950, 2));
   // And the hour has ink in it: the first glyph of "HH:MM" starts at the left padding.
   bool ink = false;
-  for (uint16_t y = 0; y < 28 && !ink; ++y) {
-    for (uint16_t x = 8; x < 70 && !ink; ++x) {
-      if (glass().level_at(x, y) == 0 && y < 26) ink = true;
+  for (uint16_t y = 0; y < 46 && !ink; ++y) {
+    for (uint16_t x = 12; x < 120 && !ink; ++x) {
+      if (glass().level_at(x, y) == 0 && y < 46) ink = true;
     }
   }
   TEST_ASSERT_TRUE(ink);
@@ -98,12 +99,12 @@ static void test_turning_the_page_turns_the_bar_and_the_view() {
   TEST_ASSERT_TRUE(ui::set_rotation(90));
   TEST_ASSERT_EQUAL_UINT16(90, ui::rotation());
   TEST_ASSERT_EQUAL_UINT16(540, ui::width());
-  TEST_ASSERT_EQUAL_UINT16(960 - 28, ui::height());
-  TEST_ASSERT_EQUAL_UINT16(28, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(960 - 48, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   // And back, so the tests after this one see the frame they expect.
   TEST_ASSERT_TRUE(ui::set_rotation(0));
   TEST_ASSERT_EQUAL_UINT16(960, ui::width());
-  TEST_ASSERT_EQUAL_UINT16(540 - 28, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::height());
 }
 
 // A turn where nothing changed paints nothing: the glass is paid by the repaint, not by the clock.
@@ -130,7 +131,7 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_NOT_NULL(paint);
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);  // a new title is worth a clean paint
   TEST_ASSERT_EQUAL_UINT16(0, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(28, paint->h);
+  TEST_ASSERT_EQUAL_UINT16(48, paint->h);
   // And the same title again is not a change.
   const uint32_t after = glass().paint_count();
   bar::title("SQUARES");
@@ -151,19 +152,20 @@ static void test_a_long_title_is_cut_at_its_box() {
   bar::title("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
   bar::poll();
 
-  // The box starts after the hour and its air: 8 of padding, the 58 pixels of "HH:MM" and 6 of gap.
-  const uint16_t box_left = 8 + 58 + 6;
-  const uint16_t box_right = 540 - (8 + 22 + 6);  // and the charge, "--", on the right
+  // The box starts after the hour and its air: 12 of padding, the 116 pixels of "HH:MM" at four times and
+  // 8 of gap; and it stops before the 44 of "--" on the right, with the same air.
+  const uint16_t box_left = 12 + 116 + 8;
+  const uint16_t box_right = 540 - (12 + 44 + 8);
   bool ink_in_the_box = false;
   for (uint16_t x = box_left; x < box_right && !ink_in_the_box; ++x) {
-    for (uint16_t y = 6; y < 19 && !ink_in_the_box; ++y) {
+    for (uint16_t y = 9; y < 37 && !ink_in_the_box; ++y) {
       if (glass().level_at(x, y) == 0) ink_in_the_box = true;
     }
   }
   TEST_ASSERT_TRUE(ink_in_the_box);
   // And between the hour and the box the strip is still white: the title did not run over it.
-  for (uint16_t x = 66; x < box_left; ++x) {
-    for (uint16_t y = 6; y < 19; ++y) {
+  for (uint16_t x = 130; x < box_left; ++x) {
+    for (uint16_t y = 9; y < 37; ++y) {
       TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(x, y));
     }
   }

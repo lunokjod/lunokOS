@@ -13,6 +13,13 @@ namespace shell {
 
 void start();
 void prompt();
+
+// **Whether a terminal answered the question that was asked of it.** The shell asks the Device Attributes
+// query (`ESC [ c`) once, at start, and what comes back is scanned for the reply `ESC [ ? ... c`: a terminal
+// that speaks ANSI answers and one that does not stays quiet (docs/85). It is a pure rule over the bytes that
+// arrived, so it can be tried without a port, and the answer is what `console_ansi()` and the redraw of the
+// line use from then on.
+bool ansi_reply(const char* data, size_t len);
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);
 // Runs one command line (already null-terminated). Returns false on error.

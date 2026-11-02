@@ -413,7 +413,7 @@ struct UIOps {
   // back is refused instead of read.
   int8_t (*font_load)(const char* path, const char*& reason);
   bool (*font_release)(int8_t handle);
-  bool (*font_info)(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs);
+  bool (*font_info)(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint16_t& glyphs);
   bool (*canvas_set_font)(int8_t slot, int8_t handle);
   bool (*app_set_font)(int8_t handle);
   // How wide a text is with that face and that scale, in pixels (docs/30).

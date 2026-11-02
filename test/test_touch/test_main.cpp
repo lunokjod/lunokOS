@@ -197,7 +197,8 @@ static void test_a_panel_slower_than_the_turn_answers_nothing_half_the_time() {
 static void test_the_kernel_turns_a_finger_into_a_long_press() {
   boot_with_a_touch_panel();
   chip().reset();
-  TEST_ASSERT_EQUAL_UINT16(28, ui::canvas().y);
+  // The page starts under the bar of the system, which is forty-eight rows since 0.52.0 (docs/50).
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
   TEST_ASSERT_TRUE(chip().finger_down(0, 100, 200));
   kernel::touch::Gesture gesture;
   bool said_long = false;
@@ -214,9 +215,10 @@ static void test_the_kernel_turns_a_finger_into_a_long_press() {
     }
   }
   TEST_ASSERT_TRUE_MESSAGE(said_long, "a finger held for a second is not a long press");
-  // **In the view's frame**: the finger went down at 100,200 of the page and the view starts at row 28.
+  // **In the view's frame**: the finger went down at 100,200 of the page and the view starts at row 48, so
+  // what the app is told is 152 and not 200.
   TEST_ASSERT_EQUAL_UINT16(100, gesture.x);
-  TEST_ASSERT_EQUAL_UINT16(172, gesture.y);
+  TEST_ASSERT_EQUAL_UINT16(152, gesture.y);
   TEST_ASSERT_TRUE(gesture.held_ms >= 1000);
   TEST_ASSERT_EQUAL_UINT8(1, gesture.fingers);
   TEST_ASSERT_TRUE(chip().finger_up(0));

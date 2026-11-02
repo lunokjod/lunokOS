@@ -158,6 +158,49 @@ sessió `lua` i de l'app `tilt`. Un buffer més gran **no** vol dir que una app 
 vulgui: el que mana és la memòria de l'app, i el sostre és el dir quan una app no hi cap abans de
 gastar un sol byte de heap.
 
+## El sostre del codi d'entrada, pujat a 16 KB (2/11)
+
+El sostre de `kSourceCap` era de **8 192 B** des del 31/10. L'exemple `buttons`, quan se li van afegir els
+callbacks de veritat (un `on_click`, un `on_activate` i un `on_focus` per botó, amb els comptes al costat),
+va arribar a **9 329 B** i el sistema va dir `too big to run: /apps/buttons/buttons.lua`. Un exemple que no
+s'arrenca no és un exemple, i el que havia crescut no era farciment: era el que l'app ensenya. El sostre és
+ara de **16 384 B**, i el preu és exactament el doble del buffer:
+
+| | Amb el sostre a 8 KB (0.49.1) | Amb el sostre a 16 KB (0.50.0) |
+|---|---|---|
+| RAM estàtica | 116 020 B | **124 212 B** (+8 192 B) |
+| Flash | 2 165 137 B | **2 165 137 B** (+0 B) |
+
+El flash no es mou perquè el buffer és dades i no codi. **El que no canvia és el que mana**: el sostre diu
+quan una app no hi cap *abans* de gastar un sol byte de heap, i el que limita una app de debò és la seva
+memòria, no aquest número.
+
+## El codi d'entrada passa al heap (2/11)
+
+El buffer de 16 384 B era **estàtic**, i el 2/11 es va veure el preu: amb la identitat de la placa del
+mínim a dins del projecte, `pio run -e atom_matrix` va deixar d'enllaçar amb
+
+```
+region `dram0_0_seg' overflowed by 1184 bytes
+```
+
+Aquest buffer es fa servir **un sol cop per arrencada d'app** i dura el que dura un `luaL_loadbuffer`, que
+el compila i ja no el mira més. Tenir-lo reservat sempre és pagar setze kilobytes per un mil·lisegon;
+l'`ATOM Matrix`, que és el pitjor cas, no els té. El que fa ara és **demanar-lo a l'heap a `load_source()` i
+tornar-lo just després de compilar** (a `run_app` i a `run_window`, i també quan l'intèrpret no arrenca).
+
+| | Buffer estàtic (0.55.0) | Buffer a l'heap (0.56.0) |
+|---|---|---|
+| RAM estàtica de l'ATOM | 123 392 B | **107 008 B** (−16 384 B) |
+| RAM estàtica del Matrix | **no enllaçava** (1 184 B de més a `dram0`) | **109 376 B** |
+| Flash de l'ATOM | 2 081 113 B | 2 081 225 B (+112 B) |
+| Flash del Paper | 2 166 817 B | 2 166 893 B (+76 B) |
+
+Els +112 B de flash són el `malloc`/`free` i les tres sortides que l'alliberen. **No contradiu la regla de
+no posar buffers grans a la pila** (més amunt): la regla prohibeix la **pila**, no el **heap**, i un bloc
+que es demana i es torna abans que l'app corri una línia no el paga ningú quan no s'usa. Si el `malloc`
+falla, el sistema ho diu (`no memory for the source`) i no arrenca l'app, que és el que ha de fer.
+
 ## La M5 Paper, amb la ràdio heretada (31/10)
 
 `pio run -e paper` del 31/10, amb el que aquesta placa hereta del xip (`esp32_caps()`, `esp32_net()`,

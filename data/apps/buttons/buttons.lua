@@ -1,18 +1,20 @@
--- buttons: eight UIButtons, each with a UILabel inside.
+-- buttons: eight UIButtons, each with a UILabel inside, and every one answers a press.
 --   run buttons
 --
--- **A button is the first control that is a container with a frame**: it paints a background and a border,
--- and a child label is added with `button:add(label)` and placed in the button's coordinates. The button
--- clips the child to its frame; the child is composed after the button, so the frame is behind the text
--- (docs/30, docs/90).
+-- A button is a container with a frame: it paints a background and a border, and a child label is added
+-- with `button:add(label)` and composed after it, clipped to the same frame (docs/30, docs/90).
 --
--- The three faces loaded at once are the most the system keeps; the fourth face is its own 5x7, which
--- costs no slot. The labels use the four sizes (scale 1 to 4) and the levels of the panel; the buttons
--- themselves use four backgrounds and borders, and the last one is painted pressed.
+-- **The dial walks them and the centre presses them**: the system focuses the first pressable control, the
+-- sides move the focus, the centre activates it, and a finger does the same. `on_click` is what a press
+-- does, `on_activate` is the same press under the other name, and `on_focus` says the ring arrived. Each
+-- button counts its own presses in its own label, so a click is **one** label that changes.
 --
--- The counts of the console are the other half: a present with nothing new draws neither a button nor a
--- label, a label that changes draws only itself, and a button that changes draws its frame and asks its
--- child to draw again because the opaque frame covered it.
+-- The counts on the console are the other half: a present with nothing new draws nothing, a label that
+-- changes draws only itself, and a button that changes draws its frame and asks its child to draw again.
+-- The last lines count a click.
+--
+-- **It is under eight kilobytes on purpose**: the system reads an app's entry into one block of that size
+-- (docs/75), and an example that does not fit is not an example.
 local caps = sys.caps()
 if not caps.display then
   console.print('buttons: this board has no glass')
@@ -23,29 +25,42 @@ local view = ui.caps()
 console.print(string.format('buttons: view %d x %d at %d,%d', view.width, view.height, view.x, view.y))
 ui.title('Buttons')
 
-local faces = {}
-local function load(name, path)
-  local face, err = ui.load_font(path)
-  if face == nil then
-    console.print(string.format('buttons: no %s face: %s %s', name,
-      tostring(err and err.code), tostring(err and err.message)))
-    return nil
-  end
-  local width, height, glyphs = face:size()
-  console.print(string.format('buttons: %s %dx%d, %d glyphs, Ag=%d px at 2', name, width, height,
-    glyphs, face:text_width('Ag', 2)))
-  return face
+-- **The face of the page is a `.lfont` made from Nunito**, a rounded sans cut to the printable ascii by
+-- `tools/ttf_to_lfont.py`: sixteen by sixteen pixels of cell, upper and lower case, and **a table that is drawn
+-- without decoding anything** (that is what a `.lfont` is and why it is the fast one). Its licence travels with
+-- it (`/res/LICENCE-nunito.txt`), and so does the tool that would make another one (docs/30).
+local face, face_err = ui.load_font('/res/ui-16.lfont')
+if face == nil then
+  console.print('buttons: no face: ' .. tostring(face_err and face_err.message))
 end
-
-faces.sans = load('sans', '/res/dejavusans.ttf')
-faces.serif = load('serif', '/res/dejavuserif.ttf')
-faces.mono = load('mono', '/res/dejavusansmono.ttf')
-
+if face ~= nil then
+  local w, h, glyphs = face:size()
+  console.print(string.format('buttons: face %dx%d, %d glyphs, "Handgloves" is %d px', w, h, glyphs,
+    face:text_width('Handgloves', 1)))
+end
 local button_draws = 0
 local label_draws = 0
+local clicks = 0
+local focuses = 0
 local buttons = {}
 local labels = {}
 
+-- **What a button does when it is pressed**: it counts its presses in its own label, which is one label
+-- that changes. `on_focus` is the other half of the contract, and the ring itself is the system's to draw.
+local function attach(button, label, spec, how)
+  local hook = function(self)
+    clicks = clicks + 1
+    label.text = spec.text .. ' ' .. clicks
+    console.print(string.format('buttons: %s on "%s", %d presses', how, spec.text, clicks))
+  end
+  -- A control with no `on_click` gets `on_activate`: it is the same press under the other name.
+  if how == 'activate' then button.on_activate = hook else button.on_click = hook end
+  button.on_focus = function(self, focused)
+    if not focused then return end
+    focuses = focuses + 1
+    console.print(string.format('buttons: focus on "%s", %d moves', spec.text, focuses))
+  end
+end
 local function make_button(spec)
   local button, err = ui.button(spec.w, spec.h)
   if button == nil then
@@ -92,26 +107,28 @@ local function add_label(button, spec)
   return label
 end
 
--- The four faces, the four sizes and the levels: a button background is also the label's background, so
--- the fill the label writes is the one the button has under it and the border remains visible around it.
 local specs = {
-  {x = 10, y = 90, w = 250, h = 150, background = 15, border = 0,
-   text = 'SYSTEM / 8', face = nil, scale = 1, color = 0},
-  {x = 280, y = 90, w = 250, h = 150, background = 12, border = 0,
-   text = 'Serif / 16', face = faces.serif, scale = 2, color = 0},
-  {x = 10, y = 260, w = 250, h = 150, background = 8, border = 15,
-   text = 'Mono / 24', face = faces.mono, scale = 3, color = 15},
-  {x = 280, y = 260, w = 250, h = 150, background = 0, border = 15,
-   text = 'SYSTEM / 16', face = nil, scale = 2, color = 15},
-  {x = 10, y = 430, w = 250, h = 150, background = 15, border = 8,
-   text = 'Sans / 16', face = faces.sans, scale = 2, color = 0},
-  {x = 280, y = 430, w = 250, h = 150, background = 0, border = 15,
-   text = 'Serif / 24', face = faces.serif, scale = 3, color = 15},
-  {x = 10, y = 600, w = 250, h = 150, background = 15, border = 0,
-   text = 'Mono / 32', face = faces.mono, scale = 4, color = 0},
-  {x = 280, y = 600, w = 250, h = 150, background = 8, border = 15,
-   text = 'Sans / 24', face = faces.sans, scale = 3, color = 15, pressed = true},
+  {x = 10, y = 90, w = 250, h = 150, text = 'One'},
+  {x = 280, y = 90, w = 250, h = 150, text = 'Two'},
+  {x = 10, y = 260, w = 250, h = 150, text = 'Three'},
+  {x = 280, y = 260, w = 250, h = 150, text = 'Four', inverted = true},
+  {x = 10, y = 430, w = 250, h = 150, text = 'Five'},
+  {x = 280, y = 430, w = 250, h = 150, text = 'Six'},
+  {x = 10, y = 600, w = 250, h = 150, text = 'Seven'},
+  {x = 280, y = 600, w = 250, h = 150, text = 'Eight', inverted = true},
 }
+
+for i = 1, #specs do
+  local spec = specs[i]
+  -- Black on white, or white on black for the inverted ones: **no grey at all** in the frame or the word.
+  spec.background = spec.inverted and 0 or 15
+  spec.border = spec.inverted and 15 or 0
+  spec.color = spec.inverted and 15 or 0
+  -- **The cell is sixteen pixels, so scale one is already a big letter**: the face is drawn at the size it was
+  -- cut at and scaling it would be a multiply of a picture and not a better letter (docs/30).
+  spec.scale = 1
+  spec.face = face
+end
 
 ui.clear(15, 'gc16')
 ui.text(20, 12, 'UIBUTTON', 4, 0)
@@ -123,8 +140,49 @@ for i = 1, #specs do
   local spec = specs[i]
   local button = make_button(spec)
   if button ~= nil then
-    add_label(button, {w = 230, h = 130, text = spec.text, background = spec.background,
-                       color = spec.color, scale = spec.scale, face = spec.face})
+    local label = add_label(button, {w = 230, h = 130, text = spec.text, background = spec.background,
+                                     color = spec.color, scale = spec.scale, face = spec.face})
+    -- The fourth button answers `on_activate` instead of `on_click`, so the page shows both names.
+    if label ~= nil then
+      attach(button, label, spec, (i == 4) and 'activate' or 'click')
+      -- **The word goes down with the button.** A frame that sinks and a word that does not is a picture of a
+      -- button and not a button: while it is held the label is moved three pixels down and to the right, and
+      -- the button draws itself before its children are composed, so the word moves in the same page
+      -- (docs/30, docs/90).
+      local native = button.on_draw
+      local sunk = 0
+      button.on_draw = function(self)
+        local want = self.pressed and 3 or 0
+        if want ~= sunk then
+          sunk = want
+          label:place(10 + want, 10 + want)
+        end
+        native(self)
+      end
+    end
+  end
+end
+
+-- **A Quit control, because a page with controls does not close on three taps of the centre key**: the dial
+-- walks onto it and the centre presses it, and it is the way out this page offers on a board whose middle key
+-- is Enter (docs/30, docs/90).
+local leaving = false
+local quit = ui.button(130, 80)
+if quit ~= nil then
+  quit.background = 0
+  quit.border = 15
+  quit:place(390, 800)
+  local title = ui.label(110, 60)
+  title.text = 'Quit'
+  title.color = 15
+  title.background = 0
+  title.align = 'center'
+  title.valign = 'middle'
+  title:place(10, 10)
+  quit:add(title)
+  quit.on_click = function(self)
+    leaving = true
+    console.print('buttons: quit pressed, leaving the page')
   end
 end
 
@@ -134,7 +192,10 @@ ui.text(20, 824, 'a button is a frame; the label is its child', 1, 11)
 ui.text(20, 842, 'the child is clipped to the frame and drawn after it', 1, 8)
 ui.frame(4, 4, view.width - 8, view.height - 8, 0, 'gc16')
 
-ui.present()
+-- **The first page is the one that is worth a wash**: `gc16` cleans the glass once and leaves no ghost of the
+-- page before it. From here on a press is a `du`, which is the quick paint, because a finger that waits for a
+-- flash twice a press (down and up) is a button that does not feel like a button (docs/50, docs/90).
+ui.present('gc16')
 while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: %d buttons, %d labels, %d button draws, %d label draws after the page',
   #buttons, #labels, button_draws, label_draws))
@@ -170,7 +231,33 @@ while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: %d button draws, %d label draws after pressing it again',
   button_draws, label_draws))
 
-console.print(string.format('buttons: %s, %s', tostring(buttons[1]), tostring(labels[1])))
-for _, key in ipairs({'sans', 'serif', 'mono'}) do
-  if faces[key] ~= nil then faces[key]:release() end
+-- **A click the way the dial does it**: the system puts the control down, calls the hook and lifts it. The
+-- app can call the same hook by hand, which is how this page is tried without a finger; what has to be true
+-- is that **a click is one label that changes** and nothing else.
+local before_button, before_label = button_draws, label_draws
+buttons[1].on_click(buttons[1])
+ui.present()
+while not ui.idle() do sys.delay(20):await() end
+console.print(string.format('buttons: after a click, %d button draws (%+d) and %d label draws (%+d)',
+  button_draws, button_draws - before_button, label_draws, label_draws - before_label))
+
+-- And another, which is the counter of the button and not of the page.
+buttons[1].on_click(buttons[1])
+ui.present()
+while not ui.idle() do sys.delay(20):await() end
+console.print(string.format('buttons: after a second click, %d button draws, %d label draws',
+  button_draws, label_draws))
+
+console.print(string.format('buttons: %d presses and %d focus moves; %s, %s', clicks, focuses,
+  tostring(buttons[1]), tostring(labels[1])))
+
+-- **The app stays and listens, and that is the whole point of a callback**: an app that ends after drawing is
+-- an app nobody can press, which is what this example did until it was caught. `ui.present` with nothing new
+-- draws nothing —the counts above are the proof— so the loop presents every turn and the glass is painted
+-- only when a label or a ring has really moved (docs/30, docs/90).
+while not leaving do
+  ui.present()
+  sys.delay(200):await()
 end
+console.print('buttons: out')
+if face ~= nil then face:release() end

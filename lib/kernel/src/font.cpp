@@ -101,12 +101,21 @@ uint8_t builtin_code(uint8_t c) {
   return c;
 }
 
-// **How the bits of a face from a file are laid out**: one byte per row, the leftmost column in bit 7, and
-// `kMaxGlyphHeight` rows per glyph —which is where a file's rows land— (docs/30).
+// **How the bits of a face from a file are laid out**: `kGlyphRowBytes` bytes per row —two, because sixteen
+// columns do not fit one—, the leftmost column in bit 7 of the first of them, and `kMaxGlyphHeight` rows per
+// glyph, which is where a file's rows land (docs/30).
+const uint8_t* row_of(const uint8_t* bits, uint8_t index, uint8_t row) {
+  return bits + (static_cast<uint32_t>(index) * kMaxGlyphHeight + row) * kGlyphRowBytes;
+}
+
+uint8_t* row_of(uint8_t* bits, uint8_t index, uint8_t row) {
+  return bits + (static_cast<uint32_t>(index) * kMaxGlyphHeight + row) * kGlyphRowBytes;
+}
+
 bool file_lit(const uint8_t* bits, uint8_t index, uint8_t x, uint8_t y) {
   if (bits == nullptr || x >= kMaxGlyphWidth || y >= kMaxGlyphHeight) return false;
-  const uint8_t* rows = bits + static_cast<uint32_t>(index) * kMaxGlyphHeight;
-  return ((rows[y] >> (7 - x)) & 1u) != 0;
+  const uint8_t* row = row_of(bits, index, y);
+  return ((row[x >> 3] >> (7 - (x & 7))) & 1u) != 0;
 }
 
 // A face from a file carries exactly the codes it was given: no folding and no invention.
@@ -327,10 +336,10 @@ const char* load(const char* text, uint32_t length, uint8_t* bits, Face& out) {
     // **The rows of a glyph come first**: while a glyph is open, a line is art and not a directive.
     if (code >= 0 && row < height) {
       const uint8_t index = static_cast<uint8_t>(code - first);
+      uint8_t* row_bytes = row_of(bits, index, static_cast<uint8_t>(row));
       for (uint32_t x = 0; x < line_length && x < static_cast<uint32_t>(width); ++x) {
         if (line[x] == '#') {
-          bits[static_cast<uint32_t>(index) * kMaxGlyphHeight + row] |=
-              static_cast<uint8_t>(1u << (7 - static_cast<uint8_t>(x)));
+          row_bytes[x >> 3] |= static_cast<uint8_t>(1u << (7 - (x & 7)));
         }
       }
       ++row;
@@ -340,13 +349,13 @@ const char* load(const char* text, uint32_t length, uint8_t* bits, Face& out) {
     if (code >= 0 && row < height) return "a glyph has fewer rows than the face is tall";
     if (starts_with(line, line_length, "width ")) {
       if (number_after(line, line_length, 6, width) == false) return "width is not a number";
-      if (width < 1 || width > kMaxGlyphWidth) return "width is one to eight";
+      if (width < 1 || width > kMaxGlyphWidth) return "width is one to sixteen";
       if (code >= 0) return "width comes before the glyphs";
       continue;
     }
     if (starts_with(line, line_length, "height ")) {
       if (number_after(line, line_length, 7, height) == false) return "height is not a number";
-      if (height < 1 || height > kMaxGlyphHeight) return "height is one to eight";
+      if (height < 1 || height > kMaxGlyphHeight) return "height is one to sixteen";
       if (code >= 0) return "height comes before the glyphs";
       continue;
     }
@@ -509,11 +518,23 @@ const char* load_bdf(const char* text, uint32_t length, uint8_t* bits, Face& out
     }
     if (in_properties || starts_with(line, line_length, "COMMENT")) continue;
     // **The rows of a glyph come first**: while a `BITMAP` is open, a line is hexadecimal and not a keyword.
+    // A glyph of more than eight columns has **two** hexadecimal bytes in a row, and the second one is the
+    // columns eight to fifteen (docs/30).
     if (rows_left > 0) {
       uint8_t byte = 0;
       if (!hex_byte(line, line_length, byte)) return "a row of a bdf bitmap is not hexadecimal";
       if (row < kMaxGlyphHeight) {
-        bits[static_cast<uint32_t>(code - first) * kMaxGlyphHeight + row] = byte;
+        uint8_t* row_bytes = row_of(bits, static_cast<uint8_t>(code - first), static_cast<uint8_t>(row));
+        row_bytes[0] = byte;
+        if (box_width > 8) {
+          uint8_t second = 0;
+          const uint32_t skip = 2;
+          uint32_t start = 0;
+          while (start < line_length && (line[start] == ' ' || line[start] == '\t')) ++start;
+          if (start + skip < line_length && hex_byte(line + start + skip, line_length - start - skip, second)) {
+            row_bytes[1] = second;
+          }
+        }
       }
       ++row;
       --rows_left;
@@ -524,8 +545,8 @@ const char* load_bdf(const char* text, uint32_t length, uint8_t* bits, Face& out
       if (numbers_after(line, line_length, 15, numbers, 4) < 2) return "the bounding box is not a box";
       box_width = numbers[0];
       box_height = numbers[1];
-      if (box_width < 1 || box_width > kMaxGlyphWidth) return "a bdf glyph is up to eight columns wide";
-      if (box_height < 1 || box_height > kMaxGlyphHeight) return "a bdf glyph is up to eight rows tall";
+      if (box_width < 1 || box_width > kMaxGlyphWidth) return "a bdf glyph is up to sixteen columns wide";
+      if (box_height < 1 || box_height > kMaxGlyphHeight) return "a bdf glyph is up to sixteen rows tall";
       continue;
     }
     if (starts_with(line, line_length, "ENCODING")) {
@@ -548,8 +569,8 @@ const char* load_bdf(const char* text, uint32_t length, uint8_t* bits, Face& out
     if (starts_with(line, line_length, "BBX")) {
       int32_t numbers[4] = {0, 0, 0, 0};
       if (numbers_after(line, line_length, 3, numbers, 4) < 2) return "a glyph box is not a box";
-      if (numbers[0] < 0 || numbers[0] > kMaxGlyphWidth) return "a bdf glyph is up to eight columns wide";
-      if (numbers[1] < 0 || numbers[1] > kMaxGlyphHeight) return "a bdf glyph is up to eight rows tall";
+      if (numbers[0] < 0 || numbers[0] > kMaxGlyphWidth) return "a bdf glyph is up to sixteen columns wide";
+      if (numbers[1] < 0 || numbers[1] > kMaxGlyphHeight) return "a bdf glyph is up to sixteen rows tall";
       glyph_height = numbers[1];
       continue;
     }
@@ -732,8 +753,8 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
     }
     const int32_t box_width = metric[1] - metric[0];  // right bearing less left bearing
     const int32_t box_height = (metric[3] > 0 ? metric[3] : 0) + (metric[4] > 0 ? metric[4] : 0);
-    if (box_width < 0 || box_width > kMaxGlyphWidth) return "a pcf glyph is up to eight columns wide";
-    if (box_height < 0 || box_height > kMaxGlyphHeight) return "a pcf glyph is up to eight rows tall";
+    if (box_width < 0 || box_width > kMaxGlyphWidth) return "a pcf glyph is up to sixteen columns wide";
+    if (box_height < 0 || box_height > kMaxGlyphHeight) return "a pcf glyph is up to sixteen rows tall";
     // The codes come in order, one by one, like they do in a `.lfont` and in a bdf.
     if (first < 0) {
       first = code;
@@ -751,9 +772,12 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
       for (uint32_t row = 0; row < static_cast<uint32_t>(box_height); ++row) {
         const uint32_t byte_at = data_first + static_cast<uint32_t>(offset) + row * stride;
         if (byte_at + row_bytes > length) return "a glyph is cut";
-        // **The leftmost pixel is the top bit of the first byte**, which is the layout of `file_lit`.
-        bits[static_cast<uint32_t>(count) * kMaxGlyphHeight + row] =
-            static_cast<uint8_t>(text[byte_at]);
+        // **The leftmost pixel is the top bit of the first byte**, which is the layout of `file_lit`; a glyph
+        // of more than eight columns carries its second byte in the second (docs/30).
+        uint8_t* row_at = row_of(bits, static_cast<uint8_t>(count), static_cast<uint8_t>(row));
+        for (uint32_t part = 0; part < row_bytes && part < kGlyphRowBytes; ++part) {
+          row_at[part] = static_cast<uint8_t>(text[byte_at + part]);
+        }
       }
     }
     if (static_cast<uint32_t>(box_width) > widest) widest = static_cast<uint32_t>(box_width);

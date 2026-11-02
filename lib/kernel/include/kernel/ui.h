@@ -248,8 +248,10 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
 const uint8_t kMaxFaces = 3;
 int8_t font_load(const char* path, const char*& reason);
 bool font_release(int8_t handle);
-// What a face says of itself: how big a glyph is, the space between two, and how many codes it carries.
-bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint8_t& glyphs);
+// What a face says of itself: how big a glyph is, the space between two, and how many codes it carries. **A
+// face of outlines has no cell**, so `width` is zero and the count is what the file says it has —a font of a
+// thousand letters does not fit a byte and is not made to fit one— (docs/30).
+bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint16_t& glyphs);
 // **The face of a canvas**, and the face of the app's view for the shorthand calls (`ui.text`). -1 is the
 // font of the system. A canvas whose face is given back draws with the system's again, which is why the
 // number is checked every time and never trusted (docs/30).
