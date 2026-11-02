@@ -3,6 +3,7 @@
 // board has no screen (docs/10 and docs/50).
 #include "kernel/shell.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,6 +13,7 @@
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
+#include "kernel/line_editor.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/net.h"
@@ -27,7 +29,6 @@ namespace kernel {
 namespace shell {
 namespace {
 
-const size_t kLineBytes = 128;
 const size_t kPrintCap = 1024;
 // Largest entry chunk that will be run. It was 4 096 B and the `matrix` app grew
 // past it, which is a limit saying no to an app that fits the board, so it is
@@ -36,8 +37,12 @@ const size_t kPrintCap = 1024;
 const size_t kSourceCap = 8192;
 const size_t kDefaultHeapBytes = 64 * 1024;   // used until the board ceiling is measured
 
-char g_line[kLineBytes];
-size_t g_len = 0;
+line::Editor g_editor;
+// The prompt is kept because redrawing the line after a cursor move has to put it back: the prompt of
+// the `lua` session and the question of the app selector are not the same line (docs/30, docs/85).
+char g_prompt[40] = "lunok> ";
+size_t g_prompt_len = 7;
+size_t g_visible = 0;  // characters of the prompt and the line that are on the terminal
 bool g_last_was_cr = false;
 // The app that is alive between turns: while it is, the prompt is not shown and
 // the keyboard is not the shell's.
@@ -46,9 +51,13 @@ bool g_app_alive = false;
 // commands, they are Lua, and the prompt says so (docs/30).
 bool g_lua = false;
 // ESC pressed in a row: three of them stop a command that is waiting, the same
-// way they leave an app (docs/30).
+// way they leave an app (docs/30). An arrow or a function key is `ESC [ …` and is
+// one key press, so the parser below keeps its state between feeds.
 const uint8_t kEscToStop = 3;
 uint8_t g_esc = 0;
+enum class Escape : uint8_t { kNone, kEsc, kCsi, kCsiNum, kSs3 };
+Escape g_escape = Escape::kNone;
+uint32_t g_csi_number = 0;
 
 void out_bytes(const void* data, size_t len) {
   pal::IConsole* console = pal::system().console();
@@ -58,7 +67,10 @@ void out_bytes(const void* data, size_t len) {
 
 void out(const char* text) { out_bytes(text, strlen(text)); }
 
-void newline() { out("\r\n"); }
+void newline() {
+  out("\r\n");
+  g_visible = 0;
+}
 
 void spaces(size_t count) {
   while (count > 0) {
@@ -138,6 +150,51 @@ void out_num(uint32_t value) {
   out(&buf[i]);
 }
 
+bool console_ansi() {
+  pal::IConsole* console = pal::system().console();
+  return console != nullptr && console->ansi();
+}
+
+// The prompt that a redraw has to put back. The selector asks its own question and the interpreter says
+// `lua>`, so the text is a value and not a call to `prompt()` (docs/30).
+void set_prompt_text(const char* text, bool write) {
+  size_t len = strlen(text);
+  if (len >= sizeof(g_prompt)) len = sizeof(g_prompt) - 1;
+  memcpy(g_prompt, text, len);
+  g_prompt[len] = '\0';
+  g_prompt_len = len;
+  if (write) out_bytes(g_prompt, len);
+  g_visible = len;
+}
+
+// **The line is redrawn from the prompt and the cursor is put back where it belongs**. ANSI terminals get
+// the erase and the left move; a terminal without ANSI gets spaces to wash the old tail and backspaces to
+// reach the cursor, which is the same picture with the codes the shell already had (docs/30, docs/85).
+// The line is short, so a redraw per key is cheaper than keeping a second copy of the screen.
+void redraw_line() {
+  const bool ansi = console_ansi();
+  const size_t len = g_editor.length();
+  const size_t cursor = g_editor.cursor();
+  const size_t old_line = (g_visible > g_prompt_len) ? g_visible - g_prompt_len : 0;
+  out("\r");
+  out_bytes(g_prompt, g_prompt_len);
+  out_bytes(g_editor.text(), len);
+  if (ansi) {
+    out("\x1b[K");
+    if (cursor < len) {
+      out("\x1b[");
+      out_num(static_cast<uint32_t>(len - cursor));
+      out("D");
+    }
+  } else {
+    const size_t pad = (old_line > len) ? old_line - len : 0;
+    spaces(pad);
+    const size_t back = len + pad - cursor;
+    for (size_t i = 0; i < back; ++i) out("\b");
+  }
+  g_visible = g_prompt_len + len;
+}
+
 void print_help() {
   out("  help              this list\r\n");
   out("  version           version and board\r\n");
@@ -167,7 +224,8 @@ void print_help() {
   out("  open [app] <path> open a file with the app that handles it\r\n");
   out("  ls [path]         list a directory (default /)\r\n");
   out("  cat <path>        print a file\r\n");
-  out("  lua               the prompt becomes the interpreter (`exit` leaves)\r\n");
+  out("  hexdump [path]    the bytes of a file in hex (default /rtc)\r\n");
+  out("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)\r\n");
   out("  log               last lines of the log ring\r\n");
   out("  stats [reset]     what each device cost: calls, time, last call\r\n");
   out("  verbose on|off    mirror the log to the console too\r\n");
@@ -391,6 +449,180 @@ bool print_file(const char* path) {
   return true;
 }
 
+// Hexdump: a file as eight digits of offset, sixteen bytes in hex, and the same sixteen between bars.
+// It is a command of the shell and not an app (docs/30, docs/70): it is how a person looks at the RTC
+// memory or the FRAM when there is no app for it, and it must work before the interpreter does.
+const size_t kHexChunk = 256;
+
+void hexdump_row(uint32_t offset, const uint8_t* data, size_t len) {
+  static const char kHex[] = "0123456789abcdef";
+  char line[96];
+  size_t at = 0;
+  for (int shift = 28; shift >= 0; shift -= 4) {
+    line[at++] = kHex[(offset >> shift) & 0x0F];
+  }
+  line[at++] = ' ';
+  line[at++] = ' ';
+  for (size_t i = 0; i < 16; ++i) {
+    if (i > 0) line[at++] = ' ';
+    if (i < len) {
+      line[at++] = kHex[data[i] >> 4];
+      line[at++] = kHex[data[i] & 0x0F];
+    } else {
+      // A short last row stays aligned with the ones above it.
+      line[at++] = ' ';
+      line[at++] = ' ';
+    }
+  }
+  line[at++] = ' ';
+  line[at++] = ' ';
+  line[at++] = '|';
+  for (size_t i = 0; i < 16; ++i) {
+    if (i >= len) {
+      line[at++] = ' ';
+    } else {
+      line[at++] = (data[i] >= 32 && data[i] <= 126) ? static_cast<char>(data[i]) : '.';
+    }
+  }
+  line[at++] = '|';
+  out_bytes(line, at);
+  newline();
+}
+
+// The last byte that is not zero and whether there is one at all. The empty tail is not printed: a
+// memory is mostly zeros and the zeros teach nothing (docs/70).
+bool hexdump_scan(hal::IStorage* storage, const char* rel, uint32_t size, uint32_t& last, bool& any) {
+  uint8_t buf[kHexChunk];
+  hal::FileSlot slot;
+  meter::Scope scope(meter::storage_id(meter::kOpRead, vfs::unit_of(storage)));
+  if (!storage->open(rel, hal::OpenMode::kRead, slot)) return false;
+
+  uint32_t at = 0;
+  while (at < size) {
+    const uint32_t left = size - at;
+    const uint32_t want = (left < kHexChunk) ? left : static_cast<uint32_t>(kHexChunk);
+    const int32_t got = storage->read(slot, buf, want);
+    if (got <= 0) break;
+    for (int32_t i = 0; i < got; ++i) {
+      if (buf[i] != 0) {
+        last = at + static_cast<uint32_t>(i);
+        any = true;
+      }
+    }
+    at += static_cast<uint32_t>(got);
+  }
+  storage->close(slot);
+  return true;
+}
+
+// The rows are printed while the file is open, so the console time must not land in the read meter:
+// a `Scope` would include every `hexdump_row` between the open and the close (docs/30).
+class StorageReadClock {
+ public:
+  explicit StorageReadClock(hal::IStorage* storage)
+      : id_(meter::storage_id(meter::kOpRead, vfs::unit_of(storage))) {}
+  ~StorageReadClock() { meter::add(id_, us_); }
+  void begin() { start_ = meter::now_us(); }
+  void end() { us_ += meter::now_us() - start_; }
+
+ private:
+  uint8_t id_;
+  uint32_t start_ = 0;
+  uint32_t us_ = 0;
+};
+
+bool hexdump_rows(hal::IStorage* storage, const char* rel, uint32_t last) {
+  uint8_t row[16];
+  hal::FileSlot slot;
+  StorageReadClock clock(storage);
+  clock.begin();
+  const bool opened = storage->open(rel, hal::OpenMode::kRead, slot);
+  clock.end();
+  if (!opened) return false;
+  clock.begin();
+  const bool sought = storage->seek(slot, 0);
+  clock.end();
+  if (!sought) {
+    clock.begin();
+    storage->close(slot);
+    clock.end();
+    return false;
+  }
+
+  uint32_t at = 0;
+  while (at <= last) {
+    const uint32_t left = last - at;
+    size_t got = 0;
+    while (got < sizeof(row)) {
+      clock.begin();
+      const int32_t n = storage->read(slot, row + got, static_cast<uint32_t>(sizeof(row) - got));
+      clock.end();
+      if (n <= 0) break;
+      got += static_cast<size_t>(n);
+    }
+    if (got == 0) break;
+    hexdump_row(at, row, got);
+    if (got > left) break;
+    at += static_cast<uint32_t>(got);
+  }
+  clock.begin();
+  storage->close(slot);
+  clock.end();
+  return true;
+}
+
+bool hexdump_file(const char* path) {
+  hal::Stat info;
+  if (!vfs::stat(path, info)) {
+    out("hexdump: no such file: ");
+    out(path);
+    newline();
+    return false;
+  }
+  if (info.type != hal::NodeType::kFile) {
+    out("hexdump: that is not a file: ");
+    out(path);
+    newline();
+    return false;
+  }
+
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel))) {
+    out("hexdump: cannot read: ");
+    out(path);
+    newline();
+    return false;
+  }
+
+  uint32_t last = 0;
+  bool any = false;
+  if (!hexdump_scan(storage, rel, info.size, last, any)) {
+    out("hexdump: cannot read: ");
+    out(path);
+    newline();
+    return false;
+  }
+  out("hexdump: ");
+  out(path);
+  out(" is ");
+  out_num(info.size);
+  if (!any) {
+    out(" B and every one of them is zero\r\n");
+    return true;
+  }
+  out(" B, ");
+  out_num(last + 1);
+  out(" in use and ");
+  out_num(info.size - last - 1);
+  out(" zero after\r\n");
+  if (!hexdump_rows(storage, rel, last)) {
+    out("hexdump: cannot go back to the start\r\n");
+    return false;
+  }
+  return true;
+}
+
 // The entry chunk is handed to the interpreter whole, because Lua compiles a
 // script from its source and cannot be fed a line at a time. The buffer is static
 // and the ceiling is checked before reading (docs/20).
@@ -603,9 +835,12 @@ bool ask_which_app(const char* ext, const char* path) {
     out(g_choice_ids[i]);
     newline();
   }
-  out("which one? (1-");
-  out_num(g_choice_count);
-  out(") ");
+  char question[40];
+  snprintf(question, sizeof(question), "which one? (1-%u) ", static_cast<unsigned>(g_choice_count));
+  out(question);
+  // **The question is the prompt for the line editor**: an arrow or a correction on this line has to
+  // put the question back, not the shell's `lunok> ` (docs/30).
+  set_prompt_text(question, false);
   g_choosing = true;
   return true;
 }
@@ -1392,9 +1627,24 @@ bool command_provision(const char* argument) {
   return true;
 }
 
+// The two ways out of the interpreter share one goodbye: the light it took, the VM and the prompt state
+// all go together (docs/30). `exit` calls it from `lua_line`, and Ctrl+D calls it from `feed`.
+bool leave_lua() {
+  led::clear_colour();
+  led::set_state(led::State::kOff);
+  luabind::stop();
+  g_lua = false;
+  out("lua: session closed\r\n");
+  return true;
+}
+
 }  // namespace
 
-void prompt() { out(g_lua ? "lua> " : "lunok> "); }
+void prompt() {
+  set_prompt_text(g_lua ? "lua> " : "lunok> ", true);
+  g_esc = 0;
+  g_escape = Escape::kNone;
+}
 
 bool app_running() { return g_app_alive; }
 
@@ -1502,9 +1752,12 @@ bool poll_app() {
 }
 
 void start() {
-  g_len = 0;
+  g_editor.clear();
   g_last_was_cr = false;
   g_app_alive = false;
+  g_esc = 0;
+  g_escape = Escape::kNone;
+  g_visible = 0;
   newline();
   prompt();
 }
@@ -1577,7 +1830,7 @@ bool command_lua() {
   g_lua = true;
   ui::attach();  // the session is an app too, and it draws on a view of its own (docs/30)
   bar::title("lua");
-  out("lua: one line at a time, the whole API (docs/30). `exit` leaves.\r\n");
+  out("lua: one line at a time, the whole API (docs/30). `exit` or Ctrl+D leaves.\r\n");
   return true;
 }
 
@@ -1589,12 +1842,7 @@ bool lua_line(const char* line) {
     // What a session took goes with it, light included: a light left on by a
     // prompt nobody is at is the energy this system does not spend (docs/30,
     // docs/75).
-    led::clear_colour();
-    led::set_state(led::State::kOff);
-    luabind::stop();
-    g_lua = false;
-    out("lua: session closed\r\n");
-    return true;
+    return leave_lua();
   }
   return luabind::eval(line, strlen(line));
 }
@@ -1641,8 +1889,8 @@ bool execute(char* line) {
     return true;
   }
   if (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
-    // A second word is the file the app is pointed at: `run hexdump /fram` is the app and what it
-    // has to look at, which is the same thing `open hexdump /fram` says. The app reads it from
+    // A second word is the file the app is pointed at: `run txt res/notes.txt` is the app and what
+    // it has to look at, which is the same thing `open txt res/notes.txt` says. The app reads it from
     // `app.args.path` and nothing else changes (docs/30, docs/40).
     char words[2][kWordCap];
     size_t count = 0;
@@ -1663,6 +1911,10 @@ bool execute(char* line) {
     list_at((count == 0) ? "/" : words[0]);
     return true;
   }
+  if (strcmp(line, "cat") == 0) {
+    out("usage: cat <path>\r\n");
+    return false;
+  }
   if (strncmp(line, "cat ", 4) == 0) {
     char words[1][kWordCap];
     size_t count = 0;
@@ -1672,6 +1924,12 @@ bool execute(char* line) {
       return false;
     }
     return print_file(words[0]);
+  }
+  if (strncmp(line, "hexdump", 7) == 0 && (line[7] == '\0' || line[7] == ' ')) {
+    char words[1][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 7, words, 1, count)) return false;
+    return hexdump_file((count == 0) ? "/rtc" : words[0]);
   }
   if (strcmp(line, "log") == 0) {
     log_dump();
@@ -1784,41 +2042,123 @@ void feed(const char* data, size_t len) {
     }
     g_last_was_cr = (c == '\r');
 
-    if (c == '\r' || c == '\n') {
+    // **Ctrl+D leaves the Lua interpreter**, the same way `exit` does: it is the end of the input a
+    // person at a prompt expects, and the line being typed is discarded without running it (docs/30,
+    // docs/85). In the shell prompt the same byte means nothing and is ignored.
+    if (c == 0x04 && g_lua) {
+      g_editor.reset();
       newline();
-      if (g_len > 0) {
-        g_line[g_len] = '\0';
-        execute(g_line);
-        g_len = 0;
-      }
-      // The question of the selector is its own prompt: printing "lunok> " there
-      // left the person answering after a prompt that belongs to the shell.
-      if (!g_app_alive && !g_choosing && !native_running()) prompt();
-    } else if (c == 0x7f || c == 0x08) {
-      if (g_len > 0) {
-        --g_len;
-        out("\b \b");
-      }
-    } else if (c == 0x1b) {
-      // Three ESC in a row is the way out of whatever is running, and a command
-      // that waits for the radio runs too: a provisioning waiting for a phone had
-      // no exit except a word you had to know (`wifi stop`) (docs/30).
+      leave_lua();
+      prompt();
+      continue;
+    }
+
+    // **An escape starts a key, not a command.** Three lone ESC still stop the radio, but an arrow is
+    // `ESC [ A` and is one press: the parser keeps its state when the sequence arrives in pieces
+    // (docs/30, docs/85).
+    if (c == 0x1b) {
+      g_escape = Escape::kEsc;
       if (native_running() && ++g_esc >= kEscToStop) {
         g_esc = 0;
+        g_escape = Escape::kNone;
         if (stop_radio_now()) {
           newline();
           out("radio: stopped\r\n");
           prompt();
         }
+      } else if (!native_running()) {
+        g_esc = 0;
       }
       continue;
+    }
+
+    bool consumed = true;
+    if (g_escape == Escape::kEsc) {
+      if (c == '[') {
+        g_escape = Escape::kCsi;
+        g_esc = 0;
+      } else if (c == 'O') {
+        g_escape = Escape::kSs3;
+        g_esc = 0;
+      } else {
+        // A lone ESC that is not a sequence: drop it and let the byte be a normal key.
+        g_escape = Escape::kNone;
+        g_esc = 0;
+        consumed = false;
+      }
+    } else if (g_escape == Escape::kCsi) {
+      g_esc = 0;
+      if (c >= '0' && c <= '9') {
+        g_csi_number = static_cast<uint32_t>(c - '0');
+        g_escape = Escape::kCsiNum;
+      } else {
+        switch (c) {
+          case 'A': if (g_editor.previous()) redraw_line(); break;
+          case 'B': if (g_editor.next()) redraw_line(); break;
+          case 'C': if (g_editor.right()) redraw_line(); break;
+          case 'D': if (g_editor.left()) redraw_line(); break;
+          case 'H': if (g_editor.home()) redraw_line(); break;
+          case 'F': if (g_editor.end()) redraw_line(); break;
+          default: break;
+        }
+        g_escape = Escape::kNone;
+      }
+    } else if (g_escape == Escape::kCsiNum) {
+      if (c >= '0' && c <= '9') {
+        g_csi_number = g_csi_number * 10 + static_cast<uint32_t>(c - '0');
+      } else {
+        if (c == '~') {
+          switch (g_csi_number) {
+            case 1: if (g_editor.home()) redraw_line(); break;
+            case 3: if (g_editor.erase_forward()) redraw_line(); break;
+            case 4: if (g_editor.end()) redraw_line(); break;
+            default: break;
+          }
+        } else {
+          switch (c) {
+            case 'A': if (g_editor.previous()) redraw_line(); break;
+            case 'B': if (g_editor.next()) redraw_line(); break;
+            case 'C': if (g_editor.right()) redraw_line(); break;
+            case 'D': if (g_editor.left()) redraw_line(); break;
+            case 'H': if (g_editor.home()) redraw_line(); break;
+            case 'F': if (g_editor.end()) redraw_line(); break;
+            default: break;
+          }
+        }
+        g_escape = Escape::kNone;
+      }
+    } else if (g_escape == Escape::kSs3) {
+      switch (c) {
+        case 'A': if (g_editor.previous()) redraw_line(); break;
+        case 'B': if (g_editor.next()) redraw_line(); break;
+        case 'C': if (g_editor.right()) redraw_line(); break;
+        case 'D': if (g_editor.left()) redraw_line(); break;
+        case 'H': if (g_editor.home()) redraw_line(); break;
+        case 'F': if (g_editor.end()) redraw_line(); break;
+        default: break;
+      }
+      g_escape = Escape::kNone;
+    } else {
+      consumed = false;
+    }
+    if (consumed) continue;
+
+    if (c == '\r' || c == '\n') {
+      newline();
+      if (!g_editor.empty()) {
+        execute(g_editor.data());
+        g_editor.remember();
+      } else {
+        g_editor.reset();
+      }
+      // The question of the selector is its own prompt: printing "lunok> " there
+      // left the person answering after a prompt that belongs to the shell.
+      if (!g_app_alive && !g_choosing && !native_running()) prompt();
+    } else if (c == 0x7f || c == 0x08) {
+      if (g_editor.backspace()) redraw_line();
     } else if (c >= 0x20 && c < 0x7f) {
       g_esc = 0;
-      if (g_len + 1 < kLineBytes) {
-        g_line[g_len++] = c;
-        const char echo[2] = {c, '\0'};
-        out(echo);
-      }
+      if (g_editor.insert(c)) redraw_line();
     }
   }
 }

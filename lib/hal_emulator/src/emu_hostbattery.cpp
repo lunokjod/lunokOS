@@ -1,7 +1,9 @@
 // The battery of the PC, read from the kernel's own files (docs/85).
 #include "emu/hostbattery.h"
 
+#if defined(__linux__)
 #include <dirent.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +13,9 @@
 namespace emu {
 namespace {
 
+#if defined(__linux__)
 const char* kKernelList = "/sys/class/power_supply";
+#endif
 
 // One line of a file of the kernel's, without the newline: `capacity` says `63` and `status` says
 // `Discharging`, and both end with a line break that is not part of the answer.
@@ -62,6 +66,7 @@ HostBattery host_battery_in(const char* dir) {
 }
 
 HostBattery host_battery() {
+#if defined(__linux__)
   DIR* list = opendir(kKernelList);
   if (list == nullptr) return HostBattery();
   HostBattery found;
@@ -78,6 +83,11 @@ HostBattery host_battery() {
   }
   closedir(list);
   return found;
+#else
+  // `/sys/class/power_supply` is Linux's. The other desktops have no battery to lend here, and the
+  // bench says so by returning none instead of looking for a file that cannot exist (docs/85).
+  return HostBattery();
+#endif
 }
 
 int lent_cell_mv(const HostBattery& host) {

@@ -403,7 +403,46 @@ namespace kernel {
 // buffer and answered with a face. Every check of a number that comes from a file is now a subtraction from
 // the length (`at > length || length - at < size`), in both readers. Of 299 cases, **this one was the only
 // red**: the first run of the two formats was 297 green and one that had found a real hole (docs/30, docs/80).
-static const char kVersion[] = "0.42.1";
+// 0.43.0 (2/11): **the window of the bench at the size a person asked for** (`--gui-scale <1..4>`): the page
+// at half —`2`— even on a screen that would hold it whole, which until now only happened when the display was
+// too small. The choice of scale is a pure function (`emu::gui_fit_scale`) with proof in `test_ui`, and the
+// page itself does not change: 540x960 is the model's glass (docs/85). The same day, the turn of the page
+// reopens the window with the new frame instead of freezing the old one, and the host queue honours a timeout
+// with stdin at EOF: that is what kept the three ink tests of `test_ui` and the long press of `test_touch` red
+// under `pio test` (docs/85).
+// 0.44.0 (2/11): **UILabel**, the first control of the layer: a control without a buffer whose frame is a
+// background and one line, with the face `cv:font` gives it, the text and background levels, the horizontal
+// and vertical alignment, and the `...` that ends a text which does not fit. It draws when the text —or one
+// of its fields— really changes, and when the view is made again, which is what `needs_draw` is for
+// (docs/30, docs/90).
+// 0.45.0 (2/11): **UIButton**, the first control that is a container: a frame with a background and a
+// border that can hold a child and clips it to the same frame, and a `pressed` state that paints a second
+// inner border. The example `buttons` puts eight labels of different faces, sizes and colours inside
+// eight buttons (docs/30, docs/90).
+// 0.46.0 (2/11): **the prompt edits**: left and right move a cursor inside the line, up and down walk the
+// last eight commands, Home/End/Delete are the keys they say, and the redraw uses ANSI when the console
+// speaks it (backspaces when it does not). The line editor is pure and has its own suite; Ctrl+D at the
+// `lua>` prompt closes the session like `exit` (docs/30, docs/85).
+// 0.47.0 (2/11): **`hexdump` is a command of the shell and not an app**: the bytes of `/rtc`, `/fram` or
+// any file go out as offset, sixteen bytes in hex and the same sixteen in visible text, with the empty
+// tail left out. Like `cat`, it works before the interpreter starts and does not depend on what is
+// installed on the disk (docs/30, docs/70).
+// 0.48.0 (2/11): **the window of the bench is portable**. The pure colours, scaling and key geometry are
+// one common file; the window itself has an SDL2 backend for X11, Wayland, Quartz and Windows, and the
+// old Xlib backend stays as the POSIX fallback. The build picks SDL2 when it is installed and X11 when
+// only Xlib is there; `LUNOK_GUI=sdl|x11|none` forces one. The host clock and waits are C++11's
+// `steady_clock` and `sleep_for`, not `clock_gettime` and `usleep` (docs/85).
+// 0.48.1 (2/11): **`ls` of the root tells a memory from a directory**. The root is the mount table, and
+// `/rtc` and `/fram` are rows that are one file: they now come out as `file` with their size instead of
+// `<dir>`, and `cat` with no path says how it is used instead of falling through to an unknown command
+// (docs/70).
+// 0.49.0 (2/11): **the controls receive a person**. The dial focuses the first pressable control and
+// walks the others (`up`/`left` before, `down`/`right` after, `centre` enter), a finger on the touch
+// panel focuses and holds the control under it and clicks it on release, and the UI layer owns the focus
+// and the pressed state. `focusable` and `focused`, `on_focus`, `on_click` and `on_activate` are the
+// contract; a page with controls does not close on three centre taps, and a generic control that sets
+// `focusable = true` is in the same walk as a `ui.button` (docs/30, docs/90).
+static const char kVersion[] = "0.49.0";
 
 }  // namespace kernel
 

@@ -3,7 +3,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "emu/ink.h"
 #include "emu/options.h"
@@ -21,6 +20,9 @@ MemorySurface::MemorySurface(uint16_t width, uint16_t height)
     : width_(width), height_(height), stride_(static_cast<uint16_t>(width / 2)) {
   const size_t bytes = static_cast<size_t>(stride_) * height_;
   bits_ = static_cast<uint8_t*>(calloc(bytes, 1));
+  // A bench with no memory for its panel is a bench without a glass, not a crash: every read answers
+  // zero and nothing is ever painted (docs/85).
+  if (bits_ == nullptr) return;
   // White, like the real glass after its own clear (docs/50).
   memset(bits_, 0xFF, bytes);
   alloc_ink();
@@ -164,17 +166,39 @@ bool MemorySurface::set_rotation(uint16_t degrees) {
   const bool quarter = (degrees == 90 || degrees == 270);
   const uint16_t width = quarter ? kPanelHeight : kPanelWidth;
   const uint16_t height = quarter ? kPanelWidth : kPanelHeight;
-  rotation_ = degrees;
-  if (width == width_ && height == height_) return true;
+  // **The frame is only forgotten once the new one exists**: a failed allocation leaves the glass and
+  // the page it is showing exactly as they were, which is what `ui::set_rotation` rolls back to (docs/50,
+  // docs/85).
+  if (width == width_ && height == height_) {
+    rotation_ = degrees;
+    reset_damage();
+    return true;
+  }
+  const uint16_t stride = static_cast<uint16_t>(width / 2);
+  const size_t bytes = static_cast<size_t>(stride) * height;
+  uint8_t* next = static_cast<uint8_t*>(calloc(bytes, 1));
+  if (next == nullptr) return false;
+  memset(next, 0xFF, bytes);
   free(bits_);
+  bits_ = next;
   width_ = width;
   height_ = height;
-  stride_ = static_cast<uint16_t>(width / 2);
-  const size_t bytes = static_cast<size_t>(stride_) * height_;
-  bits_ = static_cast<uint8_t*>(calloc(bytes, 1));
-  memset(bits_, 0xFF, bytes);
+  stride_ = stride;
+  rotation_ = degrees;
+  // **A rectangle in the old frame is not a rectangle in the new one**: the damage is dropped and the
+  // page is white, and an app that presents after a turn paints the whole of what it draws (docs/85).
+  reset_damage();
   alloc_ink();
   return true;
+}
+
+// A paint that was owed to the old frame is not owed to the new one.
+void MemorySurface::reset_damage() {
+  dirty_ = false;
+  dirty_x0_ = 0;
+  dirty_y0_ = 0;
+  dirty_x1_ = 0;
+  dirty_y1_ = 0;
 }
 
 bool MemorySurface::flush(hal::UpdateMode mode) {
@@ -185,7 +209,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // two qualities is two paints, so the second waits here for the first —and a flash still running is
   // finished before the glass is asked for another page (docs/85).
   if (shown_ != nullptr && options().delays) {
-    while (static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) ::usleep(1000);
+    while (static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) pal::delay_us(1000);
     step_ink();
   }
   // **With nothing marked there is nothing to paint**, which is what the panel driver does: a page that
@@ -216,7 +240,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
     // (`--no-delay`, every test) the model is the same and the clock is not asked.
     const bool pay = options().delays;
     const uint32_t bus_us = pay ? ink_transfer_us(paint.w, paint.h) : 0;
-    if (bus_us > 0) ::usleep(static_cast<useconds_t>(bus_us));
+    if (bus_us > 0) pal::delay_us(bus_us);
     if (pay && ink.flashes && ink.ms > 0) {
       // **The blink of an `a2`**: the page goes white and then black before the image arrives, and the
       // ink has not moved yet when the paint is asked for. `step_ink()` walks the three moments, and
@@ -234,9 +258,11 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
       busy_until_ms_ = flash_until_ms_;
     } else {
       apply_ink(paint.x, paint.y, paint.w, paint.h, mode);
-      if (pay && ink.ms > 0) {
-        busy_until_ms_ = static_cast<uint32_t>(pal::system().millis()) + ink.ms;
-      }
+      // **A paint nobody paid for is over when it is asked**: with the waits off the answer to `idle()`
+      // is yes at once, and a busy time left over from a paint that did pay is not the paint's (docs/85).
+      busy_until_ms_ = (pay && ink.ms > 0)
+                           ? static_cast<uint32_t>(pal::system().millis()) + ink.ms
+                           : 0;
     }
   }
   return true;
@@ -371,6 +397,9 @@ const MemorySurface::Paint* MemorySurface::paint_at(uint32_t index) const {
 // ink is an app that is waiting for the blinks too.
 bool MemorySurface::idle() {
   if (!ink_on()) return true;
+  // **With the waits off there is nothing to wait for**: the paint is exact and the clock is not asked,
+  // so a busy time from a paint that did pay (or a flash that was running) is not this paint's (docs/85).
+  if (!options().delays) return true;
   step_ink();
   return static_cast<uint32_t>(pal::system().millis()) >= busy_until_ms_;
 }

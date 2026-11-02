@@ -1,172 +1,10 @@
+#if defined(LUNOK_GUI_X11)
+
 #include "emu/gui.h"
 
 #include <stdio.h>
-
-// **X11 and nothing else.** The bench is a development tool of this machine, and a window needs a
-// library: Xlib is the one that is on any desktop with a compiler and it costs one `-lX11`, where SDL
-// would be a whole dependency of the emulator for a rectangle of pixels. The code below is behind a
-// flag so a machine without X11 still builds the emulator and says that this bench has no window
-// (docs/85).
 #include <stdlib.h>
 #include <string.h>
-
-namespace emu {
-
-// **An e-ink panel is not black and white**: its paper is warm —a little yellow, a little grey— and its
-// darkest level is not the absence of light but the blackest the pigment gets. The window shows that and
-// not a perfect monochrome, because a page read on a perfect monochrome is a page that looks better than
-// the one the person will hold (docs/85). The four bits still mean the same sixteen levels; only their
-// colour changes.
-const uint8_t kInkBlackR = 0x1A;
-const uint8_t kInkBlackG = 0x1B;
-const uint8_t kInkBlackB = 0x18;
-const uint8_t kPaperR = 0xEF;
-const uint8_t kPaperG = 0xEA;
-const uint8_t kPaperB = 0xDC;
-
-uint8_t mix_channel(uint8_t dark, uint8_t light, uint8_t level) {
-  // level 0 is the ink and 15 is the paper, and the steps in between are straight: the waveform of this
-  // glass is not linear, but a window that draws a curve nobody measured would be inventing physics
-  // (docs/85).
-  const int32_t span = static_cast<int32_t>(light) - static_cast<int32_t>(dark);
-  const int32_t value = static_cast<int32_t>(dark) + (span * static_cast<int32_t>(level & 0x0F) + 7) / 15;
-  return static_cast<uint8_t>((value < 0) ? 0 : ((value > 255) ? 255 : value));
-}
-
-uint32_t gui_level_colour(uint8_t level) {
-  const uint8_t r = mix_channel(kInkBlackR, kPaperR, level);
-  const uint8_t g = mix_channel(kInkBlackG, kPaperG, level);
-  const uint8_t b = mix_channel(kInkBlackB, kPaperB, level);
-  return (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
-}
-
-// The four bits of two neighbours become two pixels, **the left one in the high nibble**, which is the
-// packing of the panel itself (docs/50).
-void gui_expand(const uint8_t* packed, uint16_t width, uint16_t height, uint32_t* out, uint8_t scale) {
-  if (packed == nullptr || out == nullptr || scale == 0) return;
-  const uint16_t out_width = static_cast<uint16_t>((width + scale - 1) / scale);
-  const uint16_t out_height = static_cast<uint16_t>((height + scale - 1) / scale);
-  for (uint16_t oy = 0; oy < out_height; ++oy) {
-    const uint16_t y = static_cast<uint16_t>(oy * scale);
-    const uint8_t* row = packed + static_cast<size_t>(y) * (width / 2);
-    uint32_t* line = out + static_cast<size_t>(oy) * out_width;
-    for (uint16_t ox = 0; ox < out_width; ++ox) {
-      const uint16_t x = static_cast<uint16_t>(ox * scale);
-      if (x >= width) {
-        // A glass of an odd width ends on a nibble nobody wrote: it is white, like the panel's memory.
-        line[ox] = gui_level_colour(15);
-        continue;
-      }
-      const uint8_t byte = row[x / 2];
-      line[ox] = gui_level_colour(((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4)
-                                                 : static_cast<uint8_t>(byte & 0x0F));
-    }
-  }
-}
-
-// **The way back**: the pixel of the window to the pixel of the page under it, which is what makes the
-// mouse a finger. It is outside the X11 flag because a test asks for it without a screen (docs/85).
-void gui_page_point(int window_x, int window_y, uint8_t scale, uint16_t page_width, uint16_t page_height,
-                    uint16_t& out_x, uint16_t& out_y) {
-  const int step = (scale == 0) ? 1 : static_cast<int>(scale);
-  int page_x = window_x * step + step / 2;
-  int page_y = window_y * step + step / 2;
-  if (page_x < 0) page_x = 0;
-  if (page_y < 0) page_y = 0;
-  if (page_x > static_cast<int>(page_width) - 1) page_x = static_cast<int>(page_width) - 1;
-  if (page_y > static_cast<int>(page_height) - 1) page_y = static_cast<int>(page_height) - 1;
-  out_x = static_cast<uint16_t>(page_x);
-  out_y = static_cast<uint16_t>(page_y);
-}
-
-// **The geometry of the keys**, which is the one the descriptor of the input asks for: a dial on a side face
-// is a **column** down that side —up, centre and down from the top, the way the wheel of the board is— and a
-// key on the top or the front is a **row** under the page. The buttons are measured in window pixels and not
-// in page pixels: how big a page is scaled to is the page's business, and a button that shrinks with it is a
-// button a person cannot hit (docs/50, docs/85).
-const uint16_t kKeyMargin = 8;
-const uint16_t kKeyButtonWidth = 80;
-const uint16_t kKeyButtonHeight = 54;
-const uint16_t kKeyGap = 8;
-// A column takes a strip as wide as a button and its two margins; a row takes one as tall.
-const uint16_t kKeyStripWidth = static_cast<uint16_t>(kKeyButtonWidth + 2 * kKeyMargin);
-const uint16_t kKeyRowHeight = static_cast<uint16_t>(kKeyButtonHeight + 2 * kKeyMargin);
-
-uint16_t gui_key_strip_width() { return kKeyStripWidth; }
-uint16_t gui_key_row_height() { return kKeyRowHeight; }
-
-uint16_t gui_keys_height(uint8_t count) {
-  if (count == 0) return 0;
-  return static_cast<uint16_t>(count * kKeyButtonHeight + (count - 1) * kKeyGap);
-}
-
-uint16_t gui_keys_width(uint8_t count) {
-  if (count == 0) return 0;
-  return static_cast<uint16_t>(count * kKeyButtonWidth + (count - 1) * kKeyGap);
-}
-
-// The column is **centred** in the window, which is where the wheel of the board is on its face.
-int gui_keys_top(uint16_t window_height, uint8_t count) {
-  const int height = static_cast<int>(gui_keys_height(count));
-  if (height == 0 || static_cast<int>(window_height) <= height) return 0;
-  return (static_cast<int>(window_height) - height) / 2;
-}
-
-// And the row is centred too, under the page.
-int gui_keys_left(uint16_t window_width, uint8_t count) {
-  const int width = static_cast<int>(gui_keys_width(count));
-  if (width == 0 || static_cast<int>(window_width) <= width) return 0;
-  return (static_cast<int>(window_width) - width) / 2;
-}
-
-int gui_key_of_slot(uint8_t count, uint8_t slot) {
-  if (count == 0 || slot >= count) return -1;
-  // One key is the middle one, which is the only button an ATOM has and the centre of the Paper's dial.
-  if (count == 1) return 0;
-  // Two are the sides with no middle to be the middle of.
-  if (count == 2) return (slot == 0) ? 1 : 2;
-  // **The wheel**: up first, the centre in the middle and down last, which is the order the Paper's `Spot`
-  // gives the three keys (docs/50).
-  if (slot == 0) return 1;
-  if (slot == 1) return 0;
-  return 2;
-}
-
-int gui_key_at(int window_x, int window_y, uint8_t count, uint16_t window_width, uint16_t window_height,
-               KeySide side) {
-  if (count == 0) return -1;
-  if (side == KeySide::kBottom) {
-    // **A row under the page**: the gap between two buttons is horizontal here.
-    const int top = static_cast<int>(window_height) - static_cast<int>(kKeyRowHeight - kKeyMargin);
-    if (window_y < top || window_y >= top + static_cast<int>(kKeyButtonHeight)) return -1;
-    const int from_the_left = window_x - gui_keys_left(window_width, count);
-    if (from_the_left < 0) return -1;
-    const int pitch = static_cast<int>(kKeyButtonWidth + kKeyGap);
-    const int slot = from_the_left / pitch;
-    if (slot >= static_cast<int>(count)) return -1;
-    if (from_the_left - slot * pitch >= static_cast<int>(kKeyButtonWidth)) return -1;
-    return gui_key_of_slot(count, static_cast<uint8_t>(slot));
-  }
-  // **A column down a side**: the gap is vertical, and which side is the descriptor's to say.
-  const int left = (side == KeySide::kRight)
-                       ? static_cast<int>(window_width) - static_cast<int>(kKeyStripWidth) +
-                             static_cast<int>(kKeyMargin)
-                       : static_cast<int>(kKeyMargin);
-  if (window_x < left || window_x >= left + static_cast<int>(kKeyButtonWidth)) return -1;
-  const int pitch = static_cast<int>(kKeyButtonHeight + kKeyGap);
-  const int below_the_top = window_y - gui_keys_top(window_height, count);
-  if (below_the_top < 0) return -1;
-  const int slot = below_the_top / pitch;
-  if (slot >= static_cast<int>(count)) return -1;
-  // The space between two buttons is not a button: a click there presses nothing, the same as a finger on
-  // the case (docs/85).
-  if (below_the_top - slot * pitch >= static_cast<int>(kKeyButtonHeight)) return -1;
-  return gui_key_of_slot(count, static_cast<uint8_t>(slot));
-}
-
-}  // namespace emu
-
-#if defined(LUNOK_GUI_X11)
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -187,6 +25,9 @@ Atom g_wm_delete = 0;
 uint16_t g_width = 0;
 uint16_t g_height = 0;
 uint8_t g_scale = 1;
+// The scale the run asked for (`--gui-scale`) or zero for the one that fits: a window that has to reopen
+// after a turn of the glass asks for the same one again (docs/85).
+uint8_t g_requested_scale = 0;
 // The button of the window is held down, which is what tells a finger moving from a pointer passing by.
 bool g_button_down = false;
 
@@ -230,13 +71,6 @@ unsigned long colour_of(const char* name, unsigned long fallback) {
   return wanted.pixel;
 }
 
-const char* label_of_key(uint8_t count, int key) {
-  if (count == 1) return "Button";
-  if (key == 1) return "Up";
-  if (key == 2) return "Down";
-  return "Centre";
-}
-
 void draw_keys() {
   if (g_display == nullptr || g_window == 0 || g_keys_count == 0) return;
   const bool row = (g_side == KeySide::kBottom);
@@ -261,7 +95,7 @@ void draw_keys() {
     XDrawRectangle(g_display, g_window, g_gc, x, y, static_cast<unsigned>(kKeyButtonWidth - 1),
                    static_cast<unsigned>(kKeyButtonHeight - 1));
     if (g_font != nullptr) {
-      const char* label = label_of_key(g_keys_count, key);
+      const char* label = gui_key_label(g_keys_count, key);
       const int len = static_cast<int>(strlen(label));
       XSetFont(g_display, g_gc, g_font->fid);
       XSetForeground(g_display, g_gc, down ? g_key_pressed_text : g_key_text);
@@ -338,7 +172,7 @@ bool ensure_display() {
 
 }  // namespace
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale) {
   if (g_window != 0) return true;
   // **A page of nothing is a board with no glass**: its window is the keys and only them, which is the window
   // an ATOM gets (docs/85).
@@ -348,6 +182,7 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side) {
   }
   if (width == 0 && keys == 0) return false;
   if (!ensure_display()) return false;
+  g_requested_scale = scale;
 
   const int screen = DefaultScreen(g_display);
   g_width = width;
@@ -372,16 +207,13 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side) {
                                                                 : static_cast<int>(gui_key_strip_width()));
   const int strip_h = (keys == 0) ? 0
                                   : ((side == KeySide::kBottom) ? static_cast<int>(gui_key_row_height()) : 0);
-  // **The whole thing has to fit on the screen.** A window taller than the display is a window the window
-  // manager clips, and two thirds of a page that looks complete is worse than a page at half: the scale is
-  // the smallest that fits, and the draw is every `g_scale` pixels (docs/85).
+  // **The whole thing has to fit on the screen**, unless the run asked for a size: a window taller than the
+  // display is a window the window manager clips, and two thirds of a page that looks complete is worse than
+  // a page at half; `--gui-scale` wins over that, because a run that asked for a scale wants that scale even
+  // when the page would fit bigger (docs/85). The draw is every `g_scale` pixels either way.
   const int screen_w = DisplayWidth(g_display, screen);
   const int screen_h = DisplayHeight(g_display, screen);
-  g_scale = 1;
-  while (g_scale < 4 && (strip_w + static_cast<int>(width) / g_scale > screen_w - 40 ||
-                         strip_h + static_cast<int>(height) / g_scale > screen_h - 80)) {
-    ++g_scale;
-  }
+  g_scale = gui_fit_scale(width, height, keys, side, screen_w, screen_h, scale);
   g_page_w = (width == 0) ? 0 : static_cast<uint16_t>((width + g_scale - 1) / g_scale);
   g_page_h = (height == 0) ? 0 : static_cast<uint16_t>((height + g_scale - 1) / g_scale);
   g_page_x = static_cast<uint16_t>((side == KeySide::kRight) ? 0 : strip_w);
@@ -437,8 +269,18 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side) {
 }
 
 void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
-  if (g_display == nullptr || packed == nullptr || g_image == nullptr) return;
-  if (width != g_width || height != g_height) return;
+  if (g_display == nullptr || packed == nullptr) return;
+  if (width != g_width || height != g_height) {
+    // **The glass turned and the page is another rectangle**: the window follows it instead of keeping
+    // the last frame for ever. The keys and the scale the run asked for do not change, and the new page
+    // gets the scale that fits it, which is what a person would see after turning the board (docs/85).
+    const uint8_t keys = g_keys_count;
+    const KeySide side = g_side;
+    const uint8_t requested = g_requested_scale;
+    gui_close();
+    if (!gui_open(width, height, keys, side, requested)) return;
+  }
+  if (g_image == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);
   redraw();
 }
@@ -468,7 +310,7 @@ void gui_pump() {
         // **A click that arrives is a line when the run is verbose**: a button that does nothing has to be
         // told apart from a button nobody pressed, and this is the cheapest way (docs/85).
         if (options().verbose) {
-          fprintf(stderr, "gui: key %d (%s) down\n", key, label_of_key(g_keys_count, key));
+          fprintf(stderr, "gui: key %d (%s) down\n", key, gui_key_label(g_keys_count, key));
         }
       } else if (on_the_page) {
         put_the_finger(event.xbutton.x - static_cast<int>(g_page_x), event.xbutton.y - static_cast<int>(g_page_y),
@@ -486,7 +328,7 @@ void gui_pump() {
       if (g_key_held >= 0) {
         press_key(g_key_held, false);
         if (options().verbose) {
-          fprintf(stderr, "gui: key %d (%s) up\n", g_key_held, label_of_key(g_keys_count, g_key_held));
+          fprintf(stderr, "gui: key %d (%s) up\n", g_key_held, gui_key_label(g_keys_count, g_key_held));
         }
         g_key_held = -1;
         draw_keys();
@@ -508,10 +350,14 @@ uint8_t gui_scale() { return (g_display != nullptr) ? g_scale : 0; }
 void gui_close() {
   if (g_display == nullptr) return;
   // A key the pointer was holding is let go: a window that goes away with a key down would leave the bench
-  // with a key nobody can lift (docs/85).
+  // with a key nobody can lift, and the same goes for a finger the pointer was dragging (docs/85).
   if (g_key_held >= 0) {
     press_key(g_key_held, false);
     g_key_held = -1;
+  }
+  if (g_button_down) {
+    lift_the_finger();
+    g_button_down = false;
   }
   if (g_font != nullptr) {
     XFreeFont(g_display, g_font);
@@ -540,34 +386,5 @@ void gui_close() {
 
 }  // namespace emu
 
-#else  // no X11 in this build
-
-namespace emu {
-
-bool gui_available() { return false; }
-
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side) {
-  (void)width;
-  (void)height;
-  (void)keys;
-  (void)side;
-  return false;
-}
-
-void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
-  (void)packed;
-  (void)width;
-  (void)height;
-}
-
-void gui_pump() {}
-
-bool gui_close_requested() { return false; }
-
-uint8_t gui_scale() { return 0; }
-
-void gui_close() {}
-
-}  // namespace emu
 
 #endif  // LUNOK_GUI_X11

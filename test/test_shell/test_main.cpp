@@ -226,8 +226,18 @@ void test_a_path_with_spaces_goes_in_quotes(void) {
 // be seen from here.
 void test_cat_of_a_missing_file_fails(void) {
   ensure_booted();
+  TEST_ASSERT_FALSE(kernel::execute("cat"));
   TEST_ASSERT_FALSE(kernel::execute("cat no-hi-es-aixo.txt"));
   TEST_ASSERT_FALSE(kernel::execute("cat /res"));
+}
+
+// `hexdump` is a command of the shell, not an app: it answers for itself, refuses a path that is not
+// a file, and takes one path and no more (docs/30, docs/70).
+void test_hexdump_of_a_missing_file_fails(void) {
+  ensure_booted();
+  TEST_ASSERT_FALSE(kernel::execute("hexdump no-hi-es-aixo.bin"));
+  TEST_ASSERT_FALSE(kernel::execute("hexdump /res"));
+  TEST_ASSERT_FALSE(kernel::execute("hexdump un cami de mes"));
 }
 
 
@@ -317,6 +327,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
   RUN_TEST(test_cat_of_a_missing_file_fails);
+  RUN_TEST(test_hexdump_of_a_missing_file_fails);
   RUN_TEST(test_unknown_command_fails);
   RUN_TEST(test_empty_line_is_not_an_error);
   RUN_TEST(test_overlong_line_is_cut_not_crashed);

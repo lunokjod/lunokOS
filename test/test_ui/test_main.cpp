@@ -58,6 +58,14 @@ void boot_with_a_panel() {
 
 emu::MemorySurface& glass() { return *emu::memory_surface(); }
 
+// The level of one pixel of the view of the app, which is where a control without a buffer paints.
+uint8_t view_level(uint16_t x, uint16_t y) {
+  const ui::Canvas& view = ui::canvas();
+  if (view.bits == nullptr || x >= view.width || y >= view.height) return 0;
+  const uint8_t byte = view.bits[static_cast<uint32_t>(y) * view.stride + x / 2];
+  return ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
+}
+
 // Every test starts from the same place: an app attached, the view at the corner, nothing pending and
 // **a white glass**. The glass is wiped through the app's own path —a clear and a present— because the
 // bench keeps what the last test painted, and a pixel *outside* the region of a test then answers
@@ -1065,6 +1073,153 @@ static void test_a_pixel_of_the_window_lands_in_the_middle_of_its_block() {
   TEST_ASSERT_EQUAL_UINT16(0, y);
 }
 
+// **The size of the page in the window is decided once** (docs/85): without asking, the window takes the
+// smallest scale that fits the screen with the strip of the keys, and a run that asks for one gets it even
+// when the screen would hold the page whole — which is how the page is watched at half on a big display.
+// The page of the model is 540x960 and none of this changes it.
+static void test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for() {
+  // A screen of 1920x1080 holds the page whole, with the Paper's column of three keys on the right.
+  TEST_ASSERT_EQUAL_UINT8(1, emu::gui_fit_scale(540, 960, 3, emu::KeySide::kRight, 1920, 1080, 0));
+  // One of 900 rows does not: 960 does not fit and 480 does, so the page is at half.
+  TEST_ASSERT_EQUAL_UINT8(2, emu::gui_fit_scale(540, 960, 3, emu::KeySide::kRight, 1280, 900, 0));
+  // Shorter than half the page, the window takes a quarter of it, and never goes past four.
+  TEST_ASSERT_EQUAL_UINT8(4, emu::gui_fit_scale(540, 960, 3, emu::KeySide::kRight, 800, 300, 0));
+  // **Asked for, the scale wins**: half on a screen that could show the page whole, and whole on one that
+  // could not.
+  TEST_ASSERT_EQUAL_UINT8(2, emu::gui_fit_scale(540, 960, 3, emu::KeySide::kRight, 1920, 1080, 2));
+  TEST_ASSERT_EQUAL_UINT8(1, emu::gui_fit_scale(540, 960, 3, emu::KeySide::kRight, 800, 300, 1));
+  // An ATOM has no page: its window is the row of its one key, and that has no scale to choose.
+  TEST_ASSERT_EQUAL_UINT8(1, emu::gui_fit_scale(0, 0, 1, emu::KeySide::kBottom, 1280, 900, 0));
+}
+
+// **A label ends with three dots and not with a letter cut in half** (docs/30, docs/90): the system face is
+// five pixels wide with one between glyphs, so "Hello, world" is 71 pixels; a narrower label keeps the
+// longest prefix whose three dots still fit. When even the dots do not fit they are what is drawn, and the
+// frame cuts them.
+static void test_a_label_cuts_its_text_with_three_dots() {
+  char shown[32];
+  TEST_ASSERT_EQUAL_UINT16(71, ui::label_text(-1, "Hello, world", 100, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("Hello, world", shown);
+  TEST_ASSERT_EQUAL_UINT16(59, ui::label_text(-1, "Hello, world", 60, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("Hello, ...", shown);
+  TEST_ASSERT_EQUAL_UINT16(35, ui::label_text(-1, "Hello, world", 40, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("Hel...", shown);
+  TEST_ASSERT_EQUAL_UINT16(29, ui::label_text(-1, "Hello, world", 30, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("He...", shown);
+  TEST_ASSERT_EQUAL_UINT16(17, ui::label_text(-1, "Hello, world", 20, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("...", shown);
+  TEST_ASSERT_EQUAL_UINT16(17, ui::label_text(-1, "Hello, world", 10, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("...", shown);
+  // A label with no text is a white box and no line.
+  TEST_ASSERT_EQUAL_UINT16(0, ui::label_text(-1, "", 100, 1, shown, sizeof(shown)));
+  TEST_ASSERT_EQUAL_STRING("", shown);
+}
+
+// **The line sits where the two alignments say** (docs/30, docs/90): the label is a frame of 40 by 20, the
+// H is five by seven, and the three positions are the left/top corner, the centre and the right/bottom one.
+// What is outside the text is the background of the label, not the page.
+static void test_a_label_places_its_line_by_alignment() {
+  fresh_view();
+  int8_t slot = -1;
+  TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
+  TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
+  TEST_ASSERT_TRUE(ui::label_draw(slot, "H", 0, 15, 0, 0, 1));  // left, top
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 10));  // the other leg of the H
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 10));
+  TEST_ASSERT_TRUE(ui::label_draw(slot, "H", 0, 15, 1, 1, 1));  // centre, middle
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(27, 16));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 16));
+  TEST_ASSERT_TRUE(ui::label_draw(slot, "H", 0, 15, 2, 2, 1));  // right, bottom
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(45, 23));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(44, 23));
+  // The label's frame is 10,10 to 49,29: one pixel outside it is still the page, which the label has not
+  // touched.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 30));
+  ui::release(slot);
+}
+
+// **A button is a frame with a border**, and while it is held it paints a second border inside the first:
+// the child does not move and the frame does not grow. The fill and the border are two levels of the
+// same canvas, and a level outside the sixteen is refused (docs/30, docs/90).
+static void test_a_button_paints_a_frame_and_a_second_border_when_pressed() {
+  fresh_view();
+  int8_t slot = -1;
+  TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
+  TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
+  TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(49, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 29));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(11, 11));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(48, 28));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));
+  TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(11, 11));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(48, 11));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(47, 27));
+  TEST_ASSERT_FALSE(ui::button_draw(slot, 16, 0, false));
+  ui::release(slot);
+}
+
+// **The frame of a button is opaque**: when the button paints it again, the child it covers has to paint
+// again too. The button has no buffer to compose under the child, so it asks the child for a draw
+// (docs/30, docs/90).
+static void test_a_button_that_redraws_asks_its_child_to_draw_again() {
+  fresh_view();
+  int8_t button = -1;
+  int8_t child = -1;
+  TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, button));
+  TEST_ASSERT_TRUE(ui::create(10, 10, button, false, child));
+  TEST_ASSERT_TRUE(ui::mark_drawn(child));
+  TEST_ASSERT_FALSE(ui::needs_draw(child));
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false));
+  TEST_ASSERT_TRUE(ui::needs_draw(child));
+  ui::release(button);
+}
+
+// **A label inside a button is a child, and the button's frame is its border too**: the label may be
+// larger than the button, but what it paints stops at the frame the button gave it (docs/30, docs/90).
+static void test_a_label_inside_a_button_is_clipped_to_the_button() {
+  fresh_view();
+  int8_t button = -1;
+  int8_t label = -1;
+  TEST_ASSERT_TRUE(ui::create(40, 30, 0, false, button));
+  TEST_ASSERT_TRUE(ui::place(button, 10, 10));
+  TEST_ASSERT_TRUE(ui::create(100, 100, button, false, label));
+  TEST_ASSERT_TRUE(ui::place(label, 5, 5));
+  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false));
+  TEST_ASSERT_TRUE(ui::label_draw(label, "", 0, 0, 0, 0, 1));
+  // The label's background starts at the button's 15,15 and stops at the button's 49,39.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(48, 38));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 14));
+  ui::release(button);
+}
+
+// **A turn of the glass does not owe the paint of the frame before it** (docs/85): the damage of the old
+// rectangle is dropped with the buffer, so a flush after a turn has nothing to paint and cannot write a
+// region of the old frame into the new one.
+static void test_a_turn_does_not_keep_the_damage_of_the_old_frame() {
+  boot_with_a_panel();
+  const uint32_t painted = glass().paint_count();
+  glass().clear(0);  // a write with no flush after it: the whole page is pending
+  TEST_ASSERT_TRUE(glass().set_rotation(90));
+  TEST_ASSERT_EQUAL_UINT16(540, glass().width());
+  TEST_ASSERT_EQUAL_UINT16(960, glass().height());
+  TEST_ASSERT_TRUE(glass().flush(hal::UpdateMode::kDu));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(painted, glass().paint_count(),
+                                   "a turn kept the old frame's damage and flushed it");
+  // And back, so the tests after this one see the page they know.
+  TEST_ASSERT_TRUE(glass().set_rotation(0));
+  TEST_ASSERT_EQUAL_UINT16(960, glass().width());
+  TEST_ASSERT_EQUAL_UINT16(540, glass().height());
+}
+
 // **The strip of the keys is the dial of the board**: a column of buttons whose middle is the middle key,
 // up on top and down at the bottom, on the side the descriptor of the input says —the left face on the
 // Paper— with the gaps between them pressing nothing. A button that presses the wrong key is a bug nobody
@@ -1205,6 +1360,13 @@ int main(int argc, char** argv) {
   RUN_TEST(test_an_a2_flashes_the_page_before_the_image_arrives);
   RUN_TEST(test_only_the_board_that_has_a_glass_announces_one);
   RUN_TEST(test_a_pixel_of_the_window_lands_in_the_middle_of_its_block);
+  RUN_TEST(test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for);
+  RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
+  RUN_TEST(test_a_label_places_its_line_by_alignment);
+  RUN_TEST(test_a_button_paints_a_frame_and_a_second_border_when_pressed);
+  RUN_TEST(test_a_button_that_redraws_asks_its_child_to_draw_again);
+  RUN_TEST(test_a_label_inside_a_button_is_clipped_to_the_button);
+  RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);
   RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();

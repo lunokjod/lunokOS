@@ -162,6 +162,8 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 ## Compilació i emulador
 
 ```
+# per a --gui: SDL2 (recomanat) o, si no hi és, Xlib
+# Debian/Ubuntu: sudo apt install libsdl2-dev
 pio run -e emulator      # binari per al PC
 ./.pio/build/emulator/program --board m5stack-atom
 # el banc es diu la placa que és: --board m5stack-atom (obligatori),
@@ -173,19 +175,31 @@ pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/
 pio test -e test         # proves natives
 ```
 
+`LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none` força el backend de la finestra; sense cap
+d'ells, la build tria SDL2 si el troba, després X11, i finalment un banc sense finestra.
+
 Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id> [path]`,
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
-`open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
+`hexdump [fitxer]` (els bytes en hex i en visible; sense camí, `/rtc`), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
 `ntp`, `http <url>`, `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
 idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
 `button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
 (`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
-no, ho diu). El disc de l'emulador és la carpeta **`data/`** del repositori —el que hi ha a `data/apps/`
+no, ho diu). `cat` sempre necessita un camí; `hexdump` sense camí mira `/rtc`, que és la memòria que es vol veure quan no se'n diu cap.
+
+El disc de l'emulador és la carpeta **`data/`** del repositori —el que hi ha a `data/apps/`
 és el que el banc executa, sense copiar res—, i `--flash <dir>` en tria una altra; la tasca
 **lunokOS: seed emulator disk** de VS Code copia les apps de `data/apps` a `emulator/littlefs`, que és
 el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`). Per córrer un
 guio sense seure al davant: `./.pio/build/emulator/program --board m5stack-atom --script <fitxer>`.
+
+Les proves que obrin la finestra de l'emulador (`--gui`) es fan **en un X propi**, mai al `DISPLAY` de
+l'usuari: un X virtual (`xvfb-run -a`, per exemple) o un servidor X que la prova encengui i apagui.
+Així no es mou el ratolí, no es roba el focus ni es tapen finestres. La finestra de l'emulador és
+**SDL2** quan hi és, amb **X11** de reserva; `pio test` no enllaça cap de les dues i no obre cap
+finestra. Els detalls són a [80 · Compilació i proves](docs/80-compilacio-i-proves.md) i
+[85 · Emulador](docs/85-emulador.md).
 
 ## Llicència
 

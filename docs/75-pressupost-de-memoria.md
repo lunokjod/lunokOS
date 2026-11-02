@@ -36,7 +36,7 @@ per aquests, no heretats.
 | Cua d'esdeveniments | 16 × `sizeof(Event)` | **128 B** (16 × 8 B) |
 | Anella de log | 2 KB | **2 048 B** |
 | Motor dels efectes del llum (`led`) | 4 efectes del sistema + la capa de l'app | **uns 250 B**, calculat amb `sizeof` (vegeu §«El motor dels efectes»); el build de la 0.10.0 hi suma **+312 B** de RAM amb el mòdul `env` a dins, i no es poden separar sense treure'n un |
-| Buffer de línia de la shell | 1 × 128 B | **128 B** |
+| Editor de línia de la shell | 1 línia de 128 B + 1 esborrany de 128 B + 8 ordres × 128 B | **1 304 B** (mesurat amb `sizeof`) |
 | Buffer de línia de l'app (`luabind`) | 1 × 128 B | **128 B** |
 | Selector d'extensió (`shell`) | 8 candidats × 32 B + camí (128 B) + extensió (16 B) | **400 B** (mesurat: treure la tria desada va baixar la RAM estàtica de 28 948 a 28 756 B, i eixamplar el camí de 96 a 128 B l'ha apujada 32 B, fins a 28 788 B) |
 | Buffer d'ordre del nucli | 1 × 128 B | **128 B** (a la pila) |

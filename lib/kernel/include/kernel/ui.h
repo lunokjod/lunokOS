@@ -18,6 +18,7 @@
 #ifndef LUNOK_KERNEL_UI_H
 #define LUNOK_KERNEL_UI_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "hal/hal.h"
@@ -208,6 +209,32 @@ bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius
 // made of (docs/30, docs/90).
 bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode);
+
+// ---- a label: one text in the frame of a control (docs/30, docs/90) ----
+//
+// A label is a control without a buffer: its frame is the border that cuts the text, and drawing it is a
+// background and one line. The face is the one the canvas was given (`canvas_set_font`), and the three
+// numbers that place the line are the horizontal alignment, the vertical one and the size of the body.
+enum class LabelAlign : uint8_t { kLeft = 0, kCentre = 1, kRight = 2 };
+enum class LabelVAlign : uint8_t { kTop = 0, kMiddle = 1, kBottom = 2 };
+
+// **The text a label of that width draws**: the whole one when it fits, or the longest prefix that with
+// `"..."` fits. `out` is always NUL-terminated and the return is the width in pixels of what it holds, which
+// is what centring it needs. When even the three dots do not fit, they are what is drawn and the frame cuts
+// them (docs/30, docs/90).
+uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale, char* out, size_t cap);
+
+// **Draws a label into its frame**, with its own face and colours: the background first —a control without
+// a buffer owes the pixels it covers— and then the text, aligned and cut at the frame. The app's `present`
+// is what calls it, and only when the control owes a draw (docs/30, docs/90).
+bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+                uint8_t valign, uint8_t scale);
+
+// **Draws a button into its frame**: a background and a border, a second inner border while it is pressed
+// and another one two pixels in while it has the focus. A button is a control without a buffer, so what it
+// paints is the frame it covers and nothing else; its children —a label, for instance— are composed after
+// it and clipped to the same frame (docs/30, docs/90).
+bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false);
 
 // ---- the faces a text can be drawn with (docs/30) ----
 //

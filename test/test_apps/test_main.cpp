@@ -16,6 +16,7 @@
 #include <unity.h>
 
 #include "alarms/alarms.h"
+#include "emu/gt911.h"
 #include "emu/memories.h"
 #include "emu/options.h"
 #include "hal/hal.h"
@@ -26,6 +27,8 @@
 #include "kernel/meter.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
+#include "kernel/touch.h"
+#include "kernel/ui.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
 #include "pal_host.h"
@@ -389,6 +392,12 @@ void close_any_app() {
     emu::press_button(true);
     pump_turns(10);
     emu::press_button(false);
+    pump_turns(10);
+  }
+  // A page with controls uses the centre as Enter, so the three taps above are not a way out of it
+  // (docs/30, docs/90). The test closes it the same way the shell does.
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
     pump_turns(10);
   }
 }
@@ -2740,6 +2749,140 @@ void test_a_press_reaches_the_app_as_a_promise(void) {
   storage->remove("/apps/waiter");
 }
 
+// **A button is a control a person can reach without a mouse**: the first one takes the focus,
+// the dial's up and down walk the pressable controls, the centre clicks, and a finger does the same
+// through the touch panel. The app only says what a click means; the system owns the focus and the
+// press state (docs/30, docs/90).
+void test_a_button_is_navigated_and_touched(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nav",
+                           "{\"title\":\"Nav\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local function make(y, text)\n"
+                           "  local b, e = ui.button(200, 60)\n"
+                           "  if not b then console.print('no button ' .. tostring(e)); return nil end\n"
+                           "  b:place(10, y)\n"
+                           "  local l = ui.label(180, 40)\n"
+                           "  l.text = text l:place(10, 10) b:add(l)\n"
+                           "  b.on_focus = function(self, on)\n"
+                           "    console.print('focus ' .. text .. ' ' .. tostring(on))\n"
+                           "  end\n"
+                           "  b.on_click = function(self) console.print('click ' .. text) end\n"
+                           "  return b\n"
+                           "end\n"
+                           "local first = make(10, 'one')\n"
+                           "local second = make(80, 'two')\n"
+                           "local plain = ui.control(200, 40)\n"
+                           "plain:place(10, 150)\n"
+                           "plain.focusable = true\n"
+                           "plain.on_focus = function(self, on)\n"
+                           "  console.print('focus plain ' .. tostring(on))\n"
+                           "end\n"
+                           "plain.on_activate = function(self) console.print('activate plain') end\n"
+                           "console.print('initial ' .. tostring(first and first.focused) .. ' ' ..\n"
+                           "  tostring(second and second.focused))\n"
+                           "ui.present()\n"
+                           "while true do\n"
+                           "  local f = touch.read()\n"
+                           "  if #f > 0 then console.print('finger ' .. f[1].x .. ',' .. f[1].y) end\n"
+                           "  sys.delay(20):await()\n"
+                           "end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run nav");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "initial true false"), g_out);
+
+  // The down key is the next control. It is key 2 on the Paper and the system reads the spot, not
+  // the number; the old focus loses the ring and the new one gets it (docs/30, docs/50).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus one false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus two true"), g_out);
+
+  // The centre is Enter: the focused button is clicked.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click two"), g_out);
+
+  // **A control that is pressable without being a button is in the same walk**: `focusable` is what
+  // makes it a stop, and `on_activate` is its click (docs/30, docs/90).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus plain true"), g_out);
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "activate plain"), g_out);
+
+  // **A finger is the same event**: the first button is at 10,10 and is 200x60, so 30,30 in the
+  // view is on it. The panel counts on the glass, which is the view shifted by its place, and down
+  // holds the button while up clicks it (docs/30, docs/50).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t finger_x = static_cast<uint16_t>(view.x + 30);
+  const uint16_t finger_y = static_cast<uint16_t>(view.y + 30);
+  capture_begin();
+  const bool finger_down = panel->finger_down(0, finger_x, finger_y);
+  hal::TouchPoint point = {};
+  bool seen = false;
+  for (int i = 0; i < 20 && !seen; ++i) {
+    pump_turns(5);
+    seen = kernel::touch::points(&point, 1) > 0;
+  }
+  const bool finger_up = panel->finger_up(0);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE(finger_down);
+  TEST_ASSERT_TRUE_MESSAGE(seen, "the panel never gave the frame to the kernel");
+  TEST_ASSERT_EQUAL_UINT16(30, point.x);
+  TEST_ASSERT_EQUAL_UINT16(30, point.y);
+  TEST_ASSERT_TRUE(finger_up);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus one true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click one"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/nav/app.lua");
+  storage->remove("/apps/nav/manifest.json");
+  storage->remove("/apps/nav");
+
+  // The next test gets the default bench back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // An app that declared on_button gets the press there instead, called between
 // turns like on_alarm (docs/30).
 void test_a_press_reaches_the_app_as_a_hook(void) {
@@ -3262,26 +3405,16 @@ void test_the_mtab_demo_app_from_the_disk_runs(void) {
   storage->remove("/apps/mtab-app");
 }
 
-// The dump app of the repository, run from the disk: the memory is read as hex and as text, a byte
-// that cannot be printed is a dot, and the empty tail is not printed at all (docs/50, docs/70).
-void test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory(void) {
+// The dump command of the shell, native C++ and not an app: the memory is read as hex and as text, a
+// byte that cannot be printed is a dot, and the empty tail is not printed at all (docs/50, docs/70).
+void test_the_hexdump_command_shows_the_bytes_of_the_rtc_memory(void) {
   TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
   hal::IStorage* rtc = hal::platform().storage("/rtc");
-  TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_NOT_NULL(rtc);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/hexdump/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/hexdump/hexdump.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "hexdump-app", manifest, source, "hexdump.lua"));
 
   // An empty memory is said in one line and not in four hundred rows of zeros.
   memset(emu::rtc_ram(), 0, emu::kRtcRamBytes);
-  TEST_ASSERT_TRUE(run_captured("run hexdump-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("hexdump", g_out, sizeof(g_out)));
   char empty[96];
   snprintf(empty, sizeof(empty), "is %u B and every one of them is zero",
            static_cast<unsigned>(emu::kRtcRamBytes));
@@ -3297,7 +3430,7 @@ void test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory(void) {
                         rtc->write(slot, kept, sizeof(kept)));
   TEST_ASSERT_TRUE(rtc->close(slot));
 
-  TEST_ASSERT_TRUE(run_captured("run hexdump-app", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("hexdump", g_out, sizeof(g_out)));
   char summary[96];
   snprintf(summary, sizeof(summary), "is %u B, %u in use and %u zero after",
            static_cast<unsigned>(emu::kRtcRamBytes), static_cast<unsigned>(sizeof(kept)),
@@ -3312,9 +3445,6 @@ void test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory(void) {
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "00000010"), g_out);
 
   memset(emu::rtc_ram(), 0, emu::kRtcRamBytes);
-  storage->remove("/apps/hexdump-app/hexdump.lua");
-  storage->remove("/apps/hexdump-app/manifest.json");
-  storage->remove("/apps/hexdump-app");
 }
 
 // The FRAM is 256 bytes that **do not need the power**, and like the RTC memory it is one file an app
@@ -3331,8 +3461,6 @@ void test_the_fram_is_one_file_of_its_bytes(void) {
   use_board("m5stack-paper");
   hal::IStorage* fram = hal::platform().storage("/fram");
   TEST_ASSERT_NOT_NULL(fram);
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
 
   hal::Stat info;
   TEST_ASSERT_TRUE(fram->stat("", info));
@@ -3376,24 +3504,33 @@ void test_the_fram_is_one_file_of_its_bytes(void) {
   // eighth, which is how `/cfg` disappeared on the bench (31/10, docs/70).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/cfg"), g_out);
 
-  // And the dump app looks at it when it is told which file: `run hexdump /fram`.
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/hexdump/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/hexdump/hexdump.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "hexdump-fram", manifest, source, "hexdump.lua"));
-  TEST_ASSERT_TRUE(run_captured("run hexdump-fram /fram", g_out, sizeof(g_out)));
+  // And the command of the shell looks at it when it is told which file: `hexdump /fram`.
+  TEST_ASSERT_TRUE(run_captured("hexdump /fram", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "|kept in the fram|"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(
       strstr(g_out, "00000000  6b 65 70 74 20 69 6e 20 74 68 65 20 66 72 61 6d"), g_out);
-  storage->remove("/apps/hexdump-fram/hexdump.lua");
-  storage->remove("/apps/hexdump-fram/manifest.json");
-  storage->remove("/apps/hexdump-fram");
 
   // The memory that does not need the power: a power cycle of the bench does not touch it.
   memset(emu::fram(), 0, emu::kFramBytes);
+}
+
+// **The two memories are files and not directories**: the root listing is the mount table, but each
+// row says what the mount is. A person reading `ls` must not be told that `/rtc` is a directory and
+// then find that `cat /rtc` reads 7 168 bytes (docs/70, docs/85).
+void test_the_root_lists_the_memories_as_files(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  TEST_ASSERT_NOT_NULL(hal::platform().storage("/rtc"));
+  TEST_ASSERT_NOT_NULL(hal::platform().storage("/fram"));
+
+  pump_captured(20, g_out, sizeof(g_out), "ls");
+  char rtc[64];
+  snprintf(rtc, sizeof(rtc), "  file    rtc  %u", static_cast<unsigned>(emu::kRtcRamBytes));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, rtc), g_out);
+  char fram[64];
+  snprintf(fram, sizeof(fram), "  file    fram  %u", static_cast<unsigned>(emu::kFramBytes));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, fram), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "  <dir>   apps"), g_out);
 }
 
 // The battery demo of the repository, run from the disk: the two paths are the point,
@@ -3985,8 +4122,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_opens_files_and_the_ninth_is_refused);
   RUN_TEST(test_the_handles_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_mtab_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_hexdump_app_shows_the_bytes_of_the_rtc_memory);
+  RUN_TEST(test_the_hexdump_command_shows_the_bytes_of_the_rtc_memory);
   RUN_TEST(test_the_fram_is_one_file_of_its_bytes);
+  RUN_TEST(test_the_root_lists_the_memories_as_files);
   RUN_TEST(test_the_extra_memory_is_there_for_any_app);
   RUN_TEST(test_the_heap_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_battery_demo_app_from_the_disk_runs);
@@ -4029,6 +4167,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
+  RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
   RUN_TEST(test_a_key_reaches_the_app_with_its_number);

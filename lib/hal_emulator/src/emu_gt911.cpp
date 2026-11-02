@@ -2,7 +2,6 @@
 // have (docs/50, docs/85).
 #include "emu/gt911.h"
 
-#include <unistd.h>
 
 #include "emu/options.h"
 #include "hal/log.h"
@@ -114,7 +113,7 @@ uint8_t Gt911Panel::read(hal::TouchPoint* out, uint8_t capacity) {
   // the model and not the clock; the scan window below stays either way, because a frame that was
   // taken is a fact of the chip and not a delay.
   const uint8_t down = fingers_down();
-  if (options().delays) ::usleep(static_cast<useconds_t>(read_us(down)));
+  if (options().delays) pal::delay_us(read_us(down));
 
   // **One frame per scan.** The chip scans by itself and sets the bit that says it has something to
   // hand over; the driver takes it away with a zero. A read that arrives in a window whose frame was
@@ -154,7 +153,7 @@ Gt911Panel* touch_panel() {
     // **The probe, paid once and said once**: the chip is asked who it is and in which frame it counts
     // before anything is read from it, which on the board is 186 bytes of configuration and the line
     // that says which of the two addresses answered (docs/50, docs/95).
-    if (options().delays) ::usleep(static_cast<useconds_t>(Gt911Panel::probe_us()));
+    if (options().delays) pal::delay_us(Gt911Panel::probe_us());
     hal::logf(pal::kLogInfo, "TOUCH", "GT911 at 0x5d, config 66, 540x960, 2 fingers");
   }
   return &panel;

@@ -60,6 +60,10 @@ struct Options {
   // glass (`--display` is turned on with it) and it changes nothing of what the bench simulates —the
   // window is a way to look, and the ink is still not there (docs/85).
   bool gui;
+  // **How big the page is in the window** (`--gui-scale`): zero is the smallest scale that fits the
+  // screen, which is what a window nobody sized wants, and 1 to 4 is the size the run asked for even when
+  // the page would fit bigger — 2 is the page at half (docs/85).
+  uint8_t gui_scale;
   // **Whether the glass moves ink or switches pixels.** On —one— a paint takes what the mode takes, a
   // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
   // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.

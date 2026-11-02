@@ -1,8 +1,8 @@
 #include "emu/disk.h"
 
-#include <unistd.h>
 
 #include "emu/options.h"
+#include "pal/pal.h"
 
 namespace emu {
 namespace {
@@ -53,7 +53,7 @@ void disk_pay(Disk disk, uint32_t bytes, bool writing) {
   us += blocks * (writing ? timing.write_block_us : timing.read_block_us);
   if (writing && blocks > 0 && timing.erase_us > 0) us += timing.erase_us;
   if (us == 0) return;
-  ::usleep(static_cast<useconds_t>(us));
+  pal::delay_us(us);
 }
 
 }  // namespace emu

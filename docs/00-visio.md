@@ -59,7 +59,9 @@ tancat en una carpeta.
   el consum ni el refresc d'una pantalla d'e-ink.
 - **No és un sistema multiusuari** ni té comptes, ni permisos per persona, ni xarxa de confiança.
 - **No executa binaris d'altres sistemes** ni cap app que no sigui un directori amb un manifest.
-- **No pretén ser portable a altres arquitectures** que no siguin ESP32 i el PC on es desenvolupa.
+- **El firmware no pretén ser portable a altres arquitectures** que no siguin ESP32. L'emulador de PC
+  sí que vol ser portable: la finestra ja és SDL2 amb X11 de reserva, i la consola i el disc s'hi aniran
+  portant per fases (docs/85).
 
 ## Glossari
 

@@ -1,8 +1,11 @@
 // **The glass of the bench, in a window** (docs/85).
 //
 // The emulator's glass is a buffer of four bits per pixel that remembers the rectangle of every paint.
-// Without this it is a buffer nobody can look at; with `--gui` the same buffer is copied into an X11
-// window whenever the panel is painted, so what an app draws on the PC is seen instead of guessed.
+// Without this it is a buffer nobody can look at; with `--gui` the same buffer is copied into a window
+// whenever the panel is painted, so what an app draws on the PC is seen instead of guessed.
+//
+// The backend is SDL2 when the build has it and X11 when it only has Xlib; the pure geometry and colour
+// functions live in gui_common.cpp and are the part a test can prove without a screen (docs/85).
 //
 // It is a window and not a picture: no ink, no ghost, no flicker, and the quality of a paint is not
 // drawn any differently because the bench has no waveform. The window is a way to *look*, and every
@@ -14,8 +17,8 @@
 
 namespace emu {
 
-// True when this bench was built with a window in it. A build without X11 says so instead of failing
-// at the first `--gui` (docs/85).
+// True when this bench was built with a window in it. A build without a window backend says so
+// instead of failing at the first `--gui` (docs/85).
 bool gui_available();
 
 // Opens a window of that size. False when there is no display to open it on, which is not an error of
@@ -60,13 +63,34 @@ uint8_t gui_scale();
 // pick a side of its own (docs/50, docs/85).
 enum class KeySide : uint8_t { kLeft = 0, kRight = 1, kBottom = 2 };
 
+// **The scale of the window, chosen once**: the one the run asked for (`--gui-scale`, 1 to 4) or, when it
+// asked for none —zero—, the smallest that fits a screen of that size with the strip of the keys. It is 1
+// when the page fits, 2 when it has to be halved, and the window and the mouse both use this one number.
+// The page of the model is 540x960 and does not change; this is only how big it is drawn (docs/85).
+uint8_t gui_fit_scale(uint16_t page_width, uint16_t page_height, uint8_t keys, KeySide side,
+                      int screen_width, int screen_height, uint8_t requested);
+
+// The buttons are measured in window pixels and not in page pixels: how big a page is scaled to is the
+// page's business, and a button that shrinks with it is a button a person cannot hit. Both backends draw
+// the same rectangle and the mouse reads the same one (docs/85).
+const uint16_t kKeyMargin = 8;
+const uint16_t kKeyButtonWidth = 80;
+const uint16_t kKeyButtonHeight = 54;
+const uint16_t kKeyGap = 8;
+const uint16_t kKeyStripWidth = static_cast<uint16_t>(kKeyButtonWidth + 2 * kKeyMargin);
+const uint16_t kKeyRowHeight = static_cast<uint16_t>(kKeyButtonHeight + 2 * kKeyMargin);
+
 // **One window with the glass and the keys in it** (0.34.0): the page is not covered by anything and the
 // buttons are where the board has them. Two windows were two things to place and to look at, and the window
 // manager put them where it liked.
 //
 // `keys` is how many buttons there are —zero is a board with no key— and a click on one is a press and a
 // release of that key through the same `press_key` a test uses (docs/50, docs/85).
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side);
+//
+// `scale` is `--gui-scale`: 1 to 4 draws the page at that many page pixels per window pixel, 2 being the
+// page at half, even when the screen would hold it whole; zero is the smallest that fits, which is what a
+// window nobody sized wants (docs/85).
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale);
 
 // **Which key a point of the window is on**, and which key a slot of the column or the row is: the dial goes
 // up, centre and down from the top, a board of one key has the middle of it, and `-1` is no key at all —
@@ -75,6 +99,8 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side);
 int gui_key_at(int window_x, int window_y, uint8_t count, uint16_t window_width, uint16_t window_height,
                KeySide side);
 int gui_key_of_slot(uint8_t count, uint8_t slot);
+// The word on a key: one button is the whole board, and a dial is up, centre and down from the top.
+const char* gui_key_label(uint8_t count, int key);
 // The geometry that the drawing and the test agree on: what a column and a row take, where they start in a
 // window of that size (both are centred, which is where the keys of the board are on its face).
 uint16_t gui_key_strip_width();

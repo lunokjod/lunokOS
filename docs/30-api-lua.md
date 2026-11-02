@@ -167,7 +167,7 @@ Dues regles:
 | Crida | Torna | Notes |
 |---|---|---|
 | `app.id` | cadena | El nom del directori de l'app |
-| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run hexdump /fram` i `open hexdump /fram` són el mateix per a l'app |
+| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run txt res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app |
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
@@ -751,7 +751,9 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present` |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
-| `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això |
+| `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
+| `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
+| `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
 | `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
@@ -963,7 +965,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   `ui.control` responen `nil` amb `E_NOMEM`.
 - **Un control sense vista no és cap forat a l'arbre**: els seus fills es componen igual, amb el
   desplaçament de cada capa sumat, i el que ell dibuixa cau al canvas que el conté (el primer que en té) i
-  **es talla al seu marc**: no pot pintar fora de la seva caixa. Un `UILabel` no necessitarà cap buffer.
+  **es talla al seu marc**: no pot pintar fora de la seva caixa. Un `UILabel` no necessita cap buffer.
 - **Una vista feta de nou se'ls emporta**: si el sistema torna a fer la vista (una rotació, un `ui.resize`),
   els canvas de dins moren, i un objecte que l'app encara tingui **respon `nil, E_INVAL`** en lloc
   d'escriure al canvas que hagi ocupat el seu lloc.
@@ -971,6 +973,131 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   si el pare no té buffer) rep exactament el rectangle que el fill ocupava, i el fill es compon al lloc nou.
 - L'exemple és l'app `layers` (`run layers`), que fa dos canvas, els col·loca i els compon amb un sol
   `ui.present`.
+
+### `UILabel`: una línia de text dins d'un marc
+
+**Un label és un control sense vista** (`ui.label(w, h)`): el seu marc és la vora que talla el text i el
+fons que pinta, i no gasta cap byte de píxel. Es posa amb `place`, s'afegeix a un pare amb `add` i el pinta
+`ui.present` com qualsevol control.
+
+| Camp | Valor | Què fa |
+|---|---|---|
+| `label.text` | cadena o `nil` | El text. Canviar-lo per un altre de diferent demana un redibuix |
+| `label.color` | 0–15 | El nivell del text (0 negre, 15 blanc) |
+| `label.background` | 0–15 (15 per defecte) | El nivell del fons del marc; el label és opac |
+| `label.align` | `"left"`, `"center"`/`"centre"`, `"right"` | L'alineació horitzontal |
+| `label.valign` | `"top"`, `"middle"`, `"bottom"` | L'alineació vertical |
+| `label.scale` | 1–16 (1 per defecte) | La mida del cos, com el `scale` de `ui.text` |
+
+- **La cara és la del canvas**: `label:font(f)` (o `label:font(nil)` per la del sistema) li posa una cara de
+  `ui.load_font`; el label la fa servir per mesurar i per dibuixar.
+- **Si el text no hi cap, s'acaba amb `...`**: es queda el prefix més llarg que, amb els tres punts, cap a
+  l'amplada del marc; si ni els punts hi caben, els punts són el que es dibuixa i el marc els talla.
+- **Només es redibuixa quan cal**: el label neix amb el senyal de dibuixar-se, i després només quan canvia el
+  text —o el color, el fons, l'alineació, la mida o la cara— i només si el valor és diferent. Un
+  `ui.present` sense canvis no crida el seu `on_draw`. Quan la vista es torna a fer (una rotació o un
+  `ui.resize`), l'app rep `on_resize` i torna a fer els labels, que es dibuixen una vegada.
+- **El fons és opac a posta**: el control sense vista escriu al canvas que el conté i el seu marc no té
+  transparència; un label sobre un panell fosc vol `label.background` del nivell del panell (docs/90).
+- **Es pinta amb `gc16`**, la qualitat que no deixa el fantasma del mot anterior: un label és una pàgina de
+  text en miniatura, i canviar-ne el text ha de deixar el text nou net (docs/50, docs/90).
+- `label.on_draw` és una funció del sistema; una app que la canviï deixa de tenir un label i té un control
+  normal.
+
+```lua
+local title = ui.label(220, 32)
+title.text = 'Hola, món'
+title.align = 'center'
+title.valign = 'middle'
+title.color = 0
+title.background = 15
+title:place(20, 20)
+title:font(face)          -- una cara de ui.load_font, o nil per la del sistema
+ui.present()
+```
+
+L'app `label` (`run label`) és una pàgina de trenta labels: les tres cares carregades i la del sistema,
+quatre tamanys, les dues alineacions, dos retalls amb `...`, els setze nivells i els comptes de redibuix:
+un present sense canvis no dibuixa res, i canviar el text o el color en dibuixa un.
+
+### `UIButton`: un marc amb un fill a dins
+
+**Un botó és el primer control que és un contenidor amb un marc** (`ui.button(w, h)`): pinta un fons i una
+vora, i el seu fill és un altre control —un `UILabel`, per exemple— que es posa amb `button:add(fill)` i
+que es dibuixa **després** del botó i **tallat al mateix marc**. El fill no gasta cap byte propi i les
+seves coordenades són les del botó, no les de la pàgina. **També és el primer control que rep una
+persona**: el sistema el pot enfocar, prémer i clicar amb el dial de la placa o amb un dit al vidre, i
+l'app només diu què vol dir el clic (docs/30, docs/90).
+
+| Camp | Valor | Què fa |
+|---|---|---|
+| `button.background` | 0–15 (15 per defecte) | El nivell del fons del marc |
+| `button.border` | 0–15 (0 per defecte) | El nivell de la vora |
+| `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, el marc pinta una segona vora interior |
+| `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta una segona vora interior dues passes enfora de la vora premuda |
+| `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
+
+| Callback | Què fa |
+|---|---|
+| `button.on_click(self)` | El clic del centre o d'un dit a sobre. Si existeix, és el que es crida |
+| `button.on_activate(self)` | El mateix clic quan no hi ha `on_click`; és el nom genèric per a un control que no és un botó |
+| `button.on_focus(self, focused)` | Quan el dial o el tàctil mouen el focus: arriba (`true`) o se'n va (`false`). El primer control d'una pàgina ja neix enfocat, i per això el seu `on_focus` no es crida en crear-lo |
+
+- **El fill és un control de debò**: `button:add(label)` el treu del pare anterior i el posa dins del botó;
+  `label:place(x, y)` passa a comptar-se en píxels del botó. `button:add` i `button:place` són els
+  mateixos mètodes de qualsevol canvas (docs/30).
+- **El marc és opac i el fill va a sobre**: el botó s'ha de pintar abans que el fill, i el fill s'ha de
+  tornar a dibuixar quan el marc canvia; si no, el fons nou taparia el label. El nucli ho fa sol: quan un
+  `UIButton` es redibuixa, invalida els seus fills i el present els torna a pintar. Un fill amb fons opac
+  —com un `UILabel`— ha de portar el mateix nivell que `button.background` si es vol que el botó es vegi
+  sencer.
+- **El sistema és qui té el focus i el `pressed`**: el primer control enfocable d'una pàgina neix amb el
+  focus; `amunt`/`esquerra` van a l'anterior, `avall`/`dreta` al següent i `centre` és Enter, amb la
+  volta completa. El sistema llegeix el `spot` del HAL i no el número de la tecla, i una placa d'una sola
+  tecla només té el centre. Si l'app canvia `pressed` per ensenyar un estat, el sistema el torna a deixar
+  anar quan el clic acaba; `pressed` és estat i no un esdeveniment.
+- **El tàctil és el mateix event**: baixar un dit sobre el control l'enfoca i el deixa premut, moure's
+  fora l'aixeca i tornar-hi el torna a prémer, i aixecar-lo a dins el clica. Les coordenades són les de la
+  vista —les mateixes que dona `touch.read()`— perquè `touch::poll` ja les ha girades i desplaçades abans
+  de passar-les al control; el primer dit és el que mana.
+- **Un control que no és un botó també pot ser polsable**: qualsevol control amb `focusable = true` entra
+  al mateix recorregut i pot rebre `on_activate`. Com que un `ui.control` no té un dibuix de focus propi,
+  l'app el pot pintar mirant `focused` al seu `on_draw` (docs/90).
+- **Una pàgina amb controls no es tanca amb tres tocs del centre**: el centre és Enter, i el sistema no
+  pot tenir les dues coses alhora. La sortida d'emergència segueix sent `ESC` i un control `Quit` de
+  l'app (docs/30).
+- **El botó no té text propi**: el text és un `UILabel` fill, amb la seva cara, el seu color i la seva
+  mida. Això és el que permet un botó amb dues línies, una icona dibuixada o qualsevol altre control a
+  dins.
+- `button.on_draw` és una funció del sistema; si una app la canvia, deixa de tenir el marc de botó i té un
+  control normal amb el seu propi dibuix.
+
+```lua
+local button = ui.button(240, 100)
+button.background = 0
+button.border = 15
+button:place(20, 20)
+
+local label = ui.label(220, 80)
+label.text = 'A label inside'
+label.color = 15
+label.background = 0
+label:place(10, 10)
+button:add(label)
+
+button.on_focus = function(self, on)
+  console.print('focus: ' .. tostring(on))
+end
+button.on_click = function(self)
+  console.print('clicked')
+end
+
+ui.present()
+```
+
+L'app `buttons` (`run buttons`) posa vuit labels de quatre cares, quatre tamanys i colors diferents dins
+de vuit botons, i un d'ells premut. Els comptes de la consola mostren que un botó que canvia també torna a
+dibuixar el seu fill.
 
 ## El que costa, contat a la porta
 
@@ -1116,6 +1243,10 @@ vidre i es poden provar al PC (docs/85).
   fort donen dues mides, i no s'inventa cap escala (docs/50).
 - **`read()` no torna a preguntar al xip**: el vidre dona un frame una vegada i qui el pren el neteja,
   o sigui que el nucli el llegeix al seu torn i la crida dona aquesta còpia.
+- **Si el dit cau sobre un control enfocable, el sistema el rep primer**: el control agafa el focus i es
+  posa `pressed` en baixar, i el clic arriba en aixecar-lo a dins; l'app continua veient el mateix frame i
+  el mateix gest a `touch.read()` i `touch.gesture()`, perquè el control no amaga el dit, només decideix
+  què fa el clic (docs/30, docs/90).
 - **Sense vidre**: les tres crides responen `nil, E_UNSUPPORTED` i `sys.caps().touch` diu `false`.
 - **El marc és el de la vista de l'app, i no el del xip.** El xip compta en 540 × 960 i la pàgina que
   veu una app també, i a sobre **del dret**: es va mesurar l'1/11 tocant les quatre cantonades (docs/95,
@@ -1172,7 +1303,8 @@ console.print('kind ' .. press.kind .. ', held ' .. press.held_ms .. ' ms')
 ```
 
 - **La tecla 0 és la principal**: a l'ATOM és l'única que hi ha i a la Paper és la **central**, la
-  del mig del dial. Les altres són de l'app i el sistema no hi té cap gest.
+  del mig del dial. Les altres són de l'app, excepte en una pàgina amb controls enfocables: allà el
+  sistema les fa servir per passar d'un control a l'altre (vegeu `UIButton`, més amunt).
 
 ### On és cada tecla, i com està feta
 
@@ -1206,6 +1338,10 @@ end
   dia que en tingui la rotació no canviarà on és la tecla (docs/50).
 - `button.list()` torna una taula buida en una placa sense tecles, i `button.info` d'una tecla que no
   hi és dona `E_INVAL`: cap de les dues inventa res.
+- **Si la pàgina té controls, el dial és del sistema**: `amunt`/`esquerra` van al control anterior,
+  `avall`/`dreta` al següent i `centre` activa el que té el focus, amb la volta completa. Aquestes
+  premudes **no arriben** a `on_button`; l'app les rep com a `on_focus` i `on_click` del control. Si cap
+  control no és enfocable, el dial torna a ser tot de l'app i res d'això no canvia.
 - **Hi ha tres maneres de rebre una premuda i les tria l'app**:
   1. **Esperar-la** amb `button.wait(ms)`, que és una promesa: l'app no es congela, el nucli segueix
      girant i la resta del sistema funciona (docs/30).
@@ -1223,7 +1359,9 @@ end
   tanquen l'app del davant**, i es compten **abans** d'avisar l'app, o sigui que cap app no s'ho pot
   empassar. És el mateix gest que tres ESC a la consola, amb la mateixa finestra, perquè una persona no
   n'ha de recordar dos. El tercer toc **no arriba** a l'app: se la tanca. **Tres tocs d'una tecla
-  lateral no tanquen res**: són d'un menú, no d'una sortida.
+  lateral no tanquen res**: són d'un menú, no d'una sortida. **En una pàgina amb controls enfocables el
+  centre és Enter** i els tres tocs són tres activacions, no una sortida: la sortida d'emergència és
+  `ESC` o un control `Quit` de l'app (docs/90).
 - **La repetició no és del sistema, és de l'app.** Què fa una tecla que es té premuda depèn del que fa
   la tecla —un teclat repeteix lletres, una tecla de volum repeteix passos, una de menú no repeteix
   res— i per això el sistema només diu **si** és premuda i **quant fa**; el ritme el posa l'app. L'app

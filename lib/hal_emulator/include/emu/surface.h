@@ -115,6 +115,8 @@ class MemorySurface : public hal::ISurface {
   // Keeping only the last `blit` made a paint carry another copy's region: the bar writes with
   // `fill_rect`, so its paint was recorded with the last thing an app had composed.
   void mark(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  // What the old frame owed is not owed by the new one.
+  void reset_damage();
   // **The paint, pixel by pixel**: the region that was asked for is moved towards what it was painted
   // with, according to the quality and to the dirt it already had (docs/85).
   void apply_ink(uint16_t x, uint16_t y, uint16_t w, uint16_t h, hal::UpdateMode mode);

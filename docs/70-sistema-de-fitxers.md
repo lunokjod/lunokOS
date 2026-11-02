@@ -32,13 +32,17 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 |---|---|---|
 | `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `cfg/`, `data/` |
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
-| `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `run hexdump` (`data/apps/hexdump/`) l'ensenya en hex i en visible, que és el que cal per a un binari. Per escriure-hi cal un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té |
+| `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump` l'ensenya en hex i en visible, que és el que cal per a un binari. Per escriure-hi cal un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
-| `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. Per escriure-hi, un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té. `run hexdump /fram` l'ensenya |
+| `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. Per escriure-hi, un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té. `hexdump /fram` l'ensenya |
 | `/apps` | àlies | `/littlefs/apps` |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
 | `/sd` | targeta SD per SPI (FATFS) | **El Paper**, quan hi ha una targeta al slot: el seu `IStorage` la munta i el muntatge només existeix si el muntatge ha anat bé (docs/50, docs/90). Al PC, un directori que es posa amb `--sd <dir>`, i sense l'opció no hi ha `/sd` (docs/85) |
+
+**`ls` de l'arrel és la taula de muntatges, i diu què és cada fila**: `/rtc` i `/fram` surten com a
+`file` amb la seva mida, no com a `<dir>`, perquè són una memòria d'un sol fitxer i no un directori
+(`MemoryFile::list` no té res a llistar).
 
 **Una targeta i una partició no són el mateix.** FATFS munta **una** partició FAT de la targeta (la que troba), i els números de `fs.space` són d'aquella partició, no de la targeta. Amb una targeta de 16 GB que porta una partició de 2,8 GiB, `fs.space` diu 2,8 GiB i fa bé: el que no es munta no existeix per al sistema (31/10, mesurat a la placa).
 
@@ -220,9 +224,9 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 **El `/rtc` no és una unitat del sistema com `/littlefs` o `/nvs`**, i per això hi entra una app: és
 memòria sense mapa ni claus, i el format el posa l'app que hi escriu (docs/50). Es llegeix amb
 `cat /rtc` des del prompt i amb `fs.read`/`fs.open` des d'una app, i per escriure-hi cal un mànec,
-des d'un prompt de `lua` o des d'una app. Per mirar-la, `cat /rtc` si és text i `run hexdump`
-(`data/apps/hexdump/`) si és binari: ensenya l'offset, setze bytes en hex i els mateixos setze entre
-barres, amb un punt allà on el caràcter no es pot imprimir.
+des d'un prompt de `lua` o des d'una app. Per mirar-la, `cat /rtc` si és text i `hexdump` si és
+binari: ensenya l'offset, setze bytes en hex i els mateixos setze entre barres, amb un punt allà on el
+caràcter no es pot imprimir.
 
 **No hi ha quota.** El que doni el disc. La quota de 64 KB que hi havia fins al 31/10 va fora: el Paper
 té 11,9 MB de disc i una app que desa un llibre no hi cabia, i una quota és un número arbitrari

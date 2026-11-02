@@ -265,16 +265,20 @@ bool make_root(uint16_t width, uint16_t height) {
   // which no present can copy in one go: a canvas is a whole number of bytes wide (docs/50).
   width = static_cast<uint16_t>(width & ~1u);
   if (width == 0 || height == 0) return false;
-  for (uint8_t i = 1; i < kMaxControls; ++i) release_slot(static_cast<int8_t>(i));
-  const uint16_t at_x = root().x;
-  const uint16_t at_y = root().y;
-  release_slot(0);
   const uint16_t stride = static_cast<uint16_t>(width / 2);
   const uint32_t bytes = static_cast<uint32_t>(stride) * height;
   // The canvas goes to the extra memory (the PSRAM on the Paper): 251 640 B is not something the
   // internal heap of this chip can hold next to the interpreter (docs/75).
+  //
+  // **The new view is taken before the old one is given back**: if there is no memory for it, the system
+  // keeps the view it has and the caller can put the glass back where it was —a brand new size with no
+  // view is the one state `set_rotation` says must never happen (docs/50, docs/90).
   void* block = pal::extra_memory().allocate(bytes, true);
   if (block == nullptr) return false;
+  for (uint8_t i = 1; i < kMaxControls; ++i) release_slot(static_cast<int8_t>(i));
+  const uint16_t at_x = root().x;
+  const uint16_t at_y = root().y;
+  release_slot(0);
   Canvas& view = root();
   // **The view is a control like the others and it is marked as one**: without this line `live(0)` is false
   // and everything that hangs off the view —every canvas, every place, every redraw— answers no.
@@ -637,8 +641,8 @@ void canvas_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
   put_rect(*sink->canvas, x, y, w, h, sink->level);
 }
 
-void draw_text(Canvas& canvas, int32_t x, int32_t y, const char* text, uint8_t scale, uint8_t level,
-               hal::UpdateMode mode) {
+void draw_text(Canvas& canvas, const font::Face& face, int32_t x, int32_t y, const char* text,
+               uint8_t scale, uint8_t level, hal::UpdateMode mode) {
   if (text == nullptr || scale == 0) return;
   font::Clip box;
   box.x0 = 0;
@@ -654,11 +658,13 @@ void draw_text(Canvas& canvas, int32_t x, int32_t y, const char* text, uint8_t s
     if (canvas.redraw_y + canvas.redraw_h < box.y1) box.y1 = canvas.redraw_y + canvas.redraw_h;
   }
   CanvasSink sink = {&canvas, level};
-  font::runs(face_of(canvas.face), text, x, y, scale, box, canvas_run, &sink);
-  // What a text covers is its box, cut at the canvas: the runs are many and the damage is one.
-  const int32_t text_w = font::width(text, scale);
-  const int32_t text_h = font::kGlyphHeight * scale;
-  mark_box(canvas, x, y, text_w, text_h, mode);
+  font::runs(face, text, x, y, scale, box, canvas_run, &sink);
+  // What a text covers is its box, cut at the canvas: the runs are many and the damage is one. **The box
+  // is measured with the face that was drawn**, which is not the system's when the canvas loaded one
+  // (docs/30, docs/90).
+  const int32_t text_w = font::width(face, text, scale);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight);
+  mark_box(canvas, x, y, text_w, line_h * scale, mode);
 }
 
 // ---- where a control's pixels go (docs/90) ----
@@ -908,7 +914,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      font_info,
                                      canvas_set_font,
                                      app_set_font,
-                                     font_text_width});
+                                     font_text_width,
+                                     label_draw,
+                                     button_draw});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -1288,7 +1296,121 @@ bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t sc
   if (!g_attached || text == nullptr || scale == 0) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
-  draw_text(*target.canvas, target.x + x, target.y + y, text, scale, clamped(level), chosen);
+  draw_text(*target.canvas, face_of(target.canvas->face), target.x + x, target.y + y, text, scale,
+            clamped(level), chosen);
+  close_draw(target);
+  return true;
+}
+
+uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale, char* out,
+                    size_t cap) {
+  if (out == nullptr || cap == 0) return 0;
+  out[0] = '\0';
+  if (text == nullptr || text[0] == '\0' || scale == 0) return 0;
+  const font::Face& current = face_of(face);
+  const uint16_t whole = font::width(current, text, scale);
+  if (whole <= width) {
+    size_t len = strlen(text);
+    if (len > cap - 1) len = cap - 1;
+    memcpy(out, text, len);
+    out[len] = '\0';
+    return font::width(current, out, scale);
+  }
+  // **The cut is a prefix and three dots**, and it is the prefix that fits and not three dots that are
+  // then cut by the frame: the frame is the last resort, not the way a label ends (docs/30, docs/90).
+  static const char kDots[] = "...";
+  if (cap < sizeof(kDots)) return 0;
+  const uint16_t dots = font::width(current, kDots, scale);
+  if (dots > width) {
+    memcpy(out, kDots, sizeof(kDots));
+    return dots;
+  }
+  size_t keep = strlen(text);
+  if (keep > cap - sizeof(kDots)) keep = cap - sizeof(kDots);
+  for (;;) {
+    memcpy(out, text, keep);
+    memcpy(out + keep, kDots, sizeof(kDots));
+    const uint16_t shown = font::width(current, out, scale);
+    if (shown <= width || keep == 0) return shown;
+    --keep;
+  }
+}
+
+bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+                uint8_t valign, uint8_t scale) {
+  if (!live(slot) || color > 15 || background > 15 ||
+      align > static_cast<uint8_t>(LabelAlign::kRight) ||
+      valign > static_cast<uint8_t>(LabelVAlign::kBottom) || scale == 0 || scale > 16) {
+    return false;
+  }
+  const Canvas& label = g_canvases[slot];
+  const uint16_t width = label.width;
+  const uint16_t height = label.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  // **The frame is the label's, and the background is paid before the text**: a control without a buffer
+  // writes into the canvas that holds it, and what it owed is the hole the text leaves when it changes
+  // (docs/30, docs/90).
+  // **A label is a page of text in miniature, so it is painted with the quality that leaves no ghost of
+  // the word before it**: the whole frame is one `gc16`, and a text that changes is clean on the next
+  // present (docs/50, docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 width, height, background, hal::UpdateMode::kGc16);
+  if (text != nullptr && text[0] != '\0') {
+    const font::Face& face = face_of(label.face);
+    char shown[1024];
+    const uint16_t shown_w = label_text(label.face, text, width, scale, shown, sizeof(shown));
+    const uint16_t line_h =
+        static_cast<uint16_t>((face.height != 0) ? face.height * scale : font::kGlyphHeight * scale);
+    int32_t x = 0;
+    if (align == static_cast<uint8_t>(LabelAlign::kCentre)) {
+      x = (static_cast<int32_t>(width) - static_cast<int32_t>(shown_w)) / 2;
+    } else if (align == static_cast<uint8_t>(LabelAlign::kRight)) {
+      x = static_cast<int32_t>(width) - static_cast<int32_t>(shown_w);
+    }
+    int32_t y = 0;
+    if (valign == static_cast<uint8_t>(LabelVAlign::kMiddle)) {
+      y = (static_cast<int32_t>(height) - static_cast<int32_t>(line_h)) / 2;
+    } else if (valign == static_cast<uint8_t>(LabelVAlign::kBottom)) {
+      y = static_cast<int32_t>(height) - static_cast<int32_t>(line_h);
+    }
+    draw_text(*target.canvas, face, target.x + x, target.y + y, shown, scale, color,
+              hal::UpdateMode::kGc16);
+  }
+  close_draw(target);
+  return true;
+}
+
+bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused) {
+  if (!live(slot) || background > 15 || border > 15) return false;
+  const Canvas& button = g_canvases[slot];
+  const uint16_t width = button.width;
+  const uint16_t height = button.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  // **The frame is the button**: a fill and one border, and a second border while it is held. The child
+  // is not painted here —the tree draws it after this control, clipped to the same frame— and that is
+  // what makes a label inside a button move with it (docs/30, docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 width, height, background, hal::UpdateMode::kGc16);
+  draw_frame(*target.canvas, target.x, target.y, width, height, border, hal::UpdateMode::kGc16);
+  if (pressed && width > 4 && height > 4) {
+    draw_frame(*target.canvas, target.x + 1, target.y + 1, static_cast<int32_t>(width) - 2,
+               static_cast<int32_t>(height) - 2, border, hal::UpdateMode::kGc16);
+  }
+  // **The focus is a second border, two pixels in**: a button that is held already has one at one
+  // pixel, and the two can be there at once. The child is drawn after and may cover it if it fills
+  // the whole frame; the app owns that (docs/30, docs/90).
+  if (focused && width > 6 && height > 6) {
+    draw_frame(*target.canvas, target.x + 2, target.y + 2, static_cast<int32_t>(width) - 4,
+               static_cast<int32_t>(height) - 4, border, hal::UpdateMode::kGc16);
+  }
+  // **The frame is opaque, and it covers everything inside it**: a child that did not redraw would be
+  // erased by the button's own fill. The button has no buffer to compose under the child, so the child
+  // is asked to draw again whenever the frame does (docs/30, docs/90).
+  for (uint8_t i = 0; i < button.child_count; ++i) invalidate(button.children[i]);
   close_draw(target);
   return true;
 }

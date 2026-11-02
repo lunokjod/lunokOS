@@ -28,6 +28,13 @@ pio run -e emulator
 **La placa és obligatòria i diu el maquinari**: `--board m5stack-paper` dona el banc amb vidre, GT911,
 targeta, FRAM, rellotge amb pila i bateria; sense l'opció el binari es refusa i en llista les tres.
 
+**El prompt s'edita** (2/11, 0.46.0): esquerra i dreta mouen el cursor per la línia, amunt i avall
+recorren les **vuit ordres** més recents (i baixar més enllà de la més nova torna el que s'estava
+escrivint), i Inici/Fi/Supr també hi són. La línia es redibuixa amb codis ANSI quan la consola els
+entén; si no, amb espais i retrocessos, o sigui que el terminal de la placa i un `TERM` sense ANSI
+fan el mateix amb mitjans diferents (docs/30, docs/75). Al prompt `lua>`, **Ctrl+D** tanca la sessió
+de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descarta.
+
 Aquestes són les opcions del binari:
 
 | Opció | Què fa |
@@ -67,7 +74,8 @@ Aquestes són les opcions del binari:
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
 | `--display` | **El vidre del model, que hi és sol**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i el banc deia que no—. Qui ho diu és el model (`Model::glass`): el Paper en té i els ATOM no, i un `--display` a un ATOM es refusa dient que aquella placa no té pantalla. La bandera serveix perquè un guió digui que necessita vidre; el que apaga és `--no-display` (docs/30, docs/50) |
 | `--no-display` | **Una placa sense pantalla, amb tota la resta del model**: només consola, i sense els **518 400 B** dels dos buffers de la pàgina. És el que vol una mesura que no és de píxels (docs/85) |
-| `--gui` | **Una sola finestra amb tot el que la placa té per tocar i per veure** (0.34.0). Si el model té vidre, **la pàgina en una finestra X11**, pintada cada cop que el panell es pinta —el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), amb els setze nivells en els colors del paper— i **les tecles al costat que diu el descriptor de l'entrada**, un botó per tecla del model; una placa sense pantalla en treu només les tecles, que és el que sí que té. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu; l'únic que no hi és és el parpelleig d'`a2`. El ratolí és el dit a la pàgina i és el dit que prem a un botó. No es pot combinar amb `--no-delay`, ni amb `--no-ink` quan hi ha vidre; s'obre només quan hi ha un `DISPLAY` i, si no n'hi ha, el banc ho diu i segueix sense finestra (docs/85) |
+| `--gui-scale <1..4>` | **Quants píxels de la pàgina és un píxel de la finestra**, forçat: `1` és la pàgina tal com és i `2` és la pàgina a la meitat, encara que la pantalla la hi deixi sencera. Sense l'opció la finestra tria **l'escala entera més petita que hi cap** (1 a 4), que és el que fa que una pantalla petita ensenyi la pàgina sencera i no un tros. No canvia la resolució del panell del model (540×960): només com es veu (docs/85) |
+| `--gui` | **Una sola finestra amb tot el que la placa té per tocar i per veure** (0.34.0). Si el model té vidre, **la pàgina en una finestra (SDL2, o X11 de reserva)**, pintada cada cop que el panell es pinta —el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), amb els setze nivells en els colors del paper— i **les tecles al costat que diu el descriptor de l'entrada**, un botó per tecla del model; una placa sense pantalla en treu només les tecles, que és el que sí que té. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu; l'únic que no hi és és el parpelleig d'`a2`. El ratolí és el dit a la pàgina i és el dit que prem a un botó. No es pot combinar amb `--no-delay`, ni amb `--no-ink` quan hi ha vidre; s'obre quan hi ha una pantalla on obrir-la i, si no n'hi ha, el banc ho diu i segueix sense finestra (docs/85) |
 | `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, la pàgina és la que s'ha pintat sense res del que hi havia abans i **no s'envia res al bus**. És el que fan servir les proves —no paguen mig megabyte de buffers, ni mig segon de tinta, ni un segon de bus per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
 | `--touch` | **El tàctil del model, que hi és sol**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —800 µs per torn sense dit, 2 550 amb dos— i que **dona el marc una vegada**, amb la capacitat `touch`. Qui ho diu és el model (`Model::touch`): el Paper en té i un `--touch` a un ATOM es refusa. El que apaga és `--no-touch`, i llavors el panell d'aquella Paper és un xip que no contesta, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
 | `--no-touch` | **Cap dit**: el panell del model no es llegeix i no costa els 800 µs de cada torn (docs/85) |
@@ -210,21 +218,35 @@ Res de comparar text a ulls.
 ## La finestra: mirar el vidre en lloc d'endevinar-lo (1/11)
 
 Sense finestra, el vidre del banc és un buffer que només veuen les proves. Amb **`--gui`** el mateix
-buffer es copia a una finestra **X11** cada cop que el panell es pinta —es pregunta pel comptador de
-pintades del `MemorySurface`, o sigui que un torn sense pintada no costa ni una conversió— i el que l'app
-ha dibuixat es veu:
+buffer es copia a una finestra **SDL2** —o X11, si el build no té SDL2— cada cop que el panell es pinta
+—es pregunta pel comptador de pintades del `MemorySurface`, o sigui que un torn sense pintada no costa ni
+una conversió— i el que l'app ha dibuixat es veu:
 
 ```
 $ .pio/build/emulator/program --board m5stack-paper --gui --script guio.txt
 gui: the page 540x960 is in a window at half, one pixel of the window is 2 of the page
 ```
 
-- **És X11 i res més**: l'enllaç és un `-lX11` i el codi viu darrere de `-DLUNOK_GUI_X11`, que és a
-  `platformio.ini` a l'entorn de l'emulador. Una màquina sense Xlib treu aquelles dues línies i el banc
-  compila i corre igual, dient que no té finestra.
+- **La finestra és SDL2 i té X11 de reserva**: el codi viu darrere de `-DLUNOK_GUI_SDL` o de
+  `-DLUNOK_GUI_X11`, i `tools/select_gui.py` tria el primer que troba. Amb SDL2 la mateixa finestra
+  funciona a X11, Wayland, macOS i Windows; Xlib continua sent el camí de les màquines POSIX que no
+  tenen SDL2. Es pot forçar amb `LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none`; per a una còpia de
+  SDL2 que `pkg-config` no conegui, `SDL2_CFLAGS` i `SDL2_LIBS`. Sense cap de les dues, el banc compila
+  i corre igual, dient que no té finestra. A Debian/Ubuntu la dependència de desenvolupament és
+  `libsdl2-dev`; a Windows i macOS, el paquet SDL2 del compilador que es faci servir.
+- **La geometria no depèn del backend**: els colors del paper, `gui_expand`, `gui_page_point`, l'escala
+  que hi cap i la geometria de les tecles viuen a `gui_common.cpp`, i el backend només obre la finestra,
+  dibuixa i tradueix els esdeveniments. Les proves de `test_ui` en proven la part que no necessita
+  pantalla. `pio test` no enllaça ni SDL2 ni X11: compila el backend buit de `gui_none.cpp`.
+- **El que encara és POSIX**: la consola (`termios`/`select`) i el disc (`dirent`/`statvfs`) no són
+  portables encara; SDL només és la finestra. La fase següent és la capa d'amfitrió comuna per a
+  consola, fitxers, rellotge i bateria, amb una implementació Win32 a més de la POSIX. Fins que hi
+  sigui, el banc corre sencer a Linux i macOS, i a Windows només quan aquestes peces hi hagin estat
+  portades.
 - **La finestra ensenya la pàgina, no el vidre ajagut**: el `MemorySurface` viu en el marc en què l'app
   dibuixa (540 × 960 amb la pàgina de fàbrica), i la finestra fa el mateix. El vidre físic és 960 × 540 i
-  el gir és cosa del conductor, no de la finestra.
+  el gir és cosa del conductor; si el gir canvia el marc de la pàgina, **la finestra es torna a obrir amb
+  el marc nou** en comptes de quedar-se amb l'últim fotograma (2/11).
 - **I ensenya el que el vidre mostra, no el que es va pintar** (`shown_bits()`): amb el model de tinta,
   el fantasma d'un `du` i el gra s'hi veuen, que és exactament el que una persona tindria a les mans. Amb
   `--no-ink` els dos buffers són el mateix i la finestra ensenya la pintada neta.
@@ -232,8 +254,28 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   d'alçada, i una pàgina retallada pel marc és pitjor que una pàgina sencera a la meitat. La finestra
   agafa **l'escala entera més petita que hi cap** (1 a 4, amb marge per a la barra del gestor) i ho diu a
   la primera línia: en aquesta màquina, 540 × 960 queden en **270 × 480** i cada píxel de la finestra és
-  un bloc de 2 × 2 de la pàgina. El pas de quatre bits a píxel i l'escala són la funció pura
-  (`emu::gui_expand`) que té prova a `test_ui`, perquè és la part que es pot provar sense pantalla.
+  un bloc de 2 × 2 de la pàgina. **`--gui-scale <1..4>` força una escala concreta** —`2` és la pàgina a la
+  meitat— encara que la pantalla la hi deixi sencera, i la finestra ho diu igualment. El pas de quatre bits
+  a píxel i l'escala són la funció pura (`emu::gui_expand`) i la tria ho és també (`emu::gui_fit_scale`),
+  totes dues amb prova a `test_ui`, perquè és la part que es pot provar sense pantalla.
+- **La finestra de prova no és la de l'usuari** (2/11): `--gui` necessita un `DISPLAY`, i el que rep ha
+  de ser **un X propi de la prova**, no el de la persona que treballa. La manera curta és `xvfb-run`,
+  que encén un X virtual, hi apunta `DISPLAY` i el tanca en sortir:
+
+  ```sh
+  xvfb-run -a -s "-screen 0 800x600x24" ./.pio/build/emulator/program \
+    --board m5stack-paper --gui --run label
+  ```
+
+  Per a una sessió amb captures o clics, s'encén `Xvfb :99` a part i s'hi executa el banc amb
+  `DISPLAY=:99`; així no es mou el ratolí de l'usuari, no es roba el focus i no s'hi obre cap finestra.
+  La mida de la pantalla virtual decideix l'escala automàtica (800x600 deixa la pàgina a la meitat;
+  1920x1080 la deixa sencera), o sigui que una prova gràfica ha de fixar la mida que vol o passar
+  `--gui-scale`. `pio test` no obre cap finestra: no enllaça SDL2 ni X11.
+- **Un gir de la pàgina torna a obrir la finestra** (2/11): si `ui.rotation` canvia el marc del vidre,
+  `gui_show` tanca la finestra i l'obre amb la pàgina nova —les tecles i l'escala demanada no canvien— i
+  la pàgina girada torna a prendre l'escala que hi cap. El que no es fa és deixar l'últim marc congelat a
+  la pantalla mentre el vidre ja és un altre rectangle (docs/30, docs/85).
 - **Tancar la finestra acaba el run**, com tres ESC.
 - **El ratolí és un dit** (0.32.0): la finestra és el vidre i el vidre d'aquesta placa s'hi toca. Prémer el
   botó esquerre és el dit que baixa **al píxel de la pàgina** que hi ha sota el punter, moure'l amb el botó
@@ -631,3 +673,6 @@ es mesura a la placa (docs/95).
   torni de seguida). L'emulador ha de ser **avorrit**: si divergeix, deixa de servir.
 - No fer servir l'emulador per amagar un `#include <Arduino.h>` que s'ha colat al nucli. El `grep` del
   `80 · Compilació i proves` és el que ho vigila.
+- **No fer les proves gràfiques al `DISPLAY` de l'usuari.** La finestra de l'emulador s'obre en un X
+  virtual (`xvfb-run -a`) o en un `DISPLAY` propi, i es tanca en acabar; el ratolí, el focus i les
+  finestres de qui treballa no es toquen.

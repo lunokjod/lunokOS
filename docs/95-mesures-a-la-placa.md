@@ -146,10 +146,10 @@ que el 6 % que semblava el son).
 lua
 f = fs.open('/rtc', 'w') f:write('hola') f:close()
 exit
-run hexdump
+hexdump
 ```
 
-Després `sleep deep 20000` (o l'alarma de A-2) i, en tornar, `run hexdump` una altra vegada: els
+Després `sleep deep 20000` (o l'alarma de A-2) i, en tornar, `hexdump` una altra vegada: els
 mateixos bytes han de ser-hi.
 
 | Què apuntar | On va |
@@ -176,19 +176,19 @@ La **FM24C02** és el xip que no necessita el corrent, i el que ha de dir la pla
 s'hi pot escriure.
 
 ```
-run hexdump /fram
+hexdump /fram
 lua
 f = fs.open('/fram', 'w')
 f:write('hola fram')
 f:close()
 exit
-run hexdump /fram
+hexdump /fram
 ```
 
 Després, **treure el cable i la bateria** (o esperar que el xip perdi l'alimentació) i tornar:
 
 ```
-run hexdump /fram
+hexdump /fram
 ```
 
 | Què apuntar | On va |

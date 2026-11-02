@@ -5,9 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <chrono>
+#include <thread>
+
 #include <sys/select.h>
 #include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "pal/pal.h"
@@ -27,18 +30,14 @@ int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leav
 uint32_t g_extra_memory_us = 0;
 
 int64_t now_ns() {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + static_cast<int64_t>(ts.tv_nsec);
+  const auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
 }
 
 void sleep_until(int64_t when_ns) {
   const int64_t wait = when_ns - now_ns();
   if (wait <= 0) return;
-  struct timespec ts;
-  ts.tv_sec = static_cast<time_t>(wait / 1000000000LL);
-  ts.tv_nsec = static_cast<long>(wait % 1000000000LL);
-  nanosleep(&ts, nullptr);
+  std::this_thread::sleep_for(std::chrono::nanoseconds(wait));
 }
 
 }  // namespace
@@ -58,8 +57,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
       raw.c_cc[VTIME] = 0;
       if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) raw_active_ = true;
     }
-    const struct timespec ts = now_ts();
-    seed_ = static_cast<uint32_t>(ts.tv_nsec) ^ static_cast<uint32_t>(getpid() << 8);
+    seed_ = static_cast<uint32_t>(now_ns()) ^ static_cast<uint32_t>(getpid() << 8);
     if (seed_ == 0) seed_ = 0x9e3779b9u;
     return true;
   }
@@ -75,15 +73,8 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   IQueue* queue() override { return this; }
   IConsole* console() override { return this; }
 
-  int64_t millis() const override {
-    const struct timespec ts = now_ts();
-    return static_cast<int64_t>(ts.tv_sec) * 1000 + static_cast<int64_t>(ts.tv_nsec / 1000000);
-  }
-
-  int64_t micros() const override {
-    const struct timespec ts = now_ts();
-    return static_cast<int64_t>(ts.tv_sec) * 1000000 + static_cast<int64_t>(ts.tv_nsec / 1000);
-  }
+  int64_t millis() const override { return now_ns() / 1000000; }
+  int64_t micros() const override { return now_ns() / 1000; }
 
   void reboot() override { reboot_ = true; }
   bool reboot_requested() const override { return reboot_; }
@@ -172,7 +163,18 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   }
 
   size_t read(void* data, size_t len) override {
-    if (input_eof_ || len == 0) return 0;
+    if (len == 0) return 0;
+    uint8_t* out = static_cast<uint8_t*>(data);
+    size_t done = 0;
+    // **What the queue took to tell a key from an idle stdin comes back first**: the queue may read one
+    // byte to find out whether select() meant data or end of file, and the console is the owner of it
+    // (docs/85).
+    while (done < len && pushed_count_ > 0) {
+      out[done++] = pushed_[0];
+      --pushed_count_;
+      memmove(pushed_, pushed_ + 1, pushed_count_);
+    }
+    if (done == len || input_eof_) return done;
     // A terminal in raw mode has VMIN=0: read() returns 0 when there is simply
     // no data yet, and that is NOT end of file. Ask select() first and only
     // treat a 0 that comes after "readable" as EOF. Getting this wrong declares
@@ -185,15 +187,15 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     tv.tv_sec = 0;
     tv.tv_usec = 0;
     const int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, &tv);
-    if (ready <= 0) return 0;
-    if (FD_ISSET(STDIN_FILENO, &fds) == 0) return 0;
-    const ssize_t n = ::read(STDIN_FILENO, data, len);
-    if (n < 0) return 0;
+    if (ready <= 0) return done;
+    if (FD_ISSET(STDIN_FILENO, &fds) == 0) return done;
+    const ssize_t n = ::read(STDIN_FILENO, out + done, len - done);
+    if (n < 0) return done;
     if (n == 0) {
       input_eof_ = true;  // the pipe is closed or the terminal went away
-      return 0;
+      return done;
     }
-    return static_cast<size_t>(n);
+    return done + static_cast<size_t>(n);
   }
 
   bool ansi() const override {
@@ -201,21 +203,10 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   }
 
  private:
-  static struct timespec now_ts() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts;
-  }
-
   void wait_for_input(int32_t timeout_ms) {
     if (input_eof_) {
       // Nothing can arrive any more: still honour the deadline, without spinning.
-      if (timeout_ms > 0) {
-        struct timespec ts;
-        ts.tv_sec = timeout_ms / 1000;
-        ts.tv_nsec = static_cast<long>(timeout_ms % 1000) * 1000000L;
-        nanosleep(&ts, nullptr);
-      }
+      sleep_ms(timeout_ms);
       return;
     }
     fd_set fds;
@@ -231,13 +222,38 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     }
 
     const int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, ptv);
-    if (ready > 0 && FD_ISSET(STDIN_FILENO, &fds) != 0) {
+    if (ready <= 0 || FD_ISSET(STDIN_FILENO, &fds) == 0) return;
+    // **Readable is not data.** A /dev/null or a pipe at EOF is readable for ever, and a console event
+    // for it turns `pop(timeout)` into a spin: the native suite binds stdin to /dev/null, and three UI
+    // tests and a long press failed on exactly this (docs/85). The byte is kept for the console, which
+    // is the one that owns stdin, and a read of zero is the end of the input for good.
+    if (pushed_count_ >= sizeof(pushed_)) {
+      // The console has not taken what was already put aside: it will find the rest in stdin.
       Event ev;
       ev.type = kEventConsoleRx;
       ev.a = 0;
       ev.b = 0;
       push(ev, 0);
+      return;
     }
+    uint8_t byte = 0;
+    const ssize_t n = ::read(STDIN_FILENO, &byte, 1);
+    if (n <= 0) {
+      if (n == 0) input_eof_ = true;
+      sleep_ms(timeout_ms);
+      return;
+    }
+    pushed_[pushed_count_++] = byte;
+    Event ev;
+    ev.type = kEventConsoleRx;
+    ev.a = 0;
+    ev.b = 0;
+    push(ev, 0);
+  }
+
+  static void sleep_ms(int32_t timeout_ms) {
+    if (timeout_ms <= 0) return;
+    std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
   }
 
   Event ring_[kQueueLength];
@@ -250,6 +266,9 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   bool input_eof_ = false;
   bool reboot_ = false;
   uint32_t seed_ = 1;
+  // The byte the queue took from stdin to tell a key from an idle stdin, kept for the console.
+  uint8_t pushed_[64];
+  size_t pushed_count_ = 0;
 };
 
 HostSystem g_system;
@@ -284,7 +303,7 @@ class HostExtraMemory : public IExtraMemory {
   // clock (docs/85).
   static void pay() {
     if (g_extra_memory_us == 0) return;
-    ::usleep(static_cast<useconds_t>(g_extra_memory_us));
+    std::this_thread::sleep_for(std::chrono::microseconds(g_extra_memory_us));
   }
 };
 
@@ -309,7 +328,7 @@ void set_extra_memory_us(uint32_t us) { g_extra_memory_us = us; }
 
 void delay_us(uint32_t us) {
   if (us == 0) return;
-  ::usleep(static_cast<useconds_t>(us));
+  std::this_thread::sleep_for(std::chrono::microseconds(us));
 }
 
 }  // namespace pal

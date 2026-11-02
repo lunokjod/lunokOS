@@ -204,7 +204,7 @@ peça, és a `docs/50` §«Què en fa el sistema, avui»):
   d'entrada i sortida, i serà una crida de Lua **nova i explícita**, no un canvi darrere l'app.
 - **La FM24C02** (256 B de FRAM a la I2C 0x50): **feta de codi el 31/10**. El xip és el fitxer
   (`esp32/fm24c02.h`, sense còpia a RAM), es munta a `/fram` i el banc ja en tenia el model. Falta
-  provar-ho al xip i mirar-s'ho amb `run hexdump /fram` (docs/95). **I una decisió oberta**: la resta
+  provar-ho al xip i mirar-s'ho amb `hexdump /fram` (docs/95). **I una decisió oberta**: la resta
   de volums (`/littlefs`, `/sd`, `/nvs` i `/rtc`) tenen bit a `sys.caps()` i la FRAM no, o sigui que
   una app no pot preguntar-ho sense caminar pels muntatges. Si s'hi posa, és un `kCapFram` amb set
   llocs: `hal.h`, `hal_paper` (només quan el xip contesta), `emu_model.cpp`, `docs/50`, `docs/30`,
@@ -258,8 +258,8 @@ tancar el provisioning per Bluetooth, el camí és aquest i el número de DRAM e
 
 **UICanvas és el control bàsic: un buffer**, i tota imatge és un UICanvas. Els controls es posen uns
 dins dels altres i es dibuixen **en cascada per capes** fins que la interfície sencera queda composta, i
-el que arriba al vidre és el resultat. **UILabel és un UICanvas amb un text a dins**, i per això el text
-**es talla a la vora del control** en lloc de trepitjar el que té al costat: no hi ha aritmètica de
+el que arriba al vidre és el resultat. **UILabel és un control sense vista amb un text a dins**, i per això
+el text **es talla a la vora del control** en lloc de trepitjar el que té al costat: no hi ha aritmètica de
 marges a fora, hi ha una vora que no es pot passar.
 
 - **Els events i els gestos es registren dins de la vista d'un UICanvas**, i cada control que en registra
@@ -326,7 +326,25 @@ rectangle que deixava un `place` tornava dins del rectangle d'un `release`).
 | Què | Per què s'ajorna | Què voldrà dir fer-ho |
 |---|---|---|
 | **Carregar una imatge dins d'un canvas** | No hi ha cap app que en demani, i una imatge obre les preguntes de sempre: quin format, quanta memòria i qui la té | un objecte `image` (4 bits per píxel, la mateixa empaquetadura que el canvas) i `cv:image(x, y, img)`, que és una còpia de bytes amb retall. La composició ja està feta |
-| **`UILabel`** | És el primer control de debò, i ja no espera res: el **marc sense vista** hi és, o sigui que una etiqueta és un control sense buffer amb quatre camps | un control amb `text`, `face`, `color` i `size`; el seu `on_draw` és `clear` i `text` amb la vora que ja tallem |
+
+**I el `UILabel` ja hi és** (2/11, 0.44.0): `ui.label(w, h)` és un control sense buffer amb `text`, `color`,
+`background`, `align`, `valign` i `scale`, la cara de `cv:font`, el retall amb `...` quan el text no cap i el
+redibuix només quan un d'aquests camps canvia de valor. L'app `label` (`run label`) és una galeria de
+trenta labels amb quatre cares, quatre tamanys, les dues alineacions, dos retalls, els setze nivells i
+els comptes de redibuix (docs/30).
+
+**I el `UIButton` ja hi és** (2/11, 0.45.0): és el primer control que és un **contenidor amb un marc**:
+`ui.button(w, h)` té `background`, `border` i `pressed`, i el fill es posa amb `button:add(child)` i es
+col·loca en les coordenades del botó. El fill es compon després del marc i es talla al mateix rectangle;
+com que el marc és opac, redibuixar el botó invalida els fills perquè el fons nou no els tapi. L'app
+`buttons` (`run buttons`) posa vuit labels de quatre cares, quatre tamanys i colors diferents dins de vuit
+botons (docs/30).
+
+**I el botó ja rep la persona** (2/11, 0.49.0): el sistema dona el focus al primer control enfocable,
+`amunt`/`esquerra` i `avall`/`dreta` recorren els controls polsables, `centre` activa el que té el focus, i
+el tàctil fa el mateix amb el dit a sobre. `focused`, `focusable`, `on_focus`, `on_click` i `on_activate`
+són el contracte; el `pressed` el porta el sistema mentre dura el contacte, i qualsevol control amb
+`focusable = true` entra al mateix recorregut encara que no sigui un `ui.button` (docs/30).
 
 **I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
 0.39.0). La lletra de 5 × 7 del sistema passa a ser **una cara més del mateix camí**: `font::system_face()`

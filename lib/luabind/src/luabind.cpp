@@ -3039,6 +3039,15 @@ struct LuaCanvas {
   uint16_t generation;
 };
 
+// **Who has the focus and what the finger is holding**, per interpreter. It is not in the Lua table
+// because it is the system's state: an app may read `focused` but it does not decide it, and a slot
+// only means something together with the generation that handed it out (docs/30, docs/90).
+int8_t g_ui_focus_slot = -1;
+uint16_t g_ui_focus_generation = 0;
+int8_t g_ui_touch_slot = -1;
+uint16_t g_ui_touch_generation = 0;
+bool g_ui_touch_inside = false;
+
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
 // The fields of the object, and then its methods: `box.on_draw` is the app's, `box.draw` is ours.
@@ -3058,24 +3067,132 @@ int l_canvas_index(lua_State* L) {
   return 1;
 }
 
+// **The fields of a label** (docs/30, docs/90): the words, the two colours, the two alignments and the size
+// of the body. A label is a control with `__label` set in its own table, and changing one of these means the
+// label owes a draw —but only when the value is actually another one, which is what makes a present with
+// the same word cost nothing.
+bool is_label_field(const char* key) {
+  return strcmp(key, "text") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "background") == 0 || strcmp(key, "align") == 0 ||
+         strcmp(key, "valign") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool label_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "text") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  }
+  if (strcmp(key, "color") == 0 || strcmp(key, "background") == 0) {
+    if (!lua_isnumber(L, value)) return false;
+    const lua_Integer level = lua_tointeger(L, value);
+    return level >= 0 && level <= 15;
+  }
+  if (strcmp(key, "scale") == 0) {
+    if (!lua_isnumber(L, value)) return false;
+    const lua_Integer scale = lua_tointeger(L, value);
+    return scale >= 1 && scale <= 16;
+  }
+  if (strcmp(key, "align") == 0) {
+    const char* text = lua_tostring(L, value);
+    return text != nullptr && (strcmp(text, "left") == 0 || strcmp(text, "center") == 0 ||
+                               strcmp(text, "centre") == 0 || strcmp(text, "right") == 0);
+  }
+  if (strcmp(key, "valign") == 0) {
+    const char* text = lua_tostring(L, value);
+    return text != nullptr && (strcmp(text, "top") == 0 || strcmp(text, "middle") == 0 ||
+                               strcmp(text, "bottom") == 0);
+  }
+  return false;
+}
+
+// **The fields of a button** (docs/30, docs/90): the two colours of its frame, whether it is held and
+// whether the walk of the dial and the finger can land on it. The child of a button is a control of its
+// own: the button does not keep a copy of it and does not need a field for it.
+bool is_button_field(const char* key) {
+  return strcmp(key, "background") == 0 || strcmp(key, "border") == 0 ||
+         strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
+         strcmp(key, "focusable") == 0;
+}
+
+bool button_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
+      strcmp(key, "focusable") == 0) {
+    return lua_type(L, value) == LUA_TBOOLEAN;
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer level = lua_tointeger(L, value);
+  return level >= 0 && level <= 15;
+}
+
 int l_canvas_newindex(lua_State* L) {
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
     lua_pop(L, 1);
     return luaL_error(L, "a canvas takes no fields");
   }
+  const char* key = lua_type(L, 2) == LUA_TSTRING ? lua_tostring(L, 2) : nullptr;
+  bool redraw = false;
+  if (key != nullptr) {
+    lua_getfield(L, -1, "__label");
+    const bool label = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__button");
+    const bool button = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    if (strcmp(key, "on_draw") == 0) {
+      redraw = lua_type(L, 3) == LUA_TFUNCTION;
+    } else if (label && is_label_field(key)) {
+      if (!label_field_valid(L, key, 3)) {
+        return luaL_error(L, "a label's %s is not a value it can use", key);
+      }
+      // **The same word is not a change**: the previous value is read before the new one is put there.
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (button && is_button_field(key)) {
+      if (!button_field_valid(L, key, 3)) {
+        return luaL_error(L, "a button's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    }
+  }
   lua_pushvalue(L, 2);
   lua_pushvalue(L, 3);
   lua_rawset(L, -3);
-  lua_pop(L, 1);
-  // **A field that changes what the control draws means a redraw**, and the one that matters is the one
-  // the system calls: `on_draw` (docs/90).
-  if (lua_type(L, 2) == LUA_TSTRING && strcmp(lua_tostring(L, 2), "on_draw") == 0 &&
-      lua_type(L, 3) == LUA_TFUNCTION) {
-    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
-    if (canvas->slot >= 0 && g_ui_ops.canvas_invalidate != nullptr) {
-      g_ui_ops.canvas_invalidate(canvas->slot);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  // **A control that stops being focusable gives the focus back**: leaving the ring on it would be a
+  // control the dialog says is out of the walk and still looks like the one Enter activates. The first
+  // control that becomes focusable takes the empty focus, the same way a new button does.
+  if (key != nullptr && strcmp(key, "focusable") == 0) {
+    const bool wanted = lua_toboolean(L, 3) != 0;
+    const bool focused = g_ui_focus_slot == canvas->slot &&
+                         g_ui_focus_generation == canvas->generation;
+    const bool focus_gone =
+        g_ui_focus_slot < 0 ||
+        (g_ui_ops.canvas_alive != nullptr &&
+         !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+    if (!wanted && focused) {
+      g_ui_focus_slot = -1;
+      g_ui_focus_generation = 0;
+      lua_pushboolean(L, 0);
+      lua_setfield(L, -2, "focused");
+      redraw = true;
+    } else if (wanted && focus_gone) {
+      g_ui_focus_slot = canvas->slot;
+      g_ui_focus_generation = canvas->generation;
+      lua_pushboolean(L, 1);
+      lua_setfield(L, -2, "focused");
+      redraw = true;
     }
+  }
+  lua_pop(L, 1);
+  if (redraw && canvas->slot >= 0 && g_ui_ops.canvas_invalidate != nullptr) {
+    g_ui_ops.canvas_invalidate(canvas->slot);
   }
   return 0;
 }
@@ -3159,6 +3276,152 @@ int create_control(lua_State* L, bool with_view) {
 int l_ui_canvas(lua_State* L) { return create_control(L, true); }
 
 int l_ui_control(lua_State* L) { return create_control(L, false); }
+
+// **The `on_draw` of a label**: the fields the app put on the object are the whole state of the line, and
+// the kernel is the one that owns the metrics, the ellipsis and the alignment. It draws nothing if the label
+// is gone, and it returns no value: a draw is a question the presenter asks, not an answer (docs/30,
+// docs/90).
+int l_label_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "text");
+  const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "align");
+  const char* align_text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "left";
+  const int align = (strcmp(align_text, "right") == 0)
+                        ? 2
+                        : ((strcmp(align_text, "center") == 0 || strcmp(align_text, "centre") == 0) ? 1 : 0);
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "valign");
+  const char* valign_text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "top";
+  const int valign = (strcmp(valign_text, "bottom") == 0) ? 2 : ((strcmp(valign_text, "middle") == 0) ? 1 : 0);
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.label_draw != nullptr) {
+    g_ui_ops.label_draw(canvas->slot, text, static_cast<uint8_t>(color),
+                        static_cast<uint8_t>(background), static_cast<uint8_t>(align),
+                        static_cast<uint8_t>(valign),
+                        static_cast<uint8_t>((scale == 0) ? 1 : scale));
+  }
+  return 0;
+}
+
+// ui.label(width, height): **a control without a view that is one line of text**, with a background colour,
+// a text colour, a face (the one `cv:font` gives it), two alignments and a body size (docs/30, docs/90).
+// The fields are the app's: `text`, `color`, `background`, `align`, `valign` and `scale`.
+int l_ui_label(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__label");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushstring(L, "left");
+  lua_setfield(L, -2, "align");
+  lua_pushstring(L, "top");
+  lua_setfield(L, -2, "valign");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "scale");
+  lua_pushcfunction(L, &l_label_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a button**: the frame is a fill and a border, a second border while it is held and
+// another one two pixels in while it has the focus. The child of a button is not a field here: it is
+// another control in the tree, added with `cv:add`, and the tree composes it after the button and clips
+// it to the same frame (docs/30, docs/90).
+int l_button_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "pressed");
+  const bool pressed = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.button_draw != nullptr) {
+    g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background),
+                         static_cast<uint8_t>(border), pressed, focused);
+  }
+  return 0;
+}
+
+// ui.button(width, height): **a control that is a container with a frame**, and the first one whose child
+// is part of what it shows. The fields are the two colours of its frame, the held state and the focus; the
+// child is added with `button:add(child)`, and its coordinates are the button's (docs/30, docs/90).
+int l_ui_button(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__button");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_button_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // **The first pressable control is focused when it appears**: a page with controls and no ring gives
+  // no clue that the dial does anything, and a board with one key would not have a way to start
+  // (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
 
 int l_canvas_clear(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
@@ -3481,10 +3744,14 @@ int8_t font_handle_of(lua_State* L, int index) {
 int l_canvas_font(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   const int8_t handle = font_handle_of(L, 2);
+  const int8_t slot = canvas_slot_of(L);
   if (handle == -2 || g_ui_ops.canvas_set_font == nullptr ||
-      !g_ui_ops.canvas_set_font(canvas_slot_of(L), handle)) {
+      !g_ui_ops.canvas_set_font(slot, handle)) {
     return refuse_shape(L);
   }
+  // **Another face is another drawing**: the control owes a draw, or the label keeps the old letters
+  // (docs/30, docs/90).
+  if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(slot);
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -3717,10 +3984,23 @@ int l_canvas_tostring(lua_State* L) {
   uint16_t x = 0;
   uint16_t y = 0;
   char text[48];
+  bool label = false;
+  bool button = false;
+  lua_getiuservalue(L, 1, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "__label");
+    label = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__button");
+    button = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  const char* kind = button ? "button" : (label ? "label" : "canvas");
   if (g_ui_ops.canvas_caps != nullptr && g_ui_ops.canvas_caps(canvas->slot, width, height, x, y)) {
-    snprintf(text, sizeof(text), "canvas %ux%u at %u,%u", width, height, x, y);
+    snprintf(text, sizeof(text), "%s %ux%u at %u,%u", kind, width, height, x, y);
   } else {
-    snprintf(text, sizeof(text), "canvas (gone)");
+    snprintf(text, sizeof(text), "%s (gone)", kind);
   }
   lua_pushstring(L, text);
   return 1;
@@ -3787,6 +4067,267 @@ int l_ui_root(lua_State* L) {
   lua_pushvalue(L, -1);
   lua_setfield(L, LUA_REGISTRYINDEX, kRootCanvasKey);
   return 1;
+}
+
+
+// ---------------------------------------------------------------------------
+// The controls and the person: focus, the dial, the finger (docs/30, docs/90)
+// ---------------------------------------------------------------------------
+
+// The controls a person can land on, in tree order. The list is rebuilt for every event: a control
+// that was released or changed father is not in the tree any more, and a cached list would press a
+// button that is not there. The ceiling is the same as the tree's (docs/90).
+struct FocusTarget {
+  int8_t slot;
+  uint16_t generation;
+  int32_t x;
+  int32_t y;
+  int32_t w;
+  int32_t h;
+  int depth;
+  int order;
+};
+
+const int kMaxFocusTargets = 32;
+
+bool ui_field_bool(lua_State* L, int object, const char* key, bool fallback) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return fallback;
+  }
+  lua_getfield(L, -1, key);
+  const bool value = lua_isnil(L, -1) ? fallback : (lua_toboolean(L, -1) != 0);
+  lua_pop(L, 2);
+  return value;
+}
+
+bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, key);
+  const bool same = !lua_isnil(L, -1) && (lua_toboolean(L, -1) != 0) == value;
+  lua_pop(L, 1);
+  if (same) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_pushboolean(L, value ? 1 : 0);
+  lua_setfield(L, -2, key);
+  lua_pop(L, 1);
+  return true;
+}
+
+bool ui_target_is_focusable(lua_State* L, int object) {
+  const bool button = ui_field_bool(L, object, "__button", false);
+  return ui_field_bool(L, object, "focusable", button);
+}
+
+bool ui_control_alive(LuaCanvas* canvas) {
+  return canvas != nullptr && canvas->slot >= 0 && g_ui_ops.canvas_alive != nullptr &&
+         g_ui_ops.canvas_alive(canvas->slot, canvas->generation);
+}
+
+void ui_invalidate(lua_State* L, int object) {
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (ui_control_alive(canvas) && g_ui_ops.canvas_invalidate != nullptr) {
+    g_ui_ops.canvas_invalidate(canvas->slot);
+  }
+}
+
+// Calls one of the app's hooks on a control. `focused` says whether the hook takes the extra boolean
+// that `on_focus` needs; `on_click` and `on_activate` take only the control. A hook that throws is
+// said on the console and does not take the app down, the same as `on_button` (docs/30).
+bool ui_call_hook(lua_State* L, int object, const char* name, bool with_focus, bool focused) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, name);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return false;
+  }
+  lua_pushvalue(L, object);
+  int arguments = 1;
+  if (with_focus) {
+    lua_pushboolean(L, focused ? 1 : 0);
+    ++arguments;
+  }
+  if (lua_pcall(L, arguments, 0, 0) != LUA_OK) {
+    con_text(name);
+    con_text(": ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);  // the fields table
+  return true;
+}
+
+// Walks the tree the drawing walks: the children of the app, in their order, cut at the frame of
+// their fathers. A control is a target when it is a button or when the app said `focusable`; a label
+// inside a button is not one, which is what makes the button the thing a person lands on.
+void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t clip_x0,
+                     int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth,
+                     FocusTarget* targets, int& count, int& order, int objects) {
+  object = lua_absindex(L, object);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (!ui_control_alive(canvas)) return;
+
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  lua_getfield(L, -1, "children");
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  for (lua_Integer i = 1; i <= children; ++i) {
+    lua_rawgeti(L, -1, i);
+    LuaCanvas* child = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    if (child == nullptr || child->slot < 0 || g_ui_ops.canvas_parent == nullptr ||
+        g_ui_ops.canvas_parent(child->slot) != canvas->slot) {
+      lua_pop(L, 1);
+      continue;
+    }
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint16_t local_x = 0;
+    uint16_t local_y = 0;
+    if (g_ui_ops.canvas_caps == nullptr ||
+        !g_ui_ops.canvas_caps(child->slot, width, height, local_x, local_y)) {
+      lua_pop(L, 1);
+      continue;
+    }
+    const int32_t x = base_x + local_x;
+    const int32_t y = base_y + local_y;
+    const int32_t x1 = x + width;
+    const int32_t y1 = y + height;
+    const int32_t cx0 = (x > clip_x0) ? x : clip_x0;
+    const int32_t cy0 = (y > clip_y0) ? y : clip_y0;
+    const int32_t cx1 = (x1 < clip_x1) ? x1 : clip_x1;
+    const int32_t cy1 = (y1 < clip_y1) ? y1 : clip_y1;
+    if (cx1 <= cx0 || cy1 <= cy0) {
+      lua_pop(L, 1);
+      continue;
+    }
+
+    if (ui_target_is_focusable(L, -1) && count < kMaxFocusTargets) {
+      FocusTarget& target = targets[count];
+      target.slot = child->slot;
+      target.generation = child->generation;
+      target.x = cx0;
+      target.y = cy0;
+      target.w = cx1 - cx0;
+      target.h = cy1 - cy0;
+      target.depth = depth;
+      target.order = order++;
+      lua_pushvalue(L, -1);
+      lua_rawseti(L, objects, count + 1);
+      ++count;
+    }
+    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, targets, count, order, objects);
+    lua_pop(L, 1);  // the child
+  }
+  lua_settop(L, base);
+}
+
+// Builds the list and **leaves the Lua objects in a table on top of the stack**: both the event and
+// the thing the event changes live in Lua, and finding a slot again after a callback is a search that
+// can hit a released control. The caller pops the table.
+int ui_collect_targets(lua_State* L, FocusTarget* targets) {
+  const int top = lua_gettop(L);
+  lua_createtable(L, 0, 0);
+  const int objects = top + 1;
+  UIInfo info = {};
+  if (g_ui_ops.caps == nullptr || !g_ui_ops.caps(info)) return 0;
+  if (l_ui_root(L) != 1) {
+    lua_settop(L, objects);
+    return 0;
+  }
+  int count = 0;
+  int order = 0;
+  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, targets, count, order, objects);
+  lua_pop(L, 1);  // the root
+  return count;
+}
+
+int ui_target_index(const FocusTarget* targets, int count, int8_t slot, uint16_t generation) {
+  for (int i = 0; i < count; ++i) {
+    if (targets[i].slot == slot && targets[i].generation == generation) return i;
+  }
+  return -1;
+}
+
+void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int objects, int index) {
+  const int old_index = ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation);
+  if (old_index != index && old_index >= 0) {
+    lua_rawgeti(L, objects, old_index + 1);
+    if (ui_set_field_bool(L, -1, "focused", false)) {
+      ui_invalidate(L, -1);
+      ui_call_hook(L, -1, "on_focus", true, false);
+    }
+    lua_pop(L, 1);
+  }
+  if (index < 0 || index >= count) {
+    g_ui_focus_slot = -1;
+    g_ui_focus_generation = 0;
+    return;
+  }
+  g_ui_focus_slot = targets[index].slot;
+  g_ui_focus_generation = targets[index].generation;
+  lua_rawgeti(L, objects, index + 1);
+  if (ui_set_field_bool(L, -1, "focused", true)) {
+    ui_invalidate(L, -1);
+    ui_call_hook(L, -1, "on_focus", true, true);
+  }
+  lua_pop(L, 1);
+}
+
+bool ui_activate(lua_State* L, int count, int objects, int index) {
+  if (index < 0 || index >= count) return false;
+  lua_rawgeti(L, objects, index + 1);
+  const int object = lua_gettop(L);
+  if (ui_set_field_bool(L, object, "pressed", true)) ui_invalidate(L, object);
+  if (!ui_call_hook(L, object, "on_click", false, false)) {
+    ui_call_hook(L, object, "on_activate", false, false);
+  }
+  // The system owns the held state: a callback that returns leaves the button up. A callback that
+  // released the control has no frame left to paint, and the object says so by its slot.
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (ui_control_alive(canvas)) {
+    if (ui_set_field_bool(L, object, "pressed", false)) ui_invalidate(L, object);
+  }
+  lua_pop(L, 1);
+  return true;
+}
+
+int ui_hit(const FocusTarget* targets, int count, int x, int y) {
+  int best = -1;
+  for (int i = 0; i < count; ++i) {
+    if (x < targets[i].x || y < targets[i].y || x >= targets[i].x + targets[i].w ||
+        y >= targets[i].y + targets[i].h) {
+      continue;
+    }
+    if (best < 0 || targets[i].depth > targets[best].depth ||
+        (targets[i].depth == targets[best].depth && targets[i].order > targets[best].order)) {
+      best = i;
+    }
+  }
+  return best;
 }
 
 int l_button_wait(lua_State* L) {
@@ -4113,6 +4654,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "rotation", l_ui_rotation);
   set_function(L, "canvas", l_ui_canvas);
   set_function(L, "control", l_ui_control);
+  set_function(L, "label", l_ui_label);
+  set_function(L, "button", l_ui_button);
   set_function(L, "root", l_ui_root);
   set_function(L, "frame", l_ui_frame);
   set_function(L, "line", l_ui_line);
@@ -4357,6 +4900,11 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_escape_first_ms = 0;
   g_exit_requested = false;
   g_failed = false;
+  g_ui_focus_slot = -1;
+  g_ui_focus_generation = 0;
+  g_ui_touch_slot = -1;
+  g_ui_touch_generation = 0;
+  g_ui_touch_inside = false;
   return true;
 }
 
@@ -4376,6 +4924,11 @@ void stop() {
   g_escape_count = 0;
   g_escape_first_ms = 0;
   g_exit_requested = false;
+  g_ui_focus_slot = -1;
+  g_ui_focus_generation = 0;
+  g_ui_touch_slot = -1;
+  g_ui_touch_generation = 0;
+  g_ui_touch_inside = false;
   lua_close(g_state);
   g_state = nullptr;
 }
@@ -4610,6 +5163,139 @@ void http_progress(bool ok, const char* code, int status, const char* body, uint
   lua_settop(L, base);
 }
 
+
+
+// **The dial walks the controls.** The spots come from the board, not from the number of the key:
+// up/left is previous, down/right is next, centre is enter. A board with one key has only the centre.
+bool ui_button_event(const char* kind, uint32_t key) {
+  if (g_state == nullptr || kind == nullptr || strcmp(kind, "press") != 0) return false;
+  FocusTarget targets[kMaxFocusTargets];
+  const int top = lua_gettop(g_state);
+  const int count = ui_collect_targets(g_state, targets);
+  if (count <= 0) {
+    lua_settop(g_state, top);
+    return false;
+  }
+
+  int direction = 0;
+  bool activate = false;
+  KeyInfo info = {};
+  const bool known = (g_button_ops.info != nullptr) && g_button_ops.info(key, info);
+  if (known && info.spot != nullptr) {
+    if (strcmp(info.spot, "up") == 0 || strcmp(info.spot, "left") == 0) {
+      direction = -1;
+    } else if (strcmp(info.spot, "down") == 0 || strcmp(info.spot, "right") == 0) {
+      direction = 1;
+    } else if (strcmp(info.spot, "centre") == 0 || strcmp(info.spot, "center") == 0) {
+      activate = true;
+    }
+  }
+  if (direction == 0 && !activate) {
+    // A key the board did not describe still has the Paper's shape: the middle enters and the two
+    // sides walk. This is the fallback and not the contract; `button.info` is the contract.
+    const uint32_t keys = (g_button_ops.count != nullptr) ? g_button_ops.count() : 0;
+    if (keys >= 3) {
+      if (key == 1) direction = -1;
+      if (key == 2) direction = 1;
+      if (key == 0) activate = true;
+    } else if (keys == 2) {
+      if (key == 0) direction = -1;
+      if (key == 1) direction = 1;
+    } else if (keys == 1 && key == 0) {
+      activate = true;
+    }
+  }
+  if (direction == 0 && !activate) {
+    lua_settop(g_state, top);
+    return false;
+  }
+
+  const int objects = top + 1;
+  const int current = ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation);
+  int target = -1;
+  if (activate) {
+    target = (current >= 0) ? current : 0;
+    if (current < 0) ui_apply_focus(g_state, targets, count, objects, target);
+    ui_activate(g_state, count, objects, target);
+  } else {
+    target = (current >= 0) ? (current + direction + count) % count : (direction > 0 ? 0 : count - 1);
+    ui_apply_focus(g_state, targets, count, objects, target);
+  }
+  lua_settop(g_state, top);
+  return true;
+}
+
+// True while a page has at least one control a person can land on. The kernel asks it before it gives
+// the middle key to the three-tap exit: a page whose centre is enter cannot also close on the third
+// centre press (docs/30, docs/90).
+bool ui_has_focusable() {
+  if (g_state == nullptr) return false;
+  FocusTarget targets[kMaxFocusTargets];
+  const int top = lua_gettop(g_state);
+  const int count = ui_collect_targets(g_state, targets);
+  lua_settop(g_state, top);
+  return count > 0;
+}
+
+// **The finger is the same event as the dial**: a touch that starts on a button focuses it and holds
+// it down; a move outside releases the hold, and a release inside clicks it. The frame is the one
+// `touch::poll` has just put in the view's coordinates (docs/30, docs/50, docs/90).
+void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
+  if (g_state == nullptr) return;
+  // **A turn with nobody on the glass and nothing held costs nothing**: the panel is read every turn,
+  // and walking the whole tree only to find that there is no finger is work the app pays for no reason.
+  if (!down && g_ui_touch_slot < 0) return;
+  FocusTarget targets[kMaxFocusTargets];
+  const int top = lua_gettop(g_state);
+  const int count = ui_collect_targets(g_state, targets);
+  const int objects = top + 1;
+
+  if (!down) {
+    if (g_ui_touch_slot >= 0) {
+      const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
+      if (index >= 0) {
+        lua_rawgeti(g_state, objects, index + 1);
+        if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+        lua_pop(g_state, 1);
+        if (g_ui_touch_inside) ui_activate(g_state, count, objects, index);
+      }
+      g_ui_touch_slot = -1;
+      g_ui_touch_generation = 0;
+      g_ui_touch_inside = false;
+    }
+    lua_settop(g_state, top);
+    return;
+  }
+
+  if (g_ui_touch_slot >= 0) {
+    const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
+    const bool inside =
+        index >= 0 && x >= targets[index].x && y >= targets[index].y &&
+        x < targets[index].x + targets[index].w && y < targets[index].y + targets[index].h;
+    if (inside != g_ui_touch_inside) {
+      if (index >= 0) {
+        lua_rawgeti(g_state, objects, index + 1);
+        if (ui_set_field_bool(g_state, -1, "pressed", inside)) ui_invalidate(g_state, -1);
+        lua_pop(g_state, 1);
+      }
+      g_ui_touch_inside = inside;
+    }
+    lua_settop(g_state, top);
+    return;
+  }
+
+  const int hit = ui_hit(targets, count, x, y);
+  if (hit >= 0) {
+    ui_apply_focus(g_state, targets, count, objects, hit);
+    g_ui_touch_slot = targets[hit].slot;
+    g_ui_touch_generation = targets[hit].generation;
+    g_ui_touch_inside = true;
+    lua_rawgeti(g_state, objects, hit + 1);
+    if (ui_set_field_bool(g_state, -1, "pressed", true)) ui_invalidate(g_state, -1);
+    lua_pop(g_state, 1);
+  }
+  lua_settop(g_state, top);
+}
 
 // The answer of the press an app was waiting for: a table, because a press has a
 // kind and how long it was held (docs/30).

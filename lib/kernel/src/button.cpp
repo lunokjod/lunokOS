@@ -57,6 +57,10 @@ void say(const char* text) {
 // declared. A promise first, because an app that is waiting for a press is waiting
 // for exactly this one (docs/30).
 void deliver(const char* kind, int64_t held_ms, uint32_t key) {
+  // **A page with controls owns the dial**: the focus ring and the click are the UI layer's, and an
+  // app that declared `on_button` does not get the same press twice. An app waiting for a press is
+  // explicit about wanting the raw key, so the promise wins (docs/30, docs/90).
+  if (!g_waiting && luabind::ui_button_event(kind, key)) return;
   if (g_waiting) {
     g_waiting = false;
     luabind::button_progress(kind, held_ms, key);
@@ -170,6 +174,11 @@ void poll() {
         // (docs/30).
         g_taps = 0;
         g_tap_started_ms = now;
+      } else if (luabind::ui_has_focusable()) {
+        // A page with controls has the centre as Enter, so three rapid clicks are three activations
+        // and not the way out. The ESC hatch and a Quit control are still there (docs/30, docs/90).
+        g_taps = 0;
+        deliver("press", 0, key);
       } else {
         if (g_taps == 0 || (now - g_tap_started_ms) > kTapWindowMs) {
           g_taps = 1;

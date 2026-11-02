@@ -20,9 +20,13 @@ const uint32_t kMaxMounts = 10;
 struct Mount {
   const char* path;  // virtual path, no trailing slash
   const char* rel;   // prefix inside the backend ("" or "apps")
-  const char* kind;  // "littlefs" or "sd"
+  const char* kind;  // "littlefs", "rtc", "fram"…
   hal::IStorage* storage;
   bool writable;
+  // **A mount can be one file and not a directory**: `/rtc` and `/fram` are memories, and a root
+  // listing that calls them directories is a lie a person sees at once (docs/70, docs/85).
+  bool file;
+  uint32_t size;
 };
 
 Mount g_mounts[kMaxMounts];
@@ -50,7 +54,7 @@ uint8_t unit_of(const hal::IStorage* storage) {
 namespace {
 
 void add(const char* path, const char* rel, const char* kind, hal::IStorage* storage,
-         bool writable) {
+         bool writable, bool file = false) {
   if (storage == nullptr) return;
   if (g_count >= kMaxMounts) {
     // A mount that does not fit is a path that stops existing, and a person would see the file
@@ -65,6 +69,12 @@ void add(const char* path, const char* rel, const char* kind, hal::IStorage* sto
   m.kind = kind;
   m.storage = storage;
   m.writable = writable;
+  m.file = file;
+  m.size = 0;
+  if (file) {
+    hal::Stat info;
+    if (storage->stat(rel, info)) m.size = info.size;
+  }
 }
 
 }  // namespace
@@ -96,13 +106,13 @@ uint32_t init(hal::IPlatform& platform) {
   // deep sleep and dies with the power, so what is written there is what a board keeps between two
   // runs without touching the flash (docs/50, docs/70).
   hal::IStorage* rtc = platform.storage("/rtc");
-  if (rtc != nullptr) add("/rtc", "", "rtc", rtc, true);
+  if (rtc != nullptr) add("/rtc", "", "rtc", rtc, true, true);
 
   // /fram: the FRAM of the board, when it has the chip, as one file of its size. It is
   // non-volatile and needs no power, so it is where an app keeps the few bytes it cannot lose even
   // if the battery goes (docs/50, docs/70).
   hal::IStorage* fram = platform.storage("/fram");
-  if (fram != nullptr) add("/fram", "", "fram", fram, true);
+  if (fram != nullptr) add("/fram", "", "fram", fram, true, true);
 
   // /nvs: the key-value store seen as two levels of files, a namespace per
   // directory (docs/70). Read-only until the write side of M4 is done.
@@ -237,8 +247,8 @@ bool list(const char* path, hal::ListSink& sink) {
     for (uint32_t i = 0; i < g_count; ++i) {
       hal::ListEntry entry;
       entry.name = g_mounts[i].path + 1;  // the table stores "/name"
-      entry.type = hal::NodeType::kDir;
-      entry.size = 0;
+      entry.type = g_mounts[i].file ? hal::NodeType::kFile : hal::NodeType::kDir;
+      entry.size = g_mounts[i].size;
       entry.mtime = 0;
       if (!sink.on_entry(entry)) break;
     }

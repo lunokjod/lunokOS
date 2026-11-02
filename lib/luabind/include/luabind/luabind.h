@@ -418,6 +418,15 @@ struct UIOps {
   bool (*app_set_font)(int8_t handle);
   // How wide a text is with that face and that scale, in pixels (docs/30).
   uint16_t (*font_text_width)(int8_t handle, const char* text, uint8_t scale);
+  // **The text of a label** (docs/30, docs/90): the background of its frame and the line, aligned and
+  // shortened with "..." when it does not fit. The face is the one the control was given, so the app only
+  // says the words, the colour, the alignment and the size.
+  bool (*label_draw)(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+                     uint8_t valign, uint8_t scale);
+  // **The frame of a button** (docs/30, docs/90): background, border, a second inner border while it is
+  // pressed and another one two pixels in while it has the focus. The child of the button is drawn by the
+  // tree after this control, not here.
+  bool (*button_draw)(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused);
 };
 
 void set_ui_ops(const UIOps& ops);
@@ -426,6 +435,13 @@ void set_ui_ops(const UIOps& ops);
 // one. False when it does not, which is a legal app —it just draws the same thing again— and the
 // canvas is white when it happens (docs/30).
 bool call_resize(uint16_t width, uint16_t height);
+
+// **The controls and the person**: a press on a focusable control is consumed by the UI layer before
+// an app's `on_button` sees it; a touch is handed to the same layer once per turn. Both are asked
+// between turns, never from inside Lua (docs/30, docs/90).
+bool ui_has_focusable();
+bool ui_button_event(const char* kind, uint32_t key);
+void ui_touch_progress(uint16_t x, uint16_t y, bool down);
 
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).

@@ -115,7 +115,9 @@ void usage() {
   printf("  --script <file>   batch mode: run and exit\n");
   printf("  --display         the glass of the board, which is there by itself: 960x540, four bits\n");
   printf("  --no-display      no glass at all: the console only, and no buffer of the page\n");
-  printf("  --gui             that glass in an X11 window, painted as the panel is painted\n");
+  printf("  --gui             that glass in a window (SDL2 or X11), painted as the panel is painted\n");
+  printf("  --gui-scale <1..4>  page pixels per pixel of the window: 2 is the page at half\n");
+  printf("                    (without it, the smallest scale that fits the screen)\n");
   printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
   printf("  --touch           the finger of the board, which is there by itself: a GT911 on the bus\n");
   printf("  --no-touch        no finger: the panel is not read once per turn\n");
@@ -220,6 +222,17 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       // (docs/85).
       opts.gui = true;
       opts.display = true;
+      continue;
+    }
+    if (strcmp(arg, "--gui-scale") == 0) {
+      // **How big the page is in the window**: 1 is the page as it is and 2 is the page at half, and a
+      // run that asks for it gets it even when the screen would hold the page whole. There is no 0 on
+      // the command line: the absence of the flag is the scale that fits (docs/85).
+      if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 1 || number > 4) {
+        fprintf(stderr, "--gui-scale: the scale is 1, 2, 3 or 4\n");
+        return false;
+      }
+      opts.gui_scale = static_cast<uint8_t>(number);
       continue;
     }
     if (strcmp(arg, "--display") == 0) {
@@ -669,13 +682,14 @@ int main(int argc, char** argv) {
       if (face == hal::Face::kRight) side = emu::KeySide::kRight;
     }
     if (!emu::gui_available()) {
-      fprintf(stderr, "this bench was built without X11: no window\n");
+      fprintf(stderr, "this bench was built without a window backend: no window\n");
     } else if (opts.display && (hal::platform().display() == nullptr ||
                                 !emu::gui_open(emu::memory_surface()->width(),
                                                emu::memory_surface()->height(),
-                                               static_cast<uint8_t>(hw.keys), side))) {
+                                               static_cast<uint8_t>(hw.keys), side, opts.gui_scale))) {
       fprintf(stderr, "no display to open the window on\n");
-    } else if (!opts.display && !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side)) {
+    } else if (!opts.display &&
+               !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side, opts.gui_scale)) {
       // **A board with no glass has its button and nothing else**: the window is the keys, and an ATOM still
       // gets the button a person presses (docs/85).
       fprintf(stderr, "no display to open the window on\n");
@@ -686,8 +700,9 @@ int main(int argc, char** argv) {
           printf("gui: the page %ux%u is in a window, one pixel of the page per pixel of the screen\n",
                  emu::memory_surface()->width(), emu::memory_surface()->height());
         } else {
-          printf("gui: the page %ux%u is in a window at half, one pixel of the window is %u of the page\n",
-                 emu::memory_surface()->width(), emu::memory_surface()->height(),
+          const char* part = (scale == 2) ? "half" : ((scale == 3) ? "a third" : "a quarter");
+          printf("gui: the page %ux%u is in a window at %s, one pixel of the window is %u of the page\n",
+                 emu::memory_surface()->width(), emu::memory_surface()->height(), part,
                  static_cast<unsigned>(scale));
         }
       }

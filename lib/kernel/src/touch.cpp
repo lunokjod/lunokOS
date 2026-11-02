@@ -223,6 +223,13 @@ void poll() {
   meter::Scope scope(meter::kTouchRead);
   g_count = g_glass->read(g_frame, kMaxPoints);
   turn_frame();
+  // **The controls see the same frame the app reads**: a finger on a UIButton is a press and a
+  // click, not a detail every app has to wire again (docs/30, docs/90).
+  if (g_count > 0) {
+    luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+  } else {
+    luabind::ui_touch_progress(0, 0, false);
+  }
   const int32_t now = now_ms();
 
   // A tap waiting for its window: when the window closes it is a tap, and if another one arrived inside

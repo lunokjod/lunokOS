@@ -1,0 +1,8 @@
+{
+  "title": "Buttons",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "buttons.lua",
+  "boards": ["esp32"],
+  "description": "Eight UIButtons, each with a UILabel child: four faces, four sizes, the sixteen levels and a pressed frame."
+}

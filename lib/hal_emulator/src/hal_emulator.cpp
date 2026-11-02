@@ -1,6 +1,4 @@
-#include <sys/time.h>
-#include <time.h>
-#include <unistd.h>
+#include <chrono>
 
 #include "hal/hal.h"
 
@@ -47,6 +45,7 @@ Options::Options()
       // instant and exact— and turned on by `main`, which is what a person wants (docs/85).
       display(false),
       gui(false),
+      gui_scale(0),
       ink(0),
       // **The panel of the bench is off unless the run asked for it**: a bench nobody is touching does
       // not read a bus once a turn, and a test wants a board that answers nothing here (docs/85).
@@ -132,9 +131,8 @@ namespace {
 // The hardware of this bench is `emu::model()`, which is the model `--board` named: one list and
 // not two, because a bench that answers for another board teaches the wrong thing (docs/85).
 int64_t mono_ms() {
-  struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
-  return static_cast<int64_t>(ts.tv_sec) * 1000 + static_cast<int64_t>(ts.tv_nsec) / 1000000;
+  const auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 }
 
 // The PC has one clock and it is the host's. The epoch is the one `--now` says,
@@ -388,7 +386,7 @@ class FakePower : public IPower {
         characterised = true;
         us += kAdcSetupUs;
       }
-      ::usleep(static_cast<useconds_t>(us));
+      pal::delay_us(us);
     }
     mv = static_cast<int>(set);
     pct = static_cast<int>(battery_percent(mv));
