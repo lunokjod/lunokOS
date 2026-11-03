@@ -108,6 +108,12 @@ banc ha rebut amb `--board`, i `sys.emulator` és el que diu que el maquinari de
 que toca maquinari mira això abans de res i decideix el camí; mai suposa que és a la placa on es va
 escriure. El detall i les regles són a [`30 · API de Lua`](30-api-lua.md#saber-on-sexecuta).
 
+**I `boards` no és només per al `run`**: és el que decideix **què porta el disc de cada placa**. El disc
+d'un entorn el munta `tools/make_disk.py` amb les apps el manifest de les quals nomena **aquella placa o la
+seva família** —l'ATOM porta les genèriques (`esp32`) més `light` i `keys`, que són les que demanen el seu
+maquinari, i la Paper les genèriques més `keys`—, i cada carpeta del disc és un enllaç a `apps/` de l'arrel.
+El banc i les proves no són cap placa i en porten totes (docs/70, docs/80).
+
 ## Handlers d'extensió
 
 Un manifest pot declarar `opens`: l'extensió que l'app sap obrir. `"epub"`, `".epub"` i `"EPUB"` són la

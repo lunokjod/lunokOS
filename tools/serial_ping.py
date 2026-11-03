@@ -7,7 +7,7 @@ the time an app takes to do something: here the port, the reader task, the kerne
 turn, the promise and the write back all count.
 
 The board has to be at the prompt with the `ping` app on its disk (it is in
-data/apps/ping). The tool runs it, waits for its "ping", sends one line at a time
+apps/ping). The tool runs it, waits for its "ping", sends one line at a time
 and times each answer. Three ESC at the end close the app and leave the prompt.
 
     tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
@@ -76,7 +76,7 @@ def main():
     parser.add_argument("--warmup", type=int, default=1,
                         help="lines sent and thrown away first (a port just opened is not warm)")
     parser.add_argument("--all", action="store_true", help="print every sample, not only the summary")
-    parser.add_argument("--app", default="ping", help="app to run (data/apps/ping)")
+    parser.add_argument("--app", default="ping", help="app to run (apps/ping)")
     args = parser.parse_args()
 
     fd = open_port(args.port, args.baudrate)

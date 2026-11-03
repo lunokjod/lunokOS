@@ -353,7 +353,7 @@ console.print('extra ' .. sys.heap().extra_total .. ' free ' .. sys.heap().extra
 exit
 ```
 
-I una app que demani un megabyte de debò, que ja és al disc (`data/apps/heap/`):
+I una app que demani un megabyte de debò, que ja és al disc (`apps/heap/`):
 
 ```
 run heap

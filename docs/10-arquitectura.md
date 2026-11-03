@@ -167,8 +167,11 @@ lib/
   qr/                   qualsevol QR que aquest build pugui dibuixar
 boards/                 definicions de placa que PlatformIO no porta: la del Paper
                         (boards_dir a platformio.ini, docs/80)
-data/                   arrel de la imatge de la LittleFS; les apps d'exemple
-                        són a data/apps/<id>/
+apps/                   les apps del projecte, una carpeta per id (`apps/<id>/`),
+                        amb el seu `manifest.json` i, si en té, els seus `res/`
+data/                   el que és del sistema a la imatge de la LittleFS: `res/` i
+                        `data/`. Les apps no hi són: el disc de cada placa el
+                        munta `tools/make_disk.py` a `build/disk/<entorn>` (docs/70)
 emulator/               disc de proves de l'emulador (fora del git)
 test/                   proves natives (Unity) i guions per a l'emulador
 docs/                   aquests documents
@@ -197,7 +200,7 @@ Aquests documents expliquen **com funciona el projecte avui**, i tenen tres regl
 | Una placa nova | `lib/board_<id>/` amb `include/board/identity.h` (el nom de la placa i quants llums té) i `impl.h`, el seu `-I` a `platformio.ini` i les altres plaques a `lib_ignore`; si la placa no té HAL, a més `lib/hal_<id>/` |
 | Una regla que val per a totes les plaques | `lib/kernel/` |
 | Una cosa que depèn del sistema de sota | `lib/pal/` i les dues `pal_*` |
-| Una app | `data/apps/<id>/`, mai dins del nucli |
+| Una app | `apps/<id>/`, mai dins del nucli; el disc de cada placa el munta `tools/make_disk.py` |
 | Una llibreria d'utilitat | `lib/<nom>/`, i **exposada a Lua** (vegeu a sota) |
 
 ## Tota llibreria d'utilitat es veu des de Lua

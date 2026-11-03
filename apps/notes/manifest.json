@@ -1,0 +1,8 @@
+{
+  "title": "Notes",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "notes.lua",
+  "boards": ["esp32"],
+  "description": "A box of several lines with the keyboard of the system: the enter key writes a line break, the window follows the caret, and the app keeps the text it is given."
+}

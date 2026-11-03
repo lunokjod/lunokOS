@@ -1459,6 +1459,924 @@ void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 51));
 }
 
+// **A checkbox is a row with a square box at its left, and the tick is the only thing that changes when it is
+// checked** (docs/30, docs/90). The row is the control's background —a control without a buffer paints the
+// pixels it covers—, the box is a border and a body at the weight the button taught, and the tick is two
+// strokes of a brush in a colour of its own. The side of the box is the kernel's number, and it is what an app
+// needs to put the words beside it: `label:place(cb:box() + 8, 0)`.
+void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(60, 20, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 10, 10));
+  // **Four pixels of row above and below**: a row of twenty holds a box of twelve, which is the room the ring
+  // of the focus needs outside it.
+  TEST_ASSERT_EQUAL_INT16(12, ui::checkbox_side(box));
+
+  // **Out: a border, a body and the row around them.** The background here is 12 so the row is told apart
+  // from the paper, and the box's border is ink.
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));  // the row, right of the box: the room for the words
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the left border of the box
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 23));  // its body, with nothing drawn in it
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));    // and the page outside the row
+
+  // **Checked, the body has a tick in it and the row does not move**: the knee of the V lands on that same
+  // pixel, and the frame outside the box is still the row.
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 23));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));
+
+  // **The tick has a colour of its own**: a black box with a white tick is a checkbox that can be read with
+  // the rest of the page black (docs/30, docs/90).
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 0, 15, 15, true, false, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 23));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the border is the other colour and it did not move
+
+  // **Held, the body goes a step darker and the bevel swaps**, which is the hole the button teaches at a
+  // quarter of the size.
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(15, 15));   // the top of the body, which is the dark edge now
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 24));  // and the bottom, which is the light one
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 15));
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(15, 24));
+
+  // **The focus is a ring outside the box**: two pixels of band, one of pause and then the border, so a person
+  // reads two frames and not a thicker one. Without the focus that pixel is the row.
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 11));
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 11));   // the band
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 12));   // two pixels of it
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 13));  // the pause
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 14));   // and the border of the box
+
+  // A level outside the sixteen is a colour this panel does not have, and the box is asked for three of them.
+  TEST_ASSERT_FALSE(ui::checkbox_draw(box, 16, 0, 0, false, false, false));
+  TEST_ASSERT_FALSE(ui::checkbox_draw(box, 15, 16, 0, false, false, false));
+  TEST_ASSERT_FALSE(ui::checkbox_draw(box, 15, 0, 16, false, false, false));
+  ui::release(box);
+}
+
+// **A bar is a track and a prefix of it**: the fill does not reach the end until the value does, the frame is
+// one pixel of the border colour, and a value of minus one is "nothing to say yet" —the track alone— because
+// a page that shows a full bar before it knows anything is a page that lies (docs/30, docs/90).
+void test_a_progress_bar_fills_a_prefix_of_its_track() {
+  fresh_view();
+  int8_t bar = -1;
+  TEST_ASSERT_TRUE(ui::create(100, 16, 0, false, bar));
+  TEST_ASSERT_TRUE(ui::place(bar, 10, 10));
+
+  // Half: the left of the track is the fill and the right of it is still the track.
+  TEST_ASSERT_TRUE(ui::progress_draw(bar, 15, 0, 12, 0, 50));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 18));    // the fill, on the left
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(100, 18));  // the track, on the right
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 18));    // the frame, one pixel
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));     // and the page outside it
+
+  // **Nothing to say**: the track is drawn and nothing is filled.
+  TEST_ASSERT_TRUE(ui::progress_draw(bar, 15, 0, 12, 0, -1));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 18));
+
+  // **A bar that says something always shows something**: one per cent of a wide bar is still a rounded end
+  // and not a pixel of nothing.
+  TEST_ASSERT_TRUE(ui::progress_draw(bar, 15, 0, 12, 0, 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 18));
+
+  // A level outside the sixteen is a colour this panel does not have, and the bar is asked for four of them.
+  TEST_ASSERT_FALSE(ui::progress_draw(bar, 16, 0, 12, 0, 50));
+  TEST_ASSERT_FALSE(ui::progress_draw(bar, 15, 16, 12, 0, 50));
+  TEST_ASSERT_FALSE(ui::progress_draw(bar, 15, 0, 16, 0, 50));
+  TEST_ASSERT_FALSE(ui::progress_draw(bar, 15, 0, 12, 16, 50));
+  ui::release(bar);
+}
+
+// **The knob sits where the value says and the number is in the right column**: the track runs from the middle
+// of where the knob goes at the minimum to the middle of where it goes at the maximum, so a knob at either end
+// is inside the frame and not half outside it (docs/30, docs/90).
+void test_a_slider_puts_the_knob_where_the_value_says() {
+  fresh_view();
+  int8_t slider = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 40, 0, false, slider));
+  TEST_ASSERT_TRUE(ui::place(slider, 10, 10));
+
+  // At the minimum the knob is at the left: its ring is the border colour, and nothing is filled past it.
+  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 12, 8, 0, 0, 0, 100, "%", 2, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 30));   // the ring of the knob, on the left
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(100, 30));  // and the track, still to come
+
+  // At the maximum the knob has gone to the right and the track it left behind is filled: where the knob was, the paper of
+  // the control is, because the track starts at the middle of the knob at the minimum.
+  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 12, 8, 0, 100, 0, 100, "%", 2, false, false));
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(100, 30));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 30));
+
+  // **The number is drawn by the control and not by the app**: there is ink in the right column, and the
+  // column is walked instead of pointed at, because a letter of a face is not a pixel a test should know.
+  int ink = 0;
+  for (uint16_t y = 20; y < 42; ++y) {
+    for (uint16_t x = 168; x < 208; ++x) {
+      if (view_level(x, y) == 0) ++ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, ink);
+
+  // The unit travels with the number: without the `%` the same value is not the same page.
+  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 12, 8, 0, 0, 0, 100, "", 2, false, false));
+  int bare = 0;
+  for (uint16_t y = 20; y < 42; ++y) {
+    for (uint16_t x = 168; x < 208; ++x) {
+      if (view_level(x, y) == 0) ++bare;
+    }
+  }
+  TEST_ASSERT_LESS_THAN(ink, bare);
+
+  // A level outside the sixteen and a scale of nothing are not a slider.
+  TEST_ASSERT_FALSE(ui::slider_draw(slider, 16, 0, 12, 8, 0, 0, 0, 100, "%", 2, false, false));
+  TEST_ASSERT_FALSE(ui::slider_draw(slider, 15, 0, 12, 8, 16, 0, 0, 100, "%", 2, false, false));
+  ui::release(slider);
+}
+
+// **A row is one line and the two columns of it**: the title on the left, the detail on the right, the line of
+// the separator under it, and a **marked** row is inverted —ink and paper swapped— because that is what "this
+// is the one" says on a glass of sixteen levels (docs/30, docs/90).
+void test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked() {
+  fresh_view();
+  int8_t row = -1;
+  TEST_ASSERT_TRUE(ui::create(240, 40, 0, false, row));
+  TEST_ASSERT_TRUE(ui::place(row, 10, 10));
+
+  TEST_ASSERT_TRUE(ui::row_draw(row, "Hola", "12 KB", "", 0, 8, 15, 2, false, true));
+  // The row is paper, and the line under it is the dim colour and one pixel of it.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 12));
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(100, 49));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 45));
+
+  // The title is on the left, the detail on the right, and the air between the two columns has no ink at all.
+  int left = 0;
+  for (uint16_t y = 10; y < 50; ++y) {
+    for (uint16_t x = 18; x < 120; ++x) {
+      if (view_level(x, y) == 0) ++left;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, left);
+  int middle = 0;
+  for (uint16_t y = 20; y < 40; ++y) {
+    for (uint16_t x = 120; x < 180; ++x) {
+      if (view_level(x, y) == 0) ++middle;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(0, middle);
+  int right = 0;
+  for (uint16_t y = 20; y < 40; ++y) {
+    for (uint16_t x = 180; x < 248; ++x) {
+      // **The detail is the dim tone**: it is the second voice of the row and the two are told apart by the tone.
+      if (view_level(x, y) == 8) ++right;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, right);
+
+  // **Marked, the row is ink and the words are paper**, and the separator is not asked for this time.
+  TEST_ASSERT_TRUE(ui::row_draw(row, "Hola", "12 KB", "", 0, 8, 15, 2, true, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 12));
+  ui::release(row);
+}
+
+// **The row of a checkbox is opaque too**: the child that names the setting is drawn after the control, so a
+// checkbox that paints its frame again has to ask it to draw again, exactly as a button does (docs/30,
+// docs/90).
+void test_a_checkbox_that_redraws_asks_its_child_to_draw_again() {
+  fresh_view();
+  int8_t box = -1;
+  int8_t label = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 30, 0, false, box));
+  TEST_ASSERT_TRUE(ui::create(150, 20, box, false, label));
+  TEST_ASSERT_TRUE(ui::mark_drawn(label));
+  TEST_ASSERT_FALSE(ui::needs_draw(label));
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 15, 0, 0, true, false, false));
+  TEST_ASSERT_TRUE(ui::needs_draw(label));
+  ui::release(box);
+}
+
+// **A panel is a declaration and not a list of places**: a column stacks its children with the gap between them,
+// stretches each one to the width of the panel, and the room that is left is split by weight with the last one
+// taking the remainder (docs/30, docs/90).
+void test_a_panel_stacks_its_children_in_a_column() {
+  fresh_view();
+  int8_t panel = -1;
+  int8_t first = -1;
+  int8_t second = -1;
+  int8_t third = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, panel));
+  TEST_ASSERT_TRUE(ui::place(panel, 10, 10));
+  TEST_ASSERT_TRUE(ui::create(40, 40, panel, false, first));
+  TEST_ASSERT_TRUE(ui::create(40, 40, panel, false, second));
+  TEST_ASSERT_TRUE(ui::create(40, 40, panel, false, third));
+
+  const ui::PanelChild kids[3] = {{first, 0}, {second, 1}, {third, 2}};
+  // 100 of height, twenty of padding and two gaps of four leave 72: the first child keeps its 40 and the other
+  // 32 are split one to three —ten for the second and the rest for the last— and nothing is left over.
+  TEST_ASSERT_EQUAL_UINT8(3, ui::panel_layout(panel, ui::PanelFlow::kVertical, 10, 4, kids, 3));
+  const ui::Canvas* one = ui::at(first);
+  const ui::Canvas* two = ui::at(second);
+  const ui::Canvas* three = ui::at(third);
+  TEST_ASSERT_NOT_NULL(one);
+  TEST_ASSERT_NOT_NULL(two);
+  TEST_ASSERT_NOT_NULL(three);
+  TEST_ASSERT_EQUAL_UINT16(180, one->width);
+  TEST_ASSERT_EQUAL_UINT16(40, one->height);
+  TEST_ASSERT_EQUAL_UINT16(10, one->y);
+  TEST_ASSERT_EQUAL_UINT16(54, two->y);
+  TEST_ASSERT_EQUAL_UINT16(10, two->height);
+  TEST_ASSERT_EQUAL_UINT16(68, three->y);
+  TEST_ASSERT_EQUAL_UINT16(22, three->height);
+
+  // **A child that is not this panel's is not arranged by it**: moving one to another room and laying the panel out again
+  // leaves two children, and the room the third one had is taken by the second, which is the only one with a weight —so no
+  // hole is left where nobody is, which is what the panel is for.
+  TEST_ASSERT_TRUE(ui::reparent(third, 0));
+  ui::panel_layout(panel, ui::PanelFlow::kVertical, 10, 4, kids, 3);
+  TEST_ASSERT_EQUAL_UINT16(54, two->y);
+  TEST_ASSERT_EQUAL_UINT16(36, two->height);
+
+  ui::release(first);
+  ui::release(second);
+  ui::release(third);
+  ui::release(panel);
+}
+
+// **A row panel splits the width and stretches the height**: the same arithmetic along the other axis, which is
+// what a bar of buttons and a strip of tabs are (docs/30, docs/90).
+void test_a_row_panel_splits_the_width_and_stretches_the_height() {
+  fresh_view();
+  int8_t panel = -1;
+  int8_t one = -1;
+  int8_t two = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 60, 0, false, panel));
+  TEST_ASSERT_TRUE(ui::create(50, 20, panel, false, one));
+  TEST_ASSERT_TRUE(ui::create(50, 20, panel, false, two));
+
+  const ui::PanelChild kids[2] = {{one, 1}, {two, 1}};
+  // 200 of width and one gap of ten leave 190, which is 95 each: the last takes the remainder and both are as
+  // tall as the panel.
+  TEST_ASSERT_EQUAL_UINT8(2, ui::panel_layout(panel, ui::PanelFlow::kHorizontal, 0, 10, kids, 2));
+  const ui::Canvas* left = ui::at(one);
+  const ui::Canvas* right = ui::at(two);
+  TEST_ASSERT_NOT_NULL(left);
+  TEST_ASSERT_NOT_NULL(right);
+  TEST_ASSERT_EQUAL_UINT16(0, left->x);
+  TEST_ASSERT_EQUAL_UINT16(95, left->width);
+  TEST_ASSERT_EQUAL_UINT16(60, left->height);
+  TEST_ASSERT_EQUAL_UINT16(105, right->x);
+  TEST_ASSERT_EQUAL_UINT16(95, right->width);
+
+  ui::release(one);
+  ui::release(two);
+  ui::release(panel);
+}
+
+// **A strip of tabs says "you are here" by taking the line away**: on two tones there is no bold and no colour,
+// so the chosen tab is the one with nothing under it (docs/30, docs/90).
+void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
+  fresh_view();
+  int8_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 40, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+  const char* labels[3] = {"One", "Two", "Three"};
+
+  // The second is the chosen one: the line of two pixels is under the first and under the third and it is not
+  // under the second.
+  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 2, 0, 15, 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 39));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(150, 39));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(250, 39));
+  // And the words are above the line: each column has ink of its own.
+  int ink = 0;
+  for (uint16_t y = 0; y < 36; ++y) {
+    for (uint16_t x = 100; x < 200; ++x) {
+      if (view_level(x, y) == 0) ++ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, ink);
+
+  // Index 0 is "none chosen" and leaves the line whole, which is what a strip that has not been used yet says.
+  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 0, 0, 15, 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(150, 39));
+  TEST_ASSERT_FALSE(ui::tabs_draw(strip, nullptr, 3, 2, 0, 15, 1));
+  ui::release(strip);
+}
+
+// **The dots of a page are a strip with the one you are on bigger**, and **a page with one page draws none**:
+// one dot says nothing and it would cost a paint of the panel to say it (docs/30, docs/90).
+void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
+  fresh_view();
+  int8_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(100, 20, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 1, 1, 0, 15));
+  int none = 0;
+  for (uint16_t y = 0; y < 20; ++y) {
+    for (uint16_t x = 0; x < 100; ++x) {
+      if (view_level(x, y) == 0) ++none;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(0, none);
+
+  // Three pages and the second one: three dots, the middle one bigger, and all of them in the middle of the
+  // strip.
+  ui::clear(15, nullptr);
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 3, 2, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 5));   // the big one reaches higher than the others
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 10));  // and the strip is not painted from edge to edge
+  ui::release(strip);
+}
+
+// **A list measures its pages once and both the app and the drawing ask the same question**: a list that fits
+// takes no footer and says nothing about pages, and one that does not takes the band and counts the rows again
+// in what is left (docs/30, docs/90).
+void test_a_list_measures_its_pages_with_one_arithmetic() {
+  // Four rows of fifty in two hundred of height and four items: they fit, so there is one page and no footer.
+  ui::ListPage fits = ui::list_page_of(200, 50, 4);
+  TEST_ASSERT_EQUAL_UINT8(4, fits.rows);
+  TEST_ASSERT_EQUAL_UINT8(1, fits.pages);
+
+  // Twelve items: three pages of four are not enough once the footer of twenty pixels is taken, so a page holds
+  // three rows and the list has four pages.
+  ui::ListPage long_list = ui::list_page_of(200, 50, 12);
+  TEST_ASSERT_EQUAL_UINT8(3, long_list.rows);
+  TEST_ASSERT_EQUAL_UINT8(4, long_list.pages);
+
+  // Nothing to say is no page at all, and a row that does not fit in the frame is not a row.
+  ui::ListPage empty = ui::list_page_of(200, 50, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, empty.pages);
+  ui::ListPage tiny = ui::list_page_of(40, 50, 9);
+  TEST_ASSERT_EQUAL_UINT8(0, tiny.pages);
+}
+
+// **A list draws the rows of one page, the chosen row inverted, and the band that says which page it is**: the
+// band is the line of the footer and the words in it, and **no row is drawn under it** (docs/30, docs/90).
+void test_a_list_draws_one_page_and_says_which_one_it_is() {
+  fresh_view();
+  int8_t list = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 200, 0, false, list));
+  TEST_ASSERT_TRUE(ui::place(list, 0, 0));
+  const char* titles[3] = {"One", "Two", "Three"};
+  const char* details[3] = {"1", "2", "3"};
+
+  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 1, 4, 2, titles, details, nullptr, 50, 0, 8, 15, 2, true, false));
+  // The second row of the page is the chosen one and it is inverted: ink where the others are paper.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 25));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(290, 75));
+  // The band of the footer starts at 200 less twenty: the line above it, and no row under it.
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(150, 180));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 175));
+  // The words of the page are in the band, and a page that is not the last has the chevron of the next one.
+  int ink = 0;
+  for (uint16_t y = 181; y < 200; ++y) {
+    for (uint16_t x = 0; x < 300; ++x) {
+      if (view_level(x, y) == 0) ++ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, ink);
+
+  // **One page is no band at all**: the list fills with rows and there is nothing under them.
+  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 1, 1, 0, titles, details, nullptr, 50, 0, 8, 15, 2, false, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(150, 180));
+  ui::release(list);
+}
+
+// **The caret is a block on the glass and never outside it**: an empty box has the bar at the left of the inside,
+// without the caret the box is paper again, and a text longer than the frame is a **window** that keeps the caret
+// where the next letter goes (docs/30, docs/90).
+void test_a_textbox_keeps_the_caret_on_the_glass() {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 40, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  // Two pixels of border and six of padding on each side: a hundred and eighty-four pixels of inside.
+  TEST_ASSERT_EQUAL_UINT16(184, ui::textbox_inside(box, 2));
+
+  // An empty box with the caret: a bar of six pixels at the left of the inside, as tall as a line of the face.
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "", 0, true, false, 0, 15, 0, 2));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(9, 14));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(9, 25));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 30));  // the inside, below the line
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 20)); // and nothing else is drawn
+
+  // **Without the caret the box is paper**: the blink is the app's and it is this field.
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "", 0, false, false, 0, 15, 0, 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 14));
+
+  // **A text longer than the frame with the caret at its end**: the caret ends up against the right side of the
+  // inside and not past the border, which is the whole point of the window.
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 26, true, false, 0, 15, 0, 2));
+  int32_t widest = -1;
+  // **The frame of the box is a solid column of ink too**, so the scan stays inside it: what is looked for is the caret.
+  for (uint16_t x = 12; x < 198; ++x) {
+    bool solid = true;
+    for (uint16_t y = 14; y <= 25; ++y) {
+      if (view_level(x, y) != 0) {
+        solid = false;
+        break;
+      }
+    }
+    if (solid) widest = x;
+  }
+  TEST_ASSERT_GREATER_THAN(100, widest);   // the window pushed it to the end
+  // **The border of the box is not the text**: the last column the text may touch is the one before the frame.
+  TEST_ASSERT_LESS_THAN(198, widest);
+
+  // A colour that is not a level of this panel and a scale of nothing are refused, and the mask is drawn in the
+  // place of the letters.
+  TEST_ASSERT_FALSE(ui::textbox_draw(box, "x", 1, true, false, 16, 15, 0, 2));
+  TEST_ASSERT_FALSE(ui::textbox_draw(box, "x", 1, true, false, 0, 16, 0, 2));
+  TEST_ASSERT_FALSE(ui::textbox_draw(box, "x", 1, true, false, 0, 15, 16, 2));
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "secret", 6, false, true, 0, 15, 0, 2));
+  ui::release(box);
+}
+
+// **A dialog is a card with a message that wraps and two doors**: the card is opaque with the weight of a card, the
+// emphasised door is inverted, and the finger and the paint ask the same geometry (docs/30, docs/90).
+void test_a_dialog_wraps_its_message_and_has_two_doors() {
+  fresh_view();
+  int8_t card = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 300, 0, false, card));
+  TEST_ASSERT_TRUE(ui::place(card, 0, 0));
+  const char* message = "This card deletes every note you wrote and there is no way back at all";
+
+  TEST_ASSERT_TRUE(ui::dialog_draw(card, "Delete?", message, "Only yours", "Delete", "Keep", 1, 1, 0, 8, 15, 2,
+                                   false));
+  // The card: three pixels of ink round it and paper inside.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 150));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 150));
+  // **The message wrapped**: there is ink on the first line of it and on a second one under it, which is what a cut
+  // message would not have.
+  int first = 0;
+  int second = 0;
+  for (uint16_t x = 20; x < 380; ++x) {
+    for (uint16_t y = 49; y < 62; ++y) {
+      if (view_level(x, y) == 0) ++first;
+    }
+    for (uint16_t y = 64; y < 77; ++y) {
+      if (view_level(x, y) == 0) ++second;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, first);
+  TEST_ASSERT_GREATER_THAN(0, second);
+
+  // **The two doors**: the cancel is the emphasised one and it is ink inside, the accept is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 260));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(300, 260));
+  // And the geometry a finger asks is the one that was painted.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::dialog_hit(card, 100, 260));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::dialog_hit(card, 300, 260));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::dialog_hit(card, 200, 100));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::dialog_hit(card, 200, 20));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::dialog_draw(card, "x", "y", "", "OK", "", 2, 2, 16, 8, 15, 2, false));
+  ui::release(card);
+}
+
+// **A calendar is seven columns and six weeks, and the first day goes where the weekday says**: the chosen day is
+// inverted, today wears a frame, and the finger asks the same cells the paint put down (docs/30, docs/90).
+void test_a_calendar_puts_the_first_day_where_the_weekday_says() {
+  fresh_view();
+  int8_t grid = -1;
+  TEST_ASSERT_TRUE(ui::create(280, 280, 0, false, grid));
+  TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
+  const char* names[7] = {"M", "T", "W", "T", "F", "S", "S"};
+
+  // November of 2026 starts on a Sunday, which is the last column of the first week, and the third is chosen.
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 11, 3, 5, names, 0, 8, 15, 2, false));
+  // The chosen day: the cell is ink inside and the number is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(42, 82));
+  // The day before it is not chosen and its cell is paper.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 82));
+  // **Today wears a frame**: the top left pixel of its cell is ink and the inside is not.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(121, 81));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(123, 83));
+  // The names of the days are on the row of the header, in the dim tone.
+  int header = 0;
+  for (uint16_t x = 0; x < 280; ++x) {
+    for (uint16_t y = 0; y < 40; ++y) {
+      if (view_level(x, y) == 8) ++header;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, header);
+
+  // **The same cells for the finger**: the chosen cell is the third, the first column of the second week is the
+  // second, and the header is no day at all.
+  TEST_ASSERT_EQUAL_UINT8(3, ui::month_hit(grid, 2026, 11, 50, 90));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::month_hit(grid, 2026, 11, 20, 90));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::month_hit(grid, 2026, 11, 20, 10));
+  // A month of thirty ends before a cell that would be day thirty-one, and a month that does not exist is a paper
+  // frame with no days in it and no day under the finger.
+  TEST_ASSERT_EQUAL_UINT8(0, ui::month_hit(grid, 2026, 11, 260, 250));
+  TEST_ASSERT_TRUE(ui::month_draw(grid, 2026, 13, 3, 5, names, 0, 8, 15, 2, false));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::month_hit(grid, 2026, 13, 50, 90));
+  ui::release(grid);
+}
+
+// **A menu is a card of options and the system's**: an option the app cannot do is hidden and takes no room, the option
+// of the moment is inverted, the ring is where the dial is, the options fill a column before the next one, and the
+// finger asks the same boxes the paint put down (docs/30, docs/90).
+void test_a_menu_hides_the_options_the_app_cannot_do() {
+  fresh_view();
+  int8_t card = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 200, 0, false, card));
+  TEST_ASSERT_TRUE(ui::place(card, 0, 0));
+
+  // Three options in a card of 300x200: three rows of fifty-four pixels, the third one inverted because it is the
+  // option of the moment, and the ring on the second one.
+  const ui::MenuOption three[3] = {
+      {"Copy", "", false, false}, {"Rename", "", false, false}, {"Delete", "", false, true}};
+  TEST_ASSERT_TRUE(ui::menu_draw(card, "", three, 3, 2, 0, 8, 15, 2, true));
+  // The card: three pixels of ink round it and paper inside.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 100));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 100));
+  // A row of paper with a frame of ink, and the option of the moment is inverted.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 30));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 138));
+  // **The ring is on the second row**, in the tone of the words, and the first row wears no ring where the second has
+  // one.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 94));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(22, 94));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(19, 30));
+  // **The boxes the finger asks**: one per row, the padding round the card is no option at all.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", three, 3, 2, 150, 47));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::menu_hit(card, "", three, 3, 2, 150, 101));
+  TEST_ASSERT_EQUAL_UINT8(3, ui::menu_hit(card, "", three, 3, 2, 150, 155));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_hit(card, "", three, 3, 2, 150, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_hit(card, "", three, 3, 2, 150, 190));
+
+  // **The hidden option takes no room**: two rows of eighty-two pixels, so the third option is the second row and
+  // there is nothing under it, and the number the finger gets is the option of the app and not its place on the card.
+  const ui::MenuOption two[3] = {
+      {"Copy", "", false, false}, {"Paste", "", true, false}, {"Delete", "", false, false}};
+  TEST_ASSERT_TRUE(ui::menu_draw(card, "", two, 3, 3, 0, 8, 15, 2, true));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", two, 3, 2, 150, 60));
+  TEST_ASSERT_EQUAL_UINT8(3, ui::menu_hit(card, "", two, 3, 2, 150, 155));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_hit(card, "", two, 3, 2, 150, 190));
+  // The ring went with the third option, which is the second row.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 122));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(22, 122));
+
+  // **Four options fill a column before the next one**: two columns of two with a gap between them, and the gap is no
+  // option.
+  const ui::MenuOption four[4] = {
+      {"One", "", false, false}, {"Two", "", false, false}, {"Three", "", false, false}, {"Four", "", false, false}};
+  TEST_ASSERT_TRUE(ui::menu_draw(card, "", four, 4, 1, 0, 8, 15, 2, false));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", four, 4, 2, 40, 50));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::menu_hit(card, "", four, 4, 2, 40, 150));
+  TEST_ASSERT_EQUAL_UINT8(3, ui::menu_hit(card, "", four, 4, 2, 200, 50));
+  TEST_ASSERT_EQUAL_UINT8(4, ui::menu_hit(card, "", four, 4, 2, 200, 150));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_hit(card, "", four, 4, 2, 150, 50));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::menu_draw(card, "", three, 3, 1, 16, 8, 15, 2, false));
+  ui::release(card);
+}
+
+// **A bar of menus is a row of words with a line under it and one menu that hangs from the word that is down**: the word
+// is inverted, the line under the row is ink, an entry that cannot be used is the dim tone, a dash is not a row a finger
+// presses, and the finger asks the same boxes the paint put down (docs/30, docs/90).
+void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
+  fresh_view();
+  int8_t bar = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 400, 0, false, bar));
+  TEST_ASSERT_TRUE(ui::place(bar, 0, 0));
+
+  const ui::MenuBarEntry file[4] = {
+      {"Open", false, true, true}, {"", true, false, true}, {"Quit", false, false, false}, {"Save", false, false, true}};
+  const ui::MenuBarTitle titles[2] = {{"File", file, 4}, {"Edit", nullptr, 0}};
+  TEST_ASSERT_TRUE(ui::menu_bar_draw(bar, titles, 2, 1, 1, 52, 0, 8, 15, 2, true));
+  // **The row**: paper, with the word whose menu is down inverted, and the line of ink under it.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 26));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(80, 26));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(200, 51));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(200, 52));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(200, 53));
+  // **The menu**: a frame of ink at 0,54 and paper inside.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 80));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 56));
+  // **The box of the tick of the first entry**: a frame of ink, its middle filled, and paper between the two.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 80));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(17, 80));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 80));
+  // **An entry that cannot be used is the dim tone**: there is a level eight in the row of "Quit" and none in the row of
+  // "Open", which is the row of a word that works.
+  int dim_row = 0;
+  int ink_row = 0;
+  for (uint16_t x = 38; x < 180; ++x) {
+    // **The third entry of the menu is the second row under the dash**, and it is the one that cannot be used.
+    for (uint16_t y = 145; y < 159; ++y) {
+      if (view_level(x, y) == 8) ++dim_row;
+    }
+    for (uint16_t y = 75; y < 89; ++y) {
+      if (view_level(x, y) == 8) ++ink_row;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, dim_row);
+  TEST_ASSERT_EQUAL_INT(0, ink_row);
+  // **The boxes the finger asks**: the titles of the row, the entries of the menu, and neither the line between two
+  // entries nor the space past the menu's width.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::menu_bar_title_at(bar, titles, 2, 52, 2, 30, 20));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::menu_bar_title_at(bar, titles, 2, 52, 2, 100, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_bar_title_at(bar, titles, 2, 52, 2, 200, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_bar_title_at(bar, titles, 2, 52, 2, 30, 60));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 100, 80));
+  // **The dash is the second entry of the menu**, so the third one starts right under it and the line itself is no entry.
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 100, 116));
+  TEST_ASSERT_EQUAL_UINT8(3, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 100, 130));
+  TEST_ASSERT_EQUAL_UINT8(3, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 100, 170));
+  TEST_ASSERT_EQUAL_UINT8(4, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 100, 200));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_bar_entry_at(bar, titles, 2, 1, 52, 2, 300, 80));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::menu_bar_entry_at(bar, titles, 2, 0, 52, 2, 100, 80));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::menu_bar_draw(bar, titles, 2, 1, 1, 52, 16, 8, 15, 2, true));
+  ui::release(bar);
+}
+
+// **A box of several lines keeps the caret on the glass**: eight lines in a box of six rows, so the window starts at the
+// third one, the caret is at the end of the last row it shows, and the finger that lands on a row asks for the byte of the
+// text that is there —which is the same arithmetic the paint used— (docs/30, docs/90).
+void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  const char* text = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight";
+  const uint16_t end = static_cast<uint16_t>(strlen(text));
+
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, end, true, false, 0, 15, 0, 2));
+  // Six rows of fourteen pixels in a box of a hundred with a frame and its air.
+  TEST_ASSERT_EQUAL_UINT8(6, ui::textbox_multiline_rows(box, 2));
+  // **The first row on the glass is the third line**, so there is ink at the top of the window.
+  int first_row = 0;
+  for (uint16_t x = 8; x < 60; ++x) {
+    for (uint16_t y = 8; y < 22; ++y) {
+      if (view_level(x, y) == 0) ++first_row;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, first_row);
+  // **The caret is a block after the word of the last row it shows**, and what follows it is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(68, 85));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(80, 85));
+  // **The finger asks the same window**: the first row of the glass is the byte where "three" starts, the second one is
+  // after it, and a point past the end of a row asks for the end of that row.
+  TEST_ASSERT_EQUAL_UINT16(8, ui::textbox_multiline_hit(box, text, end, false, 2, 8, 9));
+  TEST_ASSERT_EQUAL_UINT16(14, ui::textbox_multiline_hit(box, text, end, false, 2, 8, 23));
+  TEST_ASSERT_EQUAL_UINT16(18, ui::textbox_multiline_hit(box, text, end, false, 2, 300, 23));
+
+  // **A wrapped row breaks at the last space that fits**: the room is eighty-four pixels and a letter is twelve, so
+  // "aaaa" is the first row, the space is the break and the next row starts after it.
+  int8_t narrow = -1;
+  TEST_ASSERT_TRUE(ui::create(100, 60, 0, false, narrow));
+  TEST_ASSERT_TRUE(ui::place(narrow, 0, 0));
+  const char* words = "aaaa bbbb cccc";
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(narrow, words, 0, false, true, 0, 15, 0, 2));
+  TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_hit(narrow, words, 0, true, 2, 8, 9));
+  TEST_ASSERT_EQUAL_UINT16(5, ui::textbox_multiline_hit(narrow, words, 0, true, 2, 8, 23));
+  // Without the wrapping the same row is the whole line and the second row of the glass is not a row at all.
+  TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_hit(narrow, words, 0, false, 2, 8, 23));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::textbox_multiline_draw(box, text, end, true, false, 16, 15, 0, 2));
+  ui::release(narrow);
+  ui::release(box);
+}
+
+// **A selector is a field with a question and an answer, and its door is the column of the triangle**: an open field keeps
+// its paper and only that column goes to ink, and the frame gets the weight of the focus (docs/30, docs/90).
+void test_a_selector_is_a_field_with_a_door_on_its_right() {
+  fresh_view();
+  int8_t field = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 60, 0, false, field));
+  TEST_ASSERT_TRUE(ui::place(field, 0, 0));
+
+  TEST_ASSERT_TRUE(ui::selector_draw(field, "Hora", "09:30", false, 0, 8, 15, 0, 3, false));
+  // The field: a hairline of ink, paper inside, and the line of the column at 366.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(0, 30));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 30));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(366, 10));
+  // **The column is paper while the list is not over the field**, and there is a triangle of ink in the middle.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(370, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(383, 30));
+  // **The question in the dim tone and the answer in the ink**: the label at the small size on the left, the value after it.
+  int dim_text = 0;
+  int ink_text = 0;
+  for (uint16_t x = 13; x < 60; ++x) {
+    for (uint16_t y = 20; y < 40; ++y) {
+      if (view_level(x, y) == 8) ++dim_text;
+    }
+  }
+  for (uint16_t x = 71; x < 200; ++x) {
+    for (uint16_t y = 20; y < 40; ++y) {
+      if (view_level(x, y) == 0) ++ink_text;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, dim_text);
+  TEST_ASSERT_GREATER_THAN(0, ink_text);
+
+  // **An open field is paper and only its column goes to ink**: a field that goes dark from end to end reads as the page
+  // going dark, which is what the owner said of the old one.
+  TEST_ASSERT_TRUE(ui::selector_draw(field, "Hora", "09:30", true, 0, 8, 15, 0, 3, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(370, 10));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(383, 30));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 30));
+
+  // **The frame of the focus is two pixels and it is the tone of the words**.
+  TEST_ASSERT_TRUE(ui::selector_draw(field, "Hora", "09:30", false, 0, 8, 15, 0, 3, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 30));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(3, 30));
+  // **Nothing chosen is a value too**: the word the app says, drawn where a value would be.
+  TEST_ASSERT_TRUE(ui::selector_draw(field, "Hora", "-", false, 0, 8, 15, 0, 3, false));
+  int empty_text = 0;
+  for (uint16_t x = 71; x < 200; ++x) {
+    for (uint16_t y = 20; y < 40; ++y) {
+      if (view_level(x, y) == 0) ++empty_text;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, empty_text);
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::selector_draw(field, "Hora", "09:30", false, 16, 8, 15, 0, 3, false));
+  ui::release(field);
+}
+
+// **A band of notifications stacks its cards from the bottom, the newest down**, says how many are waiting with a `+N`, and
+// the cross of a card is the box a finger dismisses with (docs/30, docs/90).
+void test_a_band_of_notifications_puts_the_newest_at_the_bottom() {
+  fresh_view();
+  int8_t band = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 200, 0, false, band));
+  TEST_ASSERT_TRUE(ui::place(band, 0, 0));
+
+  const ui::Notification cards[2] = {{"Saved", "your note"}, {"Wi-fi", "connected"}};
+  TEST_ASSERT_TRUE(ui::notification_bar_draw(band, cards, 2, 2, 0, 8, 15, 0, 2, false));
+  // Two cards of fifty-six pixels: the newest —"Wi-fi"— is the one at the bottom of the frame.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 150));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 100));
+  // The line that separates the card from the cross, and the cross itself: there is ink in the box on the right.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(356, 150));
+  int cross = 0;
+  for (uint16_t x = 369; x < 387; ++x) {
+    for (uint16_t y = 163; y < 181; ++y) {
+      if (view_level(x, y) == 0) ++cross;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(4, cross);
+  // **The cards the finger asks, counted from the bottom**: one is the newest and two is the one over it, and the column of
+  // the cross is the one that dismisses.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::notification_bar_card_at(band, 2, 2, 2, 10, 150));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::notification_bar_card_at(band, 2, 2, 2, 10, 100));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::notification_bar_card_at(band, 2, 2, 2, 10, 20));
+  TEST_ASSERT_TRUE(ui::notification_bar_close_at(band, 2, 2, 2, 380, 170));
+  TEST_ASSERT_FALSE(ui::notification_bar_close_at(band, 2, 2, 2, 10, 150));
+
+  // **What does not fit is not lost**: with five notices and two on the glass, three are waiting and the band says so.
+  TEST_ASSERT_TRUE(ui::notification_bar_draw(band, cards, 2, 5, 0, 8, 15, 0, 2, false));
+  int waiting = 0;
+  for (uint16_t x = 12; x < 60; ++x) {
+    for (uint16_t y = 64; y < 84; ++y) {
+      if (view_level(x, y) == 8) ++waiting;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, waiting);
+  TEST_ASSERT_EQUAL_UINT8(1, ui::notification_bar_card_at(band, 2, 5, 2, 10, 150));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::notification_bar_draw(band, cards, 2, 2, 16, 8, 15, 0, 2, false));
+  ui::release(band);
+}
+
+// **A grid is cells on pages and the page is where the cursor is**: the cell that is chosen is inverted, the cell the dial is
+// on wears the ring, the name is ink even on a chosen cell, and the footer says which page it is —and a finger asks the same
+// cells the paint put down, page included— (docs/30, docs/90).
+void test_a_grid_puts_the_page_where_the_cursor_is() {
+  fresh_view();
+  int8_t grid = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 300, 0, false, grid));
+  TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
+
+  const ui::GridItem cells[8] = {{"Notes", "N"}, {"Clock", "C"}, {"Files", "F"}, {"Paint", "P"},
+                                 {"Music", "M"}, {"Radio", "R"}, {"Codes", "S"}, {"Maps", "G"}};
+  // Three columns of a hundred pixels: the box of the mark is seventy-two, so a cell is a hundred and two pixels high and two
+  // rows fit above the footer. The seventh cell is on the second page.
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 0, 8, 15, 2, true));
+  // **The cell that is chosen is inverted**: its box is ink from edge to edge and the mark is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(40, 40));
+  int mark = 0;
+  for (uint16_t x = 20; x < 80; ++x) {
+    for (uint16_t y = 10; y < 70; ++y) {
+      if (view_level(x, y) == 15) ++mark;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, mark);
+  // The cell next to it is not chosen: the frame is ink and the inside is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(114, 40));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 40));
+  // **The ring of the dial is on the cell it is on**, inside the cell and away from its edge.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(2, 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(6, 6));
+  // The name of a cell is ink, also when the cell is chosen, and the footer says which page this is in the dim tone.
+  int names = 0;
+  int footer = 0;
+  for (uint16_t x = 0; x < 100; ++x) {
+    for (uint16_t y = 84; y < 100; ++y) {
+      if (view_level(x, y) == 0) ++names;
+    }
+  }
+  for (uint16_t x = 100; x < 200; ++x) {
+    for (uint16_t y = 278; y < 296; ++y) {
+      if (view_level(x, y) == 8) ++footer;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, names);
+  TEST_ASSERT_GREATER_THAN(0, footer);
+
+  // **The cells the finger asks, on the page that is on the glass**: the first of the two, the second, and nothing where the
+  // page has no cell, on the footer or in the third column of the second row.
+  TEST_ASSERT_EQUAL_UINT8(7, ui::icon_grid_hit(grid, cells, 8, 7, 3, 2, 50, 20));
+  TEST_ASSERT_EQUAL_UINT8(8, ui::icon_grid_hit(grid, cells, 8, 7, 3, 2, 150, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::icon_grid_hit(grid, cells, 8, 7, 3, 2, 250, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::icon_grid_hit(grid, cells, 8, 7, 3, 2, 50, 150));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::icon_grid_hit(grid, cells, 8, 7, 3, 2, 50, 290));
+  // With no cursor the grid is on the first page, and there the first cell is the first one.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::icon_grid_hit(grid, cells, 8, 0, 3, 2, 50, 20));
+
+  // A colour that is not a level of this panel is refused.
+  TEST_ASSERT_FALSE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 16, 8, 15, 2, true));
+  ui::release(grid);
+}
+
+// **A sparkline is the shape of the window and not its numbers**: the bar of the biggest sample touches the top, the
+// others are proportional to it, there is a gap between two bars, and **the second series is an outline** because the
+// two are parts of one total and the ink is the only level a chart may use (docs/30, docs/90).
+void test_a_sparkline_scales_to_the_peak_of_its_window() {
+  fresh_view();
+  int8_t chart = -1;
+  TEST_ASSERT_TRUE(ui::create(120, 40, 0, false, chart));
+  TEST_ASSERT_TRUE(ui::place(chart, 0, 0));
+
+  const uint16_t samples[3] = {10, 20, 5};
+  TEST_ASSERT_TRUE(ui::sparkline_draw(chart, samples, nullptr, 3, 0, 15));
+  // Three bars of forty pixels: the first is half of the peak and the second is the peak.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 25));   // the first bar, at three quarters of the height
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 15));  // above it
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 2));    // the second is the peak and reaches the top
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(39, 30));  // the gap between the first and the second
+
+  // **The peak of the window and not a fixed scale**: the same shape at another scale.
+  const uint16_t other[3] = {100, 200, 50};
+  TEST_ASSERT_TRUE(ui::sparkline_draw(chart, other, nullptr, 3, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 25));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 15));
+
+  // **Two series**: the bottom one solid and the top one hollow, so the two parts of a total are told apart with
+  // the ink of the frame and not with a colour.
+  const uint16_t below[1] = {5};
+  const uint16_t above[1] = {5};
+  TEST_ASSERT_TRUE(ui::sparkline_draw(chart, below, above, 1, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 0));   // the line on top of the outline
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 10)); // and the outline is empty inside
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 30));  // the solid part, at the bottom
+
+  TEST_ASSERT_FALSE(ui::sparkline_draw(chart, samples, nullptr, 3, 16, 15));
+  ui::release(chart);
+}
+
+// **A pie is four slices at most and its tones are the control's**: two equal slices are the two halves of the disc,
+// the first tone is the one the app chose and the second walks four steps from it, so a legend can say the same
+// numbers (docs/30, docs/90).
+void test_a_pie_is_two_halves_when_the_slices_are_equal() {
+  fresh_view();
+  int8_t pie = -1;
+  TEST_ASSERT_TRUE(ui::create(120, 120, 0, false, pie));
+  TEST_ASSERT_TRUE(ui::place(pie, 0, 0));
+
+  const uint16_t slices[2] = {1, 1};
+  TEST_ASSERT_TRUE(ui::pie_draw(pie, slices, 2, 0, 15));
+  // The disc starts at twelve o'clock and turns clockwise: the right half is the first slice.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(89, 60));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(31, 60));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 2));  // the corner of the frame is not the pie
+
+  // Four slices, the second one a quarter of the whole: the tone walks four steps per slice and the last one stops
+  // at the white of the panel.
+  const uint16_t four[4] = {2, 1, 1, 4};
+  TEST_ASSERT_TRUE(ui::pie_draw(pie, four, 4, 0, 15));
+  // The first slice is the quarter from twelve o'clock to three, and a point on the boundary at three belongs to the slice
+  // that starts there: what is asked is a point inside the first quarter and not the one that ties.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(80, 45));
+  TEST_ASSERT_FALSE(ui::pie_draw(pie, slices, 2, 16, 15));
+  ui::release(pie);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1515,6 +2433,28 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
   RUN_TEST(test_a_label_places_its_line_by_alignment);
   RUN_TEST(test_a_button_paints_a_frame_and_a_second_border_when_pressed);
+  RUN_TEST(test_a_checkbox_is_a_box_with_a_tick_and_a_ring);
+  RUN_TEST(test_a_checkbox_that_redraws_asks_its_child_to_draw_again);
+  RUN_TEST(test_a_progress_bar_fills_a_prefix_of_its_track);
+  RUN_TEST(test_a_slider_puts_the_knob_where_the_value_says);
+  RUN_TEST(test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked);
+  RUN_TEST(test_a_panel_stacks_its_children_in_a_column);
+  RUN_TEST(test_a_row_panel_splits_the_width_and_stretches_the_height);
+  RUN_TEST(test_a_strip_of_tabs_has_no_line_under_the_chosen_one);
+  RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
+  RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
+  RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
+  RUN_TEST(test_a_textbox_keeps_the_caret_on_the_glass);
+  RUN_TEST(test_a_dialog_wraps_its_message_and_has_two_doors);
+  RUN_TEST(test_a_sparkline_scales_to_the_peak_of_its_window);
+  RUN_TEST(test_a_pie_is_two_halves_when_the_slices_are_equal);
+  RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);
+  RUN_TEST(test_a_menu_hides_the_options_the_app_cannot_do);
+  RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);
+  RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
+  RUN_TEST(test_a_selector_is_a_field_with_a_door_on_its_right);
+  RUN_TEST(test_a_band_of_notifications_puts_the_newest_at_the_bottom);
+  RUN_TEST(test_a_grid_puts_the_page_where_the_cursor_is);
   RUN_TEST(test_a_button_that_redraws_asks_its_child_to_draw_again);
   RUN_TEST(test_a_label_inside_a_button_is_clipped_to_the_button);
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);

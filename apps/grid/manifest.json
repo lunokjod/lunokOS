@@ -1,0 +1,8 @@
+{
+  "title": "Grid",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "grid.lua",
+  "boards": ["esp32"],
+  "description": "A menu of things picked with the eye: a box with a short mark and the name under it, on pages that follow the cursor, with the chosen cell inverted and the one the dial is on ringed."
+}

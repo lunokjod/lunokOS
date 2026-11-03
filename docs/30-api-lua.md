@@ -341,7 +341,7 @@ s'han perdut mentre el sistema era apagat.
   `{["in"] = 1000}` encara funciona, però el nom bo és `in_ms`, com a `power.sleep`.
 - **I `a.repeat` tampoc no es pot escriure**: el camp que torna `alarm.list()` s'anomena `repeat` i
   és una paraula reservada, o sigui que es llegeix `a["repeat"]`. Ho fa així l'exemple
-  `data/apps/alarmqueue/`.
+  `apps/alarmqueue/`.
 - **El payload és una cadena o un número.** Una taula dona `E_INVAL` fins que hi hagi un codificador
   JSON; dir-ho és millor que tornar una cosa diferent de la que es va desar.
 - **`on_alarm` no pot esperar**: es crida entre dos torns de l'app, quan la coroutine de l'app està
@@ -359,12 +359,12 @@ function on_alarm(id, payload, meta) ... end
 if not console.is_foreground() then return end   -- dins una finestra, res més
 ```
 
-Tres exemples més, i cada un ensenya una cosa diferent: `run alarmqueue` (`data/apps/alarmqueue/`)
+Tres exemples més, i cada un ensenya una cosa diferent: `run alarmqueue` (`apps/alarmqueue/`)
 obre la **cua del sistema** —quantes n'hi caben, quines hi ha i en quin ordre, cancel·lar-ne una del
-mig—; `run timers` (`data/apps/timers/`) arma tres temporitzadors i demostra que l'app suspesa no
-atura el nucli; i `run alarmset` (`data/apps/alarmset/`) demana per consola quants segons falten i
+mig—; `run timers` (`apps/timers/`) arma tres temporitzadors i demostra que l'app suspesa no
+atura el nucli; i `run alarmset` (`apps/alarmset/`) demana per consola quants segons falten i
 arma una alarma **persistent i amb `raise`**, que és la que fa que el sistema apagui la placa i la
-torni a encendre amb el rellotge (docs/60). I `run later` (`data/apps/later/`) és el cas complet:
+torni a encendre amb el rellotge (docs/60). I `run later` (`apps/later/`) és el cas complet:
 arma una alarma, **surt amb `app.exit()`** i torna per la finestra d'alarma, on diu quants
 mil·lisegons s'ha desviat.
 
@@ -540,7 +540,7 @@ console.print(f:read(200))
 f:close()
 ```
 
-L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'ensenya l'estat i el cos.
+L'exemple de mà és `run page` (`apps/page/`), que baixa una pàgina i n'ensenya l'estat i el cos.
 
 ## `fs`
 
@@ -806,6 +806,26 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
 | `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
+| `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: una **caixa quadrada amb un tick** i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
+| `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
+| `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)` (3/11, 0.69.0) |
+| `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
+| `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El lloc de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)` i la part de lloc lliure que vol cada un amb `child.weight` (3/11, 0.70.0) |
+| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable**: les fletxes canvien la triada i `on_change(self, index)` avisa (3/11, 0.70.0) |
+| `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la gran més gran. **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
+| `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
+| `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (si el bloc es pinta; el parpelleig és de l'app), `mask` (puntets en lloc de lletres), `color`, `scale`. **És enfocable** (3/11, 0.72.0) |
+| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app (3/11, 0.72.0) |
+| `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
+| `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
+| `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
+| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0) |
+| `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
+| `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
+| `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `color`, `background`, `border` i `scale`, i **`box:rows()`** diu quantes files s'hi veuen. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0) |
+| `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
+| `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
+| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0) |
 | `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
@@ -813,7 +833,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
 | `ui.image(x, y, path, [w], [h], [mode])` | `true` o `nil, error` | **Una imatge d'un fitxer**: sense `w` ni `h` es dibuixa a la mida del fitxer; amb una mida, s'escala al més proper |
 | `ui.image_info(path)` | `{format, width, height}` o `nil, error` | El que diu la capçalera del fitxer, **sense dibuixar-lo** |
-| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer** (`/res/*.lfont`, `/res/*.bdf`, `/res/*.pcf` o `/res/*.ttf`); el bloc de glifs és de l'app i compta al seu pressupost, i un `.ttf` és el fitxer sencer |
+| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer**: del seu `res/` (`/res/x.lfont`, `.bdf`, `.pcf` o `.ttf`) o de la carpeta de cares del disc (`/fonts/dejavusans.ttf`, vegeu més avall, docs/70); el bloc de glifs és de l'app i compta al seu pressupost, i un `.ttf` és el fitxer sencer |
 | `ui.font(font)` · `cv:font(font)` | `true` o `nil, error` | La cara de la vista i la d'un canvas; `nil` torna a la del sistema |
 | `font:text_width(text, [scale])` | píxels | Quant fa de llarg una línia amb aquesta cara |
 | `font:size()` | ample, alt, glifs | El que la cara diu de si mateixa |
@@ -938,10 +958,20 @@ end
 ### Les cares: un tipus de lletra que és un fitxer de text
 
 **Una cara és una taula de glifs i una manera de llegir-los**, i la font del sistema és una cara com qualsevol
-altra. Una app carrega una altra cara d'un fitxer de `/res/fonts` amb `ui.load_font`, i el que hi ha dins és
-**text pla**: un glif per bloc i `#` per tinta. El format, els motius pels quals un fitxer es refusa i com es
-paga la memòria són a [`85 · Emulador`](85-emulador.md), que és on viuen les eines de treball; el que aquesta
-taula fixa és la crida i el contracte.
+altra. Una app carrega una altra cara d'un fitxer amb `ui.load_font` —del seu propi `res/` o de `/fonts`, la
+carpeta de cares del disc— i el que hi ha dins és **text pla** en el cas d'un `.lfont`: un glif per bloc i `#`
+per tinta. El format, els motius pels quals un fitxer es refusa i com es paga la memòria són a
+[`85 · Emulador`](85-emulador.md), que és on viuen les eines de treball; el que aquesta taula fixa és la crida
+i el contracte.
+
+- **Les cares del disc són una sola còpia per a tothom** (3/11, 0.68.0). Una cara de debò fa deu a vint
+  kilobytes, i fins avui una app que en volia una se la posava a `apps/<id>/res/`: el mateix DejaVu viatjava
+  dins de dues apps i el disc el pagava dues vegades. `/fonts` és el `res/fonts/` del disc vist des de
+  l'arrel (docs/70), una fila de la taula de muntatges, i una app **la llegeix i no hi escriu**, com `/apps`.
+  El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (8 548 B), `dejavusansmono.ttf`
+  (8 084 B) i `dejavuserif.ttf` (10 896 B) —retallats a l'ASCII imprimible amb `pyftsubset`, i la llicència
+  de DejaVu al costat, `/fonts/LICENCE.txt`—. `run fonts-ttf` i `run label` les fan servir i no en guarden
+  cap còpia.
 
 - **Una cara pot ser parcial**: un codi que no hi és es dibuixa com un forat i la línia avança igual, o sigui
   que una cara de deu xifres és una cara legal i el text del voltant no es desplaça.
@@ -1215,6 +1245,557 @@ notes— a **tres tamanys** (16, 24 i 32 px) dins de **vuit botons blancs**. El 
 un `gc16` que neteja el forat, el focus es renta quan es mou, i els comptes de la consola mostren que un botó
 que canvia també torna a dibuixar el seu fill.
 
+### `UICheckbox`: una caixa, un tick i l'estat
+
+**Un checkbox és una fila** (`ui.checkbox(w, h)`): una **caixa quadrada** a l'esquerra i, a la dreta, el lloc de
+les paraules que diuen què es marca. Les paraules són un `UILabel` fill que es posa amb `cb:add(etiqueta)`,
+exactament com el text d'un botó, i es col·loca amb **`cb:box()`** —els píxels que ocupa la caixa, que són del
+nucli i no un camp—. El marc del control és la fila i el que dibuixa és la caixa que hi ha a dins (docs/30,
+docs/90).
+
+| Camp | Valor | Què fa |
+|---|---|---|
+| `checkbox.background` | 0–15 (15 per defecte) | El nivell de la fila, que és **opaca**: les paraules s'hi posen a sobre |
+| `checkbox.border` | 0–15 (0 per defecte) | El nivell de la vora de la caixa |
+| `checkbox.mark` | 0–15 (0 per defecte) | El nivell del **tick**, que és un color propi perquè un tick negre en una caixa negra és un checkbox que no diu res |
+| `checkbox.checked` | `true` o `false` (fals per defecte) | **L'estat**: l'app el llegeix i l'escriu, i el clic del sistema el gira |
+| `checkbox.pressed` | `true` o `false` | Mentre és cert la caixa és un forat: el cos baixa un pas i el relleu s'inverteix |
+| `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: l'anell es pinta **fora de la caixa** |
+| `checkbox.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil s'hi aturen |
+
+| Callback | Què fa |
+|---|---|
+| `checkbox.on_change(self, checked)` | El clic, **després** de girar l'estat: `checked` és el que hi ha ara |
+| `checkbox.on_focus(self, focused)` | El mateix que el d'un botó: el focus arriba i se'n va |
+
+- **El clic vol dir una cosa i la fa el sistema.** Un checkbox **no crida `on_activate` ni `on_click`**, perquè
+  el seu clic ja té un significat. El camp `checked` ja val el que ha de valer quan arriba `on_change`, i per
+  això una app que només escolta no pot deixar el dibuix i l'estat dient coses diferents. Una app que havia de
+  girar-la ella seria una app que se'n pot oblidar, i un checkbox que no marca la pàgina és un checkbox que ha
+  mentit (docs/30, docs/90).
+- **La caixa és del nucli i es mesura amb `cb:box()`.** El marge de la fila és de quatre píxels a dalt i a baix
+  —el lloc que necessita l'anell del focus—, la vora té el pes que el botó ensenya (tres píxels en una caixa de
+  pàgina, dos en una de petita i un en un xip) i el tick és **dues pinzellades** d'un gruix que creix amb la
+  caixa. Una fila massa curta per a quatre píxels de marge en gasta dos, i una de menys de sis no té caixa.
+- **L'anell del focus va fora de la caixa**, dues píxels de banda i un de pausa abans de la vora: una caixa de
+  dotze píxels amb vora de dos no té lloc per al doble marc que el botó porta a dins, i un anell dibuixat a dins
+  s'empassaria el tick. La fila és de l'app, i una app que vulgui que les paraules diguin el focus les pot
+  pintar al seu `on_focus` (docs/30, docs/90).
+- **La fila és opaca, com el marc d'un botó**: les paraules es componen després del checkbox i queden tapades
+  pel fons nou, o sigui que un checkbox que es redibuixa **invalida els seus fills** i el present els torna a
+  pintar (docs/30, docs/90).
+- **Es pinta amb `du`**, i el canvi el renta l'app amb un `gc16` al present següent: un tick és poca tinta, però
+  un anell que s'ha mogut deixa el fantasma de l'anell anterior (docs/50, docs/90).
+- `checkbox.on_draw` és una funció del sistema; si una app la canvia, deixa de tenir un checkbox i té un control
+  normal amb el seu propi dibuix.
+
+```lua
+local cb = ui.checkbox(300, 48)
+cb:place(20, 80)
+cb.checked = true
+
+local words = ui.label(230, 40)
+words.text = 'The clock'
+words.scale = 2
+words.valign = 'middle'
+words:place(cb:box() + 12, 4)   -- després de la caixa, que és el que diu cb:box()
+cb:add(words)
+
+cb.on_change = function(self, on)
+  console.print('clock ' .. tostring(on))
+end
+ui.present('gc16')
+```
+
+L'app `checkbox` (`run checkbox`) és una pàgina de cinc files: **les paraules dins de cada fila**, una fila que
+**neix marcada**, una que el dial **no pot tocar** (`focusable = false`, i el recorregut del sistema la salta),
+una de fosca amb el tick i la vora blancs, i una línia que compta quantes estan enceses. Cada canvi diu a la
+consola el nom i l'estat nou, i la pàgina es renta amb `gc16` perquè l'anell que s'ha mogut no hi deixi el
+rastre.
+
+### `ui.progress`, `ui.slider` i `ui.row`: el que dibuixa el sistema (0.69.0)
+
+**Cap control no es dibuixa en Lua.** Una app diu els camps, col·loca el control i decideix quan la pàgina va al
+vidre; cada píxel —la pista, el botó, el número, el tick, l'anell del focus— el posa
+`lib/kernel/src/ui.cpp`. És el que fa que dos apps tinguin els mateixos controls, i el que permet que una pàgina
+de controls costi un repintat i no un per control (docs/30, docs/90).
+
+| Control | Camps | Enfocable |
+|---|---|---|
+| `ui.progress(w, h)` | `value` (0 a 100, o **−1 = encara no ho sé**), `background`, `border`, `track` (la pista), `fill` | **no**: una barra no és una cosa que es prem |
+| `ui.slider(w, h)` | `value`, `min`, `max`, `step`, `suffix` (el `%`), `background`, `border`, `track`, `fill`, `text`, `scale` | **sí**: les fletxes mouen el número i `on_change(self, value)` avisa, amb el camp ja escrit |
+| `ui.row(w, h)` | `title`, `detail`, `subtitle`, `text`, `dim`, `background`, `scale`, `marked`, `separator` | **no**: una fila és el dibuix d'una llista |
+
+- **El número d'un slider és del control**: mentre té el focus, les fletxes el mouen de `step` en `step` i al
+  final del recorregut **la tecla torna al recorregut del dial** —que és el que impedeix que una pàgina amb un
+  slider sigui un cul-de-sac—, i això ho fa el sistema, no l'app (docs/30).
+- **Una barra que diu alguna cosa sempre ensenya alguna cosa**: un per cent d'una barra ampla és una punta
+  rodona i no un píxel de res, i un `value` negatiu deixa la pista sola perquè una pàgina que ensenya la barra
+  plena abans de saber res és una pàgina que menteix.
+- **Una fila marcada s'inverteix, no s'engriseix**: a setze nivells, «aquesta és la que està triada» ho diu la
+  tinta i el paper canviats. Cada línia es retalla amb `...` a la seva columna, i el detall va a la dreta amb
+  l'amplada que li queda, o sigui que el nom i la mida no es trepitgen mai.
+
+```lua
+local bar = ui.progress(300, 28)
+bar.value = 50
+bar:place(20, 60)
+
+local s = ui.slider(300, 56)
+s.value = 30
+s.suffix = '%'
+s.step = 5
+s.scale = 3
+s:place(20, 110)
+s.on_change = function(self, value) console.print('slider ' .. value) end
+
+local row = ui.row(300, 64)
+row.title = 'Res'
+row.detail = '1 033 B'
+row.subtitle = 'the sample files of the disk'
+row.separator = true
+row.marked = true
+row:place(20, 190)
+ui.present('gc16')
+```
+
+`run controls` és una pàgina amb els tres: una barra a mig fer, un slider que el dial mou, i quatre files de
+llista amb la tercera marcada. Les proves que mesuren la conseqüència són `test_a_progress_bar_fills_a_prefix_of_its_track`,
+`test_a_slider_puts_the_knob_where_the_value_says` i
+`test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked` a `test_ui`, i
+`test_the_dial_moves_the_value_of_a_slider` a `test_apps` (docs/80).
+
+### `ui.panel`: la pàgina és una declaració (0.70.0)
+
+**Un panel és un lloc, no un dibuix**: no té buffer, no ocupa cap píxel, i l'únic que fa és donar a cada fill el
+seu marc. Tres fluxos: `'vertical'` (una columna: cada fill sota l'anterior, amb el `gap` al mig), `'horizontal'`
+(una fila: cada fill a la dreta de l'anterior) i `'overlay'` (tots al mateix punt, l'últim afegit davant).
+
+- **El `padding` és de dins del panel** i el `gap` és el que hi ha entre dos fills; cap dels dos és una constant del
+  sistema, perquè una pàgina de quatre línies i una de dues no volen el mateix aire.
+- **Un fill és tan gran com el que va demanar** (`ui.label(200, 20)`), i **creuat al flux** és tan gran com el panel:
+  una línia d'una columna és tan ampla com la columna. Això és el que fa que l'app no hagi de dir cap coordenada.
+- **`child.weight` parteix el lloc que sobra**: els fills amb pes 0 es queden la mida que tenen, i el que queda es
+  reparteix pel pes amb **el darrer que pren el romanent** (o cent píxels d'arrodoniment deixarien una tira de pàgina
+  al fons del panel). Un pes de 0 a 15.
+- **Quan es fa el repartiment?** Quan el panel es dibuixa. Per això una pàgina girada, una vista d'una altra mida o
+  un fill afegit de nou es col·loquen sols: l'app no ha de tornar a calcular res.
+- **El fill que no és del panel no es toca**: si un control s'ha mogut a un altre lloc, el panel el salta, o deixaria
+  un forat on no hi ha ningú.
+
+```lua
+local page = ui.panel(300, 400, 'vertical')
+page:place(20, 60)
+page.padding = 12
+page.gap = 8
+
+local title = ui.label(10, 40)
+title.text = 'Alarms'
+title.scale = 3
+page:add(title)
+
+local body = ui.label(10, 100)
+body.text = 'Nothing to wake up for'
+body.weight = 1          -- es queda el lloc que sobra
+page:add(body)
+ui.present('gc16')
+```
+
+### `ui.tabs` i `ui.dots`: on ets a la pàgina (0.70.0)
+
+- **`ui.tabs`**: `items` és un array de paraules (vuit com a molt) i `index` és quina està triada, 1 a n; **0 vol dir
+  cap**. Les columnes són iguals, i **la triada és la que no té la línia a sota**: a dos tons no hi ha negreta ni
+  color, i treure la línia és el que diu «ets aquí» (el que el vell va aprendre a `tab_strip.h:44`). Les fletxes del
+  dial la mouen mentre té el focus i l'app ho sap per `on_change(self, index)`.
+- **`ui.dots`**: `pages` i `current`, i la del `current` més gran. **Amb una sola pàgina no dibuixa res** —un punt sol
+  no diu res i costaria un repintat del panel per dir-ho— i el lloc de cada punt és el del més gran, o la tira es
+  mouria de costat quan la gran canvia de punta.
+- Cap dels dos no és un dibuix de l'app: són controls del nucli, com la resta (docs/92 §10).
+
+### `ui.list`: files en pàgines, i mai scroll (0.71.0)
+**A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una
+llista **pagina**, i el peu diu en quina pàgina ets.
+
+- **`items` és una taula de taules** (`{title=..., detail=..., subtitle=...}`) o **de cadenes**, que són el títol.
+  Les files es pinten amb el mateix pintor que `ui.row` —un sol pintor, o la llista i la fila divergiran— i la
+  fila `marked` s'inverteix.
+- **Quantes files hi caben i quantes pàgines surten és una sola aritmètica**, i la pregunta la contesta el nucli: el
+  peu només existeix si hi ha més d'una pàgina i, quan hi és, es queda la seva banda i les files es compten **de nou**
+  en el que queda. Una llista que digués «2 / 4» sobre les files de la cinquena pàgina seria una llista que menteix.
+- **`marked` és una fila de tota la llista** i el control en pinta una pàgina: una fila d'una altra pàgina no és la
+  triada d'aquesta, i el control ho sap (zero).
+- **Les fletxes del dial canvien la pàgina** mentre la llista té el focus i l'app ho sap per `on_page(self, page)`.
+  El peu només ensenya el galó del costat on hi ha alguna cosa, i al final del recorregut la tecla torna al dial.
+- **No hi ha cap `visible` i cap control amagat**: la llista no té fills, sinó una taula de dades. Una llista feta de
+  controls `ui.row` és possible, però llavors les files que no toquen es dibuixarien igualment i el que s'hauria de
+  fer és una altra cosa (docs/90).
+
+```lua
+local l = ui.list(view.width - 32, 360)
+l:place(16, 120)
+l.row_height = 56
+l.separator = true
+l.items = {
+  { title = 'Res',  detail = '1 033 B', subtitle = 'the sample files' },
+  { title = 'Apps', detail = '48',      subtitle = 'the apps of this build' },
+  { title = 'Data', detail = '4 096 B', subtitle = 'what the apps wrote' },
+}
+l.marked = 2
+l.on_page = function(self, page) console.print('page ' .. page) end
+ui.present('gc16')
+```
+
+### `ui.textbox` i el teclat del sistema (0.72.0)
+
+**El cursor és la meitat important d'una caixa de text**, i aquí és un **bloc tan ample com la lletra que té a
+sota**, pintat amb la tinta i amb aquella lletra en paper —un bloc ple taparia la lletra que es va a escriure a
+sobre, i un contorn seria una caixa dibuixada sobre una altra caixa—.
+
+- **El text és una finestra**: si la línia no hi cap, cauen les lletres del començament fins que el cursor queda
+  al vidre. Sense això, qui escriu al final d'una paraula llarga escriu en un lloc que no es veu (docs/90).
+- **El parpelleig és de l'app**: el control no té rellotge, i un control amb rellotge és un control que continua
+  pintant quan ningú no escriu. L'app gira `box.caret` en un torn lent i prou.
+- **`mask`** dibuixa un puntet per lletra: és el mateix requadre amb els punts al lloc de les lletres, i per tant el
+  cursor cau on cauria i l'amplada del que s'ha escrit no es filtra.
+- **`cursor` és quants bytes hi ha abans del cursor**, no una lletra: una lletra pot fer dos bytes.
+
+**El teclat no és un control, és del sistema.** És una **banda** que el nucli pinta a baix de la vista, sobre la
+pàgina ja composta, i que **pren el dit i el dial abans que els controls de la pàgina**:
+
+| Crida | Què fa |
+|---|---|
+| `kb.target = box` | La caixa on escriu. És l'únic camp que té |
+| `kb:show('alpha')` · `kb:show('numeric')` | La banda surt, amb el joc de tecles que es demana |
+| `kb:hide()` | La banda marxa (i marxa sola quan l'app s'acaba) |
+| `kb:height()` | **La banda que pren**, perquè la pàgina de l'app sigui la part que queda |
+| `kb:visible()` | Si és al vidre |
+
+- **L'app no mana cap tecla**: cada tecla arriba a la caixa que ha nomenat, la caixa escriu el camp i tot seguit
+  avisa amb `on_change(self, text)`. El **13** no és cap lletra: és el `OK`, i la caixa diu `on_enter(self)` i no
+  toca el text.
+- **Les fletxes del dial caminen les tecles** i el centre prem la que hi ha: una placa de tres tecles també pot
+  escriure. El recorregut **salta les caselles buides** —una mitja fila de tecles buides faria deu premudes per
+  creuar-la.
+- **La tecla on ets s'inverteix** i la resta són caixes de paper, que és el mateix senyal que una fila marcada.
+- **Les lletres són majúscules**, perquè la cara del sistema només en té; una app que carregui una altra cara
+  (`ui.load_font`) i vulgui minúscules les ha de decidir ella al seu `on_change`.
+
+```lua
+local box = ui.textbox(view.width - 32, 56)
+box.scale = 3
+box.cursor = 0
+box.on_change = function(self, text) console.print('now "' .. text .. '"') end
+
+local kb = ui.keyboard()
+kb.target = box
+kb:show('alpha')
+local band = kb:height()          -- el que la pàgina no té
+ui.present('gc16')
+```
+
+`run typing` és la pàgina sencera: una caixa, el teclat, el cursor que parpelleja i el que diu el `on_enter`.
+
+### `ui.dialog`: una targeta i dues portes (0.73.0)
+
+**Un diàleg és una targeta opaca sobre la pàgina** —el marc de tres píxels és el que diu que és a sobre i no una
+part de la pàgina— amb un títol, un **missatge que s'ajusta en línies** i dues portes.
+
+- **El missatge no es talla amb `...`**: una targeta que diu mitja pregunta és una targeta que ningú no pot
+  contestar. Les línies trenquen on hi caben (a l'últim espai que hi entra) i l'espai que queda sobre les portes és
+  el que decideix quantes n'hi ha — sis com a molt (docs/90).
+- **`emphasis` diu quina porta és la de defecte** i s'inverteix (tinta amb les paraules en paper); **`choice` diu on
+  és el dial** i porta l'anell. Dos senyals perquè en aquest vidre no hi ha color per dir «aquesta és la bona».
+- **Les fletxes caminen les dues portes** i el centre prem la que hi ha: `on_accept(self)` o `on_cancel(self)`.
+- **El dit tria la porta que toca**, no la que tenia l'anell: la geometria de les portes és una sola i la pregunten
+  el dibuix i el dit (docs/90).
+- **Tancar la targeta és de l'app**, amb la regla del vell: llegir l'acció, tancar i després executar-la —així una
+  acció pot reiniciar la placa sense la targeta a sobre (`OLD/PaperOS/src/ui/modal.h:44`).
+- Una targeta estreta posa **una sola porta** a tot l'ample; la que es diu és l'`accept`.
+
+```lua
+local card = ui.dialog(380, 260)
+card:place(80, 200)
+card.title = 'Delete?'
+card.text = 'This card deletes every note you wrote and there is no way back'
+card.note = 'Only yours'
+card.accept = 'Delete'
+card.cancel = 'Keep'
+card.emphasis = 1                       -- el cancel·lar és el de defecte
+card.on_accept = function(self) console.print('deleted') end
+card.on_cancel = function(self) console.print('kept') end
+ui.present('gc16')
+```
+
+`run dialog` és una pàgina amb una targeta i prou, per provar-la amb el dial i amb el dit.
+
+### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
+
+- **`ui.sparkline`**: una barra per mostra, la més vella a l'esquerra, i **l'alçada contra el pic de la finestra** i no
+  contra un màxim fix —la forma es llegeix igual amb una escala de deu que amb una de deu mil, i això és el que es
+  demana a un sparkline—. Una mostra que no és zero **sempre ensenya un píxel**: un u per cent en un gràfic de quaranta
+  és menys d'un píxel, i una barra de res es llegeix com un zero.
+- **`top` és la segona sèrie i es dibuixa buida**: quan les dues dades són parts d'un mateix total (el temps despert i
+  el temps adormit d'un interval), la de baix és sòlida i la de dalt només la vora, i la proporció es veu abans de
+  llegir cap número. És el que el vell va aprendre a `sparkline.h`.
+- **`ui.pie`**: quatre porcions com a molt, els angles de la seva suma, i **el pastís comença a les dotze i gira cap a la
+  dreta**. Els tons són `color`, `color+4`, `color+8` i `color+12` (tallats a 15): l'app els pot calcular igual per a la
+  llegenda, i per això el control no torna cap número de color.
+- **Les dues són de només mirar**: no són enfocables i no tenen estat. Una gràfica no es prem, i el que canvia són les
+  dades, que les posa l'app.
+- **Un gràfic no compara la seva taula**: dues taules de Lua no són mai la mateixa, així que assignar `samples` o
+  `slices` és sempre un repintat. És el que vol una app que acaba de mesurar una cosa.
+
+```lua
+local spark = ui.sparkline(300, 60)
+spark.samples = { 12, 18, 9, 24, 20, 31, 28, 33 }
+spark:place(20, 100)
+
+local pie = ui.pie(160, 160)
+pie.slices = { 5, 3, 2 }
+pie:place(20, 200)
+ui.present('gc16')
+```
+
+### `ui.month`: el calendari (0.75.0)
+
+- **Set columnes i sis setmanes sempre**: un mes que comença en diumenge en necessita sis, i una fila que apareix al
+  març i desapareix a l'abril mou tot el que hi ha sota el calendari.
+- **Els noms dels dies els posa l'app** (`weekdays`, set cadenes): com es diu un dimarts és una llengua, i la llengua
+  no és del nucli. La setmana comença en **dilluns**.
+- **Quin dia de la setmana cau el dia 1 i quants dies té el mes els sap el nucli** (`kernel/calendar.h`): és l'única
+  còpia de la regla dels anys de traspàs de tot el sistema, i el dial s'atura a l'últim dia del mes perquè pregunta a
+  la mateixa funció (docs/60).
+- **Dos senyals**: el dia triat s'**inverteix** i el d'avui porta **marc**; en aquest vidre no hi ha color per a dues
+  coses.
+- **Les fletxes caminen els dies** i el centre en tria un amb `on_pick(self, day)`; **un dit tria el dia on és**, amb
+  les mateixes cel·les que el dibuix.
+
+```lua
+local grid = ui.month(300, 300)
+grid.year = 2026
+grid.month = 11
+grid.selected = 3
+grid.today = 5
+grid.weekdays = { 'dl', 'dt', 'dc', 'dj', 'dv', 'ds', 'dg' }
+grid.on_pick = function(self, day) console.print('day ' .. day) end
+ui.present('gc16')
+```
+
+### `ui.menu`: el menú contextual (0.76.0)
+
+És el control que surt **sobre la pàgina quan una persona pregunta què es pot fer amb una cosa**. L'app el crea, li diu
+les opcions i el col·loca on vol —normalment on és el dit, i per això és contextual—, i la resta és del sistema.
+
+- **Les opcions són paraules i no icones**: una paraula diu què fa i no s'ha d'endevinar. I **no porta cap fila de
+  «Tanca»**: el dit fora de la targeta i la tecla enrere ja són la sortida, i una fila de «Tanca» en un menú de tres és
+  la quarta opció.
+- **Una opció que l'app no pot fer ara s'amaga i no es mostra morta** (`hidden`): aquest vidre té dos tons i no hi ha
+  manera de dibuixar una fila desactivada que es distingeixi d'una d'activa, i una fila que sembla que fa una cosa i no
+  en fa cap és pitjor que no tenir-la. Una opció amagada **no ocupa lloc, no es pot tocar i el dial no hi passa**.
+- **Una opció per caixa, i una columna abans de la següent**: un menú de quatre en una targeta ampla són dues columnes
+  de dues, i les columnes es reparteixen senceres. **Cap caixa fa menys de 52 píxels d'alçada** —el mínim que aquest
+  sistema es permet per a res que s'hagi de tocar amb el dit— i les caixes **creixen** fins a omplir la targeta: tres
+  opcions en una targeta alta són tres portes altes.
+- **Dos senyals, com al calendari**: l'opció de `primary` s'**inverteix** i el dial dibuixa **l'anella** dins de la
+  caixa on és, en el to de les paraules, que és el que contrasta tant si la caixa és paper com si és tinta.
+- **`tag`** és una paraula curta al davant de l'etiqueta («sys» per a una app del sistema, «lua» per a un guió) i va en
+  el to `dim`, perquè el que una persona llegeix és l'etiqueta.
+- **Les fletxes caminen les opcions que són a la targeta** (les amagades les salta) i **el centre en tria una** amb
+  `on_pick(self, index)`, on `index` és el número de l'opció dins d'`items`. **Un dit tria la caixa que prem**, no la
+  que tenia l'anella. **Tancar el menú és de l'app**: la regla de sempre, llegir l'acció, tancar i llavors fer-la.
+- **Si `index` apunta a una opció amagada no es dibuixa cap anella** —l'app està assenyalant una cosa que no és a la
+  targeta— i la primera fletxa la porta a la que hi ha en aquella direcció. I una targeta que no hi cap és una targeta
+  que l'app ha mida malament: les opcions que no hi tenen caixa no es dibuixen.
+- **Una targeta que apareix sota un dit que ja hi és es pressa amb aquell mateix dit**: el nucli el veu al torn
+  següent, el prem i, en aixecar-lo, tria l'opció on és el dial —la primera—. Per això **un menú contextual s'obre quan
+  el dit s'aixeca** i no quan toca (`apps/menu` ho fa així): un menú amb «Delete» a dins que es dispara perquè el dit
+  que l'ha demanat encara hi era no és un detall.
+
+```lua
+-- Un menú contextual: surt on és el dit i fa una cosa amb allò que hi ha allà.
+local card = ui.menu(300, 220)
+card.title = 'Note'
+card.items = {
+  { label = 'Open', tag = 'lua' },
+  { label = 'Rename', hidden = true },   -- res a renombrar encara
+  { label = 'Delete', primary = true },
+}
+card.on_pick = function(self, index)
+  console.print('option ' .. index)
+  card:release()                         -- tancar-lo és de l'app
+end
+card:place(80, 200)                      -- o on era el dit quan es va aixecar
+ui.present('gc16')
+```
+
+### `ui.menu_bar`: la barra de menús (0.77.0)
+
+Una fila de paraules amb una línia a sota i **el menú que penja de la paraula que està desplegada**. És el control d'una
+pàgina amb feina a fer —un editor, un gestor de fitxers— on les accions no caben en botons.
+
+- **Cinc paraules i setze entrades com a molt**, i **un sol nivell**: una entrada no porta submenú, perquè on s'obre un
+  submenú és una decisió de dibuix que aquest sistema no ha pres (el vell va fer la mateixa tria). Les paraules que no hi
+  caben es reparteixen en columnes iguals, perquè una paraula amb el final tallat no la llegeix ningú.
+- **El marc del control és tota la pàgina i el control només en pinta dues caixes**: la fila i el menú desplegat. La
+  resta és de l'app, i per això una barra que dona tota l'alçada de la pàgina no esborra el que hi ha a sota (docs/90).
+- **Una entrada que l'app no pot fer ara es desactiva** (`enabled = false`) i es dibuixa **en el to `dim`**, i **no
+  s'amaga**: al contrari que al menú contextual, la fila es queda on és perquè el menú no canviï de mida el dia que
+  torno a estar disponible. I **no respon ni al dit ni al dial**.
+- **Una ratlla (`'-'`) és una línia entre dues entrades**, amb el seu aire: no és una fila que el dit premi ni una parada
+  del dial.
+- **Un tick és una caixa amb el mig ple** (`checked`): dos tons i cap gris, o sigui que «està encesa» és la caixa que té
+  alguna cosa a dins i «està apagada» la que està buida. **Qui sap l'estat és l'app**: ella escriu `checked` i torna a
+  donar la taula d'`items`, que és sempre un repintat.
+- **El dit**: a un títol plega o desplega el seu menú (i el títol desplegat s'inverteix); a una entrada la posa al dial i
+  **el deixar anar tria**. **El dial**: amb un menú desplegat, les fletxes caminen les entrades que es poden triar i el
+  centre tria; **sense cap menú, la fletxa torna al recorregut del dial**, que és el que impedeix que una pàgina amb una
+  barra sigui un cul-de-sac.
+- **Una elecció crida `on_pick(self, title, entry)` amb el menú ja plegat**: la regla de sempre, llegir l'acció, plegar i
+  llavors fer-la. `title` i `entry` són els números dins d'`items` del títol i del seu menú.
+
+```lua
+local bar = ui.menu_bar(500, 300)
+bar:place(20, 40)
+bar.items = {
+  { title = 'File', items = { {label = 'Open'}, '-', {label = 'Save'},
+                             {label = 'Quit', enabled = false} } },
+  { title = 'View', items = { {label = 'Wrap', checked = true} } },
+}
+bar.on_pick = function(self, title, entry)
+  console.print('menu ' .. title .. ' entry ' .. entry .. ' (open ' .. self.open .. ')')
+end
+ui.present('gc16')
+```
+
+### `ui.textbox_multiline`: el camp de diverses línies (0.78.0)
+
+El germà d'`ui.textbox` amb lloc per caure-hi: **el mateix marc, el mateix cursor de bloc i el mateix cursor en bytes**.
+El que canvia és què fa amb un text que no hi cap.
+
+- **La finestra segueix el cursor**: el text no es desplaça sol, les files que es veuen són les que contenen el cursor, i
+  quan el text és més curt que la caixa les files queden a dalt on les va escriure la persona. Un camp de diverses línies
+  que deixa escriure fora del vidre és un camp on ningú veu el que tecleja (docs/90).
+- **`wrap` és una manera de pintar i no un canvi del text**: apagat, una fila és una línia i una línia més llarga que la
+  caixa es talla a la vora; encès, una fila es parteix a l'últim espai que hi cap —i l'espai que parteix no es dibuixa—.
+  **No s'escriu ni un byte dins del text** de cap de les dues maneres.
+- **On acaba una fila i on és el cursor surten d'una sola funció**, o sigui que el cursor del dibuix i el cursor del dit
+  no es poden contradir; **el cursor és un bloc de tinta amb la lletra de sota en paper**, com al camp d'una línia.
+- **El dit posa el cursor allà on toca**: la fila pel `y` i la lletra pel `x`, mesurada amb la font, que és l'única cosa
+  que sap com n'és d'ample una lletra. Un punt passat el final d'una fila és el final d'aquella fila.
+- **Retorn escriu un salt de línia i no acaba l'edició**, que és el que fa en un camp d'una línia (`on_enter`). El text
+  arriba sencer a `on_change(self, text)` després de cada tecla, i **`box:rows()`** diu quantes files s'hi veuen, preguntat
+  a la mateixa aritmètica del dibuix.
+
+```lua
+local box = ui.textbox_multiline(500, 300)
+box:place(24, 80)
+box.scale = 2
+box.wrap = true
+box.text = 'Notes\n\nThe enter key starts a new line here.'
+box.cursor = 0
+console.print('rows ' .. box:rows())
+local kb = ui.keyboard()
+kb.target = box
+kb:show('alpha')
+box.on_change = function(self, text) saved = text end
+ui.present('gc16')
+```
+
+### `ui.selector`: el camp que s'escull (0.79.0)
+
+**La pregunta en el to `dim` i petit a l'esquerra, la resposta en tinta a la dreta, i una columna amb una fletxa a la vora
+dreta: aquesta columna és la porta.** Un valor d'un conjunt conegut no vol un teclat: escriure una data i una hora
+senceres en aquest vidre baixa la vista a 581 px, els dígits són petits i un dígit equivocat és un valor que sembla
+correcte.
+
+- **La llista no és al control**: el camp és una porta, i el dit o el centre disparen **`on_open(self)`**, on l'app posa un
+  `ui.menu` (o un `ui.list` si les opcions són moltes) que dibuixa el sistema com qualsevol altre control. El sistema no pot
+  guardar una taula que no és seva, i l'app ja la té.
+- **El valor buit és un estat de debò**: `index = 0` i el camp dibuixa `empty` —el que l'app digui en la seva llengua— allà on
+  aniria el valor. Un camp que sempre té valor menteix sobre què s'ha decidit.
+- **Obert, el camp continua sent paper**: només la columna de la fletxa s'inverteix. Un camp que es torna negre de cap a
+  cap es llegeix com que tota la pàgina s'ha apagat.
+- **Dos tons i dues mides**: la pregunta és petita i grisa i la resposta és cos i tinta, i no un tercer color, que és el que
+  manté el control servible amb un repàs `Du`.
+- Qui escriu `index` és l'app (dins del `on_pick` del seu menú) i **qui apaga `choosing` també**: el control dibuixa i prou.
+
+```lua
+local hour = ui.selector(480, 56)
+hour:place(24, 90)
+hour.label = 'Hour'
+hour.items = { '08', '09', '10' }
+hour.empty = '-'
+hour.on_open = function(self)
+  local card = ui.menu(240, 200)
+  card.items = hour.items
+  card.on_pick = function(that, index)
+    hour.index = index
+    hour.choosing = false
+    card:release()
+    ui.present('gc16')
+  end
+  ui.present('gc16')
+end
+```
+
+### `ui.notification_bar`: la banda dels avisos (0.80.0)
+
+Una targeta d'una punta a l'altra per cada avís, amb títol, text i creu, **apilades cap amunt amb la més nova a baix**: és
+la que queda més a prop del dit i la que marxa primer.
+
+- **Tres com a molt al vidre, i el que no hi cap no es perd**: la banda ho diu amb un **`+N`** a sobre. Un avís que
+  desapareix sense dir-ho és un avís que algú ha perdut.
+- **La creu descarta pel camí d'entrada** (fer fora és una ordre i no un estat de prémer) i **la resta de la targeta obre
+  pel camí de sortida**, com qualsevol altra tria del sistema. La creu sap quin avís és: `on_close(self, item)`.
+- **El centre descarta la més nova**, perquè un avís que una placa sense tàctil no pot fer fora és un avís que es queda per
+  sempre.
+- **La llista d'avisos és de l'app**: el control els pinta i no els guarda. `table.remove(band.items, item)` i tornar a
+  donar la taula és tot el que cal.
+
+```lua
+local band = ui.notification_bar(540, 240)
+band:place(0, 672)
+band.items = { { title = 'Battery', text = 'low' },
+               { title = 'Saved', text = 'your note' } }
+band.on_close = function(self, item)
+  table.remove(band.items, item)
+  band.items = band.items
+  ui.present('gc16')
+end
+ui.present('gc16')
+```
+
+### `ui.icon_grid`: la graella de cel·les (0.81.0)
+
+**Una icona amb el nom a sota, en pàgines.** És el control d'un menú de coses: **la marca de la caixa és el que es reconeix
+d'un cop d'ull i el nom és el que ho confirma**, i per això un menú d'apps és una graella i no una llista.
+
+- **La pàgina segueix el cursor**: l'app dona la llista sencera (48 cel·les com a molt) i **no gira mai una pàgina**; el peu
+  diu on és (`2 / 3`) en el to `dim`, i el repàs és el mateix d'una llista.
+- **Dos senyals com al calendari**: la cel·la `marked` s'**inverteix** (la caixa de la icona passa a tinta i la marca a
+  paper) i la cel·la on és el dial porta **l'anella** dins de la cel·la.
+- **El nom es queda en tinta encara que la cel·la estigui triada**: seu sobre el paper de la pàgina i no dins de la caixa de
+  la icona, i per tant no segueix la inversió. Una cel·la triada amb el nom en paper sobre paper seria un nom invisible.
+- **La icona és una caixa amb una paraula curta a dins** (`mark`): aquest nucli no té cap mapa de bits propi —una taula de
+  bytes per icona és una cosa que ningú no pot comprovar llegint-la— i una app que vulgui una imatge de debò ja té
+  `ui.image` en un canvas seu.
+- **Les fletxes caminen les cel·les** i al primer i a l'últim la tecla torna al recorregut del dial; el centre i el dit trien
+  amb `on_pick(self, index)`. **Un dit tria la cel·la que prem**, no la que tenia l'anella.
+- **`columns = 0`** deixa que el control decideixi les columnes per l'amplada, amb noranta-sis píxels com a cel·la més estreta:
+  dues meitats d'un objectiu no són dues coses que es puguin prémer.
+
+```lua
+local grid = ui.icon_grid(500, 400)
+grid:place(20, 60)
+grid.items = {
+  { label = 'Notes', mark = 'N' }, { label = 'Clock', mark = 'C' },
+  { label = 'Files', mark = 'F' }, { label = 'Paint', mark = 'P' },
+}
+grid.marked = 1
+grid.on_pick = function(self, index) console.print('cell ' .. index) end
+ui.present('gc16')
+```
+
 ## El que costa, contat a la porta
 
 **`stats` no és una línia de log i no porta etiquetes**: és una taula, i la llegeix una persona. Les
@@ -1348,6 +1929,15 @@ toc és una app que no fa res més.
 | `touch.caps()` | `{points, width, height}` | Quants dits alhora i **la mida de la vista de l'app**, que és el marc en què compten les coordenades (`ui.caps()` diu el mateix) |
 | `touch.read()` | taula de `{id, x, y, size}` | Els dits que hi ha **ara**, de la darrera lectura del nucli (el nucli pregunta al xip a cada torn). Taula buida quan no toca ningú, no `nil`, perquè un bucle la pugui recórrer sense preguntar |
 | `touch.gesture()` | `{kind, x, y, dx, dy, spread, held_ms, fingers}` o `nil` | L'últim gest, i **es pren una vegada**: preguntar-ho dues vegades no el repeteix |
+
+- **Un fotograma que no ha arribat no és un dit que s'aixeca** (3/11). El xip entrega el fotograma
+  d'un escaneig **una vegada** i el driver se'l queda, o sigui que qui pregunta més de pressa que el
+  vidre llegeix «no hi ha ningú» entre dos fotogrames del mateix dit. El nucli llegia aquests buits com
+  un aixecament: **un sol toc en una targeta triava dues opcions**, un botó aguantat es deixava anar
+  sol, i el gest sortia com una fila de tocs. Ara el fotograma que no arriba **manté el que hi havia**
+  fins que el vidre calla un escaneig sencer (30 ms, tres dels deu del xip); el gir del fotograma es fa
+  només quan n'arriba un de nou, perquè es fa sobre el mateix buffer i girar-ne un de guardat el girava
+  un cop per torn (el punt anava marxant sol).
 
 - **Els gestos els fa el sistema, no el xip.** El GT911 té gestos propis i ni el driver de M5 ni el
 d'Espressif els llegeixen. Aquí són **formes del flux de punts**: `tap` (cau i s'aixeca en menys de
@@ -1505,7 +2095,7 @@ end
 | Crida | Torna | Notes |
 |---|---|---|
 | `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"`, `"timer, clock"` o `"none"`) |
-| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i al banc és sempre fals. **De mà**: `run battery` (`data/apps/battery/`) ensenya els dos camins |
+| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i al banc és sempre fals. **De mà**: `run battery` (`apps/battery/`) ensenya els dos camins |
 | `power.sleep(opts)` | **promesa** | `{mode="light" o "deep", in_ms=<ms> o until=<època en segons>}`; es resol `true` quan la placa torna |
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
@@ -1563,8 +2153,8 @@ end
 power.sleep({ mode = 'deep', in_ms = 300000 }):await()   -- cinc minuts
 ```
 
-L'exemple de mà és `run sleepy` (`data/apps/sleepy/`), que dorm cinc minuts, desa quantes vegades ho ha
-fet i ho torna a llegir quan la placa arrenca. I `run rtccheck` (`data/apps/rtccheck/`) és el que
+L'exemple de mà és `run sleepy` (`apps/sleepy/`), que dorm cinc minuts, desa quantes vegades ho ha
+fet i ho torna a llegir quan la placa arrenca. I `run rtccheck` (`apps/rtccheck/`) és el que
 mesura: diu d'on surt l'hora, què pot despertar la placa, on és la bateria, quant ha durat de debò
 una espera d'un segon i, després d'un son de vint segons, **quants mil·lisegons s'ha desviat** el
 despert de l'hora demanada.

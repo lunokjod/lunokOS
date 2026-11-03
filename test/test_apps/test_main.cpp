@@ -434,10 +434,12 @@ void test_the_exit_code_reaches_the_shell(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "app exit 5"), g_out);
 }
 
-// open hands the file to the app that declares the extension.
+// open hands the file to the app that declares the extension. **The disk of this build has three apps that open
+// `.txt`** —`edit`, `wc` and `txt`—, so the test names the one it wants: `open <path>` alone asks which one, and the
+// question would eat the next line of the test as its answer (docs/40, docs/30).
 void test_open_hands_the_file_to_the_app(void) {
   TEST_ASSERT_TRUE(boot_once());
-  TEST_ASSERT_TRUE(run_captured("open res/hola.txt", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("open txt res/hola.txt", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL(strstr(g_out, "file res/hola.txt"));
 }
 
@@ -1128,6 +1130,60 @@ void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   storage->remove("/apps/sdreader");
 }
 
+// **The faces of the disk are one area for every app** (3/11): `/fonts` is the disk's `res/fonts/`
+// seen from the root, so an app reads a face without carrying a copy of it, and what it finds there
+// is not only a file but a face the reader can wear — the two halves of "a font works" (docs/30,
+// docs/70).
+void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The prompt sees the mount and walks it, and the licence of the faces travels with them.
+  pump_captured(20, g_out, sizeof(g_out), "mounts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/fonts"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "ls fonts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "dejavusans-bold.ttf"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "LICENCE.txt"), g_out);
+
+  TEST_ASSERT_TRUE(add_app(storage, "facedoor",
+                           "{\"title\":\"Facedoor\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local licence, lerr = fs.read('/fonts/LICENCE.txt', 64)\n"
+                           "console.print('read ' .. tostring(licence and #licence) .. ' '\n"
+                           "  .. tostring(lerr and lerr.code))\n"
+                           "local face, ferr = ui.load_font('/fonts/dejavusans-bold.ttf')\n"
+                           "console.print('face ' .. tostring(face ~= nil) .. ' '\n"
+                           "  .. tostring(ferr and ferr.message))\n"
+                           "if face ~= nil then\n"
+                           "  local w, h, glyphs = face:size()\n"
+                           "  console.print('size ' .. w .. ' ' .. h .. ' ' .. glyphs)\n"
+                           "  console.print('wide ' .. tostring(face:text_width('Handgloves', 4) "
+                           "> 0))\n"
+                           "  face:release()\n"
+                           "end\n"
+                           "local ok, werr = fs.write('/fonts/x.txt', 'no')\n"
+                           "console.print('write ' .. tostring(ok) .. ' ' .. tostring(werr and "
+                           "werr.code))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run facedoor", g_out, sizeof(g_out)));
+  // The file is reachable: sixty-four bytes of the licence come back and no error with them.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 64 nil"), g_out);
+  // And it is a face: the reader takes it, says it is outlines (`0, 8, 0`, docs/30) and measures a
+  // line, which is what a page needs before it draws a word.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "face true nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "size 0 8 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wide true"), g_out);
+  // A face of the disk is the person's: an app reads it and does not write it (docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("res/fonts/x.txt", info), "an app wrote in /fonts");
+
+  storage->remove("/apps/facedoor/app.lua");
+  storage->remove("/apps/facedoor/manifest.json");
+  storage->remove("/apps/facedoor");
+}
+
 // The settings follow the card, and that is the reason the card comes first: a card can be
 // taken out and put in another board, and its `cfg/` goes with it (docs/70).
 void test_the_settings_of_an_app_go_to_the_card_when_there_is_one(void) {
@@ -1286,8 +1342,8 @@ void test_the_heap_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("data/apps/heap/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("data/apps/heap/heap.lua", source, sizeof(source)));
+                           read_host_file("apps/heap/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/heap/heap.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "heap-app", manifest, source, "heap.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run heap-app", g_out, sizeof(g_out)));
@@ -1443,7 +1499,7 @@ void test_a_second_connect_says_busy(void) {
 }
 
 // fs.mounts() and fs.space() answer from the real VFS inside a whole app: the
-// six mounts of the board, and a room that is a number when the backend can say
+// seven mounts of the board, and a room that is a number when the backend can say
 // it (docs/30, docs/70).
 void test_an_app_asks_what_is_mounted_and_how_much_room_is_left(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -1466,7 +1522,7 @@ void test_an_app_asks_what_is_mounted_and_how_much_room_is_left(void) {
                             "  .. tostring(err2 and err2.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 7"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 8"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs false"), g_out);
   // The flash of the bench is a directory, but the board's is a partition of a size its own table
@@ -2004,9 +2060,9 @@ void test_the_page_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/page/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/page/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("data/apps/page/page.lua", source, sizeof(source)));
+                           read_host_file("apps/page/page.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "page-app", manifest, source, "page.lua"));
 
   emu::Options opts = emu::options();
@@ -2509,9 +2565,9 @@ void test_the_light_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/light/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/light/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/light/light.lua", source, sizeof(source)));
+      0, read_host_file("apps/light/light.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "light-app", manifest, source, "light.lua"));
 
   // It does not end: it is a wheel. The prompt comes back when the system's gesture
@@ -2575,9 +2631,9 @@ void test_the_matrix_app_from_the_disk_paints_the_panel(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/matrix/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/matrix/manifest.json", manifest, sizeof(manifest)));
   const size_t source_len =
-      read_host_file("data/apps/matrix/matrix.lua", source, sizeof(source));
+      read_host_file("apps/matrix/matrix.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   // A truncated read is a test that runs half an app and blames the app: the
   // buffer is bigger than the file and the read says how much it took (docs/80).
@@ -2875,7 +2931,7 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
   uint32_t seen = 0;
   for (size_t p = 0; p < sizeof(kParents) / sizeof(kParents[0]); ++p) {
     char dir_path[256];
-    snprintf(dir_path, sizeof(dir_path), "%sdata/apps", kParents[p]);
+    snprintf(dir_path, sizeof(dir_path), "%sapps", kParents[p]);
     DIR* dir = opendir(dir_path);
     if (dir == nullptr) continue;
     struct dirent* item = nullptr;
@@ -3446,6 +3502,749 @@ void test_the_dial_walks_the_buttons_of_a_page(void) {
   storage->remove("/apps/dial");
 }
 
+// **A checkbox's click means one thing and the system does it**: the centre flips the box, the field is already
+// flipped when the app hears about it, and the words beside the box are the app's (`on_change` changes them). It
+// is the whole chain —the key, the focus, the field the system writes and the callback that reads it— and the
+// app ends itself when it has counted two flips, which is how the suite knows it ran (docs/30, docs/90).
+void test_the_dial_flips_a_checkbox(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "tickbox",
+                           "{\"title\":\"Tick\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local flips = 0\n"
+                           "local box = ui.checkbox(300, 40)\n"
+                           "box:place(20, 100)\n"
+                           "local l = ui.label(240, 32)\n"
+                           "l.text = 'off'\n"
+                           "l.valign = 'middle'\n"
+                           "l:place(box:box() + 8, 4)\n"
+                           "box:add(l)\n"
+                           "box.on_change = function(self, on)\n"
+                           "  flips = flips + 1\n"
+                           "  l.text = on and 'on' or 'off'\n"
+                           "  console.print('change ' .. tostring(on) .. ' ' .. tostring(self.checked))\n"
+                           "end\n"
+                           "console.print('box ' .. box:box())\n"
+                           "ui.present()\n"
+                           "while flips < 2 do sys.delay(10):await() end\n"
+                           "console.print('flips ' .. flips)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run tickbox");
+  // **These lines are printed before the capture opens**, so they are read from the output of the run itself
+  // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box 32"), g_out);
+  capture_begin();
+  pump_turns(20);
+  // The centre activates the control that has the focus, and the first one is the one the system focused when
+  // it appeared. Twice, because the second flip is what proves the box goes back.
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // **A row of forty holds a box of thirty-two**, and that is the number an app places its words with.
+  // The field was already written when the app was told, which is the whole point of the system doing it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change true true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change false false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flips 2"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its two flips");
+
+  storage->remove("/apps/tickbox/app.lua");
+  storage->remove("/apps/tickbox/manifest.json");
+  storage->remove("/apps/tickbox");
+}
+
+// **The arrows move the number of a slider and the walk of the dial stays where the person put it**: the value
+// is the control's own state, so the system changes it and the app is told with `on_change(self, value)` —the
+// same rule a checkbox's check follows—, and at the end of the range the key goes back to the walk so a page
+// with a slider is not a dead end (docs/30, docs/90).
+void test_the_dial_moves_the_value_of_a_slider(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "volume",
+                           "{\"title\":\"Volume\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local changes = 0\n"
+                           "local s = ui.slider(300, 48)\n"
+                           "s:place(20, 100)\n"
+                           "s.value = 0\n"
+                           "s.max = 100\n"
+                           "s.step = 10\n"
+                           "s.suffix = '%'\n"
+                           "s.on_change = function(self, value)\n"
+                           "  changes = changes + 1\n"
+                           "  console.print('change ' .. value .. ' of ' .. self.value)\n"
+                           "end\n"
+                           "ui.present()\n"
+                           "while changes < 3 do sys.delay(10):await() end\n"
+                           "console.print('changes ' .. changes .. ' value ' .. s.value)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run volume");
+  capture_begin();
+  pump_turns(20);
+  // Down twice and up once —the bench has the Paper's dial, where key 2 is down—: +10, +20 and back to 10,
+  // which is what proves both directions and not only that a number changed.
+  for (int i = 0; i < 3; ++i) {
+    emu::press_key((i < 2) ? 2 : 1, true);
+    pump_turns(20);
+    emu::press_key((i < 2) ? 2 : 1, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  // **The field was already written when the app was told**, which is the whole point of the system doing it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change 10 of 10"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "change 20 of 20"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "changes 3 value 10"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its three changes");
+
+  storage->remove("/apps/volume/app.lua");
+  storage->remove("/apps/volume/manifest.json");
+  storage->remove("/apps/volume");
+}
+
+
+// **A page is a declaration**: the panel gives each child its frame, so an app says the order and the spaces and
+// never a coordinate —and the arrows of the dial change the chosen tab of a strip while it has the focus, which
+// is the same rule the slider follows— (docs/30, docs/90).
+void test_a_panel_arranges_the_page_and_the_dial_changes_the_tab(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "pagepanel",
+                           "{\"title\":\"Page\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local tabs = ui.tabs(300, 40)\n"
+                           "tabs:place(20, 20)\n"
+                           "tabs.items = {'One', 'Two', 'Three'}\n"
+                           "tabs.index = 1\n"
+                           "local changes = 0\n"
+                           "tabs.on_change = function(self, index)\n"
+                           "  changes = changes + 1\n"
+                           "  console.print('tab ' .. index)\n"
+                           "end\n"
+                           "local p = ui.panel(300, 120, 'vertical')\n"
+                           "p:place(20, 100)\n"
+                           "p.padding = 10\n"
+                           "p.gap = 4\n"
+                           "local a = ui.label(10, 20)\n"
+                           "a.text = 'first'\n"
+                           "local b = ui.label(10, 20)\n"
+                           "b.text = 'second'\n"
+                           "p:add(a)\n"
+                           "p:add(b)\n"
+                           "ui.present()\n"
+                           "local ca = a:caps()\n"
+                           "local cb = b:caps()\n"
+                           "console.print('a ' .. ca.y .. ' ' .. ca.width)\n"
+                           "console.print('b ' .. cb.y .. ' ' .. cb.width)\n"
+                           "while changes < 1 do sys.delay(10):await() end\n"
+                           "console.print('tab now ' .. tabs.index)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run pagepanel");
+  // **These lines are printed before the capture opens**, so they are read from the output of the run itself
+  // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a 10 280"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "b 34 280"), g_out);
+  capture_begin();
+  pump_turns(20);
+  // Key 2 is down on the bench's dial, which is the next tab of the strip.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // **Ten pixels of padding and four of gap**, and the width of the panel less the two paddings: the app asked
+  // for a column, not for two places.
+  // The strip moved to its second tab and the app was told. **`tab 2` is read from the capture that holds the
+  // press**, because the app is asleep in its wait until the key comes and prints nothing before it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tab 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tab now 2"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its one change");
+
+  storage->remove("/apps/pagepanel/app.lua");
+  storage->remove("/apps/pagepanel/manifest.json");
+  storage->remove("/apps/pagepanel");
+}
+
+// **A list turns its page with the arrows and the app hears it at `on_page`**, which is the rule a slider and a
+// strip of tabs already follow: the page belongs to the control and the numbers come from the same arithmetic
+// the drawing uses (docs/30, docs/90).
+void test_a_list_turns_its_page_with_the_dial(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "pager",
+                           "{\"title\":\"Pager\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local turns = 0\n"
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 60)\n"
+                           "l.row_height = 56\n"
+                           "l.items = {}\n"
+                           "for i = 1, 10 do\n"
+                           "  l.items[i] = { title = 'Item ' .. i, detail = tostring(i) }\n"
+                           "end\n"
+                           "l.on_page = function(self, page)\n"
+                           "  turns = turns + 1\n"
+                           "  console.print('page ' .. page)\n"
+                           "end\n"
+                           "ui.present()\n"
+                           "while turns < 1 do sys.delay(10):await() end\n"
+                           "console.print('page now ' .. l.page)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run pager");
+  capture_begin();
+  pump_turns(20);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // Three rows of ten in two hundred pixels with the footer of the paging: the second page is the second press.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page now 2"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its one turn");
+
+  storage->remove("/apps/pager/app.lua");
+  storage->remove("/apps/pager/manifest.json");
+  storage->remove("/apps/pager");
+}
+
+// **The keyboard is the system's and types into the box it was given**: the app says the box, shows the band and
+// is told what the box holds after every key —the field is already written, the rule a checkbox and a slider
+// follow— and **the dial walks the keys** so a board with three keys can type too (docs/30, docs/90).
+void test_the_keyboard_types_into_the_box_it_was_given(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "typer",
+                           "{\"title\":\"Typer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local changes = 0\n"
+                           "local box = ui.textbox(300, 48)\n"
+                           "box:place(20, 60)\n"
+                           "box.cursor = 0\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "kb:show('alpha')\n"
+                           "console.print('band ' .. kb:height())\n"
+                           "box.on_change = function(self, text)\n"
+                           "  changes = changes + 1\n"
+                           "  console.print('typed ' .. text .. ' at ' .. self.cursor)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while changes < 3 do sys.delay(10):await() end\n"
+                           "console.print('word ' .. box.text)\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run typer");
+  // **These lines are printed before the capture opens**, so they are read from the output of the run itself
+  // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 176"), g_out);
+  capture_begin();
+  pump_turns(20);
+  // The centre presses the key the dial is on —the first one of the second row, which is a Q— twice, then the
+  // down key of the dial walks to the next key and the centre types it.
+  for (int i = 0; i < 2; ++i) {
+    emu::press_button(true);
+    pump_turns(20);
+    emu::press_button(false);
+    pump_turns(20);
+  }
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // Four rows of a key of forty-four pixels in a view of the Paper: the band is a hundred and seventy-six.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed Q at 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed QQ at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed QQW at 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "word QQW"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its three keys");
+
+  storage->remove("/apps/typer/app.lua");
+  storage->remove("/apps/typer/manifest.json");
+  storage->remove("/apps/typer");
+}
+
+// **A dialog has two doors and the dial picks one before it presses it**: the chosen door moves with the arrows and
+// the centre fires `on_accept` or `on_cancel`, and closing the card is the app's —the old rule: read the action,
+// close, and then run it— (docs/30, docs/90).
+void test_a_dialog_answers_with_the_door_the_dial_is_on(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "asker",
+                           "{\"title\":\"Asker\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local answers = 0\n"
+                           "local card = ui.dialog(380, 260)\n"
+                           "card:place(80, 200)\n"
+                           "card.title = 'Delete?'\n"
+                           "card.text = 'This card deletes every note you wrote'\n"
+                           "card.accept = 'Delete'\n"
+                           "card.cancel = 'Keep'\n"
+                           "card.emphasis = 1\n"
+                           "card.on_accept = function(self)\n"
+                           "  answers = answers + 1\n"
+                           "  console.print('accept at ' .. self.choice)\n"
+                           "end\n"
+                           "card.on_cancel = function(self)\n"
+                           "  answers = answers + 1\n"
+                           "  console.print('cancel at ' .. self.choice)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while answers < 2 do sys.delay(10):await() end\n"
+                           "console.print('answers ' .. answers)"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run asker");
+  capture_begin();
+  pump_turns(20);
+  // The card opens on the accept; one step back puts the ring on the cancel and the centre takes it.
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  // And forward again to the accept, which is the second answer.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancel at 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "accept at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "answers 2"), g_out);
+
+  storage->remove("/apps/asker/app.lua");
+  storage->remove("/apps/asker/manifest.json");
+  storage->remove("/apps/asker");
+}
+
+// **A menu walks the options that are on the card and answers with the one the dial or the finger is on**: the option
+// the app hid is never reached, a finger takes the row it pressed and not the one the ring was on, and the app hears
+// `on_pick(self, index)` (docs/30, docs/90).
+void test_a_menu_skips_the_option_the_app_hid(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "picker",
+                           "{\"title\":\"Picker\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local picks = 0\n"
+                           "local card = ui.menu(300, 200)\n"
+                           "card:place(80, 200)\n"
+                           "card.items = { 'Copy', { label = 'Paste', hidden = true },\n"
+                           "  { label = 'Delete', primary = true } }\n"
+                           "card.on_pick = function(self, index)\n"
+                           "  picks = picks + 1\n"
+                           "  console.print('pick ' .. index .. ' at ' .. picks)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while picks < 3 do sys.delay(10):await() end\n"
+                           "console.print('picks ' .. picks)"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run picker");
+  capture_begin();
+  pump_turns(20);
+  // **One step down and the hidden option is skipped**: the app answers with the third, so the walk never landed on
+  // the second.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  // **A finger on the first row picks the first option**, which is not the one the ring was on: the card is at 80,200
+  // and three rows of eighty-two pixels put the first one at 20 to 102 of its own frame.
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const bool finger_down = panel->finger_down(0, static_cast<uint16_t>(view.x + 230),
+                                              static_cast<uint16_t>(view.y + 260));
+  TEST_ASSERT_TRUE(finger_down);
+  pump_turns(60);
+  const bool finger_up = panel->finger_up(0);
+  TEST_ASSERT_TRUE(finger_up);
+  pump_turns(60);
+  // And the dial carries on from the option the finger left it on.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 3 at 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 1 at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 3 at 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "picks 3"), g_out);
+
+  storage->remove("/apps/picker/app.lua");
+  storage->remove("/apps/picker/manifest.json");
+  storage->remove("/apps/picker");
+
+  // The next test gets the default bench back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A bar of menus answers with the title and the entry**: the dial walks the entries of the open menu —past the dash and
+// past the entry that the app turned off—, the centre fires `on_pick(self, title, entry)` with the menu already folded, a
+// finger on a title opens it and a finger on an entry chooses it (docs/30, docs/90).
+void test_a_menu_bar_answers_with_the_title_and_the_entry(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "barfly",
+                           "{\"title\":\"Barfly\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local picks = 0\n"
+                           "local bar = ui.menu_bar(400, 300)\n"
+                           "bar:place(20, 100)\n"
+                           "bar.items = {\n"
+                           "  { title = 'File', items = { 'Open', '-',\n"
+                           "    { label = 'Quit', enabled = false }, 'Save' } },\n"
+                           "  { title = 'Edit', items = { 'Copy',\n"
+                           "    { label = 'Paste', checked = true } } },\n"
+                           "}\n"
+                           "bar.open = 1\n"
+                           "bar.on_pick = function(self, title, entry)\n"
+                           "  picks = picks + 1\n"
+                           "  console.print('pick ' .. title .. ',' .. entry .. ' open ' .. self.open)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while picks < 2 do sys.delay(10):await() end\n"
+                           "console.print('picks ' .. picks)"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run barfly");
+  capture_begin();
+  pump_turns(20);
+  // **The dial**: the first arrow lands on "Open", the second one goes past the dash and past "Quit", which the app turned
+  // off, and the centre chooses "Save", which is the fourth entry of the first title.
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  // **The finger**: the word "Edit" is the second title of the row —seventy pixels each from twenty— and the second entry
+  // of its menu is "Paste", which hangs from 70 of the bar and starts at 108 of it.
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 120), static_cast<uint16_t>(view.y + 120)));
+  pump_turns(60);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 170), static_cast<uint16_t>(view.y + 230)));
+  pump_turns(60);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 1,4 open 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 2,2 open 0"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "picks 2"), g_out);
+
+  storage->remove("/apps/barfly/app.lua");
+  storage->remove("/apps/barfly/manifest.json");
+  storage->remove("/apps/barfly");
+
+  // The next test gets the default bench back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A box of several lines takes the finger and the enter key**: the finger puts the caret on the letter it is on, the
+// enter key of the keyboard writes a line break and does not end the edition, and the app hears the text with the break in
+// it (docs/30, docs/90).
+void test_a_box_of_lines_types_and_the_enter_writes_a_break(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "writer",
+                           "{\"title\":\"Writer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox_multiline(400, 200)\n"
+                           "box:place(20, 100)\n"
+                           "box.text = 'ab'\n"
+                           "box.cursor = 2\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "console.print('rows ' .. box:rows())\n"
+                           "box.on_change = function(self, text)\n"
+                           "  console.print('text ' .. text:gsub('\\n', '/') .. ' at ' .. self.cursor)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(3000):await()\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run writer");
+  // **These lines are printed before the capture opens**, so they are read from the output of the run itself
+  // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows 8"), g_out);
+  capture_begin();
+  pump_turns(20);
+  // **The enter key of the keyboard is a break and not the end of the edition**: the key arrives as the number the
+  // keyboard hands over, and the letter after it goes on the new line.
+  luabind::ui_keyboard_typed(13);
+  pump_turns(20);
+  luabind::ui_keyboard_typed('X');
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // Eight rows of a box of two hundred pixels with the letter of the body.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "text ab/ at 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "text ab/X at 4"), g_out);
+
+  storage->remove("/apps/writer/app.lua");
+  storage->remove("/apps/writer/manifest.json");
+  storage->remove("/apps/writer");
+}
+
+// **A selector is a door and the list is a `ui.menu` the app puts up**: the centre of the dial opens it, the arrows walk
+// the options of the card, and the choice writes `index` in the field —which is what it shows from then on— (docs/30,
+// docs/90).
+void test_a_selector_opens_the_list_the_app_puts_up(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "former",
+                           "{\"title\":\"Former\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local picked = 0\n"
+                           "local card = nil\n"
+                           "local field = ui.selector(400, 56)\n"
+                           "field:place(20, 60)\n"
+                           "field.label = 'Hora'\n"
+                           "field.items = { '09:00', '09:30', '10:00' }\n"
+                           "field.empty = '-'\n"
+                           "field.on_open = function(self)\n"
+                           "  if card ~= nil then return end\n"
+                           "  card = ui.menu(240, 200)\n"
+                           "  card:place(20, 140)\n"
+                           "  card.items = { '09:00', '09:30', '10:00' }\n"
+                           "  card.on_pick = function(that, index)\n"
+                           "    field.index = index\n"
+                           "    field.choosing = false\n"
+                           "    card:release()\n"
+                           "    card = nil\n"
+                           "    picked = picked + 1\n"
+                           "    console.print('chose ' .. field.items[index] .. ' at ' .. field.index)\n"
+                           "    ui.present('gc16')\n"
+                           "  end\n"
+                           "  ui.present('gc16')\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while picked < 1 do sys.delay(10):await() end\n"
+                           "console.print('field ' .. tostring(field))"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run former");
+  capture_begin();
+  pump_turns(20);
+  // The centre opens the list, the first arrow leaves the field and lands on the card of the menu, the second one walks to
+  // the second option, and the centre chooses it.
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "chose 09:30 at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "field selector"), g_out);
+
+  storage->remove("/apps/former/app.lua");
+  storage->remove("/apps/former/manifest.json");
+  storage->remove("/apps/former");
+}
+
+// **The cross of a notice dismisses it and the app hears which one**: the newest card is the one at the bottom, so the
+// finger that presses the cross of the band takes away the last notice the app added (docs/30, docs/90).
+void test_the_cross_of_a_notice_dismisses_the_newest(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "ringer",
+                           "{\"title\":\"Ringer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local gone = 0\n"
+                           "local band = ui.notification_bar(540, 300)\n"
+                           "band:place(0, 500)\n"
+                           "band.items = { {title = 'Battery', text = 'low'},\n"
+                           "  {title = 'Saved', text = 'your note'},\n"
+                           "  {title = 'Wi-fi', text = 'connected'} }\n"
+                           "band.on_close = function(self, item)\n"
+                           "  gone = gone + 1\n"
+                           "  table.remove(band.items, item)\n"
+                           "  band.items = band.items\n"
+                           "  console.print('closed ' .. item .. ' left ' .. #band.items)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while gone < 2 do sys.delay(10):await() end\n"
+                           "console.print('gone ' .. gone)"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run ringer");
+  capture_begin();
+  pump_turns(20);
+  // The card of the bottom is at the bottom of the band and its cross is the column on the right, which the finger presses
+  // twice: twice because the notice under it takes its place.
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  for (int press = 0; press < 2; ++press) {
+    TEST_ASSERT_TRUE(
+        panel->finger_down(0, static_cast<uint16_t>(view.x + 520), static_cast<uint16_t>(view.y + 763)));
+    pump_turns(60);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(60);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "closed 3 left 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "closed 2 left 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone 2"), g_out);
+
+  storage->remove("/apps/ringer/app.lua");
+  storage->remove("/apps/ringer/manifest.json");
+  storage->remove("/apps/ringer");
+
+  // The next test gets the default bench back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A grid walks its cells and pages itself**: the arrows walk the cells, the page follows the cursor so the app never turns
+// a page, and the centre picks the cell it is on with `on_pick(self, index)` (docs/30, docs/90).
+void test_a_grid_walks_its_cells_and_pages_itself(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "launcher",
+                           "{\"title\":\"Launcher\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local picks = 0\n"
+                           "local grid = ui.icon_grid(300, 300)\n"
+                           "grid:place(20, 60)\n"
+                           "grid.columns = 3\n"
+                           "grid.items = { {label = 'Notes', mark = 'N'}, {label = 'Clock', mark = 'C'},\n"
+                           "  {label = 'Files', mark = 'F'}, {label = 'Paint', mark = 'P'},\n"
+                           "  {label = 'Music', mark = 'M'}, {label = 'Radio', mark = 'R'},\n"
+                           "  {label = 'Codes', mark = 'S'}, {label = 'Maps', mark = 'G'} }\n"
+                           "grid.on_pick = function(self, index)\n"
+                           "  picks = picks + 1\n"
+                           "  console.print('pick ' .. index .. ' of ' .. #grid.items)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while picks < 1 do sys.delay(10):await() end\n"
+                           "console.print('grid ' .. tostring(grid))"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run launcher");
+  capture_begin();
+  pump_turns(20);
+  // Seven steps down from nothing: the cursor walks the cells and the page follows it, and the centre picks the seventh.
+  for (int step = 0; step < 7; ++step) {
+    emu::press_key(2, true);
+    pump_turns(10);
+    emu::press_key(2, false);
+    pump_turns(10);
+  }
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pick 7 of 8"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid icon grid"), g_out);
+
+  storage->remove("/apps/launcher/app.lua");
+  storage->remove("/apps/launcher/manifest.json");
+  storage->remove("/apps/launcher");
+}
+
 // Where the keys are is part of the answer: an app gives a function to a position,
 // and the board says it in the same words on every board (docs/30, docs/50).
 void test_the_board_says_where_its_keys_are(void) {
@@ -3497,8 +4296,8 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/keys/manifest.json", manifest, sizeof(manifest)));
-  const size_t source_len = read_host_file("data/apps/keys/keys.lua", source, sizeof(source));
+      0, read_host_file("apps/keys/manifest.json", manifest, sizeof(manifest)));
+  const size_t source_len = read_host_file("apps/keys/keys.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
   TEST_ASSERT_TRUE(add_app_file(storage, "keys-app", manifest, source, "keys.lua"));
@@ -3709,9 +4508,9 @@ void test_the_sleepy_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/sleepy/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/sleepy/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/sleepy/sleepy.lua", source, sizeof(source)));
+      0, read_host_file("apps/sleepy/sleepy.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "sleepy-app", manifest, source, "sleepy.lua"));
 
   hal::IClock* clock = hal::platform().clock();
@@ -3767,12 +4566,12 @@ void test_the_mtab_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/mtab/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("data/apps/mtab/mtab.lua", source, sizeof(source)));
+      0, read_host_file("apps/mtab/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/mtab/mtab.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "mtab-app", manifest, source, "mtab.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts: 7"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts: 8"), g_out);
   // The RTC memory is a file of the chip: a mount of its own, writable, and not a filesystem. Its
   // room is its size and all of it is free, because nothing is allocated out of raw memory and
   // counting entries there would be a number that means nothing (docs/70).
@@ -3927,9 +4726,9 @@ void test_the_battery_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/battery/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/battery/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/battery/battery.lua", source, sizeof(source)));
+      0, read_host_file("apps/battery/battery.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "battery-app", manifest, source, "battery.lua"));
 
   // A board with no gauge: it says so, and it does not say zero volts. The battery is the Paper's,
@@ -3977,9 +4776,9 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // keeps running on purpose after that (its last line waits nine seconds), so it is closed
   // here by hand rather than waited for.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
+      0, read_host_file("apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "alarmqueue-app", manifest, source, "alarmqueue.lua"));
   pump_captured(40, g_out, sizeof(g_out), "run alarmqueue-app");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 8 at once"), g_out);
@@ -3997,9 +4796,9 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // The timers: three of them, delivered in order while the app waits, and the app ends by
   // itself inside the turns a test gives it.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/timers/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/timers/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("data/apps/timers/timers.lua", source, sizeof(source)));
+                           read_host_file("apps/timers/timers.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "timers-app", manifest, source, "timers.lua"));
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run timers-app", g_out, sizeof(g_out)), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "three timers armed"), g_out);
@@ -4015,8 +4814,8 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // The one that arms an alarm and leaves: it ends by itself, so this one can be waited for. What
   // it leaves in the queue is taken down here, or it would go off inside the test after this one.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/later/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("data/apps/later/later.lua", source, sizeof(source)));
+      0, read_host_file("apps/later/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/later/later.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "later-app", manifest, source, "later.lua"));
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run later-app", g_out, sizeof(g_out)), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed for"), g_out);
@@ -4294,9 +5093,9 @@ void test_the_handles_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/handles/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/handles/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/handles/handles.lua", source, sizeof(source)));
+      0, read_host_file("apps/handles/handles.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "handles", manifest, source, "handles.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run handles", g_out, sizeof(g_out)));
@@ -4337,9 +5136,9 @@ void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("data/apps/tilt/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/tilt/manifest.json", manifest, sizeof(manifest)));
   const size_t source_len =
-      read_host_file("data/apps/tilt/tilt.lua", source, sizeof(source));
+      read_host_file("apps/tilt/tilt.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
   TEST_ASSERT_TRUE(add_app_file(storage, "tilt-app", manifest, source, "tilt.lua"));
@@ -4491,6 +5290,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_write_to_raw_memory_goes_in_place);
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
+  RUN_TEST(test_the_faces_of_the_disk_are_at_fonts_for_every_app);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
   RUN_TEST(test_the_battery_curve_falls_and_is_clamped);
   RUN_TEST(test_the_battery_reaches_the_app_as_a_measurement);
@@ -4563,6 +5363,18 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_board_says_where_its_keys_are);
   RUN_TEST(test_three_taps_of_a_side_key_keep_the_app);
   RUN_TEST(test_the_dial_walks_the_buttons_of_a_page);
+  RUN_TEST(test_the_dial_flips_a_checkbox);
+  RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
+  RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_list_turns_its_page_with_the_dial);
+  RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
+  RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
+  RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
+  RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);
+  RUN_TEST(test_a_box_of_lines_types_and_the_enter_writes_a_break);
+  RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);
+  RUN_TEST(test_the_cross_of_a_notice_dismisses_the_newest);
+  RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
   RUN_TEST(test_the_keys_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);

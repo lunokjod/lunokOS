@@ -4,15 +4,23 @@
 .vscode/launch.json
 .vscode/ipch
 
+# The disk an environment is flashed with: `tools/make_disk.py` puts `data/` and,
+# on a board with room, `apps/` together in here. It is generated, not source, and
+# it is the same in every run (docs/80).
+build/
+
 # Working disk of the emulator: it is state, not code.
 emulator/
 
 # The card in the slot of the emulated board is a directory of somebody's data, always the same one.
 emulator/sd/
 
-# What an app writes when the emulator runs on the repository's own `data` (--flash): the app data
-# area of the emulated flash. The code is data/apps and data/res; this is a run.
+# What an app writes when the emulator runs (the `data/` of the assembled disk): the app data
+# area of the emulated flash. The code is `apps/` and `data/res`; this is a run.
 data/data/
 
 # The pages `http` saved when they did not fit in memory: a download is somebody's file and not code.
 data/http/
+
+# Leftovers of an older layout, kept next to the repository and never built.
+OLD/

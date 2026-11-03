@@ -10,6 +10,7 @@
 #include "img/img.h"
 
 #include "kernel/bar.h"
+#include "kernel/calendar.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
@@ -543,6 +544,21 @@ void draw_frame(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint
   mark_box(canvas, x, y, w, h, mode);
 }
 
+// **A frame of more than one pixel**, which is what the row of the focus of a bar and the frame of a selector wear: one
+// pixel of ink on this glass is a line a finger does not see (docs/90).
+void draw_frame_thick(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t thickness,
+                      uint8_t level, hal::UpdateMode mode) {
+  if (w <= 0 || h <= 0 || thickness <= 0) return;
+  for (int32_t i = 0; i < thickness; ++i) {
+    if (w - 2 * i <= 0 || h - 2 * i <= 0) break;
+    put_rect(canvas, x + i, y + i, w - 2 * i, 1, level);
+    put_rect(canvas, x + i, y + h - 1 - i, w - 2 * i, 1, level);
+    put_rect(canvas, x + i, y + i, 1, h - 2 * i, level);
+    put_rect(canvas, x + w - 1 - i, y + i, 1, h - 2 * i, level);
+  }
+  mark_box(canvas, x, y, w, h, mode);
+}
+
 // **How far a corner pushes the ink in on a row**, which is a quarter of a circle and therefore a square root
 // of integers: no floating point, and a table of radii would be more code than this loop (docs/90).
 int32_t corner_inset(int32_t radius, int32_t down) {
@@ -572,6 +588,16 @@ void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h,
     put_rect(canvas, x + inset, y + row, w - 2 * inset, 1, level);
   }
   mark_box(canvas, x, y, w, h, mode);
+}
+
+// **A level and not a number**: the bevel of a control is its background a few steps out of itself, and a
+// background of thirteen plus four is sixteen, which is not a colour of this panel —`put_rect` refuses it, so
+// the edge would simply not be drawn and a mid-grey button would come out flat— (docs/30, docs/90).
+uint8_t shade(uint8_t level, int32_t delta) {
+  const int32_t value = static_cast<int32_t>(level) + delta;
+  if (value < 0) return 0;
+  if (value > 15) return 15;
+  return static_cast<uint8_t>(value);
 }
 
 // **The edge of a rounded box, one pixel of it, split into a light half and a dark one**: that is what makes
@@ -1014,6 +1040,141 @@ bool canvas_caps_for_lua(int8_t slot, uint16_t& width, uint16_t& height, uint16_
   return true;
 }
 
+// **The bridge does not know what a panel flow is**: it says a number and this is the one place that turns it
+// into the enum, so `luabind` keeps no knowledge of the layout of the kernel (docs/10, docs/90).
+uint8_t panel_layout_for_lua(int8_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
+                             const luabind::UIOps::UIPanelChild* children, uint8_t count) {
+  if (children == nullptr || count > 16) return 0;
+  PanelChild mine[16];
+  for (uint8_t i = 0; i < count; ++i) {
+    mine[i].slot = children[i].slot;
+    mine[i].weight = children[i].weight;
+  }
+  return panel_layout(slot, static_cast<PanelFlow>(flow), padding, gap, mine, count);
+}
+
+// **One arithmetic and two callers**: the app asks how many rows and pages a list of that size makes and the
+// drawing asks the same function, so a list cannot say "2 / 3" over the rows of page four (docs/90).
+uint8_t list_page_of_for_lua(uint16_t height, uint16_t row_height, uint16_t items, uint8_t& rows) {
+  const ListPage page = list_page_of(height, row_height, items);
+  rows = page.rows;
+  return page.pages;
+}
+
+// **The options of a menu, said in the kernel's words**: the bridge reads them from the app's table and the drawing
+// takes the system's array, because the two sides of a control do not share a struct (docs/90).
+bool menu_draw_for_lua(int8_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
+                       uint8_t index, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
+                       bool focused) {
+  if (items == nullptr || count > kMaxMenuOptions) return false;
+  MenuOption mine[kMaxMenuOptions];
+  for (uint8_t i = 0; i < count; ++i) {
+    mine[i].label = items[i].label;
+    mine[i].tag = items[i].tag;
+    mine[i].hidden = items[i].hidden;
+    mine[i].primary = items[i].primary;
+  }
+  return menu_draw(slot, title, mine, count, index, color, dim, background, scale, focused);
+}
+
+uint8_t menu_hit_for_lua(int8_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
+                         uint8_t scale, uint16_t x, uint16_t y) {
+  if (items == nullptr || count > kMaxMenuOptions) return 0;
+  MenuOption mine[kMaxMenuOptions];
+  for (uint8_t i = 0; i < count; ++i) {
+    mine[i].label = items[i].label;
+    mine[i].tag = items[i].tag;
+    mine[i].hidden = items[i].hidden;
+    mine[i].primary = items[i].primary;
+  }
+  return menu_hit(slot, title, mine, count, scale, x, y);
+}
+
+// **The bar of menus, said in the kernel's words**: the titles point into one block of entries, so a bar of five titles
+// and sixteen entries is two arrays and no allocation (docs/90).
+bool menu_bar_build(const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count, MenuBarTitle* mine,
+                    MenuBarEntry* entries) {
+  if (titles == nullptr || count > kMaxMenuBarTitles) return false;
+  uint8_t used = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    mine[i].label = titles[i].label;
+    mine[i].entries = &entries[used];
+    mine[i].count = titles[i].count;
+    for (uint8_t j = 0; j < titles[i].count && used < kMaxMenuBarEntries; ++j) {
+      entries[used].label = titles[i].entries[j].label;
+      entries[used].separator = titles[i].entries[j].separator;
+      entries[used].checked = titles[i].entries[j].checked;
+      entries[used].enabled = titles[i].entries[j].enabled;
+      ++used;
+    }
+  }
+  return true;
+}
+
+bool menu_bar_draw_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count, uint8_t open,
+                           uint8_t index, uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background,
+                           uint8_t scale, bool focused) {
+  MenuBarTitle mine[kMaxMenuBarTitles];
+  MenuBarEntry entries[kMaxMenuBarEntries];
+  if (!menu_bar_build(titles, count, mine, entries)) return false;
+  return menu_bar_draw(slot, mine, count, open, index, bar_height, color, dim, background, scale, focused);
+}
+
+uint8_t menu_bar_title_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
+                                  uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
+  MenuBarTitle mine[kMaxMenuBarTitles];
+  MenuBarEntry entries[kMaxMenuBarEntries];
+  if (!menu_bar_build(titles, count, mine, entries)) return 0;
+  return menu_bar_title_at(slot, mine, count, bar_height, scale, x, y);
+}
+
+uint8_t menu_bar_entry_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
+                                  uint8_t open, uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
+  MenuBarTitle mine[kMaxMenuBarTitles];
+  MenuBarEntry entries[kMaxMenuBarEntries];
+  if (!menu_bar_build(titles, count, mine, entries)) return 0;
+  return menu_bar_entry_at(slot, mine, count, open, bar_height, scale, x, y);
+}
+
+// **The cards of a band, said in the kernel's words**: three of them at most on the glass, and the rest are counted by the
+// control (docs/90).
+bool notification_bar_draw_for_lua(int8_t slot, const luabind::UIOps::UINotification* items, uint8_t shown,
+                                   uint16_t total, uint8_t color, uint8_t dim, uint8_t background, uint8_t border,
+                                   uint8_t scale, bool focused) {
+  if (items == nullptr || shown > kMaxNotifications) return false;
+  Notification mine[kMaxNotifications];
+  for (uint8_t i = 0; i < shown; ++i) {
+    mine[i].title = items[i].title;
+    mine[i].text = items[i].text;
+  }
+  return notification_bar_draw(slot, mine, shown, total, color, dim, background, border, scale, focused);
+}
+
+// **The cells of a grid, said in the kernel's words** (docs/90).
+bool icon_grid_build(const luabind::UIOps::UIGridItem* items, uint8_t count, GridItem* mine) {
+  if (items == nullptr || count > kMaxGridItems) return false;
+  for (uint8_t i = 0; i < count; ++i) {
+    mine[i].label = items[i].label;
+    mine[i].mark = items[i].mark;
+  }
+  return true;
+}
+
+bool icon_grid_draw_for_lua(int8_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
+                            uint8_t marked, uint8_t columns, uint8_t color, uint8_t dim, uint8_t background,
+                            uint8_t scale, bool focused) {
+  GridItem mine[kMaxGridItems];
+  if (!icon_grid_build(items, count, mine)) return false;
+  return icon_grid_draw(slot, mine, count, index, marked, columns, color, dim, background, scale, focused);
+}
+
+uint8_t icon_grid_hit_for_lua(int8_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
+                              uint8_t columns, uint8_t scale, uint16_t x, uint16_t y) {
+  GridItem mine[kMaxGridItems];
+  if (!icon_grid_build(items, count, mine)) return 0;
+  return icon_grid_hit(slot, mine, count, index, columns, scale, x, y);
+}
+
 }  // namespace
 
 bool boot(hal::IPlatform& platform, uint16_t top_rows) {
@@ -1068,8 +1229,47 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      font_text_width,
                                      label_draw,
                                      button_draw,
+                                     checkbox_side,
+                                     checkbox_draw,
+                                     progress_draw,
+                                     slider_draw,
+                                     row_draw,
+                                     panel_layout_for_lua,
+                                     canvas_resize,
+                                     tabs_draw,
+                                     dots_draw,
+                                     list_page_of_for_lua,
+                                     list_draw,
+                                     dialog_draw,
+                                     dialog_hit,
+                                     sparkline_draw,
+                                     pie_draw,
+                                     month_draw,
+                                     month_hit,
+                                     calendar::days_in_month,
+                                     textbox_draw,
+                                     textbox_inside,
+                                     keyboard_show,
+                                     keyboard_hide,
+                                     keyboard_visible,
+                                     keyboard_height,
+                                     luabind::ui_keyboard_typed,
                                      image,
-                                     image_info});
+                                     image_info,
+                                     menu_draw_for_lua,
+                                     menu_hit_for_lua,
+                                     menu_bar_draw_for_lua,
+                                     menu_bar_title_at_for_lua,
+                                     menu_bar_entry_at_for_lua,
+                                     textbox_multiline_draw,
+                                     textbox_multiline_hit,
+                                     textbox_multiline_rows,
+                                     selector_draw,
+                                     notification_bar_draw_for_lua,
+                                     notification_bar_card_at,
+                                     notification_bar_close_at,
+                                     icon_grid_draw_for_lua,
+                                     icon_grid_hit_for_lua});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -1093,6 +1293,9 @@ void attach() {
   // **And the faces it loaded go back too**: the block of an app is the app's, and an app that ends with a
   // font loaded would leave a kilobyte of the extra memory spoken for by nobody (docs/30, docs/75).
   release_faces();
+  // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
+  // after the app that asked for it would be a keyboard typing into nothing (docs/90).
+  keyboard_hide();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
   // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
@@ -1747,8 +1950,8 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
   // button is held the two swap, which is the whole difference between a button that is out and one that is
   // pushed in — and it is a line of ink and not a gradient, because the panel has sixteen levels and a person
   // looking at a page sees an edge and not a ramp (docs/50, docs/90).
-  const uint8_t light = (background >= 15) ? 15 : static_cast<uint8_t>(background + 4);
-  const uint8_t dark = (background == 0) ? 0 : static_cast<uint8_t>(background - 4);
+  const uint8_t light = shade(background, 4);
+  const uint8_t dark = shade(background, -4);
   const int32_t face_w = width - 2 * thickness;
   const int32_t face_h = height - 2 * thickness;
   if (!pressed) {
@@ -1798,9 +2001,2709 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
   return true;
 }
 
+int16_t checkbox_side(int8_t slot) {
+  if (!live(slot)) return 0;
+  const int32_t height = g_canvases[slot].height;
+  // **Four pixels of frame above and below**, which is the room the ring of the focus needs: the ring is
+  // drawn *outside* the box —two pixels of band and one of pause— and a box that touches the edge of its row
+  // is a box whose ring is cut in half. A row too short for that gets two, and one shorter than six pixels
+  // has no box at all (docs/90).
+  int32_t inset = 4;
+  if (height - 2 * inset < 8) inset = 2;
+  const int32_t side = height - 2 * inset;
+  if (side < 6) return 0;
+  return static_cast<int16_t>(side);
+}
+
+bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
+                   bool pressed, bool focused) {
+  if (!live(slot) || background > 15 || border > 15 || mark > 15) return false;
+  const Canvas& control = g_canvases[slot];
+  const uint16_t width = control.width;
+  const uint16_t height = control.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  // **The row is paper and the box is the control**: what a checkbox owes is the whole of its frame —a
+  // control without a buffer paints the pixels it covers—, but only the square on the left is a box. What is
+  // to the right of it is the room the child that names the setting needs (docs/30, docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y), width,
+                 height, background, mode);
+  const int32_t side = checkbox_side(slot);
+  if (side > 0) {
+    const int32_t inset = (static_cast<int32_t>(height) - side) / 2;
+    const int32_t box_x = target.x;
+    const int32_t box_y = target.y + inset;
+    // **A small radius and not the twelve of a button**: at a quarter of the size, twelve pixels of corner is
+    // a pill. Three is the corner a checkbox has on this panel (docs/90).
+    int32_t radius = side / 6;
+    if (radius > 3) radius = 3;
+    // **The border has the weight of the thing it is**: three pixels on a box of a page, two on a small one and
+    // one on a chip, exactly as the button counts it, and the bevel one pixel thinner (docs/30, docs/90).
+    int32_t thickness = 2;
+    if (side > 24) thickness = 3;
+    if (side <= 12) thickness = 1;
+    // **The focus is a ring outside the box**, two pixels of band and one of pause, and not a thicker border:
+    // a box of twelve pixels with a border of two has no room for the double frame the button wears inside,
+    // and a ring drawn inside would eat the tick. The row is the app's —the words beside the box— and an app
+    // that wants them to say the focus colours them in `on_focus`, which is what the guide says a control
+    // without a frame of its own does (docs/30, docs/90).
+    if (focused && inset >= 3 && side >= 8) {
+      const uint8_t ring = (background >= 8) ? 0 : 15;
+      draw_round_fill(*target.canvas, box_x - 3, box_y - 3, side + 6, side + 6, radius + 3, ring, mode);
+      draw_round_fill(*target.canvas, box_x - 1, box_y - 1, side + 2, side + 2, radius + 1, background,
+                      mode);
+    }
+    // **Held, the box is a hole**: the body goes a step darker and the bevel swaps, which is the same
+    // language the button speaks at a quarter of the size (docs/30, docs/90).
+    const uint8_t body = pressed ? shade(background, -4) : background;
+    draw_round_fill(*target.canvas, box_x, box_y, side, side, radius, border, mode);
+    draw_round_fill(*target.canvas, box_x + thickness, box_y + thickness, side - 2 * thickness,
+                    side - 2 * thickness, (radius > thickness) ? radius - thickness : 0, body, mode);
+    const int32_t inner = side - 2 * thickness;
+    if (inner >= 10) {
+      const int32_t bevel = (thickness > 1) ? thickness - 1 : 1;
+      const uint8_t light = shade(background, 4);
+      const uint8_t dark = shade(background, -4);
+      const uint8_t deep = shade(background, -8);
+      const int32_t face_radius = (radius > thickness) ? radius - thickness : 0;
+      if (!pressed) {
+        for (int32_t i = 0; i < bevel; ++i) {
+          draw_round_bevel(*target.canvas, box_x + thickness + i, box_y + thickness + i, inner - 2 * i,
+                           inner - 2 * i, face_radius, light, dark, mode);
+        }
+      } else {
+        for (int32_t i = 0; i < thickness; ++i) {
+          draw_round_bevel(*target.canvas, box_x + thickness + i, box_y + thickness + i, inner - 2 * i,
+                           inner - 2 * i, face_radius, deep, light, mode);
+        }
+      }
+    }
+    // **The tick is two strokes of a brush**, and not a font glyph and not a diagonal: the box of a page is
+    // thirty pixels and its tick is five or six wide, which is what a person sees from a metre away. The
+    // stroke is thinner than a third of the box, so a small checkbox still shows a V and not a blob
+    // (docs/30, docs/90).
+    if (checked && inner >= 8) {
+      int32_t brush = inner / 5;
+      if (brush > 6) brush = 6;
+      if (brush < 2) brush = 2;
+      const int32_t x0 = box_x + thickness;
+      const int32_t y0 = box_y + thickness;
+      const int32_t down_x = x0 + inner * 22 / 100;
+      const int32_t down_y = y0 + inner * 55 / 100;
+      const int32_t knee_x = x0 + inner * 43 / 100;
+      const int32_t knee_y = y0 + inner * 82 / 100;
+      const int32_t up_x = x0 + inner * 80 / 100;
+      const int32_t up_y = y0 + inner * 22 / 100;
+      for (int32_t i = 0; i < brush; ++i) {
+        draw_line(*target.canvas, down_x + i, down_y + i, knee_x + i, knee_y + i, mark, mode);
+        draw_line(*target.canvas, knee_x + i, knee_y + i, up_x + i, up_y + i, mark, mode);
+      }
+    }
+  }
+  // **The row is opaque too**: the child that names the setting was drawn after this control and the row
+  // covers it, so a checkbox that redraws asks its children to draw again, as the button does (docs/30,
+  // docs/90).
+  for (uint8_t i = 0; i < control.child_count; ++i) invalidate(control.children[i]);
+  close_draw(target);
+  return true;
+}
+
+// ---- a progress bar (docs/90) ----
+//
+// **The track and the fill are the same rounded box and the fill is a prefix of it**, which is what makes the
+// end of a bar a rounded end and not a cut, and it is two calls because a bar is the cheapest thing on the
+// page: no border of three pixels, no ring, no bevel. A bar is the answer to "how much of this is done" and
+// nothing about it says "press me" (docs/90).
+bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+                   int16_t value) {
+  if (!live(slot) || background > 15 || border > 15 || track > 15 || fill > 15) return false;
+  const Canvas& bar = g_canvases[slot];
+  const int32_t width = bar.width;
+  const int32_t height = bar.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  int32_t radius = height / 2;
+  if (radius > 6) radius = 6;
+  // **The frame is one pixel and it goes round the outside of the track**: a bar on a white page that has no
+  // frame is a grey smear, and a bar with a frame of three pixels is a button that does nothing (docs/90).
+  const int32_t thickness = (width > 8 && height > 8 && border != background) ? 1 : 0;
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, background, mode);
+  if (thickness != 0) {
+    draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
+    draw_round_fill(*target.canvas, target.x + thickness, target.y + thickness, width - 2 * thickness,
+                    height - 2 * thickness, radius - thickness, background, mode);
+  }
+  const int32_t pad = thickness + ((height > 12) ? 2 : 1);
+  const int32_t inner_x = target.x + pad;
+  const int32_t inner_y = target.y + pad;
+  const int32_t inner_w = width - 2 * pad;
+  const int32_t inner_h = height - 2 * pad;
+  if (inner_w <= 0 || inner_h <= 0) {
+    close_draw(target);
+    return true;
+  }
+  int32_t inner_radius = inner_h / 2;
+  if (inner_radius > 4) inner_radius = 4;
+  draw_round_fill(*target.canvas, inner_x, inner_y, inner_w, inner_h, inner_radius, track, mode);
+  // **A negative value fills nothing**: it is "the system does not know yet", and drawing it as a full bar
+  // would be a page that says everything is done (docs/90).
+  if (value > 0) {
+    int32_t shown = value;
+    if (shown > 100) shown = 100;
+    int32_t filled = (inner_w * shown + 50) / 100;
+    // **A bar that says something always shows something**: one per cent of a narrow bar is less than a
+    // pixel, and a progress that says five while drawing nothing is a progress that lies (docs/90).
+    const int32_t least = inner_radius * 2;
+    if (filled < least && inner_w >= least) filled = least;
+    draw_round_fill(*target.canvas, inner_x, inner_y, filled, inner_h, inner_radius, fill, mode);
+  }
+  close_draw(target);
+  return true;
+}
+
+// ---- a slider (docs/90) ----
+//
+// **The system moves the number and the control only draws it**: the arrows of the dial change `value` by
+// `step` while the slider has the focus (`luabind` does it, in `ui_button_event`), and the app hears about it
+// at `on_change`. What is here is the geometry: a track from the middle of where the knob goes at the minimum
+// to the middle of where it goes at the maximum —a track that runs to the edge leaves a knob half outside the
+// frame—, the knob as a square of the height of the control, and the number in the right column, measured
+// with the face the control was given (docs/30, docs/90).
+bool slider_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+                 uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
+                 uint8_t scale, bool pressed, bool focused) {
+  if (!live(slot) || background > 15 || border > 15 || track > 15 || fill > 15 || text > 15) return false;
+  const Canvas& slider = g_canvases[slot];
+  const int32_t width = slider.width;
+  const int32_t height = slider.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(slider.face);
+  // **The number and its unit**: `suffix` is the `%` or the ` C`, because a number without it means something
+  // else —an app that wants another word beside it adds a label of its own, which is a child control—.
+  if (maximum < minimum) {
+    const int16_t swap = minimum;
+    minimum = maximum;
+    maximum = swap;
+  }
+  int32_t shown_value = value;
+  if (shown_value < minimum) shown_value = minimum;
+  if (shown_value > maximum) shown_value = maximum;
+  char shown[32];
+  snprintf(shown, sizeof(shown), "%d%s", static_cast<int>(shown_value),
+           (suffix != nullptr) ? suffix : "");
+  const int32_t text_w = font::width(face, shown, scale);
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  // The frame is the one of a chip: rounded, one or two pixels of border, and the background inside it.
+  int32_t radius = 8;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  const int32_t thickness = (width > 24 && height > 16) ? 2 : 1;
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
+  draw_round_fill(*target.canvas, target.x + thickness, target.y + thickness, width - 2 * thickness,
+                  height - 2 * thickness, radius - thickness, background, mode);
+  const int32_t face_h = height - 2 * thickness;
+  int32_t knob = face_h - 6;
+  if (knob > 32) knob = 32;
+  if (knob < 8) knob = 8;
+  if (knob > face_h) knob = face_h;
+  const int32_t column = (text_w > 0) ? text_w + 10 : 0;
+  const int32_t left = target.x + thickness + knob / 2 + 2;
+  const int32_t right = target.x + width - thickness - column - knob / 2 - 2;
+  int32_t band = knob / 3;
+  if (band < 3) band = 3;
+  if (band > 10) band = 10;
+  const int32_t middle = target.y + height / 2;
+  if (right > left) {
+    draw_round_fill(*target.canvas, left, middle - band / 2, right - left, band, band / 2, track, mode);
+    int32_t position = left;
+    if (maximum > minimum) {
+      position = left + static_cast<int32_t>((static_cast<int64_t>(right - left) * (shown_value - minimum)) /
+                                             (maximum - minimum));
+    }
+    if (position > left) {
+      draw_round_fill(*target.canvas, left, middle - band / 2, position - left, band, band / 2, fill, mode);
+    }
+    // **The knob is a square with a hole**, the same language as a checkbox and a button: a border of two or
+    // three pixels and the paper inside it. Held, it is a hole of its own colour and two pixels bigger, which
+    // is the difference between "this is the knob" and "the finger is on it" (docs/90).
+    int32_t side = knob + (pressed ? 2 : 0);
+    if (side > face_h) side = face_h;
+    const int32_t knob_x = position - side / 2;
+    const int32_t knob_y = middle - side / 2;
+    int32_t ring = (side > 20) ? 3 : 2;
+    if (ring * 2 >= side) ring = 1;
+    draw_round_fill(*target.canvas, knob_x, knob_y, side, side, 3, border, mode);
+    draw_round_fill(*target.canvas, knob_x + ring, knob_y + ring, side - 2 * ring, side - 2 * ring, 2,
+                    pressed ? fill : background, mode);
+  }
+  // **The number is in the right column and it is not cut**: the app asked for a slider of that width, so the
+  // control keeps the room for the widest number it can show —the maximum— and not for the one it has now, or
+  // the knob would jump when the value grows a digit (docs/90).
+  if (text_w > 0) {
+    draw_text(*target.canvas, face, target.x + width - thickness - 4 - text_w,
+              middle - line_h / 2, shown, scale, text, mode);
+  }
+  // The focus is the double frame of a button, drawn inside the chip and with the ink colour of the control.
+  if (focused && width > 16 && height > 16) {
+    const int32_t inset = thickness + 2;
+    const int32_t ring_px = 2;
+    const int32_t ring_w = width - 2 * inset;
+    const int32_t ring_h = height - 2 * inset;
+    if (ring_w > 2 * ring_px + 4 && ring_h > 2 * ring_px + 2) {
+      draw_round_fill(*target.canvas, target.x + inset, target.y + inset, ring_w, ring_h, 4, text, mode);
+      draw_round_fill(*target.canvas, target.x + inset + ring_px, target.y + inset + ring_px,
+                      ring_w - 2 * ring_px, ring_h - 2 * ring_px, 3, background, mode);
+    }
+  }
+  close_draw(target);
+  return true;
+}
+
+// ---- a row of a list (docs/90) ----
+//
+// **One line and the two columns of it**: the title on the left and the detail on the right, which is where a
+// date or a size goes, and a subtitle under the title in the dim colour. Every line is cut with `"..."` at its
+// own column —the ellipsis is the label's, so a row and a label cannot disagree— and a row that is **marked**
+// is inverted, because on this glass "this is the one" is ink and paper swapped and not a grey (docs/90).
+//
+// **The painter is one function and the row and the list share it**: two painters of the same list always drift,
+// and a list whose rows look almost like a `ui.row` is a page that looks almost right (docs/90).
+void paint_row(Canvas& canvas, int32_t x, int32_t y, int32_t width, int32_t height, int8_t face_handle,
+               const char* title, const char* detail, const char* subtitle, uint8_t text, uint8_t dim,
+               uint8_t background, uint8_t scale, bool marked, bool separator, hal::UpdateMode mode) {
+  if (width <= 0 || height <= 0) return;
+  const font::Face& face = face_of(face_handle);
+  // **Inverted, not greyed**: a marked row is the row of the page that the person is on, and the only two
+  // levels that can say that at once are ink and paper (docs/90).
+  const uint8_t paper = marked ? text : background;
+  const uint8_t ink = marked ? background : text;
+  const uint8_t faint = marked ? background : dim;
+  draw_fill_rect(canvas, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(width),
+                 static_cast<uint16_t>(height), paper, mode);
+  // The lines live in a static block and not on the stack, for the reason a label's do: a control that is
+  // drawn may not borrow the stack of the loop task (docs/75).
+  static char lines[3][256];
+  const int32_t pad = (width > 24) ? 8 : 4;
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  const bool has_detail = detail != nullptr && detail[0] != '\0';
+  const bool has_subtitle = subtitle != nullptr && subtitle[0] != '\0';
+  const int32_t detail_w = has_detail ? font::width(face, detail, scale) : 0;
+  const int32_t room = width - 2 * pad - ((detail_w > 0) ? detail_w + 12 : 0);
+  if (title != nullptr && title[0] != '\0' && room > 0) {
+    label_text(face_handle, title, static_cast<uint16_t>(room), scale, lines[0], sizeof(lines[0]));
+    const int32_t lines_used = has_subtitle ? 2 : 1;
+    const int32_t block = lines_used * line_h + ((lines_used > 1) ? 2 : 0);
+    const int32_t top = y + (height - block) / 2;
+    draw_text(canvas, face, x + pad, top, lines[0], scale, ink, mode);
+    if (has_subtitle) {
+      label_text(face_handle, subtitle, static_cast<uint16_t>(room), scale, lines[1], sizeof(lines[1]));
+      draw_text(canvas, face, x + pad, top + line_h + 2, lines[1], scale, faint, mode);
+    }
+  }
+  if (has_detail) {
+    // The detail is right-aligned and cut to what is left after the title's column, so the two of them never
+    // overlap: a row whose size runs into its name is a row that cannot be read (docs/90).
+    label_text(face_handle, detail, static_cast<uint16_t>(detail_w), scale, lines[2], sizeof(lines[2]));
+    const int32_t box = has_subtitle ? 2 * line_h + 2 : line_h;
+    const int32_t top = y + (height - box) / 2;
+    draw_text(canvas, face, x + width - pad - detail_w, top, lines[2], scale, faint, mode);
+  }
+  if (separator && height > 2) {
+    put_rect(canvas, x + pad, y + height - 1, width - 2 * pad, 1, faint);
+    mark_box(canvas, x + pad, y + height - 1, width - 2 * pad, 1, mode);
+  }
+}
+
+bool row_draw(int8_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
+              uint8_t dim, uint8_t background, uint8_t scale, bool marked, bool separator) {
+  if (!live(slot) || text > 15 || dim > 15 || background > 15) return false;
+  const Canvas& row = g_canvases[slot];
+  if (row.width == 0 || row.height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  paint_row(*target.canvas, target.x, target.y, row.width, row.height, row.face, title, detail, subtitle,
+            text, dim, background, scale, marked, separator, hal::UpdateMode::kDu);
+  close_draw(target);
+  return true;
+}
+
+// ---- a panel: the room that arranges what it holds (docs/90) ----
+
+bool canvas_resize(int8_t slot, uint16_t width, uint16_t height) {
+  Canvas* target = find(slot);
+  if (target == nullptr || width == 0 || height == 0) return false;
+  // **A control with a buffer is not resized here**: its pixels are a block of the extra memory handed out
+  // with a size, and a size that changes is a release and a new canvas, which is the app's to ask (docs/90).
+  if (target->bits != nullptr) return false;
+  if (target->width == width && target->height == height) return true;
+  target->width = width;
+  target->height = height;
+  invalidate(slot);
+  return true;
+}
+
+uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
+                     const PanelChild* children, uint8_t count) {
+  if (!live(slot) || children == nullptr || count == 0 || count > 16) return 0;
+  const Canvas& panel = g_canvases[slot];
+  const int32_t inner_w = static_cast<int32_t>(panel.width) - 2 * static_cast<int32_t>(padding);
+  const int32_t inner_h = static_cast<int32_t>(panel.height) - 2 * static_cast<int32_t>(padding);
+  if (inner_w <= 0 || inner_h <= 0) return 0;
+
+  // **Only the children that are still this panel's** are arranged: a control that moved to another panel is
+  // not this one's business, and counting it would put a gap where nobody is (docs/90).
+  int8_t mine[16];
+  uint8_t weights[16];
+  uint8_t used = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    const Canvas* child = find(children[i].slot);
+    if (child == nullptr || child->parent != slot) continue;
+    mine[used] = children[i].slot;
+    weights[used] = children[i].weight;
+    ++used;
+  }
+  if (used == 0) return 0;
+
+  uint8_t moved = 0;
+  if (flow == PanelFlow::kOverlay) {
+    for (uint8_t i = 0; i < used; ++i) {
+      if (place(mine[i], padding, padding)) ++moved;
+    }
+    return moved;
+  }
+
+  const bool vertical = (flow == PanelFlow::kVertical);
+  const int32_t span = vertical ? inner_h : inner_w;
+  const int32_t across = vertical ? inner_w : inner_h;
+  int32_t fixed = 0;
+  int32_t total_weight = 0;
+  uint8_t weighted = 0;
+  for (uint8_t i = 0; i < used; ++i) {
+    const Canvas& child = g_canvases[mine[i]];
+    const int32_t size = vertical ? child.height : child.width;
+    if (weights[i] == 0) {
+      fixed += size;
+    } else {
+      total_weight += weights[i];
+      ++weighted;
+    }
+  }
+  const int32_t gaps = static_cast<int32_t>(gap) * ((used > 1) ? (used - 1) : 0);
+  int32_t free_room = span - fixed - gaps;
+  if (free_room < 0) free_room = 0;
+  int32_t given = 0;
+  int32_t cursor = static_cast<int32_t>(padding);
+  for (uint8_t i = 0; i < used; ++i) {
+    Canvas& child = g_canvases[mine[i]];
+    int32_t size = vertical ? child.height : child.width;
+    if (weights[i] > 0 && total_weight > 0) {
+      // **The last one takes the remainder**, or a hundred pixels of rounding leave a strip of page at the
+      // bottom of the panel that nobody asked for (docs/90).
+      size = (weighted <= 1) ? (free_room - given) : ((free_room * weights[i]) / total_weight);
+      if (size < 0) size = 0;
+      given += size;
+      --weighted;
+    }
+    // Across the flow a child is as big as the panel —a row of a column is as wide as the column— and along
+    // it, the size it was given. A control with a buffer keeps its own size and only moves.
+    const uint16_t new_w = static_cast<uint16_t>(vertical ? across : size);
+    const uint16_t new_h = static_cast<uint16_t>(vertical ? size : across);
+    canvas_resize(mine[i], new_w, new_h);
+    const uint16_t x = static_cast<uint16_t>(vertical ? padding : cursor);
+    const uint16_t y = static_cast<uint16_t>(vertical ? cursor : padding);
+    if (place(mine[i], x, y)) ++moved;
+    cursor += size + static_cast<int32_t>(gap);
+  }
+  return moved;
+}
+
+// ---- a strip of tabs (docs/90) ----
+//
+// **Equal columns and a line that is missing under the chosen one**: on two tones there is no bold and no
+// colour, so "you are here" is said by taking the line away instead of by adding anything, and a tab that is
+// drawn with a line under it is a tab that is not the one (docs/90).
+bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t text,
+               uint8_t background, uint8_t scale) {
+  if (!live(slot) || labels == nullptr || count == 0 || text > 15 || background > 15) return false;
+  const Canvas& strip = g_canvases[slot];
+  const int32_t width = strip.width;
+  const int32_t height = strip.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(strip.face);
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  const int32_t column = width / count;
+  int32_t line = 2;
+  if (line > height / 4) line = (height / 4 > 0) ? height / 4 : 1;
+  const int32_t line_y = target.y + height - line;
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  static char shown[128];
+  for (uint8_t i = 0; i < count; ++i) {
+    const int32_t x0 = target.x + static_cast<int32_t>(i) * column;
+    const int32_t x1 = (i + 1 == count) ? (target.x + width) : (x0 + column);
+    // The word, in the middle of its column and above the line.
+    if (labels[i] != nullptr && labels[i][0] != '\0' && (x1 - x0) > 8) {
+      const uint16_t taken = label_text(strip.face, labels[i], static_cast<uint16_t>(x1 - x0 - 8), scale,
+                                        shown, sizeof(shown));
+      const int32_t at_x = x0 + ((x1 - x0) - static_cast<int32_t>(taken)) / 2;
+      const int32_t at_y = target.y + (height - line - line_h) / 2;
+      draw_text(*target.canvas, face, at_x, at_y, shown, scale, text, mode);
+    }
+    // The line, everywhere but under the chosen tab: that missing piece is the whole signal.
+    if (static_cast<uint8_t>(i + 1) != index) {
+      put_rect(*target.canvas, x0, line_y, x1 - x0, line, text);
+      mark_box(*target.canvas, x0, line_y, x1 - x0, line, mode);
+    }
+  }
+  close_draw(target);
+  return true;
+}
+
+// ---- a list (docs/90) ----
+
+namespace {
+
+// **The band of the footer**: a third of a row, with a floor of twenty pixels so a small row still has a footer
+// a person can read and a ceiling of thirty-six so a tall row does not give half of itself to it (docs/90).
+uint16_t list_footer(uint16_t row_height) {
+  int32_t band = static_cast<int32_t>(row_height) / 3;
+  if (band < 20) band = 20;
+  if (band > 36) band = 36;
+  return static_cast<uint16_t>(band);
+}
+
+// How many rows of that height fit in that height at all, cut at thirty-two: a page longer than that is a page
+// nobody reads (docs/90).
+uint8_t rows_fitting(uint16_t height, uint16_t row_height) {
+  if (row_height == 0) return 0;
+  int32_t rows = static_cast<int32_t>(height) / static_cast<int32_t>(row_height);
+  if (rows > 32) rows = 32;
+  return static_cast<uint8_t>((rows > 0) ? rows : 0);
+}
+
+}  // namespace
+
+ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items) {
+  ListPage out = {0, 0};
+  if (row_height == 0 || items == 0) return out;
+  const uint8_t whole = rows_fitting(height, row_height);
+  if (whole == 0) return out;
+  const uint32_t loose = (static_cast<uint32_t>(items) + whole - 1) / whole;
+  if (loose <= 1) {
+    // **A list that fits says nothing about pages**: every row is on the one page and no band is taken from it.
+    out.rows = whole;
+    out.pages = 1;
+    return out;
+  }
+  // The footer takes its band, and the rows are counted again in what is left: the band can cost a row, and a
+  // list that counted without it would draw a row under the footer (docs/90).
+  const int32_t room = static_cast<int32_t>(height) - static_cast<int32_t>(list_footer(row_height));
+  uint8_t rows = (room > 0) ? static_cast<uint8_t>(room / static_cast<int32_t>(row_height)) : 0;
+  if (rows == 0) rows = 1;
+  uint32_t pages = (static_cast<uint32_t>(items) + rows - 1) / rows;
+  if (pages > 255) pages = 255;
+  out.rows = rows;
+  out.pages = static_cast<uint8_t>(pages);
+  return out;
+}
+
+bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+               const char* const* titles, const char* const* details, const char* const* subtitles,
+               uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
+               bool separator, bool focused) {
+  // **An empty list still owes its background**: a frame with nothing in it is white paper and not a hole where
+  // the page before it shows through, which is the same rule a label follows (docs/90).
+  if (!live(slot) || (count > 0 && titles == nullptr) || row_height == 0 || text > 15 || dim > 15 ||
+      background > 15) {
+    return false;
+  }
+  const Canvas& list = g_canvases[slot];
+  const int32_t width = list.width;
+  const int32_t height = list.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  const int32_t footer = (pages > 1) ? static_cast<int32_t>(list_footer(row_height)) : 0;
+  const int32_t last_row = height - footer;
+  for (uint8_t i = 0; i < count; ++i) {
+    const int32_t row_y = static_cast<int32_t>(i) * static_cast<int32_t>(row_height);
+    // **A row never goes under the footer**: the page is the rows that fit and the app was told how many, so a
+    // row that would not fit is a row of the next page and not a row half drawn (docs/90).
+    if (row_y + static_cast<int32_t>(row_height) > last_row) break;
+    paint_row(*target.canvas, target.x, target.y + row_y, width, static_cast<int32_t>(row_height), list.face,
+              (titles[i] != nullptr) ? titles[i] : "",
+              (details != nullptr) ? details[i] : nullptr,
+              (subtitles != nullptr) ? subtitles[i] : nullptr, text, dim, background, scale,
+              static_cast<uint8_t>(i + 1) == marked, separator && (i + 1 < count), mode);
+  }
+  if (footer > 0) {
+    const int32_t band_y = target.y + height - footer;
+    put_rect(*target.canvas, target.x, band_y, width, 1, dim);
+    mark_box(*target.canvas, target.x, band_y, width, 1, mode);
+    const font::Face& face = face_of(list.face);
+    const int32_t line_h =
+        static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+    char shown[24];
+    snprintf(shown, sizeof(shown), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(pages));
+    const uint16_t taken = font::width(face, shown, scale);
+    const int32_t at_y = band_y + (footer - line_h) / 2;
+    draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2, at_y, shown, scale,
+              text, mode);
+    // **A chevron is there only when that way exists**: an arrow that does nothing is a promise the page does not
+    // keep, and the two of them are the same words as the keys of the dial (docs/90).
+    const int32_t edge = (width > 40) ? 10 : 4;
+    if (page > 1) draw_text(*target.canvas, face, target.x + edge, at_y, "<", scale, text, mode);
+    if (page < pages) {
+      const uint16_t arrow = font::width(face, ">", scale);
+      draw_text(*target.canvas, face, target.x + width - edge - static_cast<int32_t>(arrow), at_y, ">", scale,
+                text, mode);
+    }
+  }
+  // **The focus is the frame of the list**, and it is drawn last so the rows do not paint over it: a list that
+  // has the focus is the one the arrows of the dial turn (docs/90).
+  if (focused && width > 8 && height > 8) {
+    put_rect(*target.canvas, target.x, target.y, width, 2, text);
+    put_rect(*target.canvas, target.x, target.y + height - 2, width, 2, text);
+    put_rect(*target.canvas, target.x, target.y, 2, height, text);
+    put_rect(*target.canvas, target.x + width - 2, target.y, 2, height, text);
+    mark_box(*target.canvas, target.x, target.y, width, height, mode);
+  }
+  close_draw(target);
+  return true;
+}
+
+// ---- a text box: the window of the text and the caret (docs/90) ----
+
+bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
+                  uint8_t background, uint8_t border, uint8_t scale) {
+  if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
+  const Canvas& box = g_canvases[slot];
+  const int32_t width = box.width;
+  const int32_t height = box.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(box.face);
+  // The frame is the one of a chip, the same as a slider: it is a place a person types into and not a button.
+  int32_t radius = 8;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  const int32_t thickness = (width > 24 && height > 16) ? 2 : 1;
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
+  draw_round_fill(*target.canvas, target.x + thickness, target.y + thickness, width - 2 * thickness,
+                  height - 2 * thickness, radius - thickness, background, mode);
+  const int32_t pad = thickness + 6;
+  const int32_t inner_x = target.x + pad;
+  const int32_t inner_w = width - 2 * pad;
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  const int32_t top = target.y + (height - line_h) / 2;
+  close_draw(target);
+  if (inner_w <= 0 || text == nullptr) return true;
+  const int32_t length = static_cast<int32_t>(strlen(text));
+  int32_t at = cursor;
+  if (at < 0) at = 0;
+  if (at > length) at = length;
+  // **A masked box is the same box with dots**: the dots are the letters in their place, so the caret lands where
+  // it would with the letters and the width of what is typed does not leak (docs/30).
+  static char shown[512];
+  const int32_t shown_length = (length < static_cast<int32_t>(sizeof(shown)) - 1)
+                                   ? length
+                                   : static_cast<int32_t>(sizeof(shown)) - 1;
+  for (int32_t i = 0; i < shown_length; ++i) shown[i] = mask ? '.' : text[i];
+  shown[shown_length] = '\0';
+  // **The width of the caret is the width of the letter under it**, and at the end of the text it is a thin bar:
+  // a block that does not fit the letter it sits on is a block that hides the letter after it (docs/90).
+  char under[8] = {0};
+  int32_t under_bytes = 0;
+  if (at < shown_length) {
+    under_bytes = 1;
+    // A UTF-8 sequence is walked whole: half of a letter is a letter that is not there.
+    while (at + under_bytes < shown_length && (shown[at + under_bytes] & 0xC0) == 0x80 &&
+           under_bytes < 3) {
+      ++under_bytes;
+    }
+    for (int32_t i = 0; i < under_bytes; ++i) under[i] = shown[at + i];
+    under[under_bytes] = '\0';
+  }
+  int32_t caret_w = (under_bytes > 0) ? static_cast<int32_t>(font::width(face, under, scale)) : 3 * scale;
+  if (caret_w < 2) caret_w = 2;
+  // **The window**: the text is drawn from a byte that keeps the caret on the glass. The search drops one letter
+  // at a time from the front, which is what a person sees: the beginning of a long line goes away as the end is
+  // typed, and the caret is always where the next letter goes (docs/90).
+  const DrawTarget window = open_draw(slot);
+  if (window.canvas == nullptr) return true;
+  static char head[512];
+  int32_t from = 0;
+  for (;;) {
+    const int32_t taken = (at > from) ? at - from : 0;
+    if (taken >= static_cast<int32_t>(sizeof(head))) break;
+    memcpy(head, shown + from, static_cast<size_t>(taken));
+    head[taken] = '\0';
+    const int32_t before = static_cast<int32_t>(font::width(face, head, scale));
+    if (before + caret_w <= inner_w || from >= at) break;
+    // The next letter of the front goes, and never half of one.
+    ++from;
+    while (from < at && (shown[from] & 0xC0) == 0x80) ++from;
+  }
+  const int32_t taken = (at > from) ? at - from : 0;
+  memcpy(head, shown + from, static_cast<size_t>((taken < static_cast<int32_t>(sizeof(head)))
+                                                    ? taken
+                                                    : static_cast<int32_t>(sizeof(head)) - 1));
+  head[(taken < static_cast<int32_t>(sizeof(head))) ? taken : static_cast<int32_t>(sizeof(head)) - 1] = '\0';
+  const int32_t before = static_cast<int32_t>(font::width(face, head, scale));
+  // What is on the glass is the window and the caret: the tail is cut at the frame by the same width budget, or a
+  // long text would run under the border of the box (docs/90).
+  static char tail[512];
+  const int32_t room = inner_w - before - ((caret && at >= from) ? caret_w : 0);
+  int32_t fit = 0;
+  if (room > 0) {
+    // How many bytes of the rest fit: measured a letter at a time, and a letter that does not fit stops the line.
+    char probe[8];
+    while (from + fit < shown_length) {
+      int32_t step = 1;
+      while (from + fit + step < shown_length && (shown[from + fit + step] & 0xC0) == 0x80 && step < 3) ++step;
+      memcpy(probe, shown + from + fit, static_cast<size_t>(step));
+      probe[step] = '\0';
+      const int32_t one = static_cast<int32_t>(font::width(face, probe, scale));
+      if (static_cast<int32_t>(font::width(face, tail, scale)) + one > room) break;
+      const size_t have = strlen(tail);
+      if (have + static_cast<size_t>(step) + 1 >= sizeof(tail)) break;
+      memcpy(tail + have, probe, static_cast<size_t>(step));
+      tail[have + static_cast<size_t>(step)] = '\0';
+      fit += step;
+    }
+  }
+  if (tail[0] != '\0') {
+    draw_text(*window.canvas, face, inner_x, top, tail, scale, color, mode);
+  }
+  // **The caret is a block of ink with the letter under it in paper**: a filled block would hide the letter the
+  // person is about to type over, and an outline would be a box drawn on a box (docs/90).
+  if (caret) {
+    int32_t caret_x = inner_x + before;
+    int32_t cell = caret_w;
+    if (caret_x + cell > inner_x + inner_w) cell = inner_x + inner_w - caret_x;
+    if (cell > 0) {
+      put_rect(*window.canvas, caret_x, top, cell, line_h, color);
+      mark_box(*window.canvas, caret_x, top, cell, line_h, mode);
+      if (under_bytes > 0) {
+        draw_text(*window.canvas, face, caret_x, top, under, scale, background, mode);
+      }
+    }
+  }
+  close_draw(window);
+  return true;
+}
+
+uint16_t textbox_inside(int8_t slot, uint8_t scale) {
+  if (!live(slot)) return 0;
+  const Canvas& box = g_canvases[slot];
+  if (scale == 0) scale = 1;
+  const int32_t thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
+  const int32_t inside = static_cast<int32_t>(box.width) - 2 * (thickness + 6);
+  return static_cast<uint16_t>((inside > 0) ? inside : 0);
+}
+
+// ---- a box of several lines: the same box, with room to fall (docs/30, docs/90) ----
+
+namespace {
+
+// **How far the pen moves after a letter**: a face of bits moves the same for every one of them —its cell and the gap—
+// and a face of outlines has its own advance per glyph, which is the width of two of them minus the width of one
+// (docs/90).
+int32_t advance_of(const font::Face& face, uint8_t c, uint8_t scale) {
+  if (face.outline == nullptr) {
+    return static_cast<int32_t>(face.width + face.gap) * scale;
+  }
+  const char twice[3] = {static_cast<char>(c), static_cast<char>(c), '\0'};
+  const char once[2] = {static_cast<char>(c), '\0'};
+  return static_cast<int32_t>(font::width(face, twice, scale)) -
+         static_cast<int32_t>(font::width(face, once, scale));
+}
+
+// **Where a row ends**: at a '\n' —which is the end of the row, and the next row starts after it— and, when the app asked
+// for wrapping, at the last space that fits the inside of the box. `taken` is how many bytes of the text the row
+// consumes with the break, and `caret_x` is where the caret lands when the cursor is `at_cursor` bytes into this row —
+// `caret_here` says whether it is this row's caret at all— (docs/90).
+int32_t row_span(const font::Face& face, const char* at, int32_t room, uint8_t scale, bool wrap, int32_t at_cursor,
+                 int32_t& taken, int32_t& caret_x, bool& caret_here) {
+  taken = 0;
+  caret_x = 0;
+  caret_here = false;
+  int32_t used = 0;
+  int32_t last_space = -1;
+  int32_t w = 0;
+  while (at[used] != '\0' && at[used] != '\n') {
+    const int32_t step = advance_of(face, static_cast<uint8_t>(at[used]), scale);
+    if (wrap && at[used] == ' ' && w + step <= room) last_space = used;
+    // **A row is never empty**: a letter wider than the box is drawn and cut at the border, because a box narrower than
+    // a letter that painted nothing at all would be a box nobody can type into (docs/90).
+    // **The width only ends a row when the app asked for wrapping**: with it off a row is a line, and a line longer than the
+    // box is cut at its border by the paint and not broken by the arithmetic of the window (docs/90).
+    if (wrap && used > 0 && w + step > room) {
+      if (last_space > 0) {
+        used = last_space;
+        w = 0;
+        for (int32_t i = 0; i < used; ++i) w += advance_of(face, static_cast<uint8_t>(at[i]), scale);
+      }
+      break;
+    }
+    w += step;
+    ++used;
+    if (used == at_cursor) {
+      caret_x = w;
+      caret_here = true;
+    }
+  }
+  if (!caret_here && at_cursor >= 0 && at_cursor <= used) {
+    // The cursor is at the end of the row, which is where it is when it is about to type the letter that did not fit.
+    caret_x = w;
+    caret_here = true;
+  }
+  // **The space a wrapped row breaks on is the break itself** and is not drawn, so the next row starts after it (docs/90).
+  const bool ends = (at[used] == '\n') || (wrap && at[used] == ' ');
+  taken = used + (ends ? 1 : 0);
+  return used;
+}
+
+// **The bytes of a row that fit the inside of the box**, measured a letter at a time: with the wrapping off a row is the
+// whole line and a line longer than the box is cut at its border and not under it (docs/90).
+int32_t row_fit(const font::Face& face, const char* at, int32_t span, int32_t room, uint8_t scale, char* out,
+                size_t cap) {
+  int32_t w = 0;
+  int32_t used = 0;
+  while (used < span && static_cast<size_t>(used) + 2 < cap) {
+    const int32_t step = advance_of(face, static_cast<uint8_t>(at[used]), scale);
+    if (used > 0 && w + step > room) break;
+    w += step;
+    out[used] = at[used];
+    ++used;
+  }
+  out[used] = '\0';
+  return used;
+}
+
+// **The box of several lines, measured once**: the frame, the air, the rows that fit and the window that keeps the
+// cursor on the glass. The paint and the finger ask this, or the caret of one and the caret of the other disagree
+// (docs/90).
+struct MultilineLayout {
+  int32_t thickness;
+  int32_t pad;
+  int32_t room;
+  int32_t line_h;
+  int32_t fit;
+  int32_t total;
+  int32_t first;
+  int32_t cursor_row;
+  int32_t caret_x;
+};
+
+MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t cursor, bool wrap, uint8_t scale) {
+  MultilineLayout out = {};
+  const font::Face& face = face_of(box.face);
+  out.thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
+  out.pad = out.thickness + 6;
+  out.room = static_cast<int32_t>(box.width) - 2 * out.pad;
+  out.line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  if (out.line_h <= 0) out.line_h = 1;
+  out.fit = (static_cast<int32_t>(box.height) - 2 * out.pad) / out.line_h;
+  if (out.fit < 1) out.fit = 1;
+  if (out.fit > 255) out.fit = 255;
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t length = static_cast<int32_t>(strlen(at));
+  const int32_t at_byte = (cursor > length) ? length : static_cast<int32_t>(cursor);
+  int32_t row = 0;
+  int32_t offset = 0;
+  do {
+    int32_t taken = 0;
+    int32_t caret_x = 0;
+    bool here = false;
+    const int32_t span = row_span(face, at, out.room, scale, wrap, at_byte - offset, taken, caret_x, here);
+    if (here) {
+      out.cursor_row = row;
+      out.caret_x = caret_x;
+    }
+    ++row;
+    (void)span;
+    at += taken;
+    offset += taken;
+  } while (at[0] != '\0' && row < 4096);
+  out.total = row;
+  // **The window follows the cursor**: the caret is always on the glass, and when the text is shorter than the box the
+  // window is the first row, so the lines a person wrote stay at the top where they left them (docs/90).
+  if (out.cursor_row >= out.fit) out.first = out.cursor_row - out.fit + 1;
+  if (out.first > out.total - out.fit) out.first = out.total - out.fit;
+  if (out.first < 0) out.first = 0;
+  return out;
+}
+
+}  // namespace
+
+bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
+                            uint8_t background, uint8_t border, uint8_t scale) {
+  if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
+  const Canvas& box = g_canvases[slot];
+  const int32_t width = box.width;
+  const int32_t height = box.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(box.face);
+  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale);
+  // The frame is the one of a text box and of a chip: it is a place a person types into and not a button (docs/90).
+  int32_t radius = 8;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
+  draw_round_fill(*target.canvas, target.x + layout.thickness, target.y + layout.thickness,
+                  width - 2 * layout.thickness, height - 2 * layout.thickness, radius - layout.thickness, background,
+                  mode);
+  if (layout.room <= 0) {
+    close_draw(target);
+    return true;
+  }
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t length = static_cast<int32_t>(strlen(at));
+  int32_t row = 0;
+  int32_t offset = 0;
+  // Walk to the first row of the window with the same arithmetic that drew them in the layout: a second rule here is a
+  // window that starts somewhere else (docs/90).
+  while (row < layout.first && at[0] != '\0') {
+    int32_t taken = 0;
+    int32_t caret_x = 0;
+    bool here = false;
+    const int32_t span = row_span(face, at, layout.room, scale, wrap, -1, taken, caret_x, here);
+    (void)span;
+    at += taken;
+    offset += taken;
+    ++row;
+  }
+  static char shown[512];
+  int32_t y = target.y + layout.pad;
+  for (int32_t which = layout.first; which < layout.total && which < layout.first + layout.fit; ++which) {
+    int32_t taken = 0;
+    int32_t caret_x = 0;
+    bool here = false;
+    const int32_t span = row_span(face, at, layout.room, scale, wrap, -1, taken, caret_x, here);
+    if (span > 0) {
+      row_fit(face, at, span, layout.room, scale, shown, sizeof(shown));
+      draw_text(*target.canvas, face, target.x + layout.pad, y, shown, scale, color, mode);
+    }
+    // **The caret is a block of ink with the letter under it in paper**, the same one the one line box has: a filled
+    // block would hide the letter the person is about to type over (docs/90).
+    if (caret && which == layout.cursor_row) {
+      char under[8] = {0};
+      int32_t under_bytes = 0;
+      const int32_t at_cursor = static_cast<int32_t>(cursor) - offset;
+      if (at_cursor >= 0 && static_cast<int32_t>(cursor) < length && at_cursor < span) {
+        under_bytes = 1;
+        while (static_cast<int32_t>(cursor) + under_bytes < length && (at[at_cursor + under_bytes] & 0xC0) == 0x80 &&
+               under_bytes < 3) {
+          ++under_bytes;
+        }
+        for (int32_t i = 0; i < under_bytes; ++i) under[i] = at[at_cursor + i];
+        under[under_bytes] = '\0';
+      }
+      int32_t caret_w = (under_bytes > 0) ? static_cast<int32_t>(font::width(face, under, scale)) : 3 * scale;
+      if (caret_w < 2) caret_w = 2;
+      int32_t caret_at = target.x + layout.pad + layout.caret_x;
+      if (caret_at + caret_w > target.x + layout.pad + layout.room) {
+        caret_w = target.x + layout.pad + layout.room - caret_at;
+      }
+      if (caret_w > 0) {
+        put_rect(*target.canvas, caret_at, y, caret_w, layout.line_h, color);
+        mark_box(*target.canvas, caret_at, y, caret_w, layout.line_h, mode);
+        if (under_bytes > 0) {
+          draw_text(*target.canvas, face, caret_at, y, under, scale, background, mode);
+        }
+      }
+    }
+    at += taken;
+    offset += taken;
+    y += layout.line_h;
+  }
+  close_draw(target);
+  return true;
+}
+
+uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                               uint16_t x, uint16_t y) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const font::Face& face = face_of(box.face);
+  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale);
+  int32_t row = layout.first + ((static_cast<int32_t>(y) - layout.pad) / layout.line_h);
+  if (static_cast<int32_t>(y) < layout.pad) row = layout.first;
+  if (row >= layout.total) row = layout.total - 1;
+  if (row < 0) return 0;
+  // **A row and then a letter**: the y is the row of the window and the x is the letter inside it, and which letter it
+  // is comes from the width of what is before it, which only the font knows (docs/90).
+  const char* at = (text != nullptr) ? text : "";
+  int32_t offset = 0;
+  for (int32_t which = 0; which < row && at[0] != '\0'; ++which) {
+    int32_t taken = 0;
+    int32_t caret_x = 0;
+    bool here = false;
+    const int32_t span = row_span(face, at, layout.room, scale, wrap, -1, taken, caret_x, here);
+    (void)span;
+    at += taken;
+    offset += taken;
+  }
+  int32_t taken = 0;
+  int32_t caret_x = 0;
+  bool here = false;
+  const int32_t span = row_span(face, at, layout.room, scale, wrap, -1, taken, caret_x, here);
+  const int32_t at_x = static_cast<int32_t>(x) - layout.pad;
+  int32_t used = 0;
+  int32_t w = 0;
+  while (used < span) {
+    const int32_t step = advance_of(face, static_cast<uint8_t>(at[used]), scale);
+    // The middle of the letter and not its start: a finger that lands on the second half of an `m` is after the `m`
+    // (docs/90).
+    if (w + step / 2 > at_x) break;
+    w += step;
+    ++used;
+  }
+  return static_cast<uint16_t>(offset + used);
+}
+
+uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const font::Face& face = face_of(box.face);
+  const int32_t thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
+  const int32_t pad = thickness + 6;
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  if (line_h <= 0) return 1;
+  int32_t rows = (static_cast<int32_t>(box.height) - 2 * pad) / line_h;
+  if (rows < 1) rows = 1;
+  if (rows > 255) rows = 255;
+  return static_cast<uint8_t>(rows);
+}
+
+// ---- a month: seven columns and six weeks (docs/90) ----
+
+namespace {
+
+// **The cells of a calendar**: seven equal columns, a row of weekday names on top and six rows of days under it. The
+// arithmetic is here once and both the paint and the finger ask it (docs/90).
+struct MonthCells {
+  int32_t cell_w;
+  int32_t row_h;
+  int32_t first;  // the weekday of the first of the month, 1 Monday
+  uint8_t days;
+};
+
+MonthCells cells_of(const Canvas& grid, uint16_t year, uint8_t month) {
+  MonthCells cells;
+  cells.cell_w = static_cast<int32_t>(grid.width) / 7;
+  cells.row_h = static_cast<int32_t>(grid.height) / 7;
+  cells.first = calendar::weekday_of(year, month, 1);
+  cells.days = calendar::days_in_month(year, month);
+  return cells;
+}
+
+}  // namespace
+
+bool month_draw(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
+                const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
+                bool focused) {
+  if (!live(slot) || text > 15 || dim > 15 || background > 15) return false;
+  const Canvas& grid = g_canvases[slot];
+  const int32_t width = grid.width;
+  const int32_t height = grid.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(grid.face);
+  const MonthCells cells = cells_of(grid, year, month);
+  if (cells.cell_w <= 0 || cells.row_h <= 0 || cells.days == 0) {
+    close_draw(target);
+    return true;
+  }
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  static char shown[8];
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  // **The names of the days are the app's**: the kernel draws them and does not know what a Tuesday is called.
+  if (weekdays != nullptr) {
+    const uint8_t small = static_cast<uint8_t>((scale > 1) ? scale - 1 : 1);
+    for (int32_t column = 0; column < 7; ++column) {
+      const char* name = weekdays[column];
+      if (name == nullptr) continue;
+      const int32_t taken = static_cast<int32_t>(font::width(face, name, small));
+      const int32_t small_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * small;
+      draw_text(*target.canvas, face,
+                target.x + column * cells.cell_w + (cells.cell_w - taken) / 2,
+                target.y + (cells.row_h - small_h) / 2, name, small, dim, mode);
+    }
+  }
+  for (int32_t day = 1; day <= cells.days; ++day) {
+    const int32_t position = (day - 1) + (cells.first - 1);
+    const int32_t row = 1 + position / 7;
+    const int32_t column = position % 7;
+    // **Six weeks and not five**: a month that starts on a Sunday needs six, and a row that appears in March and
+    // disappears in April moves everything under the calendar (docs/90).
+    if (row > 6) break;
+    const int32_t x = target.x + column * cells.cell_w;
+    const int32_t y = target.y + row * cells.row_h;
+    const bool chosen = static_cast<uint8_t>(day) == selected;
+    // **The chosen day is inverted and today wears a frame**: two signals for two facts, because a page has no
+    // colour to spend on the second one (docs/90).
+    if (chosen) {
+      draw_fill_rect(*target.canvas, static_cast<uint16_t>(x + 1), static_cast<uint16_t>(y + 1),
+                     static_cast<uint16_t>(cells.cell_w - 2), static_cast<uint16_t>(cells.row_h - 2), text,
+                     mode);
+    } else if (static_cast<uint8_t>(day) == today) {
+      put_rect(*target.canvas, x + 1, y + 1, cells.cell_w - 2, 1, text);
+      put_rect(*target.canvas, x + 1, y + cells.row_h - 2, cells.cell_w - 2, 1, text);
+      put_rect(*target.canvas, x + 1, y + 1, 1, cells.row_h - 2, text);
+      put_rect(*target.canvas, x + cells.cell_w - 2, y + 1, 1, cells.row_h - 2, text);
+    }
+    snprintf(shown, sizeof(shown), "%d", static_cast<int>(day));
+    const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
+    draw_text(*target.canvas, face, x + (cells.cell_w - taken) / 2, y + (cells.row_h - line_h) / 2, shown, scale,
+              chosen ? background : text, mode);
+  }
+  // **The calendar as a whole is the control**: its frame says where the dial is, and the cells say the rest.
+  if (focused && width > 8 && height > 8) {
+    put_rect(*target.canvas, target.x, target.y, width, 2, text);
+    put_rect(*target.canvas, target.x, target.y + height - 2, width, 2, text);
+    put_rect(*target.canvas, target.x, target.y, 2, height, text);
+    put_rect(*target.canvas, target.x + width - 2, target.y, 2, height, text);
+  }
+  mark_box(*target.canvas, target.x, target.y, width, height, mode);
+  close_draw(target);
+  return true;
+}
+
+uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y) {
+  if (!live(slot)) return 0;
+  const Canvas& grid = g_canvases[slot];
+  const MonthCells cells = cells_of(grid, year, month);
+  if (cells.cell_w <= 0 || cells.row_h <= 0 || cells.days == 0) return 0;
+  const int32_t column = static_cast<int32_t>(x) / cells.cell_w;
+  const int32_t row = static_cast<int32_t>(y) / cells.row_h;
+  if (column < 0 || column > 6 || row < 1 || row > 6) return 0;
+  const int32_t day = (row - 1) * 7 + column - (cells.first - 1) + 1;
+  if (day < 1 || day > cells.days) return 0;
+  return static_cast<uint8_t>(day);
+}
+
+// ---- a sparkline and a pie (docs/90) ----
+
+bool sparkline_draw(int8_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
+                    uint8_t background) {
+  if (!live(slot) || color > 15 || background > 15) return false;
+  const Canvas& chart = g_canvases[slot];
+  const int32_t width = chart.width;
+  const int32_t height = chart.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  if (samples == nullptr || count == 0) {
+    close_draw(target);
+    return true;
+  }
+  if (count > kMaxSparkSamples) count = kMaxSparkSamples;
+  // **The peak of the window and not a fixed scale**: the shape reads the same with ten as with ten thousand, and
+  // that is what a sparkline is asked for (docs/90).
+  uint32_t peak = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    const uint32_t total = static_cast<uint32_t>(samples[i]) + ((top != nullptr) ? top[i] : 0);
+    if (total > peak) peak = total;
+  }
+  if (peak == 0) {
+    close_draw(target);
+    return true;
+  }
+  const int32_t bar = width / count;
+  if (bar <= 0) {
+    close_draw(target);
+    return true;
+  }
+  const int32_t gap = (bar > 3) ? 1 : 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    const int32_t x = target.x + static_cast<int32_t>(i) * bar;
+    const int32_t solid = static_cast<int32_t>(samples[i]);
+    const int32_t total = solid + ((top != nullptr) ? static_cast<int32_t>(top[i]) : 0);
+    int32_t full = static_cast<int32_t>((static_cast<uint64_t>(static_cast<uint32_t>(total)) * height) / peak);
+    int32_t below = static_cast<int32_t>((static_cast<uint64_t>(static_cast<uint32_t>(solid)) * height) / peak);
+    if (full > height) full = height;
+    if (below > full) below = full;
+    // **A sample that is not zero always shows a pixel**: one of a hundred in a chart of forty is less than a
+    // pixel, and a bar of nothing reads as a zero (docs/90).
+    if (solid > 0 && below == 0) below = 1;
+    if (below > 0) {
+      put_rect(*target.canvas, x, target.y + height - below, bar - gap, below, color);
+    }
+    if (top != nullptr && total > solid) {
+      // **The part on top is an outline**: the two series are parts of one total and the ink is the only level a
+      // chart may use, so the second one is said with a frame and not with a colour (docs/90).
+      const int32_t top_y = target.y + height - full;
+      const int32_t top_h = full - below;
+      if (top_h > 0) {
+        put_rect(*target.canvas, x, top_y, bar - gap, 1, color);
+        if (top_h > 1) put_rect(*target.canvas, x, top_y + top_h - 1, bar - gap, 1, color);
+        if (top_h > 2) {
+          put_rect(*target.canvas, x, top_y, 1, top_h, color);
+          put_rect(*target.canvas, x + bar - gap - 1, top_y, 1, top_h, color);
+        }
+      }
+    }
+  }
+  mark_box(*target.canvas, target.x, target.y, width, height, mode);
+  close_draw(target);
+  return true;
+}
+
+namespace {
+
+// **The thirty-two directions of the circle, in a fixed point of four thousand and ninety-six**: the pie needs an
+// angle for every pixel and this kernel has no floating point, so the angles are a table and the arithmetic is
+// integer. Index zero is the right and the index grows **clockwise**, because that is the way a clock goes and a
+// chart is read with a clock (docs/90).
+const int16_t kDirections[32][2] = {
+    {4096, 0},    {4017, 799},   {3784, 1567},  {3406, 2276},  {2896, 2896},  {2276, 3406},
+    {1567, 3784},  {799, 4017},  {0, 4096},     {-799, 4017},  {-1567, 3784}, {-2276, 3406},
+    {-2896, 2896}, {-3406, 2276}, {-3784, 1567}, {-4017, 799},  {-4096, 0},   {-4017, -799},
+    {-3784, -1567}, {-3406, -2276}, {-2896, -2896}, {-2276, -3406}, {-1567, -3784}, {-799, -4017},
+    {0, -4096},    {799, -4017},  {1567, -3784}, {2276, -3406}, {2896, -2896}, {3406, -2276},
+    {3784, -1567}, {4017, -799},
+};
+
+// **Which of the thirty-two directions a point is**: the octant is decided with two comparisons and then four
+// directions are tried, because a disc of sixty pixels is fourteen thousand of these and a scan of thirty-two per
+// pixel would be half of a paint (docs/75, docs/90).
+uint8_t sector_of(int32_t dx, int32_t dy) {
+  const int32_t ax = (dx >= 0) ? dx : -dx;
+  const int32_t ay = (dy >= 0) ? dy : -dy;
+  uint8_t first = 0;
+  if (dx >= 0 && dy >= 0) {
+    first = (ax >= ay) ? 0 : 4;
+  } else if (dx < 0 && dy >= 0) {
+    first = (ay >= ax) ? 8 : 12;
+  } else if (dx < 0 && dy < 0) {
+    first = (ax >= ay) ? 16 : 20;
+  } else {
+    first = (ay >= ax) ? 24 : 28;
+  }
+  for (uint8_t i = 0; i < 5; ++i) {
+    const uint8_t at = static_cast<uint8_t>((first + i) % 32);
+    const uint8_t next = static_cast<uint8_t>((at + 1) % 32);
+    const int64_t cross_a = static_cast<int64_t>(kDirections[at][0]) * dy -
+                            static_cast<int64_t>(kDirections[at][1]) * dx;
+    const int64_t cross_b = static_cast<int64_t>(kDirections[next][0]) * dy -
+                            static_cast<int64_t>(kDirections[next][1]) * dx;
+    if (cross_a >= 0 && cross_b <= 0) return at;
+  }
+  return first;
+}
+
+}  // namespace
+
+bool pie_draw(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background) {
+  if (!live(slot) || color > 15 || background > 15) return false;
+  const Canvas& chart = g_canvases[slot];
+  const int32_t width = chart.width;
+  const int32_t height = chart.height;
+  if (width == 0 || height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  if (slices == nullptr || count == 0) {
+    close_draw(target);
+    return true;
+  }
+  if (count > kMaxPieSlices) count = kMaxPieSlices;
+  uint32_t total = 0;
+  for (uint8_t i = 0; i < count; ++i) total += slices[i];
+  int32_t radius = ((width < height) ? width : height) / 2 - 2;
+  if (radius > 120) radius = 120;
+  if (total == 0 || radius < 4) {
+    close_draw(target);
+    return true;
+  }
+  const int32_t centre_x = target.x + width / 2;
+  const int32_t centre_y = target.y + height / 2;
+  // **The four tones walk from the one the app chose**: the app draws the legend with the same arithmetic, so a
+  // legend and a pie cannot almost agree (docs/90).
+  uint8_t tones[kMaxPieSlices];
+  for (uint8_t i = 0; i < count; ++i) {
+    int32_t tone = static_cast<int32_t>(color) + 4 * static_cast<int32_t>(i);
+    if (tone > 15) tone = 15;
+    tones[i] = static_cast<uint8_t>(tone);
+  }
+  // The slices own a run of directions each, starting at twelve o'clock and going clockwise, and the last one
+  // closes the circle: a pie that stops at four fifths is a pie that lost its last slice (docs/90).
+  uint8_t start[kMaxPieSlices];
+  uint8_t stop[kMaxPieSlices];
+  uint8_t at = 24;
+  uint32_t running = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    running += slices[i];
+    start[i] = at;
+    at = static_cast<uint8_t>((24 + static_cast<int32_t>((static_cast<uint64_t>(running) * 32 + total / 2) /
+                                                          total)) %
+                              32);
+    if (i + 1 == count) at = 24;
+    stop[i] = at;
+  }
+  const int32_t square = radius * radius;
+  for (int32_t dy = -radius; dy <= radius; ++dy) {
+    for (int32_t dx = -radius; dx <= radius; ++dx) {
+      if (dx * dx + dy * dy > square) continue;
+      const uint8_t sector = sector_of(dx, dy);
+      uint8_t slice = 0;
+      for (uint8_t i = 0; i < count; ++i) {
+        bool inside = false;
+        for (uint8_t walk = start[i]; walk != stop[i]; walk = static_cast<uint8_t>((walk + 1) % 32)) {
+          if (walk == sector) {
+            inside = true;
+            break;
+          }
+        }
+        if (inside) {
+          slice = i;
+          break;
+        }
+      }
+      put_pixel(*target.canvas, centre_x + dx, centre_y + dy, tones[slice]);
+    }
+  }
+  mark_box(*target.canvas, centre_x - radius, centre_y - radius, radius * 2 + 1, radius * 2 + 1, mode);
+  close_draw(target);
+  return true;
+}
+
+// ---- a dialog: a card and two doors (docs/90) ----
+
+namespace {
+
+// **The two doors of a card**: where they are is one arithmetic and both the paint and the finger ask it, or the
+// box that is drawn is not the box that answers (docs/90).
+struct Doors {
+  int32_t pad;
+  int32_t height;
+  int32_t width;
+  int32_t y;
+  int32_t gap;
+};
+
+Doors doors_of(const Canvas& card) {
+  Doors doors;
+  doors.pad = (card.width > 100) ? 16 : 8;
+  doors.height = static_cast<int32_t>(card.height) / 7;
+  if (doors.height < 32) doors.height = 32;
+  if (doors.height > 56) doors.height = 56;
+  doors.gap = (card.width > 160) ? 12 : 8;
+  const int32_t inner = static_cast<int32_t>(card.width) - 2 * doors.pad;
+  // Two doors side by side when the card is wide enough for two words, and one across the whole card when it is
+  // not: a door of thirty pixels is a door nobody hits (docs/90).
+  doors.width = (inner > 140) ? ((inner - doors.gap) / 2) : inner;
+  doors.y = static_cast<int32_t>(card.height) - doors.pad - doors.height;
+  return doors;
+}
+
+// **A message wraps and is not cut**: a dialog that says half of a question is a dialog nobody can answer. The
+// lines break at the last space that fits and a word longer than a line is cut at the line; `out` holds the lines
+// one after the other, each one closed by a NUL, and the return is how many there are (docs/90).
+int32_t wrap_lines(int8_t face_handle, const char* text, int32_t width, uint8_t scale, char* out, size_t cap,
+                   int32_t max_lines) {
+  if (text == nullptr || out == nullptr || cap < 2 || max_lines <= 0) return 0;
+  const font::Face& face = face_of(face_handle);
+  int32_t lines = 0;
+  size_t written = 0;
+  const char* at = text;
+  while (at[0] != '\0' && lines < max_lines) {
+    char line[256];
+    int32_t used = 0;
+    int32_t last_space = -1;
+    while (at[used] != '\0') {
+      if (used + 1 >= static_cast<int32_t>(sizeof(line))) break;
+      line[used] = at[used];
+      line[used + 1] = '\0';
+      if (at[used] == ' ') last_space = used;
+      if (static_cast<int32_t>(font::width(face, line, scale)) > width && used > 0) {
+        // The line is one letter too long: it ends at the last space, or here when there was no space.
+        if (last_space > 0) {
+          used = last_space;
+        }
+        break;
+      }
+      ++used;
+    }
+    if (at[used] == '\0') {
+      // Everything left fits.
+      if (written + static_cast<size_t>(used) + 2 > cap) break;
+      memcpy(out + written, line, static_cast<size_t>(used));
+      written += static_cast<size_t>(used);
+      out[written++] = '\0';
+      ++lines;
+      break;
+    }
+    if (written + static_cast<size_t>(used) + 2 > cap) break;
+    memcpy(out + written, line, static_cast<size_t>(used));
+    written += static_cast<size_t>(used);
+    out[written++] = '\0';
+    ++lines;
+    at += used;
+    while (at[0] == ' ') ++at;
+  }
+  return lines;
+}
+
+}  // namespace
+
+bool dialog_draw(int8_t slot, const char* title, const char* text, const char* note, const char* accept,
+                 const char* cancel, uint8_t emphasis, uint8_t choice, uint8_t text_level, uint8_t dim,
+                 uint8_t background, uint8_t scale, bool focused) {
+  if (!live(slot) || text_level > 15 || dim > 15 || background > 15) return false;
+  const Canvas& card = g_canvases[slot];
+  const int32_t width = card.width;
+  const int32_t height = card.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(card.face);
+  const Doors doors = doors_of(card);
+  const int32_t frame = (width > 120) ? 3 : 2;
+  int32_t radius = 12;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  // **The card is opaque and it has the weight of a card**: the frame of three pixels is what tells a person that
+  // this is on top of the page and not part of it (docs/90).
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, text_level, mode);
+  draw_round_fill(*target.canvas, target.x + frame, target.y + frame, width - 2 * frame, height - 2 * frame,
+                  radius - frame, background, mode);
+  const int32_t line_h =
+      static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  static char shown[512];
+  int32_t y = target.y + doors.pad + 4;
+  // The title, one line and cut if it is long: a title that wraps is a title of three lines and the card is the
+  // message's (docs/90).
+  if (title != nullptr && title[0] != '\0') {
+    const uint16_t taken = label_text(card.face, title, static_cast<uint16_t>(width - 2 * doors.pad),
+                                      static_cast<uint8_t>(scale + 1), shown, sizeof(shown));
+    draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2, y, shown,
+              static_cast<uint8_t>(scale + 1), text_level, mode);
+    y += ((face.height != 0) ? face.height : font::kGlyphHeight) * (scale + 1) + 8;
+  }
+  // **The message wraps** in what is left above the doors, and a note goes under it in the dim colour.
+  const int32_t room = doors.y - y - (doors.pad / 2);
+  const int32_t max_lines = (line_h > 0) ? (room / line_h) : 0;
+  if (text != nullptr && text[0] != '\0' && max_lines > 0) {
+    static char lines[512];
+    const int32_t count = wrap_lines(card.face, text, width - 2 * doors.pad, scale, lines, sizeof(lines),
+                                     (max_lines > 6) ? 6 : max_lines);
+    const char* one = lines;
+    for (int32_t i = 0; i < count; ++i) {
+      draw_text(*target.canvas, face, target.x + doors.pad, y, one, scale, text_level, mode);
+      y += line_h;
+      one += strlen(one) + 1;
+    }
+  }
+  if (note != nullptr && note[0] != '\0' && y + line_h <= doors.y - 2) {
+    const uint16_t taken = label_text(card.face, note, static_cast<uint16_t>(width - 2 * doors.pad),
+                                      static_cast<uint8_t>((scale > 1) ? scale - 1 : 1), shown,
+                                      sizeof(shown));
+    draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2, y, shown,
+              static_cast<uint8_t>((scale > 1) ? scale - 1 : 1), dim, mode);
+  }
+  // **The two doors**: an inverted box for the emphasised one, a box of paper with an ink frame for the other, and
+  // the ring of the focus on the one the dial is on (docs/90).
+  const bool two = (cancel != nullptr && cancel[0] != '\0');
+  static char words[2][64];
+  const char* labels[2] = {cancel, accept};
+  for (int32_t i = 0; i < 2; ++i) {
+    const uint8_t which = static_cast<uint8_t>(i + 1);
+    if (!two && which == 1) continue;
+    const char* word = labels[i];
+    if (word == nullptr) word = "";
+    const int32_t box_x = target.x + doors.pad + ((two && i == 1) ? (doors.width + doors.gap) : 0);
+    const int32_t box_w = two ? doors.width : (width - 2 * doors.pad);
+    const bool hot = (emphasis == which);
+    const uint8_t paper = hot ? text_level : background;
+    const uint8_t ink = hot ? background : text_level;
+    draw_round_fill(*target.canvas, box_x, target.y + doors.y, box_w, doors.height, 8, ink, mode);
+    draw_round_fill(*target.canvas, box_x + frame, target.y + doors.y + frame, box_w - 2 * frame,
+                    doors.height - 2 * frame, 8 - frame, paper, mode);
+    label_text(card.face, word, static_cast<uint16_t>(box_w - 2 * frame - 12), scale, words[i], sizeof(words[i]));
+    const int32_t taken = static_cast<int32_t>(font::width(face, words[i], scale));
+    draw_text(*target.canvas, face, box_x + (box_w - taken) / 2,
+              target.y + doors.y + (doors.height - line_h) / 2, words[i], scale, ink, mode);
+    if (focused && choice == which && box_w > 16 && doors.height > 16) {
+      // **The ring is the tone of the words**, which is the one that contrasts with the inside of the door whether the
+      // door is paper or ink: a ring of a fixed tone disappeared on the door that was inverted, which is the door a
+      // person is looking at (docs/90, found while porting the menu, 3/11).
+      const uint8_t ring = ink;
+      const int32_t inset = 3;
+      draw_round_fill(*target.canvas, box_x + inset, target.y + doors.y + inset, box_w - 2 * inset,
+                      doors.height - 2 * inset, 6, ring, mode);
+      draw_round_fill(*target.canvas, box_x + inset + 2, target.y + doors.y + inset + 2, box_w - 2 * inset - 4,
+                      doors.height - 2 * inset - 4, 5, paper, mode);
+    }
+  }
+  close_draw(target);
+  return true;
+}
+
+uint8_t dialog_hit(int8_t slot, uint16_t x, uint16_t y) {
+  if (!live(slot)) return 0;
+  const Canvas& card = g_canvases[slot];
+  const Doors doors = doors_of(card);
+  if (static_cast<int32_t>(y) < doors.y || static_cast<int32_t>(y) >= doors.y + doors.height) return 0;
+  const int32_t at_x = static_cast<int32_t>(x) - doors.pad;
+  if (at_x < 0) return 0;
+  if (doors.width + doors.gap + doors.width > static_cast<int32_t>(card.width) - 2 * doors.pad) {
+    // One door across the card: both halves are the same door, and `luabind` knows whether there is a second.
+    return (at_x <= doors.width) ? 2 : 0;
+  }
+  if (at_x <= doors.width) return 1;
+  if (at_x <= doors.width + doors.gap) return 0;
+  if (at_x <= doors.width + doors.gap + doors.width) return 2;
+  return 0;
+}
+
+// ---- a menu: a card of options (docs/30, docs/90) ----
+
+namespace {
+
+// **Where one option of a menu is**: the paint and the finger ask the same box, or the box that is drawn is not the
+// box that answers (docs/90).
+struct MenuBox {
+  int32_t x;
+  int32_t y;
+  int32_t w;
+  int32_t h;
+};
+
+// **The arithmetic of the card, once**: the frame, the padding, the room the title takes, and the grid the options are
+// put in. The words fill a column before the next one, which is the way a list of words is read (docs/90).
+struct MenuGrid {
+  int32_t pad;
+  int32_t frame;
+  int32_t gap;
+  int32_t left;
+  int32_t top;
+  int32_t row_h;
+  int32_t col_w;
+  uint8_t columns;
+  uint8_t rows;
+};
+
+int32_t menu_line_h(const Canvas& card, uint8_t scale) {
+  const font::Face& face = face_of(card.face);
+  return static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+}
+
+// **The options that are on the card**: a hidden one is not counted, not drawn, not hit and not walked by the dial,
+// because it is not on the glass (docs/90).
+uint8_t menu_visible(const MenuOption* items, uint8_t count) {
+  if (items == nullptr) return 0;
+  uint8_t visible = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (!items[i].hidden) ++visible;
+  }
+  return visible;
+}
+
+// **The place of an option among the ones that are on the card**, or -1 when the app took it out (docs/90).
+int32_t menu_rank(const MenuOption* items, uint8_t count, uint8_t number) {
+  if (items == nullptr || number < 1 || number > count || items[number - 1].hidden) return -1;
+  int32_t rank = 0;
+  for (uint8_t i = 0; i + 1 < number; ++i) {
+    if (!items[i].hidden) ++rank;
+  }
+  return rank;
+}
+
+MenuGrid menu_grid(const Canvas& card, bool has_title, uint8_t visible, uint8_t scale) {
+  MenuGrid grid = {};
+  grid.pad = (card.width > 100) ? 16 : 8;
+  grid.frame = (card.width > 120) ? 3 : 2;
+  grid.gap = (card.width > 160) ? 12 : 8;
+  const int32_t line_h = menu_line_h(card, scale);
+  // **A row is never under fifty-two pixels**: it is what a fingertip needs and it is what a row of a list is (docs/90).
+  int32_t row_h = line_h + 20;
+  if (row_h < 52) row_h = 52;
+  int32_t top = grid.pad + 4;
+  if (has_title) top += line_h + 12;
+  const int32_t room = static_cast<int32_t>(card.height) - top - grid.pad;
+  int32_t rows = (room > row_h) ? (room / row_h) : 1;
+  if (rows < 1) rows = 1;
+  int32_t columns = (static_cast<int32_t>(visible) > rows) ? ((static_cast<int32_t>(visible) + rows - 1) / rows) : 1;
+  if (columns < 1) columns = 1;
+  // Four columns is as many words as a card of this glass can hold; the options that have no box after that are not
+  // drawn, which is what a card the app sized too small gets (docs/90).
+  if (columns > 4) columns = 4;
+  // **The options share the columns evenly**, so a menu of five is three and two and not four and one (docs/90).
+  if (visible > 0) rows = (static_cast<int32_t>(visible) + columns - 1) / columns;
+  if (rows < 1) rows = 1;
+  // **The rows grow into the room that is left**: three options in a tall card are three tall doors, which is exactly
+  // what the menu of the system wants (docs/90).
+  if (room > 0) {
+    const int32_t filled = room / rows;
+    if (filled > row_h) row_h = filled;
+  }
+  if (row_h > 160) row_h = 160;
+  grid.row_h = row_h;
+  grid.rows = static_cast<uint8_t>(rows);
+  grid.columns = static_cast<uint8_t>(columns);
+  const int32_t inner = static_cast<int32_t>(card.width) - 2 * grid.pad;
+  grid.col_w = (inner - grid.gap * (columns - 1)) / columns;
+  if (grid.col_w < 1) grid.col_w = 1;
+  grid.left = grid.pad;
+  grid.top = top;
+  return grid;
+}
+
+MenuBox menu_cell(const MenuGrid& grid, int32_t rank) {
+  MenuBox box;
+  const int32_t column = (grid.rows > 0) ? (rank / grid.rows) : 0;
+  const int32_t row = (grid.rows > 0) ? (rank % grid.rows) : 0;
+  box.w = grid.col_w;
+  box.h = grid.row_h;
+  box.x = grid.left + column * (grid.col_w + grid.gap);
+  box.y = grid.top + row * grid.row_h;
+  return box;
+}
+
+}  // namespace
+
+bool menu_draw(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
+               uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
+  const Canvas& card = g_canvases[slot];
+  const int32_t width = card.width;
+  const int32_t height = card.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxMenuOptions) count = kMaxMenuOptions;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(card.face);
+  const int32_t line_h = menu_line_h(card, scale);
+  const bool has_title = (title != nullptr && title[0] != '\0');
+  const MenuGrid grid = menu_grid(card, has_title, menu_visible(items, count), scale);
+  const int32_t fitted = static_cast<int32_t>(grid.rows) * static_cast<int32_t>(grid.columns);
+  int32_t radius = 12;
+  const int32_t most = ((width < height) ? width : height) / 3;
+  if (radius > most) radius = most;
+  // **The card is opaque and it has the weight of a card**: the frame is what tells a person that this is on top of
+  // the page and not part of it (docs/90).
+  draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, color, mode);
+  draw_round_fill(*target.canvas, target.x + grid.frame, target.y + grid.frame, width - 2 * grid.frame,
+                  height - 2 * grid.frame, radius - grid.frame, background, mode);
+  static char shown[192];
+  if (has_title) {
+    const uint16_t taken = label_text(card.face, title, static_cast<uint16_t>(width - 2 * grid.pad),
+                                      static_cast<uint8_t>(scale + 1), shown, sizeof(shown));
+    draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2, target.y + grid.pad,
+              shown, static_cast<uint8_t>(scale + 1), color, mode);
+  }
+  for (uint8_t n = 1; n <= count; ++n) {
+    const int32_t rank = menu_rank(items, count, n);
+    if (rank < 0 || rank >= fitted) continue;
+    const MenuBox box = menu_cell(grid, rank);
+    const MenuOption& option = items[n - 1];
+    // **The option of the moment is inverted** and the rest are paper with the weight of a card: there is no colour on
+    // this glass to say which one the app cares about (docs/90).
+    const bool hot = option.primary;
+    const uint8_t face_level = hot ? color : background;
+    const uint8_t ink = hot ? background : color;
+    draw_round_fill(*target.canvas, target.x + box.x, target.y + box.y, box.w, box.h, 8, ink, mode);
+    draw_round_fill(*target.canvas, target.x + box.x + grid.frame, target.y + box.y + grid.frame,
+                    box.w - 2 * grid.frame, box.h - 2 * grid.frame, 8 - grid.frame, face_level, mode);
+    int32_t text_x = target.x + box.x + grid.frame + 10;
+    int32_t room_text = box.w - 2 * grid.frame - 20;
+    // **The tag is a short word in front of the label** and it goes in the dim tone, because the label is what a person
+    // reads; on an inverted row it goes in the ink and not in the app's dim, because a dim of fifteen on the ink tone
+    // is a word nobody sees (docs/90).
+    if (option.tag != nullptr && option.tag[0] != '\0' && scale > 1) {
+      char tag[24];
+      const uint8_t small = static_cast<uint8_t>(scale - 1);
+      label_text(card.face, option.tag, 96, small, tag, sizeof(tag));
+      const int32_t tag_w = static_cast<int32_t>(font::width(face, tag, small));
+      if (tag_w + 8 < room_text) {
+        draw_text(*target.canvas, face, text_x, target.y + box.y + (box.h - menu_line_h(card, small)) / 2, tag,
+                  small, hot ? background : dim, mode);
+        text_x += tag_w + 8;
+        room_text -= tag_w + 8;
+      }
+    }
+    // **The words of an option are on the left**: a column of actions reads down the left edge, and a column of centred
+    // words of different lengths is a staircase (docs/90).
+    label_text(card.face, (option.label != nullptr) ? option.label : "",
+               static_cast<uint16_t>((room_text > 0) ? room_text : 0), scale, shown, sizeof(shown));
+    draw_text(*target.canvas, face, text_x, target.y + box.y + (box.h - line_h) / 2, shown, scale, ink, mode);
+    // **The ring of the dial** inside the box and in the tone of the words, which is the one that contrasts with the
+    // inside of the box whether it is paper or ink (docs/90).
+    if (focused && index == n && box.w > 20 && box.h > 20) {
+      const int32_t inset = 3;
+      draw_round_fill(*target.canvas, target.x + box.x + inset, target.y + box.y + inset, box.w - 2 * inset,
+                      box.h - 2 * inset, 6, ink, mode);
+      draw_round_fill(*target.canvas, target.x + box.x + inset + 2, target.y + box.y + inset + 2,
+                      box.w - 2 * inset - 4, box.h - 2 * inset - 4, 5, hot ? color : background, mode);
+    }
+  }
+  close_draw(target);
+  return true;
+}
+
+uint8_t menu_hit(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
+                 uint16_t x, uint16_t y) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxMenuOptions) count = kMaxMenuOptions;
+  const Canvas& card = g_canvases[slot];
+  const bool has_title = (title != nullptr && title[0] != '\0');
+  const MenuGrid grid = menu_grid(card, has_title, menu_visible(items, count), scale);
+  const int32_t fitted = static_cast<int32_t>(grid.rows) * static_cast<int32_t>(grid.columns);
+  const int32_t at_x = static_cast<int32_t>(x);
+  const int32_t at_y = static_cast<int32_t>(y);
+  for (uint8_t n = 1; n <= count; ++n) {
+    const int32_t rank = menu_rank(items, count, n);
+    if (rank < 0 || rank >= fitted) continue;
+    const MenuBox box = menu_cell(grid, rank);
+    if (at_x >= box.x && at_y >= box.y && at_x < box.x + box.w && at_y < box.y + box.h) return n;
+  }
+  return 0;
+}
+
+// ---- a grid of cells: an icon with its name under it, on pages (docs/30, docs/90) ----
+
+namespace {
+
+// **The grid, measured once**: the columns, the rows, the box of the mark and the page the cursor is on. The paint and the
+// finger ask this, and **the page follows the cursor**: a grid never sits on a page where the cell a person is on is not
+// (docs/90).
+struct GridCells {
+  int32_t columns;
+  int32_t rows;
+  int32_t cell_w;
+  int32_t cell_h;
+  int32_t icon;
+  int32_t pad;
+  int32_t footer;
+  int32_t page;
+  int32_t pages;
+  int32_t first;
+};
+
+GridCells icon_grid_cells(const Canvas& grid, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale) {
+  GridCells cells = {};
+  const font::Face& face = face_of(grid.face);
+  const int32_t width = static_cast<int32_t>(grid.width);
+  const int32_t height = static_cast<int32_t>(grid.height);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  cells.pad = (width > 200) ? 10 : 6;
+  // **A column is a thing a finger hits**: ninety-six pixels is the narrowest a cell can be and still be one target and not
+  // two halves of two (docs/90).
+  int32_t columns_now = columns;
+  if (columns_now <= 0) {
+    columns_now = width / kGridLeastCell;
+  }
+  if (columns_now < 1) columns_now = 1;
+  if (columns_now > 8) columns_now = 8;
+  cells.columns = columns_now;
+  cells.cell_w = width / columns_now;
+  // The box of the mark takes what the cell can hold, and the name goes under it.
+  int32_t icon = cells.cell_w - 2 * cells.pad;
+  if (icon > 72) icon = 72;
+  if (icon < 24) icon = 24;
+  cells.icon = icon;
+  cells.cell_h = icon + 8 + line_h + 8;
+  cells.footer = (height > 160) ? 28 : 0;
+  int32_t rows = (cells.cell_h > 0) ? ((height - cells.footer) / cells.cell_h) : 0;
+  if (rows < 1) rows = 1;
+  cells.rows = rows;
+  const int32_t per_page = cells.columns * cells.rows;
+  int32_t pages = (count > 0 && per_page > 0) ? ((static_cast<int32_t>(count) + per_page - 1) / per_page) : 1;
+  if (pages < 1) pages = 1;
+  cells.pages = pages;
+  int32_t page = 1;
+  if (index > 0) page = (static_cast<int32_t>(index) - 1) / per_page + 1;
+  if (page > pages) page = pages;
+  if (page < 1) page = 1;
+  cells.page = page;
+  cells.first = (page - 1) * per_page;
+  return cells;
+}
+
+// **Where one cell is**, in the frame's own coordinates: the page decides which item it holds and the grid decides where.
+struct GridBox {
+  int32_t x;
+  int32_t y;
+  int32_t w;
+  int32_t h;
+};
+
+GridBox icon_grid_box(const GridCells& cells, int32_t which) {
+  GridBox box;
+  const int32_t column = (cells.columns > 0) ? (which % cells.columns) : 0;
+  const int32_t row = (cells.columns > 0) ? (which / cells.columns) : 0;
+  box.w = cells.cell_w;
+  box.h = cells.cell_h;
+  box.x = column * cells.cell_w;
+  box.y = row * cells.cell_h;
+  return box;
+}
+
+}  // namespace
+
+bool icon_grid_draw(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
+                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
+  const Canvas& grid = g_canvases[slot];
+  const int32_t width = grid.width;
+  const int32_t height = grid.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxGridItems) count = kMaxGridItems;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(grid.face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  const GridCells cells = icon_grid_cells(grid, count, index, columns, scale);
+  // **The cell is paper and the page is paper**: the grid paints its own frame, because a grid is a page and not a band over
+  // one (docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  const int32_t per_page = cells.columns * cells.rows;
+  static char shown[64];
+  for (int32_t which = cells.first; which < cells.first + per_page && which < static_cast<int32_t>(count); ++which) {
+    const GridBox box = icon_grid_box(cells, which - cells.first);
+    const int32_t x = target.x + box.x;
+    const int32_t y = target.y + box.y;
+    const int32_t icon_x = x + (box.w - cells.icon) / 2;
+    const int32_t icon_y = y + 4;
+    const int32_t item = which + 1;
+    const bool chosen = (marked == static_cast<uint8_t>(item));
+    // **The cell that is chosen is inverted and the cell the dial is on wears the ring**: two signals for two facts, the same
+    // rule the calendar follows (docs/90).
+    draw_round_fill(*target.canvas, icon_x, icon_y, cells.icon, cells.icon, 10, color, mode);
+    draw_round_fill(*target.canvas, icon_x + 2, icon_y + 2, cells.icon - 4, cells.icon - 4, 8,
+                    chosen ? color : background, mode);
+    const char* mark = (items[which].mark != nullptr) ? items[which].mark : "";
+    if (mark[0] != '\0') {
+      const uint8_t big = static_cast<uint8_t>((scale + 1 > 16) ? 16 : scale + 1);
+      label_text(grid.face, mark, static_cast<uint16_t>(cells.icon - 12), big, shown, sizeof(shown));
+      const int32_t taken = static_cast<int32_t>(font::width(face, shown, big));
+      const int32_t big_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * big;
+      draw_text(*target.canvas, face, icon_x + (cells.icon - taken) / 2, icon_y + (cells.icon - big_h) / 2, shown, big,
+                chosen ? background : color, mode);
+    }
+    label_text(grid.face, (items[which].label != nullptr) ? items[which].label : "",
+               static_cast<uint16_t>(box.w - 2 * cells.pad), scale, shown, sizeof(shown));
+    const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
+    // **The name is in the ink even when the cell is chosen**: it sits on the paper of the page and not inside the box of the
+    // mark, so it does not follow the inversion (docs/90).
+    draw_text(*target.canvas, face, x + (box.w - taken) / 2, icon_y + cells.icon + 8, shown, scale, color, mode);
+    if (focused && index == static_cast<uint8_t>(item)) {
+      // The ring is the tone of the words, inside the cell and away from its edges, so it does not touch the box above it.
+      const int32_t inset = 2;
+      draw_frame_thick(*target.canvas, x + inset, y + inset, box.w - 2 * inset, box.h - 2 * inset, 2, color, mode);
+    }
+  }
+  // The footer says which page it is, and the row of dots would say it too: a grid of a thousand cells has to say where a
+  // person is without a scroll (docs/90).
+  if (cells.footer > 0 && cells.pages > 1) {
+    char page[16];
+    snprintf(page, sizeof(page), "%d / %d", static_cast<int>(cells.page), static_cast<int>(cells.pages));
+    const int32_t taken = static_cast<int32_t>(font::width(face, page, scale));
+    const int32_t y = static_cast<int32_t>(height) - cells.footer + (cells.footer - line_h) / 2;
+    draw_text(*target.canvas, face, target.x + (width - taken) / 2, target.y + y, page, scale, dim, mode);
+    // A triangle on the side that has somewhere to go, which is the same signal the list gives (docs/90).
+    put_rect(*target.canvas, target.x + 10, target.y + y + line_h / 2, 3, 1, dim);
+    put_rect(*target.canvas, target.x + width - 13, target.y + y + line_h / 2, 3, 1, dim);
+  }
+  close_draw(target);
+  return true;
+}
+
+uint8_t icon_grid_hit(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
+                      uint8_t scale, uint16_t x, uint16_t y) {
+  // The cells have no name and no mark: where a cell is does not depend on what it says, so the app does not have to give the
+  // words again to ask where a finger landed (docs/90).
+  (void)items;
+  if (!live(slot) || count == 0) return 0;
+  if (count > kMaxGridItems) count = kMaxGridItems;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& grid = g_canvases[slot];
+  const GridCells cells = icon_grid_cells(grid, count, index, columns, scale);
+  const int32_t at_x = static_cast<int32_t>(x);
+  const int32_t at_y = static_cast<int32_t>(y);
+  // The footer is no cell: a tap on it is not a tap on the last cell of the page.
+  if (cells.footer > 0 && at_y >= static_cast<int32_t>(grid.height) - cells.footer) return 0;
+  if (at_x < 0 || at_y < 0) return 0;
+  const int32_t column = at_x / cells.cell_w;
+  const int32_t row = at_y / cells.cell_h;
+  if (column >= cells.columns || row >= cells.rows) return 0;
+  const int32_t which = cells.first + row * cells.columns + column;
+  if (which < 0 || which >= static_cast<int32_t>(count)) return 0;
+  return static_cast<uint8_t>(which + 1);
+}
+
+// ---- a band of notifications: the cards and how they are painted (docs/30, docs/90) ----
+
+namespace {
+
+// **The band, measured once**: the height of a card —a title and a text—, how many fit, how many wait and how wide the
+// cross is. The paint and the finger ask this, or the cross that is drawn is not the cross that dismisses (docs/90).
+struct NotificationBand {
+  int32_t card_h;
+  int32_t drawn;
+  int32_t waiting;
+  int32_t close_w;
+  int32_t pad;
+};
+
+NotificationBand notification_band(const Canvas& band, uint8_t shown, uint16_t total, uint8_t scale) {
+  NotificationBand layout = {};
+  const font::Face& face = face_of(band.face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  layout.pad = (band.width > 200) ? 12 : 8;
+  // **Two lines and the air above and under them**, and never under a finger's height (docs/90).
+  layout.card_h = line_h * 2 + 20;
+  if (layout.card_h < 56) layout.card_h = 56;
+  if (layout.card_h > 200) layout.card_h = 200;
+  // The room the `+N` line takes when there is one, which is half a card.
+  const int32_t more = (total > shown) ? (line_h + 10) : 0;
+  layout.close_w = (band.width > 200) ? 44 : 34;
+  int32_t fit = (layout.card_h > 0) ? ((static_cast<int32_t>(band.height) - more) / layout.card_h) : 0;
+  if (fit < 1) fit = 1;
+  if (fit > static_cast<int32_t>(shown)) fit = shown;
+  layout.drawn = fit;
+  layout.waiting = static_cast<int32_t>(total) - fit;
+  if (layout.waiting < 0) layout.waiting = 0;
+  return layout;
+}
+
+// **Where a card is**: rank zero is the newest and it sits at the bottom of the frame, because that is the one nearest the
+// finger and the one that goes away first (docs/90).
+struct NotificationBox {
+  int32_t x;
+  int32_t y;
+  int32_t w;
+  int32_t h;
+  int32_t close_x;
+  int32_t close_w;
+};
+
+NotificationBox notification_box(const Canvas& band, const NotificationBand& layout, int32_t rank) {
+  NotificationBox box;
+  box.w = band.width;
+  box.h = layout.card_h;
+  box.x = 0;
+  box.y = static_cast<int32_t>(band.height) - (rank + 1) * layout.card_h;
+  box.close_w = layout.close_w;
+  box.close_x = static_cast<int32_t>(band.width) - layout.close_w;
+  return box;
+}
+
+// **The cross of a card**: two diagonals of the ink tone, and the box it is drawn in is the box that answers the finger.
+void notification_cross(Canvas& canvas, int32_t x, int32_t y, int32_t size, uint8_t level, hal::UpdateMode mode) {
+  const int32_t inner = size / 3;
+  draw_line(canvas, x + inner, y + inner, x + size - inner - 1, y + size - inner - 1, level, mode);
+  draw_line(canvas, x + size - inner - 1, y + inner, x + inner, y + size - inner - 1, level, mode);
+}
+
+}  // namespace
+
+bool notification_bar_draw(int8_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
+                           uint8_t dim, uint8_t background, uint8_t border, uint8_t scale, bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15 || border > 15) return false;
+  const Canvas& band = g_canvases[slot];
+  const int32_t width = band.width;
+  const int32_t height = band.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (items == nullptr || shown == 0 || total == 0) return true;
+  if (shown > kMaxNotifications) shown = kMaxNotifications;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(band.face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  const NotificationBand layout = notification_band(band, shown, total, scale);
+  static char cut[160];
+  // **The `+N` line says how many are waiting**: without it, a notice that did not fit is a notice that has vanished, which
+  // is what somebody asked of the old band (docs/90).
+  int32_t more_y = 0;
+  if (layout.waiting > 0) {
+    char more[16];
+    snprintf(more, sizeof(more), "+%d", static_cast<int>(layout.waiting));
+    more_y = static_cast<int32_t>(band.height) - layout.drawn * layout.card_h - (line_h + 10);
+    draw_text(*target.canvas, face, target.x + layout.pad, target.y + more_y + 5, more, scale, dim, mode);
+  }
+  for (int32_t rank = 0; rank < layout.drawn; ++rank) {
+    // The newest is the last of the ones that were given, and the band shows the last ones: a notice that is too old to fit
+    // is not on the glass and is counted in the `+N` (docs/90).
+    const int32_t which = static_cast<int32_t>(shown) - 1 - rank;
+    if (which < 0) break;
+    const NotificationBox box = notification_box(band, layout, rank);
+    const int32_t y = target.y + box.y;
+    const int32_t x = target.x + box.x;
+    draw_fill_rect(*target.canvas, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(box.w),
+                   static_cast<uint16_t>(box.h), background, mode);
+    // **The newest card is the one the centre would dismiss**, so it is the one that wears the weight of the focus.
+    const bool newest = (rank == 0);
+    draw_frame_thick(*target.canvas, x, y, box.w, box.h, (focused && newest) ? 2 : 1,
+                     (focused && newest) ? color : border, mode);
+    // The line that separates the card from the cross, and the cross itself.
+    put_rect(*target.canvas, x + box.close_x, y + 1, 1, box.h - 2, border);
+    mark_box(*target.canvas, x + box.close_x, y + 1, 1, box.h - 2, mode);
+    notification_cross(*target.canvas, x + box.close_x + (box.close_w - 18) / 2, y + (box.h - 18) / 2, 18, color, mode);
+    label_text(band.face, (items[which].title != nullptr) ? items[which].title : "",
+               static_cast<uint16_t>(box.close_x - 2 * layout.pad), scale, cut, sizeof(cut));
+    const int32_t top = y + 8;
+    draw_text(*target.canvas, face, x + layout.pad, top, cut, scale, color, mode);
+    const uint8_t small = static_cast<uint8_t>((scale > 1) ? scale - 1 : 1);
+    const int32_t small_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * small;
+    label_text(band.face, (items[which].text != nullptr) ? items[which].text : "",
+               static_cast<uint16_t>(box.close_x - 2 * layout.pad), small, cut, sizeof(cut));
+    draw_text(*target.canvas, face, x + layout.pad, top + line_h + 2, cut, small, dim, mode);
+    (void)small_h;
+  }
+  close_draw(target);
+  return true;
+}
+
+uint8_t notification_bar_card_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
+  if (!live(slot) || shown == 0 || total == 0) return 0;
+  if (shown > kMaxNotifications) shown = kMaxNotifications;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& band = g_canvases[slot];
+  const NotificationBand layout = notification_band(band, shown, total, scale);
+  const int32_t at_y = static_cast<int32_t>(y);
+  for (int32_t rank = 0; rank < layout.drawn; ++rank) {
+    const NotificationBox box = notification_box(band, layout, rank);
+    if (at_y >= box.y && at_y < box.y + box.h && static_cast<int32_t>(x) >= box.x &&
+        static_cast<int32_t>(x) < box.x + box.w) {
+      return static_cast<uint8_t>(rank + 1);
+    }
+  }
+  return 0;
+}
+
+bool notification_bar_close_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
+  if (!live(slot) || shown == 0 || total == 0) return false;
+  if (shown > kMaxNotifications) shown = kMaxNotifications;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& band = g_canvases[slot];
+  const NotificationBand layout = notification_band(band, shown, total, scale);
+  const int32_t at_y = static_cast<int32_t>(y);
+  for (int32_t rank = 0; rank < layout.drawn; ++rank) {
+    const NotificationBox box = notification_box(band, layout, rank);
+    if (at_y >= box.y && at_y < box.y + box.h && static_cast<int32_t>(x) >= box.close_x &&
+        static_cast<int32_t>(x) < box.x + box.w) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
+
+namespace {
+
+// **The column of the triangle**: a fixed wide-enough target on the right of the field, and the triangle is nine rows of
+// two pixels less each one. It is the door, and it is the only part of the field that changes when the list is open
+// (docs/90).
+const int32_t kSelectorMark = 34;
+const int32_t kSelectorTriangle = 9;
+const int32_t kSelectorPad = 12;
+
+}  // namespace
+
+bool selector_draw(int8_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
+                   uint8_t background, uint8_t border, uint8_t scale, bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15 || border > 15) return false;
+  const Canvas& field = g_canvases[slot];
+  const int32_t width = field.width;
+  const int32_t height = field.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(field.face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  // **The frame is a hairline and the field is paper**: this is a place with a value in it and not a button, and the one
+  // thing that would make it look like something to press is weight (docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  const int32_t thick = focused ? 2 : 1;
+  draw_frame_thick(*target.canvas, target.x, target.y, width, height, thick, focused ? color : border, mode);
+  // The column of the triangle, and its line in the border tone: it says where the field ends and where the door is.
+  const int32_t mark_w = (width > kSelectorMark) ? kSelectorMark : width / 3;
+  const int32_t mark_x = target.x + width - mark_w;
+  put_rect(*target.canvas, mark_x, target.y + thick, 1, height - 2 * thick, border);
+  mark_box(*target.canvas, mark_x, target.y + thick, 1, height - 2 * thick, mode);
+  if (choosing) {
+    // **An open field is paper and only its column goes to ink**: the field that goes dark from end to end reads as the
+    // page going dark, which is what the owner said of the old one (docs/90).
+    put_rect(*target.canvas, mark_x + 1, target.y + thick, mark_w - thick - 1, height - 2 * thick, color);
+    mark_box(*target.canvas, mark_x + 1, target.y + thick, mark_w - thick - 1, height - 2 * thick, mode);
+  }
+  const int32_t centre_x = mark_x + mark_w / 2;
+  const int32_t centre_y = target.y + height / 2;
+  for (int32_t i = 0; i < kSelectorTriangle; ++i) {
+    const int32_t run = (kSelectorTriangle - i) * 2;
+    put_rect(*target.canvas, centre_x - run / 2, centre_y - kSelectorTriangle / 2 + i, run, 1,
+             choosing ? background : color);
+  }
+  mark_box(*target.canvas, centre_x - kSelectorTriangle, centre_y - kSelectorTriangle / 2, kSelectorTriangle * 2,
+           kSelectorTriangle, mode);
+  // **The question in the dim tone and at the small size, the answer in the ink**: two faces and not a third colour, which
+  // is what keeps this a two-tone control that a `Du` pass can serve (docs/90).
+  static char shown[192];
+  int32_t x = target.x + kSelectorPad + thick;
+  int32_t room = (mark_x - 1) - x - kSelectorPad;
+  if (room <= 0) {
+    close_draw(target);
+    return true;
+  }
+  const uint8_t small = static_cast<uint8_t>((scale > 1) ? scale - 1 : 1);
+  const int32_t small_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * small;
+  if (label != nullptr && label[0] != '\0') {
+    label_text(field.face, label, static_cast<uint16_t>(room / 2), small, shown, sizeof(shown));
+    const int32_t taken = static_cast<int32_t>(font::width(face, shown, small));
+    draw_text(*target.canvas, face, x, target.y + (height - small_h) / 2, shown, small, dim, mode);
+    x += taken + kSelectorPad;
+    room -= taken + kSelectorPad;
+  }
+  if (room > 0) {
+    label_text(field.face, (value != nullptr) ? value : "", static_cast<uint16_t>(room), scale, shown, sizeof(shown));
+    draw_text(*target.canvas, face, x, target.y + (height - line_h) / 2, shown, scale, color, mode);
+  }
+  close_draw(target);
+  return true;
+}
+
+// ---- a bar of menus: the titles and the one that is unfolded (docs/30, docs/90) ----
+
+namespace {
+
+// **The room a tick takes in an entry**: reserved for every row and not only for the ones that have a box, or the
+// words of a menu would not line up in a column (docs/90).
+const int32_t kMenuBarCheckRoom = 26;
+const int32_t kMenuBarBox = 18;
+const int32_t kMenuBarSeparatorRoom = 18;
+const int32_t kMenuBarLeastRow = 52;
+
+// **The row and the menu of a bar, in one place**: the width of every word, where the unfolded menu hangs and how tall
+// its rows come out. The paint and the finger ask this and not two arithmetics (docs/90).
+struct MenuBarGrid {
+  int32_t bar_h;
+  int32_t line;
+  int32_t pad;
+  int32_t title_x[kMaxMenuBarTitles];
+  int32_t title_w[kMaxMenuBarTitles];
+  int32_t menu_x;
+  int32_t menu_y;
+  int32_t menu_w;
+  int32_t row_h;
+};
+
+int32_t menu_bar_line_h(const Canvas& bar, uint8_t scale) {
+  const font::Face& face = face_of(bar.face);
+  return static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+}
+
+MenuBarGrid menu_bar_grid(const Canvas& bar, const MenuBarTitle* titles, uint8_t count, uint8_t open,
+                          uint16_t bar_height, uint8_t scale) {
+  MenuBarGrid grid = {};
+  const font::Face& face = face_of(bar.face);
+  const int32_t width = static_cast<int32_t>(bar.width);
+  const int32_t line_h = menu_bar_line_h(bar, scale);
+  grid.line = 2;
+  grid.pad = (width > 200) ? 12 : 8;
+  // **A word of the bar is a thing a finger presses**, so the row is never under forty-four pixels and never under the
+  // word it says (docs/90).
+  int32_t bar_h = bar_height;
+  if (bar_h < line_h + 16) bar_h = line_h + 16;
+  if (bar_h < 44) bar_h = 44;
+  grid.bar_h = bar_h;
+  grid.row_h = line_h + 18;
+  if (grid.row_h < kMenuBarLeastRow) grid.row_h = kMenuBarLeastRow;
+  if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
+  // Every word takes its width and the air of its own sides, and when they do not fit they share the row in equal
+  // columns: a word with the end cut off is a word nobody reads (docs/90).
+  int32_t total = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    const char* label = (titles[i].label != nullptr) ? titles[i].label : "";
+    grid.title_w[i] = static_cast<int32_t>(font::width(face, label, scale)) + 2 * grid.pad;
+    total += grid.title_w[i];
+  }
+  if (total > width && count > 0) {
+    const int32_t even = width / count;
+    for (uint8_t i = 0; i < count; ++i) grid.title_w[i] = even;
+  }
+  int32_t at = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    grid.title_x[i] = at;
+    at += grid.title_w[i];
+  }
+  // **The menu hangs from the left of its word**, so the words of the menu and the word above them start in the same
+  // column, and it moves back inside the frame when that word is one of the last ones (docs/90).
+  if (open >= 1 && open <= count) {
+    const MenuBarTitle& title = titles[open - 1];
+    int32_t widest = 0;
+    for (uint8_t i = 0; i < title.count; ++i) {
+      if (title.entries[i].separator) continue;
+      const char* label = (title.entries[i].label != nullptr) ? title.entries[i].label : "";
+      const int32_t one = static_cast<int32_t>(font::width(face, label, scale)) + 2 * grid.pad + kMenuBarCheckRoom;
+      if (one > widest) widest = one;
+    }
+    int32_t menu_w = (widest > 200) ? widest : 200;
+    if (menu_w > width) menu_w = width;
+    int32_t menu_x = grid.title_x[open - 1];
+    if (menu_x + menu_w > width) menu_x = width - menu_w;
+    if (menu_x < 0) menu_x = 0;
+    grid.menu_x = menu_x;
+    grid.menu_y = grid.bar_h + grid.line;
+    grid.menu_w = menu_w;
+  }
+  return grid;
+}
+
+// **How tall the menu of a bar is**: a row for every entry and a short one for every line between two of them, which
+// is what the drawing and the finger need to know before either of them walks it (docs/90).
+int32_t menu_bar_height_of(const MenuBarTitle& title, int32_t row_h) {
+  int32_t total = 0;
+  for (uint8_t i = 0; i < title.count; ++i) {
+    total += title.entries[i].separator ? kMenuBarSeparatorRoom : row_h;
+  }
+  return total + 4;
+}
+
+}  // namespace
+
+bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
+                   uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
+                   bool focused) {
+  if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
+  const Canvas& bar = g_canvases[slot];
+  const int32_t width = bar.width;
+  const int32_t height = bar.height;
+  if (width == 0 || height == 0) return true;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (titles == nullptr || count == 0) return true;
+  if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = face_of(bar.face);
+  const MenuBarGrid grid = menu_bar_grid(bar, titles, count, open, bar_height, scale);
+  const int32_t line_h = menu_bar_line_h(bar, scale);
+  static char shown[192];
+  // **Only the row and the unfolded menu are painted**: the rest of the frame is the page's, and a bar that filled its
+  // whole frame would be a bar that erased what the app drew under it. That is why a bar can be given the height of the
+  // page: it uses the room only when a menu is open (docs/90).
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(grid.bar_h), background, mode);
+  put_rect(*target.canvas, target.x, target.y + grid.bar_h, width, grid.line, color);
+  mark_box(*target.canvas, target.x, target.y, width, grid.bar_h + grid.line, mode);
+  if (focused) {
+    // **The row says it has the dial** with a frame of two pixels: the same signal a control with the focus wears, and
+    // only while nothing is open, because with a menu open it is the entries that take the arrows (docs/90).
+    if (open == 0) {
+      draw_frame_thick(*target.canvas, target.x, target.y, width, grid.bar_h, 2, color, mode);
+    }
+  }
+  for (uint8_t i = 0; i < count; ++i) {
+    const char* label = (titles[i].label != nullptr) ? titles[i].label : "";
+    const bool is_open = (open == static_cast<uint8_t>(i + 1));
+    const int32_t x = target.x + grid.title_x[i];
+    if (is_open) {
+      // **The word whose menu is down is inverted**: on this glass the one thing a person has to know is which menu is
+      // the one they are reading (docs/90).
+      draw_fill_rect(*target.canvas, static_cast<uint16_t>(x), static_cast<uint16_t>(target.y),
+                     static_cast<uint16_t>(grid.title_w[i]), static_cast<uint16_t>(grid.bar_h), color, mode);
+    }
+    label_text(bar.face, label, static_cast<uint16_t>(grid.title_w[i] - 2 * grid.pad), scale, shown, sizeof(shown));
+    const int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
+    draw_text(*target.canvas, face, x + (grid.title_w[i] - taken) / 2,
+              target.y + (grid.bar_h - line_h) / 2, shown, scale, is_open ? background : color, mode);
+  }
+  if (open < 1 || open > count) {
+    close_draw(target);
+    return true;
+  }
+  const MenuBarTitle& title = titles[open - 1];
+  const int32_t menu_h = menu_bar_height_of(title, grid.row_h);
+  const int32_t menu_x = target.x + grid.menu_x;
+  const int32_t menu_y = target.y + grid.menu_y;
+  // The card: a frame of two pixels and paper inside, with the weight of a card (docs/90).
+  const int32_t frame = 2;
+  int32_t radius = 8;
+  const int32_t most = ((grid.menu_w < menu_h) ? grid.menu_w : menu_h) / 3;
+  if (radius > most) radius = most;
+  draw_round_fill(*target.canvas, menu_x, menu_y, grid.menu_w, menu_h, radius, color, mode);
+  draw_round_fill(*target.canvas, menu_x + frame, menu_y + frame, grid.menu_w - 2 * frame, menu_h - 2 * frame,
+                  radius - frame, background, mode);
+  int32_t y = menu_y + 2;
+  for (uint8_t i = 0; i < title.count; ++i) {
+    const MenuBarEntry& entry = title.entries[i];
+    if (entry.separator) {
+      // **A line between two entries is not a row a finger presses**: it has its own air and the finger goes past it
+      // (docs/90).
+      put_rect(*target.canvas, menu_x + grid.pad, y + kMenuBarSeparatorRoom / 2, grid.menu_w - 2 * grid.pad, 2, color);
+      mark_box(*target.canvas, menu_x + grid.pad, y + kMenuBarSeparatorRoom / 2, grid.menu_w - 2 * grid.pad, 2, mode);
+      y += kMenuBarSeparatorRoom;
+      continue;
+    }
+    const bool hot = focused && index == static_cast<uint8_t>(i + 1);
+    if (hot) {
+      // The ring of the dial, in the tone of the words, inside the row (docs/90).
+      const int32_t inset = 2;
+      draw_round_fill(*target.canvas, menu_x + inset, y + inset, grid.menu_w - 2 * inset, grid.row_h - 2 * inset, 6,
+                      color, mode);
+      draw_round_fill(*target.canvas, menu_x + inset + 2, y + inset + 2, grid.menu_w - 2 * inset - 4,
+                      grid.row_h - 2 * inset - 4, 5, background, mode);
+    }
+    const int32_t box_x = menu_x + grid.pad;
+    const int32_t box_y = y + (grid.row_h - kMenuBarBox) / 2;
+    if (entry.checked) {
+      // **The tick is a box with its middle filled**: two tones and no grey, so "this one is on" is the box that has
+      // something in it and "this one is off" is the box that is empty (docs/90).
+      draw_frame_thick(*target.canvas, box_x, box_y, kMenuBarBox, kMenuBarBox, 2, color, mode);
+      put_rect(*target.canvas, box_x + 5, box_y + 5, kMenuBarBox - 10, kMenuBarBox - 10, color);
+    }
+    // **An entry that cannot be used now is the dim tone and not a third colour**: the ink is all the levels a control
+    // may spend on "no", and its row is still there so the menu does not change size when it comes back (docs/90).
+    label_text(bar.face, (entry.label != nullptr) ? entry.label : "",
+               static_cast<uint16_t>(grid.menu_w - 2 * grid.pad - kMenuBarCheckRoom), scale, shown, sizeof(shown));
+    draw_text(*target.canvas, face, box_x + kMenuBarCheckRoom, y + (grid.row_h - line_h) / 2, shown, scale,
+              entry.enabled ? color : dim, mode);
+    y += grid.row_h;
+  }
+  close_draw(target);
+  return true;
+}
+
+uint8_t menu_bar_title_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
+                          uint8_t scale, uint16_t x, uint16_t y) {
+  if (!live(slot) || titles == nullptr || count == 0) return 0;
+  if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& bar = g_canvases[slot];
+  const MenuBarGrid grid = menu_bar_grid(bar, titles, count, 0, bar_height, scale);
+  if (static_cast<int32_t>(y) >= grid.bar_h) return 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (static_cast<int32_t>(x) >= grid.title_x[i] &&
+        static_cast<int32_t>(x) < grid.title_x[i] + grid.title_w[i]) {
+      return static_cast<uint8_t>(i + 1);
+    }
+  }
+  return 0;
+}
+
+uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
+                          uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
+  if (!live(slot) || titles == nullptr || count == 0) return 0;
+  if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
+  if (open < 1 || open > count) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& bar = g_canvases[slot];
+  const MenuBarGrid grid = menu_bar_grid(bar, titles, count, open, bar_height, scale);
+  const int32_t at_x = static_cast<int32_t>(x) - grid.menu_x;
+  const int32_t at_y = static_cast<int32_t>(y) - grid.menu_y;
+  if (at_x < 0 || at_x >= grid.menu_w || at_y < 0) return 0;
+  const MenuBarTitle& title = titles[open - 1];
+  int32_t row_y = 2;
+  for (uint8_t i = 0; i < title.count; ++i) {
+    const int32_t row_h = title.entries[i].separator ? kMenuBarSeparatorRoom : grid.row_h;
+    if (at_y >= row_y && at_y < row_y + row_h) {
+      return title.entries[i].separator ? 0 : static_cast<uint8_t>(i + 1);
+    }
+    row_y += row_h;
+  }
+  return 0;
+}
+
+// ---- the keyboard: the band of the system at the bottom of the view (docs/90) ----
+
+namespace {
+
+// **Ten columns and four rows**: every row of the alpha layout has ten cells, which is what makes one division
+// enough to find the key under a finger. A cell with no action is not drawn and is not hit —half a keyboard of
+// empty boxes is a keyboard that looks broken (docs/90).
+enum class KeyAction : uint8_t { kNone, kChar, kDel, kSpace, kOk, kMode };
+
+struct KeyDef {
+  char letter;
+  KeyAction action;
+};
+
+const KeyDef kAlpha[40] = {
+    {'1', KeyAction::kChar}, {'2', KeyAction::kChar}, {'3', KeyAction::kChar}, {'4', KeyAction::kChar},
+    {'5', KeyAction::kChar}, {'6', KeyAction::kChar}, {'7', KeyAction::kChar}, {'8', KeyAction::kChar},
+    {'9', KeyAction::kChar}, {'0', KeyAction::kChar},
+    {'Q', KeyAction::kChar}, {'W', KeyAction::kChar}, {'E', KeyAction::kChar}, {'R', KeyAction::kChar},
+    {'T', KeyAction::kChar}, {'Y', KeyAction::kChar}, {'U', KeyAction::kChar}, {'I', KeyAction::kChar},
+    {'O', KeyAction::kChar}, {'P', KeyAction::kChar},
+    {'A', KeyAction::kChar}, {'S', KeyAction::kChar}, {'D', KeyAction::kChar}, {'F', KeyAction::kChar},
+    {'G', KeyAction::kChar}, {'H', KeyAction::kChar}, {'J', KeyAction::kChar}, {'K', KeyAction::kChar},
+    {'L', KeyAction::kChar}, {0, KeyAction::kDel},
+    {'Z', KeyAction::kChar}, {'X', KeyAction::kChar}, {'C', KeyAction::kChar}, {'V', KeyAction::kChar},
+    {'B', KeyAction::kChar}, {'N', KeyAction::kChar}, {'M', KeyAction::kChar}, {0, KeyAction::kSpace},
+    {0, KeyAction::kMode}, {0, KeyAction::kOk},
+};
+
+const KeyDef kNumeric[40] = {
+    {'1', KeyAction::kChar}, {'2', KeyAction::kChar}, {'3', KeyAction::kChar}, {'4', KeyAction::kChar},
+    {'5', KeyAction::kChar}, {'6', KeyAction::kChar}, {'7', KeyAction::kChar}, {'8', KeyAction::kChar},
+    {'9', KeyAction::kChar}, {'0', KeyAction::kChar},
+    {'.', KeyAction::kChar}, {'-', KeyAction::kChar}, {'+', KeyAction::kChar}, {'/', KeyAction::kChar},
+    {':', KeyAction::kChar}, {'*', KeyAction::kChar}, {'(', KeyAction::kChar}, {')', KeyAction::kChar},
+    {'?', KeyAction::kChar}, {'!', KeyAction::kChar},
+    {0, KeyAction::kDel}, {0, KeyAction::kSpace}, {0, KeyAction::kMode}, {0, KeyAction::kOk},
+    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
+    {0, KeyAction::kNone}, {0, KeyAction::kNone},
+    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
+    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
+    {0, KeyAction::kNone}, {0, KeyAction::kNone},
+};
+
+bool g_kbd_shown = false;
+uint8_t g_kbd_kind = kKeyboardAlpha;
+int8_t g_kbd_row = 1;
+int8_t g_kbd_column = 0;
+bool g_kbd_held = false;
+uint16_t g_kbd_key_w = 0;
+uint16_t g_kbd_key_h = 0;
+
+const KeyDef* keys_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? kNumeric : kAlpha; }
+
+// **The band of the keyboard**: four rows of a key that a finger can hit, and never more than two fifths of the
+// view, or the page it is typing into is what disappears (docs/90).
+uint8_t rows_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? 3 : 4; }
+
+void measure() {
+  const Canvas& view = root();
+  if (view.width == 0 || view.height == 0) return;
+  g_kbd_key_w = static_cast<uint16_t>(view.width / 10);
+  int32_t key_h = 44;
+  const int32_t room = (static_cast<int32_t>(view.height) * 2) / 5;
+  const int32_t rows = rows_of(g_kbd_kind);
+  if (key_h * rows > room) key_h = room / rows;
+  if (key_h < 24) key_h = 24;
+  g_kbd_key_h = static_cast<uint16_t>(key_h);
+}
+
+const char* label_of(const KeyDef& key, uint8_t kind, char* buffer, size_t cap) {
+  switch (key.action) {
+    case KeyAction::kChar:
+      buffer[0] = key.letter;
+      buffer[1] = '\0';
+      return buffer;
+    case KeyAction::kDel:
+      snprintf(buffer, cap, "DEL");
+      return buffer;
+    case KeyAction::kSpace:
+      snprintf(buffer, cap, "SPACE");
+      return buffer;
+    case KeyAction::kOk:
+      snprintf(buffer, cap, "OK");
+      return buffer;
+    case KeyAction::kMode:
+      snprintf(buffer, cap, "%s", (kind == kKeyboardNumeric) ? "ABC" : "123");
+      return buffer;
+    case KeyAction::kNone:
+      break;
+  }
+  buffer[0] = '\0';
+  return buffer;
+}
+
+// **The key under a point of the view**, or nullptr: the same division that paints, which is the rule a keyboard
+// cannot break —a key that is drawn where it cannot be pressed is a key that does not exist— (docs/90).
+const KeyDef* key_at(uint16_t x, uint16_t y, int32_t& index) {
+  if (!g_kbd_shown || g_kbd_key_w == 0 || g_kbd_key_h == 0) return nullptr;
+  const Canvas& view = root();
+  const int32_t rows = rows_of(g_kbd_kind);
+  const int32_t top = static_cast<int32_t>(view.height) - rows * static_cast<int32_t>(g_kbd_key_h);
+  if (static_cast<int32_t>(y) < top) return nullptr;
+  const int32_t row = (static_cast<int32_t>(y) - top) / static_cast<int32_t>(g_kbd_key_h);
+  const int32_t column = static_cast<int32_t>(x) / static_cast<int32_t>(g_kbd_key_w);
+  if (row < 0 || row >= rows || column < 0 || column >= 10) return nullptr;
+  index = row * 10 + column;
+  const KeyDef& key = keys_of(g_kbd_kind)[index];
+  return (key.action == KeyAction::kNone) ? nullptr : &key;
+}
+
+}  // namespace
+
+bool keyboard_show(uint8_t kind) {
+  if (!g_attached || root().bits == nullptr) return false;
+  g_kbd_kind = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
+  measure();
+  if (g_kbd_key_w == 0 || g_kbd_key_h == 0) return false;
+  g_kbd_shown = true;
+  g_kbd_row = 1;
+  g_kbd_column = 0;
+  g_kbd_held = false;
+  invalidate(0);
+  return true;
+}
+
+bool keyboard_hide() {
+  const bool was = g_kbd_shown;
+  g_kbd_shown = false;
+  g_kbd_held = false;
+  if (was) invalidate(0);
+  return true;
+}
+
+bool keyboard_visible() { return g_kbd_shown; }
+
+uint16_t keyboard_height() {
+  if (!g_kbd_shown) return 0;
+  return static_cast<uint16_t>(rows_of(g_kbd_kind) * static_cast<int32_t>(g_kbd_key_h));
+}
+
+// **The keyboard is painted over the page and not in it**: the tree is composed first, and the band goes on the
+// glass after it, so a control of the page under the band is covered and does not have to know that the keyboard
+// is there (docs/90).
+void keyboard_paint() {
+  if (!g_kbd_shown || g_kbd_key_w == 0 || g_kbd_key_h == 0) return;
+  Canvas& view = root();
+  if (view.bits == nullptr) return;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  const font::Face& face = font::system_face();
+  const int32_t rows = rows_of(g_kbd_kind);
+  const int32_t top = static_cast<int32_t>(view.height) - rows * static_cast<int32_t>(g_kbd_key_h);
+  draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(rows * g_kbd_key_h),
+                 15, mode);
+  // A line of ink over the band: the page ends here.
+  put_rect(view, 0, top, view.width, 1, 0);
+  mark_box(view, 0, top, view.width, 1, mode);
+  const KeyDef* keys = keys_of(g_kbd_kind);
+  char label[8];
+  for (int32_t i = 0; i < rows * 10; ++i) {
+    const KeyDef& key = keys[i];
+    if (key.action == KeyAction::kNone) continue;
+    const int32_t column = i % 10;
+    const int32_t row = i / 10;
+    const int32_t gap = 3;
+    const int32_t x = column * static_cast<int32_t>(g_kbd_key_w) + gap;
+    const int32_t y = top + row * static_cast<int32_t>(g_kbd_key_h) + gap;
+    const int32_t w = static_cast<int32_t>(g_kbd_key_w) - 2 * gap;
+    const int32_t h = static_cast<int32_t>(g_kbd_key_h) - 2 * gap;
+    const bool chosen = g_kbd_row == row && g_kbd_column == column;
+    if (chosen) {
+      // **The key the dial is on is inverted**, the same signal as a marked row: on this glass there is nothing
+      // else to say "this is the one" (docs/90).
+      draw_round_fill(view, x, y, w, h, 4, 0, mode);
+      draw_round_fill(view, x + 2, y + 2, w - 4, h - 4, 3, 0, mode);
+    } else {
+      draw_round_fill(view, x, y, w, h, 4, 0, mode);
+      draw_round_fill(view, x + 2, y + 2, w - 4, h - 4, 3, 15, mode);
+    }
+    const char* shown = label_of(key, g_kbd_kind, label, sizeof(label));
+    if (shown[0] != '\0') {
+      const uint16_t taken = font::width(face, shown, 3);
+      const int32_t line_h = static_cast<int32_t>(font::kGlyphHeight) * 3;
+      draw_text(view, face, x + (w - static_cast<int32_t>(taken)) / 2, y + (h - line_h) / 2, shown, 3,
+                chosen ? 15 : 0, mode);
+    }
+  }
+}
+
+// **What a key does**: the letters go to the box as one number and the two that are not letters are the two
+// numbers a box understands. The mode and the hide are the keyboard's own and go no further (docs/90).
+namespace {
+
+void press_key(const KeyDef& key) {
+  switch (key.action) {
+    case KeyAction::kChar:
+      luabind::ui_keyboard_typed(static_cast<int>(key.letter));
+      break;
+    case KeyAction::kDel:
+      luabind::ui_keyboard_typed(8);
+      break;
+    case KeyAction::kSpace:
+      luabind::ui_keyboard_typed(32);
+      break;
+    case KeyAction::kOk:
+      luabind::ui_keyboard_typed(13);
+      break;
+    case KeyAction::kMode:
+      g_kbd_kind = (g_kbd_kind == kKeyboardNumeric) ? kKeyboardAlpha : kKeyboardNumeric;
+      measure();
+      g_kbd_row = (g_kbd_row >= static_cast<int8_t>(rows_of(g_kbd_kind))) ? 1 : g_kbd_row;
+      break;
+    case KeyAction::kNone:
+      return;
+  }
+  invalidate(0);
+}
+
+}  // namespace
+
+bool keyboard_touch(uint16_t x, uint16_t y, bool down) {
+  if (!g_kbd_shown) return false;
+  if (!down) {
+    const bool was = g_kbd_held;
+    g_kbd_held = false;
+    return was;
+  }
+  int32_t index = 0;
+  const KeyDef* key = key_at(x, y, index);
+  if (key == nullptr) {
+    // **A finger on the band that is not on a key is still the keyboard's**: the page under the band must not be
+    // pressed through it (docs/90).
+    const Canvas& view = root();
+    return static_cast<int32_t>(y) >= static_cast<int32_t>(view.height) - keyboard_height();
+  }
+  g_kbd_held = true;
+  g_kbd_row = static_cast<int8_t>(index / 10);
+  g_kbd_column = static_cast<int8_t>(index % 10);
+  press_key(*key);
+  return true;
+}
+
+bool keyboard_key(const char* kind, uint32_t key_id) {
+  if (!g_kbd_shown || kind == nullptr || g_kbd_held) return false;
+  if (strcmp(kind, "press") != 0) return false;
+  // **The three keys of the dial in the shape every page has**: key 0 is the centre, 1 is up and 2 is down —the
+  // Paper's dial and the ATOM's single key both arrive here— and the keyboard does not need the names of the
+  // spots to walk its own grid (docs/50, docs/90).
+  const bool centre = (key_id == 0);
+  const int32_t step = (key_id == 1) ? -1 : 1;
+  if (centre) {
+    press_key(keys_of(g_kbd_kind)[g_kbd_row * 10 + g_kbd_column]);
+    return true;
+  }
+  const int32_t index = g_kbd_row * 10 + g_kbd_column;
+  // **The walk skips the cells that are not keys**: a dial that stops on half a keyboard of empty boxes is a dial
+  // that takes ten presses to cross a row (docs/90).
+  const KeyDef* keys = keys_of(g_kbd_kind);
+  const int32_t cells = rows_of(g_kbd_kind) * 10;
+  for (int32_t moved = 1; moved <= cells; ++moved) {
+    int32_t next = (index + step * moved) % cells;
+    if (next < 0) next += cells;
+    if (keys[next].action != KeyAction::kNone) {
+      g_kbd_row = static_cast<int8_t>(next / 10);
+      g_kbd_column = static_cast<int8_t>(next % 10);
+      invalidate(0);
+      return true;
+    }
+  }
+  return true;
+}
+
+
+//
+// **A strip of dots with the one you are on bigger**, and nothing at all when there is one page: a single dot
+// says nothing and it costs a paint of the panel to say it (docs/90).
+bool dots_draw(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background) {
+  if (!live(slot) || level > 15 || background > 15) return false;
+  const Canvas& strip = g_canvases[slot];
+  const int32_t width = strip.width;
+  const int32_t height = strip.height;
+  if (width == 0 || height == 0) return true;
+  if (pages <= 1) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  int32_t small = height / 3;
+  if (small < 3) small = 3;
+  if (small > 12) small = 12;
+  const int32_t big = small + 4;
+  // **The room of a dot is the room of the biggest one**, or the strip shifts sideways when the big one moves
+  // from one end to the other (docs/90).
+  const int32_t step = big + ((big > 8) ? 8 : 5);
+  const int32_t total = static_cast<int32_t>(pages) * step;
+  int32_t x = target.x + (width - total) / 2 + step / 2;
+  const int32_t middle = target.y + height / 2;
+  for (uint8_t i = 0; i < pages; ++i) {
+    const int32_t radius = (static_cast<uint8_t>(i + 1) == current) ? big / 2 : small / 2;
+    // A dot is a disc drawn row by row: the kernel has no floating point and a circle of eight pixels is a
+    // square with the corners taken off (docs/90).
+    for (int32_t row = -radius; row <= radius; ++row) {
+      const int32_t wide = radius * radius - row * row;
+      int32_t half = 0;
+      while ((half + 1) * (half + 1) <= wide) ++half;
+      put_rect(*target.canvas, x - half, middle + row, half * 2 + 1, 1, level);
+    }
+    mark_box(*target.canvas, x - radius, middle - radius, radius * 2 + 1, radius * 2 + 1, mode);
+    x += step;
+  }
+  close_draw(target);
+  return true;
+}
+
 bool present() {
   if (!g_attached || root().bits == nullptr) return false;
   compose_tree(0, -1, 0, 0);
+  // **The keyboard goes over the page and not in it**: the tree is composed first and the band last, so a
+  // control of the page under it is covered and does not have to know that the keyboard is there (docs/90).
+  keyboard_paint();
   const bool ok = paint_root();
   // **And now the ones that asked to go**: the page has been composed and the paint asked for, so the
   // buffers can be wiped and the slots given back without a ghost and without anything stale (docs/90).
@@ -1812,6 +4715,7 @@ bool present_all(hal::UpdateMode mode) {
   if (!g_attached || root().bits == nullptr) return false;
   compose_tree(0, -1, 0, 0);
   merge_all(root(), mode);
+  keyboard_paint();
   const bool ok = paint_root();
   sweep_released();
   return ok;

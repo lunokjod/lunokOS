@@ -63,7 +63,7 @@ Aquestes són les opcions del binari:
 
 | Opció | Què fa |
 |---|---|
-| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte `data`, el del repositori): `/littlefs/apps` és `data/apps` i no es copia res |
+| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` amb les apps d'`apps/` enllaçades); `/littlefs/apps` és `apps/` i `/littlefs/res` és `data/res`, i no es copia res |
 | `--state <dir>` | On viuen les memòries que no són un volum: `nvs/` i, quan n'hi hagi, la RTC, la FRAM i l'hora que el xip recorda (per defecte `emulator/`) |
 | `--persist` | **La placa no s'ha desendollat**: el run arrenca on el run anterior va deixar la placa, o sigui que la **RTC RAM** no s'esborra ni a l'ATOM (un reinici no apaga el domini del RTC) i **l'hora** de `clock.bin` es llegeix també als models sense pila, amb `source` = `"soc"`. La NVS i la FRAM no depenen d'això: són flash i ferrita i es guarden sempre (docs/60, docs/85) |
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
@@ -126,8 +126,10 @@ printf 'run echo\n' > /tmp/s.txt
 
 ## El disc de treball
 
-**El disc del banc és el `data/` del repositori, tal qual.** El binari hi apunta per defecte
-(`--flash data`), o sigui que `/littlefs/apps` és `data/apps` i `/littlefs/res` és `data/res`: el que
+**El disc del banc és el del seu build, `build/disk/emulator`**, i el camí li arriba compilat
+(`-DLUNOK_DISK_DIR` a `platformio.ini`), o sigui que dos builds no comparteixen disc i el banc no llegeix el
+que les proves acaben d'escriure. `/littlefs/apps` és `apps/` —cada app és un enllaç que hi posa
+`tools/make_disk.py`— i `/littlefs/res` és `data/res`: el que
 s'edita és el que corre, i **no cal copiar res**. El que una app escriu va a `data/data/<id>/`, que
 és estat i no codi, i per això és al `.gitignore`.
 
@@ -216,14 +218,15 @@ Per tenir-hi les apps de la imatge de la flash (les de `data/`), es copien un co
 tools/sync_emulator.sh
 ```
 
-Fa el mateix que `mkdir -p emulator/littlefs && cp -r data/apps emulator/littlefs/`, però **esborra
+Fa el mateix que `mkdir -p emulator/littlefs && cp -rL build/disk/emulator/apps emulator/littlefs/`, però **esborra
 primer** `apps/` i `res/` del disc de l'emulador: és una còpia, no una fusió, i una app treta de
-`data/` ha de desaparèixer també d'aquí. També hi ha la tasca de VS Code **lunokOS: seed emulator
+`apps/` ha de desaparèixer també d'aquí. També hi ha la tasca de VS Code **lunokOS: seed emulator
 disk**.
 
 **Per què cal recordar-ho** (només per a un banc que copiï el seu disc, `--flash emulator/littlefs`):
-editar una app a `data/apps` **no canvia res** en aquella còpia; el que corre és el disc de treball.
-Amb el disc real —el camí per defecte— això no passa.
+editar una app a `apps/` **no canvia res** en aquella còpia; el que corre és el disc de treball.
+Amb el disc del build —el camí per defecte, `build/disk/emulator`— això no passa, perquè les seves
+apps són enllaços al repositori.
 
 ## Una sola sortida, i en ordre
 

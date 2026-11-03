@@ -1,7 +1,7 @@
 // **A TrueType font read and drawn** (docs/30): the tables a text is laid out with, the glyph a code asks
 // for, and the outline of that glyph turned into pixels at the size the caller names.
 //
-// The vector is a font this repository owns: `data/apps/font-ttf/res/lunok-8x8.ttf`, built by the script of
+// The vector is a font this repository owns: `apps/font-ttf/res/lunok-8x8.ttf`, built by the script of
 // docs/30 out of the same eight by eight letters that `font-bdf` and `font-pcf` draw. So the numbers of the
 // test are not somebody's font: they are the letters of those two files, which are a picture that already has
 // a test — an `A` is `18 24 42 7e 42 42 42 00` — and here the same `A` has to come out of curves and lines.
@@ -32,7 +32,7 @@ uint32_t g_length = 0;
 
 // The font of the app `font-ttf`, read once.
 ttf::Face the_face() {
-  if (g_length == 0) g_length = read_file("data/apps/font-ttf/res/lunok-8x8.ttf", g_file, sizeof(g_file));
+  if (g_length == 0) g_length = read_file("apps/font-ttf/res/lunok-8x8.ttf", g_file, sizeof(g_file));
   ttf::Face face;
   const char* why = ttf::open(g_file, g_length, face);
   TEST_ASSERT_NULL_MESSAGE(why, why);
@@ -116,7 +116,7 @@ static void test_an_outline_becomes_the_pixels_of_its_bitmap() {
 // is—. This is the face of the buttons page, read from the disk of the repository.
 static void test_a_glyph_with_too_many_curves_is_drawn_with_fewer_pieces() {
   static uint8_t big[24576];
-  const uint32_t length = read_file("data/apps/buttons/res/lato-black.ttf", big, sizeof(big));
+  const uint32_t length = read_file("apps/buttons/res/lato-black.ttf", big, sizeof(big));
   TEST_ASSERT_GREATER_THAN(0, length);
   ttf::Face face;
   const char* why = ttf::open(big, length, face);

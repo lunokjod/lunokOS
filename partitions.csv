@@ -1,18 +1,21 @@
 # lunokOS partition table for 4 MB of flash.
 #
-# One application slot of 3 MB. It used to be two of 1.5 MB, with the second one
-# unused because firmware updates (OTA) do not exist yet. The Bluetooth stack of
-# the manufacturer does not fit in 1.5 MB: with it linked the board asked for
-# 1 750 617 B against 1 572 864 B, 111.3 % (measured, 31/10, docs/75). Merging the
-# two slots gives 3 145 728 B, so the stack fits with room to grow, and the price
-# is that OTA is not there to lose (the firmware goes in over the cable, which is
-# what happens today). If OTA ever comes back, Bluetooth provisioning over
-# Bluedroid is what has to go first.
+# **One application slot of 2,5 MB and a disk of 1,44 MB.** The slot was 3 MB, which the
+# firmware does not need: it is 2 081 225 B and the 3 MB was chosen for the Bluetooth
+# stack of the manufacturer —two slots of 1,5 MB did not hold it: 1 750 617 B against
+# 1 572 864 B, 111.3 % (measured, 31/10, docs/75)—. The disk was 896 KB and the apps do
+# not fit in it: measured on 4/11 with tool-mklittlefs 1.203.210628, a page of 0x100 and a
+# block of 0x1000, the 128 files of the ATOM Matrix's disk leave **18 files out** at
+# 917 504 B and every one of them fits at 1 572 864 B. 2 621 440 B for the firmware is
+# 79,4 % of the slot with 540 KB to grow, and 1 441 792 B of disk hold the 128 files with
+# 131 072 B to spare (the ATOM's 124 and the bare ESP32's 120 are fewer). OTA still does
+# not exist, so the second slot has nothing to lose; if it ever comes back, Bluetooth
+# provisioning over Bluedroid is what has to go first.
 #
 # Name,     Type, SubType, Offset,   Size,     Flags
 nvs,        data, nvs,     0x9000,   0x4000,
 phy_init,   data, phy,     0xf000,   0x1000,
-app0,       app,  factory, 0x10000,  0x300000,
+app0,       app,  factory, 0x10000,  0x280000,
 # LittleFS lives in a data partition named "littlefs". The subtype column says
 # "spiffs" because that is the identifier this toolchain knows for a generic data
 # partition: PlatformIO looks for it by that name to find where to write the
@@ -23,6 +26,6 @@ app0,       app,  factory, 0x10000,  0x300000,
 # The core dump partition is here so that the ESP32 core has somewhere to write
 # when the firmware panics: without it, every boot starts with
 # "No core dump partition found!" twice, and a crash leaves nothing behind.
-littlefs,   data, spiffs,  0x310000, 0x0E0000,
+littlefs,   data, spiffs,  0x290000, 0x160000,
 coredump,   data, coredump,0x3F0000, 0x010000,
 

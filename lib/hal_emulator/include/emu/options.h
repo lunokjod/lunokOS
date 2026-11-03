@@ -4,6 +4,14 @@
 
 #include <stdint.h>
 
+// **The disk this binary was built to read**, given by its environment (`platformio.ini`): every build has its
+// own, `build/disk/<env>`, which `tools/make_disk.py` assembles from `data/` and the apps of `apps/` (docs/80).
+// The bench and the tests are two builds and do not share a disk, so one cannot write over what the other is
+// about to read (docs/85).
+#ifndef LUNOK_DISK_DIR
+#define LUNOK_DISK_DIR "build/disk"
+#endif
+
 namespace emu {
 
 struct Options {
@@ -12,9 +20,9 @@ struct Options {
   // means "the same directory as the disk", which is what a test wants: everything of one run in
   // one place it can wipe (docs/85).
   const char* state_dir;
-  // The directory that **is** the emulated flash volume, or nullptr for `<fs_dir>/littlefs`. The
-  // binary defaults it to the repository's own `data`, so what a person edits is what the bench
-  // runs and nothing has to be copied (docs/85).
+  // The directory that **is** the emulated flash volume, or nullptr for `<fs_dir>/littlefs`. It is the disk
+  // the environment was built for (`LUNOK_DISK_DIR`), which is `data/` plus the apps this build carries, so
+  // what a person edits is what the bench runs and nothing has to be copied (docs/85).
   const char* flash_dir;
   const char* fs_dir;    // where the emulated disks live
   // Which board this bench is, by the name the board has in platformio.ini. nullptr is

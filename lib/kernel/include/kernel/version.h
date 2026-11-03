@@ -633,7 +633,7 @@ namespace kernel {
 // escalat al més proper. El que no es llegeix es diu i no es dibuixa malament: PNG entrellaçat, JPEG progressiu
 // o aritmètic, CMYK i BMP amb RLE són `E_UNSUPPORTED`; un fitxer que diu ser una imatge i no ho és, `E_IO`; i
 // una imatge de més de 2 MB, de més de 4 096 píxels o que no cap a la memòria, `E_INVAL`/`E_NOSPC`. L'exemple
-// `run images` porta **una imatge de cada família** a `data/apps/images/res` —i **una imatge diferent per a
+// `run images` porta **una imatge de cada família** a `apps/images/res` —i **una imatge diferent per a
 // cadascuna**, que ensenya el que aquell format sap fer: una fotografia en JPEG, tinta plana en BMP, una
 // paleta de vuit tintes, una cantonada transparent en GIF, una icona amb alfa, línies primes en PNG, dos
 // degradats i un bit— passades totes amb els botons; el **mateix pla en sis formats**, que és el que demostra
@@ -705,7 +705,184 @@ namespace kernel {
 //   - I **un error del heap del banc**, que és el que va fer sortir el problema: un bloc de la PSRAM que no
 //     podia créixer al seu lloc només provava l'altra casa i deia `not enough memory` amb quatre megabytes
 //     lliures a la mateixa PSRAM (docs/75). `move_into` el mou a qualsevol taca de la seva.
-static const char kVersion[] = "0.66.0";
+// 0.66.1 (4/11): **the apps leave `data/` and move to `apps/`**, at the root of the project, one folder
+// per id, because they do not fit the flash image of the small boards. Measured on 3/11 with
+// `tool-mklittlefs` 1.203.210628 and a block of 4 KB: the 113 files of `apps/` need **between 1 179 648
+// and 1 310 720 B** of LittleFS, and the partition of the ATOM, the Matrix and the bare ESP32 is
+// **917 504 B**, where the tool drops **14 files** and still exits 0 —the image of every 4 MB board has
+// been going out short of apps, in silence, for as long as the apps have been there—. The system's own
+// `data/` (`res/` and `data/`) fits that partition with room to spare. So the disk is now **assembled per
+// board** by `tools/make_disk.py` into `build/disk` (`data_dir` in platformio.ini): `data/` for the 4 MB
+// boards, and `data/` plus a **live link** to `apps/` for the Paper (11,9 MB) and the bench. Measured the
+// same day: `mklittlefs` **follows** a symbolic link to a directory, and so does the bench (`emu_storage`
+// uses `stat()` and `S_ISDIR()`), so there is one source, no copy to go stale, and the Paper's image does
+// carry the apps. The bench reads `build/disk` by default, the tests read `apps/…` instead of
+// `data/apps/…`, and `tools/check_fs_names.py` walks the assembled disk with `followlinks` so the names
+// inside an app are still looked at (docs/10, docs/70, docs/80, docs/85).
+// 0.67.0 (4/11): **`ui.checkbox`**. A checkbox is a row —a square box at its left and the room for the words
+// that say what is being checked, which are a `UILabel` the app adds with `cb:add`— and it is the first control
+// **whose click means one thing and the system does it**: the press writes `checked` and then tells the app
+// with `on_change(self, checked)`, so the field and the drawing cannot disagree; `on_activate` is not called
+// for it. The box keeps the weight the button taught at a quarter of the size —four pixels of frame, a border
+// of three on a page and one on a chip, a bevel that swaps and a body that goes a step darker while it is
+// held—, the tick is **two strokes of a brush in its own level** (`mark`, because a black tick in a black box
+// says nothing) and the ring of the focus is drawn **outside** the box, two pixels of band and one of pause,
+// which is the only place a box of twelve pixels has for it. `cb:box()` is the kernel's number for the side of
+// that box, which is where the words go; the side is four pixels of frame off the row's height, two on a row
+// too short for that, and zero under six. The pixels are pinned by `test_ui` (the box, the tick, the hole of a
+// press and the ring) and the whole chain by `test_apps`: the centre flips the focused box twice and the app
+// hears `change true`, `change false` with the field already written. The app is `run checkbox`, five rows with
+// their words inside, one the dial skips and one that is dark (docs/30, docs/90).
+// 0.67.1 (4/11): **every build has its own disk.** `PROJECT_DATA_DIR` is one value for the whole project, so a
+// single `build/disk` meant that building the ATOM after the Paper changed the disk the Paper was built from
+// —and the one the bench reads— behind its back. `tools/make_disk.py` now assembles `build/disk/<env>` and
+// points `PROJECT_DATA_DIR` at it from a pre-script, which runs before the filesystem target is made (read in
+// PlatformIO's own `builder/main.py`: the pre-scripts come after the `PROJECT_DATA_DIR` default and before
+// `DataToBin`), so `-t buildfs` and `-t uploadfs` take the tree of their own environment. Inside it, `apps/`
+// is a **folder of links, one per app**, to `apps/` at the root —not one link to the directory— so a build can
+// carry a subset with `custom_apps = id1,id2` and stop carrying an app by not listing it, and `mklittlefs`
+// follows every one of them (measured on 3/11). **The tests copy instead of linking** (`custom_apps_copied`
+// on that environment) because a test creates and deletes apps in the disk it mounts, and writing through a
+// link would write into the repository. The native binaries learn which disk is theirs at build time
+// (`-DLUNOK_DISK_DIR`), so the bench reads `build/disk/emulator` and the suite `build/disk/test` and neither
+// can leave the other reading its leftovers (docs/70, docs/80, docs/85).
+// 0.67.2 (4/11): **each board's disk carries the apps that name it.** `tools/make_disk.py` reads the manifest
+// of every app of `apps/` and keeps the ones whose `boards` lists **the board's id or its chip family** —the
+// same rule the kernel uses to refuse an app at `run` (docs/40)—, so the ATOM's disk has the generic examples
+// plus `light` and `keys`, the Matrix adds `tilt` and `matrix`, the Paper has the generic ones plus `keys`, and
+// the bare ESP32 has the generic ones alone. The board id comes from PlatformIO and the family from the
+// board's own `identity.h`, so nothing is written twice. Every folder of `apps/` in the disk is a link (the
+// tests copy, because they write there) and `custom_apps = id1,id2` still wins over the filter. And **the disk
+// is measured before it is written**: with a block of 4 KB and the 917 504 B partition of a 4 MB board, the
+// ATOM's 48 apps are 124 files and **15 of them do not fit**, the Matrix's 50 leave **18** out and the bare
+// ESP32's 46 leave **13** —the tool printed `No more free space` and PlatformIO still said SUCCESS before
+// this—. The script now stops a `-t buildfs`/`-t uploadfs` whose estimate (three blocks a file, the cautious
+// side of the 2.25 to 2.5 measured) does not fit, and says the two ways out: a list in `custom_apps`, or a
+// bigger littlefs partition. The Paper's 47 apps fit (docs/70, docs/80).
+// 0.67.3 (4/11): **the firmware never formats the disk.** The fallback of `LittleFS.begin(true)`
+// turned "no disk" into "a disk that never mounts": the core formats a superblock with name_max
+// 255 and then refuses it (`Unsupported name_max (255 > 32)`, EINVAL), after throwing away what
+// the uploader had left there. A board with no disk now says so and waits for the image, the way
+// the card reader already did (docs/70).
+// 0.68.0 (3/11): **the faces of the disk are one copy for every app.** `/fonts` is the disk's
+// `res/fonts/` seen from the root —one more row of the mount table, twelve now, because the Paper
+// with a card had ten of ten— and an app reads it and does not write it, the way it reads `/apps`.
+// The four DejaVu faces cut to the printable ascii (9 948, 8 548, 8 084 and 10 896 B, the licence
+// beside them) sit there once instead of once per app that wants one: `fonts-ttf` and `label`
+// carried their own copies, 37 476 B paid twice, and a page now says
+// `ui.load_font('/fonts/dejavusans.ttf')`. The old project's bitmap faces do not come with it, and
+// `docs/92` says why with numbers: a `.lfont` is a fixed cell of at most sixteen by sixteen with
+// ninety-six codes, and DejaVu at 36 px wants a cell of 25 by 43 with 216 of them — and the same
+// body in text form would be 184 000 characters on the disk against 15 878 bytes of bits. The
+// outlines are that same typeface, proportional like the old faces, and draw at any size (docs/30,
+// docs/70, docs/92).
+// 0.69.0 (3/11): **three more controls, and the system draws every one of them** — the rule the owner set:
+// a page has the controls of the kernel or its own canvas with primitives, and **no control is painted in
+// Lua**. `ui.progress` is a track and a prefix of it, with a negative value as "nothing to say yet" and a
+// frame of one pixel because a bar is not something to press; `ui.slider` is the number the arrows of the
+// dial move while it has the focus —the system writes the field and then calls `on_change`, the rule a
+// checkbox already followed, and at either end of the range the key goes back to the walk so the page is
+// not a dead end—; and `ui.row` is one line of a list: a title, a detail on the right, a subtitle under it,
+// a separator, and **marked, which is the row inverted and not greyed**. `run controls` is the page of the
+// three (docs/30, docs/90, docs/92).
+// 0.70.0 (3/11): **a page is a declaration.** `ui.panel` is the room that arranges what it holds —a column, a
+// row or everything on top— with `padding` and `gap` of its own, each child as big as it asked to be and
+// **stretched across the flow**, and the free room split by `child.weight` with the last one taking the
+// remainder; the layout happens when the panel draws, so a page turned, a view of another size or a child
+// added late arrange themselves. `ui.tabs` is a strip of words in equal columns where **the chosen one is the
+// tab with no line under it** —on two tones that missing piece is the signal, the lesson of `tab_strip.h:44`—
+// and the arrows of the dial change it while it has the focus. `ui.dots` is the strip that says where a page
+// is among the others, and it draws nothing at all when there is only one page (docs/30, docs/90).
+// 0.71.0 (3/11): **a list of rows on pages, and never a scroll.** `ui.list` takes the items from the app —a Lua
+// array of tables with `title`, `detail` and `subtitle`, or of strings, which are a title— and draws the rows of
+// one page with the painter `ui.row` already had, because two painters of the same list always drift. **How many
+// rows fit and how many pages the items make is one arithmetic and not two**: the footer of the paging exists
+// only when there is more than one page, and when it does it takes its band and the rows are counted again in
+// what is left, so a list cannot say "2 / 4" over the rows of the fifth page; the app reads that number from the
+// same function the drawing asks. The arrows of the dial turn the page while the list has the focus and the app
+// hears it at `on_page(self, page)` (docs/30, docs/90).
+// 0.72.0 (3/11): **a text box with its caret, and the keyboard of the system that types into it.** The caret is
+// the important half: a block as wide as the letter under it, drawn in the ink with that letter in the paper so
+// the block shows what it is on, and the text is a **window** that drops leading letters until the caret is on the
+// glass —typing at the end of a long word into a place nobody can see is what a box without a window does. The
+// blinking is the app's (`caret`), because a control has no clock. **The keyboard is not a control**: it is a band
+// the system paints at the bottom of the view over the composed page, it takes the finger and the dial before the
+// page's controls, the arrows walk its keys and the centre presses one, and every key arrives at the box the app
+// named —the text and the caret are written before `on_change(self, text)` arrives, the rule a checkbox and a
+// slider already follow. `run typing` is the page of the two (docs/30, docs/90).
+// 0.73.0 (3/11): **a dialog, which is a card with words that wrap and two doors.** The message is not cut with
+// "...": a card that says half of a question is a card nobody can answer, so the lines break where they fit and
+// the room above the doors is what decides how many there are. The emphasised door is **inverted** and the one the
+// dial is on wears the ring —on this glass there is no colour to say "this is the default"—, the arrows walk the
+// two doors, the centre fires `on_accept` or `on_cancel`, and **a finger picks the door it is on** rather than the
+// one the ring was on. Where the doors are is one geometry for the paint and for the finger. Closing the card is
+// still the app's, with the old rule: read the action, close, and then run it (docs/30, docs/90).
+// 0.74.0 (3/11): **the shape of some numbers.** `ui.sparkline` is one bar per sample with **the scale of the peak of
+// its own window** —a fixed scale shows the numbers, and what a sparkline is asked for is the shape: up, down,
+// flat— and a second series that is a part of the same total is drawn as an **outline**, because the ink is the
+// only level a chart may use. `ui.pie` is four slices at most, with the angles from their sum, **thirty-two
+// directions in a fixed-point table** because this kernel has no floating point, and four tones that walk from the
+// one the app chose so a legend can say the same numbers. Both take no focus (docs/30, docs/90).
+// 0.75.0 (3/11): **a calendar month, and one copy of the leap years in the whole system.** `ui.month` is seven
+// columns, a row of weekday names **the app gives** —the names of the days are a language and a language is not the
+// kernel's— and **six weeks always**, so the row under the calendar does not move in February. `selected` is
+// inverted and `today` wears a frame: two signals, because there is no colour for two facts. Which weekday the
+// first falls on and how long February is come from `kernel/calendar.h`, the only place that knows the rule —a
+// second rule in an app is a second answer, and a calendar with two of them disagrees with itself twice a year— and
+// the dial stops at the end of the month because it asks that same function; the finger asks the same cells the
+// paint put down (docs/30, docs/60, docs/90).
+// 0.76.0 (3/11): **the menu, which is the contextual menu of this system.** `ui.menu` is a card of options over the
+// page: **one box per option, a column before the next one, never under fifty-two pixels of height** —what a fingertip
+// needs— and the rows grow into the room that is left. **An option the app cannot do now is hidden and not shown dead**,
+// because a row that looks like it does something and does nothing is worse than no row at all and this glass has no
+// third tone to draw a disabled one with; the option of the moment is inverted and the ring of the dial is drawn inside
+// the box in the tone of the words. The arrows walk **the options that are on the card**, skipping the hidden ones, and
+// the centre or a finger picks one with `on_pick(self, index)`. The ring of an inverted door of `ui.dialog` was the tone
+// of the ink and disappeared on the door a person was looking at; it is the tone of the words now (docs/30, docs/90).
+// 0.77.0 (3/11): **the bar of menus.** `ui.menu_bar` is a row of words with a line under it and **one menu that hangs from
+// the word that is down** —five words and sixteen entries, one level deep, and the frame is the whole page because the
+// menu opens over it and the bar paints only its own two boxes—. **An entry that cannot be used now is the dim tone and
+// not a third colour**, a dash is a line between two entries and not a row a finger presses, and a tick is a box with its
+// middle filled because there is no grey to say "on" with. A finger on a title folds or unfolds it; the dial walks **the
+// entries that can be pressed** while a menu is down and gives the arrow back when none is; a choice fires
+// `on_pick(self, title, entry)` **with the menu already folded** (docs/30, docs/90).
+// 0.78.0 (3/11): **a box of several lines.** `ui.textbox_multiline` is the sibling of `ui.textbox` with room to fall: the
+// same frame, the same block caret and the same byte offset, and **the window that keeps the caret on the glass**. `wrap`
+// is a way of painting and not a change of the text —a row is a line and is cut at the border, or a row is broken at the
+// last space that fits— and where a row ends and where the caret sits come from **one function**, so the caret of the
+// paint and the caret of a finger cannot disagree; the finger puts the caret on the letter it is on, the row from the y
+// and the letter from the x. **The enter key of the keyboard writes a line break here and does not end the edition**, and
+// `box:rows()` says how many rows the box shows, asked from the same arithmetic (docs/30, docs/90).
+// 0.79.0 (3/11): **a field that is chosen and not typed.** `ui.selector` is the question in the small dim face and the answer
+// in the ink, with **a column of the triangle on its right, which is the door**. A value of a known set does not want a
+// keyboard: typing a whole date and a time on this glass takes the view down to 581 pixels and a wrong digit is a value that
+// looks right. **The list is not in the control** —the field is a door and what a finger or the centre gets is `on_open`,
+// where the app puts up a `ui.menu` drawn by the system— and **the empty value is a state of its own**, drawn where a value
+// would be. An open field keeps its paper and only its column goes to ink (docs/30, docs/90).
+// 0.80.0 (3/11): **the band of notifications.** `ui.notification_bar` gives a card from edge to edge to every notice, a title,
+// a text and a cross, and **stacks them upwards with the newest at the bottom**, which is the nearest to the finger and the
+// one that goes away first. Three at most on the glass: **what does not fit is not lost and the band says how many are
+// waiting with a `+N`**, because a notice that disappears without saying so is a notice somebody has lost. The cross
+// dismisses on the way down and the rest of the card opens on the way up, and the centre dismisses the newest —a notice a
+// board without a touch cannot take away is a notice that stays forever— (docs/30, docs/90).
+// 0.81.0 (3/11): **the grid of cells.** `ui.icon_grid` is an icon with its name under it, on pages: **the mark in the box is
+// what is recognised at a glance and the name is what confirms it**, and that is why a menu of things is a grid and not a list.
+// **The page follows the cursor**, so the app hands over the whole list and never turns a page, and the footer says which one is
+// on the glass. The cell that is chosen is inverted and the cell the dial is on wears the ring; the name stays in the ink even
+// on a chosen cell, because it sits on the paper of the page and not inside the box of the mark. The icon is a box with a short
+// mark drawn by the system —this kernel has no bitmap of its own— and the finger asks the same cells the paint put down, page
+// included (docs/30, docs/90). With this one the controls of the old project are done: what is left of its UI is `format`,
+// which is a table of texts and not a control, and the `option_picker`, which is a menu of many options and is already
+// `ui.menu` plus `ui.list` (docs/92).
+// 0.81.1 (3/11): **a finger held down is one press and not a run of them.** The chip hands the frame of a scan over
+// once and the driver takes it away, so a caller that asks faster than the glass reads "nobody" between two frames of
+// the same finger; the kernel read those gaps as a lift and turned one tap on a card into two choices —a menu picked
+// the option the ring was on and then picked it again— and a held control let go of itself. A frame that does not
+// come now keeps the one that did until the glass has been quiet for a whole scan (30 ms, three of the chip's), and
+// **the turn of the frame follows the frame that arrived** and not every poll (the point was being turned once per
+// turn and a finger walked away on its own). And the grid was missing from the list of controls that take the
+// arrows, so the dial crossed it and the cells never moved (docs/30, docs/50, docs/90).
+static const char kVersion[] = "0.81.1";
 
 }  // namespace kernel
 

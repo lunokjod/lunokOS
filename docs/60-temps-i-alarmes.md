@@ -262,3 +262,18 @@ Com està avui:
 | Repeticions | Una diària perduda tres dies arriba **una vegada**, amb `missed = 2` |
 | `persist` | La cua es desa a la NVS amb una **època per línia**, i les vençudes es disparen en arrencar amb el seu `late_ms`. Sense època no s'escriu res |
 | Despert | `can_wake()` és cert a les dues bandes, i a l'ATOM el despert és el temporitzador del RTC i el botó. Una alarma no es pot impedir que es perdi: si no hi ha corrent, es reprodueix en arrencar |
+
+## El calendari: la regla dels anys de traspàs, una sola vegada (0.75.0)
+
+L'època és un número i un calendari necessita dos més: **quants dies té un mes** i **quin dia de la setmana cau una
+data**. Els dos viuen a `lib/kernel/src/calendar.cpp` (`kernel/calendar.h`) i enlloc més:
+
+- `days_in_month(year, month)` — la regla sencera és quatre línies: **cada quatre anys, excepte els segles, excepte
+  cada quatre-cents**. El 2000 va ser de traspàs i el 1900 no; el 2100 no ho serà.
+- `weekday_of(year, month, day)` — el mètode de Sakamoto, aritmètica entera i dotze bytes de taula. **1 és dilluns i
+  7 és diumenge**, perquè la setmana d'aquest sistema comença en dilluns.
+
+Per què és al nucli i no a cada app: el vell tenia la mateixa regla a `system/wall_clock` precisament perquè **dues
+còpies de la regla dels traspasos es donen respostes diferents** i un calendari que discrepa amb si mateix ho fa dues
+vegades l'any. `ui.month` i el dial del calendari pregunten aquestes mateixes funcions (docs/30, docs/90). Les proves
+són a `test/test_calendar`: el febrer de 2024, 1900, 2000 i 2100, i sis dates que un calendari ja ha imprès.

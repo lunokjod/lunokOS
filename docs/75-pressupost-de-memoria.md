@@ -216,7 +216,7 @@ canvia és el model, no el sistema (docs/85).
 
 ## El sostre del codi, a 32 KB (4/11)
 
-L'editor que parla vim (`data/apps/edit/edit.lua`) fa **26 644 B** i el 4/11 el sistema li va dir `too big to
+L'editor que parla vim (`apps/edit/edit.lua`) fa **26 644 B** i el 4/11 el sistema li va dir `too big to
 run: /apps/edit/edit.lua`: el sostre era de 16 384 B. El que havia crescut no era farciment —és un editor de
 debò, amb desfer, cerca i les ordres de desament— i un editor que no arrenca no és un editor.
 

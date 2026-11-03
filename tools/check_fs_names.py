@@ -15,14 +15,22 @@ import os
 Import("env")
 
 NAME_MAX = 32
-DATA_DIR = os.path.join(env.subst("$PROJECT_DIR"), "data")
+# **The tree that actually goes into the image**: `build/disk`, made by
+# `tools/make_disk.py` from `data/` and, on a board with room, `apps/` (docs/80).
+# Checking `data/` alone would say nothing about the apps any more.
+DATA_DIR = env.subst("$PROJECT_DATA_DIR")
 
 
 def too_long():
     found = []
     if not os.path.isdir(DATA_DIR):
         return found
-    for root, dirs, files in os.walk(DATA_DIR):
+    # **`followlinks` because the apps are a link in the assembled disk**: they live
+    # at `apps/` in the root of the project and `make_disk` links them in, which is
+    # what keeps one source and no stale copy. Without this the names inside an app
+    # would never be looked at, and a name the image builder drops is exactly the
+    # silent loss this script exists for (docs/70).
+    for root, dirs, files in os.walk(DATA_DIR, followlinks=True):
         for name in dirs + files:
             if len(name) > NAME_MAX:
                 rel = os.path.relpath(os.path.join(root, name), DATA_DIR)
@@ -36,6 +44,6 @@ if offenders:
     print("check_fs_names: the image builder drops names longer than %d characters," % NAME_MAX)
     print("check_fs_names: so these files would never reach the board:")
     for length, rel in offenders:
-        print("  %3d chars  data/%s" % (length, rel))
+        print("  %3d chars  %s/%s" % (length, os.path.basename(DATA_DIR), rel))
     print("check_fs_names: shorten them, or nest the path in directories of %d characters." % NAME_MAX)
     env.Exit(1)

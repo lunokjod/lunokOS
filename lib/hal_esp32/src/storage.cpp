@@ -187,12 +187,13 @@ IStorage* esp32_storage(const char* mount, const char* partition) {
     tried = true;
     // The partition is found by its label, so the label has to match the one in the
     // board's table. Never rely on the core's default label.
+    //
+    // The disk is built by tools/make_disk.py and written by the uploader: this code
+    // must never format it. The core's format-on-fail path writes a superblock with
+    // name_max 255, which the same core then refuses to mount (it wants 32), so it
+    // turns "no disk" into "a disk that never mounts" and throws away whatever the
+    // uploader had left there. A board without a disk says so and waits for the image.
     mounted = LittleFS.begin(false, kMountPoint, 10, partition);
-    if (!mounted) {
-      // A partition that was never written has no filesystem on it. Formatting it is
-      // the only way forward, and the caller logs that nothing was found.
-      mounted = LittleFS.begin(true, kMountPoint, 10, partition);
-    }
   }
   return mounted ? &g_littlefs : nullptr;
 }

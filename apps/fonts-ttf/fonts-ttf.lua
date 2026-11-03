@@ -3,7 +3,8 @@
 --
 -- The three files are DejaVu Sans, DejaVu Serif and DejaVu Sans Mono, cut down to the printable ascii and
 -- nothing else —`pyftsubset --unicodes=U+0020-007E`, about ten kilobytes each— so that what is being shown is
--- a real font and not a demo face. The licence of DejaVu travels with them (`/res/LICENCE.txt`).
+-- a real font and not a demo face. **They are not this app's**: they live in the disk's `res/fonts/`, which
+-- is `/fonts` for every app, and the licence of DejaVu travels with them (`/fonts/LICENCE.txt`, docs/30).
 --
 -- Three faces is the whole of what the system keeps at once, and that is why there are three: the sans, the
 -- serif and the mono at the same words, every one of them **drawn again at its size** and not a table of
@@ -15,9 +16,9 @@ local info = ui.caps()
 local margin = 24
 local line = 'Handgloves 0123'
 
-local sans, err1 = ui.load_font('/res/dejavusans.ttf')
-local serif, err2 = ui.load_font('/res/dejavuserif.ttf')
-local mono, err3 = ui.load_font('/res/dejavusansmono.ttf')
+local sans, err1 = ui.load_font('/fonts/dejavusans.ttf')
+local serif, err2 = ui.load_font('/fonts/dejavuserif.ttf')
+local mono, err3 = ui.load_font('/fonts/dejavusansmono.ttf')
 if sans == nil or serif == nil or mono == nil then
   console.print('a face is missing: ' .. tostring(err1 and err1.message) .. ' ' ..
                   tostring(err2 and err2.message) .. ' ' .. tostring(err3 and err3.message))
@@ -57,7 +58,7 @@ ui.text(margin, info.height - 60, 'DEJAVU, CUT TO THE ASCII, DRAWN AT EVERY SIZE
 -- **A face given back is a slot free**: the mono goes, the bold comes, and the page carries four faces of the
 -- same family while the system never holds more than three (docs/30).
 mono:release()
-local bold, err4 = ui.load_font('/res/dejavusans-bold.ttf')
+local bold, err4 = ui.load_font('/fonts/dejavusans-bold.ttf')
 if bold ~= nil then
   ui.font(bold)
   ui.text(margin, info.height - 36, 'and Bold after a release', 2, 0)

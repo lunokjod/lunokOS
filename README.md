@@ -23,9 +23,10 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
 > (escriure és **atòmic**: un temporal i un reanomenament), `mkdir`/`remove`/`rename`, `fs.data()` per
 > al propi racó, i `fs.open` amb un **objecte fitxer** (`read`/`write`/`seek`/`size`/`close`, **vuit
-> oberts** com a màxim). Cada app toca **set llocs i prou**: `/data/<id>/` i `/cfg/`, que són
+> oberts** com a màxim). Cada app toca **vuit llocs i prou**: `/data/<id>/` i `/cfg/`, que són
 > escrivibles; `/rtc` i `/fram`, que són **memòria crua** (la del RTC del xip i la FRAM) i també
-> s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/` i `/sd/`, que només es llegeixen; i
+> s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/`, `/fonts/` (les cares que el disc
+> porta per a tothom) i `/sd/`, que només es llegeixen; i
 > **el límit és el disc**: no hi ha
 > quota. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
 > és una porta i no un disc**: apunta a `cfg/<id>/` de la targeta si n'hi ha i de la flash si no, i qui
@@ -55,7 +56,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > color cau a les setze tintes amb la seva lluminància i un **dither ordenat** —un degradat es veu com un
 > degradat—, una imatge amb transparència es compon sobre el paper, i una imatge que el sistema no llegeix
 > ho diu amb un codi en lloc de sortir torta. L'exemple és `run images`, amb **una imatge de cada família**
-> a `data/apps/images/res`.
+> a `apps/images/res`.
 >
 > **Hi ha editors de debò.** `run edit <path>` és un editor de text **modal com el vim** (`h j k l`,
 > `i a o`, `x`, `dd`, `yy`, `p`, `u`/`Ctrl+R`, `/` amb `n`/`N`, `:w`/`:q`/`:wq`, `Ctrl+L` per repintar la
@@ -146,6 +147,7 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 | [80 · Compilació i proves](docs/80-compilacio-i-proves.md) | Entorns, proves natives, què no es pot provar sense maquinari |
 | [85 · Emulador](docs/85-emulador.md) | Com es fa servir i què no simula |
 | [90 · Full de ruta](docs/90-full-de-ruta.md) | El que queda, fita per fita, amb el criteri per tancar-la |
+| [92 · La UI del projecte antic](docs/92-ui-del-projecte-antic.md) | Revisió de `OLD/PaperOS`: els controls, les regles d'e-ink i què val la pena portar |
 | [95 · Mesures a la placa](docs/95-mesures-a-la-placa.md) | El full de camp: què cal mesurar al maquinari, amb quin comandament i on va cada número |
 
 ## Lleis que no es trenquen
@@ -206,9 +208,10 @@ idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
 no, ho diu). `cat` sempre necessita un camí; `hexdump` sense camí mira `/rtc`, que és la memòria que es vol veure quan no se'n diu cap.
 
-El disc de l'emulador és la carpeta **`data/`** del repositori —el que hi ha a `data/apps/`
-és el que el banc executa, sense copiar res—, i `--flash <dir>` en tria una altra; la tasca
-**lunokOS: seed emulator disk** de VS Code copia les apps de `data/apps` a `emulator/littlefs`, que és
+El disc de l'emulador és el del seu build, **`build/disk/emulator`** —`data/` més les apps d'`apps/`, i
+el que hi ha a `apps/` és el que el banc executa, sense copiar res—, i `--flash <dir>` en
+tria una altra; la tasca
+**lunokOS: seed emulator disk** de VS Code copia les apps de `apps/` a `emulator/littlefs`, que és
 el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`). Per córrer un
 guio sense seure al davant: `./.pio/build/emulator/program --board m5stack-atom --script <fitxer>`.
 

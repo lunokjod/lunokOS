@@ -202,6 +202,17 @@ bool gesture_for_lua(const char** kind, uint16_t& x, uint16_t& y, int16_t& dx, i
 
 }  // namespace
 
+// **A frame that is not there yet is not a finger that left.** The chip hands the frame of a scan over once and the
+// driver takes it away, so a caller that asks faster than the glass reads "nobody" between two frames of the same
+// finger. Reading those gaps as a lift turned one finger held down into a run of presses, releases and taps —a tap on
+// a menu picked two options, and a held button let go of itself— (found on the bench, 3/11). Only a glass that has said
+// nothing for a whole scan is a finger that went away; a scan of this panel is ten milliseconds and the window is
+// three of them.
+const int32_t kQuietMs = 30;
+// When a frame was last handed over. `-1` is a glass that has said nothing since the app started or since the last
+// finger left.
+int32_t g_seen_ms = -1;
+
 bool boot(hal::IPlatform& platform) {
   g_glass = platform.touch();
   g_clock = platform.clock();
@@ -209,6 +220,7 @@ bool boot(hal::IPlatform& platform) {
   g_down = false;
   g_queue_count = 0;
   g_taps = 0;
+  g_seen_ms = -1;
   if (g_glass == nullptr) return false;
   luabind::set_touch_ops(luabind::TouchOps{caps_for_lua, points_for_lua, gesture_for_lua});
   return true;
@@ -221,16 +233,33 @@ void poll() {
   // **The read of the chip, and only the read**: the gestures are arithmetic over two frames and cost
   // nothing, so what is measured here is what the I2C costs once per turn (docs/30, docs/50).
   meter::Scope scope(meter::kTouchRead);
-  g_count = g_glass->read(g_frame, kMaxPoints);
-  turn_frame();
+  const int32_t now = now_ms();
+  // **A frame that did not come keeps the one that did**: the finger is still there until the glass has been quiet for
+  // a whole scan (docs/30, docs/50).
+  const uint8_t taken = g_glass->read(g_frame, kMaxPoints);
+  if (taken > 0) {
+    g_count = taken;
+    g_seen_ms = now;
+    // **The turn is for the frame that just came and for nothing else**: `turn_frame` writes the view's coordinates over
+    // the chip's in the same buffer, so turning a frame that is being kept turned it again on every poll and the finger
+    // walked away on its own (found on the bench, 3/11).
+    turn_frame();
+  } else if (g_seen_ms < 0 || (now - g_seen_ms) >= kQuietMs) {
+    g_count = 0;
+    g_seen_ms = -1;
+  }
   // **The controls see the same frame the app reads**: a finger on a UIButton is a press and a
   // click, not a detail every app has to wire again (docs/30, docs/90).
+  // **The keyboard of the system takes the finger inside its band first**: a page under the band must not be
+  // pressed through it (docs/90).
   if (g_count > 0) {
-    luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+    if (!ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
+      luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+    }
   } else {
+    ui::keyboard_touch(0, 0, false);
     luabind::ui_touch_progress(0, 0, false);
   }
-  const int32_t now = now_ms();
 
   // A tap waiting for its window: when the window closes it is a tap, and if another one arrived inside
   // it, it is a double (docs/30).

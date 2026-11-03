@@ -25,6 +25,7 @@ const char kData[] = "/data";
 const char kCfg[] = "/cfg";
 const char kRes[] = "/res";
 const char kApps[] = "/apps";
+const char kFonts[] = "/fonts";
 const char kSd[] = "/sd";
 const char kRtc[] = "/rtc";
 const char kFram[] = "/fram";
@@ -128,6 +129,7 @@ bool on_raw_memory(const char* path) { return under(path, kRtc) || under(path, k
 //   /rtc, /fram   raw memory: read and write, and the layout is the app's
 //   /res/         its own static files (`apps/<id>/res/`): read, they are what it ships with
 //   /apps/        the apps of any drive: read, a manifest is public
+//   /fonts/       the faces the disk carries for everybody (`res/fonts/`): read, a face is shared
 //   /sd/          the removable media: read, never write, a card is the person's
 //
 // Anything else —another app's ground, /littlefs/apps/..., /nvs/session— answers E_INVAL
@@ -155,7 +157,7 @@ bool on_the_named_path(const char* path) {
 bool allowed(const char* path, bool writing, luabind::FsError& err) {
   if (!writing) {
     if (inside_ground(path) || inside_cfg(path) || on_raw_memory(path) || under(path, kApps) ||
-        under(path, kSd) || on_the_named_path(path)) {
+        under(path, kFonts) || under(path, kSd) || on_the_named_path(path)) {
       return true;
     }
     err = luabind::FsError::kInval;

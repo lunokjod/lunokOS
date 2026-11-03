@@ -17,11 +17,18 @@ la bateria.
 - Tot seguit **escaneja `/apps/*/manifest.json`** quan algú demana la llista, i el que hi troba és el
   que responen les comandes (`apps`, `ls`, `cat` i `run`).
 
-A la taula de particions de 4 MB, `/littlefs` té **896 KB**: comença a `0x310000` i fa `0x0E0000` bytes
-(917 504 B). Els 64 KB següents són la partició **`coredump`**, que no és nostra: la necessita el nucli
-de l'ESP32 per deixar
-un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos errors de
+A la taula de particions de 4 MB, `/littlefs` té **1 408 KB**: comença a `0x290000` i fa `0x160000`
+bytes (1 441 792 B), i l'aplicació es queda `0x280000` bytes a `0x10000`. Els 64 KB del final
+(`0x3F0000`) són la partició **`coredump`**, que no és nostra: la necessita el nucli de l'ESP32 per
+deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos errors de
 `esp_core_dump_flash` i una pànic no deixa res a mà.
+- **El firmware no formata mai el disc.** El disc el fa `tools/make_disk.py` i el posa la placa amb
+  `-t uploadfs`; aquí només es munta. El parany és que la via de socors del core
+  (`LittleFS.begin(true)`) no serveix: formata un superblock amb `name_max` **255** i tot seguit el
+  seu propi muntatge el refusa (`Unsupported name_max (255 > 32)`, `EINVAL`), o sigui que converteix
+  «no hi ha disc» en «un disc que no es munta mai» i, a sobre, trepitja el que hi hagués. Una placa
+  sense imatge diu que no hi ha disc i espera (4/11, mesurat a l'ATOM; el lector de targetes ja
+  feia el mateix des de sempre).
 - Si el muntatge falla, el sistema **arrenca igualment**: deixa l'error al log, obre el prompt i diu
   que no hi ha apps. Una placa que no pot dir res és pitjor que una placa sense apps, i el prompt és
   l'única via de diagnòstic que hi ha.
@@ -37,6 +44,7 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 | `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
 | `/apps` | àlies | `/littlefs/apps` |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
+| `/fonts` | àlies | `/littlefs/res/fonts`: **les cares del disc, una sola còpia per a totes les apps** (3/11, 0.68.0). De només lectura des d'una app, com `/apps`: una cara no és d'una app sinó de la placa. El perquè és un número: les quatre cares de DejaVu són 37 476 B i, quan cada app en portava la seva còpia, el disc les pagava dues vegades (docs/30) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
 | `/sd` | targeta SD per SPI (FATFS) | **El Paper**, quan hi ha una targeta al slot: el seu `IStorage` la munta i el muntatge només existeix si el muntatge ha anat bé (docs/50, docs/90). Al PC, un directori que es posa amb `--sd <dir>`, i sense l'opció no hi ha `/sd` (docs/85) |
 
@@ -223,6 +231,7 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 | `/fram` | sí | **sí**, pel mateix motiu: memòria crua i el format el decideix l'app |
 | `/res/` | sí, el seu `apps/<id>/res/` | no: el que una app porta és estàtic |
 | `/apps/` | sí | no |
+| `/fonts/` | sí, les cares del disc (`res/fonts/`) | no: una cara és de la placa i no d'una app |
 | `/sd/` | sí | no |
 | `/littlefs/`, `/nvs/` — les unitats del sistema | **no** | no |
 | `/data/<altra>/` | no | no |
@@ -286,7 +295,7 @@ sigui que el nucli se'n guarda una **còpia** (`luabind::app_path`).
 **Les imatges d'una app viuen aquí i es llegeixen amb `ui.image`** (0.63.0, docs/30): el camí és el de
 l'app (`/res/plan.png`), el sistema l'obre amb la mateixa política que `fs.read` i el descodifica fila a fila
 dins del canvas. L'exemple `run images` porta **una imatge de cada família que el sistema llegeix** a
-`data/apps/images/res`, i cada una ensenya el que aquell format sap fer: `photo.jpg` (una fotografia),
+`apps/images/res`, i cada una ensenya el que aquell format sap fer: `photo.jpg` (una fotografia),
 `poster.bmp` (tinta plana en 24 bits), `logo8.bmp` (vuit tintes en una paleta de 8), `cartoon.gif` (una
 paleta i una cantonada transparent), `icon.ico` (una icona amb alfa), `lines.png` (línies primes, que no les
 sua), `shades.pgm` i `colours.ppm` (dos degradats) i `checks.pbm` (un bit). El **mateix pla en sis formats**
@@ -392,7 +401,7 @@ L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
 - `fs.space(path)` pregunta l'espai i **camina pel sistema de fitxers**: és la que costa (la mesura
   que va fer baixar l'escriptura de 247 a 83 ms va ser treure-la del camí feliç). No informa de res
   quan el backend no ho sap: `nil` i `E_UNSUPPORTED`, que no és el mateix que «no queda espai».
-- **Per veure-ho de mà**: `run mtab` (`data/apps/mtab/`) llista els muntatges i demana l'espai de
+- **Per veure-ho de mà**: `run mtab` (`apps/mtab/`) llista els muntatges i demana l'espai de
   cadascun, així que ensenya el cost: quatre noms de la mateixa partició són quatre passejades.
   L'arrenca una prova, com `run handles`.
 - A l'**emulador** el disc tampoc no és del PC: la flash val el que diu la taula de particions de la
@@ -441,7 +450,7 @@ pool de la HAL. El novè dona **`E_NO_HANDLES`**.
   del disseny (un sol pool, cap reserva amagada) i cal dir-la.
 - **La mida es pregunta en obrir** i es porta a part: el backend no diu la mida d'un fitxer obert, i
   les escriptures l'actualitzen. `f:seek("end")` usa aquest número.
-- **Per veure-ho de mà**: `run handles` (`data/apps/handles/`) escriu pel mànec, llegeix de tres
+- **Per veure-ho de mà**: `run handles` (`apps/handles/`) escriu pel mànec, llegeix de tres
   maneres, torna enrere amb `seek` i ensenya el novè refusat. L'arrenca una prova, així que l'exemple
   no pot quedar-se enrere sense que caigui.
 - **Un error d'obertura no menteix**: si el fitxer hi és i no s'obre, és `E_NO_HANDLES`, no
@@ -595,8 +604,28 @@ entrada) i la capa d'epub a sobre. El deflate era la peça que no existia; el zi
 ## La imatge de la flash: noms de 32 caràcters com a molt
 
 La imatge de `/littlefs` la fa `tool-mklittlefs` **1.203.210628** (el que instal·la PlatformIO per a
-l'ESP32) a partir de `data/`. **Mesurat el 30/10** provant l'eina directament sobre directoris de
-prova a `/tmp`:
+l'ESP32). **Les apps no són a `data/`**: viuen a `apps/`, a l'arrel del projecte, una carpeta per id, i
+el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** i el fa servir la imatge
+d'aquell entorn: `PROJECT_DATA_DIR` és un sol valor per a tot el projecte, i amb un sol `build/disk` el build
+de l'ATOM canviava el disc del Paper i el del banc sense que ningú ho hagués demanat. **Cada build té el seu**,
+i dins seu la carpeta `apps/` són **enllaços** a `apps/` de l'arrel (una carpeta per app, no un sol enllaç),
+o sigui que un entorn pot portar un subconjunt sense copiar res (`custom_apps`). **Les proves són l'excepció
+i ho diuen**: creen i esborren apps al disc que munten, i escriure a través d'un enllaç escriuria al
+repositori, així que l'entorn `test` demana còpies (`custom_apps_copied = yes`).
+Motiu, **mesurat el 3/11** amb la mateixa eina i un bloc de 4 KB: els **113 fitxers** d'`apps/`
+necessiten **entre 1 179 648 i 1 310 720 B** de LittleFS, i la partició de l'ATOM, del Matrix i de
+l'ESP32 pelat és de **917 504 B**, on l'eina **deixa fora 14 fitxers i tot i així acaba amb exit 0**:
+la imatge de tota placa de 4 MB anava curta d'apps i ningú ho deia. El `data/` del sistema (`res/` i
+`data/`) hi cap amb lloc de sobres. O sigui que el disc es munta **per placa**: `data/` sola a les de
+4 MB —que no tenen apps, i això és aritmètica i no una configuració—, i `data/` més **un enllaç viu** a
+`apps/` al Paper (11,9 MB) i al banc, que és el que fa `custom_apps_in_disk = yes`.
+
+**L'enllaç i no una còpia** (mesurat el mateix dia): `mklittlefs` **segueix** un enllaç simbòlic a un
+directori i la imatge acaba amb `/apps/hello/hello.lua` a dins, i el banc també (`emu_storage` fa
+`stat()` i `S_ISDIR()`, que van al darrere de l'enllaç). Així hi ha un sol lloc on s'edita una app i no
+hi ha cap còpia que es quedi vella (docs/85 n'ha estat mossegat dues vegades).
+
+**Mesurat el 30/10** provant l'eina directament sobre directoris de prova a `/tmp`:
 
 | Llargada del nom (amb extensió) | Resultat |
 |---|---|

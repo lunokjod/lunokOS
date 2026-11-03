@@ -58,6 +58,25 @@ char g_app_id[kAppIdBytes] = {0};
 // fit before it touches the stack (docs/30).
 const size_t kPromptLineBytes = 240;
 
+// **Twelve options is a menu and not a page**: the limit is the card's and not the taste's —a card of this glass holds
+// four columns of three rows— and an app that needs more than twelve things done to one object is an app that wants
+// two menus (docs/30, docs/90).
+const uint8_t kMaxMenuItems = 12;
+
+// **Five words in the row of a bar and sixteen entries in the menu that hangs from one of them**: 540 px of paper shared
+// between five leaves 108 px for each word, and the sixteen entries are the ceiling the old bar measured for the whole
+// tree (docs/30, docs/90).
+const uint8_t kMaxMenuBarTitles = 5;
+const uint8_t kMaxMenuBarEntries = 16;
+
+// **Three cards in a band of notifications**: what does not fit is not lost, it waits and the band says how many with a
+// `+N`, because a notice that disappears without saying so is a notice somebody has lost (docs/30, docs/90).
+const uint8_t kMaxNotifications = 3;
+
+// **Forty-eight cells in a grid**: a launcher of this glass shows twelve or sixteen at a time and the app hands over the whole
+// list —the page follows the cursor— so this is the ceiling of a page and a half (docs/30, docs/90).
+const uint8_t kMaxGridCells = 48;
+
 // Names used inside the registry. None of this is visible to an app.
 const char kPromiseMeta[] = "lunokOS.Promise";
 const char kPendingKey[] = "lunokOS.pending";
@@ -1336,10 +1355,10 @@ int l_fs_rename(lua_State* L) {
 // fs.mounts(): what is mounted, and nothing about the room. The room costs a walk
 // of the file system, and an app that only wants the list should not pay it
 // (docs/70).
-// The VFS keeps ten rows (`vfs.cpp`, kMaxMounts) and this is the same number: an app on the Paper
-// with a card has nine mounts (`/littlefs`, `/apps`, `/res`, `/data`, `/sd`, `/rtc`, `/fram`, `/nvs`
-// and `/cfg`), and a list that stopped at eight would hide the last two without saying so.
-const uint32_t kMaxMountsInLua = 10;
+// The VFS keeps twelve rows (`vfs.cpp`, kMaxMounts) and this is the same number: an app on the Paper
+// with a card has ten mounts (`/littlefs`, `/apps`, `/res`, `/data`, `/fonts`, `/sd`, `/rtc`, `/fram`,
+// `/nvs` and `/cfg`), and a list that stopped at eight would hide the last two without saying so.
+const uint32_t kMaxMountsInLua = 12;
 
 int l_fs_mounts(lua_State* L) {
   if (g_file_ops.mounts == nullptr) {
@@ -3229,6 +3248,11 @@ int8_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
 bool g_ui_touch_inside = false;
 
+// **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
+// and not a slot, because the app holds the box in a local and the keyboard must not lose it when a page is made
+// again. It is one keyboard and one box, which is what a keyboard is.
+int g_keyboard_target_ref = LUA_NOREF;
+
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
 // The fields of the object, and then its methods: `box.on_draw` is the app's, `box.draw` is ours.
@@ -3294,6 +3318,20 @@ bool is_button_field(const char* key) {
          strcmp(key, "focusable") == 0;
 }
 
+// **The fields a checkbox adds to the ones of a frame**: whether it is checked —the state the click changes
+// and the app reads— and the level of the tick, which is a colour of its own because a black tick on a black
+// box is a checkbox that says nothing (docs/30, docs/90).
+bool is_checkbox_field(const char* key) {
+  return strcmp(key, "checked") == 0 || strcmp(key, "mark") == 0;
+}
+
+bool checkbox_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "checked") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer level = lua_tointeger(L, value);
+  return level >= 0 && level <= 15;
+}
+
 bool button_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
       strcmp(key, "focusable") == 0) {
@@ -3302,6 +3340,327 @@ bool button_field_valid(lua_State* L, const char* key, int value) {
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer level = lua_tointeger(L, value);
   return level >= 0 && level <= 15;
+}
+
+// **The fields of a progress bar** (docs/30, docs/90): the four colours and the number. The number is 0 to 100
+// and **a negative one is "nothing to say yet"**, which is a state of a page and not an error.
+bool is_progress_field(const char* key) {
+  return strcmp(key, "value") == 0 || strcmp(key, "background") == 0 ||
+         strcmp(key, "border") == 0 || strcmp(key, "track") == 0 || strcmp(key, "fill") == 0;
+}
+
+bool progress_field_valid(lua_State* L, const char* key, int value) {
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "value") == 0) return number >= -1 && number <= 100;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields a slider adds to the ones of a frame**: the number and its limits, the step, the unit and the
+// size of the number. `min` and `max` are a 16-bit value because that is what the control draws and what the
+// kernel is handed (docs/30, docs/90).
+bool is_slider_field(const char* key) {
+  return strcmp(key, "value") == 0 || strcmp(key, "min") == 0 || strcmp(key, "max") == 0 ||
+         strcmp(key, "step") == 0 || strcmp(key, "suffix") == 0 || strcmp(key, "scale") == 0 ||
+         strcmp(key, "track") == 0 || strcmp(key, "fill") == 0 || strcmp(key, "text") == 0;
+}
+
+bool slider_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "suffix") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  if (strcmp(key, "step") == 0) return number >= 1 && number <= 32767;
+  if (strcmp(key, "value") == 0 || strcmp(key, "min") == 0 || strcmp(key, "max") == 0) {
+    return number >= -32768 && number <= 32767;
+  }
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a row** (docs/30, docs/90): the three texts, the two colours and the two flags of its shape.
+bool is_row_field(const char* key) {
+  return strcmp(key, "title") == 0 || strcmp(key, "detail") == 0 ||
+         strcmp(key, "subtitle") == 0 || strcmp(key, "text") == 0 || strcmp(key, "dim") == 0 ||
+         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 ||
+         strcmp(key, "marked") == 0 || strcmp(key, "separator") == 0;
+}
+
+bool row_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "title") == 0 || strcmp(key, "detail") == 0 || strcmp(key, "subtitle") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  }
+  if (strcmp(key, "marked") == 0 || strcmp(key, "separator") == 0) {
+    return lua_type(L, value) == LUA_TBOOLEAN;
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a panel**: the flow and the two spaces. The weight of a child is not the panel's field but the
+// child's, because a weight says how much of the room the one that takes it takes (docs/30, docs/90).
+bool is_panel_field(const char* key) {
+  return strcmp(key, "flow") == 0 || strcmp(key, "padding") == 0 || strcmp(key, "gap") == 0;
+}
+
+bool panel_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "flow") == 0) {
+    const char* flow = lua_tostring(L, value);
+    return flow != nullptr && (strcmp(flow, "vertical") == 0 || strcmp(flow, "horizontal") == 0 ||
+                               strcmp(flow, "overlay") == 0);
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  return number >= 0 && number <= 64;
+}
+
+// **The fields of a strip of tabs**: the words, the chosen one, the two colours and the size of the words.
+bool is_tabs_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "text") == 0 ||
+         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool tabs_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "index") == 0) return number >= 0 && number <= 8;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of the dots of a page**: how many, which one, and the two colours.
+bool is_dots_field(const char* key) {
+  return strcmp(key, "pages") == 0 || strcmp(key, "current") == 0 || strcmp(key, "level") == 0 ||
+         strcmp(key, "background") == 0;
+}
+
+bool dots_field_valid(lua_State* L, const char* key, int value) {
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "pages") == 0 || strcmp(key, "current") == 0) return number >= 0 && number <= 32;
+  return number >= 0 && number <= 15;
+}
+
+// **`weight` is a field of every control and not of the panel**: it says how much of the free room a child
+// takes, so it is written on the child by the app that adds it (docs/30, docs/90).
+bool is_weight_field(const char* key) { return strcmp(key, "weight") == 0; }
+
+bool weight_field_valid(lua_State* L, int value) {
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a list**: the items —a Lua array of tables with `title`, `detail` and `subtitle`, or of
+// strings, which are a title—, the height of a row, the page it is on, the chosen row and the three colours.
+bool is_list_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "row_height") == 0 || strcmp(key, "page") == 0 ||
+         strcmp(key, "marked") == 0 || strcmp(key, "text") == 0 || strcmp(key, "dim") == 0 ||
+         strcmp(key, "scale") == 0 || strcmp(key, "separator") == 0;
+}
+
+// **The fields of a text box**: the word, where the caret is in it, whether the block is drawn, whether it is a
+// password and the two colours with the size (docs/30, docs/90).
+bool is_textbox_field(const char* key) {
+  return strcmp(key, "text") == 0 || strcmp(key, "cursor") == 0 || strcmp(key, "caret") == 0 ||
+         strcmp(key, "mask") == 0 || strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
+}
+
+// **The fields of a sparkline**: the samples, the second series and the two colours (docs/30, docs/90).
+bool is_spark_field(const char* key) {
+  return strcmp(key, "samples") == 0 || strcmp(key, "top") == 0 || strcmp(key, "color") == 0;
+}
+
+bool spark_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "samples") == 0 || strcmp(key, "top") == 0) {
+    return lua_istable(L, value) || lua_isnil(L, value);
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a pie**: the slices and the darkest tone.
+bool is_pie_field(const char* key) { return strcmp(key, "slices") == 0 || strcmp(key, "color") == 0; }
+
+// **The fields of a calendar**: the month, the chosen day, today, the seven names and the colours (docs/30, docs/90).
+bool is_month_field(const char* key) {
+  return strcmp(key, "year") == 0 || strcmp(key, "month") == 0 || strcmp(key, "selected") == 0 ||
+         strcmp(key, "today") == 0 || strcmp(key, "weekdays") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool month_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "weekdays") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "year") == 0) return number >= 1 && number <= 9999;
+  if (strcmp(key, "month") == 0) return number >= 1 && number <= 12;
+  if (strcmp(key, "selected") == 0 || strcmp(key, "today") == 0) return number >= 0 && number <= 31;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+bool pie_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "slices") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a menu**: the options —a Lua array of words, or of tables with `label`, `tag`, `hidden` and
+// `primary`—, the option the dial is on, the title and the three tones with the size of the words (docs/30, docs/90).
+bool is_menu_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "title") == 0 ||
+         strcmp(key, "color") == 0 || strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool menu_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (strcmp(key, "title") == 0) return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "index") == 0) return number >= 0 && number <= kMaxMenuItems;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a bar of menus**: the titles with their menus, the one that is unfolded, the entry of it the dial is on,
+// the height of the row and the three tones with the size (docs/30, docs/90).
+bool is_menu_bar_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "open") == 0 || strcmp(key, "index") == 0 ||
+         strcmp(key, "bar_height") == 0 || strcmp(key, "color") == 0 || strcmp(key, "dim") == 0 ||
+         strcmp(key, "scale") == 0;
+}
+
+bool menu_bar_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "open") == 0) return number >= 0 && number <= kMaxMenuBarTitles;
+  if (strcmp(key, "index") == 0) return number >= 0 && number <= kMaxMenuBarEntries;
+  if (strcmp(key, "bar_height") == 0) return number >= 20 && number <= 512;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a box of several lines**: the text, where the caret is, whether it blinks, whether the long lines
+// wrap, and the three tones with the size (docs/30, docs/90).
+bool is_textbox_multiline_field(const char* key) {
+  return strcmp(key, "text") == 0 || strcmp(key, "cursor") == 0 || strcmp(key, "caret") == 0 ||
+         strcmp(key, "wrap") == 0 || strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool textbox_multiline_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "text") == 0) return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  if (strcmp(key, "caret") == 0 || strcmp(key, "wrap") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 65535;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a selector**: the question, the options, which one is chosen, the word for "nothing", whether the list is
+// over the field, and the two tones with the size (docs/30, docs/90).
+bool is_selector_field(const char* key) {
+  return strcmp(key, "label") == 0 || strcmp(key, "items") == 0 || strcmp(key, "index") == 0 ||
+         strcmp(key, "empty") == 0 || strcmp(key, "choosing") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool selector_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "label") == 0 || strcmp(key, "empty") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  }
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (strcmp(key, "choosing") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "index") == 0) return number >= 0 && number <= 4096;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a band of notifications**: the notices, the card the finger last touched and the three tones with the size
+// (docs/30, docs/90).
+bool is_notifications_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "dim") == 0 || strcmp(key, "scale") == 0;
+}
+
+bool notifications_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "index") == 0) return number >= 0 && number <= 4096;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a grid of cells**: the cells, the one the dial is on, the one that is chosen, the columns, the three tones and
+// the size (docs/30, docs/90).
+bool is_icon_grid_field(const char* key) {
+  return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "marked") == 0 ||
+         strcmp(key, "columns") == 0 || strcmp(key, "color") == 0 || strcmp(key, "dim") == 0 ||
+         strcmp(key, "scale") == 0;
+}
+
+bool icon_grid_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "index") == 0 || strcmp(key, "marked") == 0) return number >= 0 && number <= kMaxGridCells;
+  if (strcmp(key, "columns") == 0) return number >= 0 && number <= 8;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+// **The fields of a dialog**: the four texts, which door is the default and which one the dial is on, the two
+// colours and the size (docs/30, docs/90).
+bool is_dialog_field(const char* key) {
+  return strcmp(key, "title") == 0 || strcmp(key, "text") == 0 || strcmp(key, "note") == 0 ||
+         strcmp(key, "accept") == 0 || strcmp(key, "cancel") == 0 || strcmp(key, "emphasis") == 0 ||
+         strcmp(key, "choice") == 0 || strcmp(key, "color") == 0 || strcmp(key, "dim") == 0 ||
+         strcmp(key, "scale") == 0;
+}
+
+bool dialog_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "title") == 0 || strcmp(key, "text") == 0 || strcmp(key, "note") == 0 ||
+      strcmp(key, "accept") == 0 || strcmp(key, "cancel") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  }
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  if (strcmp(key, "emphasis") == 0) return number >= 0 && number <= 2;
+  if (strcmp(key, "choice") == 0) return number >= 1 && number <= 2;
+  return number >= 0 && number <= 15;
+}
+
+bool textbox_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "text") == 0) return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
+  if (strcmp(key, "caret") == 0 || strcmp(key, "mask") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 4096;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  return number >= 0 && number <= 15;
+}
+
+bool list_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (strcmp(key, "separator") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (!lua_isnumber(L, value)) return false;
+  const lua_Integer number = lua_tointeger(L, value);
+  if (strcmp(key, "row_height") == 0) return number >= 8 && number <= 512;
+  if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
+  if (strcmp(key, "page") == 0 || strcmp(key, "marked") == 0) return number >= 0 && number <= 1024;
+  return number >= 0 && number <= 15;
 }
 
 int l_canvas_newindex(lua_State* L) {
@@ -3319,8 +3678,74 @@ int l_canvas_newindex(lua_State* L) {
     lua_getfield(L, -1, "__button");
     const bool button = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
+    lua_getfield(L, -1, "__checkbox");
+    const bool checkbox = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__progress");
+    const bool progress = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__slider");
+    const bool slider = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__row");
+    const bool row = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__panel");
+    const bool panel = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__tabs");
+    const bool tabs = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__dots");
+    const bool dots = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__list");
+    const bool list = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__textbox");
+    const bool textbox = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__dialog");
+    const bool dialog = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__spark");
+    const bool spark = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__pie");
+    const bool pie = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__month");
+    const bool month = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__menu");
+    const bool menu = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__menu_bar");
+    const bool menu_bar = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__textbox_multiline");
+    const bool multiline = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__selector");
+    const bool selector = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__notifications");
+    const bool notifications = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__icon_grid");
+    const bool icon_grid = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
     if (strcmp(key, "on_draw") == 0) {
       redraw = lua_type(L, 3) == LUA_TFUNCTION;
+    } else if (is_weight_field(key)) {
+      if (!weight_field_valid(L, 3)) {
+        return luaL_error(L, "a control's weight is 0 to 15");
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
     } else if (label && is_label_field(key)) {
       if (!label_field_valid(L, key, 3)) {
         return luaL_error(L, "a label's %s is not a value it can use", key);
@@ -3331,15 +3756,223 @@ int l_canvas_newindex(lua_State* L) {
       const bool same = lua_rawequal(L, -1, 3);
       lua_pop(L, 1);
       redraw = !same;
-    } else if (button && is_button_field(key)) {
+    } else if ((button || checkbox || slider || tabs || list || textbox || dialog || month || menu || menu_bar ||
+                multiline || selector || notifications || icon_grid) &&
+               is_button_field(key)) {
       if (!button_field_valid(L, key, 3)) {
-        return luaL_error(L, "a button's %s is not a value it can use", key);
+        return luaL_error(L, "a %s's %s is not a value it can use",
+                          checkbox   ? "checkbox"
+                          : slider   ? "slider"
+                          : tabs     ? "tabs"
+                          : list     ? "list"
+                          : textbox  ? "text box"
+                          : dialog   ? "dialog"
+                          : month    ? "calendar"
+                          : menu     ? "menu"
+                          : menu_bar ? "menu bar"
+                          : multiline ? "box of lines"
+                          : selector ? "selector"
+                          : notifications ? "band of notifications"
+                          : icon_grid ? "grid of cells"
+                                     : "button",
+                          key);
       }
       lua_pushvalue(L, 2);
       lua_rawget(L, -2);
       const bool same = lua_rawequal(L, -1, 3);
       lua_pop(L, 1);
       redraw = !same;
+    } else if (checkbox && is_checkbox_field(key)) {
+      if (!checkbox_field_valid(L, key, 3)) {
+        return luaL_error(L, "a checkbox's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (progress && is_progress_field(key)) {
+      if (!progress_field_valid(L, key, 3)) {
+        return luaL_error(L, "a progress bar's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (slider && is_slider_field(key)) {
+      if (!slider_field_valid(L, key, 3)) {
+        return luaL_error(L, "a slider's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (row && is_row_field(key)) {
+      if (!row_field_valid(L, key, 3)) {
+        return luaL_error(L, "a row's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (panel && is_panel_field(key)) {
+      if (!panel_field_valid(L, key, 3)) {
+        return luaL_error(L, "a panel's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (tabs && is_tabs_field(key)) {
+      if (!tabs_field_valid(L, key, 3)) {
+        return luaL_error(L, "a strip of tabs's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (dots && is_dots_field(key)) {
+      if (!dots_field_valid(L, key, 3)) {
+        return luaL_error(L, "the dots of a page's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (list && is_list_field(key)) {
+      if (!list_field_valid(L, key, 3)) {
+        return luaL_error(L, "a list's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (textbox && is_textbox_field(key)) {
+      if (!textbox_field_valid(L, key, 3)) {
+        return luaL_error(L, "a text box's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (dialog && is_dialog_field(key)) {
+      if (!dialog_field_valid(L, key, 3)) {
+        return luaL_error(L, "a dialog's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (spark && is_spark_field(key)) {
+      if (!spark_field_valid(L, key, 3)) {
+        return luaL_error(L, "a sparkline's %s is not a value it can use", key);
+      }
+      // **A chart is not a value that is compared**: two tables are never the same table when the app builds a new
+      // one, so a new series is a draw and that is what an app wants (docs/90).
+      redraw = true;
+    } else if (pie && is_pie_field(key)) {
+      if (!pie_field_valid(L, key, 3)) {
+        return luaL_error(L, "a pie's %s is not a value it can use", key);
+      }
+      redraw = true;
+    } else if (month && is_month_field(key)) {
+      if (!month_field_valid(L, key, 3)) {
+        return luaL_error(L, "a calendar's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (menu && is_menu_field(key)) {
+      if (!menu_field_valid(L, key, 3)) {
+        return luaL_error(L, "a menu's %s is not a value it can use", key);
+      }
+      // **A menu is not a value that is compared**: the options are a table and a table an app builds again is never the
+      // same table, so a new list of options is a draw and that is what an app wants (docs/90).
+      if (strcmp(key, "items") == 0) {
+        redraw = true;
+      } else {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        const bool same = lua_rawequal(L, -1, 3);
+        lua_pop(L, 1);
+        redraw = !same;
+      }
+    } else if (menu_bar && is_menu_bar_field(key)) {
+      if (!menu_bar_field_valid(L, key, 3)) {
+        return luaL_error(L, "a menu bar's %s is not a value it can use", key);
+      }
+      // The titles and their menus are a table that an app builds again, so a new one is a draw (docs/90).
+      if (strcmp(key, "items") == 0) {
+        redraw = true;
+      } else {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        const bool same = lua_rawequal(L, -1, 3);
+        lua_pop(L, 1);
+        redraw = !same;
+      }
+    } else if (multiline && is_textbox_multiline_field(key)) {
+      if (!textbox_multiline_field_valid(L, key, 3)) {
+        return luaL_error(L, "a box of lines's %s is not a value it can use", key);
+      }
+      lua_pushvalue(L, 2);
+      lua_rawget(L, -2);
+      const bool same = lua_rawequal(L, -1, 3);
+      lua_pop(L, 1);
+      redraw = !same;
+    } else if (selector && is_selector_field(key)) {
+      if (!selector_field_valid(L, key, 3)) {
+        return luaL_error(L, "a selector's %s is not a value it can use", key);
+      }
+      // The options are a table an app builds again, so a new one is a draw (docs/90).
+      if (strcmp(key, "items") == 0) {
+        redraw = true;
+      } else {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        const bool same = lua_rawequal(L, -1, 3);
+        lua_pop(L, 1);
+        redraw = !same;
+      }
+    } else if (notifications && is_notifications_field(key)) {
+      if (!notifications_field_valid(L, key, 3)) {
+        return luaL_error(L, "a band of notifications's %s is not a value it can use", key);
+      }
+      // The notices are a table an app builds again, so a new one is a draw (docs/90).
+      if (strcmp(key, "items") == 0) {
+        redraw = true;
+      } else {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        const bool same = lua_rawequal(L, -1, 3);
+        lua_pop(L, 1);
+        redraw = !same;
+      }
+    } else if (icon_grid && is_icon_grid_field(key)) {
+      if (!icon_grid_field_valid(L, key, 3)) {
+        return luaL_error(L, "a grid of cells's %s is not a value it can use", key);
+      }
+      // The cells are a table an app builds again, so a new one is a draw (docs/90).
+      if (strcmp(key, "items") == 0) {
+        redraw = true;
+      } else {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        const bool same = lua_rawequal(L, -1, 3);
+        lua_pop(L, 1);
+        redraw = !same;
+      }
     }
   }
   lua_pushvalue(L, 2);
@@ -3602,6 +4235,2113 @@ int l_ui_button(lua_State* L) {
     if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
   }
   return 1;
+}
+
+// The fields of a control are read by the helpers that live further down this file and the checkbox asks for
+// one of them here, before they are defined (docs/30).
+bool ui_field_bool(lua_State* L, int object, const char* key, bool fallback);
+lua_Integer ui_field_number(lua_State* L, int object, const char* key, lua_Integer fallback);
+bool ui_call_hook(lua_State* L, int object, const char* name, bool with_flag, bool flag);
+bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* text);
+void ui_invalidate(lua_State* L, int object);
+
+// **The options of a menu as the kernel wants them**: the app says a Lua array of words —an option of a label and
+// nothing else— or of tables with `label`, `tag`, `hidden` and `primary`, the way a row of a list is a word or a table
+// (docs/30, docs/90). The `items` table is **left on the stack** and the caller sets the stack back after the paint:
+// the words of an option are pointers into strings that the table holds, and a table that nothing holds any more is a
+// table the collector may have taken (docs/75, docs/90).
+uint8_t ui_menu_items(lua_State* L, int object, UIOps::UIMenuOption* out) {
+  if (out == nullptr) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return 0;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  uint8_t count = 0;
+  for (lua_Integer i = 1; i <= total && count < kMaxMenuItems; ++i) {
+    lua_rawgeti(L, -1, i);
+    UIOps::UIMenuOption& option = out[count];
+    option.label = "";
+    option.tag = "";
+    option.hidden = false;
+    option.primary = false;
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "label");
+      if (lua_isstring(L, -1)) option.label = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "tag");
+      if (lua_isstring(L, -1)) option.tag = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "hidden");
+      option.hidden = lua_toboolean(L, -1) != 0;
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "primary");
+      option.primary = lua_toboolean(L, -1) != 0;
+      lua_pop(L, 1);
+    } else if (lua_isstring(L, -1)) {
+      option.label = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);  // the option
+    ++count;
+  }
+  return count;
+}
+
+// **The titles of a bar and the entries of their menus, read once**: a title is a table with `title` and `items`, an entry
+// is a word —an entry with nothing but a label—, a table with `label`, `checked`, `enabled` and `separator`, or a dash
+// for a line between two entries, which is the only character a menu says "air here" with (docs/30, docs/90). The
+// `items` table is **left on the stack**, like the options of a menu, because the words are pointers into strings that
+// only that table holds.
+uint8_t ui_menu_bar_items(lua_State* L, int object, UIOps::UIMenuBarTitle* titles,
+                          UIOps::UIMenuBarEntry* entries) {
+  if (titles == nullptr || entries == nullptr) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return 0;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  uint8_t count = 0;
+  uint8_t used = 0;
+  for (lua_Integer i = 1; i <= total && count < kMaxMenuBarTitles; ++i) {
+    lua_rawgeti(L, -1, i);
+    UIOps::UIMenuBarTitle& title = titles[count];
+    title.label = "";
+    title.entries = &entries[used];
+    title.count = 0;
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "title");
+      if (lua_isstring(L, -1)) title.label = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "items");
+      if (lua_istable(L, -1)) {
+        const lua_Integer menu = static_cast<lua_Integer>(lua_rawlen(L, -1));
+        for (lua_Integer j = 1; j <= menu && used < kMaxMenuBarEntries; ++j) {
+          lua_rawgeti(L, -1, j);
+          UIOps::UIMenuBarEntry& entry = entries[used];
+          entry.label = "";
+          entry.separator = false;
+          entry.checked = false;
+          entry.enabled = true;
+          if (lua_istable(L, -1)) {
+            lua_getfield(L, -1, "label");
+            if (lua_isstring(L, -1)) entry.label = lua_tostring(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "checked");
+            entry.checked = lua_toboolean(L, -1) != 0;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "enabled");
+            entry.enabled = lua_isnil(L, -1) ? true : (lua_toboolean(L, -1) != 0);
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "separator");
+            entry.separator = lua_toboolean(L, -1) != 0;
+            lua_pop(L, 1);
+          } else if (lua_isstring(L, -1)) {
+            const char* word = lua_tostring(L, -1);
+            entry.label = word;
+            if (word != nullptr && strcmp(word, "-") == 0) entry.separator = true;
+          }
+          lua_pop(L, 1);  // the entry
+          ++used;
+          ++title.count;
+        }
+        lua_pop(L, 1);  // the menu
+      }
+    } else if (lua_isstring(L, -1)) {
+      title.label = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);  // the title
+    ++count;
+  }
+  return count;
+}
+
+// **The `on_draw` of a checkbox**: the row in its background, the box inside it, the tick when it is checked
+// and the ring of the focus. The words are not here —they are a child control, as they are in a button— and
+// the geometry of the box is the kernel's, which is why the app asks for it with `cb:box()` (docs/30,
+// docs/90).
+int l_checkbox_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "mark");
+  const int mark = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "checked");
+  const bool checked = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "pressed");
+  const bool pressed = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.checkbox_draw != nullptr) {
+    g_ui_ops.checkbox_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
+                           static_cast<uint8_t>(mark), checked, pressed, focused);
+  }
+  return 0;
+}
+
+// **`cb:box()`: how many pixels the box takes**, which is where the label that names the setting goes. It is
+// the kernel's number and not a field, so an app cannot draw a box that is not the one the tick lands in. It
+// is a method of every control and it only means something on a checkbox, which is why anything else is
+// refused instead of reading a number off a grid or a button (docs/30, docs/90).
+int l_checkbox_box(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  if (!ui_field_bool(L, 1, "__checkbox", false)) {
+    return push_nil_error(L, "E_INVAL", "only a checkbox has a box");
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.checkbox_side == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  lua_pushinteger(L, g_ui_ops.checkbox_side(canvas->slot));
+  return 1;
+}
+
+// **How many rows a box of several lines shows**: the app asks it to know how much text fits in the box it made, and the
+// arithmetic is the one the paint and the finger use —a copy in Lua would answer a different number the day the frame
+// changes— (docs/30, docs/90).
+int l_multiline_rows(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  if (!ui_field_bool(L, 1, "__textbox_multiline", false)) {
+    return push_nil_error(L, "E_INVAL", "only a box of several lines has rows");
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.textbox_multiline_rows == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
+  lua_pushinteger(L, g_ui_ops.textbox_multiline_rows(canvas->slot, static_cast<uint8_t>((scale < 1) ? 1 : scale)));
+  return 1;
+}
+
+// ui.checkbox(width, height): **a row with a square box and a tick, and the one control whose click means
+// one thing**. The fields are the three colours —the row, the border of the box and the tick—, whether it is
+// checked, held and focused; the words are a child control, added with `cb:add(label)` and placed after
+// `cb:box()` (docs/30, docs/90).
+int l_ui_checkbox(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__checkbox");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "mark");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "checked");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_checkbox_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // **The first pressable control is focused when it appears**, the same rule a button follows: a page of
+  // checkboxes with no ring gives no clue that the dial does anything (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The `on_draw` of a progress bar**: the track and the fill of it, and nothing the app has to compute. The
+// value is the field `value`, 0 to 100, and a negative one is "nothing to say yet" (docs/30, docs/90).
+int l_progress_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "track");
+  const int track = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "fill");
+  const int fill = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "value");
+  const int value = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.progress_draw != nullptr) {
+    g_ui_ops.progress_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
+                           static_cast<uint8_t>(track), static_cast<uint8_t>(fill),
+                           static_cast<int16_t>(value));
+  }
+  return 0;
+}
+
+// ui.progress(width, height): **how much of something is done**, a track and a fill. It is not a control a
+// finger lands on: no focus, no ring, and a frame of one pixel. The fields are the four colours and the
+// number (docs/30, docs/90).
+int l_ui_progress(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__progress");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 12);
+  lua_setfield(L, -2, "track");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "fill");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "value");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_progress_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a slider**: the frame, the track, the knob and the number in the right column. The
+// arrows are not here: the system moves the value and calls `on_change` (docs/30, docs/90).
+int l_slider_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "track");
+  const int track = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "fill");
+  const int fill = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "text");
+  const int text = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "value");
+  const int value = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "min");
+  const int minimum = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "max");
+  const int maximum = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "suffix");
+  const char* suffix = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "pressed");
+  const bool pressed = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.slider_draw != nullptr) {
+    g_ui_ops.slider_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
+                         static_cast<uint8_t>(track), static_cast<uint8_t>(fill),
+                         static_cast<uint8_t>(text), static_cast<int16_t>(value),
+                         static_cast<int16_t>(minimum), static_cast<int16_t>(maximum),
+                         suffix, static_cast<uint8_t>((scale == 0) ? 1 : scale), pressed, focused);
+  }
+  return 0;
+}
+
+// ui.slider(width, height): **a number that the arrows move**. The fields are the four colours of the frame
+// and the track, the size of the number, the value and its limits, the step and the unit; the moving is the
+// system's and the app hears about it at `on_change(self, value)` (docs/30, docs/90).
+int l_ui_slider(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__slider");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 12);
+  lua_setfield(L, -2, "track");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "fill");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "value");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "min");
+  lua_pushinteger(L, 100);
+  lua_setfield(L, -2, "max");
+  lua_pushinteger(L, 5);
+  lua_setfield(L, -2, "step");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "suffix");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_slider_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The `on_draw` of a row**: the title and the detail on one line, the subtitle under it, and the line of the
+// separator. It takes no focus: a row is the drawing of a list and the list is the app's page (docs/30,
+// docs/90).
+int l_row_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "title");
+  const char* title = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "detail");
+  const char* detail = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "subtitle");
+  const char* subtitle = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "text");
+  const int text = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "dim");
+  const int dim = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "marked");
+  const bool marked = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "separator");
+  const bool separator = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the table of the object's own fields
+  if (g_ui_ops.row_draw != nullptr) {
+    g_ui_ops.row_draw(canvas->slot, title, detail, subtitle, static_cast<uint8_t>(text),
+                      static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                      static_cast<uint8_t>((scale == 0) ? 1 : scale), marked, separator);
+  }
+  return 0;
+}
+
+// ui.row(width, height): **one line of a list**: a title, a detail on the right, a subtitle under the title,
+// and the line of the separator. It takes no focus and it draws nothing but itself, so a list of ten rows is
+// ten of these and no state of its own (docs/30, docs/90).
+int l_ui_row(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__row");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "title");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "detail");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "subtitle");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "marked");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "separator");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_row_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a panel**: it paints nothing —a panel is a room— and what it does is arrange the controls
+// it holds. The layout happens here and not when the app adds them, because the frame of a panel is known when
+// it is placed: a page that is resized or turned has to be arranged again without the app saying so
+// (docs/30, docs/90).
+int l_panel_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "flow");
+  const char* flow_text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "vertical";
+  uint8_t flow = 0;
+  if (strcmp(flow_text, "horizontal") == 0) {
+    flow = 1;
+  } else if (strcmp(flow_text, "overlay") == 0) {
+    flow = 2;
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "padding");
+  const int padding = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "gap");
+  const int gap = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  if (g_ui_ops.panel_layout == nullptr) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  // **The weights are the app's fields and the arithmetic is the kernel's**: what crosses is a slot and a
+  // number, and a panel of more than sixteen controls is a panel that should hold two panels (docs/90).
+  UIOps::UIPanelChild kids[16];
+  uint8_t count = 0;
+  lua_getfield(L, -1, "children");
+  if (lua_istable(L, -1)) {
+    const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    for (lua_Integer i = 1; i <= total && count < 16; ++i) {
+      lua_rawgeti(L, -1, i);
+      LuaCanvas* child = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+      if (child != nullptr && child->slot >= 0) {
+        kids[count].slot = child->slot;
+        kids[count].weight = static_cast<uint8_t>(ui_field_number(L, -1, "weight", 0));
+        ++count;
+      }
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);  // the children
+  lua_pop(L, 1);  // the fields table
+  if (count > 0) {
+    g_ui_ops.panel_layout(canvas->slot, flow, static_cast<uint16_t>(padding),
+                          static_cast<uint16_t>(gap), kids, count);
+  }
+  return 0;
+}
+
+// ui.panel(width, height [, flow]): **the room that arranges what it holds**. `flow` is `'vertical'` —a
+// column—, `'horizontal'` —a row— or `'overlay'` —everything on top of everything—, and the fields are the
+// flow, the padding and the gap. A child takes the room it was made with, or a share of the free room when the
+// app gives it a `weight` (docs/30, docs/90).
+int l_ui_panel(lua_State* L) {
+  const char* flow = lua_isstring(L, 3) ? lua_tostring(L, 3) : "vertical";
+  if (strcmp(flow, "vertical") != 0 && strcmp(flow, "horizontal") != 0 &&
+      strcmp(flow, "overlay") != 0) {
+    return push_nil_error(L, "E_INVAL", "a panel is vertical, horizontal or overlay");
+  }
+  // **The word is copied and not kept**: taking the arguments off the stack leaves a pointer into a string
+  // that nothing holds any more, and a step of the collector in the middle of making the control would make
+  // the panel ask for a name that is not there (docs/75, docs/90).
+  char flow_copy[16];
+  snprintf(flow_copy, sizeof(flow_copy), "%s", flow);
+  lua_settop(L, 2);
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__panel");
+  lua_pushstring(L, flow_copy);
+  lua_setfield(L, -2, "flow");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "padding");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "gap");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_panel_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a strip of tabs**: the words in equal columns and the line under all of them but the
+// chosen one. The items are a Lua array of strings and the index is one of them, so an app says its tabs the
+// way a person says them (docs/30, docs/90).
+int l_tabs_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "text");
+  const int text = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "index");
+  const int index = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  const char* labels[8];
+  uint8_t count = 0;
+  lua_getfield(L, -1, "items");
+  if (lua_istable(L, -1)) {
+    const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    for (lua_Integer i = 1; i <= total && count < 8; ++i) {
+      lua_rawgeti(L, -1, i);
+      labels[count] = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+      ++count;
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);  // the items
+  lua_pop(L, 1);  // the fields table
+  if (g_ui_ops.tabs_draw != nullptr && count > 0) {
+    g_ui_ops.tabs_draw(canvas->slot, labels, count, static_cast<uint8_t>((index < 0) ? 0 : index),
+                       static_cast<uint8_t>(text), static_cast<uint8_t>(background),
+                       static_cast<uint8_t>((scale == 0) ? 1 : scale));
+  }
+  return 0;
+}
+
+// ui.tabs(width, height): **a strip of tabs**. The fields are `items` —a Lua array of words, eight at most—,
+// `index` —the chosen one, 1 to the count, and 0 for none—, the ink and the paper, and the size of the words.
+// **The arrows of the dial change the chosen tab while it has the focus**, and the app hears it at
+// `on_change(self, index)` (docs/30, docs/90).
+int l_ui_tabs(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__tabs");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_tabs_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The `on_draw` of the dots of a page**: `pages` dots and the `current` one bigger, and nothing at all when
+// there is only one page (docs/30, docs/90).
+int l_dots_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "pages");
+  const int pages = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "current");
+  const int current = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "level");
+  const int level = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the fields table
+  if (g_ui_ops.dots_draw != nullptr) {
+    g_ui_ops.dots_draw(canvas->slot, static_cast<uint8_t>((pages < 0) ? 0 : pages),
+                       static_cast<uint8_t>((current < 0) ? 0 : current), static_cast<uint8_t>(level),
+                       static_cast<uint8_t>(background));
+  }
+  return 0;
+}
+
+// ui.dots(width, height): **where this page is among the others**. The fields are `pages`, `current`, the ink
+// and the paper. It takes no focus and it is a strip: an app places it under the page it belongs to
+// (docs/30, docs/90).
+int l_ui_dots(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__dots");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "pages");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "current");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "level");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_dots_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a list**: the rows of one page and the band that says which page it is. The app says the
+// items —a Lua array of tables with `title`, `detail` and `subtitle`, or of strings, which are a title— and the
+// control slices the page: how many rows fit is the kernel's arithmetic, asked here and asked by the drawing, so
+// a list cannot say "2 / 3" over the rows of the fourth page (docs/30, docs/90).
+int l_list_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.list_draw == nullptr || g_ui_ops.canvas_caps == nullptr ||
+      g_ui_ops.list_page_of == nullptr) {
+    return 0;
+  }
+  uint16_t frame_w = 0;
+  uint16_t frame_h = 0;
+  uint16_t frame_x = 0;
+  uint16_t frame_y = 0;
+  if (!g_ui_ops.canvas_caps(canvas->slot, frame_w, frame_h, frame_x, frame_y)) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  lua_getfield(L, fields, "text");
+  const int text = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "dim");
+  const int dim = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "row_height");
+  const int row_height = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "page");
+  const int page = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "marked");
+  const int marked = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "separator");
+  const bool separator = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "items");
+  const int items = lua_gettop(L);
+  uint16_t total = 0;
+  if (lua_istable(L, items)) total = static_cast<uint16_t>(lua_rawlen(L, items));
+  uint8_t rows = 0;
+  const uint8_t pages = g_ui_ops.list_page_of(frame_h, static_cast<uint16_t>(row_height), total, rows);
+  if (pages == 0 || rows == 0) {
+    // **A list with nothing in it is an empty frame and not a hole**: it paints its background and says no page,
+    // which is the same thing an app gets before it fills the items (docs/90).
+    g_ui_ops.list_draw(canvas->slot, 0, 1, 1, 0, nullptr, nullptr, nullptr,
+                       static_cast<uint16_t>(row_height), static_cast<uint8_t>(text),
+                       static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                       static_cast<uint8_t>((scale == 0) ? 1 : scale), separator, focused);
+    lua_settop(L, fields - 1);
+    return 0;
+  }
+  // **The page is clamped here and not in the app**: a list turned past its end by a callback answers with a
+  // page that exists, which is what the footer says and what the drawing shows (docs/90).
+  int page_now = (page < 1) ? 1 : page;
+  if (page_now > pages) page_now = pages;
+  const uint16_t first = static_cast<uint16_t>((page_now - 1) * rows);
+  uint8_t count = 0;
+  while (count < rows && static_cast<uint32_t>(first) + count < total) ++count;
+  const char* titles[32];
+  const char* details[32];
+  const char* subtitles[32];
+  for (uint8_t i = 0; i < count; ++i) {
+    titles[i] = "";
+    details[i] = "";
+    subtitles[i] = "";
+    lua_rawgeti(L, items, static_cast<lua_Integer>(first) + i + 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "title");
+      if (lua_isstring(L, -1)) titles[i] = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "detail");
+      if (lua_isstring(L, -1)) details[i] = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "subtitle");
+      if (lua_isstring(L, -1)) subtitles[i] = lua_tostring(L, -1);
+      lua_pop(L, 1);
+    } else if (lua_isstring(L, -1)) {
+      titles[i] = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);
+  }
+  // The chosen row is a row of the whole list and the control paints one page: a row of another page is not this
+  // page's mark, which is the number zero (docs/90).
+  int mark_now = marked - static_cast<int>(first);
+  if (mark_now < 1 || mark_now > count) mark_now = 0;
+  g_ui_ops.list_draw(canvas->slot, count, static_cast<uint8_t>(page_now), pages,
+                     static_cast<uint8_t>(mark_now), titles, details, subtitles,
+                     static_cast<uint16_t>(row_height), static_cast<uint8_t>(text),
+                     static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                     static_cast<uint8_t>((scale == 0) ? 1 : scale), separator, focused);
+  lua_settop(L, fields - 1);
+  return 0;
+}
+
+// ui.list(width, height): **rows on pages and never a scroll**. The fields are `items`, `row_height`, `page` —the
+// page it is on, from 1—, `marked` —the chosen row of the whole list, from 1, or 0—, the three colours of a row
+// and the size of the words. **The arrows of the dial turn the page** while it has the focus, and the app hears
+// it at `on_page(self, page)` (docs/30, docs/90).
+int l_ui_list(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__list");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 56);
+  lua_setfield(L, -2, "row_height");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "page");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "marked");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "separator");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_list_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a calendar month (docs/30, docs/90) ----
+
+// **The `on_draw` of a calendar**: seven columns, the names of the days the app gave, and the days of the month in
+// their places —the kernel knows which weekday the first is, and that number is not an app's to compute— (docs/90).
+int l_month_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.month_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  const lua_Integer year = ui_field_number(L, 1, "year", 2026);
+  const lua_Integer month = ui_field_number(L, 1, "month", 1);
+  const lua_Integer selected = ui_field_number(L, 1, "selected", 0);
+  const lua_Integer today = ui_field_number(L, 1, "today", 0);
+  const lua_Integer text = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
+  lua_getfield(L, fields, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  const char* weekdays[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  lua_getfield(L, fields, "weekdays");
+  if (lua_istable(L, -1)) {
+    for (lua_Integer i = 1; i <= 7; ++i) {
+      lua_rawgeti(L, -1, i);
+      weekdays[i - 1] = lua_isstring(L, -1) ? lua_tostring(L, -1) : nullptr;
+      lua_pop(L, 1);
+    }
+  }
+  g_ui_ops.month_draw(canvas->slot, static_cast<uint16_t>((year < 1) ? 1 : year),
+                      static_cast<uint8_t>((month < 1 || month > 12) ? 1 : month),
+                      static_cast<uint8_t>((selected < 0) ? 0 : selected),
+                      static_cast<uint8_t>((today < 0) ? 0 : today), weekdays,
+                      static_cast<uint8_t>(text), static_cast<uint8_t>(dim),
+                      static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale), focused);
+  lua_pop(L, 2);  // the weekdays and the fields table
+  return 0;
+}
+
+// ui.month(width, height): **a calendar month and the day that is chosen**. The fields are `year` and `month` —1 to
+// 12—, `selected` and `today` —a day of the month, or 0—, `weekdays` —seven short names, because the names of the
+// days are the app's language—, the two colours and the size. **The arrows walk the days** and the centre picks one
+// with `on_pick(self, day)` (docs/30, docs/90).
+int l_ui_month(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__month");
+  lua_pushinteger(L, 2026);
+  lua_setfield(L, -2, "year");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "month");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "selected");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "today");
+  lua_newtable(L);
+  lua_setfield(L, -2, "weekdays");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_month_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a sparkline and a pie (docs/30, docs/90) ----
+
+// **The numbers of the two charts, and they are the kernel's too**: twenty-four samples and four slices are what a
+// strip and a pie of this glass hold, and the bridge cannot include the kernel to read them, so they are written
+// here once and the document is what keeps them together (docs/30, docs/90).
+const uint8_t kMaxSparkSamples = 24;
+const uint8_t kMaxPieSlices = 4;
+
+// **A table of Lua numbers as the samples of a chart**: forty of them is all a sparkline of a page can show, and a
+// table that is longer is cut and not an error (docs/90).
+uint8_t chart_samples(lua_State* L, int index, uint16_t* out, uint8_t most) {
+  if (!lua_istable(L, index)) return 0;
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, index));
+  uint8_t count = 0;
+  index = lua_absindex(L, index);
+  for (lua_Integer i = 1; i <= total && count < most; ++i) {
+    lua_rawgeti(L, index, i);
+    lua_Number value = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 0;
+    if (value < 0) value = 0;
+    if (value > 65535) value = 65535;
+    out[count++] = static_cast<uint16_t>(value);
+    lua_pop(L, 1);
+  }
+  return count;
+}
+
+// **The `on_draw` of a sparkline**: one bar per sample, the scale of the window's peak, and the second series as an
+// outline when it is a part of the same total (docs/90).
+int l_sparkline_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.sparkline_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  lua_getfield(L, fields, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  uint16_t samples[kMaxSparkSamples];
+  uint16_t top[kMaxSparkSamples];
+  uint8_t count = 0;
+  uint8_t tops = 0;
+  lua_getfield(L, fields, "samples");
+  count = chart_samples(L, -1, samples, kMaxSparkSamples);
+  lua_getfield(L, fields, "top");
+  tops = chart_samples(L, -1, top, kMaxSparkSamples);
+  g_ui_ops.sparkline_draw(canvas->slot, samples, (tops > 0) ? top : nullptr, count,
+                          static_cast<uint8_t>(color), static_cast<uint8_t>(background));
+  lua_pop(L, 3);  // the top, the samples and the fields table
+  return 0;
+}
+
+// ui.sparkline(width, height): **the shape of the last samples**. The fields are `samples` —a Lua array of numbers,
+// the oldest first—, `top` —the second series, which is a part of the same total— and the two colours. It takes no
+// focus and it is a strip: an app places it where the number it summarises lives (docs/30, docs/90).
+int l_ui_sparkline(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__spark");
+  lua_newtable(L);
+  lua_setfield(L, -2, "samples");
+  lua_pushnil(L);
+  lua_setfield(L, -2, "top");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_sparkline_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// **The `on_draw` of a pie**: the four slices, the angles from their sum and the four tones that walk from the one
+// the app chose (docs/90).
+int l_pie_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.pie_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  lua_getfield(L, fields, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, fields, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  uint16_t slices[kMaxPieSlices];
+  uint8_t count = 0;
+  lua_getfield(L, fields, "slices");
+  count = chart_samples(L, -1, slices, kMaxPieSlices);
+  g_ui_ops.pie_draw(canvas->slot, slices, count, static_cast<uint8_t>(color),
+                    static_cast<uint8_t>(background));
+  lua_pop(L, 2);  // the slices and the fields table
+  return 0;
+}
+
+// ui.pie(width, height): **a pie of four slices at most**. The fields are `slices` —a Lua array of values, and the
+// angles come from their sum— and the darkest tone; the other three are four steps apart, which is what an app
+// draws its legend with (docs/30, docs/90).
+int l_ui_pie(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__pie");
+  lua_newtable(L);
+  lua_setfield(L, -2, "slices");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_pie_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+  return 1;
+}
+
+// ---- a dialog: the card and its two doors (docs/30, docs/90) ----
+
+// **The `on_draw` of a dialog**: the card, the words and the two doors. What the app says is the text of it and
+// which door is the default; where the doors are and where a message breaks is the kernel's, because a message cut
+// in half is a question nobody can answer (docs/90).
+int l_dialog_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.dialog_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "dim");
+  const int dim = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "emphasis");
+  const int emphasis = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "choice");
+  const int choice = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  // The four texts stay on the stack while the card is drawn: a string taken off the stack before the call is a
+  // pointer the collector may have spoken for (docs/75, docs/90).
+  lua_getfield(L, -1, "title");
+  const char* title = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_getfield(L, -2, "text");
+  const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_getfield(L, -3, "note");
+  const char* note = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  lua_getfield(L, -4, "accept");
+  const char* accept = lua_isstring(L, -1) ? lua_tostring(L, -1) : "OK";
+  lua_getfield(L, -5, "cancel");
+  const char* cancel = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  g_ui_ops.dialog_draw(canvas->slot, title, text, note, accept, cancel, static_cast<uint8_t>(emphasis),
+                       static_cast<uint8_t>(choice), static_cast<uint8_t>(color), static_cast<uint8_t>(dim),
+                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale), focused);
+  lua_pop(L, 6);  // the five texts and the fields table
+  return 0;
+}
+
+// ui.dialog(width, height): **a card over the page with words and two doors**. The fields are `title`, `text` —the
+// message, which wraps—, `note`, the two labels `accept` and `cancel`, `emphasis` —the door that is inverted, 0
+// none, 1 the cancel, 2 the accept—, `choice` —the door the dial is on, from 1—, the two colours and the size. The
+// press arrives at `on_accept(self)` or `on_cancel(self)`, and **closing the card is the app's**: the old rule is
+// read the action, close, and then run it (docs/30, docs/90).
+int l_ui_dialog(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__dialog");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "title");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "text");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "note");
+  lua_pushstring(L, "OK");
+  lua_setfield(L, -2, "accept");
+  lua_pushstring(L, "Cancel");
+  lua_setfield(L, -2, "cancel");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "emphasis");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "choice");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_dialog_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a menu: a card of options over the page (docs/30, docs/90) ----
+
+// **The `on_draw` of a menu**: the card, its title and one box per option with the tag in front of the word. The
+// options the app took out with `hidden` are not drawn, and the ring sits on the option the dial is on —which is the
+// same option a finger picks, because the geometry is the kernel's and not the app's (docs/90).
+int l_menu_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.menu_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  UIOps::UIMenuOption items[kMaxMenuItems];
+  const uint8_t count = ui_menu_items(L, 1, items);
+  if (lua_gettop(L) < base + 2) {
+    lua_settop(L, base);
+    return 0;
+  }
+  // The title stays on the stack while the card is drawn, like the texts of a dialog: it is a pointer into a string and
+  // a string nobody holds is a string the collector may have taken (docs/75, docs/90).
+  lua_getfield(L, -2, "title");
+  const char* title = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  const lua_Integer index = ui_field_number(L, 1, "index", 1);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
+  const bool focused = ui_field_bool(L, 1, "focused", false);
+  g_ui_ops.menu_draw(canvas->slot, title, items, count, static_cast<uint8_t>((index < 0) ? 0 : index),
+                     static_cast<uint8_t>(color), static_cast<uint8_t>(dim),
+                     static_cast<uint8_t>(background), static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.menu(width, height): **a card of options over the page**, which is what a contextual menu is. The fields are
+// `items` —a Lua array of words, or of tables with `label`, `tag`, `hidden` and `primary`, twelve at most—, `index`
+// —the option the dial is on, from 1—, `title`, the ink, the dim and the paper, and the size of the words.
+//
+// **An option the app cannot do now is hidden and not shown dead**: this glass has two tones and a row that looks like
+// it does something and does nothing is worse than no row at all. **The arrows of the dial walk the options that are
+// on the card**, skipping the hidden ones, and the centre picks one with `on_pick(self, index)`; closing the menu is
+// the app's —read the action, close, and then run it—, the same rule a card follows (docs/30, docs/90).
+int l_ui_menu(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__menu");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "title");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_menu_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a bar of menus and a box of several lines (docs/30, docs/90) ----
+
+// **The `on_draw` of a bar**: the row of words, the line under it and the menu of the word that is unfolded. The entries
+// of a menu are read once and handed over as one block, so a bar of five titles and sixteen entries costs two arrays on
+// the C stack and no allocation at all (docs/90).
+int l_menu_bar_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.menu_bar_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  UIOps::UIMenuBarTitle titles[kMaxMenuBarTitles];
+  UIOps::UIMenuBarEntry entries[kMaxMenuBarEntries];
+  const uint8_t count = ui_menu_bar_items(L, 1, titles, entries);
+  if (lua_gettop(L) < base + 2) {
+    lua_settop(L, base);
+    return 0;
+  }
+  const lua_Integer open = ui_field_number(L, 1, "open", 0);
+  const lua_Integer index = ui_field_number(L, 1, "index", 0);
+  const lua_Integer bar_height = ui_field_number(L, 1, "bar_height", 52);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
+  const bool focused = ui_field_bool(L, 1, "focused", false);
+  g_ui_ops.menu_bar_draw(canvas->slot, titles, count, static_cast<uint8_t>((open < 0) ? 0 : open),
+                         static_cast<uint8_t>((index < 0) ? 0 : index), static_cast<uint16_t>((bar_height < 1) ? 1 : bar_height),
+                         static_cast<uint8_t>(color), static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                         static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.menu_bar(width, height): **the bar of menus of a page**. The fields are `items` —an array of titles, and a title is
+// a table with `title` and `items`, the entries of the menu that hangs from it—, `open` —the title whose menu is down,
+// from 1, or 0—, `index` —the entry of that menu the dial is on, from 1—, `bar_height`, the three tones and the size of
+// the words.
+//
+// **An entry is a word, a table with `label`, `checked` and `enabled`, or a dash for a line between two entries.** An
+// entry that cannot be used now is the dim tone and does not fire; a dash is not a row a finger presses and the dial goes
+// past it. **A finger on a title folds or unfolds its menu** and the app reads `open`; a finger on an entry —or the
+// centre, when the dial is on one— fires `on_pick(self, title, entry)` and the system folds the menu, because a menu
+// that stays open after a choice is a menu a person has to dismiss twice (docs/30, docs/90).
+int l_ui_menu_bar(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__menu_bar");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "open");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 52);
+  lua_setfield(L, -2, "bar_height");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_menu_bar_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // **The bar is focusable and it does not eat the arrows**: it has to be in the walk of the targets to see the finger at
+  // all, and its arrows only answer while a menu is unfolded —with nothing down the key goes back to the walk of the
+  // dial, which is what keeps a page with a bar on it from being a dead end (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The `on_draw` of a box of several lines**: the window of the text that keeps the caret on the glass and the caret as
+// a block with the letter under it in paper, the same two things the box of one line has. What the app says is the text,
+// where the caret is in bytes and whether the long lines wrap (docs/90).
+int l_textbox_multiline_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.textbox_multiline_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "text");
+  const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  const lua_Integer cursor = ui_field_number(L, 1, "cursor", 0);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer border = ui_field_number(L, 1, "border", 0);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
+  const bool caret = ui_field_bool(L, 1, "caret", true);
+  const bool wrap = ui_field_bool(L, 1, "wrap", false);
+  g_ui_ops.textbox_multiline_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, wrap,
+                                  static_cast<uint8_t>(color), static_cast<uint8_t>(background),
+                                  static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale));
+  lua_pop(L, 2);  // the text and the fields table
+  return 0;
+}
+
+// ui.textbox_multiline(width, height): **a box of several lines**, the sibling of `ui.textbox` with room to fall. The
+// fields are `text`, `cursor` —how many bytes are before the caret—, `caret` —whether the block is drawn, because the
+// blinking is the app's clock—, `wrap` —whether a long line is broken at the last space that fits or cut at the border—,
+// and the three tones with the size of the letters.
+//
+// **The enter key of the system's keyboard writes a line break here and does not end the edition**, and the keyboard of
+// the system is told to paint the enter key for this box. **A finger puts the caret where it is touched**: the row from
+// the y and the letter from the x, with the same arithmetic the paint used (docs/30, docs/90).
+int l_ui_textbox_multiline(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__textbox_multiline");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "cursor");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "caret");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "wrap");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 3);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_textbox_multiline_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
+
+// **The `on_draw` of a selector**: the question, the answer and the column of the triangle. **The answer is resolved here**,
+// where the table of options is, so a field shows the chosen option without the app keeping a second copy of a text that
+// can be forty characters, and when nothing is chosen it is the word the app said —a dash, or `ningú` in its language—
+// (docs/30, docs/90).
+int l_selector_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.selector_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  const int fields = lua_gettop(L);
+  lua_getfield(L, fields, "label");
+  const char* label = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  const lua_Integer index = ui_field_number(L, 1, "index", 0);
+  lua_getfield(L, fields, "items");
+  const int items = lua_gettop(L);
+  // The value is pushed in both branches so the stack has the same shape whichever one it took, and it stays there while the
+  // field is drawn: a string nobody holds is a string the collector may have taken (docs/75, docs/90).
+  if (lua_istable(L, items) && index >= 1 && index <= static_cast<lua_Integer>(lua_rawlen(L, items))) {
+    lua_rawgeti(L, items, index);
+    if (!lua_isstring(L, -1)) {
+      lua_pop(L, 1);
+      lua_getfield(L, fields, "empty");
+    }
+  } else {
+    lua_getfield(L, fields, "empty");
+  }
+  const char* value = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  const bool choosing = ui_field_bool(L, 1, "choosing", false);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer border = ui_field_number(L, 1, "border", 0);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
+  const bool focused = ui_field_bool(L, 1, "focused", false);
+  g_ui_ops.selector_draw(canvas->slot, label, value, choosing, static_cast<uint8_t>(color),
+                         static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                         static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.selector(width, height): **a field that is chosen and not typed**. The fields are `label` —the question, drawn in the
+// dim tone and small—, `items` —the options, an array of words—, `index` —the chosen one, from 1, and **0 for none, which
+// is a state of its own and not a missing value**—, `empty` —what "none" looks like in the app's language—, `choosing`
+// —whether the list is over the field, which inverts only the column of the triangle—, and the three tones with the size.
+//
+// **The list is not in this control**, and that is the whole design: the field is a door, and what a finger and the centre
+// get is `on_open(self)`, where the app puts up a `ui.menu` —drawn by the system like every other control— and writes
+// `index` when one of its options is chosen. The system cannot hold a list it does not own, and the app already has one.
+int l_ui_selector(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__selector");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "label");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "index");
+  lua_pushstring(L, "-");
+  lua_setfield(L, -2, "empty");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "choosing");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 3);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_selector_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // **It takes the focus and it does not eat the arrows**: it has to be in the walk of the targets to see the finger, and a
+  // selector has nothing to move with an arrow —its value is a list, not a number— so the key goes back to the walk of the
+  // dial (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The cards of a band, read once**: an entry is a word —a notice with a text and no title— or a table with `title` and
+// `text`, and **the ones that are kept are the last three**, because they are the newest and the band shows the newest at
+// the bottom. The `items` table stays on the stack while the band paints, like the options of a menu (docs/30, docs/90).
+uint16_t ui_notifications(lua_State* L, int object, UIOps::UINotification* out, uint8_t& shown) {
+  shown = 0;
+  if (out == nullptr) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return 0;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  const lua_Integer first = (total > static_cast<lua_Integer>(kMaxNotifications))
+                                ? total - static_cast<lua_Integer>(kMaxNotifications) + 1
+                                : 1;
+  for (lua_Integer i = first; i <= total; ++i) {
+    lua_rawgeti(L, -1, i);
+    UIOps::UINotification& card = out[shown];
+    card.title = "";
+    card.text = "";
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "title");
+      if (lua_isstring(L, -1)) card.title = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "text");
+      if (lua_isstring(L, -1)) card.text = lua_tostring(L, -1);
+      lua_pop(L, 1);
+    } else if (lua_isstring(L, -1)) {
+      card.text = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);  // the card
+    ++shown;
+  }
+  return static_cast<uint16_t>((total < 0) ? 0 : total);
+}
+
+// **How many notices the app has**, which is what the `+N` and the number of a card need: the ones on the glass are the last
+// three, and the rest are waiting (docs/90).
+uint16_t ui_notification_total(lua_State* L, int object) {
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  const lua_Integer total = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
+  lua_pop(L, 2);
+  return static_cast<uint16_t>((total < 0) ? 0 : total);
+}
+
+// **The `on_draw` of a band**: the cards from edge to edge, the newest at the bottom, its title, its text and its cross, and
+// the `+N` that says how many are waiting. The app says the notices and not one pixel of them (docs/30, docs/90).
+int l_notification_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.notification_bar_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  UIOps::UINotification cards[kMaxNotifications];
+  uint8_t shown = 0;
+  const uint16_t total = ui_notifications(L, 1, cards, shown);
+  if (lua_gettop(L) < base + 2) {
+    lua_settop(L, base);
+    return 0;
+  }
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer border = ui_field_number(L, 1, "border", 0);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
+  const bool focused = ui_field_bool(L, 1, "focused", false);
+  g_ui_ops.notification_bar_draw(canvas->slot, cards, shown, total, static_cast<uint8_t>(color),
+                                 static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                                 static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                 focused);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.notification_bar(width, height): **the band where the notices go**. The fields are `items` —an array where a notice is a
+// word or a table with `title` and `text`, **the newest last**—, the three tones and the size. **The newest card is the one at
+// the bottom**, because it is the one nearest the finger and the one that goes away first, and what does not fit is not
+// lost: the band says how many are waiting with a `+N` (docs/30, docs/90).
+//
+// **A finger on the cross dismisses and tells the app which notice** (`on_close(self, item)`), and a finger on the rest of a
+// card opens it (`on_pick(self, item)`); the centre dismisses the newest, because a notice that a board without a touch
+// cannot take away is a notice that stays forever. The list of notices is the app's: the control paints it and does not
+// keep it.
+int l_ui_notification_bar(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__notifications");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_notification_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The cells of a grid, read once**: a cell is a word —a name and no mark— or a table with `label` and `mark`, where the mark
+// is the short word that goes in the box of the icon. The `items` table stays on the stack while the grid paints, like the
+// options of a menu (docs/30, docs/90).
+uint8_t ui_grid_items(lua_State* L, int object, UIOps::UIGridItem* out) {
+  if (out == nullptr) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return 0;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  uint8_t count = 0;
+  for (lua_Integer i = 1; i <= total && count < kMaxGridCells; ++i) {
+    lua_rawgeti(L, -1, i);
+    UIOps::UIGridItem& cell = out[count];
+    cell.label = "";
+    cell.mark = "";
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "label");
+      if (lua_isstring(L, -1)) cell.label = lua_tostring(L, -1);
+      lua_pop(L, 1);
+      lua_getfield(L, -1, "mark");
+      if (lua_isstring(L, -1)) cell.mark = lua_tostring(L, -1);
+      lua_pop(L, 1);
+    } else if (lua_isstring(L, -1)) {
+      cell.label = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);  // the cell
+    ++count;
+  }
+  return count;
+}
+
+// **The `on_draw` of a grid**: the cells of one page, each with the box of its mark and its name under it, and the footer
+// that says which page it is. **The page follows the cursor**, so the app hands over the whole list and the control decides
+// which page is on the glass (docs/30, docs/90).
+int l_icon_grid_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.icon_grid_draw == nullptr) return 0;
+  const int base = lua_gettop(L);
+  UIOps::UIGridItem cells[kMaxGridCells];
+  const uint8_t count = ui_grid_items(L, 1, cells);
+  if (lua_gettop(L) < base + 2) {
+    lua_settop(L, base);
+    return 0;
+  }
+  const lua_Integer index = ui_field_number(L, 1, "index", 0);
+  const lua_Integer marked = ui_field_number(L, 1, "marked", 0);
+  const lua_Integer columns = ui_field_number(L, 1, "columns", 0);
+  const lua_Integer color = ui_field_number(L, 1, "color", 0);
+  const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
+  const lua_Integer background = ui_field_number(L, 1, "background", 15);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
+  const bool focused = ui_field_bool(L, 1, "focused", false);
+  g_ui_ops.icon_grid_draw(canvas->slot, cells, count, static_cast<uint8_t>((index < 0) ? 0 : index),
+                          static_cast<uint8_t>((marked < 0) ? 0 : marked),
+                          static_cast<uint8_t>((columns < 0) ? 0 : columns), static_cast<uint8_t>(color),
+                          static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
+                          static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+  lua_settop(L, base);
+  return 0;
+}
+
+// ui.icon_grid(width, height): **a grid of cells on pages**, each one a box with a short mark and the name under it, which is
+// how a menu of things is picked: **the mark is what is recognised at a glance and the name is what confirms it** (docs/30,
+// docs/90). The fields are `items` —a word, or a table with `label` and `mark`—, `index` —the cell the dial is on, from 1, and
+// 0 for none—, `marked` —the cell that is chosen, which is inverted—, `columns` (0 lets the control decide from the width),
+// the three tones and the size.
+//
+// **The arrows walk the cells and the page follows the cursor**, so the app does not turn pages itself; the centre picks the
+// cell the dial is on with `on_pick(self, index)`, and a finger picks the cell it presses.
+int l_ui_icon_grid(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__icon_grid");
+  lua_newtable(L);
+  lua_setfield(L, -2, "items");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "index");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "marked");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "columns");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 8);
+  lua_setfield(L, -2, "dim");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 2);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_icon_grid_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// ---- a text box and the keyboard of the system (docs/30, docs/90) ----
+
+// **The `on_draw` of a text box**: the frame, the window of the text that keeps the caret on the glass, and the
+// caret as a block with the letter under it in paper. The blink is the app's —it sets `caret`— because the
+// control has no clock and a control with a clock is a control that keeps drawing when nobody is typing
+// (docs/30, docs/90).
+int l_textbox_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "cursor");
+  const int cursor = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "caret");
+  const bool caret = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "mask");
+  const bool mask = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  // The text goes last and stays on the stack while the control draws: a string taken off the stack before the
+  // call is a pointer the collector may have spoken for (docs/75, docs/90).
+  lua_getfield(L, -1, "text");
+  const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+  if (g_ui_ops.textbox_draw != nullptr) {
+    g_ui_ops.textbox_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, mask,
+                          static_cast<uint8_t>(color), static_cast<uint8_t>(background),
+                          static_cast<uint8_t>(border), static_cast<uint8_t>((scale == 0) ? 1 : scale));
+  }
+  lua_pop(L, 2);  // the text and the fields table
+  return 0;
+}
+
+// ui.textbox(width, height): **a line a person types into**. The fields are `text`, `cursor` —how many bytes are
+// before the caret—, `caret` —whether the block is drawn, which is what the app blinks—, `mask` for a password,
+// the two colours and the size of the words. The typing is not here: the keyboard of the system writes the field
+// (docs/30, docs/90).
+int l_ui_textbox(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__textbox");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "text");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "cursor");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "caret");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "mask");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 3);
+  lua_setfield(L, -2, "scale");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_textbox_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);  // the table
+
+  // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
+  LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+  const bool focus_is_gone =
+      g_ui_focus_slot < 0 ||
+      (g_ui_ops.canvas_alive != nullptr &&
+       !g_ui_ops.canvas_alive(g_ui_focus_slot, g_ui_focus_generation));
+  if (focus_is_gone) {
+    g_ui_focus_slot = created->slot;
+    g_ui_focus_generation = created->generation;
+    lua_getiuservalue(L, -1, 1);
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "focused");
+    lua_pop(L, 1);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
+  }
+  return 1;
+}
+
+// **The keyboard of the system**: an object and not a control. It has no frame of its own and it is not in the
+// app's tree —it is a band the system paints over the page— so what it carries is the three calls an app needs
+// and the box it types into (docs/30, docs/90).
+const char kKeyboardMeta[] = "lunokOS.UIKeyboard";
+
+struct LuaKeyboard {
+  int placeholder;
+};
+
+int l_keyboard_show(lua_State* L) {
+  if (g_ui_ops.keyboard_show == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no keys");
+  const char* kind = lua_isstring(L, 2) ? lua_tostring(L, 2) : "alpha";
+  uint8_t wanted = 0;
+  if (strcmp(kind, "numeric") == 0) {
+    wanted = 1;
+  } else if (strcmp(kind, "alpha") != 0) {
+    return push_nil_error(L, "E_INVAL", "a keyboard is alpha or numeric");
+  }
+  lua_pushboolean(L, g_ui_ops.keyboard_show(wanted) ? 1 : 0);
+  return 1;
+}
+
+int l_keyboard_hide(lua_State* L) {
+  if (g_ui_ops.keyboard_hide != nullptr) g_ui_ops.keyboard_hide();
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_keyboard_height(lua_State* L) {
+  lua_pushinteger(L, (g_ui_ops.keyboard_height != nullptr) ? g_ui_ops.keyboard_height() : 0);
+  return 1;
+}
+
+int l_keyboard_visible(lua_State* L) {
+  lua_pushboolean(L, (g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible()) ? 1 : 0);
+  return 1;
+}
+
+// **`kb.target = box`**: the one field of the keyboard and the reason it is not a control. The reference is the
+// app's object kept alive by the registry, so a page made again does not leave the keyboard typing into a box
+// that is not on the glass any more (docs/30, docs/90).
+int l_keyboard_newindex(lua_State* L) {
+  const char* key = lua_type(L, 2) == LUA_TSTRING ? lua_tostring(L, 2) : nullptr;
+  if (key == nullptr || strcmp(key, "target") != 0) return luaL_error(L, "a keyboard takes a target and nothing else");
+  if (g_keyboard_target_ref != LUA_NOREF) {
+    luaL_unref(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+    g_keyboard_target_ref = LUA_NOREF;
+  }
+  if (lua_isuserdata(L, 3)) {
+    lua_pushvalue(L, 3);
+    g_keyboard_target_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  }
+  return 0;
+}
+
+int l_keyboard_tostring(lua_State* L) {
+  lua_pushliteral(L, "keyboard");
+  return 1;
+}
+
+int l_ui_keyboard(lua_State* L) {
+  lua_newuserdatauv(L, sizeof(LuaKeyboard), 0);
+  luaL_getmetatable(L, kKeyboardMeta);
+  lua_setmetatable(L, -2);
+  return 1;
+}
+
+
+// The fields of the keyboard are read through its own table and then its methods: `kb:show()` is ours and
+// `kb.target` is the one field it has (docs/90).
+int l_keyboard_index(lua_State* L) {
+  if (lua_type(L, 2) != LUA_TSTRING) return 0;
+  luaL_getmetatable(L, kKeyboardMeta);
+  lua_getfield(L, -1, "__methods");
+  lua_pushvalue(L, 2);
+  lua_rawget(L, -2);
+  return 1;
+}
+
+void open_keyboard_library(lua_State* L) {
+  luaL_newmetatable(L, kKeyboardMeta);
+  lua_createtable(L, 0, 4);
+  set_function(L, "show", l_keyboard_show);
+  set_function(L, "hide", l_keyboard_hide);
+  set_function(L, "height", l_keyboard_height);
+  set_function(L, "visible", l_keyboard_visible);
+  lua_setfield(L, -2, "__methods");
+  lua_pushcfunction(L, &l_keyboard_index);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, &l_keyboard_newindex);
+  lua_setfield(L, -2, "__newindex");
+  lua_pushcfunction(L, &l_keyboard_tostring);
+  lua_setfield(L, -2, "__tostring");
+  lua_pop(L, 1);
 }
 
 int l_canvas_clear(lua_State* L) {
@@ -4167,6 +6907,25 @@ int l_canvas_tostring(lua_State* L) {
   char text[48];
   bool label = false;
   bool button = false;
+  bool checkbox = false;
+  bool progress = false;
+  bool slider = false;
+  bool row = false;
+  bool panel = false;
+  bool tabs = false;
+  bool dots = false;
+  bool list = false;
+  bool textbox = false;
+  bool dialog = false;
+  bool spark = false;
+  bool pie = false;
+  bool month = false;
+  bool menu = false;
+  bool menu_bar = false;
+  bool multiline = false;
+  bool selector = false;
+  bool notifications = false;
+  bool icon_grid = false;
   lua_getiuservalue(L, 1, 1);
   if (lua_istable(L, -1)) {
     lua_getfield(L, -1, "__label");
@@ -4175,9 +6934,87 @@ int l_canvas_tostring(lua_State* L) {
     lua_getfield(L, -1, "__button");
     button = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
+    lua_getfield(L, -1, "__checkbox");
+    checkbox = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__progress");
+    progress = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__slider");
+    slider = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__row");
+    row = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__panel");
+    panel = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__tabs");
+    tabs = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__dots");
+    dots = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__list");
+    list = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__textbox");
+    textbox = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__dialog");
+    dialog = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__spark");
+    spark = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__pie");
+    pie = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__month");
+    month = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__menu");
+    menu = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__menu_bar");
+    menu_bar = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__textbox_multiline");
+    multiline = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__selector");
+    selector = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__notifications");
+    notifications = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "__icon_grid");
+    icon_grid = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
   }
   lua_pop(L, 1);
-  const char* kind = button ? "button" : (label ? "label" : "canvas");
+  const char* kind = checkbox   ? "checkbox"
+                     : button   ? "button"
+                     : slider   ? "slider"
+                     : progress ? "progress"
+                     : row      ? "row"
+                     : panel    ? "panel"
+                     : tabs     ? "tabs"
+                     : dots     ? "dots"
+                     : list     ? "list"
+                     : textbox  ? "textbox"
+                     : dialog   ? "dialog"
+                     : spark    ? "sparkline"
+                     : pie      ? "pie"
+                     : month    ? "month"
+                     : menu     ? "menu"
+                     : menu_bar ? "menu bar"
+                     : multiline ? "box of lines"
+                     : selector ? "selector"
+                     : notifications ? "notifications"
+                     : icon_grid ? "icon grid"
+                     : label    ? "label"
+                                : "canvas";
   if (g_ui_ops.canvas_caps != nullptr && g_ui_ops.canvas_caps(canvas->slot, width, height, x, y)) {
     snprintf(text, sizeof(text), "%s %ux%u at %u,%u", kind, width, height, x, y);
   } else {
@@ -4201,6 +7038,8 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "text", l_canvas_text);
   set_function(L, "font", l_canvas_font);
   set_function(L, "add", l_canvas_add);
+  set_function(L, "box", l_checkbox_box);
+  set_function(L, "rows", l_multiline_rows);
   set_function(L, "draw", l_canvas_draw);
   set_function(L, "invalidate", l_canvas_invalidate);
   set_function(L, "parent", l_canvas_parent);
@@ -4306,7 +7145,9 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
 
 bool ui_target_is_focusable(lua_State* L, int object) {
   const bool button = ui_field_bool(L, object, "__button", false);
-  return ui_field_bool(L, object, "focusable", button);
+  const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
+  const bool slider = ui_field_bool(L, object, "__slider", false);
+  return ui_field_bool(L, object, "focusable", button || checkbox || slider);
 }
 
 bool ui_control_alive(LuaCanvas* canvas) {
@@ -4321,10 +7162,11 @@ void ui_invalidate(lua_State* L, int object) {
   }
 }
 
-// Calls one of the app's hooks on a control. `focused` says whether the hook takes the extra boolean
-// that `on_focus` needs; `on_click` and `on_activate` take only the control. A hook that throws is
-// said on the console and does not take the app down, the same as `on_button` (docs/30).
-bool ui_call_hook(lua_State* L, int object, const char* name, bool with_focus, bool focused) {
+// Calls one of the app's hooks on a control. `with_flag` says whether the hook takes the extra boolean, and
+// `flag` is that boolean: the focus for `on_focus` and whether the box is now checked for `on_change`
+// (docs/30). A hook that throws is said on the console and does not take the app down, the same as
+// `on_button` (docs/30).
+bool ui_call_hook(lua_State* L, int object, const char* name, bool with_flag, bool flag) {
   object = lua_absindex(L, object);
   lua_getiuservalue(L, object, 1);
   if (!lua_istable(L, -1)) {
@@ -4338,11 +7180,111 @@ bool ui_call_hook(lua_State* L, int object, const char* name, bool with_focus, b
   }
   lua_pushvalue(L, object);
   int arguments = 1;
-  if (with_focus) {
-    lua_pushboolean(L, focused ? 1 : 0);
+  if (with_flag) {
+    lua_pushboolean(L, flag ? 1 : 0);
     ++arguments;
   }
   if (lua_pcall(L, arguments, 0, 0) != LUA_OK) {
+    con_text(name);
+    con_text(": ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);  // the fields table
+  return true;
+}
+
+// **A field that is a number and not a yes or no**: `min`, `max`, `step` and `value` of a slider are the
+// state of the control, and the system reads them without asking an app to keep a copy (docs/30, docs/90).
+lua_Integer ui_field_number(lua_State* L, int object, const char* key, lua_Integer fallback) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return fallback;
+  }
+  lua_getfield(L, -1, key);
+  const lua_Integer value = lua_isnumber(L, -1) ? lua_tointeger(L, -1) : fallback;
+  lua_pop(L, 2);
+  return value;
+}
+
+// **The same, for a hook that carries a number**: a slider tells its app which value it moved to, and an app
+// that had to read the field back would be an app that can read a stale one (docs/30, docs/90).
+bool ui_call_hook_number(lua_State* L, int object, const char* name, lua_Integer number) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, name);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return false;
+  }
+  lua_pushvalue(L, object);
+  lua_pushinteger(L, number);
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+    con_text(name);
+    con_text(": ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);  // the fields table
+  return true;
+}
+
+// **A hook with two numbers**, for the one control that answers with a pair: the bar of menus says which title and which
+// entry of it, because a number alone would not say which menu the entry belongs to (docs/30, docs/90).
+bool ui_call_hook_pair(lua_State* L, int object, const char* name, lua_Integer first, lua_Integer second) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, name);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return false;
+  }
+  lua_pushvalue(L, object);
+  lua_pushinteger(L, first);
+  lua_pushinteger(L, second);
+  if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+    con_text(name);
+    con_text(": ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);  // the fields table
+  return true;
+}
+
+// The same, for a hook that carries a text: the keyboard typed into the box and the box tells its app which word
+// it now holds, with the field already written (docs/30, docs/90).
+bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* text) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, name);
+  if (!lua_isfunction(L, -1)) {
+    lua_pop(L, 2);
+    return false;
+  }
+  lua_pushvalue(L, object);
+  lua_pushstring(L, (text != nullptr) ? text : "");
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
     con_text(name);
     con_text(": ");
     const char* message = lua_tostring(L, -1);
@@ -4483,7 +7425,72 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
   lua_rawgeti(L, objects, index + 1);
   const int object = lua_gettop(L);
   if (ui_set_field_bool(L, object, "pressed", true)) ui_invalidate(L, object);
-  if (!ui_call_hook(L, object, "on_click", false, false)) {
+  // **A checkbox's click means one thing and the system does it**: the box is checked or it is not, and the
+  // press writes it before the app is told. An app that had to flip it in a callback would be an app that can
+  // forget to, and a checkbox that does not mark the page is a checkbox that lied. The new state arrives at
+  // `on_change(self, checked)`, and `on_click` and `on_activate` are not called for this control: the click
+  // already means something (docs/30, docs/90).
+  const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
+  const bool dialog = ui_field_bool(L, object, "__dialog", false);
+  if (checkbox) {
+    const bool was = ui_field_bool(L, object, "checked", false);
+    if (ui_set_field_bool(L, object, "checked", !was)) ui_invalidate(L, object);
+    ui_call_hook(L, object, "on_change", true, !was);
+  } else if (dialog) {
+    // **The centre presses the door the dial is on**, which is the one thing a card does: the app hears which door
+    // and closing the card is its own (docs/30, docs/90).
+    const lua_Integer choice = ui_field_number(L, object, "choice", 2);
+    ui_call_hook(L, object, (choice == 1) ? "on_cancel" : "on_accept", false, false);
+  } else if (ui_field_bool(L, object, "__month", false)) {
+    // **The centre picks the day the dial is on**, and the app hears which one (docs/90).
+    ui_call_hook_number(L, object, "on_pick", ui_field_number(L, object, "selected", 1));
+  } else if (ui_field_bool(L, object, "__menu", false)) {
+    // **The centre picks the option the dial is on** and the finger picks the one it pressed, and the app hears which
+    // one; closing the menu is the app's, the same rule a card follows (docs/30, docs/90).
+    ui_call_hook_number(L, object, "on_pick", ui_field_number(L, object, "index", 1));
+  } else if (ui_field_bool(L, object, "__menu_bar", false)) {
+    // **The centre picks the entry of the open menu** and the app hears which title and which entry of it: a number
+    // alone would not say which menu the entry belongs to. **The system folds the menu after a choice**, because a menu
+    // that stays open after one is a menu a person has to dismiss twice (docs/30, docs/90).
+    const lua_Integer open = ui_field_number(L, object, "open", 0);
+    const lua_Integer entry = ui_field_number(L, object, "index", 0);
+    if (open > 0 && entry > 0) {
+      // **Read the action, fold, then run it**: the app hears the choice with the menu already folded, which is the same
+      // order a card of the system follows (docs/90).
+      lua_getiuservalue(L, object, 1);
+      if (lua_istable(L, -1)) {
+        lua_pushinteger(L, 0);
+        lua_setfield(L, -2, "open");
+      }
+      lua_pop(L, 1);
+      ui_invalidate(L, object);
+      ui_call_hook_pair(L, object, "on_pick", open, entry);
+    }
+  } else if (ui_field_bool(L, object, "__selector", false)) {
+    // **The door of a selector is `on_open`**: the field is the question and the app puts the list up, because the system
+    // cannot hold a table it does not own. `choosing` is already true when the app hears it, so the column of the triangle
+    // is inverted; **turning it off is the app's**, when its list goes away (docs/30, docs/90).
+    lua_getiuservalue(L, object, 1);
+    if (lua_istable(L, -1)) {
+      lua_pushboolean(L, 1);
+      lua_setfield(L, -2, "choosing");
+    }
+    lua_pop(L, 1);
+    ui_invalidate(L, object);
+    ui_call_hook(L, object, "on_open", false, false);
+  } else if (ui_field_bool(L, object, "__notifications", false)) {
+    // **The centre dismisses the newest notice**, because a notice that a board without a touch cannot take away is a notice
+    // that stays forever; and a finger on a card body opens the card it touched, which is the same hook (docs/90).
+    const lua_Integer total = static_cast<lua_Integer>(ui_notification_total(L, object));
+    lua_Integer which = ui_field_number(L, object, "index", 0);
+    if (which < 1 || which > total) which = total;
+    if (which > 0) ui_call_hook_number(L, object, "on_pick", which);
+  } else if (ui_field_bool(L, object, "__icon_grid", false)) {
+    // **The centre picks the cell the dial is on**, and the app hears which one; the page is the control's business, so the app
+    // only has to keep the number (docs/30, docs/90).
+    const lua_Integer which = ui_field_number(L, object, "index", 0);
+    if (which > 0) ui_call_hook_number(L, object, "on_pick", which);
+  } else if (!ui_call_hook(L, object, "on_click", false, false)) {
     ui_call_hook(L, object, "on_activate", false, false);
   }
   // The system owns the held state: a callback that returns leaves the button up. A callback that
@@ -4840,6 +7847,26 @@ void seal_globals(lua_State* L) {
   set_function(L, "control", l_ui_control);
   set_function(L, "label", l_ui_label);
   set_function(L, "button", l_ui_button);
+  set_function(L, "checkbox", l_ui_checkbox);
+  set_function(L, "progress", l_ui_progress);
+  set_function(L, "slider", l_ui_slider);
+  set_function(L, "row", l_ui_row);
+  set_function(L, "panel", l_ui_panel);
+  set_function(L, "tabs", l_ui_tabs);
+  set_function(L, "dots", l_ui_dots);
+  set_function(L, "list", l_ui_list);
+  set_function(L, "textbox", l_ui_textbox);
+  set_function(L, "dialog", l_ui_dialog);
+  set_function(L, "menu", l_ui_menu);
+  set_function(L, "menu_bar", l_ui_menu_bar);
+  set_function(L, "textbox_multiline", l_ui_textbox_multiline);
+  set_function(L, "selector", l_ui_selector);
+  set_function(L, "notification_bar", l_ui_notification_bar);
+  set_function(L, "icon_grid", l_ui_icon_grid);
+  set_function(L, "sparkline", l_ui_sparkline);
+  set_function(L, "pie", l_ui_pie);
+  set_function(L, "month", l_ui_month);
+  set_function(L, "keyboard", l_ui_keyboard);
   set_function(L, "root", l_ui_root);
   set_function(L, "frame", l_ui_frame);
   set_function(L, "line", l_ui_line);
@@ -4851,6 +7878,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "font", l_ui_font);
   lua_setglobal(L, "ui");
   open_canvas_library(L);
+  open_keyboard_library(L);
   open_font_library(L);
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
@@ -5116,6 +8144,9 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  // **The keyboard's box is this interpreter's**: a reference into a state that is going away is a number that
+  // means nothing in the next one (docs/30, docs/75).
+  g_keyboard_target_ref = LUA_NOREF;
   return true;
 }
 
@@ -5406,6 +8437,291 @@ void http_progress(bool ok, const char* code, int status, const char* body, uint
 
 
 
+// **Whether an entry of a menu of a bar can be chosen**: a line between two entries and an entry the app turned off are
+// both passed over by the dial, because neither of them can be pressed (docs/90).
+bool menu_bar_pickable(const UIOps::UIMenuBarTitle& title, lua_Integer number) {
+  if (number < 1 || number > title.count) return false;
+  const UIOps::UIMenuBarEntry& entry = title.entries[number - 1];
+  return !entry.separator && entry.enabled;
+}
+
+// **The walk of the dial over the open menu of a bar**, and nothing at all when no menu is unfolded: the bar is there for
+// the finger, and its keys only answer while a menu is down —which is what keeps a page with a bar on it from being a dead
+// end— (docs/30, docs/90).
+bool ui_step_menu_bar(lua_State* L, int object, int direction) {
+  const lua_Integer open = ui_field_number(L, object, "open", 0);
+  if (open < 1) return false;
+  const int base = lua_gettop(L);
+  UIOps::UIMenuBarTitle titles[kMaxMenuBarTitles];
+  UIOps::UIMenuBarEntry entries[kMaxMenuBarEntries];
+  const uint8_t count = ui_menu_bar_items(L, object, titles, entries);
+  lua_settop(L, base);
+  if (open > count) return false;
+  const UIOps::UIMenuBarTitle& title = titles[open - 1];
+  const lua_Integer value = ui_field_number(L, object, "index", 0);
+  lua_Integer next = (value < 1 || value > title.count) ? ((direction > 0) ? 0 : (title.count + 1)) : value;
+  for (;;) {
+    next += (direction > 0) ? 1 : -1;
+    if (next < 1 || next > title.count) return false;
+    if (menu_bar_pickable(title, next)) break;
+  }
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_pushinteger(L, next);
+  lua_setfield(L, -2, "index");
+  lua_pop(L, 1);
+  ui_invalidate(L, object);
+  return true;
+}
+
+// **The walk of the dial over the options of a menu**: the ones that are on the card and not the hidden ones, because
+// an option an app took out is not on the glass and a ring landing on nothing is a menu that looks stuck. When there
+// is nothing left in that direction the key goes back to the walk of the dial, the way the end of a slider's range
+// gives the arrow back (docs/30, docs/90).
+bool ui_step_menu(lua_State* L, int object, int direction) {
+  const int base = lua_gettop(L);
+  UIOps::UIMenuOption options[kMaxMenuItems];
+  const uint8_t total = ui_menu_items(L, object, options);
+  lua_settop(L, base);
+  if (total == 0) return false;
+  const lua_Integer value = ui_field_number(L, object, "index", 1);
+  // An option the app never set is entered from the end it is coming from, so the first arrow always lands somewhere.
+  lua_Integer next = (value < 1 || value > total) ? ((direction > 0) ? 0 : (total + 1)) : value;
+  for (;;) {
+    next += (direction > 0) ? 1 : -1;
+    if (next < 1 || next > total) return false;
+    if (!options[next - 1].hidden) break;
+  }
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_pushinteger(L, next);
+  lua_setfield(L, -2, "index");
+  lua_pop(L, 1);
+  ui_invalidate(L, object);
+  return true;
+}
+
+// **A control that is a value takes the arrow while it has the focus, and gives it back when it cannot move
+// any further.** It is the rule the old system learned —a control returns the key it does not use— and it is
+// what keeps a page with a slider from being a dead end: at the end of the range the arrow walks the focus
+// again. The moving is the system's and not the app's, the same way the flip of a checkbox is, because a
+// number that belongs to a control and a handler that an app can forget are the same bug waiting (docs/30,
+// docs/90).
+bool ui_step_value(lua_State* L, int objects, int index, int direction) {
+  lua_rawgeti(L, objects, index + 1);
+  const int object = lua_gettop(L);
+  const bool slider = ui_field_bool(L, object, "__slider", false);
+  const bool tabs = ui_field_bool(L, object, "__tabs", false);
+  const bool list = ui_field_bool(L, object, "__list", false);
+  const bool dialog = ui_field_bool(L, object, "__dialog", false);
+  const bool month = ui_field_bool(L, object, "__month", false);
+  const bool menu = ui_field_bool(L, object, "__menu", false);
+  const bool menu_bar = ui_field_bool(L, object, "__menu_bar", false);
+  // **The grid takes the arrows too, and it was missing from this list**: the walk of the dial asked it, the grid
+  // answered that it did not take the key because the answer was decided here, before its own branch, and the cells
+  // never moved on a page that had a grid (found on the bench, 3/11).
+  const bool grid = ui_field_bool(L, object, "__icon_grid", false);
+  if (!slider && !tabs && !list && !dialog && !month && !menu && !menu_bar && !grid) {
+    lua_pop(L, 1);
+    return false;
+  }
+  // **The menu is the one control whose step is not an arithmetic on a number**: it walks a list of options and skips
+  // the ones that are not on the card, so it answers on its own (docs/90).
+  if (menu) {
+    const bool moved = ui_step_menu(L, object, direction);
+    lua_pop(L, 1);
+    return moved;
+  }
+  if (menu_bar) {
+    const bool moved = ui_step_menu_bar(L, object, direction);
+    lua_pop(L, 1);
+    return moved;
+  }
+  if (grid) {
+    // **The grid walks its cells and the page follows the cursor**: at the first and the last one the key goes back to the walk
+    // of the dial, which is the same rule every value control follows (docs/30, docs/90).
+    lua_Integer total = 0;
+    lua_getiuservalue(L, object, 1);
+    if (lua_istable(L, -1)) {
+      lua_getfield(L, -1, "items");
+      if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    if (total > static_cast<lua_Integer>(kMaxGridCells)) total = static_cast<lua_Integer>(kMaxGridCells);
+    const lua_Integer value = ui_field_number(L, object, "index", 0);
+    lua_Integer next = value + ((direction > 0) ? 1 : -1);
+    if (value < 1) next = (direction > 0) ? 1 : total;
+    const bool moved = (next >= 1 && next <= total && next != value);
+    if (moved) {
+      lua_getiuservalue(L, object, 1);
+      if (lua_istable(L, -1)) {
+        lua_pushinteger(L, next);
+        lua_setfield(L, -2, "index");
+      }
+      lua_pop(L, 1);
+      ui_invalidate(L, object);
+    }
+    lua_pop(L, 1);
+    return moved;
+  }
+  // **A control that holds a value of its own takes the arrows while it has the focus**: a slider a number, a
+  // strip of tabs the chosen one, a list the page, a dialog the door and a calendar the day. What changes between
+  // them is the field, the range and the name of the hook, and that is all this function knows (docs/30, docs/90).
+  const char* field = slider ? "value" : (tabs ? "index" : (dialog ? "choice" : (month ? "selected" : "page")));
+  // **A door of a dialog and a day of a calendar are not values the app keeps**: the dial moves them and the app
+  // hears about it when the centre chooses one, so there is no hook here (docs/90).
+  const char* hook = list ? "on_page" : ((dialog || month) ? nullptr : "on_change");
+  lua_Integer step = 1;
+  lua_Integer minimum = 0;
+  lua_Integer maximum = 100;
+  lua_Integer value = 0;
+  if (slider) {
+    step = ui_field_number(L, object, "step", 1);
+    minimum = ui_field_number(L, object, "min", 0);
+    maximum = ui_field_number(L, object, "max", 100);
+    value = ui_field_number(L, object, "value", 0);
+  } else if (tabs) {
+    lua_getiuservalue(L, object, 1);
+    lua_getfield(L, -1, "items");
+    const lua_Integer count = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
+    lua_pop(L, 2);
+    minimum = (count > 0) ? 1 : 0;
+    maximum = count;
+    value = ui_field_number(L, object, "index", 1);
+  } else if (dialog) {
+    minimum = 1;
+    maximum = 2;
+    value = ui_field_number(L, object, "choice", 2);
+  } else if (month) {
+    // **The end of the range is the end of the month**, asked from the one place that knows how long February is
+    // (docs/60, docs/90).
+    const lua_Integer year = ui_field_number(L, object, "year", 2026);
+    const lua_Integer which = ui_field_number(L, object, "month", 1);
+    const lua_Integer days = (g_ui_ops.month_days != nullptr)
+                                 ? g_ui_ops.month_days(static_cast<uint16_t>(year), static_cast<uint8_t>(which))
+                                 : 31;
+    minimum = 1;
+    maximum = (days > 0) ? days : 1;
+    value = ui_field_number(L, object, "selected", 1);
+  } else {
+    // **How many pages a list has is the kernel's arithmetic**, the same one the drawing asks: a list whose app
+    // kept its own copy of that number would turn to a page that is not there (docs/90).
+    const LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+    uint16_t frame_w = 0;
+    uint16_t frame_h = 0;
+    uint16_t frame_x = 0;
+    uint16_t frame_y = 0;
+    if (canvas == nullptr || g_ui_ops.canvas_caps == nullptr || g_ui_ops.list_page_of == nullptr ||
+        !g_ui_ops.canvas_caps(canvas->slot, frame_w, frame_h, frame_x, frame_y)) {
+      lua_pop(L, 1);
+      return false;
+    }
+    const lua_Integer row_height = ui_field_number(L, object, "row_height", 56);
+    lua_getiuservalue(L, object, 1);
+    lua_getfield(L, -1, "items");
+    const lua_Integer total = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
+    lua_pop(L, 2);
+    uint8_t rows = 0;
+    const uint8_t pages =
+        g_ui_ops.list_page_of(frame_h, static_cast<uint16_t>(row_height), static_cast<uint16_t>(total), rows);
+    minimum = 1;
+    maximum = (pages > 0) ? pages : 1;
+    value = ui_field_number(L, object, "page", 1);
+  }
+  lua_Integer next = value + ((direction > 0) ? step : -step);
+  if (next < minimum) next = minimum;
+  if (next > maximum) next = maximum;
+  if (next == value) {
+    // No room left in that direction: the key goes back to the walk of the dial, or the page is stuck.
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getiuservalue(L, object, 1);
+  lua_pushinteger(L, next);
+  lua_setfield(L, -2, field);
+  lua_pop(L, 1);
+  ui_invalidate(L, object);
+  if (hook != nullptr) ui_call_hook_number(L, object, hook, next);
+  lua_pop(L, 1);
+  return true;
+}
+
+// **One key arrives from the system's keyboard and this layer writes it into the box**: the text and the caret are
+// the box's state, and an app that had to insert a letter in a callback could insert the wrong one at the wrong
+// place. `on_change(self, text)` arrives with the field already written, and 13 is the enter, which a box of one
+// line does not type: it tells the app with `on_enter(self)` and nothing changes (docs/30, docs/90).
+void ui_keyboard_typed(int code) {
+  if (g_state == nullptr || g_keyboard_target_ref == LUA_NOREF) return;
+  const int top = lua_gettop(g_state);
+  lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+  if (canvas == nullptr || !canvas_ready(g_state, lua_gettop(g_state))) {
+    lua_settop(g_state, top);
+    return;
+  }
+  const int object = lua_gettop(g_state);
+  lua_getiuservalue(g_state, object, 1);
+  if (!lua_istable(g_state, -1)) {
+    lua_settop(g_state, top);
+    return;
+  }
+  const int fields = lua_gettop(g_state);
+  lua_getfield(g_state, fields, "text");
+  const char* text = lua_isstring(g_state, -1) ? lua_tostring(g_state, -1) : "";
+  char word[256];
+  snprintf(word, sizeof(word), "%s", (text != nullptr) ? text : "");
+  lua_pop(g_state, 1);
+  const int length = static_cast<int>(strlen(word));
+  const lua_Integer cursor = ui_field_number(g_state, object, "cursor", length);
+  int at = (cursor < 0) ? 0 : ((cursor > length) ? length : static_cast<int>(cursor));
+  if (code == 13) {
+    // **The enter key of a box of several lines is a line break and not the end of the edition**: the control says which
+    // one it is by its marker, and the key means in the text what the letter `\n` means. A box of one line still ends the
+    // edition with it, which is what the app hears at `on_enter` (docs/30, docs/90).
+    const bool lines = ui_field_bool(g_state, object, "__textbox_multiline", false);
+    if (!lines) {
+      ui_call_hook(g_state, object, "on_enter", false, false);
+      lua_settop(g_state, top);
+      return;
+    }
+  }
+  bool changed = false;
+  if (code == 8) {
+    if (at > 0) {
+      // **A letter goes whole**: the caret steps back to the start of the sequence and the bytes of that letter
+      // are as many as its first byte says, or half of a UTF-8 letter is left in the box (docs/90).
+      int start = at - 1;
+      while (start > 0 && (word[start] & 0xC0) == 0x80) --start;
+      int width = 1;
+      while (start + width < length && (word[start + width] & 0xC0) == 0x80 && width < 3) ++width;
+      memmove(word + start, word + start + width, static_cast<size_t>(length - start - width) + 1);
+      at = start;
+      changed = true;
+    }
+  } else if (code > 0 && code < 127 && length + 1 < static_cast<int>(sizeof(word))) {
+    memmove(word + at + 1, word + at, static_cast<size_t>(length - at) + 1);
+    word[at] = static_cast<char>((code == 13) ? '\n' : code);
+    ++at;
+    changed = true;
+  }
+  if (changed) {
+    lua_pushstring(g_state, word);
+    lua_setfield(g_state, fields, "text");
+    lua_pushinteger(g_state, at);
+    lua_setfield(g_state, fields, "cursor");
+    ui_invalidate(g_state, object);
+    ui_call_hook_text(g_state, object, "on_change", word);
+  }
+  lua_settop(g_state, top);
+}
+
 // **The dial walks the controls.** The spots come from the board, not from the number of the key:
 // up/left is previous, down/right is next, centre is enter. A board with one key has only the centre.
 bool ui_button_event(const char* kind, uint32_t key) {
@@ -5459,6 +8775,12 @@ bool ui_button_event(const char* kind, uint32_t key) {
     if (current < 0) ui_apply_focus(g_state, targets, count, objects, target);
     ui_activate(g_state, count, objects, target);
   } else {
+    // A control that holds a value takes the arrow first and the walk goes on only if it gives it back
+    // (docs/30, docs/90).
+    if (current >= 0 && ui_step_value(g_state, objects, current, direction)) {
+      lua_settop(g_state, top);
+      return true;
+    }
     target = (current >= 0) ? (current + direction + count) % count : (direction > 0 ? 0 : count - 1);
     ui_apply_focus(g_state, targets, count, objects, target);
   }
@@ -5532,6 +8854,194 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     g_ui_touch_generation = targets[hit].generation;
     g_ui_touch_inside = true;
     lua_rawgeti(g_state, objects, hit + 1);
+    // **A finger on a dialog picks the button it is on and not the one the dial was on**: the two boxes of a card
+    // are its own, and a person who presses Cancel must get Cancel even if the ring was on the other one. **And a
+    // finger on a calendar picks the day it is on** (docs/30, docs/90).
+    if (ui_field_bool(g_state, -1, "__dialog", false) && g_ui_ops.dialog_hit != nullptr) {
+      const int which = g_ui_ops.dialog_hit(targets[hit].slot,
+                                            static_cast<uint16_t>(x - targets[hit].x),
+                                            static_cast<uint16_t>(y - targets[hit].y));
+      if (which > 0) {
+        lua_getiuservalue(g_state, -1, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, which);
+          lua_setfield(g_state, -2, "choice");
+        }
+        lua_pop(g_state, 1);
+        ui_invalidate(g_state, -1);
+      }
+    } else if (ui_field_bool(g_state, -1, "__month", false) && g_ui_ops.month_hit != nullptr) {
+      const lua_Integer year = ui_field_number(g_state, -1, "year", 2026);
+      const lua_Integer which = ui_field_number(g_state, -1, "month", 1);
+      const int day = g_ui_ops.month_hit(targets[hit].slot, static_cast<uint16_t>(year),
+                                         static_cast<uint8_t>(which), static_cast<uint16_t>(x - targets[hit].x),
+                                         static_cast<uint16_t>(y - targets[hit].y));
+      if (day > 0) {
+        lua_getiuservalue(g_state, -1, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, day);
+          lua_setfield(g_state, -2, "selected");
+        }
+        lua_pop(g_state, 1);
+        ui_invalidate(g_state, -1);
+      }
+    } else if (ui_field_bool(g_state, -1, "__menu", false) && g_ui_ops.menu_hit != nullptr) {
+      // **A finger on a menu picks the option it is on and not the one the dial was on**: the boxes of the card are its
+      // own, and a person who presses the third row gets the third row even if the ring was on the first (docs/90).
+      const int base = lua_gettop(g_state);
+      UIOps::UIMenuOption items[kMaxMenuItems];
+      const uint8_t total = ui_menu_items(g_state, base, items);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 2);
+      lua_getiuservalue(g_state, base, 1);
+      const char* title = "";
+      if (lua_istable(g_state, -1)) {
+        lua_getfield(g_state, -1, "title");
+        if (lua_isstring(g_state, -1)) title = lua_tostring(g_state, -1);
+        lua_pop(g_state, 1);
+      }
+      lua_pop(g_state, 1);
+      const int which = g_ui_ops.menu_hit(targets[hit].slot, title, items, total,
+                                          static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                          static_cast<uint16_t>(x - targets[hit].x),
+                                          static_cast<uint16_t>(y - targets[hit].y));
+      lua_settop(g_state, base);
+      if (which > 0) {
+        lua_getiuservalue(g_state, base, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, which);
+          lua_setfield(g_state, -2, "index");
+        }
+        lua_pop(g_state, 1);
+        ui_invalidate(g_state, base);
+      }
+    } else if (ui_field_bool(g_state, -1, "__menu_bar", false) && g_ui_ops.menu_bar_title_at != nullptr &&
+               g_ui_ops.menu_bar_entry_at != nullptr) {
+      // **A finger on a title folds or unfolds its menu, and a finger on an entry puts the dial there and the release
+      // chooses it.** A dash between two entries is neither of the two, so the tap goes nowhere (docs/90).
+      const int base = lua_gettop(g_state);
+      UIOps::UIMenuBarTitle titles[kMaxMenuBarTitles];
+      UIOps::UIMenuBarEntry entries[kMaxMenuBarEntries];
+      const uint8_t count = ui_menu_bar_items(g_state, base, titles, entries);
+      const lua_Integer bar_height = ui_field_number(g_state, base, "bar_height", 52);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 2);
+      const lua_Integer open = ui_field_number(g_state, base, "open", 0);
+      const uint16_t local_x = static_cast<uint16_t>(x - targets[hit].x);
+      const uint16_t local_y = static_cast<uint16_t>(y - targets[hit].y);
+      const uint8_t bar_scale = static_cast<uint8_t>((scale < 1) ? 1 : scale);
+      const uint16_t height = static_cast<uint16_t>((bar_height < 1) ? 1 : bar_height);
+      uint8_t entry = 0;
+      if (open > 0) {
+        entry = g_ui_ops.menu_bar_entry_at(targets[hit].slot, titles, count, static_cast<uint8_t>(open), height,
+                                           bar_scale, local_x, local_y);
+      }
+      const uint8_t title = g_ui_ops.menu_bar_title_at(targets[hit].slot, titles, count, height, bar_scale, local_x,
+                                                       local_y);
+      lua_settop(g_state, base);
+      if (entry > 0 || title > 0) {
+        lua_getiuservalue(g_state, base, 1);
+        if (lua_istable(g_state, -1)) {
+          if (entry > 0) {
+            lua_pushinteger(g_state, entry);
+            lua_setfield(g_state, -2, "index");
+          } else {
+            // The title that was down folds, another one switches, and the entry the dial was on is forgotten.
+            lua_pushinteger(g_state, (open == title) ? 0 : title);
+            lua_setfield(g_state, -2, "open");
+            lua_pushinteger(g_state, 0);
+            lua_setfield(g_state, -2, "index");
+          }
+        }
+        lua_pop(g_state, 1);
+        ui_invalidate(g_state, base);
+      }
+    } else if (ui_field_bool(g_state, -1, "__textbox_multiline", false) &&
+               g_ui_ops.textbox_multiline_hit != nullptr) {
+      // **A finger in a box of several lines puts the caret where it is touched**, with the same arithmetic the paint
+      // used to put the rows down (docs/90).
+      const int base = lua_gettop(g_state);
+      lua_getiuservalue(g_state, base, 1);
+      const char* lines = "";
+      if (lua_istable(g_state, -1)) {
+        lua_getfield(g_state, -1, "text");
+        if (lua_isstring(g_state, -1)) lines = lua_tostring(g_state, -1);
+        lua_pop(g_state, 1);
+      }
+      lua_pop(g_state, 1);
+      const lua_Integer cursor = ui_field_number(g_state, base, "cursor", 0);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 3);
+      const bool wrap = ui_field_bool(g_state, base, "wrap", false);
+      const uint16_t at = g_ui_ops.textbox_multiline_hit(
+          targets[hit].slot, lines, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap,
+          static_cast<uint8_t>((scale < 1) ? 1 : scale), static_cast<uint16_t>(x - targets[hit].x),
+          static_cast<uint16_t>(y - targets[hit].y));
+      lua_settop(g_state, base);
+      lua_getiuservalue(g_state, base, 1);
+      if (lua_istable(g_state, -1)) {
+        lua_pushinteger(g_state, at);
+        lua_setfield(g_state, -2, "cursor");
+      }
+      lua_pop(g_state, 1);
+      ui_invalidate(g_state, base);
+    } else if (ui_field_bool(g_state, -1, "__notifications", false) &&
+               g_ui_ops.notification_bar_card_at != nullptr && g_ui_ops.notification_bar_close_at != nullptr) {
+      // **The cross dismisses on the way down and the rest of a card opens on the way up**: dismissing is a command and not a
+      // press state, and a card that is opened is a choice like every other one of this system (docs/90).
+      const int base = lua_gettop(g_state);
+      UIOps::UINotification cards[kMaxNotifications];
+      uint8_t shown = 0;
+      const uint16_t total = ui_notifications(g_state, base, cards, shown);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 2);
+      const uint8_t band_scale = static_cast<uint8_t>((scale < 1) ? 1 : scale);
+      const uint16_t local_x = static_cast<uint16_t>(x - targets[hit].x);
+      const uint16_t local_y = static_cast<uint16_t>(y - targets[hit].y);
+      const uint8_t card =
+          (total > 0)
+              ? g_ui_ops.notification_bar_card_at(targets[hit].slot, shown, total, band_scale, local_x, local_y)
+              : 0;
+      const bool on_cross =
+          (card > 0) && g_ui_ops.notification_bar_close_at(targets[hit].slot, shown, total, band_scale, local_x, local_y);
+      lua_settop(g_state, base);
+      if (card > 0) {
+        // The card counted from the bottom is the item counted from the top: the newest is the last one the app added.
+        const lua_Integer item = static_cast<lua_Integer>(total) - card + 1;
+        if (on_cross) {
+          ui_call_hook_number(g_state, base, "on_close", item);
+        } else {
+          lua_getiuservalue(g_state, base, 1);
+          if (lua_istable(g_state, -1)) {
+            lua_pushinteger(g_state, item);
+            lua_setfield(g_state, -2, "index");
+          }
+          lua_pop(g_state, 1);
+          ui_invalidate(g_state, base);
+        }
+      }
+    } else if (ui_field_bool(g_state, -1, "__icon_grid", false) && g_ui_ops.icon_grid_hit != nullptr) {
+      // **A finger on a grid picks the cell it is on and not the one the dial was on**, and the release chooses it: the cells
+      // are the control's, and a person who presses the third cell gets the third cell (docs/90).
+      const int base = lua_gettop(g_state);
+      UIOps::UIGridItem cells[kMaxGridCells];
+      const uint8_t count = ui_grid_items(g_state, base, cells);
+      const lua_Integer index = ui_field_number(g_state, base, "index", 0);
+      const lua_Integer columns = ui_field_number(g_state, base, "columns", 0);
+      const lua_Integer scale = ui_field_number(g_state, base, "scale", 2);
+      const uint8_t which = g_ui_ops.icon_grid_hit(targets[hit].slot, cells, count,
+                                                   static_cast<uint8_t>((index < 0) ? 0 : index),
+                                                   static_cast<uint8_t>((columns < 0) ? 0 : columns),
+                                                   static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                                   static_cast<uint16_t>(x - targets[hit].x),
+                                                   static_cast<uint16_t>(y - targets[hit].y));
+      lua_settop(g_state, base);
+      if (which > 0) {
+        lua_getiuservalue(g_state, base, 1);
+        if (lua_istable(g_state, -1)) {
+          lua_pushinteger(g_state, which);
+          lua_setfield(g_state, -2, "index");
+        }
+        lua_pop(g_state, 1);
+        ui_invalidate(g_state, base);
+      }
+    }
     if (ui_set_field_bool(g_state, -1, "pressed", true)) ui_invalidate(g_state, -1);
     lua_pop(g_state, 1);
   }

@@ -1,0 +1,8 @@
+{
+  "title": "Menu bar",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "menubar.lua",
+  "boards": ["esp32"],
+  "description": "A bar of menus over a page: the word that is down is inverted, a dash is a line between two entries, an entry this build cannot do is the dim tone, and a tick is a box with its middle filled."
+}

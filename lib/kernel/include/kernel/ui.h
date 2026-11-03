@@ -251,6 +251,378 @@ bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background
 // it and clipped to the same frame (docs/30, docs/90).
 bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false);
 
+// ---- a checkbox: a square with a tick, and the state the click changes (docs/30, docs/90) ----
+//
+// **A checkbox is a row**: a square box at its left and the words that say what is being checked, which is a
+// child control the app adds, exactly as a button's text is. The frame is the row, and the box inside it is
+// what this control draws; the pixels between the box and the right edge are the app's.
+
+// **The side of the box this control draws**, in pixels: a square that leaves two pixels of frame above and
+// below and is never thinner than six, or zero when the frame is too small to hold one. An app asks for it to
+// place the label that names the setting —`label:place(cb:box() + 8, 0)`— instead of guessing the geometry
+// (docs/30, docs/90).
+int16_t checkbox_side(int8_t slot);
+
+// **Draws a checkbox into its frame**: the row in its background colour, the box with a border and a body, the
+// bevel of a thing a finger can press —swapped and darker while it is held—, the tick when it is checked, and
+// the ring of the focus. The tick is `mark`'s level and the app chooses it, because on a dark checkbox a black
+// tick is a page with nothing on it (docs/30, docs/90).
+bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
+                   bool pressed, bool focused);
+
+// ---- a month: seven columns and six weeks, and the days in their place (docs/30, docs/90) ----
+//
+// **A calendar is a grid that never changes size**: seven columns, the weekdays on top and **six weeks always**, so
+// the row under it does not move in February. Which day of the week the first of the month falls on comes from
+// `kernel/calendar.h`, which is the one copy of the leap year rule in the whole system. `selected` is inverted and
+// `today` wears a frame: two signals, because on this glass there is no colour for two things (docs/90).
+//
+// `weekdays` is an array of seven short names from the app, because the names of the days are a language and a
+// language is not the kernel's.
+bool month_draw(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
+                const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
+                bool focused);
+
+// **Which day of the month a point of the grid is on**, or zero: the same cells the paint uses, so a finger and a
+// drawing cannot disagree (docs/90).
+uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
+
+// ---- a sparkline and a pie: the shape of some numbers (docs/30, docs/90) ----
+//
+// **A sparkline is the shape of the last samples and not their value**: one bar per sample, oldest on the left,
+// **the height proportional to the biggest one of the window** —a fixed scale would show the numbers, and what
+// these charts are for is the shape: up, down, flat— and two series when the second is a part of the same total,
+// the bottom one solid and the top one an outline (docs/90).
+const uint8_t kMaxSparkSamples = 24;
+bool sparkline_draw(int8_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
+                    uint8_t background);
+
+// **A pie is four slices at most and its tones are the control's**: the app says the darkest one and the control
+// walks four steps of four from it, so the legend an app draws beside it can say the same numbers and not almost
+// the same (docs/30, docs/90). `slices` are the values and the angles come from their sum.
+const uint8_t kMaxPieSlices = 4;
+bool pie_draw(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
+
+// ---- a dialog: a card over the page, words and two doors (docs/30, docs/90) ----
+//
+// **A dialog is a card and two buttons**, and the card is opaque: the page under it stays where it is and the card
+// is what a person reads. The words are a title, a message that **wraps** —a message cut with "..." is a message
+// half read— and a note under the message in the dim colour. `emphasis` is the door that is inverted (0 none, 1
+// the cancel, 2 the accept) and `choice` is the one the dial is on, which wears the focus; on this glass there is
+// no colour to say "this is the one", so the two signals are an inverted box and a ring (docs/90).
+bool dialog_draw(int8_t slot, const char* title, const char* text, const char* note, const char* accept,
+                 const char* cancel, uint8_t emphasis, uint8_t choice, uint8_t text_level, uint8_t dim,
+                 uint8_t background, uint8_t scale, bool focused);
+
+// **Which door of a dialog a point of its own frame is on**: 0 for the card, 1 for the left and 2 for the right.
+// The geometry is one function, so a finger and the paint cannot disagree (docs/90).
+uint8_t dialog_hit(int8_t slot, uint16_t x, uint16_t y);
+
+// ---- a menu: a card of options, and the card is the system's (docs/30, docs/90) ----
+//
+// **A menu is a card with one option per row**, and it is the control that appears over the page when a person asks
+// what can be done with a thing. Its options are **words and not icons** —a word says what it does and does not have
+// to be guessed— and it carries no "close" row: the finger outside the card and the back key are already the way out,
+// and a row of "Close" in a menu of three is a fourth option (docs/90).
+//
+// **An option the app cannot do now is taken off the card and not shown dead**: this glass has two tones and there is
+// no way to draw a disabled row that a person can tell from an active one, and a row that looks like it does
+// something and does nothing is worse than no row at all. `primary` is the option of the moment and it is the one
+// that is inverted; `tag` is a short word in front of the label —"sys" for an app of the system, "lua" for a
+// script— and it is empty when the app has nothing to say there (docs/30, docs/90).
+const uint8_t kMaxMenuOptions = 12;
+
+struct MenuOption {
+  const char* label;
+  const char* tag;
+  bool hidden;
+  bool primary;
+};
+
+// **The card of a menu**: opaque, with the weight of a card, the title centred at the top and one box per option.
+// The words fill a column before the next one —a list of words is read downwards— and **a row is never under
+// fifty-two pixels**, which is the least this system allows for anything a fingertip presses, while the rows grow
+// into the room that is left: three options in a tall card are three tall doors. `index` is the option the dial is
+// on, from 1, and the ring is drawn there, inside the box and in the tone that contrasts with it (docs/90).
+bool menu_draw(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
+               uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
+
+// **Which option a point of the card is on**, from 1, or 0 for the card itself and the gap between two boxes. The
+// geometry is one function, so the box that is painted is the box that answers the finger (docs/90).
+uint8_t menu_hit(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
+                 uint16_t x, uint16_t y);
+
+// ---- a bar of menus: the titles and the one that is unfolded (docs/30, docs/90) ----
+//
+// **A bar is a row of words with a line under it and one menu that hangs from the word that was touched.** The bar is
+// five words at most —540 px of paper shared between five leaves 108 px for each, which is room for the longest word
+// a bar says— and it is **one level deep**: an entry carries no submenu, because where a submenu opens is a drawing
+// decision this system has not taken (the old one made the same choice) (docs/90).
+//
+// **An entry that is a line and not a word is a separator**: it has its own row, the finger goes past it and the dial
+// does not land on it. **An entry that cannot be used now is drawn in the dim tone and does not fire**: the ink is the
+// only level a control may spend on "no", and a word that looks like the others and does nothing is worse than a word
+// that says it cannot (docs/90). `checked` is a small box with a tick, which is what says "this one is on".
+const uint8_t kMaxMenuBarTitles = 5;
+const uint8_t kMaxMenuBarEntries = 16;
+
+struct MenuBarEntry {
+  const char* label;
+  bool separator;
+  bool checked;
+  bool enabled;
+};
+
+struct MenuBarTitle {
+  const char* label;
+  const MenuBarEntry* entries;
+  uint8_t count;
+};
+
+// **The row and the menu under it**: the open title is inverted, the menu is a card with the weight of a card, and the
+// entry the dial is on wears the ring. `open` is the title whose menu is unfolded, from 1, or 0. `bar_height` is the
+// height of the row —never under forty-four pixels, because a word is a thing a finger presses— and the rest of the
+// frame is the room the open menu has, which is why a bar is given the height of the page and not the height of a row
+// (docs/90).
+bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
+                   uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
+                   bool focused);
+
+// **Which title of the row a point is on**, from 1, or 0; and **which entry of the open menu**, from 1, or 0 for the
+// card, a separator and the space between two rows. One geometry, so the box that is painted is the box that answers
+// (docs/90).
+uint8_t menu_bar_title_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
+                          uint8_t scale, uint16_t x, uint16_t y);
+uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
+                          uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y);
+
+// ---- a progress bar: how much of something is done (docs/30, docs/90) ----
+//
+// **A bar is not a control a finger lands on**: no focus, no ring, and a frame of one pixel, because a bar
+// with the weight of a button reads as something to press. `value` is 0 to 100 and **a negative value is
+// "nothing to say yet"**: the track is drawn and nothing is filled, which is what a system that does not
+// know the answer shows (docs/90).
+bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+                   int16_t value);
+
+// ---- a slider: a track, a knob and the number (docs/30, docs/90) ----
+//
+// **The number is drawn by the control and the moving of it is the system's**: the arrows of the dial change
+// `value` by `step` while the slider has the focus, and the app is told with `on_change`. The value is text
+// with the face the control was given, `scale` times its size, and `suffix` is what comes after it —a `%`, a
+// ` C`—, because a number without its unit is a number that means something else (docs/30).
+bool slider_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+                 uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
+                 uint8_t scale, bool pressed, bool focused);
+
+// ---- a row of a list: one line and the two columns of it (docs/30, docs/90) ----
+//
+// **A title on the left, a detail on the right and a subtitle under it**, each one cut with `"..."` at its
+// own column, and the line under the row when `separator` asks for it. A **marked** row is the chosen one and
+// it is **inverted** —the words in the paper colour and the row in the ink one—, which is what a person can
+// read at once on this glass (docs/90).
+bool row_draw(int8_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
+              uint8_t dim, uint8_t background, uint8_t scale, bool marked, bool separator);
+
+// ---- a panel: the room that arranges what it holds (docs/30, docs/90) ----
+//
+// **A page is a declaration and not a list of places**: a panel takes the controls added to it and gives each
+// one its frame —a column with the words one under the other, a row with them side by side, or everything on
+// top of everything— so an app that adds a line does not have to move the five under it. It is a control
+// without a buffer: it holds children and paints nothing, so it costs no pixels (docs/90).
+enum class PanelFlow : uint8_t { kVertical = 0, kHorizontal = 1, kOverlay = 2 };
+
+// One child of a panel: the canvas, and **how much of the free room it takes**. Weight 0 is "as big as I am":
+// the control keeps the size it was made with and is stretched across the flow —a row of a column is as wide
+// as the column— while the free room is split among the ones with weight (docs/30, docs/90).
+struct PanelChild {
+  int8_t slot;
+  uint8_t weight;
+};
+
+// **Arranges the children of a panel** and returns how many of them moved: padding round the inside, `gap`
+// between two, the children of weight 0 at the size they have, and the room that is left split by weight with
+// the last one taking the remainder. Moving a child is a change of the glass and it is declared here, so the
+// app does not have to know which of them landed somewhere new (docs/30, docs/90).
+uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
+                     const PanelChild* children, uint8_t count);
+
+// **A new size for a control without a buffer**: its frame is a rectangle and nothing else, so a panel that
+// gives it a share of the room only writes the two numbers down. A canvas with a buffer of its own is refused,
+// because its pixels were handed out with a size and a size that changes is a release and a new canvas
+// (docs/30, docs/90).
+bool canvas_resize(int8_t slot, uint16_t width, uint16_t height);
+
+// ---- a strip of tabs: the chosen one has no line under it (docs/30, docs/90) ----
+//
+// **Equal columns across the frame**, one word in each, a line of two pixels under all of them but the chosen
+// one —the missing line is what says "you are here" on a glass of two tones— and the words in the ink of the
+// page. `index` is 1 to `count`, and 0 is "none chosen", which leaves the line whole (docs/90).
+bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t text,
+               uint8_t background, uint8_t scale);
+
+// ---- a list: rows on pages and never a scroll (docs/30, docs/90) ----
+//
+// **A list is the rows of one page and the band that says which page it is.** On this glass a scroll is a
+// hundred small paints and a page is one, so a list pages: the arrows of the dial turn it while it has the
+// focus, and the app hears it at `on_page(self, page)` (docs/90).
+//
+// **How many rows fit and how many pages there are is one arithmetic and not two**: a list that says "2 / 3"
+// and shows a row of the fourth page is a list that lies, so the app asks the same function the drawing asks
+// (docs/90).
+struct ListPage {
+  uint8_t rows;   // how many rows a page holds
+  uint8_t pages;  // how many pages the items make
+};
+ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items);
+
+// **The rows of one page**, with the footer that says which page it is and a chevron on the side that has
+// somewhere to go. `marked` is the row of this page that is the chosen one, from 1, or 0 for none. The words
+// come one page at a time, so a list of a thousand rows costs what one page costs (docs/30, docs/90).
+bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+               const char* const* titles, const char* const* details, const char* const* subtitles,
+               uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
+               bool separator, bool focused);
+
+// ---- a text box: a line of letters, the window of it, and the caret (docs/30, docs/90) ----
+//
+// **The caret is the important half of a text box**: it is a block as wide as the letter under it, it is drawn
+// in the ink and the letter under it is drawn in the paper —so the block shows the letter it is on and not a
+// black square—, and the text is a **window** that drops leading letters until the caret is on the glass, or a
+// person typing at the end of a long word types into a place nobody can see (docs/90).
+//
+// `cursor` is how many bytes of the text are before the caret; `caret` says whether the block is drawn, because
+// the blinking is the app's clock and not the control's; `mask` draws a dot for every letter, which is what a
+// password is (docs/30).
+bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
+                  uint8_t background, uint8_t border, uint8_t scale);
+
+// How wide the inside of a text box is with that scale, which is what an app needs to place a hint of its own in
+// the empty box (docs/90).
+uint16_t textbox_inside(int8_t slot, uint8_t scale);
+
+// ---- a box of several lines: the same box, with room to fall (docs/30, docs/90) ----
+//
+// **The sibling of `textbox` and the same trade with the keyboard**: the same frame that says "something can be
+// written here", the same block cursor, the same byte offset of the cursor. What changes is what the box does with a
+// text that does not fit: **it shows the rows that fit and the window moves so that the cursor is always inside**,
+// which is the one thing a field of several lines has to do or a person types into a place nobody can see (docs/90).
+//
+// **`wrap` is a way of painting and not a change of the text**: with it off a row is a line and a line longer than the
+// box is cut at the border; with it on a row is broken at the last space that fits. No byte is written into the text
+// either way, and the two decisions —where a row ends and where the cursor is— are made by one function so the caret
+// of the paint and the caret of the finger cannot disagree (docs/90).
+bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
+                            uint8_t background, uint8_t border, uint8_t scale);
+
+// **Where a point of the box puts the cursor**: the row from the y and the letter from the x, both measured with the
+// font, which is the only thing that knows how wide a letter comes out. A byte offset of the text, for a finger that
+// went past the end of a row (docs/90).
+uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                               uint16_t x, uint16_t y);
+
+// How many rows the box shows with that scale, which is what an app needs to know whether its text fits and how much
+// of the page the keyboard leaves it (docs/90).
+uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale);
+
+// ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
+//
+// **A value of a known set does not want a keyboard, it wants a list**, and the list is what a finger is good at. The
+// field shows the question on the left in the dim tone at the small size and the value on the right in the ink, and it
+// carries a column with a triangle on its right: **that column is the door**. Typing a whole date and a time on this
+// glass is brutal —the keyboard takes the view down to 581 pixels, the digits are small and a wrong digit is a value
+// that looks right— and that is the reason this control exists (docs/30, docs/90).
+//
+// **An open field is paper**: the only thing that turns to ink while the list is over the app is the column of the
+// triangle, because a field that goes black from end to end reads as the whole page going dark (the owner said so of the
+// old one, 17/10). And **the empty value is a state of its own**: `value` is what the app says "nothing chosen" looks
+// like in its own language, and it is drawn exactly where a value would be.
+bool selector_draw(int8_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
+                   uint8_t background, uint8_t border, uint8_t scale, bool focused);
+
+// ---- a band of notifications: the cards and how they are painted (docs/30, docs/90) ----
+//
+// **A band from edge to edge with one card per notice**, stacked upwards: **the newest is the one at the bottom**, which is
+// the one nearest the finger and the one that goes away first, and a card is a title, a text and a cross to dismiss it
+// (docs/90). Three cards at most on the glass: what does not fit is not lost, and the band **says how many are waiting**
+// with a `+N` over them, because a notice that disappears without saying so is a notice somebody has lost.
+//
+// **The band is the room of the control and it paints only the cards it holds**: the rest of the frame is the page's, so a
+// band can be given the height of the whole page and it does not erase what the app drew (docs/90).
+const uint8_t kMaxNotifications = 3;
+
+struct Notification {
+  const char* title;
+  const char* text;
+};
+
+// `items` are the ones to draw, oldest first and **the newest last**, and `total` is how many the app really has: the
+// difference is what the `+N` says.
+bool notification_bar_draw(int8_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
+                           uint8_t dim, uint8_t background, uint8_t border, uint8_t scale, bool focused);
+
+// **Which card a point is on, counted from the bottom** (1 is the newest), and **whether it is on the cross of that card**:
+// two questions because a finger on the cross dismisses and a finger on the card opens it. Zero is no card at all, which is
+// the space between two of them and the line that says how many are waiting (docs/90). `total` is the same number the paint
+// was given, because the `+N` line takes room from the cards and a finger has to land on a card that is there.
+uint8_t notification_bar_card_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
+bool notification_bar_close_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
+
+// ---- a grid of cells: an icon with its name under it, on pages (docs/30, docs/90) ----
+//
+// **A menu of things is picked with the eye before it is read**: the mark in the box is what is recognised at a glance and
+// the name under it is what confirms it. The grid is a list of cells —the same paging, the same footer that says which page
+// it is— and what it adds is the cell (docs/30, docs/90).
+//
+// **The icon is a box with a short mark in it**, drawn by the system at the size the cell can hold: this kernel has no
+// bitmap of its own and an app that wants a real picture has `ui.image` for a canvas of its own. `marked` is the cell that is
+// chosen and it is inverted; the cell the dial is on wears the ring. **The page follows the cursor**, so a grid never sits on
+// a page where the cell a person is on is not.
+const uint8_t kMaxGridItems = 48;
+const int32_t kGridLeastCell = 96;
+
+struct GridItem {
+  const char* label;
+  const char* mark;
+};
+
+bool icon_grid_draw(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
+                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
+
+// **Which cell a point of the frame is on**, from 1, or 0 for the gaps, the footer and a place where there is no cell. The
+// same geometry the paint uses, page included (docs/90).
+uint8_t icon_grid_hit(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
+                      uint8_t scale, uint16_t x, uint16_t y);
+
+// ---- the keyboard: the system's, not a control (docs/30, docs/90) ----
+//
+// **A keyboard is chrome**: it is a band at the bottom of the view that the system paints over the page and that
+// takes the finger and the dial before the page's controls do. An app does not draw it and does not handle a
+// key: it says which text box it types into, asks how much of the page the band takes, and moves its own layout
+// into what is left. What crosses back is one number per key —the letter, or 8 for the delete and 13 for the
+// enter— and the box is edited by the same layer that owns every other control's state (docs/90).
+const uint8_t kKeyboardAlpha = 0;
+const uint8_t kKeyboardNumeric = 1;
+
+bool keyboard_show(uint8_t kind);
+bool keyboard_hide();
+bool keyboard_visible();
+// The band the keyboard takes at the bottom of the view, zero when it is not on the glass: an app that wants its
+// page above it decides its own layout in `height - keyboard_height()` (docs/90).
+uint16_t keyboard_height();
+// The finger, in the view's coordinates. True when the keyboard took it and the page must not see it.
+bool keyboard_touch(uint16_t x, uint16_t y, bool down);
+// The dial: the arrows walk the keys and the centre presses the one they are on. True when the keyboard took the
+// key (docs/90).
+bool keyboard_key(const char* kind, uint32_t key);
+
+// ---- the dots of a page: where this page is among the others (docs/30, docs/90) ----
+//
+// **`pages` dots and `current` bigger**: the dots are a strip that says "there is more, and you are here", it
+// takes no focus and it draws nothing at all when there is only one page —one dot says nothing, and it costs a
+// pass of the panel to say it— (docs/90).
+bool dots_draw(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
+
 // ---- the faces a text can be drawn with (docs/30) ----
 //
 // The system has one font and it is in the flash; an app may load another from a **portable font file**

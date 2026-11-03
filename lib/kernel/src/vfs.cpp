@@ -15,7 +15,10 @@ const size_t kMaxPathBytes = 128;
 // data, sd, rtc, nvs and the `/cfg` door— so the FRAM did not fit and `/cfg` disappeared without a
 // word (found on the bench the 31/10, writing a setting: `E_INVAL`). Ten leaves the room of two more
 // mounts, and a table that is full now says so in the log instead of dropping a row (docs/70).
-const uint32_t kMaxMounts = 10;
+// Twelve since 3/11: the Paper has every row it can have —the flash, its three aliases, the faces,
+// the card, the two memories, the key-value store and `/cfg`— and that is ten, which left no room
+// at all; the faces of `/fonts` are the new row (docs/30, docs/70).
+const uint32_t kMaxMounts = 12;
 
 struct Mount {
   const char* path;  // virtual path, no trailing slash
@@ -95,6 +98,11 @@ uint32_t init(hal::IPlatform& platform) {
     add("/apps", "apps", "littlefs", littlefs, false);
     add("/res", "res", "littlefs", littlefs, false);
     add("/data", "data", "littlefs", littlefs, true);
+    // **The faces of the system are one row and not a copy per app** (3/11). A real face is ten to
+    // twenty kilobytes and an app that wants one used to carry its own copy in `apps/<id>/res/`,
+    // so the same DejaVu sat in two apps and the disk paid it twice. `/fonts` is the disk's
+    // `res/fonts/` seen by everybody, read-only for an app like `/apps` (docs/30, docs/70).
+    add("/fonts", "res/fonts", "littlefs", littlefs, false);
   } else {
     log_printf(pal::kLogError, "VFS", "/littlefs is mandatory and did not mount");
   }

@@ -102,7 +102,8 @@ const uint32_t kBatchWaitMs = 60000;
 
 void usage() {
   printf("lunokOS emulator\n");
-  printf("  --flash <dir>     the directory that IS the flash volume (default: data, the real one)\n");
+  printf("  --flash <dir>     the directory that IS the flash volume (default: %s, the disk\n", LUNOK_DISK_DIR);
+  printf("                    this build was made for, assembled by tools/make_disk.py)\n");
   printf("  --state <dir>     where the memories that are not a volume live: the key-value store\n");
   printf("                    and, when they exist, the RTC RAM and the FRAM (default: emulator)\n");
   printf("  --fs <dir>        working disk for a bench that copies its own (default: emulator)\n");
@@ -552,11 +553,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // points everything at one directory it will wipe, which is why these are set here and not in
   // `Options()` (docs/85).
   //
-  // The flash is the repository's own `data`, so what a person edits is what the bench runs and
-  // nothing has to be copied. The key-value store and the memories that are not a volume go to
-  // `emulator`, next to the card, which is always the same directory: a card is a directory that
-  // exists, so making it puts a card in the slot and removing it empties it (docs/85).
-  if (opts.flash_dir == nullptr) opts.flash_dir = "data";
+  // The flash is **the disk this build was made for**, `build/disk/<env>`: `data/` is what the repository
+  // holds, `apps/` is where the apps live and `tools/make_disk.py` is what puts the two together for the
+  // boards and the bench that can hold them (docs/80). It is a tree of links to those two, so what a person
+  // edits is what the bench runs and nothing has to be copied. The key-value store and the memories that are
+  // not a volume go to `emulator`, next to the card, which is always the same directory: a card is a
+  // directory that exists, so making it puts a card in the slot and removing it empties it (docs/85).
+  if (opts.flash_dir == nullptr) opts.flash_dir = LUNOK_DISK_DIR;
   if (opts.state_dir == nullptr) opts.state_dir = "emulator";
   if (opts.sd_dir == nullptr) opts.sd_dir = "emulator/sd";
   // **What the disk costs is the disk's business**: every volume goes through the table of

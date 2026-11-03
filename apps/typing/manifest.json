@@ -1,0 +1,8 @@
+{
+  "title": "Typing",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "typing.lua",
+  "boards": ["esp32"],
+  "description": "A text box with the caret blinking and the keyboard of the system typing into it: the dial walks the keys, the centre presses one, and the box is the one that keeps the word."
+}

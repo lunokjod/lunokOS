@@ -36,9 +36,9 @@ local function load(name, path)
   return face
 end
 
-faces.sans = load('sans', '/res/dejavusans.ttf')
-faces.serif = load('serif', '/res/dejavuserif.ttf')
-faces.mono = load('mono', '/res/dejavusansmono.ttf')
+faces.sans = load('sans', '/fonts/dejavusans.ttf')
+faces.serif = load('serif', '/fonts/dejavuserif.ttf')
+faces.mono = load('mono', '/fonts/dejavusansmono.ttf')
 
 local draws = 0
 local labels = 0
