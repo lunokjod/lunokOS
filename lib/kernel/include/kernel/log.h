@@ -12,6 +12,11 @@ namespace kernel {
 void log_init();
 void log_echo(bool on);
 bool log_echo_enabled();
+// **The colour of a line follows the terminal and not the line**: the shell asks the terminal once and tells
+// the ring, because a line does not know where it is going. Echoed and dumped alike, an error is red and a
+// warning is yellow; everything else is the paper (docs/30, docs/85).
+void log_colour(bool on);
+bool log_colour_enabled();
 size_t log_bytes();
 
 // printf-style, **with the tag of whoever writes it**: the line comes out as `[I][FS] text`, the same

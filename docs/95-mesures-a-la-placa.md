@@ -319,7 +319,7 @@ run burst
 
 | Què apuntar | On va |
 |---|---|
-| `free heap` i `min free heap` al prompt; i el que diu `burst` (`heap used`, `peak`, `limit`) | `docs/75` §1 i §2 |
+| `free heap`, `min free heap` i `largest block` al prompt; i el que diu `burst` (`heap used`, `peak`, `limit`) | `docs/75` §1 i §2 |
 
 **Fet el 31/10 al Paper**: `run burst` → `100 waits in 101 ms`, `heap used 37 883 B, peak 37 883 B`.
 El `limit 65 536 B` que sortia llavors era el sostre per defecte, perquè **la mesura és d'abans de la
@@ -646,8 +646,9 @@ diu la mida de la vista i quants bytes té el canvas de l'app:
 ui: view 540x932 at 0,28, 251640 bytes of canvas
 ```
 
-Són **540 × 932** (960 menys els 28 de la barra, i això és el que la vista té a sota) i **251 640 B**, que
-són els mateixos bytes que `docs/75` compta per a una pàgina de quatre bits: `540 × 932 / 2`.
+Són **540 × 932** (960 menys els 28 de la barra d'aleshores) i **251 640 B**, que són els mateixos bytes
+que `docs/75` comptava per a una pàgina de quatre bits: `540 × 932 / 2`. **Des de la 0.52.0** la barra fa
+48 files, la vista és **540 × 912** i el canvas **246 240 B**; la mesura de sota és la de l'1/11.
 
 **L'1/11 amb la 0.19.0, `run layers` a la placa**:
 

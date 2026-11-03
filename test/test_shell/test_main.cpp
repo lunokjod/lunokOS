@@ -2,8 +2,11 @@
 //
 // These run on the host build with a fake board (lib/hal_emulator) and the host
 // PAL, so they exercise the same code the emulator runs.
+#include <fcntl.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <unity.h>
 
@@ -47,6 +50,32 @@ void ensure_booted() {
   g_booted = true;
 }
 
+// **What the console said, captured the way a person's terminal would read it**: the host console is
+// stdout, so a file around the call is the whole of it.
+int g_saved = -1;
+int g_sink = -1;
+const char* const kSinkPath = "/tmp/lunok-shell-out.txt";
+
+void capture_begin() {
+  g_saved = dup(STDOUT_FILENO);
+  g_sink = open(kSinkPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (g_saved >= 0 && g_sink >= 0) dup2(g_sink, STDOUT_FILENO);
+}
+
+void capture_end(char* out, size_t cap) {
+  if (out != nullptr && cap > 0) out[0] = '\0';
+  if (g_saved >= 0) dup2(g_saved, STDOUT_FILENO);
+  if (g_sink >= 0) close(g_sink);
+  if (g_saved >= 0) close(g_saved);
+  g_saved = -1;
+  g_sink = -1;
+  FILE* file = fopen(kSinkPath, "rb");
+  if (file == nullptr) return;
+  const size_t got = fread(out, 1, cap - 1, file);
+  out[got] = '\0';
+  fclose(file);
+}
+
 }  // namespace
 
 void test_version_command_is_known(void) {
@@ -66,6 +95,125 @@ void test_caps_command_is_known(void) {
 
 void test_mem_command_is_known(void) {  ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute("mem"));
+}
+
+// **The ceilings of the two homes are the board's and the books are exact** (docs/75, docs/85): the
+// bench hands out the board's own RAM and its extra memory from the machine's heap, and a block that
+// does not fit either home is refused here, before the board would have refused it. The bytes that come
+// back are the bytes that went out, a block that has to move keeps what it held, and a home that is
+// asked for and full is not the other home's refusal.
+static void test_a_block_that_does_not_fit_the_ceilings_is_refused() {
+  ensure_booted();
+  // **The books start here and not at boot**: the blocks the boot took were handed out by a bench with no
+  // ceiling, and counting them now would make this test's arithmetic the boot's (docs/85).
+  pal::set_memory_bytes(4096, 8192);
+  pal::IExtraMemory& memory = pal::extra_memory();
+
+  const pal::MemoryLeft home_before = pal::memory_left(false);
+  TEST_ASSERT_TRUE_MESSAGE(home_before.counted, "the home has no ceiling");
+  TEST_ASSERT_EQUAL_UINT32(4096, home_before.free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
+
+  // The block carries its own sixteen bytes of bookkeeping, and the books count them: a home of 4096 B
+  // that hands out 4000 B has 80 B left and not 96 (docs/85).
+  char* first = static_cast<char*>(memory.allocate(4000, false));
+  TEST_ASSERT_NOT_NULL(first);
+  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
+  memset(first, 'a', 4000);
+
+  // **The other home before a refusal**: 2000 B do not fit in the 80 B left of the board's RAM, and the
+  // extra memory takes them, which is what the board's allocator does (docs/75).
+  char* second = static_cast<char*>(memory.allocate(2000, false));
+  TEST_ASSERT_NOT_NULL(second);
+  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192 - 2016, pal::memory_left(true).free_bytes);
+
+  // Neither home has room for the third: this is the refusal that makes an app that asks for more than
+  // the glass has die on the bench and not on the paper (docs/85).
+  TEST_ASSERT_NULL(memory.allocate(8000, false));
+
+  // A block that shrinks stays where it is and gives its bytes back exactly.
+  first = static_cast<char*>(memory.resize(first, 3000, false));
+  TEST_ASSERT_NOT_NULL(first);
+  TEST_ASSERT_EQUAL_UINT32(80 + 1000, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_MEMORY("aaaa", first, 4);
+
+  // **A block that grows past its home moves to the other one**, and the bytes it held come with it: the
+  // move is a `realloc` that could not happen in place, and the caller keeps the new pointer (docs/85).
+  first = static_cast<char*>(memory.resize(first, 5000, false));
+  TEST_ASSERT_NOT_NULL(first);
+  TEST_ASSERT_EQUAL_MEMORY("aaaa", first, 4);
+  // The home it left is whole again and its bytes went with it: only the extra memory holds the block.
+  TEST_ASSERT_EQUAL_UINT32(4096, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192 - 2016 - 5016, pal::memory_left(true).free_bytes);
+
+  memory.release(first);
+  memory.release(second);
+  TEST_ASSERT_EQUAL_UINT32(4096, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
+  // The least that was left is the mark of the run and it does not go back up: `mem` prints it as the
+  // `min free heap` of the board (docs/75).
+  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).lowest_free_bytes);
+
+  // **And a bench with no model is a bench with no ceiling**, which is what every other test of this
+  // suite is and what the PC's own heap is (docs/85).
+  pal::set_memory_bytes(0, 0);
+  TEST_ASSERT_FALSE(pal::memory_left(false).counted);
+  TEST_ASSERT_FALSE(pal::memory_left(true).counted);
+  void* free_block = memory.allocate(1024 * 1024, true);
+  TEST_ASSERT_NOT_NULL(free_block);
+  memory.release(free_block);
+}
+
+// **The heap is a heap and not a counter**: a block takes a piece of a region, the piece it does not use
+// comes back when it goes, and a hundred blocks of sizes that do not line up give every byte back when
+// they are let go. A heap that leaked a header here and a slack there would still pass the test of one
+// block and would slowly strangle an app (docs/75).
+static void test_the_heap_gives_every_byte_back_when_the_blocks_go() {
+  ensure_booted();
+  pal::set_memory_bytes(32768, 131072);
+  pal::IExtraMemory& memory = pal::extra_memory();
+  enum { kBlocks = 64 };
+  void* blocks[kBlocks] = {nullptr};
+  for (int i = 0; i < kBlocks; ++i) {
+    blocks[i] = memory.allocate(static_cast<size_t>(24 + i * 13), (i % 2) == 0);
+    TEST_ASSERT_NOT_NULL(blocks[i]);
+  }
+  // Half of them go first and the other half after: the order is part of what a heap has to survive.
+  for (int i = 0; i < kBlocks; i += 2) memory.release(blocks[i]);
+  for (int i = 1; i < kBlocks; i += 2) memory.release(blocks[i]);
+  TEST_ASSERT_EQUAL_UINT32(32768, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(131072, pal::memory_left(true).free_bytes);
+  pal::set_memory_bytes(0, 0);
+}
+
+// **Fragmentation is the truth of a heap and not a bug** (docs/75): a home with room for a page in pieces
+// cannot give the page, and the number that says so is the largest free block and not the free total.
+static void test_a_page_does_not_fit_a_home_that_has_it_in_pieces() {
+  ensure_booted();
+  pal::set_memory_bytes(4096, 65536);
+  pal::IExtraMemory& memory = pal::extra_memory();
+  // **Sixteen blocks of 4080 fill the 64 KB home exactly**, a chunk of 4096 each, and every other one is
+  // let go: the heap has the room in eight pieces and not one of them takes a page (docs/75).
+  enum { kSmall = 16 };
+  void* small[kSmall] = {nullptr};
+  for (int i = 0; i < kSmall; ++i) {
+    small[i] = memory.allocate(4080, true);
+    TEST_ASSERT_NOT_NULL(small[i]);
+  }
+  for (int i = 0; i < kSmall; i += 2) memory.release(small[i]);
+  TEST_ASSERT_TRUE(pal::memory_left(true).free_bytes >= 8 * 4096);
+  // Neither home can take it: the board's RAM is smaller than the block and the PSRAM has the room in
+  // pieces (docs/75).
+  TEST_ASSERT_NULL(memory.allocate(6000, true));
+  // And it says yes to what fits in a piece, which is what a heap does.
+  void* fits = memory.allocate(4000, true);
+  TEST_ASSERT_NOT_NULL(fits);
+  memory.release(fits);
+  for (int i = 1; i < kSmall; i += 2) memory.release(small[i]);
+  TEST_ASSERT_EQUAL_UINT32(65536, pal::memory_left(true).free_bytes);
+  pal::set_memory_bytes(0, 0);
 }
 
 // mounts says what is mounted and how much room is left, which is where two of
@@ -281,6 +429,33 @@ void test_stats_prints_the_table_and_resets_it(void) {
   TEST_ASSERT_TRUE(meter::uptime_ms() < 10000);
 }
 
+// **`stats` prints every meter this build and board have, called or not** (docs/30, docs/85): a row at zero
+// is a measurement —the device was not asked for anything— and a device the board does not carry is not a
+// row at all. The test resets the table first, so a meter with no calls is a meter with no calls and not the
+// leftover of the test before it.
+static void test_stats_prints_the_meters_that_were_never_called() {
+  ensure_booted();
+  static char said[8192];
+  TEST_ASSERT_TRUE(kernel::execute("stats reset"));
+  capture_begin();
+  kernel::execute("stats");
+  capture_end(said, sizeof(said));
+  // The processor was never asked to change its speed in this run, and it is still a thing this board can
+  // do: its row is there, with a zero and dashes where the times would be.
+  TEST_ASSERT_EQUAL_UINT32(0, meter::calls(meter::kCpuSet));
+  const char* row = strstr(said, "power.cpu");
+  TEST_ASSERT_NOT_NULL_MESSAGE(row, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(row, "-"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "kernel.loop"), said);
+  // And the meters the board does not have are not rows: asking the platform is what makes the test true
+  // on the ATOM and on the Paper without knowing which one the bench is.
+  const hal::Caps& caps = hal::platform().caps();
+  TEST_ASSERT_EQUAL(caps.has(hal::kCapDisplay) ? 1 : 0, strstr(said, "glass.flush") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(caps.has(hal::kCapSd) ? 1 : 0, strstr(said, "sd.read") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(caps.has(hal::kCapEnv) ? 1 : 0, strstr(said, "env.read") != nullptr ? 1 : 0);
+  TEST_ASSERT_EQUAL(caps.has(hal::kCapImu) ? 1 : 0, strstr(said, "imu.read") != nullptr ? 1 : 0);
+}
+
 // **One shape for every line**: the level, the tag, the message, and a newline that the formatter adds so
 // that a line can never be split in two (docs/30, docs/85).
 void test_a_log_line_carries_its_level_and_its_tag(void) {
@@ -299,6 +474,33 @@ void test_a_log_line_carries_its_level_and_its_tag(void) {
   TEST_ASSERT_TRUE(strlen(small) < sizeof(small));
 }
 
+
+// **The ring is painted by level and only when the terminal asked** (docs/30, docs/85): an error is red, a
+// warning is yellow and an info line is the paper. The echo and the dump go through the same painter, so
+// both are here, and with the answer off not one escape byte comes out of either.
+static void test_the_log_is_painted_by_level() {
+  ensure_booted();
+  static char said[8192];
+  kernel::log_colour(true);
+  capture_begin();
+  kernel::log_printf(pal::kLogError, "TST", "red line");
+  kernel::log_printf(pal::kLogWarn, "TST", "yellow line");
+  kernel::log_printf(pal::kLogInfo, "TST", "plain line");
+  kernel::log_dump();
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;31m[E][TST] red line"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[33m[W][TST] yellow line"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[I][TST] plain line"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b[1;31m[I]"), said);
+  // Off: the same lines and not one escape byte.
+  kernel::log_colour(false);
+  kernel::log_printf(pal::kLogError, "TST", "red line, no colour");
+  capture_begin();
+  kernel::log_dump();
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "[E][TST] red line, no colour"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b"), said);
+}
 
 // **Every time of `stats` is written in a scale a person reads** (docs/30): microseconds, milliseconds,
 // seconds, minutes, hours, and never a raw count of five million milliseconds.
@@ -334,15 +536,56 @@ static void test_only_a_device_attributes_reply_is_an_answer() {
   TEST_ASSERT_TRUE(kernel::shell::ansi_reply("ab\x1b[?1;2c", 9));
 }
 
+// **The colours are worth the bytes only on a terminal that asked for them** (docs/30, docs/85): with the
+// answer off the same words come out and not one escape byte —what a pipe and a serial line without ANSI
+// see—, and with it on the error is red, a directory is blue, what is not the answer is dim and the prompt
+// is its own two pieces. The answer is forced because a test is not a terminal; `ansi on` is also how a
+// person whose bridge eats the question gets the colours.
+static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
+  ensure_booted();
+  static char said[4096];
+  // Off: the words are the same and the bytes are not there.
+  kernel::shell::set_ansi(false);
+  capture_begin();
+  kernel::execute("cat /no-such-file");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such file"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "\x1b"), said);
+  // On: an error is red and goes back to the paper.
+  kernel::shell::set_ansi(true);
+  capture_begin();
+  kernel::execute("cat /no-such-file");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;31m"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[0m"), said);
+  // A directory is blue and the kind of thing and the size are dim.
+  capture_begin();
+  kernel::execute("ls /");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;34m"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[90m"), said);
+  // And the prompt: the name in green, the `>` in grey, and the reset before the line the person types.
+  capture_begin();
+  kernel::shell::prompt();
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;32mlunok\x1b[0m"), said);
+  // The bench goes back to being a pipe, so nothing after this test reads an escape byte.
+  kernel::shell::set_ansi(false);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_version_command_is_known);
   RUN_TEST(test_only_a_device_attributes_reply_is_an_answer);
+  RUN_TEST(test_the_colours_are_the_prompt_an_error_and_a_directory);
   RUN_TEST(test_help_command_is_known);
   RUN_TEST(test_caps_command_is_known);
   RUN_TEST(test_mem_command_is_known);
+  RUN_TEST(test_a_block_that_does_not_fit_the_ceilings_is_refused);
+  RUN_TEST(test_the_heap_gives_every_byte_back_when_the_blocks_go);
+  RUN_TEST(test_a_page_does_not_fit_a_home_that_has_it_in_pieces);
   RUN_TEST(test_mounts_command_lists_the_mounts);
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
@@ -357,7 +600,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_extension_finder_counts_every_app_that_opens_it);
   RUN_TEST(test_a_call_through_the_vfs_is_counted_and_timed);
   RUN_TEST(test_stats_prints_the_table_and_resets_it);
+  RUN_TEST(test_stats_prints_the_meters_that_were_never_called);
   RUN_TEST(test_a_log_line_carries_its_level_and_its_tag);
+  RUN_TEST(test_the_log_is_painted_by_level);
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
   UNITY_END();
   return 0;

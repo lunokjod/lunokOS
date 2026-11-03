@@ -84,6 +84,9 @@ void fresh_view() {
 void wait_ms(int32_t ms) {
   pal::Event event;
   pal::system().queue()->pop(event, ms);
+  // **Time passing is what moves the ink**: the panel is asked the way the window asks it when it
+  // redraws, so a test that waits for a paint sees the paint arrive (docs/85).
+  emu::memory_surface()->step_ink();
 }
 
 }  // namespace
@@ -827,6 +830,9 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   // A black square on a white page, painted with the quick quality.
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 0, "du"));
   TEST_ASSERT_TRUE(ui::present());
+  // **A paint lands when the ink has arrived**: a `du` is 120 ms, and until then the glass is the page
+  // before it and the dirt of the paint has not been added (docs/85).
+  wait_ms(150);
   // The paint asked for black and the ink reached it; the dirt of that paint is on the glass now.
   TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(20, 20));
   TEST_ASSERT_TRUE(glass().dirt_at(20, 20) > 0);
@@ -835,6 +841,7 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   // what a person sees on a panel painted that way.
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "du"));
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(150);
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(20, 20));
   const uint8_t trace = glass().shown_at(20, 20);
   TEST_ASSERT_TRUE_MESSAGE(trace < 15, "the du left no trace of the black it painted over");
@@ -845,6 +852,9 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   // **A paint that cleans takes it back**: white with `gc16` and the pixel is white again, without dirt.
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gc16"));
   TEST_ASSERT_TRUE(ui::present());
+  // **A `gc16` blinks before the image arrives**: the glass is not the page it painted until the ink has
+  // stopped, which is the whole of the 450 ms (docs/85).
+  wait_ms(500);
   TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(20, 20));
   TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
   // **A paint that cleans takes back the region it paints**: white with `gc16` and every pixel of it is
@@ -852,6 +862,7 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   // page and is not cleaned by this one (docs/85).
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gc16"));
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(500);
   for (uint16_t y = 10; y < 50; ++y) {
     for (uint16_t x = 10; x < 50; ++x) {
       TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(x, y));
@@ -889,10 +900,12 @@ static void test_the_trace_of_a_rich_page_is_richer_than_a_flat_one(void) {
                                           "gc16"));
   }
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(500);
 
   // White over it with the quick quality: what comes out is the ladder at lower contrast.
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 15, "du"));
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(150);
   uint8_t rich_low = 15;
   uint8_t rich_high = 0;
   for (uint8_t level = 0; level < 16; ++level) {
@@ -906,8 +919,10 @@ static void test_the_trace_of_a_rich_page_is_richer_than_a_flat_one(void) {
   // with no shape in it, which is what a person sees when a page of text is repainted.
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 0, "gc16"));
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(500);
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 20, 10, 80, 128, 15, "du"));
   TEST_ASSERT_TRUE(ui::present());
+  wait_ms(150);
   uint8_t flat_low = 15;
   uint8_t flat_high = 0;
   for (uint8_t level = 0; level < 16; ++level) {
@@ -1012,6 +1027,71 @@ static void test_an_a2_flashes_the_page_before_the_image_arrives(void) {
   wait_ms(240);
   TEST_ASSERT_TRUE(ui::idle());
   TEST_ASSERT_UINT8_WITHIN(2, 5, glass().shown_at(20, 20));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
+// **A `gc16` blinks before the image arrives**: the region goes black, white, black and white again over the
+// first two thirds of its 450 ms, and the last third is the image landing in pieces. It is what a person sees
+// on a panel that cleans, and the reason the window redraws every phase and not only at the end (docs/85).
+static void test_a_gc16_blinks_before_the_image_arrives() {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  const uint32_t steps_before = glass().ink_steps();
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 5, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  // The first blink is black and it is on the glass the moment the paint is asked for.
+  TEST_ASSERT_EQUAL_UINT8(0, glass().shown_at(20, 20));
+  TEST_ASSERT_FALSE(ui::idle());
+  // A blink is a frame with no paint behind it.
+  TEST_ASSERT_TRUE(glass().ink_steps() > steps_before);
+  // A quarter of a second in, the region is white: the blink goes both ways and not once.
+  wait_ms(100);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass().shown_at(20, 20), "a gc16 blinked only one way");
+  wait_ms(80);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass().shown_at(20, 20), "the second black of a gc16 is not there");
+  // And the last third is the image: when the ink stops the pixel is the grey the paint asked for.
+  wait_ms(300);
+  TEST_ASSERT_TRUE(ui::idle());
+  TEST_ASSERT_UINT8_WITHIN(2, 5, glass().shown_at(20, 20));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
+// **The panel keeps blinking while the driver waits** (docs/85). A paint holds its caller for the wire of
+// the next one and for the ink, and that is where the blinks of a `gc16` were lost: the window was redrawn
+// once per turn, a turn is one paint, and a person saw the page before and the page after with nothing in
+// between (found on the window, 4/11). The bench that has a window installs a pump —`pump_gui`— and the
+// glass calls it from inside its own waits, so this is the same question a window asks: does the ink move
+// while nobody's code is running?
+static uint32_t g_pumps = 0;
+static uint32_t g_blinks_the_pump_saw = 0;
+
+static void pump_like_a_window(void*) {
+  ++g_pumps;
+  const uint32_t before = emu::memory_surface()->ink_steps();
+  emu::memory_surface()->step_ink();
+  if (emu::memory_surface()->ink_steps() != before) ++g_blinks_the_pump_saw;
+}
+
+static void test_the_glass_is_walked_while_the_paint_waits(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  g_pumps = 0;
+  g_blinks_the_pump_saw = 0;
+  glass().set_wait_pump(&pump_like_a_window, nullptr);
+
+  // The page that starts the flash, and then **a second paint**, which is the one that waits for the ink
+  // of the first: four hundred and fifty milliseconds in which none of the app's code runs.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 200, 200, 0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 200, 200, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+
+  TEST_ASSERT_TRUE_MESSAGE(g_pumps > 0, "a paint waited without asking the window once");
+  // **The blinks were frames and not a sleep**: three of them at least happened while the caller was
+  // inside the wait, which is what the window draws and what the board shows.
+  TEST_ASSERT_TRUE_MESSAGE(g_blinks_the_pump_saw >= 3,
+                           "the blinks of a gc16 were lost inside the wait of the next paint");
+  glass().set_wait_pump(nullptr, nullptr);
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
@@ -1199,9 +1279,10 @@ static void test_a_label_inside_a_button_is_clipped_to_the_button() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 15));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(48, 38));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 40));
-  // **The corner of the button is round, so the pixel of its corner was never ink**: what is there is the page.
+  // **The corner of the button is round, so the pixel of its corner was never ink**: what is there is the page,
+  // and the frame of three pixels does not reach two pixels in from the corner either.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 10));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 14));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 12));
   ui::release(button);
 }
 
@@ -1315,10 +1396,10 @@ static void test_the_cleaner_between_apps_follows_the_page() {
   TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
 }
 
-// **A button comes out of the page**: twelve pixels of round corner, a light edge on the top and the left and
-// a shadow on the bottom and the right, the two swapped while it is held, and a ring two pixels thick when it
-// has the focus that a button without it does not have. It is a test of pixels and not of counts, because what
-// changed is what a person sees (docs/30, docs/90).
+// **A button comes out of the page**: twelve pixels of round corner, a frame of three and a bevel of two, a
+// shadow on the bottom and the right that swaps to the top and the left while it is held, and a focus that is
+// a white gap and a black band of seven inside the frame —a double frame no one can take for the border—. It
+// is a test of pixels and not of counts, because what changed is what a person sees (docs/30, docs/90).
 void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
   fresh_view();
   int8_t button = -1;
@@ -1328,40 +1409,54 @@ void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
 
   TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
   // **The corner of the frame is not the border**: the box is rounded, so the pixel of the corner is the view
-  // behind it and not ink. The middle of the same top edge is ink, two pixels of it.
+  // behind it and not ink. The middle of the same top edge is ink, three pixels of it.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(40, 40));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(44, 40));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(52, 40));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 40));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the frame is three pixels now
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));  // the body, white
   // **The volume of a light button is its shadow**: a white button has no lighter edge to draw, so what says
-  // it comes out of the page is a grey line along the bottom.
-  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 137));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 135));
+  // it comes out of the page is a grey line of two pixels along the bottom, inside the frame.
+  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 136));
+  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 135));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 134));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 137));  // and the frame below it
   // **And the dark one's is the highlight**, which is the same idea the other way round.
   TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, false, false));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 42));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 44));
   // **Held, the two swap**: the light goes to the bottom and the shadow to the top, which is a button pushed in.
   TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, true, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 137));
-  // **And on a white button the hole has a mouth**: the shadow is two pixels of a much darker level and not one
-  // line of the grey that was there when it was out, which is what a person reads as pressed (docs/90).
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 42));  // the border is still the border
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 136));
+  // **And on a white button the hole has a mouth**: the shadow is as many pixels of a much darker level as the
+  // frame is thick and not one line of the grey that was there when it was out, which is what a person reads
+  // as pressed (docs/90).
   TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, true, false));
-  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 42));
   TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));  // the border is still the border, and it is black here
-  // **The ring of the focus**: two black pixels five in from the frame, and the body again inside them.
+  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 44));
+  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 45));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 46));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the border is still the border, and it is black here
+  // **The ring of the focus**: a white gap of two after the border and seven black pixels after it, and the
+  // body again inside them. It is the double frame a person reads as "this is the one" (docs/30, docs/90).
   TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, true));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));  // the pause, which is the light edge of the bevel
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 45));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 46));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 47));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 47));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 48));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 49));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 50));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 51));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 52));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 70));  // and the middle of the button is untouched
-  // Without the focus those two pixels are the body, which is what makes the ring the focus and not a border.
+  // Without the focus those seven pixels are the body, which is what makes the ring the focus and not a border.
   TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 45));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 46));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 51));
 }
 
 int main(int argc, char** argv) {
@@ -1412,6 +1507,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink);
   RUN_TEST(test_a_page_costs_what_the_board_says_a_page_costs);
   RUN_TEST(test_an_a2_flashes_the_page_before_the_image_arrives);
+  RUN_TEST(test_a_gc16_blinks_before_the_image_arrives);
+  RUN_TEST(test_the_glass_is_walked_while_the_paint_waits);
   RUN_TEST(test_only_the_board_that_has_a_glass_announces_one);
   RUN_TEST(test_a_pixel_of_the_window_lands_in_the_middle_of_its_block);
   RUN_TEST(test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for);

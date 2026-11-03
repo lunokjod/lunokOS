@@ -207,11 +207,40 @@ i un escriptor de JSON), i `app.spawn`/`app.raise` quan una app els demani. Tot 
 | `console.flush()` ⏳ | — | Força la sortida |
 | `console.read_line()` | promesa amb la cadena sense `\n` | Una lectura alhora: la segona dona `E_BUSY` |
 | `console.read(n)` ⏳ | cadena (fins a `n` bytes) o `nil` | |
-| `console.read_byte()` ⏳ | enter 0–255 o `nil` | |
+| `console.read_byte()` ⏳ | promesa amb l'enter 0–255 | **El proper byte del teclat**, sense línia i sense eco: el que necessita un editor (0.65.0) |
+| `console.raw([on])` | booleà | **El teclat és del teclat i no de la línia** (0.65.0): sense eco, sense edició i sense CRLF traduït; es llegeix amb `console.read_byte`. Sense argument diu com està |
 | `console.on_data(fn)` ⏳ | — | Mode push: `fn(tros)` per cada tros que arribi |
 | `console.is_foreground()` | booleà | `false` dins d'una finestra d'alarma |
 
-**Avui hi ha** `console.print`, `console.write`, `console.read_line` i `console.is_foreground`.
+**Avui hi ha** `console.print`, `console.write`, `console.read_line`, `console.read_byte`, `console.raw` i
+`console.is_foreground`.
+
+### Mode cru: les tecles i no les línies (0.65.0)
+
+Un prompt vol una línia; **un editor vol les tecles**. `console.raw(true)` canvia què és el teclat:
+
+- **No hi ha eco i no hi ha edició**: el retrocés no esborra res i `Enter` no acaba res, perquè el que
+  arriba són bytes i el que en fa l'app és cosa seva.
+- **Les fletxes arriben senceres**: `ESC [ A` són tres bytes que l'app llegeix com vulgui, i el sistema no
+  se'ls menja.
+- **`console.read_byte()` és el camí**: torna una promesa amb l'enter del proper byte. Els bytes que arriben
+  sense ningú esperant-los **es guarden en una cua de 256** i la lectura següent els troba de seguida, que és
+  el que fa que escriure sigui més ràpid que el torn del nucli (docs/75).
+- **La sortida d'emergència segueix sent del sistema**: tres ESC seguits tanquen l'app, però una fletxa no
+  compta com un ESC. Un `:q!` de l'editor és la porta normal; els tres ESC són la de quan l'app no escolta.
+- **`console.raw(false)` la desfà**, i el que hi havia a la cua es llença: mitja línia no és cap tecla i mitja
+  tecla no és cap línia.
+
+```lua
+console.raw(true)
+term.clear()
+local b = console.read_byte():await()   -- 27 quan es prem ESC
+if b ~= 27 then console.write(string.char(b)) end
+console.raw(false)
+```
+
+Els dos editors del sistema (`run edit` i `run hexedit`) són exactament això: `term` per dibuixar i
+`console.read_byte` per llegir (docs/85).
 
 ### Mentre una app viu, el teclat és seu
 
@@ -459,6 +488,7 @@ Una pàgina, i prou: una crida, una promesa, i la resposta és el codi d'estat i
 | Crida | Torna | Notes |
 |---|---|---|
 | `http.get(url[, max_bytes[, ms]])` | **promesa** | Es resol amb `{status, body, bytes}`; **16 384 B** de cos i **20 000 ms** de termini per defecte |
+| `http.download(url, path[, ms])` | **promesa** | Es resol amb `{status, path, bytes}`; **la pàgina sencera va al fitxer** i no passa pel heap, per llarga que sigui |
 
 - **Va per la cua com la resta.** No cal `net.connect` abans: la petició es porta la xarxa ella
   mateixa (amb el que la placa té desat) i la deixa anar en acabar (docs/75).
@@ -471,13 +501,24 @@ Una pàgina, i prou: una crida, una promesa, i la resposta és el codi d'estat i
   un error.
 - **L'adreça té un màxim de 192 B** (el que porta la cua): una de més llarga es refusa amb
   `E_TOOBIG` en comptes de tallar-se, perquè mitja adreça demana una altra pàgina.
+- **Una pàgina que no cap enlloc no es perd: va a un fitxer.** `http.download` la deixa sencera al
+  camí que se li dona —`{status, path, bytes}`, i el fitxer és de qui llegeix el disc, amb
+  `fs.open`—, i al prompt `http <url>` fa el mateix tot sol quan la pàgina passa dels 16 384 B: la
+  desa a la targeta (o a la flash si no n'hi ha) i en diu el camí. **Mitja pàgina no arriba mai**: un
+  fitxer que no és la pàgina sencera s'esborra i la promesa falla (docs/70).
+- **El lloc on va la pàgina és el d'un fitxer**, i no un de qualsevol: una app escriu on escriuria
+  amb `fs.write` —el seu `/data/<id>/`—, i el prompt, a qualsevol disc muntat escrivible (docs/70).
+  Un camí que no és d'un disc d'aquesta placa refusa la petició amb `E_UNAVAIL` abans de demanar res
+  al servidor.
 - **El TLS no es pot desactivar i cap certificat viu al repositori**: la placa fa servir el paquet
   d'autoritats que porta el build d'Arduino, i un servidor que no hi és sota rebota amb `E_TLS`
   (docs/50).
 - **Codis**: `E_NONET` (la placa no té cap xarxa desada on connectar-s'hi), `E_TIMEOUT`, `E_TOOBIG`,
-  `E_TLS`, `E_HTTP`, `E_NOSPC` i `E_BUSY`.
+  `E_TLS`, `E_HTTP`, `E_NOSPC`, `E_IO` (el disc no ha pogut escriure la pàgina), `E_UNAVAIL` (el
+  lloc on havia d'anar no hi és) i `E_BUSY`.
 - **La ràdio no queda encesa**, i la pàgina no es queda enlloc: el cos viu dins la cadena de Lua i,
-  quan l'app el deixa anar, el recull el recolector.
+  quan l'app el deixa anar, el recull el recolector; el d'un `http.download` viu al disc i és de qui
+  l'obri.
 
 ```lua
 local ok, page = pcall(function() return http.get('https://example.com/'):await() end)
@@ -487,6 +528,16 @@ if not ok then
 end
 console.print(page.status .. ' (' .. page.bytes .. ' bytes)')
 console.print(page.body)
+```
+
+Una pàgina que no cap al heap es baixa a un fitxer i es llegeix per trossos:
+
+```lua
+local r = http.download('https://example.com/gran.html', '/data/jo/gran.html'):await()
+console.print(r.status .. ' (' .. r.bytes .. ' bytes a ' .. r.path .. ')')
+local f = fs.open(r.path, 'r')
+console.print(f:read(200))
+f:close()
 ```
 
 L'exemple de mà és `run page` (`data/apps/page/`), que baixa una pàgina i n'ensenya l'estat i el cos.
@@ -539,9 +590,10 @@ El que una app ha de saber:
 - **`/rtc` i `/fram` són l'excepció i són memòria crua**: 7 168 B que sobreviuen a un son profund i
   256 B que no necessiten el corrent, sense mapa ni claus, i **el format el decideix l'app que hi
   escriu** (`/rtc` a seques, que és el fitxer sencer). S'hi escriu amb un mànec —`fs.open('/rtc',
-  'w')` i `file:write(…)`— i no amb `fs.write`, que és atòmic i necessita un reanomenament que una
-  memòria no té. `fs.space` diu la mida de cadascuna i tota lliure, perquè no s'hi assigna res
-  (docs/50, docs/70).
+  'w')` i `file:write(…)`— o amb `fs.write` des de la 0.65.1, que hi va **al lloc** perquè una
+  escriptura atòmica necessitaria un reanomenament que una memòria no té: els bytes al començament i la
+  resta de la memòria a zero, i `E_NOSPC` si no hi cap sencera. `fs.space` diu la mida de cadascuna i
+  tota lliure, perquè no s'hi assigna res (docs/50, docs/70).
 - **No hi ha quota**: el que doni el disc. Quan s'ha acabat, l'escriptura respon `E_NOSPC` i el fitxer
   vell queda sencer, perquè `fs.write` és atòmica.
 - `fs.stat` torna `{type = "file"|"dir", size, mtime}`; `mtime` és 0 perquè cap backend el dona.
@@ -736,7 +788,7 @@ una app marxa—: cada app decideix **què** es dibuixa, amb **quina qualitat** 
 
 L'únic que el sistema pinta són **les 48 files de dalt**: la barra amb l'hora, el títol de l'app i la
 càrrega, que no és de cap app (docs/50, «La barra del sistema»). Per això la vista d'una app comença a
-la fila 28 i `ui.caps().y` ho diu.
+la fila 48 i `ui.caps().y` ho diu.
 
 | Crida | Torna | Notes |
 |---|---|---|
@@ -759,7 +811,9 @@ la fila 28 i `ui.caps().y` ho diu.
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
 | `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
-| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer** (`/res/*.lfont`, `/res/*.bdf` o `/res/*.pcf`); el bloc de glifs és de l'app i compta al seu pressupost |
+| `ui.image(x, y, path, [w], [h], [mode])` | `true` o `nil, error` | **Una imatge d'un fitxer**: sense `w` ni `h` es dibuixa a la mida del fitxer; amb una mida, s'escala al més proper |
+| `ui.image_info(path)` | `{format, width, height}` o `nil, error` | El que diu la capçalera del fitxer, **sense dibuixar-lo** |
+| `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer** (`/res/*.lfont`, `/res/*.bdf`, `/res/*.pcf` o `/res/*.ttf`); el bloc de glifs és de l'app i compta al seu pressupost, i un `.ttf` és el fitxer sencer |
 | `ui.font(font)` · `cv:font(font)` | `true` o `nil, error` | La cara de la vista i la d'un canvas; `nil` torna a la del sistema |
 | `font:text_width(text, [scale])` | píxels | Quant fa de llarg una línia amb aquesta cara |
 | `font:size()` | ample, alt, glifs | El que la cara diu de si mateixa |
@@ -773,6 +827,23 @@ la fila 28 i `ui.caps().y` ho diu.
   està escrit a `docs/95`, E-7). El motor del controlador no es marca ocupat en el mateix instant que rep
   la comanda, i per això el sistema no respon «ha acabat» fins passats uns mil·lisegons: és una guarda
   del conductor i no una mesura (`docs/50`).
+- **Les imatges són fitxers i no taules de píxels a la memòria.** `ui.image` llegeix la capçalera, baixa les
+  files una a una i les deixa al canvas, i el que queda al heap quan torna és el que hi havia abans. Els
+  formats que es llegeixen avui són **PNG** (tipus de color 0, 2, 3, 4 i 6, profunditats 1 a 16, tots els
+  filtres), **JPEG** (base i seqüencial estès, amb qualsevol factor de mostreig i marcadors de reinici),
+  **BMP** (1, 4, 8, 16, 24 i 32 bits, amb paleta o sense, de dalt o de baix), **GIF** (87a i 89a, la primera
+  imatge, LZW, transparència i entrellaçat), **ICO** (una imatge de BMP o un PNG a dins) i la família
+  **netpbm** (`PBM`, `PGM` i `PPM`, en text i en cru). El que no es llegeix es diu amb un codi i no es dibuixa
+  malament: un PNG entrellaçat (Adam7), un JPEG progressiu o aritmètic, un JPEG de quatre components (CMYK) i
+  un BMP comprimit amb RLE són `E_UNSUPPORTED`; un fitxer que diu ser una imatge i no ho és, `E_IO`; un de més
+  gran de dos megabytes o una imatge de més de 4 096 píxels per costat, `E_INVAL`/`E_NOSPC`.
+- **El color és el del paper.** Una imatge de color es converteix a les setze tintes del vidre amb la
+  **luminància** (0,299·R + 0,587·G + 0,114·B, en aritmètica entera) i un **dither ordenat** de 4×4: un
+  gradient de vuit bits es veu com un gradient i no com setze franges, i un negre pur és negre a tot arreu. Una
+  imatge amb transparència es compon **sobre el paper blanc**, que és el que hi ha sota seu (docs/50).
+- **La mida que es demana és un escalat al més proper.** `ui.image(x, y, path, w, h)` dibuixa la imatge a
+  `w`×`h`; una imatge de 96×72 a 480×360 ocupa el doble de píxels de la pàgina i no s'interpola, perquè setze
+  nivells no tenen res a interpol·lar (docs/30).
 - **Cada dibuix guarda la seva regió i la seva qualitat.** `ui.rect(0, 40, 60, 120, 7, 'gc16')`
   apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du')` apunta «aquest
   quadre, i ràpid». `ui.present()` envia cada regió amb la seva i, com que el controlador només pot
@@ -799,7 +870,7 @@ la fila 28 i `ui.caps().y` ho diu.
   `gc16` pinta i neteja (450 ms), `du` pinta però deixa rastre (120 ms), i **`du4` i `a2` no van pintar
   res** —`present` deia `true` i el vidre no canviava—. Fins que això no estigui resolt, pintar amb `du` i
   **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net.
-- **Una cara pot venir de tres formats, i el fitxer mateix diu de quin.** `ui.load_font` mira la primera
+- **Una cara pot venir de quatre formats, i el fitxer mateix diu de quin.** `ui.load_font` mira la primera
   línia: `lunok-font 1` és el format propi —una línia de directives i els glifs en `#` i `.`— i
   `STARTFONT` és un **BDF**, el mapa de bits que llegia un servidor X: `FONTBOUNDINGBOX` amb la caixa, i
   per a cada `STARTCHAR` el seu `ENCODING` i les files del `BITMAP` en hexadecimal, amb el píxel de
@@ -811,7 +882,7 @@ la fila 28 i `ui.caps().y` ho diu.
   costat de la del sistema, i les dues surten del **mateix font** (el `.pcf` de l'app està fet amb
   `bdftopcf` del `.bdf` de l'altra, i la prova comprova que el bloc és idèntic byte a byte). Un fitxer que
   no comença per cap de les tres coses es refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok
-  font, a bdf nor a pcf`), i també un BDF o un PCF amb un glif de més de vuit columnes
+  font, a bdf nor a pcf`), i també un BDF o un PCF amb un glif de més de setze columnes
   (`a bdf glyph is up to sixteen columns wide`, `a pcf glyph is up to sixteen columns wide`). D'un PCF no es
   llegeix el que no se sap i no s'endevina: una codificació de dos bytes, una unitat d'escombrat més gran
   que un byte, o els bits al revés es refusen amb el seu motiu. Un **`.pcf.gz`** (el que tenen les
@@ -821,15 +892,16 @@ la fila 28 i `ui.caps().y` ho diu.
   són els offsets), `hhea` i `hmtx` (el pas de cada glif), `maxp` (quants glifs hi ha), `loca` i `glyf` (on
   comença cada contorn) i un `cmap` **de format 4**, que és el mapa de segments de l'ASCII. Un glif és una
   llista de contorns de punts: els que la corba travessa i els que la dobleguen, o sigui **quadràtiques**, que
-  es tallen en sis trossos rectes —fins a **384 arestes** per glif, i un glif que en demani més es **refusa**
-  en lloc de dibuixar-se a mitges— i s'omplen per **regla de gir**: cada aresta que travessa el mig d'una fila
+  es tallen en sis trossos rectes —fins a **384 arestes** per glif, i un glif que en demani més es torna a
+  tallar amb **quatre i després tres trossos per corba** abans de refusar-lo, perquè una cantonada es veu i una
+  lletra que falta no és una lletra— i s'omplen per **regla de gir**: cada aresta que travessa el mig d'una fila
   diu cap a on va, i un píxel és tinta quan el compte a la seva esquerra no és zero —això és el que fa que el
   forat d'una lletra sigui un forat i no una segona taca—. El que no es llegeix es refusa amb el motiu:
-  `OTTO` (contorns CFF, un altre format), un glif fet de peces (`kComposite`), una corba amb més arestes que
-  el bloc, i un codi que el mapa no porta (`kNoGlyph`). **I arriba a les apps**: `ui.load_font('/res/x.ttf')`
+  `OTTO` (contorns CFF, un altre format), un glif fet de peces (`kComposite`), un glif que no cap ni amb tres
+  trossos per corba, i un codi que el mapa no porta (`kNoGlyph`). **I arriba a les apps**: `ui.load_font('/res/x.ttf')`
   el reconeix pels quatre primers bytes, i el que canvia respecte de les cares de bits és doble: **el bloc de
-  la cara és el fitxer sencer** (comptat al pressupost de l'app, fins a 128 KB, i els 768 B dels glifs no es
-  gasten) i **`scale` vol dir la mida del cos en vuitens de píxel** (`kOutlineBody` = 8), o sigui que
+  la cara és el fitxer sencer** (comptat al pressupost de l'app, fins a 128 KB, i els 3 072 B del bloc de
+  glifs no es gasten) i **`scale` vol dir la mida del cos en vuitens de píxel** (`kOutlineBody` = 8), o sigui que
   `text(x, y, s, 3)` és una línia de 24 píxels de cos. `font:text_width` suma els passos de cada glif en lloc
   de multiplicar una cel·la, `font:size()` diu `0, 8, 0` (l'amplada és de cada glif i el nombre de glifs és
   del fitxer). **Hi ha dues apps i no fan el mateix**: `run font-ttf` dibuixa el `.ttf` d'aquest repositori
@@ -880,9 +952,9 @@ taula fixa és la crida i el contracte.
   (`ui.load_font`), tres números que descriuen la cara (`font:size`) i una amplada (`font:text_width`). Una
   app no processa cap font, i si ho intentés no tindria amb què: l'objecte `font` no té cap camp de glifs ni
   cap crida que els torni.
-- **La memòria és de l'app**: el bloc de glifs (`96 × 8 = 768` bytes) compta al pressupost (docs/75) i torna
-  quan l'app crida `font:release()` o quan l'app s'acaba; un canvas que la feia servir torna a la font del
-  sistema en comptes de llegir un bloc que ja no hi és.
+- **La memòria és de l'app**: el bloc de glifs (`96 × 16 × 2 = 3 072` bytes) compta al pressupost
+  (docs/75) i torna quan l'app crida `font:release()` o quan l'app s'acaba; un canvas que la feia servir
+  torna a la font del sistema en comptes de llegir un bloc que ja no hi és.
 - **Dues apps per mirar-ho**: `run fonts` (la font del sistema i una cara carregada a la mateixa pàgina, amb
   els números de cada cara a la consola) i `run sheet` (tots els glifs del sistema amb la seva cel·la).
 
@@ -1034,7 +1106,7 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.background` | 0–15 (15 per defecte) | El nivell del fons del marc |
 | `button.border` | 0–15 (0 per defecte) | El nivell de la vora |
 | `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, **el relleu s'inverteix** i el botó sembla enfonsat |
-| `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **un anell de dos píxels** cinc passes endins (negre sobre fons clar, blanc sobre fons fosc) |
+| `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **una pausa de dos píxels i una banda de set** —el doble marc del control seleccionat—, negra sobre fons clar i blanca sobre fons fosc |
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |
 
 | Callback | Què fa |
@@ -1043,26 +1115,49 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.on_activate(self)` | El mateix clic quan no hi ha `on_click`; és el nom genèric per a un control que no és un botó |
 | `button.on_focus(self, focused)` | Quan el dial o el tàctil mouen el focus: arriba (`true`) o se'n va (`false`). El primer control d'una pàgina ja neix enfocat, i per això el seu `on_focus` no es crida en crear-lo |
 
-- **Una cara de bits és de setze per setze, i la dels botons ve d'una font de debò** (2/11, 0.55.0). La cel·la
+- **Una cara de bits és de setze per setze, i una taula es pot fer d'una font de debò** (2/11, 0.55.0). La cel·la
   era de vuit per vuit —el que demanava una 5 × 7 doblada— i ara és de **setze per setze amb dues bytes per
   fila** (`kGlyphRowBytes`), perquè setze columnes no caben en un byte: el bloc d'una cara passa de 768 a
   **3 072 B** i el que no canvia és el camí que el dibuixa. I per tenir una lletra gran, arrodonida i amb
   majúscules i minúscules sense pagar un rasteritzador a cada pàgina, hi ha **`tools/ttf_to_lfont.py`**:
   converteix un `.ttf` en un `.lfont` a una mida triada (Pillow, el glif centrat a la cel·la perquè la taula és
-  d'amplada fixa, el traç opcional) i refusa el que no cap a setze. `run buttons` en fa servir un de fet amb
-  **Nunito SemiBold a 14 px**, cel·la de 16 × 16, 96 glifs i **27 049 B** de text — i la seva llicència OFL va
-  al costat (`/res/LICENCE-nunito.txt`). El preu de la taula fixa: cada glif ocupa tota la cel·la, o sigui que
-  un text amb una `.lfont` és més ample que el mateix text amb el `.ttf` (169 px contra 138 per a
+  d'amplada fixa, el traç opcional) i refusa el que no cap a setze. `run fonts` carrega el
+  `digits-8x8.lfont` que viatja amb l'app i en diu la mida i l'amplada de la línia, i `run font-mix` fa el
+  mateix amb un `abc-6x7.lfont`. El preu de la taula fixa: cada glif ocupa tota la cel·la, o sigui que un
+  text amb una `.lfont` és més ample que el mateix text amb el `.ttf` (169 px contra 138 per a
   `Handgloves`), i per això les dues cares existeixen.
 
+- **El marc del botó té pes** (3/11, 0.56.2). Tres píxels de vora en un botó més gran de 24 (dos en un
+  de petit, un en un xip), el relleu **un píxel més prim que la vora** (d'un píxel en un xip), el forat de
+  premut amb tantes anelles com la vora. Un filet lleuger llegeix com una caixa dibuixada al voltant d'una
+  paraula; un marc amb pes llegeix com una cosa que un dit pot prémer (docs/50, docs/90).
+
+- **I el focus és el doble marc més fort de la pàgina** (3/11, 0.56.2): després de la vora, els **dos píxels
+  del relleu fan de pausa** i aleshores ve una **banda de set píxels** —la vora i quatre— del color que no es
+  pot confondre, i el cos torna a dins. Un anell que només dobla la vora es llegeix com una vora més gruixuda
+  i no com «aquest és el que té el focus»; la pausa és el que diu que hi ha dos elements i que el de dins és
+  el focus. I com que el canvi de focus és un canvi d'estat de la pàgina, l'app l'ha de **rentar amb `gc16`**
+  al torn següent: un `du` hi deixa l'anell anterior a un quart de la tinta, que és un anell gris que ningú no
+  ha demanat (docs/50, docs/90).
+
+- **La pàgina dels botons ja no porta una taula de bits** (3/11, 0.56.2): `run buttons` carrega **Lato
+  Black** d'un `.ttf` d'outlines retallat a l'ascii imprimible (`pyftsubset --unicodes=U+0020-007E`,
+  **19 340 B**, la llicència OFL al costat, `/res/LICENCE-lato.txt`) i dibuixa els vuit labels a **24 px**
+  (`scale = 3`), el títol a 32 i les notes a 16, amb el mateix tipus de lletra. És una **rodona** de debò —el
+  `g` té noranta-un punts i és el glif que va fer falta tallar amb menys trossos de corba— i una cara
+  d'outlines és **proporcional**: les amplades surten de la taula del fitxer i el text no té la respiració de
+  la cel·la fixa; el preu és que el nucli ha de dibuixar cada glif, i per això les dues cares conviuen
+  (docs/85).
+
 - **El botó té forma i volum, i el focus no es pot perdre de vista** (2/11, 0.51.0): el marc és una **caixa
-  amb els cantons rodons** (dotze píxels, i mai més d'un terç del costat més petit — un botó que és tot
-  cantó és una pastilla i no un botó), amb una vora de dos píxels. A dins hi ha el **relleu**: una aresta
-  clara a dalt i a l'esquerra i una ombra a baix i a la dreta (`fons + 4` i `fons − 4`, o sigui que un botó
-  blanc té ombra grisa i un de negre té lluentor grisa), i **mentre es prem les dues canvien de lloc**, que és
-  tota la diferència entre un botó que surt i un que s'enfonsa. El **focus és un anell de dos píxels** cinc
-  passes endins, en el nivell que no es pot confondre: negre sobre un botó clar i blanc sobre un de fosc. És
-  un píxel de tinta i no un degradat, perquè el panell té setze nivells i el que es veu és una aresta.
+  amb els cantons rodons** (dotze píxels, i mai més d'un terç del costat més petit — un botó que és tot cantó
+  és una pastilla i no un botó), amb una vora de dos píxels —tres en un botó de pàgina des de la 0.56.2—. A
+  dins hi ha el **relleu**: una aresta clara a dalt i a l'esquerra i una ombra a baix i a la dreta (`fons + 4`
+  i `fons − 4`, o sigui que un botó blanc té ombra grisa i un de negre té lluentor grisa), i **mentre es prem
+  les dues canvien de lloc**, que és tota la diferència entre un botó que surt i un que s'enfonsa. El **focus
+  és un anell** cinc passes endins, en el nivell que no es pot confondre: negre sobre un botó clar i blanc
+  sobre un de fosc. És un píxel de tinta i no un degradat, perquè el panell té setze nivells i el que es veu
+  és una aresta. El gruix de la vora i el de l'anell són els de la 0.56.2, més amunt.
 - **El fill és un control de debò**: `button:add(label)` el treu del pare anterior i el posa dins del botó;
   `label:place(x, y)` passa a comptar-se en píxels del botó. `button:add` i `button:place` són els
   mateixos mètodes de qualsevol canvas (docs/30).
@@ -1115,9 +1210,10 @@ end
 ui.present()
 ```
 
-L'app `buttons` (`run buttons`) posa vuit labels de quatre cares, quatre tamanys i colors diferents dins
-de vuit botons, i un d'ells premut. Els comptes de la consola mostren que un botó que canvia també torna a
-dibuixar el seu fill.
+L'app `buttons` (`run buttons`) posa vuit labels de la mateixa cara —Lato Black, la del títol i les
+notes— a **tres tamanys** (16, 24 i 32 px) dins de **vuit botons blancs**. El vuitè es prem i es deixa anar amb
+un `gc16` que neteja el forat, el focus es renta quan es mou, i els comptes de la consola mostren que un botó
+que canvia també torna a dibuixar el seu fill.
 
 ## El que costa, contat a la porta
 
@@ -1127,7 +1223,11 @@ l'escala que es llegeix.
 
 **Cada crida que arriba a un dispositiu es conta i es cronometra**, i també el moment en què es va fer
 l'última. No és un registre de depuració que s'encén: és una taula fixa que sempre hi és i que el prompt
-ensenya amb `stats` (docs/30, docs/50, docs/75).
+ensenya amb `stats` (docs/30, docs/50, docs/75). I **cada fila hi és encara que no s'hagi cridat mai**: un
+zero és una mesura —vol dir que aquell aparell no ha rebut ni una petició des de l'últim `stats reset`— i les
+quatre columnes de temps d'una fila sense crides són un guió, perquè no hi ha cap crida de la qual parlar. El
+que **no** hi és és el que aquest build i aquesta placa no tenen: un ATOM no té fila de vidre i la Paper no
+la té de llum (docs/50, docs/85).
 
 ```
 lunok> stats
@@ -1136,14 +1236,20 @@ boot                1    108.2ms    108.2ms    108.2ms    108.2ms    108.0ms
 flash.read         36     83.5ms      2.3ms      2.1ms      4.0ms      2.16s
 flash.list          3    136.4ms     45.4ms      2.4ms     80.0ms      2.15s
 flash.stat         71      517us        7us        2us       24us      2.15s
+sd.read             0        0us          -          -          -          -
 glass.flush         4        2us        0us        0us        1us      3.20s
+touch.read          2      1.7ms      866us      860us      872us      3.20s
+clock.now           1        0us        0us        0us        0us      3.20s
 clock.mono          9        3us        0us        0us        1us      4.20s
+clock.wake          0        0us          -          -          -          -
 keys.read           4        1us        0us        0us        1us      4.20s
 kv.get              1       45us       45us       45us       45us        0us
 kernel.loop         4      4.00s      1.00s      1.00s      1.00s      4.20s
 lua.run             1     40.1ms     40.1ms     40.1ms     40.1ms      2.20s
 lua.own             1        6us        6us        6us        6us      2.20s
 psram.alloc         3       31us       10us        0us       25us      2.16s
+power.battery       0        0us          -          -          -          -
+env.read            0        0us          -          -          -          -
 lua.call            2     40.3ms     20.1ms      177us     40.1ms      2.20s
 layers: 1 calls into the system, 40.1ms in them
 turns 4, kernel 4.00s of 4.33s up, idle 334.3ms
@@ -1169,8 +1275,11 @@ doors 220.5ms (5.0 % of the uptime)
 | Sensors | `imu.read`, `env.read` |
 | Ràdio | `net.wifi`, `net.http`, `net.ntp` |
 
-Els sensors i la FRAM surten quan algú els toca: si no hi ha la fila, és que ningú no ha demanat res
-d'aquell dispositiu, no que no es compti.
+**La llista és la d'aquest build i aquesta placa**: `sd.*` i `fram.*` només hi són on hi ha la ranura i el
+xip, `glass.*` i `touch.read` només a la Paper, `led.show` només als ATOM, `imu.read` només al Matrix,
+`env.read` i `power.battery` a la Paper, `net.*` quan el build porta ràdio i `psram.*` quan la placa té
+memòria extra. I **cada fila que hi és surt sempre**, amb zero si no s'ha cridat: una fila que falta és una
+fila que no existeix en aquesta placa, i una fila a zero és una fila que existeix i no s'ha fet servir.
 
 - **Cada temps va en l'escala que es llegeix** —`845us`, `12.3ms`, `1.98s`, `3m07s`, `1h23m`— i mai en un
   compte de mil·lisegons que s'hagi de dividir al cap. Sense espais, perquè la taula ha de capir en

@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "kernel/fs_ops.h"
 #include "kernel/led.h"
+#include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
 #include "qr/qr.h"
@@ -68,6 +70,11 @@ enum RequestKind : uint8_t {
 // (docs/30).
 const uint32_t kNetUrlCap = 192;
 
+// The longest path inside a volume that a page can be written to. It is shorter than the VFS's own
+// limit because a copy of it rides in every request of the queue, and the queue lives in the RAM the
+// board has and not in the PC's (docs/75).
+const uint32_t kSinkPathCap = 96;
+
 struct Request {
   RequestKind kind = kReqNone;
   char ssid[33] = {0};
@@ -77,6 +84,11 @@ struct Request {
   char url[kNetUrlCap] = {0};
   // How many bytes of the page the caller is willing to hold (docs/75).
   uint32_t max_bytes = 0;
+  // **Where a page that does not fit goes**: the unit and the path inside it, both resolved when the
+  // request was made, so a place that cannot be written is a refusal and not a page lost at the end
+  // (docs/30, docs/70).
+  hal::IStorage* sink = nullptr;
+  char sink_rel[kSinkPathCap] = {0};
   hal::ProvTransport transport = hal::ProvTransport::kBle;
   uint32_t timeout_ms = 0;
   // Who is waiting for the answer: the shell's callback, or `nullptr` when it is
@@ -107,6 +119,11 @@ uint32_t g_http_op = 0;
 int g_http_status = 0;
 const char* g_http_body = nullptr;
 uint32_t g_http_body_len = 0;
+// **The page that went to a file**: where it is, so whoever waited for it can open it. It is one path
+// and not one per request because a page is one at a time —`page_pending()` is what keeps it so— and
+// the queue lives in the board's RAM (docs/30, docs/75).
+bool g_http_saved = false;
+char g_http_saved_path[kSinkPathCap] = {0};
 
 void start_next();
 bool begin(Request& request);
@@ -152,9 +169,10 @@ void finish(bool up, const char* code, int32_t count = -1) {
   if (waiter != nullptr) {
     waiter(up, code, (count > 0) ? static_cast<uint32_t>(count) : 0u);
   } else if (kind == kReqHttp) {
-    // A page is not a yes or a number: it is a status and a body, and the app gets
-    // them as a table (docs/30).
-    luabind::http_progress(up, code, g_http_status, g_http_body, g_http_body_len);
+    // A page is not a yes or a number: it is a status and a body —or the file it went to when it was
+    // too big for the heap—, and the app gets them as a table (docs/30).
+    luabind::http_progress(up, code, g_http_status, g_http_body, g_http_body_len,
+                           g_http_saved ? g_http_saved_path : nullptr);
   } else {
     luabind::net_progress(up, code, count);
   }
@@ -168,6 +186,8 @@ void finish(bool up, const char* code, int32_t count = -1) {
     g_http_status = 0;
     g_http_body = nullptr;
     g_http_body_len = 0;
+    g_http_saved = false;
+    g_http_saved_path[0] = '\0';
   }
   // The next one starts in this same turn: a chain of requests costs no time.
   start_next();
@@ -344,6 +364,8 @@ void stop_all() {
     g_http_status = 0;
     g_http_body = nullptr;
     g_http_body_len = 0;
+    g_http_saved = false;
+    g_http_saved_path[0] = '\0';
   }
   g_net->wifi_disconnect();
 }
@@ -472,6 +494,8 @@ bool begin(Request& request) {
       hal::HttpOpts opts;
       opts.timeout_ms = request.timeout_ms;
       opts.max_bytes = request.max_bytes;
+      opts.sink = request.sink;
+      opts.sink_path = (request.sink != nullptr) ? request.sink_rel : nullptr;
       g_http_op = g_net->http_get_start(request.url, opts);
       if (g_http_op == 0) return false;
       g_phase = kHttp;
@@ -548,15 +572,87 @@ bool ntp(const char* server, uint32_t timeout_ms) {
 
 // A page is a task of the queue like the time: it gets on the network with what the
 // board has stored, downloads, answers and lets go (docs/30, docs/75).
-luabind::NetRefuse http_get(const char* url, uint32_t max_bytes, uint32_t timeout_ms) {
+// **One page at a time**: the answer of a page is a buffer the board lends, a status and the path of
+// the file it may have gone to, and a second page in the queue would take them from the first
+// (docs/30, docs/75).
+bool page_pending() {
+  if (g_phase != kIdle && g_current.kind == kReqHttp) return true;
+  for (uint8_t i = 0; i < g_count; ++i) {
+    const uint8_t at = static_cast<uint8_t>((g_head + i) % kQueueLen);
+    if (g_queue[at].kind == kReqHttp) return true;
+  }
+  return false;
+}
+
+// The place a page is written to, resolved before the request starts: the unit and the path inside
+// it, or nothing when the mount is not there or is not writable (docs/70).
+bool resolve_sink(const char* path, hal::IStorage*& storage, char* rel, size_t cap) {
+  if (path == nullptr || path[0] == '\0') return false;
+  if (!vfs::resolve(path, storage, rel, cap)) return false;
+  return vfs::is_writable(path);
+}
+
+// The three shapes of a page are one request (docs/30): in memory, in memory **and then a file** when
+// it does not fit, or straight to the file with `max_bytes` at zero. `person` says who is asking, because
+// a page is a write and a write has a policy (docs/70).
+luabind::NetRefuse http_request(const char* url, uint32_t max_bytes, const char* spill_path,
+                                uint32_t timeout_ms, bool person) {
   if (g_net == nullptr) return luabind::NetRefuse::kNoRadio;
-  if (url == nullptr || url[0] == '\0' || max_bytes == 0) return luabind::NetRefuse::kInval;
+  if (url == nullptr || url[0] == '\0') return luabind::NetRefuse::kInval;
+  if (max_bytes == 0 && spill_path == nullptr) return luabind::NetRefuse::kInval;
   if (strlen(url) >= kNetUrlCap) return luabind::NetRefuse::kTooBig;
+  hal::IStorage* storage = nullptr;
+  char rel[kSinkPathCap] = {0};
+  // **The page lands where the caller could write a file**: the door and the ground of docs/70 are the
+  // filesystem's, and a download that answered to a different rule would be a hole in them
+  // (docs/30, docs/70).
+  char place[kSinkPathCap] = {0};
+  if (spill_path != nullptr) {
+    // The path as the filesystem sees it, then whether the drive is there —a mount that is not is a place
+    // that does not exist and not a permission problem—, then the policy, and the directories on the way
+    // (docs/30, docs/70).
+    if (!app_path(spill_path, place, sizeof(place))) return luabind::NetRefuse::kInval;
+    if (!resolve_sink(place, storage, rel, sizeof(rel))) return luabind::NetRefuse::kNoVolume;
+    luabind::FsError fs_err = luabind::FsError::kOk;
+    if (!write_allowed(place, person, fs_err)) return luabind::NetRefuse::kInval;
+    if (!app_make_way(place)) return luabind::NetRefuse::kNoVolume;
+  }
+  if (page_pending()) return luabind::NetRefuse::kBusy;
   Request request = make(kReqHttp, timeout_ms, true);
   snprintf(request.url, sizeof(request.url), "%s", url);
   request.max_bytes = max_bytes;
-  return push(request) ? luabind::NetRefuse::kOk : luabind::NetRefuse::kBusy;
+  request.sink = storage;
+  if (storage != nullptr) snprintf(request.sink_rel, sizeof(request.sink_rel), "%s", rel);
+  if (!push(request)) return luabind::NetRefuse::kBusy;
+  // The answer of this page, and not the one of the page before: a page is one at a time.
+  g_http_saved = false;
+  g_http_saved_path[0] = '\0';
+  if (spill_path != nullptr) snprintf(g_http_saved_path, sizeof(g_http_saved_path), "%s", place);
+  return luabind::NetRefuse::kOk;
 }
+
+luabind::NetRefuse http_get(const char* url, uint32_t max_bytes, uint32_t timeout_ms) {
+  return http_request(url, max_bytes, nullptr, timeout_ms, true);
+}
+
+luabind::NetRefuse http_get_spill(const char* url, uint32_t max_bytes, const char* spill_path,
+                                  uint32_t timeout_ms) {
+  return http_request(url, max_bytes, spill_path, timeout_ms, true);
+}
+
+luabind::NetRefuse http_download(const char* url, const char* path, uint32_t timeout_ms) {
+  return http_request(url, 0, path, timeout_ms, true);
+}
+
+// The same for an app, which writes where `fs.write` lets it and nowhere else (docs/70). It is not in the
+// header because the only caller is the interpreter, through the operations installed below.
+luabind::NetRefuse download_from_app(const char* url, const char* path, uint32_t timeout_ms) {
+  return http_request(url, 0, path, timeout_ms, false);
+}
+
+bool http_saved() { return g_http_saved; }
+
+const char* http_saved_path() { return g_http_saved_path; }
 
 int http_status() { return g_http_status; }
 
@@ -608,6 +704,7 @@ void boot(hal::IPlatform& platform) {
   ops.forget = &forget;
   ops.ntp_start = &ntp;
   ops.http_get = &http_get;
+  ops.download = &download_from_app;
   ops.cancel = &cancel;
   ops.disconnect = &drop;
   ops.state = &state_code;
@@ -732,6 +829,7 @@ void poll() {
     g_http_status = result.status;
     g_http_body = result.body;
     g_http_body_len = result.body_len;
+    g_http_saved = result.saved;
     const char* code = nullptr;
     switch (result.error) {
       case hal::HttpError::kNone:
@@ -744,6 +842,9 @@ void poll() {
         break;
       case hal::HttpError::kNoMemory:
         code = "E_NOSPC";
+        break;
+      case hal::HttpError::kStorage:
+        code = "E_IO";
         break;
       default:
         code = "E_HTTP";

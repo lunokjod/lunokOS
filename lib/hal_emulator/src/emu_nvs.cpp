@@ -20,6 +20,24 @@ namespace {
 
 const size_t kPathCap = 320;
 
+// **How the NVS really writes**: Espressif's key-value store appends entries of thirty-two bytes to a
+// page of 4 KB and **erases the page only when it is full**, which is why setting a key costs a page
+// programme of 0.7 ms and not the sector of 45 ms that a littlefs commit pays. The page counter is the
+// store's, not one file's: every key of every namespace goes in the same page (docs/70, docs/85).
+const uint32_t kNvsEntryBytes = 32;
+const uint32_t kNvsPageEntries = 126;  // 4 KB less the header of the page, over 32 bytes
+uint32_t g_nvs_entries = 0;
+
+// What one write of the store costs, and the erase when the page turns over.
+void nvs_pay() {
+  bool erasing = false;
+  if (++g_nvs_entries > kNvsPageEntries) {
+    g_nvs_entries = 1;
+    erasing = true;
+  }
+  emu::disk_pay_write(emu::Disk::kFlash, kNvsEntryBytes, erasing);
+}
+
 void join(char* out, size_t cap, const char* a, const char* b, const char* c = nullptr) {
   size_t used = 0;
   const char* parts[3] = {a, b, c};
@@ -115,7 +133,9 @@ class HostNvs : public IKeyValue {
   bool set(const char* ns, const char* key, const void* buf, size_t len) override {
     char path[kPathCap];
     if (buf == nullptr || !key_path(path, sizeof(path), ns, key, true)) return false;
-    emu::disk_pay(emu::Disk::kFlash, static_cast<uint32_t>(len), true);
+    // An entry of the store and not a file of the volume: the page programme, and the sector only when
+    // the page is full (docs/70).
+    nvs_pay();
     FILE* file = fopen(path, "wb");
     if (file == nullptr) return false;
     const size_t put = fwrite(buf, 1, len, file);
@@ -126,7 +146,10 @@ class HostNvs : public IKeyValue {
   bool erase(const char* ns, const char* key) override {
     char path[kPathCap];
     if (!key_path(path, sizeof(path), ns, key, false)) return false;
-    return ::remove(path) == 0;
+    if (::remove(path) != 0) return false;
+    // A deletion is an entry too: the store writes a tombstone instead of moving the bytes around.
+    nvs_pay();
+    return true;
   }
 
   // Iteration keeps one directory open between calls, which is what the

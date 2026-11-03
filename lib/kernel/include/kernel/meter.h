@@ -115,8 +115,10 @@ uint32_t uptime_ms();
 // that has to be divided in the head before it means anything (docs/30).
 size_t human_us(char* out, size_t cap, uint64_t us);
 
-// The table, one line per meter that has been used, in the shape every line of this system has
-// (docs/30).
+// The table, one line per meter **this build and this board have** —a display, a card or a radio the board
+// does not carry is not a row— and every one of them is printed even when it was never called: a zero is a
+// measurement too, and a table that hides what was not used is a table a person has to guess about (docs/30,
+// docs/50, docs/85).
 void dump();
 
 // **An app is measured on its own**: what it costs is the difference between the table when its

@@ -82,6 +82,13 @@ struct Options {
   // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
   // only the clock is skipped, which is what a test that is not about time wants (docs/85).
   bool delays;
+  // **A board that was never unplugged** (`--persist`): the run starts where the run before it left
+  // the board. The key-value store is flash and is kept either way, the FRAM is not volatile and is
+  // kept too, but the **RTC RAM** dies with the power —so a model without a coin cell starts it at
+  // zero— and the hour of a board without a clock chip dies with it as well. With this on, the RTC
+  // RAM and the hour are the ones of the run before, which is what a reset does to the chip and what
+  // a cold start does not (docs/60, docs/85).
+  bool persist;
   // **What one instruction of the app costs at 160 MHz**, in nanoseconds: zero is a bench that does not
   // price the app's own code. It is the number that makes a loop cost here what it costs on the glass,
   // and it is the model's —a measurement of this board's interpreter is still owed (docs/95)—
@@ -104,9 +111,13 @@ struct Options {
   const char* prov_pass;
   bool prov_never;
   bool prov_fail;
-  // The page of this band is a fake too: after http_ms it answers http_status with
-  // http_body (or a line naming the address when nothing was set), and `http_fail`
-  // is a server that never answers (docs/85).
+  // **The page of this band is the one the address really answers**: the bench hands the URL to
+  // `curl` and the body and the status come back from the wire, with the certificate checked
+  // against the roots of this machine (docs/85). `http_fake` puts the canned page back — and the
+  // other four options are that same canned page: after http_ms it answers http_status with
+  // http_body (or a line naming the address when nothing was set), and `http_fail` is a server
+  // that never answers.
+  bool http_fake;
   int32_t http_ms;
   int32_t http_status;
   const char* http_body;

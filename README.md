@@ -49,6 +49,23 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > torna una promesa amb `{status, body, bytes}`, i l'exemple de mà és `run page`. La NVS es
 > pot mirar en **lectura** com un directori (`ls /nvs`).
 >
+> **La pàgina sap ensenyar imatges.** `ui.image(x, y, path[, w, h])` dibuixa un fitxer del disc a la
+> vista de l'app i `ui.image_info(path)` en diu la família i la mida sense dibuixar-lo: **PNG, JPEG,
+> BMP, GIF, ICO** i els netpbm **PBM/PGM/PPM**, tots amb el mateix codi que compila per a la placa. El
+> color cau a les setze tintes amb la seva lluminància i un **dither ordenat** —un degradat es veu com un
+> degradat—, una imatge amb transparència es compon sobre el paper, i una imatge que el sistema no llegeix
+> ho diu amb un codi en lloc de sortir torta. L'exemple és `run images`, amb **una imatge de cada família**
+> a `data/apps/images/res`.
+>
+> **Hi ha editors de debò.** `run edit <path>` és un editor de text **modal com el vim** (`h j k l`,
+> `i a o`, `x`, `dd`, `yy`, `p`, `u`/`Ctrl+R`, `/` amb `n`/`N`, `:w`/`:q`/`:wq`, `Ctrl+L` per repintar la
+> pàgina) i `run hexedit <path>` és l'editor hexadecimal de sempre (setze bytes per fila amb el
+> desplaçament i l'ASCII, el cursor amb dos niblies, `x` esborra, `i` insereix, `u` desfà). **Són el mateix
+> codi pel port sèrie de la placa i per la consola nadiua**, i per això el teclat sap ser **cru**
+> (`console.raw` i `console.read_byte`: les fletxes senceres, sense eco i sense línia); el fitxer que la
+> persona nomena al prompt és l'únic d'aquell disc que l'app pot desar (`:w` des d'un altre camí respon
+> `E_INVAL`).
+>
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al
 > davant **es torna a obrir sola** amb `app.args.restore` (després de `on_save`, que és on desa el
@@ -172,6 +189,7 @@ pio run -e emulator      # binari per al PC
 pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
 pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
 pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
+pio run -e esp32         # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
 pio test -e test         # proves natives
 ```
 

@@ -356,10 +356,15 @@ struct HttpJob {
   char url[kHttpUrlCap] = {0};
   uint32_t timeout_ms = 0;
   uint32_t max_bytes = 0;
+  // **Where a page that does not fit goes**: the unit the kernel resolved and the path inside it, and
+  // `saved` says the page is there and not in the heap (docs/30).
+  hal::IStorage* sink = nullptr;
+  char sink_path[96] = {0};
   int status = 0;
   HttpError error = HttpError::kNone;
   char* body = nullptr;
   uint32_t body_len = 0;
+  bool saved = false;
 };
 
 portMUX_TYPE g_http_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -391,13 +396,18 @@ HttpError http_error_for(esp_err_t err) {
   return HttpError::kTls;
 }
 
-// Reads the page into a buffer of `max_bytes` and leaves it in the job. Called in
-// the task and nowhere else, so the client is only touched there.
+// Reads the page into a buffer of `max_bytes` and leaves it in the job, or —when the caller gave a
+// volume and the page grows past that room— **into the file, from its first byte**, because a file
+// with the end of a page is a file nobody can read (docs/30). Called in the task and nowhere else, so
+// the client and the volume are only touched there.
 void http_fetch(HttpJob& job) {
-  char* body = static_cast<char*>(malloc(job.max_bytes + 1));
-  if (body == nullptr) {
-    job.error = HttpError::kNoMemory;
-    return;
+  char* body = nullptr;
+  if (job.max_bytes > 0) {
+    body = static_cast<char*>(malloc(job.max_bytes + 1));
+    if (body == nullptr) {
+      job.error = HttpError::kNoMemory;
+      return;
+    }
   }
   esp_http_client_config_t config = {};
   config.url = job.url;
@@ -416,7 +426,10 @@ void http_fetch(HttpJob& job) {
     job.error = HttpError::kConnect;
     return;
   }
-  uint32_t len = 0;
+  uint32_t len = 0;    // what is in the heap
+  uint32_t saved = 0;  // what is in the file
+  hal::FileSlot slot;
+  bool file_open = false;
   esp_err_t err = esp_http_client_open(client, 0);
   if (err != ESP_OK) {
     hal::logf(pal::kLogWarn, "HTTP", "could not open %s (%s)", job.url, esp_err_to_name(err));
@@ -424,38 +437,113 @@ void http_fetch(HttpJob& job) {
   } else {
     esp_http_client_fetch_headers(client);
     job.status = esp_http_client_get_status_code(client);
-    while (http_wanted()) {
-      if (len >= job.max_bytes) {
-        // The page may end exactly on the last byte, or go on: one more byte
-        // answers which, and a page that goes on is refused instead of cut
-        // (a body that is silently cut is a lie about what the server sent).
-        char extra = 0;
-        if (esp_http_client_read(client, &extra, 1) > 0) job.error = HttpError::kTooBig;
-        break;
+    // **A page the volume cannot hold is not written at all**: when the page is only wanted on the
+    // volume, the server says how long it is, and a card with less room than that would take the
+    // beginning and fail at the end — a file that is not the page (docs/30, docs/75).
+    if (job.sink != nullptr && job.max_bytes == 0) {
+      const int64_t content = esp_http_client_get_content_length(client);
+      uint64_t total = 0;
+      uint64_t free_bytes = 0;
+      if (content > 0 && job.sink->space(total, free_bytes) &&
+          static_cast<uint64_t>(content) > free_bytes) {
+        job.error = HttpError::kStorage;
       }
-      const int got =
-          esp_http_client_read(client, body + len, static_cast<int>(job.max_bytes - len));
-      if (got < 0) {
-        // The socket stopped talking. The cause is the driver's to say and not
-        // this file's to invent, so the message carries the count and no verdict.
-        hal::logf(pal::kLogWarn, "HTTP", "the page stopped after %u bytes", static_cast<unsigned>(len));
-        job.error = HttpError::kConnect;
-        break;
-      }
-      if (got == 0) break;  // nothing more to read
-      len += static_cast<uint32_t>(got);
     }
-    if (!http_wanted()) job.error = HttpError::kStopped;
+    // A page that only a volume wants opens the file before the first byte: an empty page is still a
+    // file and not one that was never made (docs/30).
+    if (job.error == HttpError::kNone && job.max_bytes == 0 && job.sink != nullptr) {
+      if (job.sink->open(job.sink_path, hal::OpenMode::kWrite, slot)) {
+        file_open = true;
+      } else {
+        job.error = HttpError::kStorage;
+      }
+    }
+    while (job.error == HttpError::kNone && http_wanted()) {
+      if (!file_open) {
+        const int got =
+            esp_http_client_read(client, body + len, static_cast<int>(job.max_bytes - len));
+        if (got < 0) {
+          // The socket stopped talking. The cause is the driver's to say and not
+          // this file's to invent, so the message carries the count and no verdict.
+          hal::logf(pal::kLogWarn, "HTTP", "the page stopped after %u bytes",
+                    static_cast<unsigned>(len));
+          job.error = HttpError::kConnect;
+          break;
+        }
+        if (got == 0) break;  // nothing more to read
+        len += static_cast<uint32_t>(got);
+        if (len < job.max_bytes) continue;
+        // The room is full: the page may end exactly on the last byte, or go on, and one more byte
+        // answers which. A page that goes on goes **whole** to the file, the beginning included, or
+        // it is refused when there is no file to go to (docs/30).
+        char extra = 0;
+        const int more = esp_http_client_read(client, &extra, 1);
+        if (more < 0) {
+          job.error = HttpError::kConnect;
+          break;
+        }
+        if (more == 0) break;
+        if (job.sink == nullptr) {
+          job.error = HttpError::kTooBig;
+          break;
+        }
+        if (!job.sink->open(job.sink_path, hal::OpenMode::kWrite, slot)) {
+          job.error = HttpError::kStorage;
+          break;
+        }
+        file_open = true;
+        if (job.sink->write(slot, body, len) != static_cast<int32_t>(len) ||
+            job.sink->write(slot, &extra, 1) != 1) {
+          job.error = HttpError::kStorage;
+          break;
+        }
+        saved = len + 1;
+        free(body);
+        body = nullptr;
+        len = 0;
+      } else {
+        char chunk[512];
+        const int got = esp_http_client_read(client, chunk, static_cast<int>(sizeof(chunk)));
+        if (got < 0) {
+          hal::logf(pal::kLogWarn, "HTTP", "the page stopped after %u bytes",
+                    static_cast<unsigned>(saved));
+          job.error = HttpError::kConnect;
+          break;
+        }
+        if (got == 0) break;
+        if (job.sink->write(slot, chunk, static_cast<uint32_t>(got)) != got) {
+          job.error = HttpError::kStorage;
+          break;
+        }
+        saved += static_cast<uint32_t>(got);
+      }
+    }
+    if (job.error == HttpError::kNone && !http_wanted()) job.error = HttpError::kStopped;
+    if (file_open) {
+      const bool closed = job.sink->close(slot);
+      if (!closed && job.error == HttpError::kNone) job.error = HttpError::kStorage;
+      if (job.error != HttpError::kNone) {
+        // Half a page is a lie about what the server sent: the file goes with it (docs/30).
+        job.sink->remove(job.sink_path);
+        saved = 0;
+      }
+    }
   }
   esp_http_client_close(client);
   esp_http_client_cleanup(client);
 
-  if (job.error == HttpError::kNone || job.error == HttpError::kTooBig) {
-    body[len] = '\0';
-    job.body = body;
-    job.body_len = len;
+  if (!file_open) {
+    if (job.error == HttpError::kNone || job.error == HttpError::kTooBig) {
+      body[len] = '\0';
+      job.body = body;
+      job.body_len = len;
+    } else {
+      free(body);
+    }
   } else {
     free(body);
+    job.saved = (job.error == HttpError::kNone);
+    job.body_len = saved;
   }
 }
 
@@ -860,7 +948,9 @@ class Esp32Net : public INet {
   // (docs/30).
   uint32_t http_get_start(const char* url, const HttpOpts& opts) override {
     if (url == nullptr || url[0] == '\0') return 0;
-    if (strlen(url) >= kHttpUrlCap || opts.max_bytes == 0) return 0;
+    if (strlen(url) >= kHttpUrlCap) return 0;
+    if (opts.max_bytes == 0 && opts.sink == nullptr) return 0;
+    if (opts.sink != nullptr && (opts.sink_path == nullptr || strlen(opts.sink_path) >= 96)) return 0;
 
     taskENTER_CRITICAL(&g_http_mux);
     const bool taken = (g_http_op != 0);
@@ -869,6 +959,8 @@ class Esp32Net : public INet {
       snprintf(job.url, sizeof(job.url), "%s", url);
       job.timeout_ms = opts.timeout_ms;
       job.max_bytes = opts.max_bytes;
+      job.sink = opts.sink;
+      if (opts.sink != nullptr) snprintf(job.sink_path, sizeof(job.sink_path), "%s", opts.sink_path);
       g_http = job;
       g_http_finished = false;
       g_http_cancel = false;
@@ -902,6 +994,7 @@ class Esp32Net : public INet {
         out.status = g_http.status;
         out.body = g_http.body;
         out.body_len = g_http.body_len;
+        out.saved = g_http.saved;
         out.error = g_http.error;
       }
     }
@@ -917,6 +1010,9 @@ class Esp32Net : public INet {
         to_free = g_http.body;
         g_http.body = nullptr;
         g_http.body_len = 0;
+        g_http.saved = false;
+        g_http.sink = nullptr;
+        g_http.sink_path[0] = '\0';
         g_http_finished = false;
         g_http_op = 0;
       } else {

@@ -13,7 +13,8 @@ git, i el que el sistema **fa** avui s'explica als altres documents: `10` (mapa)
 `80` (compilació) i `85` (emulador).
 
 Estat d'avui, en una línia: **M0, M1, M2, M3, M4, M5, M6 (mecanisme) i M7 estan fets**; el que queda
-són les mesures de camp d'M5, M6 i M7, **M8** (la forma de les tecles al banc i poder-les prémer a mà),
+són les mesures de camp d'M5, M6 i M7, **M8** (la forma de les tecles al banc; la finestra ja les prem
+amb el ratolí, i falten les portes del terminal i dels guions),
 dues
 crides que ningú no ha demanat encara (`net.softap` i escriptura a `/nvs`), la resta del contracte
 de Lua que no té codi al darrere (`docs/30`, taula d'⏳) i les decisions que necessiten maquinari o
@@ -98,8 +99,9 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 ## M8 · El banc és una placa
 
 El banc és **una** placa des del 31/10: `--board m5stack-atom|m5stack-atom-matrix|m5stack-paper`
-diu quina, i sense dir res és l'ATOM (`board::models_count()`, `model(i)`, `default_model()`).
-`sys.board` respon **aquell nom** i no `emulator`, que no és cap placa; `sys.emulator` continua cert i
+diu quina i **és obligatori**; sense l'opció el binari es refusa i en llista les tres (el `default_model()`
+de la identitat només és la resposta d'un banc construït a mà). `sys.board` respon **aquell nom** i no
+`emulator`, que no és cap placa; `sys.emulator` continua cert i
 és la pregunta que ha de fer canviar el comportament d'una app pel fet d'estar al banc. Com que
 `board_name()` respon **un** nom, `boards` del manifest es compara al PC exactament com a la placa:
 una app del model corre i una d'un altre queda llistada amb l'avís i es refusa dient quin és aquesta
@@ -112,10 +114,28 @@ bateria, la ranura i la FRAM). El que **encara no** segueix el model és la **fo
 
 | Peça | Com està | Què hi falta |
 |---|---|---|
-| Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i `--battery-mv`, `kCapSd` només amb ranura i `--sd`, `kCapDisplay` amb `--display`) | res |
+| Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i una cel·la —`--battery-mv` o la prestada—, `kCapSd` només amb ranura i una targeta que existeixi, `kCapDisplay` amb el vidre del model, que `--no-display` treu) | res |
 | Llums | Fet: el comptador és el del model (1 a l'ATOM, 25 al Matrix, **0 al Paper**) i el sostre del canal és **20 a tots**, per decisió: un banc que deixés passar 255 amagaria el límit del panell (`lib/hal_emulator/include/board/identity.h`) | decidir si el sostre ha de ser el de cada model (255 a l'ATOM) o quedar-se a 20 |
 | Tecles (quantes) | Fet: `IInput::count()` és el del model (1 a l'ATOM i al Matrix, 3 al Paper) | — |
 | Tecles (forma) | **Pendent**: la cara, el lloc i si és composta són sempre els de la Paper (`hal_emulator.cpp`, el dial de la cara dreta) | una fila per model a `emu_model.cpp` i que `IInput::info()` la llegeixi |
+
+**La memòria i el rellotge també són del model** (3/11, 0.58.0): `Model::free_heap_bytes` i
+`Model::extra_free_bytes` són els dos casals del xip —**338 864 B** de RAM interna als ATOM,
+**162 728 B** i **4 095 KB** de PSRAM al Paper, els números que la placa dona al prompt— i
+`pal::set_memory_bytes()` els dona al PAL del PC, que compta cada bloc amb els seus setze bytes de
+capçalera, prova l'altre casal abans de dir no i **refusa** el que no hi cap: una taula de 400 000
+enters mor al banc amb el mateix `not enough memory` que a la placa, i `run heap` torna el megabyte
+al byte (docs/75). I el **torn** del nucli paga els 850 µs que costa a la placa, o sigui que mil
+esperes d'un mil·lisegon triguen 1 888 ms aquí i 1 990 ms al vidre. El que **no** és del model: la
+fragmentació del heap del PC, el desgast dels blocs i la instrucció del Xtensa, que no hi és i es
+cobra a part (`--lua-cpu`, docs/85).
+
+**I el que la placa recorda, el banc també** (3/11, 0.59.0): les **credencials de la xarxa** van a la
+NVS (`lunoknet/ssid` i `wifidrv/pass`) com les desa la placa, o sigui que un run que arrenca
+després diu el mateix `network:`; l'**hora** viu a `<state>/clock.bin` amb el temps que la placa ha
+estat parada, i la llegeixen el Paper (pila de la BM8563) i qualsevol model amb `--persist`; i
+`--persist` és **la placa que no s'ha desendollat**, que conserva la RTC RAM també a l'ATOM. La NVS i
+la FRAM no depenen de res: són flash i ferrita (docs/60, docs/70, docs/85).
 
 Els perfils **viuen en una taula en temps d'execució** (`emu_model.cpp`): la identitat de les plaques
 de xip és una capçalera triada per `-I` (docs/50) i l'emulador no en pot veure tres de cop. Les
@@ -130,10 +150,11 @@ de veritat nova: totes criden el mateix `emu::press_key`.
 | 1 | Prefix de terminal, `Ctrl-A` com `tmux`: `Ctrl-A 1` és un toc, `Ctrl-A 1 h` / `Ctrl-A 1 u` és prémer i deixar anar | L'ús diari i el mode lot; no depèn de res i va per SSH | Una app que llegeix una línia no veu mai aquests bytes, i una premuda es veu a `button` |
 | 2 | `--control <socket>` amb línies `key 0 down`, `key 0 up`, `tap 0 120` | Guions, proves i qualsevol eina de fora (també una finestra) | Es llegeix sense bloquejar abans de `kernel::poll()` i és apagat per defecte |
 | 3 | `--events <fitxer>` amb `ms key down` / `ms key up` | Reproduir una sessió amb `held_ms` de debò | El mateix fitxer dona sempre el mateix resultat |
-| 4 | Finestra, **només com a client** de les portes 1 i 2 | **Prémer les tecles del perfil a la finestra**. La finestra ja hi és des de la 0.21.0 (`--gui`, X11, la pàgina sencera al mig i només ensenyant el vidre, docs/85); el que li falta és que serveixi per a alguna cosa més que mirar | Els events es llegeixen sense bloquejar dins del pump i mai esperant; les proves i el CI han d'anar sense pantalla |
+| 4 | Finestra (`--gui`), **ja feta** (0.33.0–0.34.2) | **Prémer les tecles del model a la finestra**: el ratolí sobre la tira de tecles crida `emu::press_key`, i sobre la pàgina és el dit del GT911 (docs/85). Les tecles segueixen el descriptor de l'entrada (una columna a la cara que digui) | Fet: un clic prem i deixa anar la tecla, i amb `--verbose` deixa la línia `gui: key … down`/`up`; la finestra d'un ATOM, que no té vidre, és només el seu botó |
 
-Ordre: 1 i 2 primer, 3 si cal, i les tecles a la finestra al final — la finestra és el motiu de debò per
-obrir-ne una, i el que li falta no és la pàgina sinó els dits.
+Les portes 1, 2 i 3 falten; la finestra ja hi és i ja prem tecles. L'ordre que queda és 1 i 2 primer,
+3 si cal — i el que encara no té la finestra no és la pàgina ni els dits, sinó **la forma de les tecles
+del model** (la fila «Tecles (forma)» d'aquesta taula).
 
 Paranys que aquesta feina ha de respectar:
 
@@ -337,8 +358,25 @@ els comptes de redibuix (docs/30).
 `ui.button(w, h)` té `background`, `border` i `pressed`, i el fill es posa amb `button:add(child)` i es
 col·loca en les coordenades del botó. El fill es compon després del marc i es talla al mateix rectangle;
 com que el marc és opac, redibuixar el botó invalida els fills perquè el fons nou no els tapi. L'app
-`buttons` (`run buttons`) posa vuit labels de quatre cares, quatre tamanys i colors diferents dins de vuit
-botons (docs/30).
+`buttons` (`run buttons`) posa vuit labels de la mateixa cara d'outlines —Lato Black— a tres tamanys dins de
+vuit botons blancs (docs/30).
+
+**I el marc del botó té pes, i el present d'una pàgina torna a ser el que l'app demana** (3/11, 0.56.2): la
+vora és de **tres píxels** en un botó més gran de 24 (dos en un de petit, un en un xip), el relleu és un
+píxel més prim que la vora (d'un píxel en un xip) i el forat de premut té tantes anelles com la vora. I
+`ui.present('gc16')` **era un present sense mode**: el canvas de l'arrel que el
+dibuix deixava a la pila tapava l'argument de l'app i el `lua_pop` se l'emportava, o sigui que cada present
+pintava amb el `du` que demanen els controls i el fantasma d'un text que s'havia mogut es quedava al vidre.
+La pila es torna a l'altura que tenia abans de l'arrel, i el `gc16` de l'app mana (docs/30, docs/50).
+
+**I el focus és el doble marc més fort de la pàgina, i la pàgina és blanca i rodona** (3/11, 0.56.2): després
+de la vora, els dos píxels del relleu fan de **pausa** i aleshores ve una **banda de set píxels** del color que
+no es pot confondre, amb el cos a dins —un anell que només dobla la vora es llegeix com una vora més gruixuda—.
+Com que el canvi de focus és un canvi d'estat, l'app el **renta amb `gc16`** al torn següent; un `du` hi deixa
+el rastre de l'anell anterior. L'app `buttons` passa a **vuit botons blancs** i a **Lato Black** (19 340 B,
+llicència OFL), una rodona de debò: el seu `g` té noranta-un punts i no capia al bloc d'arestes amb sis trossos
+per corba, i per això el lector ara **torna a tallar les corbes amb quatre i després tres trossos** abans de
+refusar un glif (docs/30, docs/50, docs/75).
 
 **I el botó ja rep la persona** (2/11, 0.49.0): el sistema dona el focus al primer control enfocable,
 `amunt`/`esquerra` i `avall`/`dreta` recorren els controls polsables, `centre` activa el que té el focus, i
@@ -351,14 +389,15 @@ són el contracte; el `pressed` el porta el sistema mentre dura el contacte, i q
 i les cares d'un fitxer comparteixen `font::width` i `font::runs`, i el dibuix llegeix rectangles i no sap
 d'on vénen. `ui.load_font(path)` dona **un objecte `font`** amb `:text_width`, `:size` i `:release`;
 `cv:font(f)` i `ui.font(f)` el posen a un canvas o a la vista (`nil` torna a la del sistema); i el bloc de
-glifs és de l'app i compta al seu pressupost —768 B per cara, tres cares alhora—. Una cara és de **fins a
-8 × 8** i de **96 codis del 0x20 al 0x7F, en ordre i sense forats**, i n'hi ha **quatre formats i el fitxer
-mateix diu quin**: el propi (`lunok-font 1`, una línia de directives i els glifs en `#` i `.`), el **BDF**
+glifs és de l'app i compta al seu pressupost —768 B per cara aleshores, **3 072 B des de la 0.55.0**, tres
+cares alhora—. Una cara era de **fins a 8 × 8** (ara **16 × 16**) i de **96 codis del 0x20 al 0x7F, en
+ordre i sense forats**, i n'hi ha **quatre formats i el fitxer mateix diu quin**: el propi (`lunok-font 1`,
+una línia de directives i els glifs en `#` i `.`), el **BDF**
 d'un servidor X (`STARTFONT`, les files del `BITMAP` en hexadecimal), el **PCF**, que és un BDF compilat
 (`bdftopcf`), amb les taules indexades i cada taula en l'ordre de bytes que ella mateixa diu, i el **TTF**,
 que no és una taula de bits sinó **contorns** (`lib/ttf`): una cara d'aquest últim no té cel·la, el seu bloc
 és el fitxer sencer i `scale` vol dir la mida del cos en vuitens de píxel. Un fitxer que
-no és ni una cosa ni l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de vuit columnes. Sis
+no és ni una cosa ni l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de setze columnes. Sis
 apps ho ensenyen (`run sheet`, `run fonts`, `run font-sizes`, `run font-mix`, `run font-bdf`, `run
 font-pcf`) més `run font-ttf` i `run fonts-ttf`, i vuit casos de `test/test_font` i tres de `test/test_ttf` ho proven, refusos
 inclosos, amb el `.pcf` de debò que surt **idèntic al `.bdf`** del qual es va compilar i amb la `A` del `.ttf`
@@ -399,8 +438,10 @@ on ha de viure perquè qualsevol text el faci servir (1/11).
 
 **Quaranta-sis comptadors a la porta** i `stats` al prompt (docs/30, docs/50): cada dispositiu, cada
 unitat del disc, el rellotge, el tàctil, la PSRAM, el nucli i l'intèrpret, amb comptes, temps, mínim,
-màxim i el moment de l'última crida. Costa **9 076 B de flash i 1 208 B de RAM** al Paper (docs/75) i
-el log de tot el sistema té una sola forma, `[nivell][etiqueta] missatge` (docs/30, docs/85).
+màxim i el moment de l'última crida. **La taula és la d'aquest build i aquesta placa** —un ATOM no té
+vidre i la Paper no té llum— i cada fila que hi és surt amb zero si no s'ha fet servir (3/11, 0.57.1).
+Costa **9 076 B de flash i 1 208 B de RAM** al Paper (docs/75) i el log de tot el sistema té una sola
+forma, `[nivell][etiqueta] missatge` (docs/30, docs/85).
 
 **El que queda d'aquest tros**, i no és gaire:
 

@@ -19,12 +19,14 @@
 #include "emu/gt911.h"
 #include "emu/memories.h"
 #include "emu/options.h"
+#include "emu/surface.h"
 #include "hal/hal.h"
 #include "json/json.h"
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/meter.h"
+#include "luabind/luabind.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/touch.h"
@@ -992,6 +994,41 @@ void test_an_app_writes_inside_its_own_ground(void) {
   storage->remove("/apps/writer");
 }
 
+// **`fs.write` sobre una memòria crua va al lloc i no a un temporal** (0.65.1): `/rtc` és *un* fitxer i no
+// té `/rtc.tmp` on escriure per després reanomenar, o sigui que el camí atòmic responia `E_NOENT` —el `no
+// such file or directory` que veia `run hexedit /fram` en desar (4/11). El que s'escriu és el que es
+// llegeix, la resta de la memòria queda a zero i el que no hi cap sencer és `E_NOSPC` sense tocar res
+// (docs/50, docs/70).
+void test_a_write_to_raw_memory_goes_in_place(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "raw",
+                            "{\"title\":\"Raw\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "local n, err = fs.write('/rtc', 'hola')\n"
+                            "console.print('wrote ' .. tostring(n) .. ' ' .. tostring(err and err.code))\n"
+                            "local back = fs.read('/rtc')\n"
+                            "console.print('back ' .. #back .. ' ' .. back:sub(1, 4))\n"
+                            "console.print('tail zero ' .. tostring(back:sub(5, 9) == string.rep('\\0', 5)))\n"
+                            "local big, why = fs.write('/rtc', string.rep('x', 8000))\n"
+                            "console.print('big ' .. tostring(big) .. ' ' .. tostring(why and why.code))\n"
+                            "console.print('still ' .. fs.read('/rtc'):sub(1, 4))\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run raw", g_out, sizeof(g_out)));
+  // `/rtc` is 7 168 B, the memory is written from its start and its tail is zeroed.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wrote 4 nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back 7168 hola"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tail zero true"), g_out);
+  // **Una escriptura que no hi cap no hi deixa res a mitges**: 8 000 B en una memòria de 7 168 és un no.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "big nil E_NOSPC"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "still hola"), g_out);
+
+  storage->remove("/apps/raw/app.lua");
+  storage->remove("/apps/raw/manifest.json");
+  storage->remove("/apps/raw");
+}
+
 // `/cfg` is a door and not a disk: an app writes `/cfg/s.json` and the system puts it in
 // `cfg/<id>/s.json` on the unit the person chose. These tests have no card, so the unit is
 // the flash, and the app is not told —it asks with fs.cfg() when it wants to know— and the
@@ -1853,6 +1890,7 @@ void test_the_http_command_downloads_a_page(void) {
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
   opts.wifi_ms = 100;
+  opts.http_fake = true;
   opts.http_ms = 50;
   opts.http_status = 200;
   opts.http_body = "una pagina de prova";
@@ -1865,12 +1903,15 @@ void test_the_http_command_downloads_a_page(void) {
   pump_captured(400, g_out, sizeof(g_out), "http https://example.com/hola");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "http: 200 19 bytes"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "una pagina de prova"), g_out);
+  // A page that fits is a page in memory: nothing of it touches the volume (docs/30).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "saved to"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
 }
 
-// A page bigger than the room the command gave it is refused and not cut: half a
-// page reads as a page that is half as long (docs/30).
-void test_the_http_command_refuses_a_page_that_does_not_fit(void) {
+// A page bigger than the room the command has is not cut and not lost: **it goes to a file whole**, and
+// the shell says where. The point of asking for a page is to be able to read it, and half a page is not
+// one (docs/30, docs/70).
+void test_the_http_command_saves_a_page_that_does_not_fit(void) {
   TEST_ASSERT_TRUE(boot_once());
   static char big[20000];
   memset(big, 'x', sizeof(big) - 1);
@@ -1879,6 +1920,7 @@ void test_the_http_command_refuses_a_page_that_does_not_fit(void) {
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
   opts.wifi_ms = 100;
+  opts.http_fake = true;
   opts.http_ms = 50;
   opts.http_body = big;
   emu::set_options(opts);
@@ -1886,8 +1928,33 @@ void test_the_http_command_refuses_a_page_that_does_not_fit(void) {
   pump_captured(20, g_out, sizeof(g_out), "wifi forget");
   pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
   pump_captured(400, g_out, sizeof(g_out), "http https://example.com/gran");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "E_TOOBIG"), g_out);
+  const char* at = strstr(g_out, "http: 200 19999 bytes, saved to ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(at, g_out);
+
+  // The path the shell printed is the file, and the file **is the whole page**: not the beginning, not
+  // a page with the end missing (docs/70).
+  char path[128];
+  size_t used = 0;
+  for (const char* p = at + strlen("http: 200 19999 bytes, saved to ");
+       *p != '\0' && *p != '\r' && used + 1 < sizeof(path); ++p) {
+    path[used++] = *p;
+  }
+  path[used] = '\0';
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, used, g_out);
+  static char page[20001];
+  size_t got = 0;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::read_file(path, page, sizeof(page) - 1, got), path);
+  page[got] = '\0';
+  TEST_ASSERT_EQUAL_UINT32(19999, static_cast<uint32_t>(got));
+  TEST_ASSERT_EQUAL_STRING(big, page);
+
+  // What a person sees is the beginning of it, read back from the volume, and the rest as a number.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "xxxx"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "bytes more"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  if (storage != nullptr) storage->remove("/http/gran");
 }
 
 // A page without a network is refused at once and said out loud, like the time
@@ -1913,6 +1980,7 @@ void test_an_app_downloads_a_page(void) {
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
   opts.wifi_ms = 100;
+  opts.http_fake = true;
   opts.http_ms = 50;
   opts.http_status = 201;
   opts.http_body = "coses";
@@ -1944,6 +2012,7 @@ void test_the_page_demo_app_from_the_disk_runs(void) {
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
   opts.wifi_ms = 100;
+  opts.http_fake = true;
   opts.http_ms = 50;
   opts.http_status = 200;
   opts.http_body = "l'exemple de la pagina";
@@ -1961,6 +2030,198 @@ void test_the_page_demo_app_from_the_disk_runs(void) {
   storage->remove("/apps/page-app");
 }
 
+// A page asked for with a place to go: memory holds nothing, the file has the page, and the shell says
+// where it went (docs/30, docs/70).
+void test_the_http_command_writes_where_it_is_told(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_status = 200;
+  opts.http_body = "una pagina de prova";
+  emu::set_options(opts);
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  pump_captured(400, g_out, sizeof(g_out), "http https://example.com/hola /littlefs/pagina.html");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "http: 200 19 bytes, saved to /littlefs/pagina.html"),
+                                g_out);
+  char page[64];
+  size_t got = 0;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::read_file("/littlefs/pagina.html", page, sizeof(page) - 1, got),
+                           "the page was not written where the shell said");
+  page[got] = '\0';
+  TEST_ASSERT_EQUAL_STRING("una pagina de prova", page);
+  storage->remove("/pagina.html");
+}
+
+// A place that is not a volume of this board is refused before the page is asked for, and said out
+// loud: a download that fails at the last byte is a download nobody wanted (docs/30, docs/70).
+void test_the_http_command_refuses_a_place_that_is_not_there(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_body = "no hi cap";
+  emu::set_options(opts);
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  pump_captured(400, g_out, sizeof(g_out), "http https://example.com/hola /nocard/pagina.html");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "http: that is not a place this board can write"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
+}
+
+// An app downloads a page **to a file** and reads it back: the page is the file's and the heap is the
+// app's, which is how a page of a few hundred kilobytes is worked with on a board (docs/30, docs/75).
+void test_an_app_downloads_a_page_to_a_file(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  static char manifest[256];
+  static char source[1024];
+  snprintf(manifest, sizeof(manifest),
+           "{\"title\":\"Dl\",\"version\":\"0.1.0\",\"entry\":\"dl.lua\","
+           "\"boards\":[\"esp32\"]}");
+  // **The page goes where the app may write**: its own ground, which is the only place a write of an
+  // app lands (docs/70).
+  snprintf(source, sizeof(source),
+           "local r = http.download('https://example.com/un', '/data/dl/baixada.txt'):await()\n"
+           "console.print('status ' .. r.status .. ' bytes ' .. r.bytes)\n"
+           "console.print('path ' .. tostring(r.path))\n"
+           "local f = fs.open(r.path, 'r')\n"
+           "console.print('head ' .. tostring(f:read(40)))\n"
+           "f:close()\n");
+  TEST_ASSERT_TRUE(add_app_file(storage, "dl", manifest, source, "dl.lua"));
+
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_status = 201;
+  opts.http_body = "una pagina";
+  emu::set_options(opts);
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+
+  TEST_ASSERT_TRUE(run_captured("run dl", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "status 201 bytes 10"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "path /data/dl/baixada.txt"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "head una pagina"), g_out);
+
+  storage->remove("/data/dl/baixada.txt");
+  storage->remove("/apps/dl/dl.lua");
+  storage->remove("/apps/dl/manifest.json");
+  storage->remove("/apps/dl");
+}
+
+// **Un fitxer es llegeix a trossos i el banc no diu que no** (0.66.0): `fs.read_at` demana un bloc a
+// l'intèrpret que creix, i el heap del banc responia `not enough memory` amb megabytes lliures perquè un bloc
+// que no podia créixer on era només provava l'altra memòria (docs/75, docs/85). El sostre d'aquest banc de
+// proves és el de l'ATOM (64 KB per app), o sigui que el tros és de 12 KB i el fitxer de 60: el que es prova
+// és que cada tros arriba sencer.
+void test_a_big_file_is_read_in_chunks(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static const size_t kBytes = 60 * 1024;
+  static char payload[kBytes];
+  for (size_t i = 0; i < kBytes; ++i) payload[i] = static_cast<char>('a' + (i % 26));
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(storage->open("/big.bin", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_EQUAL_INT32(static_cast<int32_t>(kBytes),
+                          storage->write(slot, payload, static_cast<uint32_t>(kBytes)));
+  storage->close(slot);
+
+  TEST_ASSERT_TRUE(add_app(storage, "reader",
+                           "{\"title\":\"Reader\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local total = 0\n"
+                           "local wrong = 0\n"
+                           "local at = 0\n"
+                           "local path = app.args.path\n"
+                           "while at < 61440 do\n"
+                           "  local want = math.min(12288, 61440 - at)\n"
+                           "  local got = fs.read_at(path, at, want)\n"
+                           "  if got == nil or #got ~= want then wrong = wrong + 1 break end\n"
+                           "  total = total + #got\n"
+                           "  at = at + #got\n"
+                           "end\n"
+                           "console.print('read ' .. total .. ' wrong ' .. wrong)\n"));
+
+  TEST_ASSERT_TRUE(run_captured("run reader /littlefs/big.bin", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 61440 wrong 0"), g_out);
+
+  storage->remove("/big.bin");
+  storage->remove("/apps/reader/app.lua");
+  storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader");
+}
+
+// **El camí que el prompt nomena és l'única porta de l'app al disc de la persona** (0.65.0): una app
+// arrencada amb `run <id> <path>` pot llegir i escriure **aquell** fitxer, i qualsevol altre camí del disc
+// de la persona continua responent `E_INVAL`. És el que fa que un editor desi on la persona ha dit i no on
+// l'app vulgui (docs/30, docs/70).
+void test_an_app_writes_the_file_the_prompt_named_and_no_other(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static const char kManifest[] =
+      "{\"title\":\"Writer\",\"version\":\"0.0.1\",\"entry\":\"writer.lua\","
+      "\"boards\":[\"esp32\"]}";
+  static const char kSource[] =
+      "local path = app.args and app.args.path or nil\n"
+      "console.print('path ' .. tostring(path))\n"
+      "if path ~= nil then\n"
+      "  local ok, err = fs.write(path, 'from the app')\n"
+      "  console.print('named ' .. tostring(ok ~= nil) .. ' ' .. tostring(err and err.message))\n"
+      "  console.print('read ' .. tostring(fs.read(path)))\n"
+      "end\n"
+      "local other, why = fs.write('/littlefs/elsewhere.txt', 'x')\n"
+      "console.print('other ' .. tostring(other) .. ' ' .. tostring(why and why.code))\n"
+      "local temp, temp_why = fs.open(path .. '.tmp', 'w')\n"
+      "console.print('temp ' .. tostring(temp ~= nil) .. ' ' .. tostring(temp_why and temp_why.code))\n"
+      "if temp ~= nil then temp:close() end\n";
+  TEST_ASSERT_TRUE(add_app_file(storage, "writer", kManifest, kSource, "writer.lua"));
+  TEST_ASSERT_TRUE(write_text(storage, "/notes.txt", "original"));
+
+  TEST_ASSERT_TRUE(run_captured("run writer /littlefs/notes.txt", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "named true nil"), g_out);
+  // **La resta del disc segueix tancada**: el camí nomenat és una excepció i no una porta oberta.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "other nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read from the app"), g_out);
+  // **El temporal del camí nomenat també és el camí nomenat** (0.66.0): desar des d'una app és escriure
+  // `<path>.tmp` i reanomenar-lo, i sense això l'escriptura atòmica no podia existir des d'una app.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "temp true nil"), g_out);
+
+  // **I el nom sobreviu a la comanda** (4/11): la paraula del prompt viu en una pila que ja no hi és quan
+  // l'app corre, i el camí que el nucli consulta per deixar-la desar ha de ser una còpia.
+  TEST_ASSERT_TRUE(kernel::execute("run writer /littlefs/notes.txt"));
+  while (kernel::app_running()) kernel::poll();
+  TEST_ASSERT_EQUAL_STRING("/littlefs/notes.txt", luabind::app_path());
+
+  // An app started with no file has no way into the person's disk at all.
+  TEST_ASSERT_TRUE(run_captured("run writer", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "path nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "other nil E_INVAL"), g_out);
+
+  storage->remove("/notes.txt");
+  storage->remove("/notes.txt.tmp");
+  storage->remove("/apps/writer/writer.lua");
+  storage->remove("/apps/writer/manifest.json");
+  storage->remove("/apps/writer");
+}
+
 // A page asked for while the radio is still up from the job before it: the
 // request must not be started a second time when its answer comes. Started twice,
 // the second start found the first one in the way and the person saw `E_BUSY`
@@ -1970,6 +2231,7 @@ void test_a_page_on_a_radio_that_is_still_up(void) {
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
   opts.wifi_ms = 100;
+  opts.http_fake = true;
   opts.http_ms = 50;
   opts.http_status = 200;
   opts.http_body = "encara hi era";
@@ -2879,6 +3141,57 @@ void test_a_button_is_navigated_and_touched(void) {
   opts.board = nullptr;
   opts.display = false;
   opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The quality an app asks for at the present is the quality of the paint** (docs/30, docs/50): a
+// page that must look uniform asks for `gc16` once, and the controls —which ask for `du` on their own—
+// do not leave the ghost of what moved. The mode was read from a stack the root had been pushed on,
+// so every `ui.present('gc16')` was a present with no mode (found on the bench, 3/11).
+void test_a_present_with_a_mode_paints_with_that_mode(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "washed",
+                            "{\"title\":\"Washed\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "ui.clear(15, 'du')\n"
+                            "local ok = ui.present('du4')\n"
+                            "console.print('washed ' .. tostring(ok))\n"
+                            "sys.delay(5000):await()\n"));
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  pump_captured(40, g_out, sizeof(g_out), "run washed");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "washed true"), g_out);
+  // **One of the last paints is the app's present**: the clear was drawn with `du`, and a present that
+  // lost the mode paints that `du` and says nothing. `du4` is not a quality the bar asks for, so a
+  // paint of the bar after the app cannot pass for the app's present.
+  bool asked = false;
+  for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
+    if (paint != nullptr && paint->mode == hal::UpdateMode::kDu4) asked = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(asked, "the present with a mode painted with the mode of the controls");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/washed/app.lua");
+  storage->remove("/apps/washed/manifest.json");
+  storage->remove("/apps/washed");
+
+  // The next test gets the default bench back: the display was this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
 }
@@ -4175,6 +4488,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_nvs_mount_shows_the_keys_as_files);
   RUN_TEST(test_an_app_reads_its_own_resources_with_fs);
   RUN_TEST(test_an_app_writes_inside_its_own_ground);
+  RUN_TEST(test_a_write_to_raw_memory_goes_in_place);
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
@@ -4212,11 +4526,14 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_ntp_sets_the_clock);
   RUN_TEST(test_ntp_without_a_network_is_refused);
   RUN_TEST(test_the_http_command_downloads_a_page);
-  RUN_TEST(test_the_http_command_refuses_a_page_that_does_not_fit);
+  RUN_TEST(test_the_http_command_saves_a_page_that_does_not_fit);
   RUN_TEST(test_http_without_a_network_is_refused);
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
   RUN_TEST(test_the_page_demo_app_from_the_disk_runs);
+  RUN_TEST(test_the_http_command_writes_where_it_is_told);
+  RUN_TEST(test_the_http_command_refuses_a_place_that_is_not_there);
+  RUN_TEST(test_an_app_downloads_a_page_to_a_file);
   RUN_TEST(test_a_call_that_returns_a_promise_is_timed_until_it_settles);
   RUN_TEST(test_the_power_command_says_what_the_board_can_do);
   RUN_TEST(test_the_power_command_moves_the_cpu);
@@ -4238,6 +4555,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
+  RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
@@ -4250,6 +4568,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);
   RUN_TEST(test_an_app_sleeps_deeply_and_comes_back_where_it_was);
   RUN_TEST(test_the_sleepy_demo_app_from_the_disk_runs);
+  RUN_TEST(test_an_app_writes_the_file_the_prompt_named_and_no_other);
+  RUN_TEST(test_a_big_file_is_read_in_chunks);
   RUN_TEST(test_a_failing_app_says_its_error_once);
   RUN_TEST(test_an_app_provisions_and_then_forgets);
   RUN_TEST(test_provisioning_gives_up_when_nobody_arrives);

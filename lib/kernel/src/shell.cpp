@@ -11,6 +11,7 @@
 #include "kernel/apps.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
+#include "kernel/colour.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
 #include "kernel/line_editor.h"
@@ -48,9 +49,11 @@ namespace {
 const size_t kPrintCap = 1024;
 // Largest entry chunk that will be run. It was 4 096 B and the `matrix` app grew past it; it was 8 192 B and
 // the `buttons` example grew past it at 9 329 B, which is a limit saying no to an app that fits the board. It
-// is **16 384 B now**, it is static RAM and it costs +8 192, so it does not grow again without a number and a
-// paragraph in docs/75.
-const size_t kSourceCap = 16384;
+// was 16 384 B and the editor that speaks vim grew past it at 26 644 B (4/11), and the buffer is not static
+// RAM since 0.56.0: it is asked of the heap and given back the moment the chunk is compiled, so **32 768 B
+// costs 16 KB of heap while an app starts and nothing while it runs** (docs/75). It does not grow again
+// without a number and a paragraph in docs/75.
+const size_t kSourceCap = 32768;
 const size_t kDefaultHeapBytes = 64 * 1024;   // used until the board ceiling is measured
 // A word of a command line is 127 bytes at most, and a path with spaces goes between quotes:
 // `cat "res/el meu fitxer.txt"`. There is no escaping, because a quote is a quote and nothing in a file
@@ -146,6 +149,64 @@ void detect_terminal() {
   log_printf(pal::kLogInfo, "TERM", "%s",
              !asks ? "no terminal, ansi not asked"
                    : (g_ansi ? "ansi" : "no ansi, spaces and backspaces"));
+  // The ring echoes and dumps with the same answer: a log line does not know where it is going (docs/30).
+  log_colour(g_ansi);
+}
+
+bool ansi_now() {
+  // **What the terminal said of itself at start is the answer**, and the platform's belief is only the gate
+  // that decides whether asking is worth 150 ms (docs/85).
+  if (g_ansi_known) return g_ansi;
+  pal::IConsole* console = pal::system().console();
+  return console != nullptr && console->ansi();
+}
+
+// **The colour is a courtesy and not a contract**: a terminal that answered the question gets the sequences,
+// one that did not gets the same words and not one byte it cannot read. Every writer of the shell goes
+// through here, so the two are the same picture (docs/30, docs/85).
+void colour(const char* code) {
+  if (code != nullptr && ansi_now()) out(code);
+}
+
+void colour_off() { colour(kColourOff); }
+
+void error_out(const char* text) {
+  colour(kColourError);
+  out(text);
+  colour_off();
+}
+
+void good_out(const char* text) {
+  colour(kColourGood);
+  out(text);
+  colour_off();
+}
+
+void usage_out(const char* text) {
+  colour(kColourWarn);
+  out(text);
+  colour_off();
+}
+
+// **The prompt is the one thing that is always coloured**, because it is the line a person reads before
+// every command: the name in green and the `>` that follows it in grey. The bytes of `g_prompt` stay the
+// visible text —a redraw counts characters and not codes— and the question of the selector, which does not
+// end in `> `, is written as it is (docs/30).
+void write_prompt() {
+  const bool is_prompt = g_prompt_len >= 2 && g_prompt[g_prompt_len - 2] == '>' &&
+                         g_prompt[g_prompt_len - 1] == ' ';
+  if (!ansi_now() || !is_prompt) {
+    out_bytes(g_prompt, g_prompt_len);
+    return;
+  }
+  size_t name = 0;
+  while (name < g_prompt_len && g_prompt[name] != '>') ++name;
+  colour(kColourName);
+  out_bytes(g_prompt, name);
+  colour_off();
+  colour(kColourDim);
+  out_bytes(g_prompt + name, g_prompt_len - name);
+  colour_off();
 }
 
 const size_t kWordsBad = static_cast<size_t>(-1);
@@ -184,8 +245,8 @@ bool read_words(const char* argument, char words[][kWordCap], size_t max_words, 
   count = split_words(argument, words, max_words);
   if (count != kWordsBad) return true;
   count = 0;
-  out("bad line: a quote is open, a word is over 127 B, or there are too many words\r\n");
-  out("a path with spaces goes in quotes\r\n");
+  error_out("bad line: a quote is open, a word is over 127 B, or there are too many words\r\n");
+  error_out("a path with spaces goes in quotes\r\n");
   return false;
 }
 
@@ -215,14 +276,6 @@ void out_num(uint32_t value) {
   out(&buf[i]);
 }
 
-bool console_ansi() {
-  // **What the terminal said of itself at start is the answer**, and the platform's belief is only the gate
-  // that decides whether asking is worth 150 ms (docs/85).
-  if (g_ansi_known) return g_ansi;
-  pal::IConsole* console = pal::system().console();
-  return console != nullptr && console->ansi();
-}
-
 // The prompt that a redraw has to put back. The selector asks its own question and the interpreter says
 // `lua>`, so the text is a value and not a call to `prompt()` (docs/30).
 void set_prompt_text(const char* text, bool write) {
@@ -231,7 +284,7 @@ void set_prompt_text(const char* text, bool write) {
   memcpy(g_prompt, text, len);
   g_prompt[len] = '\0';
   g_prompt_len = len;
-  if (write) out_bytes(g_prompt, len);
+  if (write) write_prompt();
   g_visible = len;
 }
 
@@ -240,12 +293,12 @@ void set_prompt_text(const char* text, bool write) {
 // reach the cursor, which is the same picture with the codes the shell already had (docs/30, docs/85).
 // The line is short, so a redraw per key is cheaper than keeping a second copy of the screen.
 void redraw_line() {
-  const bool ansi = console_ansi();
+  const bool ansi = ansi_now();
   const size_t len = g_editor.length();
   const size_t cursor = g_editor.cursor();
   const size_t old_line = (g_visible > g_prompt_len) ? g_visible - g_prompt_len : 0;
   out("\r");
-  out_bytes(g_prompt, g_prompt_len);
+  write_prompt();
   out_bytes(g_editor.text(), len);
   if (ansi) {
     out("\x1b[K");
@@ -263,54 +316,81 @@ void redraw_line() {
   g_visible = g_prompt_len + len;
 }
 
+// **The command is the first thing after the two spaces and it is what goes in bold**: the description is
+// the rest of the line, and it stays as it was. A line without a description —the two pieces of advice at
+// the end— is written plainly, because it has no column to be a command (docs/30).
+void help_line(const char* text) {
+  const char* start = text;
+  while (*start == ' ') ++start;
+  const char* end = strstr(start, "  ");
+  if (end == nullptr) {
+    out(start);
+    out("\r\n");
+    return;
+  }
+  out("  ");
+  colour(kColourBold);
+  out_bytes(start, static_cast<size_t>(end - start));
+  colour_off();
+  out(end);
+  out("\r\n");
+}
+
 void print_help() {
-  out("  help              this list\r\n");
-  out("  version           version and board\r\n");
-  out("  caps              what this board has\r\n");
-  out("  mem               free memory and buffers\r\n");
-  out("  apps              the apps in /apps\r\n");
-  out("  mounts            the mounted file systems and their room\r\n");
-  out("  cfg [auto|sd|littlefs]  where the apps' settings are kept\r\n");
-  out("  run <id> [path]   run an app, optionally pointed at a file\r\n");
-  out("  wifi              the stored network and the radio\r\n");
-  out("  wifi scan         the networks the radio sees\r\n");
-  out("  wifi add <ssid> [password]  store a network and go on it\r\n");
-  out("  wifi connect      go on the network the board has stored\r\n");
-  out("  wifi forget       forget the stored network\r\n");
-  out("  wifi stop         drop whatever the radio is doing\r\n");
-  out("  provision [pop]   the QR and the Espressif app, over Bluetooth\r\n");
-  out("  provision softap [pop]  the same over the board's own access point\r\n");
-  out("  ntp [server]      set the clock from a time server\r\n");
-  out("  http <url>        download a page and show its status\r\n");
-  out("  power [cpu [mhz]] what this board can do about energy\r\n");
-  out("  power last        how far the last sleep was from the hour it was given\r\n");
-  out("  power idle [on|off]  whether the board may sleep on its own to the next alarm\r\n");
-  out("  led [rrggbb|off]  the light of the board\r\n");
-  out("  button            the button, right now\r\n");
-  out("  sleep [light|deep] <ms>  sleep, and come back at a time\r\n");
-  out("  sleep at <epoch seconds>  the same, at a time of the clock\r\n");
-  out("  open [app] <path> open a file with the app that handles it\r\n");
-  out("  ls [path]         list a directory (default /)\r\n");
-  out("  cat <path>        print a file\r\n");
-  out("  hexdump [path]    the bytes of a file in hex (default /rtc)\r\n");
-  out("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)\r\n");
-  out("  log               last lines of the log ring\r\n");
-  out("  stats [reset]     what each device cost: calls, time, last call\r\n");
-  out("  verbose on|off    mirror the log to the console too\r\n");
-  out("  clear             clear the screen\r\n");
-  out("  reboot            restart\r\n");
-  out("  poweroff          cut the power of the board, if it can (docs/50)\r\n");
-  out("three ESC in a row leave an app, or stop a command that waits\r\n");
-  out("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"\r\n");
+  help_line("  help              this list");
+  help_line("  version           version and board");
+  help_line("  caps              what this board has");
+  help_line("  mem               free memory and buffers");
+  help_line("  apps              the apps in /apps");
+  help_line("  mounts            the mounted file systems and their room");
+  help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept");
+  help_line("  run <id> [path]   run an app, optionally pointed at a file");
+  help_line("  wifi              the stored network and the radio");
+  help_line("  wifi scan         the networks the radio sees");
+  help_line("  wifi add <ssid> [password]  store a network and go on it");
+  help_line("  wifi connect      go on the network the board has stored");
+  help_line("  wifi forget       forget the stored network");
+  help_line("  wifi stop         drop whatever the radio is doing");
+  help_line("  provision [pop]   the QR and the Espressif app, over Bluetooth");
+  help_line("  provision softap [pop]  the same over the board's own access point");
+  help_line("  ntp [server]      set the clock from a time server");
+  help_line("  http <url> [path] fetch a page, and save it when it is too big");
+  help_line("  power [cpu [mhz]]  what this board can do about energy");
+  help_line("  power last        how far the last sleep was from the hour it was given");
+  help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
+  help_line("  led [rrggbb|off]  the light of the board");
+  help_line("  button            the button, right now");
+  help_line("  sleep [light|deep] <ms>  sleep, and come back at a time");
+  help_line("  sleep at <epoch seconds>  the same, at a time of the clock");
+  help_line("  open [app] <path>  open a file with the app that handles it");
+  help_line("  ls [path]         list a directory (default /)");
+  help_line("  cat <path>        print a file");
+  help_line("  hexdump [path]    the bytes of a file in hex (default /rtc)");
+  help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)");
+  help_line("  log               last lines of the log ring");
+  help_line("  stats [reset]     what each device cost: calls, time, last call");
+  help_line("  verbose on|off    mirror the log to the console too");
+  help_line("  ansi [on|off]     the colours of the terminal, or why there are none");
+  help_line("  clear             clear the screen");
+  help_line("  reboot            restart");
+  help_line("  poweroff          cut the power of the board, if it can (docs/50)");
+  help_line("three ESC in a row leave an app, or stop a command that waits");
+  help_line("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"");
 }
 
 void print_version() {
   out("lunokOS ");
+  colour(kColourBold);
   out(kVersion);
+  colour_off();
   out("  board ");
   out(platform().id());
   // The board and the bench are both true at once on the PC (docs/85).
-  if (platform().emulator()) out(" (emulator)");
+  if (platform().emulator()) {
+    colour(kColourDim);
+    out(" (emulator)");
+    colour_off();
+  }
   newline();
 }
 
@@ -333,6 +413,12 @@ void print_mem() {
     newline();
     out("  min free heap      ");
     out_num(heap.min_free_bytes);
+    newline();
+    // **What a page could still take**: the free bytes can be in pieces, and a block that does not fit in
+    // any of them fails on a heap with room to spare. The board has the number and so does the bench
+    // (docs/75, docs/85).
+    out("  largest block      ");
+    out_num(heap.largest_free_bytes);
     newline();
   } else {
     out("  heap               not available on this build\r\n");
@@ -388,20 +474,26 @@ bool print_app(const apps::Entry& entry, void* context) {
   const size_t id_len = strlen(entry.id);
   const size_t version_len = strlen(entry.version);
   out("  ");
+  colour(kColourBold);
   out(entry.id);
+  colour_off();
   spaces((id_len < 16) ? (16 - id_len) : 1);
+  colour(kColourDim);
   out(entry.version);
+  colour_off();
   spaces((version_len < 10) ? (10 - version_len) : 1);
   out(entry.title);
   // An app of another board is not hidden: it says so, with the boards it wants, so
   // that a person does not have to guess where it went (docs/40).
   if (!entry.works_here) {
+    colour(kColourWarn);
     out("  [needs ");
     for (uint32_t i = 0; i < entry.board_count; ++i) {
       out((i == 0) ? "" : " or ");
       out(entry.boards[i]);
     }
     out("]");
+    colour_off();
   }
   newline();
   return true;
@@ -473,14 +565,27 @@ void print_mounts() {
 class ListPrinter : public hal::ListSink {
  public:
   bool on_entry(const hal::ListEntry& entry) override {
+    // **A name is the answer and the rest is the frame round it**: the kind and the size go dim, a directory
+    // is blue, and a file is the paper. It is the oldest use of colour there is and it still reads at a
+    // glance (docs/30, docs/85).
     if (entry.type == hal::NodeType::kDir) {
-      out("  <dir>   ");
+      out("  ");
+      colour(kColourDim);
+      out("<dir>   ");
+      colour_off();
+      colour(kColourDir);
       out(entry.name);
+      colour_off();
     } else {
-      out("  file    ");
+      out("  ");
+      colour(kColourDim);
+      out("file    ");
+      colour_off();
       out(entry.name);
       out("  ");
+      colour(kColourDim);
       out_num(entry.size);
+      colour_off();
     }
     newline();
     return true;
@@ -490,7 +595,7 @@ class ListPrinter : public hal::ListSink {
 void list_at(const char* path) {
   ListPrinter printer;
   if (!vfs::list(path, printer)) {
-    out("cannot list: ");
+    error_out("cannot list: ");
     out(path);
     newline();
   }
@@ -502,13 +607,13 @@ void list_at(const char* path) {
 bool print_file(const char* path) {
   hal::Stat info;
   if (!vfs::stat(path, info)) {
-    out("no such file: ");
+    error_out("no such file: ");
     out(path);
     newline();
     return false;
   }
   if (info.type != hal::NodeType::kFile) {
-    out("that is not a file: ");
+    error_out("that is not a file: ");
     out(path);
     newline();
     return false;
@@ -516,7 +621,7 @@ bool print_file(const char* path) {
   char buf[kPrintCap];
   size_t len = 0;
   if (!vfs::read_file(path, buf, sizeof(buf), len)) {
-    out("cannot read: ");
+    error_out("cannot read: ");
     out(path);
     newline();
     return false;
@@ -651,13 +756,13 @@ bool hexdump_rows(hal::IStorage* storage, const char* rel, uint32_t last) {
 bool hexdump_file(const char* path) {
   hal::Stat info;
   if (!vfs::stat(path, info)) {
-    out("hexdump: no such file: ");
+    error_out("hexdump: no such file: ");
     out(path);
     newline();
     return false;
   }
   if (info.type != hal::NodeType::kFile) {
-    out("hexdump: that is not a file: ");
+    error_out("hexdump: that is not a file: ");
     out(path);
     newline();
     return false;
@@ -666,7 +771,7 @@ bool hexdump_file(const char* path) {
   hal::IStorage* storage = nullptr;
   char rel[128];
   if (!vfs::resolve(path, storage, rel, sizeof(rel))) {
-    out("hexdump: cannot read: ");
+    error_out("hexdump: cannot read: ");
     out(path);
     newline();
     return false;
@@ -675,7 +780,7 @@ bool hexdump_file(const char* path) {
   uint32_t last = 0;
   bool any = false;
   if (!hexdump_scan(storage, rel, info.size, last, any)) {
-    out("hexdump: cannot read: ");
+    error_out("hexdump: cannot read: ");
     out(path);
     newline();
     return false;
@@ -694,7 +799,7 @@ bool hexdump_file(const char* path) {
   out_num(info.size - last - 1);
   out(" zero after\r\n");
   if (!hexdump_rows(storage, rel, last)) {
-    out("hexdump: cannot go back to the start\r\n");
+    error_out("hexdump: cannot go back to the start\r\n");
     return false;
   }
   return true;
@@ -761,7 +866,7 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   target.found = false;
   apps::for_each(id, &find_entry, &target);
   if (!target.found) {
-    out("no such app: ");
+    error_out("no such app: ");
     out(id);
     newline();
     return false;
@@ -789,7 +894,7 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   }
   if (!vfs::read_file(target.path, g_source, kSourceCap - 1, len)) {
     drop_source();
-    out("cannot read: ");
+    error_out("cannot read: ");
     out(target.path);
     newline();
     return false;
@@ -841,7 +946,7 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   }
   if (!luabind::start(boot, limit)) {
     drop_source();  // the text was read and nobody is going to compile it
-    out("cannot start the interpreter\r\n");
+    error_out("cannot start the interpreter\r\n");
     return false;
   }
   // The app is measured on its own from here (docs/30).
@@ -981,7 +1086,7 @@ bool open_file(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 2, count)) return false;
   if (count == 0) {
-    out("usage: open [app] <path>\r\n");
+    usage_out("usage: open [app] <path>\r\n");
     return false;
   }
 
@@ -1000,13 +1105,13 @@ bool open_file(const char* argument) {
 
   hal::Stat info;
   if (!vfs::stat(path, info)) {
-    out("no such file: ");
+    error_out("no such file: ");
     out(path);
     newline();
     return false;
   }
   if (info.type != hal::NodeType::kFile) {
-    out("that is not a file: ");
+    error_out("that is not a file: ");
     out(path);
     newline();
     return false;
@@ -1084,20 +1189,26 @@ void print_networks(uint32_t count) {
     int32_t rssi = 0;
     if (!net::scan_record(i, ssid, sizeof(ssid), rssi)) continue;
     out("  ");
+    colour(kColourDim);
     out_num(i + 1);
+    colour_off();
     out(") ");
     // A network that does not say its name is listed as such: an entry that is
     // skipped is indistinguishable from a scan that returned nothing (docs/50).
+    colour(kColourBold);
     out((ssid[0] != '\0') ? ssid : "(hidden network)");
+    colour_off();
+    colour(kColourDim);
     out("  (");
     out_int(rssi);
     out(" dBm)");
+    colour_off();
     newline();
   }
 }
 
 void say_failed(const char* what, const char* code) {
-  out(what);
+  error_out(what);
   out((code != nullptr) ? code : "E_NONET");
   newline();
 }
@@ -1115,7 +1226,7 @@ void radio_done(bool ok, const char* code, uint32_t count) {
     }
   } else if (job == RadioJob::kAdd) {
     if (ok) {
-      out("wifi: on the network ");
+      good_out("wifi: on the network ");
       out(g_job_ssid);
       newline();
     } else {
@@ -1127,7 +1238,7 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       // see is the time it now believes (docs/60).
       hal::IClock* clock = platform().clock();
       const int64_t epoch = (clock != nullptr) ? clock->epoch_ms() : 0;
-      out("time: ");
+      good_out("time: ");
       out_num(static_cast<uint32_t>(epoch / 1000));
       out(" (epoch seconds, from ");
       out((clock != nullptr) ? clock->source() : "none");
@@ -1135,7 +1246,7 @@ void radio_done(bool ok, const char* code, uint32_t count) {
     } else if (code != nullptr && strcmp(code, "E_NONET") == 0) {
       // It could not even get on a network, and that is worth its own sentence:
       // "no time came back" would send a person looking at the time server.
-      out("ntp: the board has no network to use, try `wifi add`\r\n");
+      error_out("ntp: the board has no network to use, try `wifi add`\r\n");
     } else {
       say_failed("ntp: no time came back, ", code);
     }
@@ -1152,19 +1263,54 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       say_failed("provision: nothing came of it, ", code);
     }
   } else if (job == RadioJob::kHttp) {
-    if (ok) {
+    // **A page that arrived is an answer and not a failure**: a 2xx in green, anything else in red,
+    // and the bytes after it as they were (docs/30). A page longer than what the shell carries
+    // arrived too —the board keeps the first bytes and answers `E_TOOBIG`—, so the status and the
+    // beginning are shown and the rest is said as a number (docs/30, docs/85).
+    const bool cut = !ok && code != nullptr && strcmp(code, "E_TOOBIG") == 0;
+    if (ok || cut) {
       uint32_t len = 0;
       const char* body = net::http_body(len);
-      out("http: ");
-      out_int(net::http_status());
+      const int32_t status = net::http_status();
+      if (status >= 200 && status < 300) {
+        good_out("http: ");
+      } else {
+        error_out("http: ");
+      }
+      out_int(status);
       out(" ");
       out_num(len);
-      out(" bytes\r\n");
+      out(" bytes");
+      const bool saved = net::http_saved();
+      if (saved) {
+        // **Where the whole page is**: a path a person can `cat`, `app` or copy to the card, which is
+        // the point of downloading a page that does not fit (docs/30, docs/70).
+        out(", saved to ");
+        out(net::http_saved_path());
+      }
+      if (cut) {
+        error_out(", and the page is longer than the ");
+        out_num(kHttpBytes);
+        error_out(" bytes this shell carries");
+      }
+      out("\r\n");
       // The body is bytes and not text, so it goes out with its length and only
       // the beginning of it: the rest is a number and not a screenful nobody
-      // asked for (docs/30).
-      const uint32_t shown = (len < kHttpShow) ? len : kHttpShow;
-      if (body != nullptr && shown > 0) out_bytes(body, shown);
+      // asked for (docs/30). A page that went to a file is read back from there,
+      // because that file is the page (docs/30, docs/70).
+      uint32_t shown = (len < kHttpShow) ? len : kHttpShow;
+      if (saved) {
+        size_t got = 0;
+        char head[kHttpShow];
+        if (vfs::read_file(net::http_saved_path(), head, sizeof(head), got) && got > 0) {
+          out_bytes(head, static_cast<uint32_t>(got));
+          shown = static_cast<uint32_t>(got);
+        } else {
+          shown = 0;
+        }
+      } else if (body != nullptr && shown > 0) {
+        out_bytes(body, shown);
+      }
       if (shown < len) {
         out("... ");
         out_num(len - shown);
@@ -1172,9 +1318,13 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       }
       newline();
     } else if (code != nullptr && strcmp(code, "E_NONET") == 0) {
-      out("http: the board has no network to use, try `wifi add`\r\n");
+      error_out("http: the board has no network to use, try `wifi add`\r\n");
     } else if (code != nullptr && strcmp(code, "E_TLS") == 0) {
-      out("http: the certificate was not accepted\r\n");
+      error_out("http: the certificate was not accepted\r\n");
+    } else if (code != nullptr && strcmp(code, "E_IO") == 0) {
+      // The page had a file to go to and the volume did not take it: no room, or a write that did not
+      // go in. It is said as what happened and not as a code (docs/30, docs/70).
+      error_out("http: the page did not fit where it was going\r\n");
     } else {
       say_failed("http: nothing came back, ", code);
     }
@@ -1229,7 +1379,7 @@ bool command_wifi(const char* argument) {
 
   if (count == 0) {
     if (!net::available()) {
-      out("wifi: no radio in this build: the HAL of this board does not provide one\r\n");
+      error_out("wifi: no radio in this build: the HAL of this board does not provide one\r\n");
       return false;
     }
     // The state, and nothing else: `help` is where the commands are listed, and
@@ -1243,13 +1393,13 @@ bool command_wifi(const char* argument) {
 
   if (strcmp(words[0], "scan") == 0) {
     if (count != 1) {
-      out("usage: wifi scan\r\n");
+      usage_out("usage: wifi scan\r\n");
       return false;
     }
     if (!take_radio(RadioJob::kScan)) return false;
     if (!net::scan_start(kScanMs)) {
       drop_radio();
-      out("wifi: the radio did not start the scan\r\n");
+      error_out("wifi: the radio did not start the scan\r\n");
       return false;
     }
     return true;
@@ -1262,18 +1412,18 @@ bool command_wifi(const char* argument) {
   // board is off and they want it on (docs/50).
   if (strcmp(words[0], "connect") == 0 || strcmp(words[0], "start") == 0) {
     if (count != 1) {
-      out("usage: wifi connect\r\n");
+      usage_out("usage: wifi connect\r\n");
       return false;
     }
     char ssid[33];
     if (!net::stored_ssid(ssid, sizeof(ssid))) {
-      out("wifi: the board has no network to connect to\r\n");
+      error_out("wifi: the board has no network to connect to\r\n");
       return false;
     }
     if (!take_radio(RadioJob::kConnect)) return false;
     if (!net::connect_stored(kAddMs)) {
       drop_radio();
-      out("wifi: the radio did not start the connection\r\n");
+      error_out("wifi: the radio did not start the connection\r\n");
       return false;
     }
     return true;
@@ -1281,7 +1431,7 @@ bool command_wifi(const char* argument) {
 
   if (strcmp(words[0], "add") == 0) {
     if (count < 2 || count > 3) {
-      out("usage: wifi add <ssid> [password]\r\n");
+      usage_out("usage: wifi add <ssid> [password]\r\n");
       return false;
     }
     if (!take_radio(RadioJob::kAdd)) return false;
@@ -1291,7 +1441,7 @@ bool command_wifi(const char* argument) {
     // (docs/50).
     if (!net::add_network(g_job_ssid, (count == 3) ? words[2] : "", kAddMs)) {
       drop_radio();
-      out("wifi: the board did not take the network\r\n");
+      error_out("wifi: the board did not take the network\r\n");
       return false;
     }
     return true;
@@ -1299,7 +1449,7 @@ bool command_wifi(const char* argument) {
 
   if (strcmp(words[0], "forget") == 0 || strcmp(words[0], "del") == 0) {
     if (count != 1) {
-      out("usage: wifi forget\r\n");
+      usage_out("usage: wifi forget\r\n");
       return false;
     }
     // Forgetting is the person's decision over the radio, so whatever was
@@ -1307,7 +1457,7 @@ bool command_wifi(const char* argument) {
     // with no way out (measured on the board, 31/10).
     if (stop_radio_now()) out("radio: stopped\r\n");
     if (!net::forget()) {
-      out("wifi: the board did not let go of the network\r\n");
+      error_out("wifi: the board did not let go of the network\r\n");
       return false;
     }
     out("network: none\r\n");
@@ -1318,7 +1468,7 @@ bool command_wifi(const char* argument) {
   // the prompt comes back (docs/30).
   if (strcmp(words[0], "stop") == 0) {
     if (count != 1) {
-      out("usage: wifi stop\r\n");
+      usage_out("usage: wifi stop\r\n");
       return false;
     }
     if (!stop_radio_now()) {
@@ -1329,7 +1479,7 @@ bool command_wifi(const char* argument) {
     return true;
   }
 
-  out("usage: wifi connect | wifi scan | wifi add <ssid> [password] | wifi forget | wifi stop\r\n");
+  usage_out("usage: wifi connect | wifi scan | wifi add <ssid> [password] | wifi forget | wifi stop\r\n");
   return false;
 }
 
@@ -1344,37 +1494,98 @@ bool command_ntp(const char* argument) {
   // of it when it is done, so a person does not have to connect first (docs/75).
   if (!net::ntp((count > 0) ? words[0] : nullptr, kNtpMs)) {
     drop_radio();
-    out("ntp: the radio did not take it\r\n");
+    error_out("ntp: the radio did not take it\r\n");
     return false;
   }
   return true;
 }
 
-// http <url>: a page, downloaded and shown. It is a task of the queue like the
-// time: it brings the network up by itself and lets go of it afterwards, so a
-// person does not have to connect first (docs/30, docs/75).
+// The name a page gets on a volume: the last part of the address, without the query or the anchor, and
+// only the characters a file name can have — `index.html?x=1` is `index.html` and not a path of its own
+// (docs/70).
+void page_name(const char* url, char* out, size_t cap) {
+  const char* begin = url;
+  const char* end = url;
+  for (const char* p = url; *p != '\0'; ++p) {
+    if (*p == '?' || *p == '#') break;
+    if (*p == '/') begin = p + 1;
+    end = p + 1;
+  }
+  size_t used = 0;
+  for (const char* p = begin; p < end && used + 1 < cap; ++p) {
+    const char c = *p;
+    const bool plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                       (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+    out[used++] = plain ? c : '_';
+  }
+  if (used == 0) {
+    const char kDefault[] = "page.html";
+    const size_t take = (sizeof(kDefault) - 1 < cap - 1) ? sizeof(kDefault) - 1 : cap - 1;
+    memcpy(out, kDefault, take);
+    used = take;
+  }
+  out[used] = '\0';
+}
+
+// **Where a page that does not fit goes**: the card when the board has one that can be written, the
+// flash when it has not, and a directory of pages that is made here so the path a person reads is a
+// path that exists (docs/30, docs/70). False when neither volume takes it, and then the page is asked
+// for in memory only, which is what the shell did before there was a place to put it.
+bool page_place(const char* url, char* out, size_t cap) {
+  const char* dir = "/littlefs/http";
+  hal::Stat probe;
+  if (vfs::stat("/sd", probe) && vfs::is_writable("/sd")) dir = "/sd/http";
+  hal::IStorage* storage = nullptr;
+  char rel[96];
+  if (!vfs::resolve(dir, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  if (!vfs::is_writable(dir)) return false;
+  hal::Stat there;
+  if (!storage->stat(rel, there)) storage->mkdir(rel);
+  char name[32];
+  page_name(url, name, sizeof(name));
+  const int written = snprintf(out, cap, "%s/%s", dir, name);
+  return written > 0 && static_cast<size_t>(written) < cap;
+}
+
+// http <url> [path]: a page, downloaded and shown. It is a task of the queue like the time: it brings
+// the network up by itself and lets go of it afterwards, so a person does not have to connect first.
+// **With one word the page is held in memory and, when it does not fit, it goes to a file whole** —a
+// page is asked for to be read, and half a page is not one—; with two, memory holds nothing and the
+// page goes straight to the path (docs/30, docs/70, docs/75).
 bool command_http(const char* argument) {
-  char words[1][kWordCap];
+  char words[2][kWordCap];
   size_t count = 0;
-  if (!read_words(argument, words, 1, count)) return false;
-  if (count != 1) {
-    out("usage: http <url>\r\n");
+  if (!read_words(argument, words, 2, count)) return false;
+  if (count == 0) {
+    usage_out("usage: http <url> [path]\r\n");
     return false;
   }
+  char spill[128];
+  spill[0] = '\0';
+  const char* place = nullptr;
+  if (count == 2) {
+    place = words[1];
+  } else if (page_place(words[0], spill, sizeof(spill))) {
+    place = spill;
+  }
   if (!take_radio(RadioJob::kHttp)) return false;
-  const luabind::NetRefuse refused = net::http_get(words[0], kHttpBytes, kHttpMs);
+  const luabind::NetRefuse refused =
+      (count == 2) ? net::http_download(words[0], place, kHttpMs)
+                   : net::http_get_spill(words[0], kHttpBytes, place, kHttpMs);
   if (refused != luabind::NetRefuse::kOk) {
     drop_radio();
     if (refused == luabind::NetRefuse::kTooBig) {
       // The address does not fit, and it is said with the number: half an address
       // is a page nobody asked for (docs/30).
-      out("http: that address is longer than the ");
+      error_out("http: that address is longer than the ");
       out_num(net::http_url_cap());
       out(" bytes the system carries\r\n");
     } else if (refused == luabind::NetRefuse::kInval) {
-      out("http: there is no address to fetch\r\n");
+      error_out("http: there is no address to fetch\r\n");
+    } else if (refused == luabind::NetRefuse::kNoVolume) {
+      error_out("http: that is not a place this board can write\r\n");
     } else {
-      out("http: the radio did not take it\r\n");
+      error_out("http: the radio did not take it\r\n");
     }
     return false;
   }
@@ -1398,12 +1609,12 @@ bool command_power(const char* argument) {
       return true;
     }
     if (count != 2) {
-      out("usage: power cpu [mhz]\r\n");
+      usage_out("usage: power cpu [mhz]\r\n");
       return false;
     }
     const int32_t asked = static_cast<int32_t>(strtoll(words[1], nullptr, 10));
     if (asked <= 0) {
-      out("usage: power cpu [mhz]\r\n");
+      usage_out("usage: power cpu [mhz]\r\n");
       return false;
     }
     if (!power::set_cpu_mhz(static_cast<uint32_t>(asked))) {
@@ -1422,7 +1633,7 @@ bool command_power(const char* argument) {
 
   if (count > 0 && strcmp(words[0], "last") == 0) {
     if (count != 1) {
-      out("usage: power last\r\n");
+      usage_out("usage: power last\r\n");
       return false;
     }
     // The number of the last sleep, kept where it can be read after a deep sleep has
@@ -1440,7 +1651,7 @@ bool command_power(const char* argument) {
 
   if (count > 0 && strcmp(words[0], "idle") == 0) {
     if (count > 2) {
-      out("usage: power idle [on|off]\r\n");
+      usage_out("usage: power idle [on|off]\r\n");
       return false;
     }
     if (count == 2) {
@@ -1449,7 +1660,7 @@ bool command_power(const char* argument) {
       } else if (strcmp(words[1], "on") == 0) {
         power::set_idle_sleep_allowed(true);
       } else {
-        out("usage: power idle [on|off]\r\n");
+        usage_out("usage: power idle [on|off]\r\n");
         return false;
       }
     }
@@ -1460,7 +1671,7 @@ bool command_power(const char* argument) {
   }
 
   if (count != 0) {
-    out("usage: power | power cpu [mhz] | power idle [on|off] | power last\r\n");
+    usage_out("usage: power | power cpu [mhz] | power idle [on|off] | power last\r\n");
     return false;
   }
   out("sleep: ");
@@ -1520,7 +1731,7 @@ bool command_sleep(const char* argument) {
     first = 1;
   }
   if (count <= first) {
-    out("usage: sleep [light|deep] <ms> | at <epoch seconds>\r\n");
+    usage_out("usage: sleep [light|deep] <ms> | at <epoch seconds>\r\n");
     return false;
   }
 
@@ -1544,7 +1755,7 @@ bool command_sleep(const char* argument) {
     }
     at = now + ms;
   } else {
-    out("usage: sleep [light|deep] <ms> | at <epoch seconds>\r\n");
+    usage_out("usage: sleep [light|deep] <ms> | at <epoch seconds>\r\n");
     return false;
   }
   if (at <= now) {
@@ -1637,7 +1848,7 @@ bool command_led(const char* argument) {
   uint8_t g = 0;
   uint8_t b = 0;
   if (!parse_colour(words[0], r, g, b)) {
-    out("usage: led [rrggbb|off]\r\n");
+    usage_out("usage: led [rrggbb|off]\r\n");
     return false;
   }
   // A person at the prompt outranks a machine: this stops whatever the system was saying and takes
@@ -1668,7 +1879,7 @@ bool command_button(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 1, count)) return false;
   if (count != 0) {
-    out("usage: button\r\n");
+    usage_out("usage: button\r\n");
     return false;
   }
   if (!button::available()) {
@@ -1728,7 +1939,7 @@ bool command_provision(const char* argument) {
   if (!take_radio(RadioJob::kProvision)) return false;
   if (!net::provision(pop, nullptr, transport, kProvisionMs)) {
     drop_radio();
-    out("provision: the board did not start it\r\n");
+    error_out("provision: the board did not start it\r\n");
     return false;
   }
   return true;
@@ -1746,6 +1957,17 @@ bool leave_lua() {
 }
 
 }  // namespace
+
+// **The answer and the switch that overrides it.** A serial bridge or a terminal that does not reply to the
+// Device Attributes question would be a terminal without colours for ever, so `ansi on` says what the
+// terminal could not (docs/30, docs/85).
+bool console_ansi() { return ansi_now(); }
+
+void set_ansi(bool on) {
+  g_ansi_known = true;
+  g_ansi = on;
+  log_colour(on);
+}
 
 void prompt() {
   set_prompt_text(g_lua ? "lua> " : "lunok> ", true);
@@ -1893,7 +2115,7 @@ bool command_cfg(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 1, count)) return false;
   if (count > 1) {
-    out("usage: cfg [auto|sd|littlefs]\r\n");
+    usage_out("usage: cfg [auto|sd|littlefs]\r\n");
     return false;
   }
   if (count == 1 && !cfg::set_unit(words[0])) {
@@ -1945,7 +2167,7 @@ bool command_lua() {
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
   if (!luabind::start(boot, limit)) {
-    out("cannot start the interpreter\r\n");
+    error_out("cannot start the interpreter\r\n");
     return false;
   }
   // The app is measured on its own from here (docs/30).
@@ -2019,7 +2241,7 @@ bool execute(char* line) {
     size_t count = 0;
     if (!read_words(line + 3, words, 2, count)) return false;
     if (count == 0) {
-      out("usage: run <id> [path]\r\n");
+      usage_out("usage: run <id> [path]\r\n");
       return false;
     }
     return run_app(words[0], (count > 1) ? words[1] : nullptr);
@@ -2035,7 +2257,7 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "cat") == 0) {
-    out("usage: cat <path>\r\n");
+    usage_out("usage: cat <path>\r\n");
     return false;
   }
   if (strncmp(line, "cat ", 4) == 0) {
@@ -2043,7 +2265,7 @@ bool execute(char* line) {
     size_t count = 0;
     if (!read_words(line + 4, words, 1, count)) return false;
     if (count == 0) {
-      out("usage: cat <path>\r\n");
+      usage_out("usage: cat <path>\r\n");
       return false;
     }
     return print_file(words[0]);
@@ -2071,6 +2293,13 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "clear") == 0) {
+    // **The screen is cleared with the code only on a terminal that answered the question**: a pipe or a
+    // serial line that never said it understood is not sent `ESC [ 2 J`, which would be four characters of
+    // noise in the middle of its file (docs/85).
+    if (!console_ansi()) {
+      error_out("clear: this terminal did not answer the ANSI question\r\n");
+      return false;
+    }
     out("\x1b[2J\x1b[H");
     return true;
   }
@@ -2088,12 +2317,36 @@ bool execute(char* line) {
     pal::IConsole* console = pal::system().console();
     if (console != nullptr) console->flush();  // the line has to be out before the supply goes
     if (!platform().power()->power_off()) {
-      out("this board cannot cut its own power: it holds nothing to switch off\r\n");
+      error_out("this board cannot cut its own power: it holds nothing to switch off\r\n");
       return false;
     }
     shutdown();  // on the bench it is a process that ends; on the glass the line below is never read
     return true;
   }
+  // **A terminal that does not answer is not a terminal without colour for ever**: the question is one
+  // sequence and a serial bridge may eat it, so `ansi on` says what the terminal could not. `ansi` alone
+  // answers what was detected, which is also the line the boot logs (docs/30, docs/85).
+  if (strncmp(line, "ansi", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    const char* argument = line + 4;
+    while (*argument == ' ') ++argument;
+    if (*argument == '\0') {
+      out(console_ansi() ? "ansi: on\r\n" : "ansi: off\r\n");
+      return true;
+    }
+    if (strcmp(argument, "on") == 0) {
+      set_ansi(true);
+      out("ansi: on\r\n");
+      return true;
+    }
+    if (strcmp(argument, "off") == 0) {
+      set_ansi(false);
+      out("ansi: off\r\n");
+      return true;
+    }
+    usage_out("usage: ansi [on|off]\r\n");
+    return false;
+  }
+
   if (strncmp(line, "verbose", 7) == 0) {
     const char* argument = line + 7;
     while (*argument == ' ') ++argument;
@@ -2107,7 +2360,7 @@ bool execute(char* line) {
       out("log mirroring: off\r\n");
       return true;
     }
-    out("usage: verbose on|off\r\n");
+    usage_out("usage: verbose on|off\r\n");
     return false;
   }
 

@@ -1,0 +1,9 @@
+{
+  "title": "Hexedit",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "hexedit.lua",
+  "boards": ["esp32"],
+  "opens": "bin",
+  "description": "A hex editor for the serial port and the console: the bytes in a grid, the ASCII beside them, nibble by nibble with 0-9 a-f, x to delete, i to insert, :w to save. It opens whatever the prompt names, binary or not."
+}

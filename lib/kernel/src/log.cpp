@@ -3,7 +3,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include <string.h>
+
 #include "hal/log.h"
+#include "kernel/colour.h"
 #include "kernel/led.h"
 
 namespace kernel {
@@ -16,6 +19,28 @@ char g_ring[kRingBytes];
 size_t g_head = 0;   // next byte to write
 size_t g_count = 0;  // bytes currently stored
 bool g_echo = false;
+bool g_colour = false;
+
+// **The level of a line is its second byte** (`[I]`, `[W]`, `[E]`), which is the shape `vformat_log` gives
+// every line of this system and what makes one painter enough for the echo and for the dump (docs/30).
+const char* level_colour(const char* line, size_t len) {
+  if (line == nullptr || len < 3 || line[0] != '[' || line[2] != ']') return nullptr;
+  if (line[1] == 'E') return kColourError;
+  if (line[1] == 'W') return kColourWarn;
+  return nullptr;
+}
+
+void write_line(pal::IConsole* console, const char* line, size_t len) {
+  if (console == nullptr) return;
+  const char* colour = g_colour ? level_colour(line, len) : nullptr;
+  if (colour == nullptr) {
+    console->write(line, len);
+    return;
+  }
+  console->write(colour, strlen(colour));
+  console->write(line, len);
+  console->write(kColourOff, sizeof(kColourOff) - 1);
+}
 
 void append(const char* data, size_t len) {
   for (size_t i = 0; i < len; ++i) {
@@ -29,10 +54,7 @@ void append(const char* data, size_t len) {
 // cannot, the arrow goes the other way— so they format their line and hand it to this sink, installed
 // when the log comes up (docs/30, docs/50).
 void sink(const char* line, size_t len) {
-  if (g_echo) {
-    pal::IConsole* console = pal::system().console();
-    if (console != nullptr) console->write(line, len);
-  }
+  if (g_echo) write_line(pal::system().console(), line, len);
   append(line, len);
 }
 
@@ -53,6 +75,10 @@ void log_echo(bool on) { g_echo = on; }
 
 bool log_echo_enabled() { return g_echo; }
 
+void log_colour(bool on) { g_colour = on; }
+
+bool log_colour_enabled() { return g_colour; }
+
 size_t log_bytes() { return g_count; }
 
 void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
@@ -71,10 +97,7 @@ void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
   va_end(args);
   if (used == 0) return;
 
-  if (g_echo) {
-    pal::IConsole* console = pal::system().console();
-    if (console != nullptr) console->write(line, used);
-  }
+  if (g_echo) write_line(pal::system().console(), line, used);
   append(line, used);
 }
 
@@ -88,18 +111,20 @@ void log_dump() {
     return;
   }
 
+  // **One line at a time**, because the colour of a line is decided by its first three bytes and a chunk of
+  // sixty-four does not know where a line begins. The buffer is a line of the ring plus its newline.
   const size_t start = (g_head + kRingBytes - g_count) % kRingBytes;
-  char chunk[64];
-  size_t done = 0;
-  while (done < g_count) {
-    size_t n = g_count - done;
-    if (n > sizeof(chunk)) n = sizeof(chunk);
-    for (size_t i = 0; i < n; ++i) {
-      chunk[i] = g_ring[(start + done + i) % kRingBytes];
+  char line[kLineBytes + 2];
+  size_t used = 0;
+  for (size_t done = 0; done < g_count; ++done) {
+    const char byte = g_ring[(start + done) % kRingBytes];
+    line[used++] = byte;
+    if (byte == '\n' || used == sizeof(line)) {
+      write_line(console, line, used);
+      used = 0;
     }
-    console->write(chunk, n);
-    done += n;
   }
+  if (used > 0) write_line(console, line, used);
 }
 
 }  // namespace kernel

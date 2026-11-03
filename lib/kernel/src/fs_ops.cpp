@@ -132,16 +132,37 @@ bool on_raw_memory(const char* path) { return under(path, kRtc) || under(path, k
 //
 // Anything else —another app's ground, /littlefs/apps/..., /nvs/session— answers E_INVAL
 // instead of being hidden: an app should know it asked for something that is not its.
+// **El camí que la persona va nomenar** (0.65.0). Quan el prompt arrenca una app amb un camí
+// —`run edit /littlefs/notes.txt`— l'app té l'autoritat del prompt **sobre aquell camí i no un altre**:
+// el pot llegir i el pot escriure, que és el que necessita un editor per desar on la persona ha dit. No
+// és una porta al disc: un camí que l'app no ha rebut del prompt continua responent `E_INVAL`, i una app
+// que obri un fitxer d'un altre lloc no el podrà desar sense que el prompt l'hi hagi donat (docs/30,
+// docs/70).
+bool on_the_named_path(const char* path) {
+  const char* named = luabind::app_path();
+  if (named == nullptr || named[0] == '\0') return false;
+  char granted[128];
+  if (!absolute(named, granted, sizeof(granted))) return false;
+  // **El temporal del camí nomenat també és el camí nomenat**: desar des d'una app vol dir escriure
+  // `<path>.tmp` i reanomenar-lo, que és el que fa el nucli perquè una escriptura que mor a mitges no deixi
+  // el fitxer a mitges (docs/70). Un temporal amb un altre nom no hi entra.
+  char temp[160];
+  const int written = snprintf(temp, sizeof(temp), "%s.tmp", granted);
+  if (written > 0 && static_cast<size_t>(written) < sizeof(temp) && strcmp(path, temp) == 0) return true;
+  return under(path, granted);
+}
+
 bool allowed(const char* path, bool writing, luabind::FsError& err) {
   if (!writing) {
     if (inside_ground(path) || inside_cfg(path) || on_raw_memory(path) || under(path, kApps) ||
-        under(path, kSd)) {
+        under(path, kSd) || on_the_named_path(path)) {
       return true;
     }
     err = luabind::FsError::kInval;
     return false;
   }
-  if ((!inside_ground(path) && !inside_cfg(path) && !on_raw_memory(path)) ||
+  if ((!inside_ground(path) && !inside_cfg(path) && !on_raw_memory(path) &&
+       !on_the_named_path(path)) ||
       !vfs::is_writable(path)) {
     err = luabind::FsError::kInval;
     return false;
@@ -281,6 +302,54 @@ luabind::FsError failure_code(const char* full, size_t len) {
   return luabind::FsError::kUnsupported;
 }
 
+// **Escriure una memòria crua**: no hi ha fitxers a dins, el muntatge és el fitxer, i el que s'escriu és
+// el que hi queda. Si el que es vol escriure no hi cap, no s'hi escriu res: mitja memòria canviada és pitjor
+// que un no, perquè el que hi havia a l'altra meitat ja no es pot recuperar (docs/50, docs/70).
+int64_t write_raw_memory(const char* full, const char* data, size_t len, int64_t started_ms,
+                         luabind::FsError& err) {
+  hal::IStorage* storage = nullptr;
+  char rel[8];
+  if (!to_storage(full, storage, rel, sizeof(rel))) {
+    err = luabind::FsError::kNoEnt;
+    return -1;
+  }
+  hal::Stat info;
+  if (!storage->stat(rel, info) || info.type != hal::NodeType::kFile) {
+    err = luabind::FsError::kNoEnt;
+    return -1;
+  }
+  if (len > info.size) {
+    err = luabind::FsError::kNoSpc;
+    return -1;
+  }
+  hal::FileSlot slot;
+  if (!storage->open(rel, hal::OpenMode::kWrite, slot)) {
+    err = luabind::FsError::kNoEnt;
+    return -1;
+  }
+  int32_t put = 0;
+  if (len > 0) put = storage->write(slot, data, static_cast<uint32_t>(len));
+  // The tail is zeroed: the memory keeps its size and what is read back is what was written and nothing of
+  // what was there before.
+  static const uint8_t kZeros[64] = {0};
+  uint32_t left = static_cast<uint32_t>(info.size) - static_cast<uint32_t>(len);
+  while (put >= 0 && left > 0) {
+    const uint32_t chunk = (left < sizeof(kZeros)) ? left : static_cast<uint32_t>(sizeof(kZeros));
+    const int32_t zeroed = storage->write(slot, kZeros, chunk);
+    if (zeroed <= 0) break;
+    left -= static_cast<uint32_t>(zeroed);
+  }
+  storage->close(slot);
+  if (put < 0 || static_cast<size_t>(put) != len || left > 0) {
+    err = failure_code(full, len);
+    return -1;
+  }
+  const int64_t done_ms = pal::system().millis();
+  log_printf(pal::kLogDebug, "FS", "raw write %u B in %lld ms", static_cast<unsigned>(len),
+             static_cast<long long>(done_ms - started_ms));
+  return static_cast<int64_t>(len);
+}
+
 // The file is written next to where it will be and renamed into place, so a
 // write that dies halfway leaves the old file untouched (docs/70).
 int64_t write_atomic(const char* path, const char* data, size_t len, luabind::FsError& err) {
@@ -297,6 +366,16 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
   // The time of a write is kept because on this flash it is 60-80 ms and guessing where
   // it goes is not measuring (docs/75).
   const int64_t started_ms = pal::system().millis();
+
+  // **La memòria crua no té temporal ni reanomenament** (0.65.1): `/rtc` i `/fram` són **un sol fitxer**
+  // cadascun i el seu nom és el del muntatge, o sigui que no hi ha `/fram/x.tmp` on escriure i després
+  // reanomenar, i el camí del mig donava `E_NOENT` —el `no such file or directory` que veia un editor en
+  // desar-hi (trobat amb `run hexedit /fram`, 4/11). Aquí s'hi escriu al lloc: els bytes al començament de
+  // la memòria i la resta a zero, perquè el que s'ha escrit és el que s'ha de poder tornar a llegir, i una
+  // escriptura que no hi cap sencera és `E_NOSPC` i no mitja memòria canviada (docs/50, docs/70).
+  if (strcmp(full, kRtc) == 0 || strcmp(full, kFram) == 0) {
+    return write_raw_memory(full, data, len, started_ms, err);
+  }
 
   char temp[128];
   const int written = snprintf(temp, sizeof(temp), "%s.tmp", full);
@@ -683,6 +762,36 @@ int32_t cfg_dir(char* out, size_t cap, luabind::FsError& err) {
 }
 
 bool app_path(const char* in, char* out, size_t cap) { return absolute(in, out, cap); }
+
+bool write_allowed(const char* path, bool person, luabind::FsError& err) {
+  // **The prompt is not an app**: a person writes on any drive that is mounted writable, and the rule of
+  // an app's own ground would keep a page out of the card. An app gets exactly what `fs.write` gives it
+  // (docs/30, docs/70).
+  if (person) {
+    if (!vfs::is_writable(path)) {
+      err = luabind::FsError::kInval;
+      return false;
+    }
+    return true;
+  }
+  return allowed(path, true, err);
+}
+
+bool write_path(const char* in, char* out, size_t cap, bool person, luabind::FsError& err) {
+  if (!absolute(in, out, cap)) {
+    err = luabind::FsError::kInval;
+    return false;
+  }
+  return write_allowed(out, person, err);
+}
+
+bool app_make_way(const char* path) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!to_storage(path, storage, rel, sizeof(rel))) return false;
+  make_dirs(storage, rel);
+  return true;
+}
 
 void install_fs_ops() {
   luabind::FileOps ops;

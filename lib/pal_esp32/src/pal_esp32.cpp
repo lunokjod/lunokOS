@@ -59,6 +59,10 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
         static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     info.min_free_bytes =
         static_cast<uint32_t>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // **What a page could still take**: the pieces do not add up, and the board has the number of the
+    // biggest one (docs/75).
+    info.largest_free_bytes =
+        static_cast<uint32_t>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return info;
   }
 
@@ -195,7 +199,37 @@ ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }
 
-void set_extra_memory_us(uint32_t us) { (void)us; }
+void set_dispatch_us(uint32_t us) {
+  // **The tick of the chip dispatches for itself**: a board is not told how its own FreeRTOS wakes
+  // (docs/85).
+  (void)us;
+}
+
+void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
+  // **The chip's allocator is the chip's**: a board is not told what its own malloc costs (docs/85).
+  (void)step_ns;
+  (void)bytes_per_us;
+}
+
+MemoryLeft memory_left(bool extra) {
+  // **The chip answers for itself**: the board's own RAM through `MALLOC_CAP_INTERNAL` and the PSRAM
+  // through `MALLOC_CAP_SPIRAM`, which is what `mem` prints and what `sys.heap()` already reads. A board
+  // with no PSRAM has no extra home and says so (docs/75).
+  MemoryLeft out = {};
+  if (extra && heap_caps_get_total_size(kExtraCaps) == 0) return out;
+  const uint32_t caps = extra ? kExtraCaps : kHomeCaps;
+  out.counted = true;
+  out.free_bytes = heap_caps_get_free_size(caps);
+  out.lowest_free_bytes = heap_caps_get_minimum_free_size(caps);
+  return out;
+}
+
+void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes) {
+  // **A board is not told how much memory it has**: the chip answers for itself, and a ceiling here
+  // would be a lie told to the firmware that runs on the glass (docs/85).
+  (void)home_bytes;
+  (void)extra_bytes;
+}
 
 void delay_us(uint32_t us) {
   // **The chip's own busy wait**: on the board nothing asks for this —the time is the real one— and the

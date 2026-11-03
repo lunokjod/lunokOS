@@ -170,7 +170,15 @@ enum class ProvTransport : uint8_t { kSoftAp = 0, kBle = 1 };
 // for one and a list of headers costs memory that docs/75 has not given away.
 struct HttpOpts {
   uint32_t timeout_ms = 10000;
+  // How many bytes of the page the caller wants in memory. **Zero is a page that is only wanted on a
+  // volume**, and then `sink` has to be there (docs/30).
   uint32_t max_bytes = 16384;
+  // **A page too big for memory goes to a file instead of being refused**: with a sink and a path
+  // inside that unit, the body that grows past `max_bytes` is written there —the first `max_bytes`
+  // included— and the whole page can be worked with once it is down. A page that fits never touches
+  // the volume. `nullptr` is a page that only lives in memory (docs/30, docs/75).
+  IStorage* sink = nullptr;
+  const char* sink_path = nullptr;
 };
 
 // Why a page did not arrive, said as a cause and not as a word: the code an app
@@ -181,13 +189,19 @@ enum class HttpError : uint8_t {
   kTls,       // the certificate was not accepted, or the handshake failed
   kTooBig,    // more bytes than the caller allowed
   kNoMemory,  // no room for the page in what is left of the heap
+  kStorage,   // the volume refused the page: no room, or a write that did not go in
   kStopped    // nobody wants the answer any more (docs/75)
 };
 
 struct HttpResult {
   int status = 0;        // the HTTP status, 0 when there was no answer
   char* body = nullptr;  // owned by the board until http_release
+  // In memory, or **in the file** when `saved`: the size the page has, which is what the caller wants
+  // to hear whether it went to the heap or to a volume (docs/30).
   uint32_t body_len = 0;
+  // True when the page is in the sink and not here: `body` is null and `body_len` is the size of the
+  // file that was written, the whole page from its first byte (docs/30).
+  bool saved = false;
   HttpError error = HttpError::kNone;
 };
 

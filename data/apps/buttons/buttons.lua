@@ -13,7 +13,7 @@
 -- changes draws only itself, and a button that changes draws its frame and asks its child to draw again.
 -- The last lines count a click.
 --
--- **It is under eight kilobytes on purpose**: the system reads an app's entry into one block of that size
+-- **It is under sixteen kilobytes on purpose**: the system reads an app's entry into one block of that size
 -- (docs/75), and an example that does not fit is not an example.
 local caps = sys.caps()
 if not caps.display then
@@ -25,23 +25,32 @@ local view = ui.caps()
 console.print(string.format('buttons: view %d x %d at %d,%d', view.width, view.height, view.x, view.y))
 ui.title('Buttons')
 
--- **The face of the page is a `.lfont` made from Nunito**, a rounded sans cut to the printable ascii by
--- `tools/ttf_to_lfont.py`: sixteen by sixteen pixels of cell, upper and lower case, and **a table that is drawn
--- without decoding anything** (that is what a `.lfont` is and why it is the fast one). Its licence travels with
--- it (`/res/LICENCE-nunito.txt`), and so does the tool that would make another one (docs/30).
-local face, face_err = ui.load_font('/res/ui-16.lfont')
+-- **The face of the page is Lato Black, a free round face cut down to the printable ascii**: twenty
+-- kilobytes of outlines and not a table of bits, so the word is drawn at the size asked for —`scale` is in
+-- eighths of a pixel and 3 is a body of twenty-four, which is a word read from a metre away on this panel— and
+-- the letters keep the spacing of the typeface instead of the fixed cell of a `.lfont`. The file is the face
+-- and it stays in the app's memory; its licence travels beside it (`/res/LICENCE-lato.txt`, OFL) and the
+-- subset is `pyftsubset --unicodes=U+0020-007E` of the Lato Black a distribution already has (docs/30).
+local face, face_err = ui.load_font('/res/lato-black.ttf')
 if face == nil then
   console.print('buttons: no face: ' .. tostring(face_err and face_err.message))
 end
 if face ~= nil then
   local w, h, glyphs = face:size()
   console.print(string.format('buttons: face %dx%d, %d glyphs, "Handgloves" is %d px', w, h, glyphs,
-    face:text_width('Handgloves', 1)))
+    face:text_width('Handgloves', 3)))
+  -- **The face of the page is the face of its words**: what `ui.text` draws is the view's face, so the title
+  -- and the notes under the buttons are the same typeface as the labels, at two sizes (docs/30).
+  ui.font(face)
 end
 local button_draws = 0
 local label_draws = 0
 local clicks = 0
 local focuses = 0
+-- **A change of focus is a page that has to land clean**: the ring is black on white and a `du` leaves the
+-- one before it at a quarter of its ink, which is a grey ring nobody asked for. The app asks for one `gc16`
+-- on the turn after a focus move or a click, and the loop below is what carries it (docs/50, docs/90).
+local clean = false
 local buttons = {}
 local labels = {}
 
@@ -51,6 +60,7 @@ local function attach(button, label, spec, how)
   local hook = function(self)
     clicks = clicks + 1
     label.text = spec.text .. ' ' .. clicks
+    clean = true
     console.print(string.format('buttons: %s on "%s", %d presses', how, spec.text, clicks))
   end
   -- A control with no `on_click` gets `on_activate`: it is the same press under the other name.
@@ -58,6 +68,7 @@ local function attach(button, label, spec, how)
   button.on_focus = function(self, focused)
     if not focused then return end
     focuses = focuses + 1
+    clean = true
     console.print(string.format('buttons: focus on "%s", %d moves', spec.text, focuses))
   end
 end
@@ -107,32 +118,32 @@ local function add_label(button, spec)
   return label
 end
 
+-- **Three sizes of the same face, in eighths of a pixel**: two is a body of sixteen, three of twenty-four
+-- and four of thirty-two, and the label is what holds the size — the button does not care.
 local specs = {
-  {x = 10, y = 90, w = 250, h = 150, text = 'One'},
-  {x = 280, y = 90, w = 250, h = 150, text = 'Two'},
-  {x = 10, y = 260, w = 250, h = 150, text = 'Three'},
-  {x = 280, y = 260, w = 250, h = 150, text = 'Four', inverted = true},
-  {x = 10, y = 430, w = 250, h = 150, text = 'Five'},
-  {x = 280, y = 430, w = 250, h = 150, text = 'Six'},
-  {x = 10, y = 600, w = 250, h = 150, text = 'Seven'},
-  {x = 280, y = 600, w = 250, h = 150, text = 'Eight', inverted = true},
+  {x = 10, y = 90, w = 250, h = 150, text = 'One', scale = 4},
+  {x = 280, y = 90, w = 250, h = 150, text = 'Two', scale = 2},
+  {x = 10, y = 260, w = 250, h = 150, text = 'Three', scale = 3},
+  {x = 280, y = 260, w = 250, h = 150, text = 'Four', scale = 4},
+  {x = 10, y = 430, w = 250, h = 150, text = 'Five', scale = 2},
+  {x = 280, y = 430, w = 250, h = 150, text = 'Six', scale = 3},
+  {x = 10, y = 600, w = 250, h = 150, text = 'Seven', scale = 3},
+  {x = 280, y = 600, w = 250, h = 150, text = 'Eight', scale = 4},
 }
 
 for i = 1, #specs do
   local spec = specs[i]
-  -- Black on white, or white on black for the inverted ones: **no grey at all** in the frame or the word.
-  spec.background = spec.inverted and 0 or 15
-  spec.border = spec.inverted and 15 or 0
-  spec.color = spec.inverted and 15 or 0
-  -- **The cell is sixteen pixels, so scale one is already a big letter**: the face is drawn at the size it was
-  -- cut at and scaling it would be a multiply of a picture and not a better letter (docs/30).
-  spec.scale = 1
+  -- **Eight white buttons**: a black frame and a black word on the paper of the page, which is the page a
+  -- person reads and the one the focus ring has to stand out from (docs/30).
+  spec.background = 15
+  spec.border = 0
+  spec.color = 0
   spec.face = face
 end
 
 ui.clear(15, 'gc16')
-ui.text(20, 12, 'UIBUTTON', 4, 0)
-ui.text(20, 52, 'A FRAME THAT HOLDS A LABEL', 1, 8)
+ui.text(20, 10, 'UI BUTTON', 4, 0)
+ui.text(20, 52, 'A frame that holds a label', 2, 8)
 ui.rect(20, 74, view.width - 40, 2, 0, 'gc16')
 ui.rect(0, 84, view.width, 686, 13, 'gc16')
 
@@ -140,7 +151,9 @@ for i = 1, #specs do
   local spec = specs[i]
   local button = make_button(spec)
   if button ~= nil then
-    local label = add_label(button, {w = 230, h = 130, text = spec.text, background = spec.background,
+    -- **Twelve pixels of margin**: the focus ring is a band of seven after a white gap of two, and a child
+    -- that reached the frame would paint over it (docs/30, docs/90).
+    local label = add_label(button, {w = 226, h = 126, text = spec.text, background = spec.background,
                                      color = spec.color, scale = spec.scale, face = spec.face})
     -- The fourth button answers `on_activate` instead of `on_click`, so the page shows both names.
     if label ~= nil then
@@ -155,7 +168,7 @@ for i = 1, #specs do
         local want = self.pressed and 3 or 0
         if want ~= sunk then
           sunk = want
-          label:place(10 + want, 10 + want)
+          label:place(12 + want, 12 + want)
         end
         native(self)
       end
@@ -169,17 +182,27 @@ end
 local leaving = false
 local quit = ui.button(130, 80)
 if quit ~= nil then
-  quit.background = 0
-  quit.border = 15
-  quit:place(390, 800)
-  local title = ui.label(110, 60)
+  -- **A grey frame, because this button sits on the black strip**: a black frame on a black page is no frame,
+  -- and a white one on a white body is none either. The body is white, like the other eight (docs/30).
+  quit.background = 15
+  quit.border = 11
+  quit:place(400, 800)
+  local title = ui.label(106, 56)
   title.text = 'Quit'
-  title.color = 15
-  title.background = 0
+  title.color = 0
+  title.background = 15
   title.align = 'center'
   title.valign = 'middle'
-  title:place(10, 10)
+  title.scale = 3
+  if face ~= nil then title:font(face) end
+  title:place(12, 12)
   quit:add(title)
+  quit.on_focus = function(self, on)
+    if not on then return end
+    focuses = focuses + 1
+    clean = true
+    console.print(string.format('buttons: focus on "Quit", %d moves', focuses))
+  end
   quit.on_click = function(self)
     leaving = true
     console.print('buttons: quit pressed, leaving the page')
@@ -187,9 +210,9 @@ if quit ~= nil then
 end
 
 ui.rect(0, 780, view.width, 120, 0, 'gc16')
-ui.text(20, 796, '8 BUTTONS, 8 LABELS, 0 PIXELS OF THEIR OWN', 2, 15)
-ui.text(20, 824, 'a button is a frame; the label is its child', 1, 11)
-ui.text(20, 842, 'the child is clipped to the frame and drawn after it', 1, 8)
+ui.text(20, 794, '8 buttons, 8 labels, 0 pixels of their own', 2, 15)
+ui.text(20, 818, 'a button is a frame; the label is its child', 2, 11)
+ui.text(20, 842, 'the child is clipped to the frame', 2, 8)
 ui.frame(4, 4, view.width - 8, view.height - 8, 0, 'gc16')
 
 -- **The first page is the one that is worth a wash**: `gc16` cleans the glass once and leaves no ghost of the
@@ -206,27 +229,16 @@ while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: %d button draws, %d label draws after a present with nothing new',
   button_draws, label_draws))
 
--- A label that changes draws only itself.
-labels[1].text = 'SYSTEM / live'
-ui.present()
-while not ui.idle() do sys.delay(20):await() end
-console.print(string.format('buttons: %d button draws, %d label draws after one label changed',
-  button_draws, label_draws))
-labels[1].text = 'SYSTEM / 8'
-ui.present()
-while not ui.idle() do sys.delay(20):await() end
-console.print(string.format('buttons: %d button draws, %d label draws after putting it back',
-  button_draws, label_draws))
-
 -- The pressed frame is a button change: the button redraws and asks its child to draw again, because the
--- fill of the frame has covered the label.
+-- fill of the frame has covered the label. **The demonstration washes**: it is a page being looked at, and a
+-- `gc16` is what leaves the hole crisp; the press of a person is a `du`, which is the quick one (docs/50).
 buttons[8].pressed = false
-ui.present()
+ui.present('gc16')
 while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: %d button draws, %d label draws after releasing the button',
   button_draws, label_draws))
 buttons[8].pressed = true
-ui.present()
+ui.present('gc16')
 while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: %d button draws, %d label draws after pressing it again',
   button_draws, label_draws))
@@ -236,27 +248,38 @@ console.print(string.format('buttons: %d button draws, %d label draws after pres
 -- is that **a click is one label that changes** and nothing else.
 local before_button, before_label = button_draws, label_draws
 buttons[1].on_click(buttons[1])
-ui.present()
+ui.present('gc16')
 while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: after a click, %d button draws (%+d) and %d label draws (%+d)',
   button_draws, button_draws - before_button, label_draws, label_draws - before_label))
 
 -- And another, which is the counter of the button and not of the page.
 buttons[1].on_click(buttons[1])
-ui.present()
+ui.present('gc16')
 while not ui.idle() do sys.delay(20):await() end
 console.print(string.format('buttons: after a second click, %d button draws, %d label draws',
   button_draws, label_draws))
 
+-- **The page is left as a page and not as a demonstration**: the eighth button goes back up and the wash
+-- takes the last of the pressed frame, so what a person sees is eight buttons waiting (docs/30, docs/90).
+buttons[8].pressed = false
+ui.present('gc16')
+while not ui.idle() do sys.delay(20):await() end
+
 console.print(string.format('buttons: %d presses and %d focus moves; %s, %s', clicks, focuses,
   tostring(buttons[1]), tostring(labels[1])))
+clean = false  -- the demonstrations have already washed what they changed
 
 -- **The app stays and listens, and that is the whole point of a callback**: an app that ends after drawing is
 -- an app nobody can press, which is what this example did until it was caught. `ui.present` with nothing new
 -- draws nothing —the counts above are the proof— so the loop presents every turn and the glass is painted
 -- only when a label or a ring has really moved (docs/30, docs/90).
 while not leaving do
-  ui.present()
+  -- **The turn after a focus move or a click is a wash**: `gc16` is 450 ms of ink and the region blinks
+  -- while it cleans, and it is what leaves the ring that arrived crisp and the ring that left gone
+  -- (docs/50, docs/85, docs/90).
+  ui.present(clean and 'gc16' or nil)
+  clean = false
   sys.delay(200):await()
 end
 console.print('buttons: out')

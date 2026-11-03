@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "img/img.h"
+
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/font.h"
@@ -852,6 +854,90 @@ bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::Upda
   return true;
 }
 
+// **A picture on a canvas**: the rows of the file land where the app put them, scaled as it asked, cut to the
+// canvas and to what the control owes. It is the same copy a glyph gets and the same packing, which is why a
+// picture costs no conversion at all (docs/30, docs/50).
+struct ImagePlace {
+  Canvas* canvas = nullptr;
+  // The rectangle the picture occupies on the canvas, before any cut (docs/30).
+  int32_t x = 0;
+  int32_t y = 0;
+  int32_t w = 0;
+  int32_t h = 0;
+  // What of it may be written: the canvas, the frame of the control and what it owes (docs/90).
+  int32_t clip_x0 = 0;
+  int32_t clip_y0 = 0;
+  int32_t clip_x1 = 0;
+  int32_t clip_y1 = 0;
+  uint32_t source_w = 0;
+  uint32_t source_h = 0;
+  bool wrote = false;
+};
+
+void image_row(void* context, uint16_t source_y, const uint8_t* packed) {
+  ImagePlace& place = *static_cast<ImagePlace*>(context);
+  Canvas& canvas = *place.canvas;
+  // **The nearest neighbour**: every row of the file covers the rows of the page it lands on, and every
+  // pixel does the same. A page of sixteen levels has nothing better to offer, and a better filter is a
+  // change of this one loop (docs/30).
+  const int32_t first = static_cast<int32_t>((static_cast<int64_t>(source_y) * place.h) / place.source_h);
+  int32_t last = static_cast<int32_t>((static_cast<int64_t>(source_y + 1) * place.h) / place.source_h);
+  if (last <= first) last = first + 1;
+  for (int32_t target = first; target < last; ++target) {
+    const int32_t canvas_y = place.y + target;
+    if (canvas_y < place.clip_y0 || canvas_y >= place.clip_y1) continue;
+    uint8_t* line = canvas.bits + static_cast<uint32_t>(canvas_y) * canvas.stride;
+    for (int32_t column = 0; column < place.w; ++column) {
+      const int32_t canvas_x = place.x + column;
+      if (canvas_x < place.clip_x0 || canvas_x >= place.clip_x1) continue;
+      const uint32_t source_x =
+          static_cast<uint32_t>((static_cast<int64_t>(column) * place.source_w) / place.w);
+      const uint32_t at = (source_x < place.source_w) ? source_x : place.source_w - 1;
+      const uint8_t byte = packed[at / 2];
+      const uint8_t level = ((at & 1) == 0) ? static_cast<uint8_t>(byte >> 4)
+                                            : static_cast<uint8_t>(byte & 0x0F);
+      uint8_t& target_byte = line[canvas_x / 2];
+      if ((canvas_x & 1) == 0) {
+        target_byte = static_cast<uint8_t>((target_byte & 0x0F) | (level << 4));
+      } else {
+        target_byte = static_cast<uint8_t>((target_byte & 0xF0) | level);
+      }
+      place.wrote = true;
+    }
+  }
+}
+
+// The biggest file a picture may be and the room its decoder may take: a page of a photograph is a few
+// hundred kilobytes, the PSRAM of the Paper is four megabytes, and a file that is not a picture of a page is
+// not a file this board reads (docs/30, docs/75).
+const uint32_t kImageFileBytes = 2u << 20;
+const uint32_t kImageScratchBytes = 3u << 20;
+
+// Why a picture could not be read, in the words a person reads, and the code an app branches on (docs/30).
+const char* image_why(img::Status status, const char*& code) {
+  switch (status) {
+    case img::kOk:
+      return nullptr;
+    case img::kUnknown:
+      code = "E_INVAL";  // not a picture of a family this board knows
+      return "that is not a picture this board knows";
+    case img::kBadData:
+      code = "E_IO";  // a file that says it is a picture and is not one
+      return "the picture is broken";
+    case img::kUnsupported:
+      code = "E_UNSUPPORTED";
+      return "this board does not read that kind of picture";
+    case img::kTruncated:
+      code = "E_IO";
+      return "the picture ends in the middle";
+    case img::kNoRoom:
+      code = "E_NOSPC";
+      return "there is no memory for this picture";
+  }
+  code = "E_IO";
+  return "the picture could not be read";
+}
+
 // ---- the interpreter's side ----
 
 bool caps_for_lua(luabind::UIInfo& out) {
@@ -981,7 +1067,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      app_set_font,
                                      font_text_width,
                                      label_draw,
-                                     button_draw});
+                                     button_draw,
+                                     image,
+                                     image_info});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -1039,6 +1127,13 @@ bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, co
   if (!g_attached) return true;
   draw_fill_rect(root(), x, y, w, h, level, chosen);
   return true;
+}
+
+// **The picture of the app's own view**, which is what `ui.image` draws on: the same call a control gets,
+// with the root as the canvas (docs/30).
+bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+           const char*& code, const char*& reason) {
+  return canvas_image(0, x, y, w, h, path, mode, code, reason);
 }
 
 bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
@@ -1286,6 +1381,176 @@ bool canvas_fill_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
   return true;
 }
 
+// **A picture, from a file of the volume to the pixels of the canvas** (docs/30): the size the app asks for
+// —or the size of the picture— scaled as it is read, cut to the canvas and to what the control owes, and the
+// damage left where it landed. The file is read into the app's extra memory and the decoder's block with it,
+// and both go back before this returns: a picture is on the page, not in the heap (docs/75).
+bool canvas_image(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
+                  const char* mode, const char*& code, const char*& reason) {
+  code = "E_INVAL";
+  reason = nullptr;
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) {
+    reason = "not a quality of this display";
+    return false;
+  }
+  if (!g_attached) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return true;
+  Canvas& canvas = *target.canvas;
+
+  char full[128];
+  if (!app_path(path, full, sizeof(full))) {
+    close_draw(target);
+    reason = "that is not a path an app may name";
+    return false;
+  }
+  hal::Stat info;
+  if (!vfs::stat(full, info) || info.type != hal::NodeType::kFile) {
+    close_draw(target);
+    reason = "there is no such picture";
+    return false;
+  }
+  if (info.size == 0 || info.size > kImageFileBytes) {
+    close_draw(target);
+    reason = "a picture is up to two megabytes";
+    return false;
+  }
+  void* file = nullptr;
+  {
+    meter::Scope scope(meter::kExtraAlloc);
+    file = pal::extra_memory().allocate(static_cast<size_t>(info.size) + 1, true);
+  }
+  if (file == nullptr) {
+    close_draw(target);
+    reason = "there is no memory for the file";
+    return false;
+  }
+  size_t read = 0;
+  char* bytes = static_cast<char*>(file);
+  if (!vfs::read_file(full, bytes, static_cast<size_t>(info.size), read)) {
+    pal::extra_memory().release(file);
+    close_draw(target);
+    reason = "the picture could not be read";
+    return false;
+  }
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(bytes);
+  img::Info picture;
+  img::Status status = img::read_info(data, static_cast<uint32_t>(read), picture);
+  if (status == img::kOk) {
+    // **The size it is drawn at**: what the app asked for, or the size of the picture when it asked for
+    // nothing (docs/30).
+    const uint32_t asked_w = (w == 0) ? picture.width : w;
+    const uint32_t asked_h = (h == 0) ? picture.height : h;
+    ImagePlace place;
+    place.canvas = &canvas;
+    place.source_w = picture.width;
+    place.source_h = picture.height;
+    place.x = target.x + x;
+    place.y = target.y + y;
+    place.w = static_cast<int32_t>(asked_w);
+    place.h = static_cast<int32_t>(asked_h);
+    if (asked_w == 0 || asked_h == 0 || asked_w > 4096 || asked_h > 4096) {
+      status = img::kBadData;
+    } else {
+      int32_t cx = place.x;
+      int32_t cy = place.y;
+      int32_t cw = place.w;
+      int32_t ch = place.h;
+      if (clip_to_redraw(canvas, cx, cy, cw, ch)) {
+        place.clip_x0 = (cx > 0) ? cx : 0;
+        place.clip_y0 = (cy > 0) ? cy : 0;
+        place.clip_x1 = (cx + cw < canvas.width) ? cx + cw : canvas.width;
+        place.clip_y1 = (cy + ch < canvas.height) ? cy + ch : canvas.height;
+        const uint32_t scratch_bytes = img::scratch_bytes(data, static_cast<uint32_t>(read));
+        void* scratch = nullptr;
+        if (scratch_bytes > 0) {
+          if (scratch_bytes > kImageScratchBytes) {
+            status = img::kNoRoom;
+          } else {
+            meter::Scope scope(meter::kExtraAlloc);
+            scratch = pal::extra_memory().allocate(scratch_bytes, true);
+            if (scratch == nullptr) status = img::kNoRoom;
+          }
+        }
+        if (status == img::kOk) {
+          img::RowSink sink(image_row, &place);
+          status = img::decode(data, static_cast<uint32_t>(read), sink,
+                               static_cast<uint8_t*>(scratch), scratch_bytes);
+          if (status == img::kOk && place.wrote) {
+            const uint16_t damage_x = static_cast<uint16_t>(place.clip_x0);
+            const uint16_t damage_y = static_cast<uint16_t>(place.clip_y0);
+            const uint16_t damage_w = static_cast<uint16_t>(place.clip_x1 - place.clip_x0);
+            const uint16_t damage_h = static_cast<uint16_t>(place.clip_y1 - place.clip_y0);
+            damage_add(canvas, damage_x, damage_y, damage_w, damage_h, chosen);
+          }
+        }
+        if (scratch != nullptr) pal::extra_memory().release(scratch);
+      }
+    }
+  }
+  pal::extra_memory().release(file);
+  close_draw(target);
+  if (status != img::kOk) {
+    reason = image_why(status, code);
+    return false;
+  }
+  code = nullptr;
+  return true;
+}
+
+// **What a picture is, without drawing it**: the family, the size and the depth of the file, for an app that
+// lays a page out before it paints it (docs/30).
+bool image_info(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
+                const char*& code, const char*& reason) {
+  code = "E_INVAL";
+  reason = nullptr;
+  char full[128];
+  if (!app_path(path, full, sizeof(full))) {
+    reason = "that is not a path an app may name";
+    return false;
+  }
+  hal::Stat info;
+  if (!vfs::stat(full, info) || info.type != hal::NodeType::kFile) {
+    reason = "there is no such picture";
+    return false;
+  }
+  if (info.size == 0 || info.size > kImageFileBytes) {
+    reason = "a picture is up to two megabytes";
+    return false;
+  }
+  void* file = nullptr;
+  {
+    meter::Scope scope(meter::kExtraAlloc);
+    file = pal::extra_memory().allocate(static_cast<size_t>(info.size) + 1, true);
+  }
+  if (file == nullptr) {
+    reason = "there is no memory for the file";
+    return false;
+  }
+  size_t read = 0;
+  char* bytes = static_cast<char*>(file);
+  const bool ok = vfs::read_file(full, bytes, static_cast<size_t>(info.size), read);
+  img::Info picture;
+  const img::Status status =
+      ok ? img::read_info(reinterpret_cast<const uint8_t*>(bytes), static_cast<uint32_t>(read), picture)
+         : img::kTruncated;
+  pal::extra_memory().release(file);
+  if (!ok) {
+    reason = "the picture could not be read";
+    return false;
+  }
+  if (status != img::kOk) {
+    reason = image_why(status, code);
+    return false;
+  }
+  code = nullptr;
+  snprintf(format, format_cap, "%s", picture.format);
+  width = picture.width;
+  height = picture.height;
+  return true;
+}
+
 bool canvas_pixel(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1466,7 +1731,13 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
   int32_t radius = 12;
   const int32_t most = ((width < height) ? width : height) / 3;
   if (radius > most) radius = most;
-  const int32_t thickness = (width > 12 && height > 12) ? 2 : 1;
+  // **The frame has weight**: three pixels of border on a button of a page, two on a small one and one on a
+  // chip, and a bevel one pixel thinner than the border. A hairline frame reads as a box drawn round a word;
+  // a frame with weight reads as something a finger can press, which is what a button is (docs/30, docs/90).
+  int32_t thickness = 2;
+  if (width > 24 && height > 24) thickness = 3;
+  if (width <= 12 || height <= 12) thickness = 1;
+  const int32_t bevel = (thickness > 1) ? thickness - 1 : 1;
   // **The body is a rounded box in the border colour with a rounded hole of the background in it**, which is
   // a frame of a given thickness whose corners are rounded on both sides (docs/90).
   draw_round_fill(*target.canvas, target.x, target.y, width, height, radius, border, mode);
@@ -1474,38 +1745,50 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
                   height - 2 * thickness, radius - thickness, background, mode);
   // **The volume**: a light edge on the top and the left, a shadow on the bottom and the right. While the
   // button is held the two swap, which is the whole difference between a button that is out and one that is
-  // pushed in — and it is one pixel of ink, not a gradient, because the panel has sixteen levels and a person
+  // pushed in — and it is a line of ink and not a gradient, because the panel has sixteen levels and a person
   // looking at a page sees an edge and not a ramp (docs/50, docs/90).
   const uint8_t light = (background >= 15) ? 15 : static_cast<uint8_t>(background + 4);
   const uint8_t dark = (background == 0) ? 0 : static_cast<uint8_t>(background - 4);
   const int32_t face_w = width - 2 * thickness;
   const int32_t face_h = height - 2 * thickness;
   if (!pressed) {
-    draw_round_bevel(*target.canvas, target.x + thickness, target.y + thickness, face_w, face_h,
-                     radius - thickness, light, dark, mode);
+    for (int32_t i = 0; i < bevel; ++i) {
+      draw_round_bevel(*target.canvas, target.x + thickness + i, target.y + thickness + i,
+                       face_w - 2 * i, face_h - 2 * i, radius - thickness - i, light, dark, mode);
+    }
   } else {
     // **A button that is pushed in is a hole, and a hole has a mouth**: the shadow on the top and the left is
-    // **two pixels of a darker level** and not one line, and the light goes to the bottom and the right. Two
-    // rings instead of one is the difference between "held" and "drawn twice" (docs/30, docs/90).
+    // **as many pixels of a much darker level as the frame is thick**, and the light goes to the bottom and
+    // the right. More than one ring is the difference between "held" and "drawn twice" (docs/30, docs/90).
     const uint8_t deep = (background >= 8) ? static_cast<uint8_t>(background - 8) : 0;
-    draw_round_bevel(*target.canvas, target.x + thickness, target.y + thickness, face_w, face_h,
-                     radius - thickness, deep, light, mode);
-    draw_round_bevel(*target.canvas, target.x + thickness + 1, target.y + thickness + 1, face_w - 2,
-                     face_h - 2, radius - thickness - 1, deep, light, mode);
+    for (int32_t i = 0; i < thickness; ++i) {
+      draw_round_bevel(*target.canvas, target.x + thickness + i, target.y + thickness + i,
+                       face_w - 2 * i, face_h - 2 * i, radius - thickness - i, deep, light, mode);
+    }
   }
-  // **The focus is a ring two pixels thick**, inset so the border and the bevel stay where they are, in the
-  // colour that cannot be missed on that background: black on a light button and white on a dark one (docs/30,
-  // docs/90).
+  // **The focus is a ring a person cannot miss**: the two pixels of the bevel are the pause after the border,
+  // and then a black band of seven —the border and four—, which is the double frame a selected control wears.
+  // A ring that only doubles the border reads as a thicker border and not as "this is the one"; the pause is
+  // what says there are two elements and the one inside is the focus (docs/30, docs/90).
   if (focused && width > 16 && height > 16) {
     const uint8_t ring = (background >= 8) ? 0 : 15;
-    const int32_t inset = thickness + 3;
+    const int32_t short_side = (width < height) ? width : height;
+    const int32_t gap = 2;
+    const int32_t inset = thickness + gap;
+    int32_t ring_px = thickness + 4;
+    // Never more than the button can hold with a body of four pixels left: a ring that eats the button is
+    // not a focus, it is a black square (docs/90).
+    const int32_t room = short_side / 2 - inset - 2;
+    if (ring_px > room) ring_px = room;
+    if (ring_px < 2) ring_px = 2;
     const int32_t ring_radius = (radius > inset + 1) ? radius - inset : 2;
     const int32_t ring_width = width - 2 * inset;
     const int32_t ring_height = height - 2 * inset;
     draw_round_fill(*target.canvas, target.x + inset, target.y + inset, ring_width, ring_height,
                     ring_radius, ring, mode);
-    draw_round_fill(*target.canvas, target.x + inset + 2, target.y + inset + 2, ring_width - 4,
-                    ring_height - 4, ring_radius - 2, background, mode);
+    draw_round_fill(*target.canvas, target.x + inset + ring_px, target.y + inset + ring_px,
+                    ring_width - 2 * ring_px, ring_height - 2 * ring_px, ring_radius - ring_px,
+                    background, mode);
   }
   // **The frame is opaque, and it covers everything inside it**: a child that did not redraw would be
   // erased by the button's own fill. The button has no buffer to compose under the child, so the child

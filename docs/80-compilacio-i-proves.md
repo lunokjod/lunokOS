@@ -26,29 +26,47 @@ monitor_speed = 115200
 monitor_rts = 0
 monitor_dtr = 0
 build_flags = -std=gnu++11 -Ilib/board_atom/include
-lib_ignore = hal_emulator, pal_host, board_matrix,
+             -DARDUINO_LOOP_STACK_SIZE=16384
+lib_ignore = hal_emulator, pal_host, board_matrix, board_paper, board_esp32,
              WiFi, WiFiClientSecure, HTTPClient, ESPmDNS, WebServer,
              DNSServer, WiFiProv
 
 [env:atom_matrix]
 extends = env:atom
 build_flags = -std=gnu++11 -Ilib/board_matrix/include
-lib_ignore = hal_emulator, pal_host, board_atom, …   ; i les de xarxa, igual
+             -DARDUINO_LOOP_STACK_SIZE=16384
+lib_ignore = hal_emulator, pal_host, board_atom, board_paper, board_esp32, …
+; i les de xarxa, igual
 
 [env:paper]
 platform = espressif32
 board = m5stack-paper
 framework = arduino
 board_build.partitions = partitions_16mb.csv
+extra_scripts = pre:tools/check_fs_names.py
 build_flags = -std=gnu++11 -Ilib/board_paper/include
+             -DARDUINO_LOOP_STACK_SIZE=16384
 lib_ignore = hal_emulator, pal_host, hal_atom, board_atom, board_matrix, …
 ; hal_esp32 no s'ignora: és el que aquesta placa comparteix amb l'ATOM (docs/50)
+
+[env:esp32]
+platform = espressif32
+board = esp32dev
+framework = arduino
+board_build.partitions = partitions.csv
+extra_scripts = pre:tools/check_fs_names.py
+build_flags = -std=gnu++11 -Ilib/board_esp32/include
+             -DARDUINO_LOOP_STACK_SIZE=16384
+lib_ignore = hal_emulator, pal_host, board_atom, board_matrix, board_paper, …
 
 [env:emulator]
 platform = native
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32, board_atom, board_matrix
+; SDL2 quan hi és, X11 de reserva, o cap finestra: ho tria aquest script (docs/85).
+extra_scripts = pre:tools/select_gui.py
+lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32,
+             board_atom, board_matrix, board_paper, board_esp32
 
 [env:test]
 platform = native
@@ -56,17 +74,23 @@ test_framework = unity
 test_build_src = yes
 build_unflags = -std=gnu++11 -std=gnu++14 -std=gnu++17
 build_flags = -std=c++11 -Ilib/hal_emulator/include
-lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32, board_atom, board_matrix
+lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32,
+             board_atom, board_matrix, board_paper, board_esp32
 ```
 
 El text de debò és a `platformio.ini`, amb un comentari per línia; aquí n'hi ha la forma. Les
-llibreries de xarxa d'Arduino són fora del build a posta (docs/50), i `board_atom`/`board_matrix` són
-a `lib_ignore` de **tots** els entorns perquè cada build en vegi exactament una.
-`extra_scripts = pre:tools/check_fs_names.py` és a `[env:atom]`: l'eina de la imatge de LittleFS
-deixa caure en silenci qualsevol nom de `data/` més llarg de 32 caràcters i tot i així diu SUCCESS, i
-aquest script ho converteix en un build fallit (docs/70).
+llibreries de xarxa d'Arduino són fora del build a posta (docs/50), i **cada entorn ignora les
+identitats de les altres tres plaques** perquè el build en vegi exactament una; el banc no en té cap
+de `lib/board_*` i porta la seva a `lib/hal_emulator/include/board/`.
+**El banc no enllaça res per a la xarxa**: la pàgina que demana `http` la baixa el `curl` d'aquesta
+màquina, en un procés fill, i un `curl` que no hi sigui no trenca el build — la petició respon
+`E_HTTP` i ho diu a la consola (docs/85).
+`extra_scripts = pre:tools/check_fs_names.py` és a tots els entorns de placa (`atom` —i el seu fill
+`atom_matrix`—, `paper` i `esp32`): l'eina de la imatge de LittleFS deixa caure en silenci qualsevol nom
+de `data/` més llarg de 32 caràcters i tot i així diu SUCCESS, i aquest script ho converteix en un build
+fallit (docs/70).
 
-Quatre coses que aquesta configuració fa complir:
+Sis coses que aquesta configuració fa complir:
 
 1. **C++11 a les dues bandes.** El nucli d'Arduino per a ESP32 compila amb `-std=gnu++11`; si el codi
    del PC fa servir C++17, el projecte es trenca en silenci quan arribi a la placa. Es compila igual
@@ -76,10 +100,12 @@ Quatre coses que aquesta configuració fa complir:
    s'aplicaria al **framework d'Arduino**, que té avisos propis (un de conegut a `esp32-hal-uart.c`) i
    no és feina d'aquest projecte arreglar-los. Així el build surt net i el nostre codi no en passa
    ni un.
-3. **`lib_ignore` i `src/board_link.cpp`.** Cada entorn no veu mai el codi de l'altra placa: ho diuen el
-   `lib_ignore` i el camí d'inclusió (`-Ilib/board_<id>/include`), que és el que fa que
+3. **`lib_ignore` i `src/board_link.cpp`.** Cada entorn no veu mai el codi de les altres plaques: ho
+   diuen el `lib_ignore` i el camí d'inclusió (`-Ilib/board_<id>/include`), que és el que fa que
    `#include "board/identity.h"` i `#include "board/impl.h"` resolguin a la placa d'aquest entorn i no
-   a l'altra. Però això sol no n'hi prou: PlatformIO descobreix les llibreries de `lib/` seguint els
+   a les altres. (El banc i les proves no tenen cap `lib/board_*`: la seva identitat és dins
+   `lib/hal_emulator/include/board/`.) Però això sol no n'hi prou: PlatformIO descobreix les llibreries
+   de `lib/` seguint els
    `#include`, i com que `board/impl.h` no es diu com cap llibreria (`hal_atom`, `pal_esp32`…), sense
    ningú que les anomeni (`undefined reference to hal::platform()`) no es compilen mai.
    `src/board_link.cpp` inclou `board/impl.h`, que és l'únic fitxer que arrossega `hal_atom.h` +
@@ -90,8 +116,8 @@ Quatre coses que aquesta configuració fa complir:
    dependències només segueix capçaleres de llibreries (mesurat el 31/10, docs/50).
 4. **Dos punts d'entrada.** `src/main.cpp` compila només sota `ARDUINO` (a la resta és un stub, perquè
    PlatformIO es nega a compilar un entorn el `src/` del qual queda buit) i el `main()` de l'emulador
-   viu a `lib/hal_emulator/`, tancat amb `#if !defined(UNIT_TEST)` perquè quan corre `pio test` mana
-   el `main` de les proves.
+   viu a `lib/hal_emulator/`, tancat amb `#if !defined(UNIT_TEST) && !defined(PIO_UNIT_TESTING)` perquè
+   quan corre `pio test` mana el `main` de les proves.
 5. **Qui depèn de qui ho diu `library.json`.** El cercador de dependències de PlatformIO segueix els
    `#include`, i això falla de dues maneres que ja han passat: `lib/luabind` no trobava `lauxlib.h`
    (el cercador no sap que `lua` és una llibreria fins que algú ho diu) i, quan el va trobar, els
@@ -138,11 +164,13 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   troba, i això no és cap error del sistema. Es fa un cop, i cada cop que canviï `data/`.
 - **No cal posar res a la targeta SD**: el slot és una targeta i prou. Si n'hi ha una, `/sd` apareix i
   `cfg auto` hi desa els ajustos; cap fitxer és obligatori.
-- **`emulator/littlefs` no es puja mai**: és la còpia del banc (docs/85). El que es puja és `data/`.
+- **`emulator/littlefs` no es puja mai**: és la còpia privada d'un banc que demana `--flash
+  emulator/littlefs`; el disc del banc, per defecte, és `data/` (docs/85). El que es puja és `data/`.
 - El nom d'un fitxer de `data/` no pot passar de 32 caràcters: `tools/check_fs_names.py` ho converteix
   en un build fallit en lloc de deixar que la imatge el perdi en silenci (docs/70).
-- Per saber que tot hi és, després de flashejar: `version` (la versió i la placa), `caps` (**14 de
-  17** al Paper amb targeta i bateria), `mem` (els tres números de la memòria extra), `mounts` (fins a
+- Per saber que tot hi és, després de flashejar: `version` (la versió i la placa), `caps` (**16 de
+  19** al Paper amb targeta i bateria, o **17** si el terminal contesta ANSI), `mem` (els tres números
+  de la memòria extra), `mounts` (fins a
   nou files, amb `/rtc` i `/fram`) i `apps` (les apps del disc). I `run heap`, que és la meitat que
   falta de la mesura E-4 de `docs/95`.
 
@@ -167,7 +195,7 @@ arrencada, a `version` i a `app.version`. La regla és del propietari del projec
 
 ## Què és una prova aquí
 
-Quatre nivells, i cada cosa va al seu:
+Cinc nivells, i cada cosa va al seu:
 
 | Nivell | On | Què comprova |
 |---|---|---|
@@ -177,14 +205,14 @@ Quatre nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_led/` | El motor dels efectes: els quatre efectes com a funció del temps, les dues capes, la interrupció pel sistema (desar, pintar, restaurar i avisar `on_light`) i el sostre de brillantor de la placa |
 | **Unitat** | `test/test_orientation/` | El gir: les quatre cantonades del Paper, el quart de volta i que encadenar un gir en el mateix objecte no llegeixi la seva pròpia sortida |
 | **Unitat** | `test/test_line_editor/` | El cursor d'una línia: una lletra al mig, el retrocés que se l'emporta, inici/final, i **l'historial**: vuit ordres, la que s'estava escrivint que torna en passar de la més nova, i ni les línies buides ni la repetició immediata no hi entren |
-| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16`, el temps de cada qualitat, el parpelleig d'`a2` en tres moments i el preu del bus que quadra amb els 1 985 ms de la placa) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala), i **quina placa té vidre**: el model diu que la Paper en té i que els ATOM no, i una opció no dona pantalla a una placa que no en té, i **el camí de tornada del píxel de la finestra al píxel de la pàgina** (el centre del bloc d'escala i la vora per a un punter fora), i **la tira de les tecles** (la columna és pujar/centre/baixar, la seva geometria —96 d'ample, botons de 80 × 54 centrats— i que un clic al buit no prem cap tecla), i **els controls**: el retall d'UILabel, i el marc d'UIButton amb la vora premuda, el fill tallat al botó i el fill que es torna a dibuixar quan el marc canvia |
-| **Unitat** | `test/test_touch/` | El panell de la Paper al banc: **què costa una lectura** (800 µs sense dit, 1 830 amb un i 2 550 amb dos, i el probe de 186 bytes de l'arrencada), **un marc per escombrat** —la segona lectura de la mateixa finestra diu que no hi ha ningú—, la configuració d'aquesta unitat (dos dits, mides 28 i 30, el punt fora del marc refusat), el dit que se'n va, el **xip més lent que el torn** (40 ms contra 20: la meitat de les lectures diuen ningú), i un dit que acaba en un gest `long` amb les coordenades de la vista (100,200 del vidre són 100,172 de la vista) |
+| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16`, el temps de cada qualitat, el parpelleig d'`a2` en tres moments i el preu del bus que quadra amb els 1 985 ms de la placa l'1/11) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala), i **quina placa té vidre**: el model diu que la Paper en té i que els ATOM no, i una opció no dona pantalla a una placa que no en té, i **el camí de tornada del píxel de la finestra al píxel de la pàgina** (el centre del bloc d'escala i la vora per a un punter fora), i **la tira de les tecles** (la columna és pujar/centre/baixar, la seva geometria —96 d'ample, botons de 80 × 54 centrats— i que un clic al buit no prem cap tecla), i **els controls**: el retall d'UILabel, i el marc d'UIButton amb la vora premuda, el fill tallat al botó i el fill que es torna a dibuixar quan el marc canvia |
+| **Unitat** | `test/test_touch/` | El panell de la Paper al banc: **què costa una lectura** (800 µs sense dit, 1 830 amb un i 2 550 amb dos, i el probe de 186 bytes de l'arrencada), **un marc per escombrat** —la segona lectura de la mateixa finestra diu que no hi ha ningú—, la configuració d'aquesta unitat (dos dits, mides 28 i 30, el punt fora del marc refusat), el dit que se'n va, el **xip més lent que el torn** (40 ms contra 20: la meitat de les lectures diuen ningú), i un dit que acaba en un gest `long` amb les coordenades de la vista (100,200 del vidre són 100,152 de la vista) |
 | **Unitat** | `test/test_battery/` | La bateria: la **corba en els dos sentits** (4 200 mV plena, 3 300 buida, cada fila torna com va anar-hi, i el voltatge només puja amb la càrrega), la **bateria de la màquina** llegida d'uns fitxers del nucli (63 %, carregant o no, i un `150` que no és cap bateria), la **cel·la prestada** (el 100 % són 4 200 mV, el 63 % són 3 847, i una màquina sense bateria deixa la cel·la al **càrrec nominal, 3 700 mV**, perquè un Paper sempre en té), i que **preguntar el gauge pagui l'ADC** (400 µs) i no el pagui amb els temps apagats |
 | **Unitat** | `test/test_font/` | El tipus de lletra portable: un fitxer de text que es converteix en una cara (la mida, el forat, els codis en ordre i cada `#` on toca), **l'amplada d'una línia** amb l'escala i sense forat al final, els glifs **com a tirades de píxels** tallades a la caixa del label, i cada manera que un fitxer deixa de ser una cara amb el seu motiu. I **el BDF**: les files hexadecimals cap al mateix bloc de setze per setze (amb dues bytes per fila quan el glif passa de vuit columnes), el `COMMENT` i les propietats que no diuen res, `ENCODING -1 <n>`, les seves maneres de dir que no, i que el **sniffer** (`font::load_any`) triï el lector pel que diu el fitxer i salti els comentaris de davant. I **el PCF**, amb el fitxer de debò que `bdftopcf` va escriure a partir del BDF de l'app: surt **el mateix bloc, byte a byte**, i un directori tallat, una taula fora del fitxer, els bits al revés, una codificació de dos bytes o un codi que apunta més enllà dels glifs es refusen |
 | **Unitat** | `test/test_inflate/` | El deflate llegit de tornada: un stream comprimit pel zlib de debò —bloc dinàmic i bloc fix— torna com era, els **dos checksums** dels contenidors (Adler-32 del zlib i CRC-32 del zip) amb els valors que tothom cita, i el que **no és un stream** es refusa amb el seu motiu: un stream tallat, un quart tipus de bloc que no existeix, una longitud que no concorda amb el seu complement, una sortida que no hi cap, un diccionari preestablert, i un punter nul, que no és el mateix cas que un buffer buit |
 | **Unitat** | `test/test_ttf/` | Els contorns d'un TrueType: el que la font diu de si mateixa (64 unitats de cos, set glifs, l'ascendent), el codi que troba el seu glif pel `cmap` i el que no hi és, el **pas del glif** en píxels i a qualsevol mida, i el dibuix: **la `A` a vuit píxels surt amb les vuit files del `font-bdf`**, columna a columna, i a setze és el doble amb la caixa de tinta que li toca. Es refusen un fitxer que no és cap font, un `OTTO` (CFF), un directori tallat, una taula fora del fitxer i un glif que no cap al bloc |
 | **Unitat** | `test/test_disk/` | El disc del banc, dispositiu per dispositiu: la **taula** de `emu/disk.h` (blocs de 4 KB i 819 µs de flash, 45 ms d'esborrat, 512 B i 410 µs de targeta, **90 µs per byte** de FRAM), que un bloc de flash pagui el seu cable i no un errada, que una **escriptura pagui el sector** que littlefs ha d'esborrar, que vuit bytes de FRAM costin el bus I2C, i que amb els temps apagats el mateix bloc d'escriptura no demani res al rellotge |
-| **Unitat** | `test/test_bar/` | La barra: que es quedi les 28 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
+| **Unitat** | `test/test_bar/` | La barra: que es quedi les 48 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és**. I el que **costa** l'intèrpret: amb una banda que diu el preu d'una instrucció, un bucle de dues mil sumes en paga el doble a quatre mil, i una banda que en diu zero —una placa— no en paga cap (docs/85) |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten, `cat` i `hexdump` inclosos, **i el que costa es conta**: una crida pel VFS és una fila del seu comptador amb el seu temps, `stats` l'ensenya i `stats reset` la torna a zero, i una línia de log porta sempre la seva lletra de nivell i la seva etiqueta |
 | **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts, **i el comptador d'una crida que torna una promesa, que ha de portar el temps de l'espera i no el de la trucada**. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra. També **el camí d'una persona pels controls**: el dial canvia el focus, el centre activa el botó i el tàctil fa el mateix amb les coordenades de la vista, amb un `ui.control` genèric que també és enfocable |

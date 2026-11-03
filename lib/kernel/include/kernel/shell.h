@@ -20,6 +20,11 @@ void prompt();
 // arrived, so it can be tried without a port, and the answer is what `console_ansi()` and the redraw of the
 // line use from then on.
 bool ansi_reply(const char* data, size_t len);
+
+// **Whether the terminal gets the colours**: the answer to the question above, or what `ansi on|off` said.
+// A terminal that is a pipe or a file is not asked and does not get one escape byte (docs/30, docs/85).
+bool console_ansi();
+void set_ansi(bool on);
 // Bytes as they arrive from the console. Handles echo, backspace and newline.
 void feed(const char* data, size_t len);
 // Runs one command line (already null-terminated). Returns false on error.

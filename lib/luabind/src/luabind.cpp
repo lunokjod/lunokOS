@@ -7,6 +7,8 @@
 // what it waits for is ready. That is why there is a task here and not just a
 // chunk.
 #include "json/json.h"
+#include <stdio.h>
+
 #include "luabind/luabind.h"
 #include "qr/qr.h"
 
@@ -89,6 +91,24 @@ char g_console_line[kConsoleLineCap];
 size_t g_console_len = 0;
 bool g_last_was_cr = false;  // a terminal sends \r\n: the second half is not Enter
 int g_read_ref = LUA_NOREF;  // the promise console.read_line() is waiting on
+
+// **The name the app was started with**, copied at `start` because the shell's word is a stack frame that
+// does not outlive the command (see `start`) (docs/30).
+char g_app_path[128];
+char g_app_ext[16];
+
+// **The keyboard in raw mode**: an editor is not a prompt. A prompt waits for a line the terminal has
+// assembled and edited; an editor wants the keys themselves —the arrows, the escape, the control
+// characters— and paints each one where it decides. `console.raw(true)` says which of the two the app
+// is, and from then on every byte the console takes is a byte of the app's (docs/30).
+bool g_console_raw = false;
+// A ring of the keys that arrived and nobody has read yet: a pasted line arrives faster than a paint,
+// and dropping what a person pressed is not an option. Full, the oldest goes (docs/30, docs/75).
+const size_t kKeyQueue = 256;
+uint8_t g_key_queue[kKeyQueue];
+size_t g_key_read = 0;
+size_t g_key_count = 0;
+int g_byte_ref = LUA_NOREF;  // the promise console.read_byte() is waiting on
 
 // Three ESC in a row, close enough in time, are the way out of an app that has
 // stopped listening.
@@ -690,6 +710,72 @@ void count_escape() {
     g_exit_requested = true;
     con_write("\r\n", 2);
   }
+}
+
+// One key in, one key out. The ring grows from `g_key_read` and wraps, so a key is a copy of one byte
+// and the bookkeeping of a buffer of them is two numbers (docs/75).
+void key_push(uint8_t byte) {
+  if (g_key_count >= kKeyQueue) {
+    g_key_read = (g_key_read + 1) % kKeyQueue;
+    --g_key_count;
+  }
+  g_key_queue[(g_key_read + g_key_count) % kKeyQueue] = byte;
+  ++g_key_count;
+}
+
+uint8_t key_pop() {
+  const uint8_t byte = g_key_queue[g_key_read];
+  g_key_read = (g_key_read + 1) % kKeyQueue;
+  --g_key_count;
+  return byte;
+}
+
+// **The key a `console.read_byte()` is waiting for**: it settles the promise with the oldest one, and
+// an app that is not waiting keeps them for the read that comes (docs/30).
+void settle_byte() {
+  if (g_byte_ref == LUA_NOREF || g_key_count == 0 || g_state == nullptr) return;
+  lua_State* L = g_state;
+  const int base = lua_gettop(L);
+  const int ref = g_byte_ref;
+  g_byte_ref = LUA_NOREF;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+  luaL_unref(L, LUA_REGISTRYINDEX, ref);
+  const int p = lua_absindex(L, -1);
+  lua_pushinteger(L, static_cast<lua_Integer>(key_pop()));
+  promise_settle(L, p, kOk, lua_gettop(L));
+  lua_settop(L, base);
+}
+
+// console.read_byte(): the next key of the console, 0–255. A promise like the line, so an app waits for
+// a key without stopping the system, and a key that is already here settles it at once (docs/30).
+int l_console_read_byte(lua_State* L) {
+  if (L != g_task) return raise_coded(L, "E_NOTASK", "read_byte outside a task");
+  if (g_byte_ref != LUA_NOREF) return raise_coded(L, "E_BUSY", "a read is already waiting");
+  const int p = push_promise(L, 0);  // no deadline: the keyboard settles it
+  lua_pushvalue(L, p);
+  g_byte_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  settle_byte();
+  lua_pushvalue(L, p);
+  return 1;
+}
+
+// console.raw([on]) **changes what the keyboard is**: while it is on there is no line, no echo and no
+// editing, and `console.read_byte` is the only way to the keys —which is what an editor is (docs/30).
+int l_console_raw(lua_State* L) {
+  if (lua_gettop(L) >= 1) {
+    const bool on = lua_toboolean(L, 1) != 0;
+    if (on != g_console_raw) {
+      g_console_raw = on;
+      // A line half typed is not a key, and a key half read is not a line: the mode changes what the
+      // console is for, and what was in the other one is not carried over (docs/30).
+      g_console_len = 0;
+      g_key_read = 0;
+      g_key_count = 0;
+      g_last_was_cr = false;
+    }
+  }
+  lua_pushboolean(L, g_console_raw);
+  return 1;
 }
 
 // Enter: the line goes to whoever is waiting for it, or it is a request to leave.
@@ -1970,6 +2056,39 @@ int l_net_ntp(lua_State* L) {
 // text and a quarter of the ceiling an app has (docs/75).
 const lua_Integer kHttpBytesDefault = 16384;
 
+// Why a page did not go into the queue, said as the code an app reads (docs/30).
+void refuse_page(lua_State* L, NetRefuse refused, const int p, const char* address) {
+  const char* code = nullptr;
+  const char* message = nullptr;
+  switch (refused) {
+    case NetRefuse::kOk:
+      return;
+    case NetRefuse::kNoRadio:
+      code = "E_UNSUPPORTED";
+      message = "there is no network";
+      break;
+    case NetRefuse::kTooBig:
+      code = "E_TOOBIG";
+      message = "the address is longer than the system carries";
+      break;
+    case NetRefuse::kInval:
+      code = "E_INVAL";
+      message = address;
+      break;
+    case NetRefuse::kNoVolume:
+      code = "E_UNAVAIL";
+      message = "the place the page was to go is not on this board";
+      break;
+    case NetRefuse::kBusy:
+      code = "E_BUSY";
+      message = "the network is doing something else";
+      break;
+  }
+  push_error_table(L, code, message);
+  promise_settle(L, p, kErr, lua_gettop(L));
+  lua_pop(L, 1);
+}
+
 // http.get(url[, max_bytes[, ms]]): a promise of `{status, body, bytes}`. It goes
 // through the same queue as the rest and brings the network up by itself, so an
 // app does not have to connect first (docs/30, docs/75).
@@ -1981,37 +2100,40 @@ int l_http_get(lua_State* L) {
   if (timeout < 0) timeout = 0;
 
   const int p = push_promise(L, 0);
-  luabind::NetRefuse refused = NetRefuse::kNoRadio;
+  NetRefuse refused = NetRefuse::kNoRadio;
   if (g_net_ops.http_get != nullptr) {
     refused = g_net_ops.http_get(url, static_cast<uint32_t>(max_bytes),
                                  static_cast<uint32_t>(timeout));
   }
-  const char* code = nullptr;
-  const char* message = nullptr;
-  switch (refused) {
-    case NetRefuse::kOk:
-      break;
-    case NetRefuse::kNoRadio:
-      code = "E_UNSUPPORTED";
-      message = "there is no network";
-      break;
-    case NetRefuse::kTooBig:
-      code = "E_TOOBIG";
-      message = "the address is longer than the system carries";
-      break;
-    case NetRefuse::kInval:
-      code = "E_INVAL";
-      message = "there is no address to fetch";
-      break;
-    case NetRefuse::kBusy:
-      code = "E_BUSY";
-      message = "the network is doing something else";
-      break;
+  if (refused != NetRefuse::kOk) {
+    refuse_page(L, refused, p, "there is no address to fetch");
+    lua_pushvalue(L, p);
+    return 1;
   }
-  if (code != nullptr) {
-    push_error_table(L, code, message);
-    promise_settle(L, p, kErr, lua_gettop(L));
-    lua_pop(L, 1);
+
+  pending_add(L, p);
+  lua_pushvalue(L, p);
+  lua_setfield(L, LUA_REGISTRYINDEX, kHttpKey);
+  lua_pushvalue(L, p);
+  return 1;
+}
+
+// http.download(url, path[, ms]): a promise of `{status, path, bytes}`. The page goes to the file
+// **whole**, however long it is, and the app works with it afterwards: a page of a few hundred
+// kilobytes does not fit in an app's heap and a file does (docs/30, docs/70, docs/75).
+int l_http_download(lua_State* L) {
+  const char* url = luaL_checkstring(L, 1);
+  const char* path = luaL_checkstring(L, 2);
+  lua_Integer timeout = luaL_optinteger(L, 3, kNetTimeoutDefaultMs);
+  if (timeout < 0) timeout = 0;
+
+  const int p = push_promise(L, 0);
+  NetRefuse refused = NetRefuse::kNoRadio;
+  if (g_net_ops.download != nullptr) {
+    refused = g_net_ops.download(url, path, static_cast<uint32_t>(timeout));
+  }
+  if (refused != NetRefuse::kOk) {
+    refuse_page(L, refused, p, "there is no address to fetch or nowhere to put it");
     lua_pushvalue(L, p);
     return 1;
   }
@@ -2884,6 +3006,59 @@ int l_ui_rect(lua_State* L) {
   return 1;
 }
 
+// ui.image(x, y, path[, w[, h[, mode]]]): **a picture on the page**, read from a file of the volume (docs/30).
+// The size is the picture's unless the app gives one, and the quality is the one of the paint. The answer says
+// why when it is false, because a picture that did not appear is a question a person asks at once.
+int l_ui_image(lua_State* L) {
+  if (g_ui_ops.image == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer x = luaL_checkinteger(L, 1);
+  const lua_Integer y = luaL_checkinteger(L, 2);
+  const char* path = luaL_checkstring(L, 3);
+  const lua_Integer w = luaL_optinteger(L, 4, 0);
+  const lua_Integer h = luaL_optinteger(L, 5, 0);
+  const char* mode = luaL_optstring(L, 6, nullptr);
+  if (w < 0 || h < 0 || w > 4096 || h > 4096) {
+    return push_nil_error(L, "E_INVAL", "a picture is up to 4096 pixels a side");
+  }
+  const char* code = nullptr;
+  const char* reason = nullptr;
+  if (!g_ui_ops.image(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                      static_cast<uint16_t>(h), path, mode, code, reason)) {
+    return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
+                          (reason != nullptr) ? reason : "the picture was not drawn");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// ui.image_info(path): `{format, width, height}` — what a page needs to lay a picture out before drawing it
+// (docs/30). The format is the four letters of the family ("PNG", "JPEG", "BMP", "GIF", "ICO", "PPM"...).
+int l_ui_image_info(lua_State* L) {
+  if (g_ui_ops.image_info == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const char* path = luaL_checkstring(L, 1);
+  char format[8] = {0};
+  uint16_t width = 0;
+  uint16_t height = 0;
+  const char* code = nullptr;
+  const char* reason = nullptr;
+  if (!g_ui_ops.image_info(path, format, sizeof(format), width, height, code, reason)) {
+    return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
+                          (reason != nullptr) ? reason : "the picture could not be read");
+  }
+  lua_createtable(L, 0, 3);
+  lua_pushstring(L, format);
+  lua_setfield(L, -2, "format");
+  lua_pushinteger(L, width);
+  lua_setfield(L, -2, "width");
+  lua_pushinteger(L, height);
+  lua_setfield(L, -2, "height");
+  return 1;
+}
+
 int l_ui_pixel(lua_State* L) {
   if (g_ui_ops.pixel == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
@@ -2917,12 +3092,18 @@ int l_ui_present(lua_State* L) {
   // nothing changed is not asked to draw at all. Then the tree is composed and the glass asked for the
   // paint, so an app that presents on every turn pays only for what it touched (docs/30, docs/90).
   if (l_ui_root(L) == 1) {
+    // **The arguments are still the app's after the draw**: the root the call pushed is taken back
+    // to the height of the stack the app had, because the next line reads the optional mode at index
+    // one and the root was sitting on top of it (found on the bench, 3/11: every `present('gc16')`
+    // was a present with no mode, and the `du` that the controls ask for left the ghost of the text
+    // that had moved).
+    const int height = lua_gettop(L) - 1;
     lua_getfield(L, -1, "draw");
     if (lua_isfunction(L, -1)) {
       lua_pushvalue(L, -2);
       if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
     }
-    lua_pop(L, 2);
+    lua_settop(L, height);
   }
   const char* mode = luaL_optstring(L, 1, nullptr);
   if (!g_ui_ops.present(mode)) {
@@ -4591,10 +4772,11 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_net_caps);
   lua_setglobal(L, "net");
 
-  // http: a page. One call, a promise, and the answer is the status and the body
-  // (docs/30).
-  lua_createtable(L, 0, 1);
+  // http: a page. One call, a promise, and the answer is the status and the body —or the file it went
+  // to when it was too big for the heap (docs/30).
+  lua_createtable(L, 0, 2);
   set_function(L, "get", l_http_get);
+  set_function(L, "download", l_http_download);
   lua_setglobal(L, "http");
 
   // led: the light, while the app is in front. button: the one thing a person can
@@ -4645,6 +4827,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_ui_caps);
   set_function(L, "clear", l_ui_clear);
   set_function(L, "rect", l_ui_rect);
+  set_function(L, "image", l_ui_image);
+  set_function(L, "image_info", l_ui_image_info);
   set_function(L, "pixel", l_ui_pixel);
   set_function(L, "present", l_ui_present);
   set_function(L, "idle", l_ui_idle);
@@ -4702,6 +4886,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "print", l_print);
   set_function(L, "write", l_console_write);
   set_function(L, "read_line", l_console_read_line);
+  set_function(L, "read_byte", l_console_read_byte);
+  set_function(L, "raw", l_console_raw);
   set_function(L, "is_foreground", l_console_is_foreground);
   lua_setglobal(L, "console");
 
@@ -4857,6 +5043,27 @@ bool start(const Boot& boot, size_t limit_bytes) {
     for (; id[i] != '\0' && i + 1 < kAppIdBytes; ++i) g_app_id[i] = id[i];
     g_app_id[i] = '\0';
   }
+  // **The path of the app is copied and not pointed at** (4/11): the shell hands `Boot` a word of its own
+  // command line, which lives on a stack frame that is gone the moment `run` returns — and the app runs for
+  // minutes after that. `app.args.path` was already a copy, made into a Lua string at start; this is the
+  // same copy for the kernel, which is what asks it when an editor saves the file it was given
+  // (docs/30, docs/70).
+  {
+    g_app_path[0] = '\0';
+    g_app_ext[0] = '\0';
+    if (boot.args_path != nullptr) {
+      size_t i = 0;
+      for (; boot.args_path[i] != '\0' && i + 1 < sizeof(g_app_path); ++i) g_app_path[i] = boot.args_path[i];
+      g_app_path[i] = '\0';
+      g_boot.args_path = g_app_path;
+    }
+    if (boot.args_ext != nullptr) {
+      size_t i = 0;
+      for (; boot.args_ext[i] != '\0' && i + 1 < sizeof(g_app_ext); ++i) g_app_ext[i] = boot.args_ext[i];
+      g_app_ext[i] = '\0';
+      g_boot.args_ext = g_app_ext;
+    }
+  }
   g_alloc.used = 0;
   g_alloc.peak = 0;
   g_alloc.limit = limit_bytes;
@@ -4894,6 +5101,10 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_task = nullptr;
   g_waiting_ref = LUA_NOREF;
   g_read_ref = LUA_NOREF;
+  g_byte_ref = LUA_NOREF;
+  g_console_raw = false;
+  g_key_read = 0;
+  g_key_count = 0;
   g_console_len = 0;
   g_last_was_cr = false;
   g_escape_count = 0;
@@ -4919,6 +5130,10 @@ void stop() {
   g_task = nullptr;
   g_waiting_ref = LUA_NOREF;
   g_read_ref = LUA_NOREF;
+  g_byte_ref = LUA_NOREF;
+  g_console_raw = false;
+  g_key_read = 0;
+  g_key_count = 0;
   g_console_len = 0;
   g_last_was_cr = false;
   g_escape_count = 0;
@@ -5006,6 +5221,24 @@ int exit_code() { return g_exit_code; }
 
 void feed_console(const char* data, size_t len) {
   if (g_state == nullptr || data == nullptr) return;
+  // **In raw mode the keys are the app's**: no echo, no line, and an arrow delivered whole instead of
+  // being swallowed by the line editor. The three ESC still leave, and an arrow is still not one of
+  // them —the sequence says it is a key— (docs/30).
+  if (g_console_raw) {
+    for (size_t i = 0; i < len; ++i) {
+      const uint8_t byte = static_cast<uint8_t>(data[i]);
+      if (byte == 0x1b) {
+        const bool sequence = (i + 1 < len) && (data[i + 1] == '[' || data[i + 1] == 'O');
+        if (!sequence) {
+          count_escape();
+          if (g_exit_requested) return;
+        }
+      }
+      key_push(byte);
+    }
+    settle_byte();
+    return;
+  }
   for (size_t i = 0; i < len; ++i) {
     const char c = data[i];
 
@@ -5051,7 +5284,7 @@ bool exit_requested() { return g_exit_requested; }
 
 const char* app_id() { return g_app_id; }
 
-const char* app_path() { return g_boot.args_path; }
+const char* app_path() { return g_app_path; }
 
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
 
@@ -5132,7 +5365,8 @@ void net_progress(bool up, const char* code, int32_t count) {
 // the board lent: the kernel hands the buffer back the moment this returns
 // (docs/75). A body is bytes and not necessarily text, so it goes in with its
 // length (docs/30).
-void http_progress(bool ok, const char* code, int status, const char* body, uint32_t len) {
+void http_progress(bool ok, const char* code, int status, const char* body, uint32_t len,
+                   const char* saved_path) {
   lua_State* L = g_state;
   if (L == nullptr) return;
   const int base = lua_gettop(L);
@@ -5146,12 +5380,19 @@ void http_progress(bool ok, const char* code, int status, const char* body, uint
       lua_createtable(L, 0, 3);
       lua_pushinteger(L, static_cast<lua_Integer>(status));
       lua_setfield(L, -2, "status");
-      if (body != nullptr) {
-        lua_pushlstring(L, body, static_cast<size_t>(len));
+      if (saved_path != nullptr) {
+        // **The page is in the file and not here**: `path` says where, and `bytes` is what it holds,
+        // so an app opens it and reads it like any other file (docs/30, docs/70).
+        lua_pushstring(L, saved_path);
+        lua_setfield(L, -2, "path");
       } else {
-        lua_pushliteral(L, "");
+        if (body != nullptr) {
+          lua_pushlstring(L, body, static_cast<size_t>(len));
+        } else {
+          lua_pushliteral(L, "");
+        }
+        lua_setfield(L, -2, "body");
       }
-      lua_setfield(L, -2, "body");
       lua_pushinteger(L, static_cast<lua_Integer>(len));
       lua_setfield(L, -2, "bytes");
       promise_settle(L, p, kOk, lua_gettop(L));

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 
 #include "emu/memories.h"
 #include "emu/model.h"
@@ -115,9 +116,48 @@ void power_cycle() {
   // The hardware decides, not the person: a board whose hour lives in a chip with a coin cell behind
   // it comes back knowing the hour, and one without it is a board nobody has set (docs/50, docs/85).
   // The FRAM is left alone because it is not volatile, which is the whole point of it, and a model
-  // that has none never gets the file.
-  if (!model().keeps_the_hour || !g_rtc_kept) memset(g_rtc, 0, sizeof(g_rtc));
+  // that has none never gets the file. **`--persist` is a board that was not unplugged**: a reset
+  // leaves the RTC domain powered, so the memory is there whatever the model has behind it (docs/85).
+  const bool kept = options().persist || model().keeps_the_hour;
+  if (!kept || !g_rtc_kept) memset(g_rtc, 0, sizeof(g_rtc));
   flush_memories();
+}
+
+// **The hour is one number and it is not a memory of the chip**: it goes in a file of its own, with the
+// wall clock of this machine next to it, because a board that is off still counts —a coin cell is there
+// for that— and the time between two runs is time the clock kept. A file that is not there is a board
+// that was never set (docs/85).
+struct ClockFile {
+  int64_t epoch_ms;
+  int64_t host_s;  // what this machine's clock said when the file was written
+};
+
+int64_t load_clock_ms() {
+  char path[kPathCap];
+  memory_path("clock.bin", path, sizeof(path));
+  FILE* file = fopen(path, "rb");
+  if (file == nullptr) return 0;
+  ClockFile kept = {};
+  const size_t got = fread(&kept, 1, sizeof(kept), file);
+  fclose(file);
+  if (got != sizeof(kept) || kept.epoch_ms <= 0) return 0;
+  // **The time it was off**: the run before wrote the hour and when it wrote it, so how long the board
+  // has been unplugged is one subtraction and the hour comes back where it should be (docs/60, docs/85).
+  const int64_t now_s = static_cast<int64_t>(time(nullptr));
+  if (now_s > kept.host_s) kept.epoch_ms += (now_s - kept.host_s) * 1000;
+  return kept.epoch_ms;
+}
+
+void save_clock_ms(int64_t ms) {
+  if (ms <= 0) return;
+  char path[kPathCap];
+  memory_path("clock.bin", path, sizeof(path));
+  make_parent(path);
+  FILE* file = fopen(path, "wb");
+  if (file == nullptr) return;
+  const ClockFile out = {ms, static_cast<int64_t>(time(nullptr))};
+  fwrite(&out, 1, sizeof(out), file);
+  fclose(file);
 }
 
 }  // namespace emu

@@ -25,9 +25,155 @@ uint32_t g_flushes = 0;
 // a test wants, and the emulator asks for 115200 (docs/85).
 uint32_t g_baud = 0;
 int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
-// What handing a block of the extra memory costs, in microseconds: zero is a heap that answers at once,
-// which is the PC's, and the emulator sets it to the walk the board's allocator does (docs/85).
-uint32_t g_extra_memory_us = 0;
+// **What the heap costs and what the extra memory moves**, in nanoseconds a node of the allocator's
+// walk and bytes a microsecond (docs/85). Zero is the PC's heap: it answers at once, which is what every
+// test wants, and the emulator sets the numbers of the board's allocator and its PSRAM.
+uint32_t g_step_ns = 0;
+uint32_t g_bytes_per_us = 0;
+// What a wait that expired costs before its deadline is delivered, in microseconds (docs/85).
+uint32_t g_dispatch_us = 0;
+uint32_t g_walk_ns = 0;  // what the walks have run up but not yet paid
+
+// **The two homes of the board's memory, each one a heap of its own** (docs/75, docs/85). The PC has
+// memory and no chip to be faithful to, so both homes start without a region —a plain heap, nothing
+// counted— and the model of the board the run is emulating gives them theirs when the run begins
+// (`set_memory_bytes`). 0 is the board's own RAM and 1 is its extra memory (the PSRAM of the Paper).
+//
+// A home is **one region of bytes cut into chunks**, and the chunks tile it: `size` is the whole chunk,
+// header included, and `prev_size` is the one before it, so a release can look at both neighbours. The
+// free ones are also chained by `next_free`, which is what the allocator walks, and a block that is let
+// go is merged with a free neighbour —that is what keeps a heap from turning into confetti— while the
+// pieces that no longer touch stay apart, which is what a real heap does and what makes a block of a
+// page fail on a heap with a page free in pieces (docs/75).
+struct Chunk {
+  uint32_t size;       // the whole chunk, header included, a multiple of eight
+  uint32_t prev_size;  // the chunk before this one, or 0 at the start of a region
+  uint32_t next_free;  // the next free chunk, as an offset in the region, or kNoChunk
+  uint8_t home;
+  uint8_t used;
+  uint16_t pad;
+};
+static_assert(sizeof(Chunk) == 16, "a chunk header is sixteen bytes, as the board's allocator costs one");
+
+constexpr size_t kChunkHeader = sizeof(Chunk);
+constexpr size_t kAlign = 8;
+// The smallest piece worth keeping apart: a header and the alignment of a small object.
+constexpr size_t kMinSplit = kChunkHeader + 32;
+constexpr uint8_t kHome = 0;
+constexpr uint8_t kExtra = 1;
+// A block of a home that has no ceiling: it comes from the PC's heap and nothing is counted.
+constexpr uint8_t kPlain = 255;
+constexpr uint32_t kNoChunk = 0xFFFFFFFFu;
+
+struct Home {
+  uint8_t* base = nullptr;
+  size_t size = 0;      // bytes of the region, and the ceiling while it is there
+  size_t used = 0;      // the chunks that are taken, headers included
+  size_t peak = 0;
+  uint32_t free_head = kNoChunk;
+};
+Home g_home[2];
+
+size_t round_up(size_t bytes) { return (bytes + (kAlign - 1)) & ~(kAlign - 1); }
+size_t round_down(size_t bytes) { return bytes & ~(kAlign - 1); }
+
+Chunk* chunk_at(const Home& home, size_t offset) {
+  return reinterpret_cast<Chunk*>(home.base + offset);
+}
+
+size_t chunk_offset(const Home& home, const Chunk* chunk) {
+  return static_cast<size_t>(reinterpret_cast<const uint8_t*>(chunk) - home.base);
+}
+
+// **The next chunk in memory**, or nullptr at the end of the region.
+Chunk* chunk_after(const Home& home, const Chunk* chunk) {
+  const size_t end = chunk_offset(home, chunk) + chunk->size;
+  if (end >= home.size) return nullptr;
+  return chunk_at(home, end);
+}
+
+// The `prev_size` of the chunk that follows is what points back, and it has to be kept true every time
+// a chunk changes size: a neighbouring block that moved would otherwise merge with the wrong bytes.
+void fix_prev_of_next(const Home& home, Chunk* chunk) {
+  Chunk* next = chunk_after(home, chunk);
+  if (next != nullptr) next->prev_size = chunk->size;
+}
+
+void free_list_remove(Home& home, const Chunk* chunk) {
+  const size_t wanted = chunk_offset(home, chunk);
+  uint32_t offset = home.free_head;
+  uint32_t previous = kNoChunk;
+  while (offset != kNoChunk) {
+    Chunk* node = chunk_at(home, offset);
+    if (offset == wanted) {
+      if (previous == kNoChunk) {
+        home.free_head = node->next_free;
+      } else {
+        chunk_at(home, previous)->next_free = node->next_free;
+      }
+      node->next_free = kNoChunk;
+      return;
+    }
+    previous = offset;
+    offset = node->next_free;
+  }
+}
+
+void free_list_push(Home& home, Chunk* chunk) {
+  chunk->next_free = home.free_head;
+  home.free_head = static_cast<uint32_t>(chunk_offset(home, chunk));
+}
+
+size_t home_free(uint8_t home) {
+  const Home& h_home = g_home[home];
+  if (h_home.base == nullptr) return 0;
+  return (h_home.used < h_home.size) ? (h_home.size - h_home.used) : 0;
+}
+
+size_t home_lowest(uint8_t home) {
+  const Home& h_home = g_home[home];
+  if (h_home.base == nullptr) return 0;
+  return (h_home.peak < h_home.size) ? (h_home.size - h_home.peak) : 0;
+}
+
+// **The biggest block a home could hand out now**: the free chunks are not one heap, and a page that
+// does not fit in any of them is a page that fails with room to spare (docs/75).
+size_t home_largest(uint8_t home) {
+  const Home& h_home = g_home[home];
+  size_t largest = 0;
+  uint32_t offset = h_home.free_head;
+  while (offset != kNoChunk) {
+    const Chunk* node = chunk_at(h_home, offset);
+    const size_t payload = (node->size > kChunkHeader) ? (node->size - kChunkHeader) : 0;
+    if (payload > largest) largest = payload;
+    offset = node->next_free;
+  }
+  return largest;
+}
+
+// **What a walk costs**, in nanoseconds, saved until it is a microsecond or more: a heap that is not
+// walking does not sleep, and the walks of a script add up to what they would cost on the board. The
+// board's allocator is not a list of every block —a bitmap of levels finds a free chunk in a handful of
+// steps—, so **a walk stops costing after sixteen nodes**: what the bench charges is what the chip's
+// allocator costs and not the length of this bench's own list (docs/75, docs/85).
+const size_t kMaxWalkSteps = 16;
+
+void pay_walk(size_t steps) {
+  if (g_step_ns == 0) return;
+  if (steps > kMaxWalkSteps) steps = kMaxWalkSteps;
+  g_walk_ns += static_cast<uint32_t>(steps) * g_step_ns;
+  if (g_walk_ns >= 1000) {
+    pal::delay_us(g_walk_ns / 1000);
+    g_walk_ns %= 1000;
+  }
+}
+
+// A block that has to move is copied through the bus, and the PSRAM moves twenty megabytes a second:
+// a page of canvas that changes home costs what the board would pay for it (docs/75).
+void pay_copy(size_t bytes) {
+  if (g_bytes_per_us == 0 || bytes == 0) return;
+  pal::delay_us(static_cast<uint32_t>((bytes + g_bytes_per_us - 1) / g_bytes_per_us));
+}
 
 int64_t now_ns() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -38,6 +184,17 @@ void sleep_until(int64_t when_ns) {
   const int64_t wait = when_ns - now_ns();
   if (wait <= 0) return;
   std::this_thread::sleep_for(std::chrono::nanoseconds(wait));
+}
+
+// **The wire has two directions and both cost the same**: a byte that arrives from the terminal is ten
+// bits at the speed of the port, so a line that is pasted into the emulator arrives over the time it
+// would take to type it and not as a block that appears at once. Zero —the default and every test— is a
+// console that answers when it is read (docs/85).
+void wire_receive(size_t bytes) {
+  if (g_baud == 0 || bytes == 0) return;
+  const int64_t ns_per_byte = 10000000000LL / static_cast<int64_t>(g_baud);
+  if (ns_per_byte <= 0) return;
+  sleep_until(now_ns() + static_cast<int64_t>(bytes) * ns_per_byte);
 }
 
 }  // namespace
@@ -88,10 +245,15 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   }
 
   HeapInfo heap() const override {
+    // **The board's own RAM, with the board's books**: when the run gave the bench the memory of the
+    // model, these are the two numbers `mem` reads on the glass —what is left and the least that was
+    // left— counted on everything the system and the apps took through `pal::extra_memory()` (docs/75,
+    // docs/85). A run with no ceilings says so instead of inventing a number.
     HeapInfo info;
-    info.valid = false;
-    info.free_bytes = 0;
-    info.min_free_bytes = 0;
+    info.valid = (g_home[kHome].base != nullptr);
+    info.free_bytes = static_cast<uint32_t>(home_free(kHome));
+    info.min_free_bytes = static_cast<uint32_t>(home_lowest(kHome));
+    info.largest_free_bytes = static_cast<uint32_t>(home_largest(kHome));
     return info;
   }
 
@@ -199,6 +361,10 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
       input_eof_ = true;  // the pipe is closed or the terminal went away
       return done;
     }
+    // **A line pasted into the terminal arrives at the speed of the port**: the console hands it to the
+    // kernel after the wire has carried it, which is what a person sees when they paste a script
+    // (docs/85).
+    wire_receive(static_cast<size_t>(n));
     return done + static_cast<size_t>(n);
   }
 
@@ -211,6 +377,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     if (input_eof_) {
       // Nothing can arrive any more: still honour the deadline, without spinning.
       sleep_ms(timeout_ms);
+      dispatch_deadline(timeout_ms);
       return;
     }
     fd_set fds;
@@ -226,7 +393,10 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     }
 
     const int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, ptv);
-    if (ready <= 0 || FD_ISSET(STDIN_FILENO, &fds) == 0) return;
+    if (ready <= 0 || FD_ISSET(STDIN_FILENO, &fds) == 0) {
+      dispatch_deadline(timeout_ms);
+      return;
+    }
     // **Readable is not data.** A /dev/null or a pipe at EOF is readable for ever, and a console event
     // for it turns `pop(timeout)` into a spin: the native suite binds stdin to /dev/null, and three UI
     // tests and a long press failed on exactly this (docs/85). The byte is kept for the console, which
@@ -245,8 +415,11 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     if (n <= 0) {
       if (n == 0) input_eof_ = true;
       sleep_ms(timeout_ms);
+      dispatch_deadline(timeout_ms);
       return;
     }
+    // The byte crossed the wire before the kernel could read it (docs/85).
+    wire_receive(1);
     pushed_[pushed_count_++] = byte;
     Event ev;
     ev.type = kEventConsoleRx;
@@ -258,6 +431,19 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   static void sleep_ms(int32_t timeout_ms) {
     if (timeout_ms <= 0) return;
     std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+  }
+
+  static void sleep_us(int64_t us) {
+    if (us <= 0) return;
+    std::this_thread::sleep_for(std::chrono::microseconds(us));
+  }
+
+  // **A deadline is dispatched on the next turn and not the instant it expires**: the board's queue
+  // wakes on a tick and the task that waited for it runs in the turn after, which is the extra
+  // millisecond a promise of one costs there (measured, docs/75). Only when the run is paying the times
+  // of the hardware (`--no-delay` leaves it at zero) and the wait had a deadline (docs/85).
+  static void dispatch_deadline(int32_t timeout_ms) {
+    if (g_dispatch_us > 0 && timeout_ms >= 0) sleep_us(static_cast<int64_t>(g_dispatch_us));
   }
 
   Event ring_[kQueueLength];
@@ -277,37 +463,213 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
 HostSystem g_system;
 
-// The PC has no PSRAM and its heap is the process's: a block is a block and there is no second home
-// to move it to. The bench says which board it is imitating in `hal_emulator` and **cannot** account
-// for the extra memory it claims, which docs/85 says out loud.
+// **The heap of a home, when the run gave it a ceiling**: a first fit over the free chunks, a split that
+// leaves the rest for somebody else and a merge with a free neighbour on the way out. A block that does
+// not fit anywhere is refused, which is what the board's allocator does; a block that does not fit but
+// the heap has room for in pieces is refused too, and that is fragmentation (docs/75).
+Chunk* head_of(void* block) { return static_cast<Chunk*>(block) - 1; }
+
 class HostExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
-    (void)prefer_extra;
-    pay();
-    return (bytes == 0) ? nullptr : ::malloc(bytes);
+    if (bytes == 0) return nullptr;
+    const uint8_t first = prefer_extra ? kExtra : kHome;
+    if (void* block = take(first, bytes)) return block;
+    // **The other home before saying no**: a block is a block and the app does not have to know where
+    // it lives. On the Paper this is what keeps a small font out of the PSRAM's way and a page of
+    // canvas out of the chip's (docs/75).
+    return take(prefer_extra ? kHome : kExtra, bytes);
   }
+
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
-    (void)prefer_extra;
-    pay();
+    if (block == nullptr) return allocate(bytes, prefer_extra);
     if (bytes == 0) {
-      ::free(block);
+      release(block);
       return nullptr;
     }
-    return ::realloc(block, bytes);
+    Chunk* chunk = head_of(block);
+    if (chunk->home == kPlain) return plain_resize(block, bytes);
+    const uint8_t want = (prefer_extra ? kExtra : kHome);
+    if (chunk->home == want) {
+      if (void* same = grow(block, bytes)) return same;
+      // The home that was asked for is full right here: the same block in the other one, and if that one
+      // has no room either, **any other free piece of its own** —a block of eighty-eight kilobytes does not
+      // need the space right behind it, only somewhere (docs/75).
+      if (void* moved = move_to(block, bytes, (want == kExtra) ? kHome : kExtra)) return moved;
+      return move_into(block, bytes, chunk->home);
+    }
+    if (void* moved = move_to(block, bytes, want)) return moved;
+    // **A block that cannot move stays where it is**: a resize that fails leaves the block untouched and
+    // the caller decides, and the bytes it holds are not lost (docs/75).
+    if (void* grown = grow(block, bytes)) return grown;
+    return move_into(block, bytes, chunk->home);
   }
+
   void release(void* block) override {
-    pay();
-    ::free(block);
+    if (block == nullptr) return;
+    Chunk* chunk = head_of(block);
+    if (chunk->home == kPlain) {
+      ::free(chunk);
+      return;
+    }
+    Home& home = g_home[chunk->home];
+    home.used = (home.used > chunk->size) ? (home.used - chunk->size) : 0;
+    chunk->used = 0;
+    // **The neighbours come back together**: a heap that let its free pieces stay apart would run out of
+    // room with room to spare, and the pieces that no longer touch stay apart, which is the other half
+    // of the truth (docs/75).
+    Chunk* next = chunk_after(home, chunk);
+    if (next != nullptr && !next->used) {
+      free_list_remove(home, next);
+      chunk->size += next->size;
+      fix_prev_of_next(home, chunk);
+    }
+    if (chunk->prev_size != 0) {
+      Chunk* previous = chunk_at(home, chunk_offset(home, chunk) - chunk->prev_size);
+      if (!previous->used) {
+        free_list_remove(home, previous);
+        previous->size += chunk->size;
+        fix_prev_of_next(home, previous);
+        chunk = previous;
+      }
+    }
+    free_list_push(home, chunk);
+    pay_walk(1);
   }
 
  private:
-  // **The allocator's walk**, which is what the board pays before it hands a block over. The bytes are
-  // not charged: reading and writing the PSRAM is a cache miss and a bus, and the bench has no CPU
-  // clock (docs/85).
-  static void pay() {
-    if (g_extra_memory_us == 0) return;
-    std::this_thread::sleep_for(std::chrono::microseconds(g_extra_memory_us));
+  // A block in that home, or nullptr when no free chunk of it is big enough. The walk is the free list
+  // and not every chunk, which is what the board's allocator walks (docs/85).
+  static void* take(uint8_t home, size_t bytes) {
+    Home& h_home = g_home[home];
+    if (h_home.base == nullptr) return plain_take(bytes);
+    const size_t want = round_up(bytes);
+    uint32_t offset = h_home.free_head;
+    uint32_t previous = kNoChunk;
+    size_t steps = 0;
+    while (offset != kNoChunk) {
+      Chunk* node = chunk_at(h_home, offset);
+      ++steps;
+      if (node->size - kChunkHeader >= want) {
+        if (previous == kNoChunk) {
+          h_home.free_head = node->next_free;
+        } else {
+          chunk_at(h_home, previous)->next_free = node->next_free;
+        }
+        node->next_free = kNoChunk;
+        carve(h_home, node, want);
+        pay_walk(steps);
+        return node + 1;
+      }
+      previous = offset;
+      offset = node->next_free;
+    }
+    pay_walk(steps);
+    return nullptr;
+  }
+
+  // The rest of a free chunk stays free if it is worth a chunk of its own; if it is not, the block keeps
+  // it, because a header and a handful of bytes is not a block anybody can use (docs/85).
+  static void carve(Home& home, Chunk* node, size_t want) {
+    const size_t spare = node->size - kChunkHeader - want;
+    if (spare >= kMinSplit) {
+      node->size = static_cast<uint32_t>(kChunkHeader + want);
+      Chunk* rest = chunk_at(home, chunk_offset(home, node) + node->size);
+      rest->size = static_cast<uint32_t>(spare);
+      rest->prev_size = node->size;
+      rest->next_free = kNoChunk;
+      rest->home = node->home;
+      rest->used = 0;
+      fix_prev_of_next(home, rest);
+      free_list_push(home, rest);
+    }
+    node->used = 1;
+    home.used += node->size;
+    if (home.used > home.peak) home.peak = home.used;
+  }
+
+  // A block of a home with no ceiling: the PC's heap, and nothing counted (docs/85).
+  static void* plain_take(size_t bytes) {
+    Chunk* head = static_cast<Chunk*>(::malloc(bytes + kChunkHeader));
+    if (head == nullptr) return nullptr;
+    head->size = static_cast<uint32_t>(bytes);
+    head->prev_size = 0;
+    head->next_free = kNoChunk;
+    head->home = kPlain;
+    head->used = 1;
+    return head + 1;
+  }
+
+  static void* plain_resize(void* block, size_t bytes) {
+    Chunk* again = static_cast<Chunk*>(::realloc(head_of(block), bytes + kChunkHeader));
+    if (again == nullptr) return nullptr;
+    again->size = static_cast<uint32_t>(bytes);
+    again->home = kPlain;
+    return again + 1;
+  }
+
+  void* move_to(void* block, size_t bytes, uint8_t home) {
+    Chunk* chunk = head_of(block);
+    if (chunk->home == home) return grow(block, bytes);
+    return move_into(block, bytes, home);
+  }
+
+  // **Un bloc que no creix on és pot anar a qualsevol altra taca de la seva memòria**, no només a l'altra:
+  // un heap de debò no demana que el bloc tingui el lloc lliure just darrere, i el de la PSRAM d'aquest banc
+  // deia que no a un bloc de 88 572 B amb **quatre megabytes lliures** perquè el veí estava ocupat i només
+  // provava l'altra casa, que és la petita (trobat amb l'editor obrint un fitxer d'1,3 MB, 4/11) (docs/75).
+  void* move_into(void* block, size_t bytes, uint8_t home) {
+    Chunk* chunk = head_of(block);
+    void* fresh = take(home, bytes);
+    if (fresh == nullptr) return nullptr;
+    size_t moved = chunk->size - kChunkHeader;
+    if (moved > bytes) moved = bytes;
+    memcpy(fresh, block, moved);
+    // The bytes cross a bus: the PSRAM of the Paper moves twenty megabytes a second, and a block that
+    // changes home is a copy (docs/75).
+    pay_copy(moved);
+    release(block);
+    return fresh;
+  }
+
+  // The same block, bigger or smaller, in the home it already has. It grows into the chunk after it when
+  // that one is free and big enough, and it gives the tail back when the caller asked for less; when
+  // neither is possible the answer is nullptr and **the block is untouched** (docs/85).
+  void* grow(void* block, size_t bytes) {
+    Chunk* chunk = head_of(block);
+    Home& home = g_home[chunk->home];
+    const size_t want = round_up(bytes);
+    const size_t capacity = chunk->size - kChunkHeader;
+    size_t steps = 1;
+    if (want > capacity) {
+      Chunk* next = chunk_after(home, chunk);
+      if (next == nullptr || next->used ||
+          (chunk->size + next->size - kChunkHeader) < want) {
+        pay_walk(steps);
+        return nullptr;
+      }
+      free_list_remove(home, next);
+      chunk->size += next->size;
+      home.used += next->size;
+      fix_prev_of_next(home, chunk);
+      steps += 1;
+    }
+    const size_t spare = chunk->size - kChunkHeader - want;
+    if (spare >= kMinSplit) {
+      chunk->size = static_cast<uint32_t>(kChunkHeader + want);
+      Chunk* rest = chunk_at(home, chunk_offset(home, chunk) + chunk->size);
+      rest->size = static_cast<uint32_t>(spare);
+      rest->prev_size = chunk->size;
+      rest->next_free = kNoChunk;
+      rest->home = chunk->home;
+      rest->used = 0;
+      fix_prev_of_next(home, rest);
+      free_list_push(home, rest);
+      home.used -= spare;
+    }
+    if (home.used > home.peak) home.peak = home.used;
+    pay_walk(steps);
+    return block;
   }
 };
 
@@ -323,12 +685,57 @@ ISystem& system() { return g_system; }
 
 IExtraMemory& extra_memory() { return g_extra; }
 
+MemoryLeft memory_left(bool extra) {
+  const uint8_t home = extra ? kExtra : kHome;
+  MemoryLeft out = {};
+  out.counted = (g_home[home].base != nullptr);
+  if (out.counted) {
+    out.free_bytes = home_free(home);
+    out.lowest_free_bytes = home_lowest(home);
+  }
+  return out;
+}
+
+// **The region of a home, cut into one free chunk**: the run says how big the board's two homes are and
+// this is where they become a heap. Calling it again starts the books over —the old regions are given
+// back— so it only makes sense before the system takes its first block (docs/85).
+void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes) {
+  for (uint8_t home = 0; home < 2; ++home) {
+    if (g_home[home].base != nullptr) ::free(g_home[home].base);
+    g_home[home] = Home{};
+  }
+  const uint32_t budgets[2] = {home_bytes, extra_bytes};
+  for (uint8_t home = 0; home < 2; ++home) {
+    const size_t size = round_down(budgets[home]);
+    if (size < kChunkHeader + kMinSplit) continue;
+    uint8_t* base = static_cast<uint8_t*>(::malloc(size));
+    if (base == nullptr) continue;
+    Home& h_home = g_home[home];
+    h_home.base = base;
+    h_home.size = size;
+    h_home.free_head = 0;
+    Chunk* first = chunk_at(h_home, 0);
+    first->size = static_cast<uint32_t>(size);
+    first->prev_size = 0;
+    first->next_free = kNoChunk;
+    first->home = home;
+    first->used = 0;
+  }
+  g_walk_ns = 0;
+}
+
 void set_console_baud(uint32_t baud) {
   g_baud = baud;
   g_wire_free_ns = 0;  // a new speed starts from a wire that is free
 }
 
-void set_extra_memory_us(uint32_t us) { g_extra_memory_us = us; }
+void set_dispatch_us(uint32_t us) { g_dispatch_us = us; }
+
+void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
+  g_step_ns = step_ns;
+  g_bytes_per_us = bytes_per_us;
+  g_walk_ns = 0;
+}
 
 void delay_us(uint32_t us) {
   if (us == 0) return;

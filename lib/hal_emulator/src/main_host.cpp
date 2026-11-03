@@ -19,6 +19,7 @@
 #include "hal/hal.h"
 #include "kernel/kernel.h"
 #include "kernel/shell.h"
+#include "luabind/luabind.h"
 #include "pal/pal.h"
 
 #include "board/identity.h"
@@ -27,10 +28,27 @@ namespace {
 
 const size_t kLineBytes = 128;
 
-// What a read of the flash costs on the board, in microseconds: the block out of SPI plus the few
-// metadata hops LittleFS does for a small file. It is an approximation until somebody measures it
-// with a stopwatch, and it is one number to change (docs/85).
-const int32_t kExtraMemoryUs = 20;
+// **What the heap of the bench costs**: one node of the allocator's free-list walk, in nanoseconds —a
+// pointer chase and a compare at 160 MHz— and what the PSRAM moves in a microsecond, which is **twenty
+// bytes**: quad SPI at forty megahertz is 20 MB/s, and a block of the extra memory that has to change
+// home is a copy through that bus (docs/75, docs/85).
+const uint32_t kHeapStepNs = 100;
+const uint32_t kPsramBytesPerUs = 20;
+// **What a deadline that expired costs before it is delivered**: a turn of the loop of the board, which
+// is where its extra millisecond comes from (docs/75).
+const uint32_t kDispatchUs = 1000;
+
+// **What the board does before the kernel's first line** (docs/75, docs/85): the second-stage bootloader
+// reads the image out of the SPI nor —**ten megabytes a second** in the dual mode it starts with, two
+// bits a clock at forty megahertz— and then ESP-IDF's PSRAM test writes and reads every byte the chip
+// maps (`CONFIG_SPIRAM_MEMTEST`, on by default in this IDF), which on the Paper's four megabytes is
+// eight megabytes at the **twenty** of quad SPI. Turning a board on is not a syscall and the system does
+// not pay it: the bench does, so the prompt arrives when it arrives on the glass.
+uint32_t boot_us(const emu::Model& hw) {
+  const uint32_t image_us = hw.boot_image_bytes / 10;          // 10 B/us = 10 MB/s, dual at 40 MHz
+  const uint32_t psram_us = (hw.psram_kb * 1024u * 2u) / 20u;  // 20 B/us = 20 MB/s, quad at 40 MHz
+  return image_us + psram_us;
+}
 
 // **The cell of the model**, which is what an M5Paper carries: 1150 mAh at 3,7 V, full at 4,2 V
 // (docs/50). It is here for the line the bench says when it lends the battery of the machine it runs
@@ -42,6 +60,18 @@ const int kCellFullMv = 4200;
 // an ESP32 running Lua, and the one the bench pays so that a loop costs here what it costs on the glass.
 // It is not a measurement of this unit, and docs/95 says how to take one (docs/85).
 const int32_t kLuaInstructionNs = 60;
+
+// **What a turn of the kernel costs on the board and not here**, in microseconds: a turn of the loop is
+// **1 ms** on the ATOM and **0.15 ms** on the PC (measured, docs/75: a hundred awaits of one
+// millisecond take 199 ms on the glass and 115 ms here). The difference is paid after every turn while
+// the bench is paying the times of the hardware, so a loop of awaits takes here what it takes on the
+// board. It is the **turn** that is paced, and not one instruction of it (docs/85).
+const int32_t kTurnOverheadUs = 850;
+
+// What a turn pays: the constant above while the bench is paying the times of the hardware, and nothing
+// at all when it is not, because `--no-delay` is a run about what the code does and not about what the
+// board costs (docs/85).
+int32_t g_turn_us = 0;
 
 // The UART of the board, in baud: the console of the bench is a terminal and not a wire, but the
 // speed is part of what a person sees —a screen of text is a third of a second on the glass— so the
@@ -68,7 +98,7 @@ void make_slot(const char* path) {
 
 // How long a batch run waits for one app before giving up on it: an app reading
 // a key that never arrives must not hang the script for ever.
-const uint32_t kBatchWaitMs = 30000;
+const uint32_t kBatchWaitMs = 60000;
 
 void usage() {
   printf("lunokOS emulator\n");
@@ -94,15 +124,17 @@ void usage() {
   printf("  --wifi <ms>       how long the fake network takes to come up (300)\n");
   printf("  --no-wifi         a board with no radio at all\n");
   printf("  --wifi-fail       a network that refuses to connect\n");
+  printf("  --wifi-scan <n>   how many networks the fake radio sees (1; 0 is the middle of a field)\n");
   printf("  --prov-ms <ms>    how long the fake provisioning AP stays up (2000)\n");
   printf("  --prov-ssid <s>   network the fake provisioning hands over (casa)\n");
   printf("  --prov-pass <s>   password it hands over (secret)\n");
   printf("  --prov-never      a board nobody ever provisions\n");
   printf("  --prov-fail       provisioning that fails\n");
-  printf("  --http-ms <ms>    how long the fake page takes (50)\n");
-  printf("  --http-status <n> the status the fake page answers (200)\n");
-  printf("  --http-body <s>   the body the fake page answers\n");
-  printf("  --http-fail       a server that never answers\n");
+  printf("  --http-fake       the canned page: no address leaves this machine\n");
+  printf("  --http-ms <ms>    how long that canned page takes (50, and it is a fake)\n");
+  printf("  --http-status <n> the status the canned page answers (200, and it is a fake)\n");
+  printf("  --http-body <s>   the body the canned page answers (and it is a fake)\n");
+  printf("  --http-fail       a server that never answers (and it is a fake)\n");
   printf("  --imu-ax <g>      what the fake sensor reads on x (0)\n");
   printf("  --imu-ay <g>      what it reads on y (0)\n");
   printf("  --imu-az <g>      what it reads on z (1, flat on a table)\n");
@@ -125,6 +157,8 @@ void usage() {
   printf("  --lua-cpu <ns>    what one instruction of an app costs at 160 MHz (%d; 0 = free)\n",
          kLuaInstructionNs);
   printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");
+  printf("  --persist         a board that was never unplugged: the RTC RAM and the hour of the\n");
+  printf("                    run before are the ones this run starts with\n");
   printf("  --verbose         mirror the log to the console too\n");
   printf("  -h, --help        this text\n");
 }
@@ -177,6 +211,12 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--no-delay") == 0) {
       no_delay = true;
+      continue;
+    }
+    if (strcmp(arg, "--persist") == 0) {
+      // A board that was not unplugged: the state directory is read as the board left it and the RTC
+      // memory is not wiped, whatever the model has behind it (docs/85).
+      opts.persist = true;
       continue;
     }
     if (strcmp(arg, "--no-ink") == 0) {
@@ -365,27 +405,37 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.prov_fail = true;
       continue;
     }
-    // The page of this band is a fake: a server that answers http_status with
-    // http_body after http_ms, or one that never answers (docs/85).
+    // **The page of this band is the one the address answers**, and these options put the canned
+    // one back: a server that answers http_status with http_body after http_ms, or one that never
+    // answers. Asking for any of them is asking for the fake, so the URL never leaves this machine
+    // (docs/85).
+    if (strcmp(arg, "--http-fake") == 0) {
+      opts.http_fake = true;
+      continue;
+    }
     if (strcmp(arg, "--http-ms") == 0) {
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) {
         return false;
       }
       opts.http_ms = static_cast<int32_t>(number);
+      opts.http_fake = true;
       continue;
     }
     if (strcmp(arg, "--http-status") == 0) {
       if (!next_value(i, argc, argv, value) || !parse_number(value, number)) return false;
       opts.http_status = static_cast<int32_t>(number);
+      opts.http_fake = true;
       continue;
     }
     if (strcmp(arg, "--http-body") == 0) {
       if (!next_value(i, argc, argv, value)) return false;
       opts.http_body = value;
+      opts.http_fake = true;
       continue;
     }
     if (strcmp(arg, "--http-fail") == 0) {
       opts.http_fail = true;
+      opts.http_fake = true;
       continue;
     }
     // The sensor of this band is a fake too, and it answers what these say: the PC
@@ -572,6 +622,10 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
 // stopped (docs/85).
 void pump_gui(uint32_t& shown_frames) {
   emu::gui_pump();
+  // **A bench without a glass has no page to show**: the panel is not even made, and the window of a
+  // model with keys is the window of its keys. Making the panel here also gave an ATOM a page it does
+  // not have and paid its buffers on every headless run (docs/85).
+  if (!emu::options().display) return;
   emu::MemorySurface* glass = emu::memory_surface();
   if (glass == nullptr) return;
   // **A flash is walked here too**: the app may not ask `idle()` for a while, and a blink nobody draws is
@@ -583,6 +637,26 @@ void pump_gui(uint32_t& shown_frames) {
   // **What the glass shows and not what was painted**: the ink of a `du` keeps part of the page before
   // it, and that is exactly what a person is looking at (docs/85).
   emu::gui_show(glass->shown_bits(), glass->width(), glass->height());
+}
+
+// **The glass while it waits.** A paint holds its caller for the wires and for the ink, and the panel
+// keeps blinking through both; this is `pump_gui` reached from inside those waits, which is the only way
+// the blinks of a `gc16` are frames of a window instead of a sleep nobody draws (docs/85).
+uint32_t* g_shown_frames = nullptr;
+
+void wait_pump(void*) {
+  if (g_shown_frames != nullptr) pump_gui(*g_shown_frames);
+}
+
+// **One turn of the system, and what a turn costs on the board**: FreeRTOS switches, the drivers get
+// their look-in and the loop comes back a millisecond later, where this bench comes back in a tenth of
+// one. The difference is paid here —after the turn, because a turn that has painted has already spent
+// its time (docs/75, docs/85). What is **not** modelled is the instruction: that is the interpreter's
+// business and `--lua-cpu` prices it one block of instructions at a time (docs/85).
+void turn(uint32_t& shown_frames) {
+  kernel::poll();
+  pump_gui(shown_frames);
+  if (g_turn_us > 0) pal::delay_us(static_cast<uint32_t>(g_turn_us));
 }
 
 int run_script(const char* path, uint32_t& shown_frames) {
@@ -611,18 +685,20 @@ int run_script(const char* path, uint32_t& shown_frames) {
     const uint32_t started = pal::system().millis();
     while ((kernel::app_running() || kernel::shell::native_running()) &&
            (pal::system().millis() - started) < kBatchWaitMs) {
-      kernel::poll();
-      pump_gui(shown_frames);
+      turn(shown_frames);
     }
     if (kernel::app_running() || kernel::shell::native_running()) {
       fprintf(stderr, "the line did not finish\n");
+      rc = 1;
     }
+    // **An app that failed is a line that failed**: it is the same answer the shell gives a person,
+    // and the batch has no other code to say it with (0, 1 and 2, docs/85).
+    if (luabind::failed() || luabind::exit_code() != 0) rc = 1;
     // Two turns more, always: what the end of a turn does —the light, for one— has
     // to happen before the next line, or a script would see a board that never
     // paints anything (measured on the PC, 31/10).
-    for (int turn = 0; turn < 2; ++turn) {
-      kernel::poll();
-      pump_gui(shown_frames);
+    for (int more = 0; more < 2; ++more) {
+      turn(shown_frames);
     }
   }
   fclose(file);
@@ -661,11 +737,58 @@ int main(int argc, char** argv) {
   // bytes are handed over at that speed, not all at once (docs/85).
   pal::set_console_baud(static_cast<uint32_t>(opts.delays ? opts.baud : 0));
   // **A block of the extra memory is not free either**: the board's allocator walks its free lists and
-  // the PC's answers at once, so the bench is told what that walk costs when it is paying the times of
-  // the hardware (docs/85).
-  pal::set_extra_memory_us(opts.delays ? kExtraMemoryUs : 0);
+  // the PC's answers at once, and a block that changes home is copied through the PSRAM's bus, so the
+  // bench is told what both cost when it is paying the times of the hardware (docs/85).
+  pal::set_heap_timing(opts.delays ? kHeapStepNs : 0, opts.delays ? kPsramBytesPerUs : 0);
+  // **A deadline is delivered on the turn after it expires**, which is the extra millisecond the board
+  // pays for a promise of one (docs/75, docs/85).
+  pal::set_dispatch_us(opts.delays ? kDispatchUs : 0);
+  // **Which bench this is, said out loud**: a run that pays the times of the hardware and one that does
+  // not look the same until somebody times a screen, and that is exactly the doubt this line answers
+  // (docs/85). It goes to stderr because it is this band talking about itself.
+  if (opts.delays) {
+    fprintf(stderr,
+            "emulator: the times of the hardware are paid (console at %u baud both ways, flash and card, "
+            "PSRAM, ink %s, a turn of %d us, a boot of %u ms)\n",
+            static_cast<unsigned>(opts.baud), (opts.ink > 0) ? "on" : "off",
+            static_cast<int>(kTurnOverheadUs), static_cast<unsigned>(boot_us(hw) / 1000));
+  } else {
+    fprintf(stderr,
+            "emulator: the times of the hardware are NOT paid (--no-delay): the console answers at once, "
+            "no bus, instant ink\n");
+  }
+  // **The page of this bench is the one the address answers, and that is said once**: a person who does
+  // not expect a request to leave the machine has to know it, and `--http-fake` is the way back (docs/85).
+  if (!opts.http_fake) {
+    fprintf(stderr,
+            "emulator: `http` fetches the real page through `curl` (--http-fake answers a canned one)\n");
+  }
+  // **The memory of the board, and not the PC's** (docs/75): every block the system and the apps take —
+  // a page of canvas, a font, the interpreter's heap— is counted against what the model really has free
+  // at the prompt and against the extra memory it can hand out, and one that does not fit is refused
+  // here the same way it is on the glass. It goes before the boot because it starts the books, and the
+  // boot is the first thing that takes a block (docs/85).
+  pal::set_memory_bytes(hw.free_heap_bytes, hw.extra_free_bytes);
+  g_turn_us = opts.delays ? kTurnOverheadUs : 0;
+
+  // **The boot of the board and not of this process** (docs/75, docs/85): the banner is not the first
+  // thing a board says, it is the first thing it says after the image has come out of the flash and the
+  // PSRAM has been tested. It happens before the kernel so the prompt arrives when it arrives there.
+  if (opts.delays) pal::delay_us(boot_us(hw));
 
   kernel::boot(hal::platform());
+
+  // **The glass moves ink unless the run asked for a glass that switches pixels** (`--no-ink`): the model
+  // was parsed, printed and never switched on, so every run painted a page no panel has ever shown —no
+  // blink of a `gc16`, no trace of a `du`— while the line at the top said the ink was on (found on the
+  // window, 3/11). It is turned on here, once the panel exists and before the first paint (docs/85).
+  if (opts.display) {
+    if (emu::MemorySurface* glass = emu::memory_surface()) {
+      if (!glass->set_ink(opts.ink > 0) && opts.ink > 0) {
+        fprintf(stderr, "the glass has no memory for the ink model: it paints a page no panel has\n");
+      }
+    }
+  }
 
   // **The window, when the run asked for one.** If there is no display to open it on, the bench says so
   // and carries on without it: a run is not lost because a screen is missing (docs/85).
@@ -717,6 +840,14 @@ int main(int argc, char** argv) {
     }
   }
 
+  // **The panel asks the window from inside its own waits** (see `wait_and_pump`): a paint is eight
+  // hundred milliseconds over the bus and four hundred and fifty of ink for a full `gc16`, and a window
+  // redrawn once per turn is a window that shows the page before and the page after (docs/85).
+  if (emu::MemorySurface* glass = emu::memory_surface()) {
+    g_shown_frames = &shown_frames;
+    glass->set_wait_pump(&wait_pump, nullptr);
+  }
+
   int rc = 0;
   if (opts.run_app != nullptr) {
     // --run is the very sentence the shell understands, nothing more, and it
@@ -725,20 +856,27 @@ int main(int argc, char** argv) {
     snprintf(command, sizeof(command), "run %s", opts.run_app);
     if (!kernel::execute(command)) rc = 1;
     while (kernel::app_running() && !emu::gui_close_requested()) {
-      kernel::poll();
-      pump_gui(shown_frames);
+      turn(shown_frames);
     }
+    // The result of the app, and not only of the sentence that started it: an app that died with an
+    // error is not a run that went well (docs/85).
+    if (luabind::failed() || luabind::exit_code() != 0) rc = 1;
   }
   if (opts.script != nullptr) {
     if (rc == 0) rc = run_script(opts.script, shown_frames);
   } else if (opts.run_app == nullptr) {
     while (kernel::running() && !emu::gui_close_requested()) {
-      kernel::poll();
-      pump_gui(shown_frames);
+      turn(shown_frames);
     }
   }
 
   emu::gui_close();
+  // **What the board keeps when this run ends** (docs/85): a chip with a coin cell behind it has the
+  // hour for the next power-on, and a run with `--persist` has it too because it was never unplugged.
+  // It is written here and not in an `atexit` handler: the platform is a static of this run and a
+  // handler that reads it after the program is tearing down is a handler that reads nothing.
+  hal::IClock* clock = hal::platform().clock();
+  if (clock != nullptr && clock->epoch_ms() > 0) emu::save_clock_ms(clock->epoch_ms());
   pal::shutdown();
   return rc;
 }

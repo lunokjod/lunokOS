@@ -201,6 +201,36 @@ no posar buffers grans a la pila** (més amunt): la regla prohibeix la **pila**,
 que es demana i es torna abans que l'app corri una línia no el paga ningú quan no s'usa. Si el `malloc`
 falla, el sistema ho diu (`no memory for the source`) i no arrenca l'app, que és el que ha de fer.
 
+## Un bloc que no creix no es queda sense lloc (4/11)
+
+El heap del banc (`pal_host`, `HostExtraMemory`) té **dues cases** com la placa: la RAM del xip i la memòria
+extra (la PSRAM del Paper). Un `resize` que no podia créixer on era provava l'altra casa i prou, i si el bloc
+era a la PSRAM i el veí de darrere estava ocupat, deia que no — **amb quatre megabytes lliures a la mateixa
+PSRAM**. Va sortir obrint el fitxer d'1,3 MB d'una pàgina del `http`: el `luaL_Buffer` de `fs.read_at` demanava
+88 572 B i l'intèrpret deia `not enough memory` amb `home free 50 568 / extra free 4 056 272` a la mà.
+
+Ara un `resize` que no cap on és **mou el bloc a qualsevol altra taca de la seva casa** (`move_into`), que és
+el que fa un heap de debò: un bloc de vuitanta-vuit kilobytes no necessita el lloc just darrere seu, només
+algun lloc. És un error del banc i no de la placa —l'`esp32` porta el seu propi `malloc`— i per això el que
+canvia és el model, no el sistema (docs/85).
+
+## El sostre del codi, a 32 KB (4/11)
+
+L'editor que parla vim (`data/apps/edit/edit.lua`) fa **26 644 B** i el 4/11 el sistema li va dir `too big to
+run: /apps/edit/edit.lua`: el sostre era de 16 384 B. El que havia crescut no era farciment —és un editor de
+debò, amb desfer, cerca i les ordres de desament— i un editor que no arrenca no és un editor.
+
+| | Sostre a 16 KB (0.56.0) | Sostre a 32 KB (0.65.0) |
+|---|---|---|
+| RAM estàtica | 107 008 B (ATOM) | **107 008 B** (+0 B) |
+| Heap mentre l'app compila | 16 384 B | **32 768 B** |
+| Heap mentre l'app corre | 0 B | **0 B** |
+| Flash | 2 081 225 B (ATOM) | el mateix codi, +0 B de dades |
+
+El buffer és al heap des de la 0.56.0 i **es torna just després de compilar** (`drop_source`), o sigui que el
+que puja és un bloc transitori de 16 KB que dura el que dura un `luaL_loadbuffer`. El número que limita una
+app de debò continua sent el seu heap (docs/75, més amunt), no aquest.
+
 ## La M5 Paper, amb la ràdio heretada (31/10)
 
 `pio run -e paper` del 31/10, amb el que aquesta placa hereta del xip (`esp32_caps()`, `esp32_net()`,
@@ -346,6 +376,15 @@ partida, i el bucle triga **199 ms a la placa contra 115 ms al PC**: això és *
 torn** a l'ESP32 (100 esperes d'1 ms → 199 ms) contra 0,15 ms al PC. És el primer número que tenim
 del cost d'un torn del nucli, i el que caldrà vigilar quan existeixi el pressupost d'instruccions.
 
+**Des de la 0.58.0 el banc el paga** (`kTurnOverheadUs` = 850 µs, la diferència mesurada, després de
+cada torn i fora de `--no-delay`), i des de la 0.60.0 **el venciment també es despatxa al torn
+següent** (`kDispatchUs` = 1 000 µs sobre una espera que expira): **1 000 esperes d'1 ms triguen
+2 107 ms al banc i 1 990 ms a la placa** (mesurat el 3/11, amb l'app `burst` estesa a mil), contra
+els **1 064 ms** que triguen amb el model apagat. El 6 % de més és la resolució del despertar del PC
+i no una decisió: el número que es desa és el de la diferència entre les dues bandes, i la placa té
+el seu propi ±5 %. El que **no** es modela és la instrucció: no hi ha cap Xtensa al banc i el codi de
+Lua es cobra a part (`--lua-cpu`, 60 ns per instrucció a 160 MHz, docs/85).
+
 La columna «consum real» no s'inventa mai: es treu de `sys.heap()`, de l'ordre `mem` i del mapa de
 l'enllaçador (`pio run -e atom -t size`), i s'apunta el número i el dia.
 
@@ -398,8 +437,31 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **L'espai lliure el diu la placa**, no el PC: `IPlatform::extra_memory()` surt de
   `esp_spiram_get_size()` (el xip), `heap_caps_get_total_size` i `heap_caps_get_free_size` amb
   `MALLOC_CAP_SPIRAM` (el que es pot fer servir), i a la consola `mem` ho ensenya amb els tres
-  números. Al banc els números són els del model —8 192 KB de xip, 4 096 mapejats— i **no es poden
-  comptar** —allà els blocs venen del heap del PC— i `docs/85` ho diu.
+  números. **I des de la 0.58.0 el banc els compta de debò** (`pal::set_memory_bytes`,
+  `pal::memory_left`): els dos casals del xip tenen el seu llibre —**338 864 B** de RAM interna als
+  ATOM, **162 728 B** al Paper, i **4 095 KB** de PSRAM al Paper— i cada bloc que demana el sistema o
+  una app porta **16 B de capçalera** (el casal i la mida) que també es descompten, com fa el
+  `malloc` de la placa. Un bloc que no cap al casal que vol prova l'altre, i un que no cap a cap dels
+  dos **es refusa**: és el que fa que una app massa gran mori al banc abans de morir a la placa
+  (docs/85). El que no hi pot haver és el desgast dels blocs ni la fragmentació de debò.
+- **Mesurat al banc amb els sostres posats (3/11)** —la prova que el refús és el de la placa i no el
+  del PC—: una taula de **400 000 enters** (~6,4 MB) al Paper, amb el sostre de l'app ja al màxim
+  dels seus 4 MB (`--mem-cap 8192` es refusa: «this board has 4096 KB of memory and no more»), mor
+  amb **`lua: not enough memory`** i la PSRAM torna exacta (`extra free 4189168 B` abans i després,
+  `lua peak 2125981 of 4194304 B`); i **60 000 enters** (~1 MB) a l'ATOM, amb el sostre al màxim
+  dels seus 320 KB, moren igual amb el pic a **290 956 B** i el `free heap` torna a **338 864 B**. I
+  `run heap` (60 000 enters, la mateixa taula) continua cabent al Paper i ensenya el llibre exacte:
+  **4 189 168 → 3 140 576 → 4 189 168 B** de PSRAM lliure.
+- **El heap és un heap i no un comptador** (3/11, 0.60.0): cada casal és **una regió de bytes tallada en
+  trossos** de 16 B de capçalera, amb la llista dels lliures, primera concordança, partició del que sobra
+  quan val la pena (48 B) i **fusió amb el veí lliure d'abans i el de després** en alliberar. Per això el
+  **lliure total no és el que una pàgina pot prendre**: `mem` en diu el **bloc més gran**
+  (`largest block`, el `heap_caps_get_largest_free_block` de la placa) i una petició que no hi cap es
+  refusa amb el lliure de sobres. Mesurat: 16 blocs de 4 080 B en un casal de 64 KB deixen **vuit forats
+  de 4 096 B** i una petició de **6 000 B es refusa** amb 32 KB lliures; i 64 blocs de mides que no
+  lliguen, deixats anar mig i mig, tornen el casal als **131 072 B** exactes. El temps també es paga:
+  **100 ns per node** de la llista que es recorre (fins a setze, que és el que costa la cerca del xip) i
+  **20 MB/s** per cada bloc que canvia de casal i es copia.
 - **Mesurat a la placa el 31/10**, amb el prompt sol: `free heap 162 728 B` i `min free heap
   156 648 B` de RAM interna (menys que a l'ATOM, que en té 338 864: el Paper paga la targeta, la I2C,
   el rellotge i les tres tecles).
@@ -407,12 +469,12 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   l'ATOM** (sostre de 64 KB) i **hi cap al Paper** (sostre de 4 MB), i l'app només diu
   `sys.heap()` per ensenyar `limit 4194304  extra 4194304`. És la prova que la memòria és
   transparent: el mateix codi, la mateixa crida, i el que canvia és la placa.
-- **El canvas de la vista és un bloc de debò, i el número és el de la comptabilitat** (1/11, 0.19.0,
-  mesurat a la placa): la línia de l'arrencada diu `ui: view 540x932 at 0,28, 251640 bytes of canvas`,
-  que és **540 × 932 / 2** —quatre bits per píxel— en **un sol bloc** de la PSRAM. Els vuit canvas del
-  sostre, si tots fossin de pàgina sencera, serien **2 013 120 B** (1 966 KiB) dels 4 096 que té una app:
-  més de la meitat, i per això **cada control és de la seva mida** i un control **sense vista no gasta ni
-  un byte** (docs/90, M9).
+- **El canvas de la vista és un bloc de debò, i el número és el de la comptabilitat**: la línia de
+  l'arrencada diu avui `ui: view 540x912 at 0,48, 246240 bytes of canvas`, que és **540 × 912 / 2**
+  —quatre bits per píxel— en **un sol bloc** de la PSRAM (el 1/11, amb la barra de 28 files, deia
+  `540x932 at 0,28, 251640 bytes`). Els vuit canvas del sostre, si tots fossin de pàgina sencera, serien
+  **1 969 920 B** (1 924 KiB) dels 4 096 que té una app: **gairebé la meitat**, i per això **cada control
+  és de la seva mida** i un control **sense vista no gasta ni un byte** (docs/90, M9).
 - **El que encara no està mesurat**: quants blocs reals van a la PSRAM en una app de debò i quants a
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.

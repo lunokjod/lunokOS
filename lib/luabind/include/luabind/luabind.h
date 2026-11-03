@@ -110,7 +110,8 @@ enum class NetRefuse : uint8_t {
   kNoRadio,  // this board has no network at all
   kBusy,     // the radio is doing something else, or the queue is full
   kTooBig,   // the address is longer than the queue carries
-  kInval     // nothing to ask for
+  kInval,    // nothing to ask for
+  kNoVolume  // the place the page was to be written to is not on this board
 };
 
 // The network as the interpreter uses it: **start it and let go**. There is no
@@ -143,6 +144,9 @@ struct NetOps {
   // Downloads a page. It needs the network like the time server does, and the
   // answer is a status and a body, not a yes (docs/30).
   NetRefuse (*http_get)(const char* url, uint32_t max_bytes, uint32_t timeout_ms);
+  // Downloads a page **into a file**: the whole page goes to the volume the path names, however long
+  // it is, and the answer says how many bytes did and where they are (docs/30).
+  NetRefuse (*download)(const char* url, const char* path, uint32_t timeout_ms);
   void (*cancel)();  // the app that asked is gone
   bool (*disconnect)();
   // 0 off, 1 connecting, 2 up, 3 failed: hal::NetState as a number, so that this
@@ -427,6 +431,14 @@ struct UIOps {
   // pressed and another one two pixels in while it has the focus. The child of the button is drawn by the
   // tree after this control, not here.
   bool (*button_draw)(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused);
+  // **A picture on a canvas**: the file, where it lands, the size it is drawn at —zero is the size of the
+  // file— and the quality. `reason` says why when it is false, because "it did not draw" is not an answer a
+  // person can use (docs/30).
+  bool (*image)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+                const char*& code, const char*& reason);
+  // The family, the size and the depth of a picture, without drawing it (docs/30).
+  bool (*image_info)(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
+                     const char*& code, const char*& reason);
 };
 
 void set_ui_ops(const UIOps& ops);
@@ -468,8 +480,12 @@ void net_progress(bool up, const char* code, int32_t count = -1);
 
 // The same, for a page, which is not a yes or a number: the promise is settled
 // with `{status, body, bytes}` when it arrived, and with an error table when it
-// did not. `body` may be nullptr and is only read when `ok` is true (docs/30).
-void http_progress(bool ok, const char* code, int status, const char* body, uint32_t len);
+// did not. `body` may be nullptr and is only read when `ok` is true. **`saved_path`
+// is the file a page too big for memory went to**: the promise is then
+// `{status, path, bytes}` and the page is read from the volume, not from here
+// (docs/30, docs/75).
+void http_progress(bool ok, const char* code, int status, const char* body, uint32_t len,
+                   const char* saved_path = nullptr);
 
 
 struct Boot {

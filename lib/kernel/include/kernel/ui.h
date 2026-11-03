@@ -207,6 +207,21 @@ bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius
 // A text drawn into the canvas with **the face the canvas was given**, or with the font of the system when
 // it was given none, `scale` times its size and **cut at the border of the canvas**: that is what a label is
 // made of (docs/30, docs/90).
+// **A picture on the canvas**, read from a file of the volume and turned into rows of the canvas as it is
+// decoded (docs/30): `w` or `h` zero is the size of the picture, and a size that is not the picture's is a
+// nearest neighbour scale. `reason` says why when it is false.
+bool canvas_image(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
+                  const char* mode, const char*& code, const char*& reason);
+
+// The same on the app's own view, which is what `ui.image` is (docs/30).
+bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+           const char*& code, const char*& reason);
+
+// **What a picture is**, without drawing it: the family as four letters, the size, and the depth of the file
+// (docs/30).
+bool image_info(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
+                const char*& code, const char*& reason);
+
 bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode);
 

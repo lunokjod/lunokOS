@@ -201,6 +201,25 @@ void MemorySurface::reset_damage() {
   dirty_y1_ = 0;
 }
 
+// **The panel does not stop when the driver waits.** A paint holds its caller for the wire and for the
+// ink —eight hundred milliseconds over the bus of a full page, four hundred and fifty of a `gc16`— and
+// during all of it the controller is blinking the region it was given. A wait that sleeps through that is
+// a wait that eats the flash: the window was redrawn once per turn, a turn is one paint, and a person saw
+// the page before and the page after with nothing in between (found on the window, 4/11). So every wait
+// of the glass is walked in slices, and the window is asked in between (docs/85).
+void MemorySurface::wait_and_pump(uint32_t us) {
+  // Ten milliseconds a slice: a blink of a `gc16` is seventy-five, so every one of them gets several
+  // frames, and a window that redraws a whole page a hundred times a second is still a window that
+  // answers its keyboard.
+  const uint32_t kSliceUs = 10000;
+  while (us > 0) {
+    const uint32_t slice = (us < kSliceUs) ? us : kSliceUs;
+    pal::delay_us(slice);
+    us -= slice;
+    if (pump_ != nullptr) pump_(pump_user_);
+  }
+}
+
 bool MemorySurface::flush(hal::UpdateMode mode) {
   ++flushes_;
   last_mode_ = mode;
@@ -209,7 +228,13 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // two qualities is two paints, so the second waits here for the first —and a flash still running is
   // finished before the glass is asked for another page (docs/85).
   if (shown_ != nullptr && options().delays) {
-    while (static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) pal::delay_us(1000);
+    // **Waiting for the paint before is not a stop**: the ink of the page that is still moving is walked
+    // while the bus is asked for the next one, which is where the blinks of a `gc16` were being lost
+    // (docs/85).
+    while (static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) {
+      const uint32_t left_ms = busy_until_ms_ - static_cast<uint32_t>(pal::system().millis());
+      wait_and_pump(left_ms * 1000u);
+    }
     step_ink();
   }
   // **With nothing marked there is nothing to paint**, which is what the panel driver does: a page that
@@ -240,60 +265,87 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
     // (`--no-delay`, every test) the model is the same and the clock is not asked.
     const bool pay = options().delays;
     const uint32_t bus_us = pay ? ink_transfer_us(paint.w, paint.h) : 0;
-    if (bus_us > 0) pal::delay_us(bus_us);
-    if (pay && ink.flashes && ink.ms > 0) {
-      // **The blink of an `a2`**: the page goes white and then black before the image arrives, and the
-      // ink has not moved yet when the paint is asked for. `step_ink()` walks the three moments, and
-      // `idle()` —or the window— is what asks (docs/85).
+    if (bus_us > 0) wait_and_pump(bus_us);
+    flash_x_ = paint.x;
+    flash_y_ = paint.y;
+    flash_w_ = paint.w;
+    flash_h_ = paint.h;
+    flash_mode_ = mode;
+    ink_phases_ = ink.phases;
+    ink_settle_steps_ = ink.settle_steps;
+    ink_stage_ = 0xFF;
+    ink_pending_ = false;
+    flash_until_ms_ = 0;
+    if (!pay || ink.ms == 0) {
+      // **Nothing is paid and nothing waits**: the exact ink, at once, and no blink (docs/85).
+      apply_ink(paint.x, paint.y, paint.w, paint.h, mode);
+      busy_until_ms_ = 0;
+    } else {
       flash_start_ms_ = static_cast<uint32_t>(pal::system().millis());
       flash_until_ms_ = flash_start_ms_ + ink.ms;
-      flash_stage_ = 0;
-      flash_x_ = paint.x;
-      flash_y_ = paint.y;
-      flash_w_ = paint.w;
-      flash_h_ = paint.h;
-      flash_mode_ = mode;
-      flash_fill(15);
-      ++ink_steps_;
       busy_until_ms_ = flash_until_ms_;
-    } else {
-      apply_ink(paint.x, paint.y, paint.w, paint.h, mode);
-      // **A paint nobody paid for is over when it is asked**: with the waits off the answer to `idle()`
-      // is yes at once, and a busy time left over from a paint that did pay is not the paint's (docs/85).
-      busy_until_ms_ = (pay && ink.ms > 0)
-                           ? static_cast<uint32_t>(pal::system().millis()) + ink.ms
-                           : 0;
+      if (ink.phases > 0) {
+        // **The first blink is already on the glass**: the controller has taken the region and the page
+        // it is about to blink is not the page it had. The rest are walked by `step_ink()`, which the
+        // window and `idle()` ask (docs/85).
+        flash_fill(ink.levels[0]);
+        ink_stage_ = 0;
+        ++ink_steps_;
+      } else {
+        // **A quick paint lands when the ink has arrived**, not when it is asked: the glass keeps the
+        // page before it for the 120 ms the `du` takes, and that is what a person sees (docs/85).
+        ink_pending_ = true;
+      }
     }
   }
   return true;
 }
 
-// **The three moments of a flash**: white, black, and the image. Two thirds of the wait are the blinks and
-// the last third is the ink arriving, which is what makes the blink visible at all —a blink that ends the
-// same moment it starts is not a blink, and this is the one thing of the model a person can see in the
-// window (docs/85).
+// **The blinks and the arrival, as a walk in time**: the first two thirds of the paint are the blinks the
+// mode asks for —four for a `gc16`, two for an `a2`, none for a `du`— and the last third is the image
+// arriving in `settle_steps` pieces. Every piece is a frame the window can draw, which is the whole point:
+// a blink that happens between two frames is a blink nobody sees (docs/85).
 void MemorySurface::step_ink() {
   if (shown_ == nullptr || flash_until_ms_ == 0) return;
   const uint32_t now = static_cast<uint32_t>(pal::system().millis());
   const uint32_t span = flash_until_ms_ - flash_start_ms_;
-  const uint32_t elapsed = (now > flash_start_ms_) ? (now - flash_start_ms_) : 0;
-  uint8_t stage = 0;
-  if (elapsed * 3u >= span * 2u) {
-    stage = 2;
-  } else if (elapsed * 3u >= span) {
-    stage = 1;
+  uint32_t elapsed = (now > flash_start_ms_) ? (now - flash_start_ms_) : 0;
+  if (elapsed > span) elapsed = span;
+  const InkMode ink = ink_mode(flash_mode_);
+  if (ink_phases_ > 0) {
+    const uint32_t blink_span = (span * 2u) / 3u;
+    if (elapsed < blink_span) {
+      uint32_t stage = (elapsed * ink_phases_) / blink_span;
+      if (stage >= ink_phases_) stage = ink_phases_ - 1;
+      if (static_cast<uint8_t>(stage) != ink_stage_) {
+        ink_stage_ = static_cast<uint8_t>(stage);
+        flash_fill(ink.levels[ink_stage_]);
+        ++ink_steps_;
+      }
+    } else {
+      const uint32_t settle_span = span - blink_span;
+      const uint32_t into = elapsed - blink_span;
+      uint32_t step = (into * ink_settle_steps_) / settle_span;
+      if (step >= ink_settle_steps_) step = ink_settle_steps_ - 1;
+      const uint8_t stage = static_cast<uint8_t>(ink_phases_ + step);
+      if (stage != ink_stage_) {
+        ink_stage_ = stage;
+        settle_flash(static_cast<uint8_t>(step), ink_settle_steps_);
+        ++ink_steps_;
+      }
+    }
+    if (elapsed >= span) flash_until_ms_ = 0;
+  } else if (ink_pending_) {
+    if (elapsed >= span) {
+      apply_ink(flash_x_, flash_y_, flash_w_, flash_h_, flash_mode_);
+      ink_pending_ = false;
+      flash_until_ms_ = 0;
+      ++ink_steps_;
+    }
   }
-  if (stage == flash_stage_) return;
-  flash_stage_ = stage;
-  if (stage == 1) {
-    flash_fill(0);
-  } else {
-    flash_settle();
-  }
-  ++ink_steps_;
 }
 
-// What a flash puts on the glass while it blinks: the region it was asked for, filled with the one level.
+// What a blink puts on the glass: the region it was asked for, filled with the one level.
 void MemorySurface::flash_fill(uint8_t level) {
   if (shown_ == nullptr || flash_w_ == 0 || flash_h_ == 0) return;
   const uint8_t packed = static_cast<uint8_t>(((level & 0x0F) << 4) | (level & 0x0F));
@@ -312,11 +364,51 @@ void MemorySurface::flash_fill(uint8_t level) {
   }
 }
 
-// The end of the blink: the image the paint asked for, with the ink of its quality over what is there.
-// The paint is still not over —`busy_until_ms_` is what says that— but the glass already shows it.
-void MemorySurface::flash_settle() {
-  apply_ink(flash_x_, flash_y_, flash_w_, flash_h_, flash_mode_);
-  flash_until_ms_ = 0;
+// **The image arriving after the last blink**: the region starts at the level of that blink and moves
+// towards what the paint asked for, in `steps` pieces. The ghost of the paint is taken against the blink
+// and not against the page before it, which is what a waveform does: the last flash is the state the image
+// is written over. The dirt of the paint is added on the last piece, with the speckle, so a page read
+// between two pieces is a page still moving and not a page with the wrong dirt (docs/85).
+void MemorySurface::settle_flash(uint8_t step, uint8_t steps) {
+  if (shown_ == nullptr || bits_ == nullptr || steps == 0) return;
+  const InkMode ink = ink_mode(flash_mode_);
+  const bool last = (step + 1 >= steps);
+  const uint8_t from = (ink.phases > 0) ? ink.levels[ink.phases - 1] : 0;
+  const uint16_t end_x = static_cast<uint16_t>(flash_x_ + flash_w_);
+  const uint16_t end_y = static_cast<uint16_t>(flash_y_ + flash_h_);
+  for (uint16_t row = flash_y_; row < end_y; ++row) {
+    for (uint16_t column = flash_x_; column < end_x; ++column) {
+      const uint8_t target = level_at(column, row);
+      const size_t index = static_cast<size_t>(row) * stride_ + column / 2;
+      const bool high = ((column & 1) == 0);
+      uint8_t dirt_byte = dirt_[index];
+      const uint8_t dirt = high ? static_cast<uint8_t>(dirt_byte >> 4) : static_cast<uint8_t>(dirt_byte & 0x0F);
+      uint8_t level = ink_blend(target, from, dirt, ink);
+      if (last && ink.err_per_mille != 0 && ink_misses(column, row, ink.err_per_mille)) {
+        const int16_t moved = static_cast<int16_t>(level) + ink_miss_by(column, row);
+        level = static_cast<uint8_t>((moved < 0) ? 0 : ((moved > 15) ? 15 : moved));
+      }
+      if (!last) {
+        const int16_t moved = static_cast<int16_t>(level) - static_cast<int16_t>(from);
+        level = static_cast<uint8_t>(static_cast<int16_t>(from) +
+                                     (moved * static_cast<int16_t>(step + 1)) / static_cast<int16_t>(steps));
+      }
+      uint8_t next_dirt = dirt;
+      if (last) {
+        next_dirt = (ink.dirt_add_of_16 == 0) ? 0
+                                              : static_cast<uint8_t>(dirt + ink.dirt_add_of_16);
+        if (next_dirt > 15) next_dirt = 15;
+      }
+      if (high) {
+        shown_[index] = static_cast<uint8_t>((shown_[index] & 0x0F) | (level << 4));
+        dirt_byte = static_cast<uint8_t>((dirt_byte & 0x0F) | (next_dirt << 4));
+      } else {
+        shown_[index] = static_cast<uint8_t>((shown_[index] & 0xF0) | level);
+        dirt_byte = static_cast<uint8_t>((dirt_byte & 0xF0) | next_dirt);
+      }
+      dirt_[index] = dirt_byte;
+    }
+  }
 }
 
 void MemorySurface::apply_ink(uint16_t x, uint16_t y, uint16_t w, uint16_t h, hal::UpdateMode mode) {

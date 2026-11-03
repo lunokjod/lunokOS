@@ -82,11 +82,28 @@ bool ntp(const char* server, uint32_t timeout_ms);
 // the same mistake.
 luabind::NetRefuse http_get(const char* url, uint32_t max_bytes, uint32_t timeout_ms);
 
+// The same page, with **a file for the case in which it does not fit**: the body that grows past
+// `max_bytes` goes to `spill_path` from its first byte, and the whole page can be worked with
+// afterwards. A page that fits never touches the volume (docs/30).
+luabind::NetRefuse http_get_spill(const char* url, uint32_t max_bytes, const char* spill_path,
+                                  uint32_t timeout_ms);
+
+// A page that is only wanted on a volume: no bytes are held in memory and the file has the whole page,
+// however long it is. It is the prompt's call and a person writes on any drive that is mounted writable;
+// an app goes through `http.download`, which is the same page under the write policy of docs/70
+// (docs/30, docs/75).
+luabind::NetRefuse http_download(const char* url, const char* path, uint32_t timeout_ms);
+
 // The answer of the page that has just arrived. Valid while the answer is being
 // given and no longer: the shell prints it there, the interpreter copies it into a
 // string, and the buffer goes back to the board right after (docs/75).
 int http_status();
 const char* http_body(uint32_t& len);
+
+// True when the page went to a file instead of the heap, and where it is. Valid while the answer is
+// being given, like the body above (docs/30).
+bool http_saved();
+const char* http_saved_path();
 
 // The longest address the queue can carry, in bytes. A longer one is refused, and
 // never cut: half an address is a page nobody asked for (docs/30).

@@ -42,6 +42,12 @@ struct Model {
   // RAM (docs/50, docs/75).
   uint32_t psram_chip_kb;
   uint32_t psram_kb;
+  // **What the board has free at the prompt, and what its extra memory can hand out when nothing of the
+  // system is in it**, in bytes, measured on the glass (docs/75). The bench counts everything the system
+  // and the apps take through `pal::extra_memory()` against these two, so the ceiling of a page and of an
+  // app is the board's and not the PC's (docs/85). Zero is a home the board does not have.
+  uint32_t free_heap_bytes;
+  uint32_t extra_free_bytes;
   // What the board answers as the ceiling of an app (`IPlatform::heap_limit_kb`): its PSRAM on the
   // Paper, and **0 on a board that does not say**, which is the kernel's own ceiling. The bench
   // answers this and not a number of its own (docs/75, docs/85).
@@ -50,6 +56,12 @@ struct Model {
   // boards and 0xBE0000 on the Paper. It is what `fs.space` has to answer, because a directory of the
   // PC is not an answer an app can use (docs/70, docs/85).
   uint32_t disk_bytes;
+  // **What the bootloader reads out of the flash before the kernel exists**, in bytes: the image this
+  // board boots, as the build of the 3/11 left it (`-t size`: 2 097 008 B on the ATOM and 2 182 672 B on
+  // the Paper). It is a number of the build and not of the chip, and it is here because turning the board
+  // on is not free: the ROM reads the image from the SPI nor and the PSRAM test of ESP-IDF writes and
+  // reads every byte the chip maps (docs/75, docs/85).
+  uint32_t boot_image_bytes;
 };
 
 // The model this bench is.

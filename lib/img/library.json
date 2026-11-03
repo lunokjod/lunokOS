@@ -1,0 +1,19 @@
+{
+  "name": "img",
+  "version": "0.1.0",
+  "description": "The pictures a page can carry, read the way this project reads everything: the file is the caller's bytes, the rows come out four bits a pixel, and there is no allocation of its own (docs/30).",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include",
+    "flags": [
+      "-Wall",
+      "-Wextra",
+      "-Werror"
+    ]
+  },
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": {
+    "inflate": "*"
+  }
+}

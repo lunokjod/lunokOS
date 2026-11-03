@@ -67,6 +67,10 @@ struct HeapInfo {
   bool valid;             // false on platforms without a heap to report
   uint32_t free_bytes;
   uint32_t min_free_bytes;
+  // **The biggest block that would fit right now**, which is not `free_bytes`: a heap with 200 KB free
+  // in a thousand pieces cannot give a page of 100 KB, and the board says so with
+  // `heap_caps_get_largest_free_block` (docs/75). Zero on a build that cannot ask.
+  uint32_t largest_free_bytes;
 };
 
 class ISystem {
@@ -103,12 +107,36 @@ ISystem& system();
 // wait at all: a file is not a wire. Only a host whose console is a terminal calls this.
 void set_console_baud(uint32_t baud);
 
-// **What handing out a block of the extra memory costs**, in microseconds. On the board the allocator
-// walks its free lists and the block is not there until it does; on the PC it is a `malloc` and the
-// walk is instant, so the bench is told what to charge (docs/85). Zero —the default, and every test
-// that does not say otherwise— is no wait at all. What this does **not** model is the bytes: reading
-// and writing the PSRAM is CPU time against a cache, and this bench has no CPU clock.
-void set_extra_memory_us(uint32_t us);
+// **What the heap of the bench costs**, because on the board a block is not free: the allocator walks
+// its free list before it hands one over, and moving a block that has to move is a copy of its bytes
+// through the bus. `step_ns` is one node of that walk and `bytes_per_us` is what the extra memory
+// moves in a microsecond (the PSRAM of the Paper is 20 MB/s); zero —the default, and what every test
+// wants— is a heap that answers at once and copies for free (docs/85).
+void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us);
+
+// **What dispatching a deadline costs**, in microseconds: on the board a wake-up lands on a tick and the
+// task that was waiting for it runs on the **next turn**, which is why a hundred awaits of one
+// millisecond take 199 ms there and 115 ms on a PC (measured, docs/75). The bench pays this after a wait
+// that expired with nothing to read, so a promise of one millisecond costs what it costs on the glass.
+// Zero —the default, and what every test wants— is a wait that is over when it is over (docs/85).
+void set_dispatch_us(uint32_t us);
+
+// **What a home of the memory has left**, in bytes: the board's own RAM (`extra` false) or its extra
+// memory (`extra` true). `counted` is false on a PAL that hands blocks out of the machine's heap and
+// keeps no books, which is what a test wants and what a bench without a model is (docs/85).
+struct MemoryLeft {
+  size_t free_bytes;
+  size_t lowest_free_bytes;  // the least that was left since the ceilings were set
+  bool counted;
+};
+MemoryLeft memory_left(bool extra);
+
+// **The ceilings of the two homes, in bytes**: the board's own RAM and its extra memory, as the board
+// really has them (docs/75). The blocks of `extra_memory()` are what is counted against them, which is
+// what makes an app that asks for more than the glass has die here and not on the paper. Zero is a
+// home with no ceiling, and a call starts the books again, so it goes once and before the system takes
+// its first block. On a board it does nothing: the chip is the chip (docs/85).
+void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes);
 
 // **Wait this many microseconds.** The kernel does not use it —its waits are events and alarms— and it
 // is here for the one thing that has to spend time on purpose: a bench that simulates a processor it is

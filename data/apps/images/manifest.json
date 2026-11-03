@@ -1,0 +1,8 @@
+{
+  "title": "Images",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "images.lua",
+  "boards": ["esp32"],
+  "description": "Every picture format the system reads —PNG, JPEG, BMP, GIF, ICO and the netpbm family— one after the other, with its size and its family on the page."
+}

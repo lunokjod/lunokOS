@@ -54,8 +54,12 @@ uint32_t g_used_points = 0;
 bool g_overflow = false;
 
 // How many straight pieces a quadratic curve is cut into: six is smooth at the sizes a page is read at and
-// keeps the number of edges bounded (docs/30).
+// keeps the number of edges bounded (docs/30). **A glyph too big for the block is cut with fewer pieces and
+// drawn anyway** —Lato Black's `g` has more curves than six times the edges of the block— because a letter
+// with a corner is a letter and a missing letter is a bug: the steps go down to four and then three, and only
+// a glyph that does not fit even then is refused (docs/30, docs/75).
 const uint32_t kCurveSteps = 6;
+uint32_t g_curve_steps = kCurveSteps;
 
 Point midpoint(const Point& a, const Point& b) {
   Point m;
@@ -81,8 +85,8 @@ void add_edge(float x0, float y0, float x1, float y1) {
 void add_quad(const Point& a, const Point& control, const Point& b) {
   float last_x = a.x;
   float last_y = a.y;
-  for (uint32_t step = 1; step <= kCurveSteps; ++step) {
-    const float t = static_cast<float>(step) / static_cast<float>(kCurveSteps);
+  for (uint32_t step = 1; step <= g_curve_steps; ++step) {
+    const float t = static_cast<float>(step) / static_cast<float>(g_curve_steps);
     const float u = 1.0f - t;
     const float x = u * u * a.x + 2.0f * u * t * control.x + t * t * b.x;
     const float y = u * u * a.y + 2.0f * u * t * control.y + t * t * b.y;
@@ -381,7 +385,16 @@ Status render(const Face& face, uint16_t glyph, uint16_t px, uint8_t* rows, uint
   float min_y = 0.0f;
   float max_x = 0.0f;
   float max_y = 0.0f;
-  const Status status = outline(face, glyph, px, min_x, min_y, max_x, max_y);
+  g_curve_steps = kCurveSteps;
+  Status status = outline(face, glyph, px, min_x, min_y, max_x, max_y);
+  // **The curves are cut less finely before the letter is given up**: a glyph with more edges than the block
+  // holds is drawn with four pieces a curve and then three, and only a glyph that still does not fit is a
+  // `kNoRoom`. A corner is visible and a missing letter is not a letter at all (docs/30).
+  for (uint32_t steps = 4; status == kNoRoom && steps >= 3; --steps) {
+    g_curve_steps = steps;
+    status = outline(face, glyph, px, min_x, min_y, max_x, max_y);
+  }
+  g_curve_steps = kCurveSteps;
   if (status != kOk) return status;
   if (g_used_edges == 0) return kNoGlyph;
   // **The box of the ink**, rounded out to whole pixels: where the pen has to go so the ink lands on the grid.

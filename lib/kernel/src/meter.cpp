@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "hal/hal.h"
 #include "hal/log.h"
 #include "pal/pal.h"
 
@@ -20,6 +21,80 @@ struct Entry {
 };
 
 Entry g_entries[kCount];
+
+// **A row of `stats` is a thing this build and this board can do.** A display the ATOM does not have is
+// not a meter at zero: it is a meter that does not exist here, and a table of rows of zeros a person has to
+// guess about is worse than a shorter table. What is left is printed **every time, called or not**, because
+// a zero says something too: it says that the glass, the card or the clock was not asked for anything since
+// the last reset (docs/30, docs/50, docs/85).
+bool unit_available(uint8_t unit) {
+  const hal::Caps& caps = hal::platform().caps();
+  switch (unit) {
+    case kUnitFlash:
+      return caps.has(hal::kCapLittlefs);
+    case kUnitSd:
+      return caps.has(hal::kCapSd);
+    case kUnitNvs:
+      return caps.has(hal::kCapNvs);
+    case kUnitRtc:
+      return caps.has(hal::kCapRtc);
+    case kUnitFram:
+      // **The FRAM is a chip of the board and not a mount of the kernel**: the board that carries it has a
+      // storage behind `/fram` and the one that does not has none (docs/50).
+      return hal::platform().storage("/fram") != nullptr;
+    default:
+      return false;
+  }
+}
+
+bool available(uint8_t id) {
+  if (id >= kStorageFirst && id < kGlassFlush) {
+    const uint8_t door = static_cast<uint8_t>(id - kStorageFirst);
+    return unit_available(static_cast<uint8_t>(door % kUnitCount));
+  }
+  const hal::Caps& caps = hal::platform().caps();
+  switch (id) {
+    case kGlassFlush:
+    case kGlassGc16:
+    case kGlassIdle:
+      return caps.has(hal::kCapDisplay);
+    case kTouchRead:
+      return caps.has(hal::kCapTouch);
+    case kKeysRead:
+      return caps.has(hal::kCapInput);
+    case kKvGet:
+    case kKvSet:
+      return caps.has(hal::kCapNvs);
+    case kClockNow:
+    case kClockMono:
+      return hal::platform().clock() != nullptr;
+    case kClockWake:
+      return caps.has(hal::kCapRtcWake);
+    case kExtraAlloc:
+    case kExtraRelease:
+      // **The extra memory is the PSRAM the build can map**: an ATOM and the bare ESP32 have none, and a
+      // row of zero allocations there would be a row that answers a question nobody can ask (docs/75).
+      return hal::platform().extra_memory().chip_bytes > 0;
+    case kPowerBattery:
+      return caps.has(hal::kCapBattery);
+    case kSleep:
+      return caps.has(hal::kCapSleepLight) || caps.has(hal::kCapSleepDeep);
+    case kLedShow:
+      return caps.has(hal::kCapLed);
+    case kImuRead:
+      return caps.has(hal::kCapImu);
+    case kEnvRead:
+      return caps.has(hal::kCapEnv);
+    case kNetWifi:
+    case kNetNtp:
+      return caps.has(hal::kCapWifi);
+    case kNetHttp:
+      return caps.has(hal::kCapHttp);
+    default:
+      // The boot, the turns of the kernel, the interpreter and the processor: the build has them all.
+      return true;
+  }
+}
 
 // One name per meter, in the order of the enum: the names are the rows of `stats` and the only thing a
 // person reads, so they say what was called and not where it is called from (docs/30).
@@ -192,8 +267,17 @@ void dump() {
                   "total", "mean", "min", "max", "last");
   console->write(line, static_cast<size_t>(used));
   for (uint8_t i = 0; i < kCount; ++i) {
+    if (!available(i)) continue;
     const Entry& entry = g_entries[i];
-    if (entry.calls == 0) continue;
+    // **A meter nobody called is a row too**, with its name and a zero, and the four time columns are a
+    // dash: no call was made, so there is no shortest, no longest, no mean and no last one. Writing `0us`
+    // there would say that a call took no time, which is not the same thing (docs/30).
+    if (entry.calls == 0) {
+      used = snprintf(line, sizeof(line), "%-14s %6lu %10s %10s %10s %10s %10s\r\n", kNames[i], 0ul,
+                      "0us", "-", "-", "-", "-");
+      console->write(line, static_cast<size_t>(used));
+      continue;
+    }
     char total[16];
     char mean[16];
     char shortest[16];

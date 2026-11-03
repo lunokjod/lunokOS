@@ -511,7 +511,201 @@ namespace kernel {
 // out (docs/50, docs/80). And the buffer that holds an app's Lua while it is compiled is **asked from the heap
 // and given back the moment the interpreter has it**: the ATOM Matrix came out **1 184 B over `dram0`** with
 // the static one, and the ATOM goes from **123 392 to 107 008 B of static RAM** (docs/75).
-static const char kVersion[] = "0.56.0";
+// 0.56.1 (3/11): **the bench tells the truth about a run that failed, and a bench without a glass has no
+// page.** `--script` and `--run` answer **1** when an app has died or has exited with a code that is not
+// zero —and a line that does not finish in 30 s is a `1` too—, which is what docs/85 already promised.
+// `--gui` on a model with no glass (an ATOM) is the window of its keys: the panel is not made and no page
+// is shown, and a headless run does not pay its buffers either. The help lists `--wifi-scan`, and the
+// documents are brought back to the code: the bar is 48 rows (view 540 × 912, 246 240 B), a face of bits
+// is 16 × 16 (3 072 B), `rtc.bin` is the RTC memory and not the clock, the host battery is Linux's, and
+// the batch's exit codes are the ones the code gives (docs/30, docs/75, docs/80, docs/85).
+// 0.56.2 (3/11): **the button has weight, the page is white and round, the focus cannot be missed, and a
+// present with a mode paints with that mode.** The frame is **three pixels** on a button bigger than 24 —two
+// on a small one, one on a chip—, the bevel is one pixel thinner than the frame —one pixel on a chip—, the
+// hole of a pressed button has as many rings as the frame, and the focus is **the two pixels of the bevel as a
+// pause and then a band of seven** —the frame and four— in the colour that cannot be missed: a ring that only
+// doubles the border reads as a thicker border and not as "this is the one". `run buttons` is **eight white
+// buttons** wearing **Lato Black** from an outline `.ttf` cut to printable ascii (19 340 B, the OFL licence
+// beside it) at 24 px, with the title at 32 and the notes at 16, and the eight labels come in three sizes.
+// The reader of outlines **cuts a curve again before giving a glyph up**: six pieces a curve and 384 edges
+// are the block it has, and a letter with more curves —Lato Black's `g` has ninety-one points— is drawn with
+// four and then three, because a corner is visible and a missing letter is not a letter. And
+// **`ui.present('gc16')` was a present with no mode**: the root the draw pushed onto the stack covered the
+// app's argument and the `lua_pop` took it away, so every page painted with the `du` the controls ask for
+// and the ghost of a word that had moved stayed on the glass; the stack goes back to the height it had
+// before the root, and the app's quality is the paint's (docs/30, docs/50, docs/90).
+// 0.57.0 (3/11): **the console has a palette, and only when the terminal asked for it.** The prompt is the
+// name in green and the `>` in grey; an error is red, a warning yellow and an answer green; `ls` puts the
+// kind of an entry and its size dim and a directory in blue; `help` bolds the command; the log echoes and
+// dumps each line in the colour of its level. **Not one escape byte leaves** on a terminal that did not
+// answer the Device Attributes question the shell asks at start, and `ansi [on|off]` says what was detected
+// or overrides it when a serial bridge eats the question; `clear` no longer sends `ESC [ 2 J` to a line
+// that never said it could read it (docs/30, docs/85, docs/90).
+// 0.57.1 (3/11): **`stats` does not hide the rows nobody called, and does not show the ones this board does
+// not have.** The table is the one of this build and this board —`sd.*` and `fram.*` with the slot and the
+// chip, `glass.*` and `touch.read` on the Paper, `led.show` on the ATOMs, `imu.read` on the Matrix,
+// `env.read` and `power.battery` on the Paper, `net.*` with a radio and `psram.*` with extra memory— and
+// every row that exists is printed every time: zero calls and a dash in the four time columns, because a
+// zero is a measurement and a row that is missing is a row that does not exist (docs/30, docs/85).
+// 0.57.2 (3/11): **the glass moves its ink in time, and the blinking is the blink of the mode.** A `gc16`
+// blinks black and white four times before the image —which is why it cleans—, a `gl16` twice, an `a2`
+// white and then black, and the last third of every paint is the image arriving in six visible pieces;
+// a quality that does not blink (`du`, `du4`, `glr16`, `gld16`) keeps the page before it until its time
+// has passed, because the ink is not there before. `step_ink()` walks the phases, `idle()` waits for the
+// last one, and the window redraws every frame of it: a blink nobody draws is a blink nobody sees
+// (docs/85).
+// 0.58.0 (3/11): **the bench has the memory of the board and the clock of its turns.** The PC's heap is
+// handed out against the two homes of the model —the RAM the board reports free at the prompt (338 864 B
+// on an ATOM, 162 728 B on the Paper) and the PSRAM it can map (4 095 KB, none on the ATOMs)— with
+// sixteen bytes of header per block and the board's own rule: the other home before a refusal, and a
+// block that fits neither is refused. `mem` and `sys.heap()` now say what the glass says, a table of
+// 400 000 entries dies on the Paper with `not enough memory`, and `run heap` gives its megabyte back to
+// the byte. And a turn of the kernel pays what it costs on the board: 850 µs after every turn while the
+// bench pays the times of the hardware, so a thousand awaits of a millisecond take 1 888 ms here and
+// 1 990 ms on the glass instead of the 1 080 ms they took before (docs/75, docs/85, docs/90).
+// 0.59.0 (3/11): **what the board remembers, the bench remembers too.** The credentials of a network go
+// to the key-value store —`lunoknet/ssid` for the name and `wifidrv/pass` for the pair, the board's own
+// split— instead of two strings of the run, so `wifi` after a restart says the same network and
+// `wifi connect` gets back on it; provisioning writes them too and `wifi forget` erases the name, which
+// is what the board's `own_record_erase()` does. The hour that a chip with a coin cell
+// keeps survives between runs in `<state>/clock.bin`, with the time the board was unplugged added in,
+// so the Paper comes back saying `source rtc`; and `--persist` is a board that was never unplugged: the
+// RTC RAM is not wiped on the ATOMs and the hour comes back there as `soc`. The NVS and the FRAM needed
+// nothing: they are flash and ferrite (docs/60, docs/70, docs/85, docs/90).
+// 0.60.0 (3/11): **the bench pays what each chip costs, with the numbers of its datasheet.** The heap of
+// a home is a heap and not a counter —a region cut into chunks with a free list, a split that leaves the
+// rest for somebody else, a merge with a free neighbour on the way out, and a largest block that is not
+// the free total—, so a page fails where the board's would fail with room to spare, `mem` says the
+// largest block, an allocation walks at a hundred nanoseconds a node and a block that changes home is
+// copied at the twenty megabytes a second of the PSRAM. A flash page programme is the **0.7 ms** of the
+// W25Q32JV and not 0.4, a file commit pays its sixteen pages and the sector, and **the NVS does not pay a
+// sector per key**: it appends thirty-two-byte entries and erases the page once in 126. An air
+// measurement is the **4.5 ms** the SHT30 takes, the sensor of the Matrix is 1.5 ms of bus, the hour is
+// 0.9 ms of I2C, a light of the panel is thirty microseconds and the last one latches eighty after, and
+// a deadline that expires is dispatched on the following turn —one millisecond— so a thousand promises
+// of one millisecond take 2 107 ms here against the 1 990 ms of the glass (docs/50, docs/70, docs/75,
+// docs/85).
+// 0.60.1 (3/11): **the serial port pays its two directions.** The bytes that go out already cost 86,8
+// microseconds each; now the ones that come in do too, so a line pasted into the terminal is a line that
+// arrives at the speed of the wire and not a block that appears at once (docs/85).
+// 0.60.2 (3/11): **turning the board on is not free either.** The bench pays what the board does before
+// the kernel exists: the bootloader reads the image out of the flash (2 097 008 B on an ATOM, 2 182 672 on
+// the Paper, at the ten megabytes a second of dual SPI at forty megahertz) and ESP-IDF's PSRAM test
+// writes and reads every mapped byte at the twenty of quad SPI, so the prompt arrives 210 ms later on an
+// ATOM and 638 ms later on the Paper —0,39 s and 0,84 s from the start instead of 0,19 and 0,20— and the
+// run says whether it is paying (docs/75, docs/85).
+// 0.61.0 (3/11): **the page of the bench is the page the address answers.** `http` from the prompt and
+// `http.get` from an app fetch the real URL: the bench hands it to `curl` in a child of its own —`-q`,
+// without a `~/.curlrc`, following up to ten redirections, with the certificate checked against the
+// roots of this machine— and the body and the status come back from the wire, so
+// `http https://github.com/...` shows the beginning of that page instead of a line saying the
+// address. The kernel's path did not change: the queue, the promise, the 40 s deadline, the 16 384
+// bytes and the `E_*` codes are the same, and a page that goes on past what the shell carries now
+// says so and shows the first 800 B —the board keeps the beginning and answers `E_TOOBIG`, and the
+// canned page does the same—. An address the board's client does not speak is `E_HTTP` and not a
+// refused task, a `curl` that is not on this machine says it on the console, and `--http-fake` (or
+// any of `--http-ms`, `--http-status`, `--http-body`, `--http-fail`) puts the canned page back for a
+// test that must not depend on the network. A batch line now gets 60 s, because a real page needs the
+// kernel's deadline plus the association (docs/30, docs/50, docs/85).
+// 0.62.0 (3/11): **a page that does not fit in the heap goes to a file, whole.** `http.download(url, path)`
+// writes the page to a volume as it arrives —`{status, path, bytes}`— and the app reads it with
+// `fs.open`, so a few hundred kilobytes of HTML are a file and not an `E_TOOBIG`. `http <url>` at the
+// prompt does the same by itself when the page passes the 16 384 B it holds —it saves it to the card, or
+// to the flash when there is no card, as `<vol>/http/<name>`, and says the path and the first 800 B read
+// back from there—, and `http <url> <path>` writes it wherever it is told. On the board the page streams
+// from `esp_http_client` into the file in 512 B chunks, the first `max_bytes` stay in memory when the
+// caller wanted a body, and a page that cannot fit in the volume is refused from its `Content-Length`
+// instead of being written halfway; on the bench the file `curl` already wrote is copied through the
+// storage that charges the disk, so half a megabyte of flash costs what it costs. **A download is a
+// write**: it lands where the same caller could write a file —`/data/<id>/` for an app, any mounted
+// drive for the prompt—, so a page cannot go where `fs.write` would answer `E_INVAL`, and a path that is
+// not a drive of this board is `E_UNAVAIL` before the server is asked (docs/30, docs/50, docs/70,
+// docs/75, docs/85).
+// 0.63.0 (3/11): **les imatges**. `lib/img` és una llibreria de descodificadors sense cap assignació pròpia que
+// treu les files d'una imatge en l'empaquetament de quatre bits del vidre, i `ui.image` i `ui.image_info` les
+// porten a la pàgina: **PNG** (tipus 0, 2, 3, 4 i 6, profunditats 1 a 16, tots els filtres, paleta i
+// transparència), **JPEG** base i seqüencial estès (qualsevol mostreig, marcadors de reinici, IDCT en coma
+// flotant i YCbCr), **BMP** de 1, 4, 8, 16, 24 i 32 bits amb paleta o màscares i de dalt o de baix, **GIF**
+// 87a/89a amb LZW, transparència i entrellaçat, **ICO** amb una imatge de BMP o un PNG a dins, i la família
+// **netpbm** (PBM, PGM i PPM, en text i en cru). El color es converteix amb la lluminància dels setze nivells i
+// un **dither ordenat de 4×4** —el negre és negre i el blanc és blanc a tot arreu, i un degradat no fa
+// franges—, una imatge amb transparència es compon sobre el paper, i una mida més gran o més petita és un
+// escalat al més proper. El que no es llegeix es diu i no es dibuixa malament: PNG entrellaçat, JPEG progressiu
+// o aritmètic, CMYK i BMP amb RLE són `E_UNSUPPORTED`; un fitxer que diu ser una imatge i no ho és, `E_IO`; i
+// una imatge de més de 2 MB, de més de 4 096 píxels o que no cap a la memòria, `E_INVAL`/`E_NOSPC`. L'exemple
+// `run images` porta **una imatge de cada família** a `data/apps/images/res` —i **una imatge diferent per a
+// cadascuna**, que ensenya el que aquell format sap fer: una fotografia en JPEG, tinta plana en BMP, una
+// paleta de vuit tintes, una cantonada transparent en GIF, una icona amb alfa, línies primes en PNG, dos
+// degradats i un bit— passades totes amb els botons; el **mateix pla en sis formats**, que és el que demostra
+// que els sis descodificadors donen els mateixos píxels, viu amb les proves a `test/test_img/data/plan.*`. **Dues coses que només es veuen al vidre** i que l'exemple va haver
+// d'aprendre: una app que plega després de pintar és una app que ningú no pot prémer —l'exemple escolta i té
+// una sortida—, i un control es compon pel que diu que ha canviat, o sigui que una pàgina que neteja el seu
+// canvas ha de tornar a demanar els botons o els perd (docs/30, docs/70, docs/75, docs/85, docs/90).
+// 0.64.0 (4/11): **el parpelleig del vidre arriba a la finestra**. El model de la tinta ja hi era des de la
+// 0.22.0 —un `du` deixa una part del que hi havia, un `gc16` blinca i neteja, i la brutícia s'acumula—, però
+// la finestra es dibuixava un cop per torn i un torn és una pintada: entre la pàgina d'abans i la de després
+// no hi havia cap fotograma, i el que una persona veia era una pàgina que es canviava d'un cop. La culpa era
+// del banc i no del model: una pintada té el seu cridador parat més d'un segon —el bus de la regió que
+// s'envia i la tinta que ha de moure— i el panell, durant tot aquest temps, continua fent les blincades de la
+// qualitat que li han demanat. Ara `MemorySurface::wait_and_pump()` parteix cada espera del vidre en trossos
+// de **10 ms** i crida el *pump* de la finestra entremig, que és `pump_gui` amb la mateixa `step_ink()` de
+// sempre; el binari el instal·la i el model no canvia cap número, només qui mira i quan. Gravat a 25
+// fotogrames per segon, un `gc16` de pàgina sencera són dos fotogrames negres, dos de blancs, dos de negres i
+// dos de blancs abans de la imatge —els 450 ms del full del fabricant— i la finestra respon al teclat durant
+// tota l'espera. Amb això `run ghost` ensenya el que l'app diu que ensenya: vuit passades de `du` que deixen
+// el rastre de les anteriors i un `gc16` que se l'emporta (docs/85).
+// 0.64.1 (4/11): **el focus de `run images` es veu**. L'app tenia tres botons i cap `on_focus`, o sigui que
+// el dial movia el focus i el systema invalidava els dos controls, però la repintada sortia amb `du`: l'anell
+// que arribava quedava gris i el que se n'anava quedava allà com un anell gris més, i la pàgina semblava no
+// moure's (trobat amb les tecles de la finestra, 4/11). Ara cada botó diu a `on_focus` que cal un rentat i el
+// torn següent presenta amb `gc16`; com que els únics danys són els dos botons, el parpelleig és la fila dels
+// botons —l'1/11 del model de la tinta— i no la pàgina sencera. És la mateixa regla que ja segueix
+// `run buttons` i que diu docs/30: un canvi de focus és un canvi d'estat de la pàgina i s'ha de rentar
+// (docs/30, docs/50, docs/90).
+// 0.65.0 (4/11): **els editors**. Dues apps noves —`run edit <path>` i `run hexedit <path>`— que funcionen
+// igual pel **port sèrie** de la placa i per la **consola nadiua**, perquè són el mateix codi: `edit` és un
+// editor de text modal com el vim (`h j k l`, `i a o`, `x`, `dd`, `yy`, `p`, `u`/`Ctrl+R`, `/` amb `n`/`N`,
+// `:w`, `:q`, `:wq`, `:e`, i els nombres de línia) i `hexedit` és l'editor hexadecimal de sempre (setze bytes
+// per fila, el desplaçament i l'ASCII, dos niblies per byte, `x` esborra, `i` insereix, `u` desfà). Tres coses
+// del sistema han hagut de canviar perquè hi cabessin:
+//   - **`console.raw([on])` i `console.read_byte()`**: el teclat deixa de ser una línia i passa a ser bytes
+//     —les fletxes senceres, sense eco i sense edició—, amb una cua de 256 claus perquè escriure sigui més
+//     ràpid que el torn, i amb els tres ESC de sempre com a sortida d'emergència.
+//   - **El camí que la persona nomena**: `run edit /littlefs/notes.txt` dona a l'app l'autoritat del prompt
+//     **sobre aquell fitxer** mentre viu (llegir i escriure) i sobre cap altre, que és el que fa que un editor
+//     desi on li han dit; la resta del disc de la persona segueix dient `E_INVAL`. De passada s'ha arreglat un
+//     error de debò: el nom de l'app era un punter a una pila del shell que ja no hi era quan l'app corria, i
+//     ara se'n guarda una còpia (`luabind::app_path`).
+//   - **El sostre del codi d'entrada, de 16 a 32 KB**: l'editor fa 26 644 B i el buffer és al heap des de la
+//     0.56.0 i es torna just després de compilar, o sigui que el que puja és un bloc transitori (docs/75).
+// El mode cru i el camí nomenat porten prova nativa (`test_luabind`, `test_apps`), i els dos editors s'han
+// conduït per un pseudo-terminal contra el binari: `jA!` + `:wq` sobre un fitxer i el fitxer queda amb el
+// signe, i `41` i `:wq` sobre un binari i el byte queda en `41` (docs/30, docs/70, docs/75, docs/85).
+// 0.65.1 (4/11): **`fs.write` sobre `/rtc` i `/fram`**. Aquelles dues memòries són **un sol fitxer** cadascuna
+// i el seu nom és el del muntatge, o sigui que no tenen `/rtc.tmp` on escriure i després reanomenar: el camí
+// atòmic de `fs.write` responia `E_NOENT`, i el que veia una persona era un editor dient `write failed: no
+// such file or directory` en desar-hi (trobat amb `run hexedit /fram`, 4/11). Des d'aquí una escriptura a una
+// memòria crua **va al lloc**: els bytes al començament de la memòria i la resta a zero, perquè el que s'ha
+// escrit sigui el que es torna a llegir, i una escriptura que no hi cap sencera és `E_NOSPC` i no canvia res
+// —mitja memòria no es pot desfer. El mànec (`fs.open` + `write`) segueix sent el camí per posar el que es
+// vulgui a qualsevol desplaçament (docs/30, docs/50, docs/70).
+// 0.66.0 (4/11): **els editors obren un fitxer de qualsevol mida**. La 0.65.0 hi posava un sostre de 64 KB a
+// `edit` i de 512 KB a `hexedit`, i era un sostre inventat: el sistema deixa llegir un fitxer a trossos
+// (`fs.read_at`, `fs.open` + `file:read`) i el que una app no ha de fer és carregar-lo sencer. Ara:
+//   - **`edit` en fa un índex de línies** llegint el fitxer a trossos de 64 KB, llegeix **només les línies que
+//     es veuen** (una finestra de 2 KB per a una línia de més de 8 KB, que es veu però no s'edita) i desa
+//     escrivint un temporal on el que no ha canviat **es copia de l'original**, 64 KB a la vegada. Obrir el
+//     fitxer d'1,3 MB que deixa el `http`, anar-ne a l'última línia, escriure-hi i desar-lo funciona.
+//   - **`hexedit` llegeix la finestra que es veu** i desa els bytes escrits amb un mànec al seu desplaçament;
+//     fins a 256 KB continua tenint el fitxer sencer a la memòria, que és el que permet `x` i `i` de moure el
+//     que hi ha darrere. Un binari d'1,5 MB es mira i es pedaça sense tenir-lo sencer enlloc.
+//   - **El temporal del camí nomenat també és el camí nomenat**: `fs.open('/littlefs/x.txt.tmp', 'w')` estava
+//     prohibit i un desament atòmic des d'una app no podia existir; ara és el mateix permís que el fitxer
+//     (docs/70).
+//   - I **un error del heap del banc**, que és el que va fer sortir el problema: un bloc de la PSRAM que no
+//     podia créixer al seu lloc només provava l'altra casa i deia `not enough memory` amb quatre megabytes
+//     lliures a la mateixa PSRAM (docs/75). `move_into` el mou a qualsevol taca de la seva.
+static const char kVersion[] = "0.66.0";
 
 }  // namespace kernel
 

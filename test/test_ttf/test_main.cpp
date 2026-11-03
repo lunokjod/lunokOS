@@ -110,6 +110,35 @@ static void test_an_outline_becomes_the_pixels_of_its_bitmap() {
   TEST_ASSERT_EQUAL_UINT8(0x0F, big[2]);
 }
 
+// **A glyph with more curves than the block of edges holds is drawn with fewer pieces** (docs/30, docs/75):
+// Lato Black's `g` has ninety-one points and at six pieces a curve it does not fit; the reader cuts at four
+// and then three before it gives up, so the letter arrives whole —a corner is not a bug and a missing letter
+// is—. This is the face of the buttons page, read from the disk of the repository.
+static void test_a_glyph_with_too_many_curves_is_drawn_with_fewer_pieces() {
+  static uint8_t big[24576];
+  const uint32_t length = read_file("data/apps/buttons/res/lato-black.ttf", big, sizeof(big));
+  TEST_ASSERT_GREATER_THAN(0, length);
+  ttf::Face face;
+  const char* why = ttf::open(big, length, face);
+  TEST_ASSERT_NULL_MESSAGE(why, why);
+  uint16_t glyph = 0;
+  TEST_ASSERT_EQUAL_INT(ttf::kOk, static_cast<int>(ttf::glyph_of(face, 'g', glyph)));
+  static uint8_t rows[64 * 64];
+  ttf::Bitmap box;
+  TEST_ASSERT_EQUAL_INT(ttf::kOk, static_cast<int>(ttf::render(face, glyph, 24, rows, 64, 64, 64, box)));
+  TEST_ASSERT_GREATER_THAN(0, box.width);
+  TEST_ASSERT_GREATER_THAN(0, box.height);
+  // **Both sides of the letter are there**: the bowl of a `g` reaches the right of its box, and a reader
+  // that stopped at the contour that did not fit would draw the stem and nothing else.
+  uint16_t last = 0;
+  for (uint16_t x = 0; x < box.width; ++x) {
+    for (uint16_t y = 0; y < box.height; ++y) {
+      if ((rows[y * 64 + (x >> 3)] & (0x80u >> (x & 7))) != 0) last = x;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(static_cast<int>(box.width * 2 / 3), static_cast<int>(last));
+}
+
 // **What is not a font, or a font this reader does not read, is refused with the reason** (docs/30).
 static void test_what_is_not_a_font_says_why() {
   ttf::Face face;
@@ -145,6 +174,7 @@ int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_a_font_says_what_it_is);
   RUN_TEST(test_an_outline_becomes_the_pixels_of_its_bitmap);
+  RUN_TEST(test_a_glyph_with_too_many_curves_is_drawn_with_fewer_pieces);
   RUN_TEST(test_what_is_not_a_font_says_why);
   return UNITY_END();
 }

@@ -58,6 +58,15 @@ class MemorySurface : public hal::ISurface {
   // window that only redrew on `flushes()` would miss them, and a flash nobody sees is not a flash
   // (docs/85).
   uint32_t ink_steps() const { return ink_steps_; }
+  // **What to do while the glass waits.** A paint blocks its caller for the wires and for the ink, and
+  // the panel does not: it keeps blinking through both. The bench that has a window installs this and is
+  // called every few milliseconds of every wait, which is how a flash reaches a person's eyes instead of
+  // happening inside a delay nobody draws (docs/85).
+  using WaitPump = void (*)(void* user);
+  void set_wait_pump(WaitPump pump, void* user) {
+    pump_ = pump;
+    pump_user_ = user;
+  }
   uint32_t blits() const { return blits_; }
   uint32_t flushes() const { return flushes_; }
   hal::UpdateMode last_mode() const { return last_mode_; }
@@ -123,7 +132,21 @@ class MemorySurface : public hal::ISurface {
   // What a flash writes on the glass while it is running, and the end of it: the image and the ink of
   // the paint (docs/85).
   void flash_fill(uint8_t level);
-  void flash_settle();
+  // **The image arriving after the last blink**, in `steps` pieces: the region moves from the level of
+  // the blink to the level the paint asked for, and the dirt of the paint is added on the last one
+  // (docs/85).
+  void settle_flash(uint8_t step, uint8_t steps);
+  // The blink the paint is in, and the piece of the settle: `0xFF` is "no step yet".
+  uint8_t ink_phases_ = 0;
+  uint8_t ink_settle_steps_ = 0;
+  uint8_t ink_stage_ = 0xFF;
+  // A quick paint whose image has not landed yet: it lands at the end of its time and not at the start.
+  bool ink_pending_ = false;
+  // **A wait of the glass, walked in slices**: the pump of the window is called between them, so the
+  // blinks of a paint nobody's code is looking at still get drawn (docs/85).
+  void wait_and_pump(uint32_t us);
+  WaitPump pump_ = nullptr;
+  void* pump_user_ = nullptr;
   void alloc_ink();
   bool make_ink();
   bool dirty_ = false;

@@ -33,28 +33,35 @@ InkMode ink_mode(hal::UpdateMode mode) {
   switch (mode) {
     case hal::UpdateMode::kInit:
       // The two seconds of the maker's own init, and the only paint that also takes the dirt of the
-      // panel away (docs/50).
-      return InkMode{2000, 0, 0, 0, false};
+      // panel away (docs/50): four long blinks and the image arriving.
+      return InkMode{2000, 0, 0, 0, true, 4, {15, 0, 15, 0, 0, 0}, 6};
     case hal::UpdateMode::kGc16:
+      // **The one that cleans, and it cleans by blinking**: the whole region goes black and white twice
+      // before the image. It is 450 ms of a panel with work to do, which is the price of a page without a
+      // ghost (docs/50, docs/85).
+      return InkMode{450, 0, 0, 0, true, 4, {0, 15, 0, 15, 0, 0}, 6};
     case hal::UpdateMode::kGl16:
-      return InkMode{450, 0, 0, 0, false};
+      // The gentler clean: one blink, and the image arrives over the rest of the time.
+      return InkMode{450, 0, 0, 0, true, 2, {0, 15, 0, 0, 0, 0}, 6};
     case hal::UpdateMode::kGlr16:
     case hal::UpdateMode::kGld16:
-      return InkMode{450, 0, 0, 0, false};
+      // The reduced ones: they clean and they do not blink. The image lands at the end of the time, with
+      // no frame in between (docs/85).
+      return InkMode{450, 0, 0, 0, false, 0, {0, 0, 0, 0, 0, 0}, 0};
     case hal::UpdateMode::kDu:
       // The quick one: **almost a third of what was there stays** and it leaves a little dirt, so a page
       // painted with it once is a page with the one before it showing through (docs/85).
-      return InkMode{120, 5, 1, 8, false};
+      return InkMode{120, 5, 1, 8, false, 0, {0, 0, 0, 0, 0, 0}, 0};
     case hal::UpdateMode::kDu4:
       // Quicker and dirtier: nearly half of it stays, and the grain is twice as much. It is meant for a
       // cursor and not for a page.
-      return InkMode{120, 7, 2, 15, false};
+      return InkMode{120, 7, 2, 15, false, 0, {0, 0, 0, 0, 0, 0}, 0};
     case hal::UpdateMode::kA2:
       // The flashing one: it blinks the page white and black first, which is what makes it land close to
       // the level, and it is the reason it is only used for a clock (docs/50).
-      return InkMode{290, 2, 0, 3, true};
+      return InkMode{290, 2, 0, 3, true, 2, {15, 0, 0, 0, 0, 0}, 3};
   }
-  return InkMode{120, 4, 1, 1, false};
+  return InkMode{120, 4, 1, 1, false, 0, {0, 0, 0, 0, 0, 0}, 0};
 }
 
 uint32_t ink_transfer_us(uint16_t w, uint16_t h) {

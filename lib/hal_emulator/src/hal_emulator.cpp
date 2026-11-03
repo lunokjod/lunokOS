@@ -1,4 +1,9 @@
 #include <chrono>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "hal/hal.h"
 
@@ -54,6 +59,9 @@ Options::Options()
       // **The times of the hardware are not paid unless the run asks for them**: a test wants the model
       // and not the clock, and `main` turns them on for the binary —`--no-delay` leaves them off (docs/85).
       delays(false),
+      // **A cold start unless the run says otherwise**: the RTC RAM of a model without a coin cell is
+      // wiped, which is what unplugging the board does (docs/85).
+      persist(false),
       // **The app's own code is CPU time and it is not free on the glass**: sixty nanoseconds an
       // instruction at 160 MHz is the model's number, and `main` turns it on with the rest of the times
       // (-1 is "the bench's own number" and 0 is "free") (docs/85).
@@ -67,6 +75,8 @@ Options::Options()
       prov_pass("secret"),
       prov_never(false),
       prov_fail(false),
+      // **The page is the real one unless the run asks for the canned one** (docs/85).
+      http_fake(false),
       http_ms(50),
       http_status(200),
       http_body(nullptr),
@@ -128,6 +138,19 @@ bool key_down(int key) {
 namespace hal {
 namespace {
 
+// **What a byte of the internal I2C costs**: the bus runs at 100 kHz and a byte is nine bits on it —the
+// eight of the data and the acknowledge—, so ninety microseconds, which is the number the GT911's
+// transactions and the FRAM's pages already come from (docs/50). The address, the start and the stop are
+// part of the count of the bytes a transaction moves.
+const uint32_t kI2cByteUs = 90;
+
+// What a transaction of that bus costs, in microseconds.
+uint32_t i2c_us(uint32_t bytes) { return bytes * kI2cByteUs; }
+
+// **What the BM8563 moves when the hour is read or written**: the register and the seven bytes of the
+// time, at ninety microseconds a byte (docs/50, docs/60).
+const uint32_t kRtcBusBytes = 10;
+
 // The hardware of this bench is `emu::model()`, which is the model `--board` named: one list and
 // not two, because a bench that answers for another board teaches the wrong thing (docs/85).
 int64_t mono_ms() {
@@ -147,6 +170,21 @@ class HostClock : public IClock {
     if (opts.now_epoch > 0) {
       epoch_base_ = opts.now_epoch * 1000;
       known_ = true;
+      return;
+    }
+    // **The hour a board comes back with**: a chip with a coin cell behind it kept it while the board
+    // was off, and `--persist` is a board that was never unplugged at all, so the run starts at the
+    // hour the run before left. A board with neither starts at zero —a board nobody has set— which is
+    // what the bench did before and what the hardware is (docs/50, docs/60, docs/85).
+    if (opts.persist || emu::model().keeps_the_hour) {
+      const int64_t kept = emu::load_clock_ms();
+      if (kept > 0) {
+        epoch_base_ = kept - elapsed_ms();
+        known_ = true;
+        // **The hour is read from a chip over the I2C**: seven registers behind an address, which is
+        // what the board pays once at boot (docs/50, docs/60).
+        if (emu::model().keeps_the_hour && opts.delays) pal::delay_us(i2c_us(kRtcBusBytes));
+      }
     }
   }
 
@@ -157,6 +195,11 @@ class HostClock : public IClock {
     if (ms < 0) return false;
     epoch_base_ = ms - elapsed_ms();
     known_ = true;
+    // **Writing the hour is writing a chip**: the board's `RtcClock` puts it in the BM8563 over the I2C
+    // on every change of the epoch, and that is a transaction of ten bytes (docs/50, docs/60).
+    if (emu::model().keeps_the_hour && emu::options().delays) {
+      pal::delay_us(i2c_us(kRtcBusBytes));
+    }
     return true;
   }
 
@@ -241,6 +284,21 @@ namespace {
 // hardware.
 const uint32_t kEmuLights = 25;
 
+// **What writing a strip costs**: a WS2812 takes twenty-four bits at 1.25 us each —thirty microseconds a
+// light— and then the line is held low so the chips latch the frame. The Atom has one light, the Matrix
+// twenty-five, and a person sees the light appear when the strip has finished, not when the call was made
+// (docs/50, docs/85).
+const uint32_t kWs2812LightUs = 30;
+const uint32_t kWs2812LatchUs = 80;
+
+// **What the MPU6886 of the Matrix moves over the bus for one measurement**: the address of the chip and
+// the register it is asked for, the address again and the fourteen bytes that come back (docs/50).
+const uint32_t kImuReadBytes = 17;
+// **What the SHT30 of the Paper takes to answer**: medium repeatability with clock stretching is four and
+// a half milliseconds typical and six at most (SHT3x datasheet, tMEAS,m), and ten bytes of the bus —the
+// command and the six that come back— are on top (docs/50, docs/85).
+const uint32_t kSht30MeasureUs = 4500;
+const uint32_t kSht30BusBytes = 10;
 class FakeLed : public ILed {
  public:
   uint32_t count() override { return emu::model().lights; }
@@ -261,7 +319,16 @@ class FakeLed : public ILed {
     return true;
   }
 
-  void show() override { ++frames_; }
+  // **A strip is written a bit at a time and nobody is talking to it while that happens**: twenty-four
+  // bits in thirty microseconds, one light after another, and the line held low after the last one so
+  // the chips latch it. It is the RMT of the chip doing it with interrupts off, which is why a person
+  // sees the light appear at once and the system is a millisecond older (docs/50, docs/85).
+  void show() override {
+    ++frames_;
+    if (!emu::options().delays) return;
+    const uint32_t lights = emu::model().lights;
+    pal::delay_us(lights * kWs2812LightUs + kWs2812LatchUs);
+  }
 
   // The first light, which is all a board of one light has: the tests that ask the
   // band for "the colour" keep asking the same question (docs/85).
@@ -298,6 +365,10 @@ class FakeImu : public IImu {
             float& celsius) override {
     const emu::Options& opts = emu::options();
     if (opts.imu_fail) return false;
+    // **The chip is behind a bus and the bus is not free**: the register address, the address of the
+    // chip twice and the fourteen bytes of the measurement, at ninety microseconds a byte — a hundred
+    // kilohertz, which is what this board's internal bus runs at (docs/50).
+    if (opts.delays) pal::delay_us(i2c_us(kImuReadBytes));
     ax = opts.imu_ax;
     ay = opts.imu_ay;
     az = opts.imu_az;
@@ -316,6 +387,10 @@ class FakeSensor : public ISensor {
   bool read(float& celsius, float& humidity) override {
     const emu::Options& opts = emu::options();
     if (opts.env_fail) return false;
+    // **The chip measures while the bus waits for it**: medium repeatability with clock stretching is
+    // 4.5 ms typical and 6 ms at most (SHT3x datasheet, tMEAS,m), and the command and the six bytes that
+    // come back are ten bytes of a hundred-kilohertz bus more (docs/50, docs/85).
+    if (opts.delays) pal::delay_us(kSht30MeasureUs + i2c_us(kSht30BusBytes));
     celsius = opts.env_celsius;
     humidity = opts.env_humidity;
     return true;
@@ -446,11 +521,16 @@ class FakePower : public IPower {
 };
 
 // The network of this band is a **fake** and docs/85 says so: it takes `--wifi`
-// milliseconds of simulated time to come up and then goes nowhere. It exists so
-// that the rule "the kernel never blocks on the radio" can be measured on a PC;
-// the real radio is on the board.
-class FakeNet : public INet {
+// milliseconds of simulated time to come up and then goes nowhere. The page is the
+// exception: it is the one the address really answers, fetched by `curl`, because a
+// page of this machine's network is exactly what a person wants to see on the glass
+// (docs/85). `--http-fake` puts the canned page back.
+class HostNet : public INet {
  public:
+  ~HostNet() override {
+    if (http_op_ != 0) http_release(http_op_);
+  }
+
   bool wifi_start(const char* ssid, const char* pass) override {
     if (emu::options().wifi_absent) return false;
     if (ssid == nullptr || ssid[0] == '\0') return false;
@@ -474,10 +554,11 @@ class FakeNet : public INet {
     return true;
   }
 
-  // Connects with what provisioning left behind, which is a pair of strings in
-  // this band and the board's own store on the real thing (docs/85).
+  // Connects with what provisioning left behind, which is the board's own store: the pair is in the
+  // key-value store and not in this object, so a run that starts again on the same state directory
+  // remembers the network it was told (docs/70, docs/85).
   bool wifi_start_stored() override {
-    if (!provisioned_) return false;
+    if (!provisioned_ && !recall()) return false;
     return wifi_start(stored_ssid_, stored_pass_);
   }
 
@@ -510,16 +591,22 @@ class FakeNet : public INet {
   }
 
   bool wifi_stored_ssid(char* out, size_t cap) override {
-    if (out == nullptr || cap == 0 || !provisioned_ || stored_ssid_[0] == '\0') return false;
+    if (out == nullptr || cap == 0) return false;
+    if (!provisioned_ && !recall()) return false;
+    if (stored_ssid_[0] == '\0') return false;
     snprintf(out, cap, "%s", stored_ssid_);
     return true;
   }
 
+  // **The credentials go to the key-value store, as the board's do**: the driver keeps the pair in its
+  // own namespace and the system keeps the name it was given, so `wifi` on the next run answers the
+  // network that was added in this one (docs/50, docs/70, docs/85).
   bool wifi_store(const char* ssid, const char* pass) override {
     if (ssid == nullptr || ssid[0] == '\0') return false;
     snprintf(stored_ssid_, sizeof(stored_ssid_), "%s", ssid);
     snprintf(stored_pass_, sizeof(stored_pass_), "%s", (pass != nullptr) ? pass : "");
     provisioned_ = true;
+    remember();
     return true;
   }
 
@@ -531,7 +618,7 @@ class FakeNet : public INet {
     (void)transport;  // the fake board has no Bluetooth and does not need one
     if (service_name != nullptr && cap > 0) snprintf(service_name, cap, "%s", "PROV_000000");
     if (emu::options().wifi_absent) return false;
-    if (provisioned_ || prov_running_) return false;
+    if (prov_running_ || prov_provisioned()) return false;
     prov_running_ = true;
     prov_started_ms_ = mono_ms();
     return true;
@@ -565,6 +652,9 @@ class FakeNet : public INet {
     snprintf(stored_ssid_, sizeof(stored_ssid_), "%s", emu::options().prov_ssid);
     snprintf(stored_pass_, sizeof(stored_pass_), "%s", emu::options().prov_pass);
     provisioned_ = true;
+    // What provisioning received is what a person expects to find after a restart, and on the board
+    // the driver writes it to the flash for the next boot (docs/50, docs/85).
+    remember();
     return ProvState::kDone;
   }
 
@@ -573,33 +663,60 @@ class FakeNet : public INet {
     return true;
   }
 
-  bool prov_provisioned() override { return provisioned_; }
+  // **A board with a network in its store has been provisioned**, whatever run put it there: on the
+  // glass the question is answered by the record in the flash and not by a flag of the run (docs/50,
+  // docs/85).
+  bool prov_provisioned() override { return provisioned_ || recall(); }
 
   bool prov_forget() override {
     provisioned_ = false;
     stored_ssid_[0] = '\0';
     stored_pass_[0] = '\0';
     state_ = NetState::kOff;
+    // **The name goes, the driver keeps its blob**: that is what `wifi forget` does on the board —
+    // `own_record_erase()` and nothing else— and what the system trusts is the name, so the network is
+    // forgotten even though the password is still in the flash (docs/50, docs/85).
+    hal::IKeyValue* kv = hal::emu_nvs();
+    if (kv != nullptr) kv->erase(wifi_namespace(), wifi_ssid_key());
     return true;
   }
 
-  // The page of this band is a fake and docs/85 says so: after `http_ms` the
-  // address that was asked for comes back with the status and the body the options
-  // name, or nothing when the server is meant to be down. The URL is in the body
-  // so a test can see that what it asked for is what came back.
+  // **The page is fetched for real unless the run asked for the canned one**: `http_get_start`
+  // hands the URL to a child of this bench and returns at once, and the body and the status are
+  // read when that child is done. The child is `curl` and not the board: what the kernel measures
+  // is still the queue, the deadline and the codes (docs/85).
   uint32_t http_get_start(const char* url, const HttpOpts& opts) override {
     if (emu::options().wifi_absent || url == nullptr || url[0] == '\0') return 0;
-    if (opts.max_bytes == 0 || strlen(url) >= sizeof(http_url_)) return 0;
+    if (opts.max_bytes == 0 && opts.sink == nullptr) return 0;
+    if (strlen(url) >= sizeof(http_url_)) return 0;
     if (http_op_ != 0) return 0;
     snprintf(http_url_, sizeof(http_url_), "%s", url);
     http_max_bytes_ = opts.max_bytes;
+    http_sink_ = opts.sink;
+    http_sink_path_[0] = '\0';
+    if (opts.sink != nullptr && opts.sink_path != nullptr) {
+      snprintf(http_sink_path_, sizeof(http_sink_path_), "%s", opts.sink_path);
+    }
+    if (http_sink_ != nullptr && http_sink_path_[0] == '\0') return 0;
     http_started_ms_ = mono_ms();
+    http_real_ = !emu::options().http_fake;
+    if (http_real_) {
+      // **An address the board's client does not speak is a request that fails and not a request
+      // that is never made**: `esp_http_client` opens and comes back with an error, so this does
+      // too — `E_HTTP` and not a radio that refuses the task (docs/85).
+      http_bad_scheme_ = !web_url(url);
+      if (!http_bad_scheme_ && !real_start(url, opts)) {
+        http_real_ = false;
+        return 0;
+      }
+    }
     http_op_ = 1;
     return http_op_;
   }
 
   bool http_poll(uint32_t op, bool& done, HttpResult& out) override {
     if (op == 0 || op != http_op_) return false;
+    if (http_real_) return real_poll(done, out);
     if (mono_ms() - http_started_ms_ < emu::options().http_ms) return true;
     done = true;
     if (emu::options().http_fail) {
@@ -613,19 +730,33 @@ class FakeNet : public INet {
       body = text;
     }
     const size_t len = strlen(body);
-    if (len > http_max_bytes_) {
-      out.error = HttpError::kTooBig;
+    // **A page that does not fit goes to the volume the kernel picked**: the whole body, from its
+    // first byte, which is what makes the file worth opening afterwards (docs/30, docs/85).
+    if (http_sink_ != nullptr && (http_max_bytes_ == 0 || len > http_max_bytes_)) {
+      out.status = emu::options().http_status;
+      if (!sink_write(body, static_cast<uint32_t>(len))) {
+        out.error = HttpError::kStorage;
+        return true;
+      }
+      out.saved = true;
+      out.body_len = static_cast<uint32_t>(len);
       return true;
     }
-    http_body_ = static_cast<char*>(malloc(len + 1));
+    // **A page that goes on and has no file to go to is kept up to the last byte that fits**, which is
+    // what the board does with the same buffer (`http_fetch` in lib/hal_esp32/src/net.cpp): the caller
+    // gets the status, the beginning of the page and `kTooBig`, and not an empty answer (docs/30).
+    const size_t keep = (len > http_max_bytes_) ? http_max_bytes_ : len;
+    http_body_ = static_cast<char*>(malloc(keep + 1));
     if (http_body_ == nullptr) {
       out.error = HttpError::kNoMemory;
       return true;
     }
-    memcpy(http_body_, body, len + 1);
+    memcpy(http_body_, body, keep);
+    http_body_[keep] = '\0';
     out.status = emu::options().http_status;
     out.body = http_body_;
-    out.body_len = static_cast<uint32_t>(len);
+    out.body_len = static_cast<uint32_t>(keep);
+    if (len > http_max_bytes_) out.error = HttpError::kTooBig;
     return true;
   }
 
@@ -633,10 +764,331 @@ class FakeNet : public INet {
     if (op == 0 || op != http_op_) return;
     free(http_body_);
     http_body_ = nullptr;
+    // **The kernel gave up on this page, or the run is over**: the download is the bench's and it
+    // stops with the answer, or a `curl` nobody reads would go on writing a file. SIGTERM first and
+    // SIGKILL if the tool is stuck, because a turn of the bench never waits on a dead page (docs/85).
+    if (http_pid_ > 0) {
+      kill(http_pid_, SIGTERM);
+      int status = 0;
+      for (int tries = 0; tries < 20; ++tries) {
+        if (waitpid(http_pid_, &status, WNOHANG) != 0) {
+          http_pid_ = -1;  // reaped, or gone without a word: either way there is nobody to wait for
+          break;
+        }
+        usleep(10000);
+      }
+      if (http_pid_ > 0) {
+        kill(http_pid_, SIGKILL);
+        while (waitpid(http_pid_, &status, 0) < 0 && errno == EINTR) {
+        }
+        http_pid_ = -1;
+      }
+    }
+    if (http_body_path_[0] != '\0') unlink(http_body_path_);
+    if (http_meta_path_[0] != '\0') unlink(http_meta_path_);
+    http_body_path_[0] = '\0';
+    http_meta_path_[0] = '\0';
+    http_real_ = false;
+    http_bad_scheme_ = false;
+    http_sink_ = nullptr;
+    http_sink_path_[0] = '\0';
     http_op_ = 0;
   }
 
  private:
+  // **The page is bigger than any page a board carries**: the file `curl` writes is capped so a
+  // link to a film does not fill this machine's temporary directory, and the bytes the caller asked
+  // for are the ones that are read out of it. **A page that goes to a volume is bounded by the volume**
+  // and not by a number of this file: the board refuses it when it does not fit where it was going, and
+  // the bench asks the unit how much room it has —with a gigabyte as a lid, because a filesystem reports
+  // its free space in blocks and a link to a film is not a page (docs/85).
+  static const unsigned kRealBodyCeiling = 4u << 20;
+  static const unsigned long long kRealFileCeiling = 1ull << 30;
+  // What `curl` exits with when it is not on this machine at all.
+  static const int kCurlMissing = 127;
+
+  // The temporary file of one download, made by `mkstemp` so two benches do not share a name.
+  static bool make_temp(char* path, size_t cap) {
+    const char* dir = getenv("TMPDIR");
+    if (dir == nullptr || dir[0] == '\0') dir = "/tmp";
+    const int written = snprintf(path, cap, "%s/lunok-http-XXXXXX", dir);
+    if (written <= 0 || static_cast<size_t>(written) >= cap) {
+      path[0] = '\0';
+      return false;
+    }
+    const int fd = mkstemp(path);
+    if (fd < 0) {
+      path[0] = '\0';
+      return false;
+    }
+    close(fd);
+    return true;
+  }
+
+  // **The request is a process of this machine's and the board waits for it in its own time**:
+  // `curl` writes the body to one file and the status code to another, so nothing of the download
+  // has to fit in this process and the poll is a `waitpid` (docs/85).
+  bool real_start(const char* url, const HttpOpts& opts) {
+    if (!make_temp(http_body_path_, sizeof(http_body_path_))) return false;
+    if (!make_temp(http_meta_path_, sizeof(http_meta_path_))) {
+      unlink(http_body_path_);
+      http_body_path_[0] = '\0';
+      return false;
+    }
+    char seconds[16];
+    snprintf(seconds, sizeof(seconds), "%u", static_cast<unsigned>((opts.timeout_ms + 999) / 1000));
+    unsigned long long limit = kRealBodyCeiling;
+    if (opts.sink != nullptr) {
+      uint64_t total = 0;
+      uint64_t free_bytes = 0;
+      limit = (opts.sink->space(total, free_bytes) && free_bytes > 0) ? free_bytes : kRealFileCeiling;
+      if (limit > kRealFileCeiling) limit = kRealFileCeiling;
+    }
+    char ceiling[24];
+    snprintf(ceiling, sizeof(ceiling), "%llu", limit);
+    const int meta_fd = open(http_meta_path_, O_WRONLY | O_TRUNC);
+    const int null_fd = open("/dev/null", O_WRONLY);
+    if (meta_fd < 0 || null_fd < 0) {
+      if (meta_fd >= 0) close(meta_fd);
+      if (null_fd >= 0) close(null_fd);
+      unlink(http_body_path_);
+      unlink(http_meta_path_);
+      http_body_path_[0] = '\0';
+      http_meta_path_[0] = '\0';
+      return false;
+    }
+    const pid_t pid = fork();
+    if (pid < 0) {
+      close(meta_fd);
+      close(null_fd);
+      unlink(http_body_path_);
+      unlink(http_meta_path_);
+      http_body_path_[0] = '\0';
+      http_meta_path_[0] = '\0';
+      return false;
+    }
+    if (pid == 0) {
+      // Between `fork` and `exec` only what a signal handler may call: no allocation, no stdio.
+      // `-q` is the first argument so a `~/.curlrc` of this machine cannot change the answer.
+      dup2(meta_fd, STDOUT_FILENO);
+      dup2(null_fd, STDERR_FILENO);
+      close(meta_fd);
+      close(null_fd);
+      // **The address goes in through `--url`**, so a string that begins with a dash is a page and
+      // not an option of the tool (docs/85).
+      execlp("curl", "curl", "-q", "-sS", "-L", "--globoff", "--max-redirs", "10", "--max-time",
+             seconds, "--max-filesize", ceiling, "-o", http_body_path_, "-w", "%{http_code}",
+             "--url", url, static_cast<char*>(nullptr));
+      _exit(kCurlMissing);
+    }
+    close(meta_fd);
+    close(null_fd);
+    http_pid_ = pid;
+    return true;
+  }
+
+  // The cause, said as the board says it and not as `curl` says it (docs/30): a certificate that is
+  // not under the roots of this machine is `kTls`, a server that is not there is `kConnect`, and a page
+  // that went past the room is `kTooBig` when it was to be held in memory and `kStorage` when it was
+  // going to a volume — the board says the same two things (docs/30, docs/85).
+  static HttpError curl_cause(int status, bool to_file) {
+    if (!WIFEXITED(status)) return HttpError::kConnect;
+    switch (WEXITSTATUS(status)) {
+      case 35: case 51: case 53: case 54: case 58: case 59: case 60: case 64: case 66: case 77:
+      case 80: case 82: case 83: case 90: case 91:
+        return HttpError::kTls;
+      case 63:
+        return to_file ? HttpError::kStorage : HttpError::kTooBig;
+      default:
+        return HttpError::kConnect;
+    }
+  }
+
+  // The status code `curl` was told to leave in its `-w`: zero when the child never got one.
+  static int read_code(const char* path) {
+    FILE* file = fopen(path, "r");
+    if (file == nullptr) return 0;
+    char text[16] = {0};
+    const size_t got = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[got] = '\0';
+    return atoi(text);
+  }
+
+  // http and https are what the board's client speaks, and `curl` would happily read a file of this
+  // machine: the scheme is what is asked, and the tool is never given a URL that is not a page.
+  static bool web_url(const char* url) {
+    return strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0;
+  }
+
+  bool real_poll(bool& done, HttpResult& out) {
+    if (http_bad_scheme_) {
+      http_bad_scheme_ = false;
+      done = true;
+      out.error = HttpError::kConnect;
+      return true;
+    }
+    int status = 0;
+    pid_t got = 0;
+    do {
+      got = waitpid(http_pid_, &status, WNOHANG);
+    } while (got < 0 && errno == EINTR);
+    if (got == 0) return true;  // still on the wire
+    http_pid_ = -1;
+    done = true;
+    if (got < 0) {
+      out.error = HttpError::kConnect;
+      return true;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      out.error = curl_cause(status, http_sink_ != nullptr);
+      if (out.error == HttpError::kTooBig) {
+        // The page went past the ceiling, so there is no first part to give: the bytes above the
+        // ceiling were never written anywhere (docs/85).
+        out.status = read_code(http_meta_path_);
+      } else if (WIFEXITED(status) && WEXITSTATUS(status) == kCurlMissing) {
+        warn_missing_curl();
+      }
+      return true;
+    }
+    const int code = read_code(http_meta_path_);
+    if (code < 100) {
+      out.error = HttpError::kConnect;
+      return true;
+    }
+    out.status = code;
+    FILE* file = fopen(http_body_path_, "rb");
+    if (file == nullptr) {
+      out.error = HttpError::kConnect;
+      return true;
+    }
+    fseek(file, 0, SEEK_END);
+    const long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    const uint32_t total = (size > 0) ? static_cast<uint32_t>(size) : 0;
+    // **The page goes to the volume when it does not fit, and not a byte of it stays here**: the file
+    // the caller will open has to have the page from its first byte, or it is a file nobody asked for
+    // (docs/30, docs/85).
+    if (http_sink_ != nullptr && (http_max_bytes_ == 0 || total > http_max_bytes_)) {
+      fclose(file);
+      uint32_t written = 0;
+      if (!sink_copy(http_body_path_, written)) {
+        out.error = HttpError::kStorage;
+        return true;
+      }
+      out.saved = true;
+      out.body_len = written;
+      return true;
+    }
+    const bool too_big = total > http_max_bytes_;
+    const uint32_t keep = too_big ? http_max_bytes_ : total;
+    char* body = static_cast<char*>(malloc(keep + 1));
+    if (body == nullptr) {
+      fclose(file);
+      out.error = HttpError::kNoMemory;
+      return true;
+    }
+    const size_t read = (keep > 0) ? fread(body, 1, keep, file) : 0;
+    fclose(file);
+    body[read] = '\0';
+    http_body_ = body;
+    out.body = body;
+    out.body_len = static_cast<uint32_t>(read);
+    if (too_big) out.error = HttpError::kTooBig;
+    return true;
+  }
+
+  // **The page goes whole into the volume the kernel resolved**: one open, chunks of four kilobytes —
+  // the write that the volume's timing is charged for — and a close that says whether it all went in.
+  // A write that fails removes the file, because half a page is a lie about what the server sent
+  // (docs/30, docs/75).
+  bool sink_write(const char* data, uint32_t len) {
+    hal::FileSlot slot;
+    if (!http_sink_->open(http_sink_path_, hal::OpenMode::kWrite, slot)) return false;
+    const int32_t wrote = (len > 0) ? http_sink_->write(slot, data, len) : 0;
+    const bool closed = http_sink_->close(slot);
+    const bool whole = (len == 0) || (wrote == static_cast<int32_t>(len));
+    if (!closed || !whole) {
+      http_sink_->remove(http_sink_path_);
+      return false;
+    }
+    return true;
+  }
+
+  bool sink_copy(const char* path, uint32_t& written) {
+    FILE* file = fopen(path, "rb");
+    if (file == nullptr) return false;
+    hal::FileSlot slot;
+    if (!http_sink_->open(http_sink_path_, hal::OpenMode::kWrite, slot)) {
+      fclose(file);
+      return false;
+    }
+    bool ok = true;
+    written = 0;
+    size_t got = 0;
+    while ((got = fread(http_chunk_, 1, sizeof(http_chunk_), file)) > 0) {
+      if (http_sink_->write(slot, http_chunk_, static_cast<uint32_t>(got)) !=
+          static_cast<int32_t>(got)) {
+        ok = false;
+        break;
+      }
+      written += static_cast<uint32_t>(got);
+    }
+    if (ferror(file)) ok = false;
+    fclose(file);
+    if (!http_sink_->close(slot)) ok = false;
+    if (!ok) {
+      http_sink_->remove(http_sink_path_);
+      written = 0;
+    }
+    return ok;
+  }
+
+  static void warn_missing_curl() {
+    static bool said = false;
+    if (said) return;
+    said = true;
+    fprintf(stderr,
+            "lunokOS emulator: `http` needs `curl` on this machine and it was not found: install it, "
+            "or pass --http-fake for the canned page\n");
+  }
+  // **The name is the system's record and the pair is the driver's**, exactly as on the glass: the
+  // system trusts `lunoknet/ssid` and the password lives in the blob of the driver, which on the board
+  // is another namespace of the same flash (docs/50, docs/70, docs/85).
+  static const char* wifi_namespace() { return "lunoknet"; }
+  static const char* wifi_ssid_key() { return "ssid"; }
+  static const char* driver_namespace() { return "wifidrv"; }
+  static const char* driver_pass_key() { return "pass"; }
+
+  void remember() {
+    hal::IKeyValue* kv = hal::emu_nvs();
+    if (kv == nullptr) return;
+    kv->set(wifi_namespace(), wifi_ssid_key(), stored_ssid_, strlen(stored_ssid_));
+    kv->set(driver_namespace(), driver_pass_key(), stored_pass_, strlen(stored_pass_));
+  }
+
+  // The pair the run before left, or false when the store has no name in it. A password that is not
+  // there is an open network, which is a pair with one half and not an error.
+  bool recall() {
+    hal::IKeyValue* kv = hal::emu_nvs();
+    if (kv == nullptr) return false;
+    size_t len = 0;
+    char ssid[sizeof(stored_ssid_)] = {0};
+    if (!kv->get(wifi_namespace(), wifi_ssid_key(), ssid, sizeof(ssid) - 1, len) || len == 0) {
+      return false;
+    }
+    ssid[len] = '\0';
+    size_t pass_len = 0;
+    char pass[sizeof(stored_pass_)] = {0};
+    if (kv->get(driver_namespace(), driver_pass_key(), pass, sizeof(pass) - 1, pass_len)) {
+      pass[pass_len] = '\0';
+    }
+    snprintf(stored_ssid_, sizeof(stored_ssid_), "%s", ssid);
+    snprintf(stored_pass_, sizeof(stored_pass_), "%s", pass);
+    provisioned_ = true;
+    return true;
+  }
+
   NetState state_ = NetState::kOff;
   int64_t started_ms_ = 0;
   bool scanning_ = false;
@@ -653,6 +1105,17 @@ class FakeNet : public INet {
   uint32_t http_max_bytes_ = 0;
   char http_url_[192];
   char* http_body_ = nullptr;
+  // The real fetch: the child of this bench that is asking for the page, and the two files it
+  // leaves behind (docs/85).
+  bool http_real_ = false;
+  bool http_bad_scheme_ = false;
+  // Where a page that does not fit goes, and the chunk the copy goes through (docs/30, docs/85).
+  hal::IStorage* http_sink_ = nullptr;
+  char http_sink_path_[160] = {0};
+  char http_chunk_[4096] = {0};
+  pid_t http_pid_ = -1;
+  char http_body_path_[256] = {0};
+  char http_meta_path_[256] = {0};
 };
 
 class EmulatorPlatform : public IPlatform {
@@ -733,14 +1196,19 @@ class EmulatorPlatform : public IPlatform {
 
   // Built on first use: the options that say which clock it is (`--now`,
   // `--time-scale`) are set by main() after this object exists.
-  // What the model's board carries as extra memory. The bench **cannot account for it** —nothing is
-  // really taken from a PSRAM on a PC, the blocks come from the process's heap— so free is the total
-  // and the number is the board's, not the PC's (docs/85).
+  // What the model's board carries as extra memory, and **what is left of it**: the blocks come from
+  // the PC's heap, but their books are the board's —the ceilings the run set from the model— so `mem`
+  // and `sys.heap()` say what the glass would say and a block that does not fit is refused (docs/75,
+  // docs/85). A run with no ceilings counts nothing and answers the total, which is what it did before
+  // the books existed.
   ExtraMemory extra_memory() const override {
     ExtraMemory out;
     out.chip_bytes = emu::model().psram_chip_kb * 1024u;
     out.total_bytes = emu::model().psram_kb * 1024u;
-    out.free_bytes = out.total_bytes;
+    const pal::MemoryLeft left = pal::memory_left(true);
+    const uint32_t counted = static_cast<uint32_t>(left.free_bytes);
+    out.free_bytes = left.counted ? ((counted > out.total_bytes) ? out.total_bytes : counted)
+                                  : out.total_bytes;
     return out;
   }
 
@@ -749,7 +1217,7 @@ class EmulatorPlatform : public IPlatform {
   IKeyValue* nvs() override { return emu_nvs(); }
   INet* net() override {
     if (emu::options().wifi_absent) return nullptr;
-    static FakeNet instance;
+    static HostNet instance;
     return &instance;
   }
   IPower* power() override {

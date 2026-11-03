@@ -31,6 +31,14 @@ struct InkMode {
   // **Whether the glass blinks before it settles** —the page goes white and then black before the image
   // arrives—, which is what `a2` is for and the reason it is only used for a clock (docs/50, docs/85).
   bool flashes;
+  // **The blinks, in order**: the level the whole region goes to before the image. A `gc16` blinks black
+  // and white twice —which is why it cleans—, a `gl16` once, and an `a2` goes white and then black. A mode
+  // with no blink (`du`, `du4`, `glr16`, `gld16`) has none (docs/85).
+  uint8_t phases;
+  uint8_t levels[6];
+  // **How many visible steps the image takes to arrive** after the last blink: the glass is not a switch,
+  // and a person looking at the region sees it land instead of jumping (docs/85).
+  uint8_t settle_steps;
 };
 
 InkMode ink_mode(hal::UpdateMode mode);

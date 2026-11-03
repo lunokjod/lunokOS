@@ -626,6 +626,70 @@ void test_read_line_gets_the_line_that_is_typed(void) {
   luabind::stop();
 }
 
+// **A key is a byte and not a line** (0.65.0): in raw mode the console hands the app the keys as they
+// arrive —the arrows whole, the control characters whole, nothing echoed— which is what an editor
+// needs and what a prompt must never get (docs/30).
+void test_raw_mode_hands_the_keys_to_the_app(void) {
+  static const char kSource[] =
+      "assert(console.raw(true) == true)\n"
+      "local seen = {}\n"
+      "for i = 1, 6 do seen[i] = console.read_byte():await() end\n"
+      "assert(seen[1] == 27 and seen[2] == 91 and seen[3] == 66, table.concat(seen, ','))\n"
+      "assert(seen[4] == 13, 'enter is a carriage return in raw mode: ' .. tostring(seen[4]))\n"
+      "assert(seen[5] == 3, 'a control character is a key: ' .. tostring(seen[5]))\n"
+      "assert(seen[6] == 113, 'and a letter is its own byte')\n"
+      "assert(console.raw(false) == false)";
+  pal::init();
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(luabind::run_source("test", kSource, sizeof(kSource) - 1));
+  TEST_ASSERT_TRUE(luabind::poll());  // it is waiting for the first key
+  // **An arrow arrives as three bytes and it is one key**: they are handed over one by one, whole.
+  luabind::feed_console("\x1b[B", 3);
+  luabind::feed_console("\r\x03q", 3);
+  TEST_ASSERT_TRUE(pump());
+  TEST_ASSERT_FALSE(luabind::failed());
+  luabind::stop();
+}
+
+// Nothing is echoed in raw mode: the console is the app's canvas and the app decides what a key does.
+void test_raw_mode_does_not_echo_and_keeps_the_keys_it_arrived_with(void) {
+  static const char kSource[] =
+      "console.raw(true)\n"
+      "local a = console.read_byte():await()\n"
+      "local b = console.read_byte():await()\n"
+      "assert(a == 0x7f and b == 0x08, tostring(a) .. ',' .. tostring(b))";
+  pal::init();
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(luabind::run_source("test", kSource, sizeof(kSource) - 1));
+  TEST_ASSERT_TRUE(luabind::poll());
+  // The backspace of a terminal is two bytes and neither of them is editing anything here.
+  luabind::feed_console("\x7f\x08", 2);
+  TEST_ASSERT_TRUE(pump());
+  TEST_ASSERT_FALSE(luabind::failed());
+  luabind::stop();
+}
+
+// **A key that arrives before the read is not lost** (0.65.0): the console takes two bytes in one
+// chunk and the app reads two keys, the second with no wait at all —which is what makes typing faster
+// than the turn loop (docs/75).
+void test_a_key_that_arrives_before_the_read_waits_for_it(void) {
+  static const char kSource[] =
+      "console.raw(true)\n"
+      "local a = console.read_byte():await()\n"
+      "local b = console.read_byte():await()\n"
+      "assert(a == 97 and b == 98, tostring(a) .. ',' .. tostring(b))";
+  pal::init();
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(luabind::run_source("test", kSource, sizeof(kSource) - 1));
+  TEST_ASSERT_TRUE(luabind::poll());  // it is raw and waiting for the first key
+  // **Both keys arrive in one chunk and one read is waiting**: the second is not lost, it waits in the
+  // queue for the read that comes next.
+  luabind::feed_console("ab", 2);
+  TEST_ASSERT_TRUE(pump());
+  TEST_ASSERT_FALSE(luabind::failed());
+  luabind::stop();
+}
+
 // Two reads at once would not know which line is whose.
 void test_two_reads_at_once_is_ebusy(void) {
   pal::init();
@@ -858,6 +922,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_app_sees_the_board_the_platform_says);
   RUN_TEST(test_read_line_gets_the_line_that_is_typed);
   RUN_TEST(test_two_reads_at_once_is_ebusy);
+  RUN_TEST(test_raw_mode_hands_the_keys_to_the_app);
+  RUN_TEST(test_raw_mode_does_not_echo_and_keeps_the_keys_it_arrived_with);
+  RUN_TEST(test_a_key_that_arrives_before_the_read_waits_for_it);
   RUN_TEST(test_three_escapes_ask_to_leave);
   RUN_TEST(test_escape_sequences_are_not_a_request_to_leave);
   RUN_TEST(test_bang_bang_exit);

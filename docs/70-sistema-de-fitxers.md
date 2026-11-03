@@ -32,9 +32,9 @@ un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb dos err
 |---|---|---|
 | `/littlefs` | partició de dades de la flash | `apps/`, `res/`, `cfg/`, `data/` |
 | `/nvs` | emmagatzematge clau-valor | claus exposades com a fitxers |
-| `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump` l'ensenya en hex i en visible, que és el que cal per a un binari. Per escriure-hi cal un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té |
+| `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump` l'ensenya en hex i en visible, que és el que cal per a un binari. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1: una escriptura atòmica necessita un reanomenament que una memòria no té, i el que fa és escriure al lloc —els bytes al començament i la resta a zero— |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
-| `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. Per escriure-hi, un mànec (`fs.open`) i no `fs.write`, que és atòmic i necessita un reanomenament que una memòria no té. `hexdump /fram` l'ensenya |
+| `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
 | `/apps` | àlies | `/littlefs/apps` |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
@@ -65,9 +65,14 @@ L'emmagatzematge clau-valor té espais de noms i claus. S'exposa com un arbre de
 
 ```
 /nvs/lunoknet/ssid          → la xarxa que el sistema ha desat
+/nvs/wifidrv/pass           → la contrasenya, que a la placa és dins del blob del driver
 /nvs/session/app            → l'app que hi havia al davant quan es va dormir
 /nvs/alarms/queue           → la cua d'alarmes persistents, una època per línia
 ```
+
+**A l'emulador aquestes claus són fitxers de `<state>/nvs` i sobreviuen entre execucions**, que és el
+que fa la flash de la placa: `wifi` després de tornar a arrencar diu el mateix nom i `wifi forget`
+esborra el nom (docs/85).
 
 | Operació de fitxer | Què fa a NVS |
 |---|---|
@@ -183,6 +188,7 @@ Regles:
 | `f:read("*a")` | fins al final del fitxer; el límit és la memòria de l'intèrpret |
 | `fs.read(path[, max])` | el fitxer sencer, o com a molt `max` bytes si l'app en posa |
 | `http.get(url, max_bytes)` | `max_bytes`; si la pàgina és més llarga, `E_TOOBIG` i no arriba res tallat (docs/30) |
+| `http.download(url, path)` | **cap**: la pàgina va sencera al fitxer, i és el disc el que diu si hi cap (docs/30) |
 
 **Els sostres de lectura són de l'app, no del sistema.** Fins al 31/10 hi havia un 4 096 B dur que
 responia `E_TOOBIG` sense llegir res (i `*l` tallava les línies a 256 B en silenci): era la finestra
@@ -220,11 +226,19 @@ respon `E_INVAL`, perquè l'app ha de saber que ha demanat una cosa que no és s
 | `/sd/` | sí | no |
 | `/littlefs/`, `/nvs/` — les unitats del sistema | **no** | no |
 | `/data/<altra>/` | no | no |
+| **el camí que el prompt li ha nomenat** (0.65.0) | **sí** | **sí** |
 
 **El `/rtc` no és una unitat del sistema com `/littlefs` o `/nvs`**, i per això hi entra una app: és
 memòria sense mapa ni claus, i el format el posa l'app que hi escriu (docs/50). Es llegeix amb
-`cat /rtc` des del prompt i amb `fs.read`/`fs.open` des d'una app, i per escriure-hi cal un mànec,
-des d'un prompt de `lua` o des d'una app. Per mirar-la, `cat /rtc` si és text i `hexdump` si és
+`cat /rtc` des del prompt i amb `fs.read`/`fs.open` des d'una app, i per escriure-hi hi ha el mànec
+(`fs.open` + `write`) o `fs.write` **des de la 0.65.1**.
+
+**`fs.write` sobre una memòria crua va al lloc i no a un temporal** (0.65.1): `/rtc` i `/fram` són *un*
+fitxer cadascun i no hi ha `/fram/x.tmp` on escriure per després reanomenar, o sigui que el camí del mig
+donava `E_NOENT` —el `no such file or directory` que veia `run hexedit /fram` en desar (4/11). El que fa ara
+és escriure els bytes al començament i **posar la resta de la memòria a zero**, perquè el que s'ha escrit és
+el que s'ha de poder tornar a llegir; i una escriptura que no hi cap sencera és `E_NOSPC` i deixa la memòria
+com era, que mitja memòria canviada no es pot desfer. Per mirar-la, `cat /rtc` si és text i `hexdump` si és
 binari: ensenya l'offset, setze bytes en hex i els mateixos setze entre barres, amb un punt allà on el
 caràcter no es pot imprimir.
 
@@ -256,8 +270,30 @@ Tres coses que això compra:
   d'un disc a un altre sense canviar-ne el codi.
 
 I el que **no** pot: **escriure-hi**. El que una app porta és el que és; el que canvia es desa a
-`/cfg/` o a `/data/<id>/`, i `fs.write('/res/x', …)` respon `E_INVAL`. El disc d'on llegeix l'app és
+`/cfg/` o a `/data/<id>/`, i `fs.write('/res/x', …)` respon `E_INVAL`. **Una baixada és una escriptura i
+segueix aquesta mateixa taula**: `http.download(url, '/data/<id>/x')` hi escriu i `http.download(url,
+'/sd/x')` respon `E_INVAL`, perquè una targeta és de la persona i no de l'app (docs/30). El disc d'on llegeix l'app és
 de només llegir per a ella (`/apps` és `ro`), i el rewrite no ho canvia: només hi afegeix l'id.
+
+**El camí que la persona nomena** (0.65.0). `run edit /littlefs/notes.txt` és una app i un fitxer, i aquell
+fitxer és de la persona: l'app el pot **llegir i escriure mentres viu**, i res més del disc de la persona. No
+és una porta oberta —`fs.write('/littlefs/altre.txt')` des de la mateixa app segueix dient `E_INVAL`— sinó
+l'autoritat del prompt sobre el que la persona ha escrit a la comanda. És el que fa que un editor desi on li
+han dit, i el que fa que una app que obre un fitxer d'un altre lloc no el pugui canviar sense que el prompt
+l'hi hagi donat (docs/30). La paraula del prompt viu en una pila que desapareix quan la comanda acaba, o
+sigui que el nucli se'n guarda una **còpia** (`luabind::app_path`).
+
+**Les imatges d'una app viuen aquí i es llegeixen amb `ui.image`** (0.63.0, docs/30): el camí és el de
+l'app (`/res/plan.png`), el sistema l'obre amb la mateixa política que `fs.read` i el descodifica fila a fila
+dins del canvas. L'exemple `run images` porta **una imatge de cada família que el sistema llegeix** a
+`data/apps/images/res`, i cada una ensenya el que aquell format sap fer: `photo.jpg` (una fotografia),
+`poster.bmp` (tinta plana en 24 bits), `logo8.bmp` (vuit tintes en una paleta de 8), `cartoon.gif` (una
+paleta i una cantonada transparent), `icon.ico` (una icona amb alfa), `lines.png` (línies primes, que no les
+sua), `shades.pgm` i `colours.ppm` (dos degradats) i `checks.pbm` (un bit). El **mateix pla en sis formats**
+—el que demostra que els sis descodificadors donen els mateixos píxels— viu amb les proves, a
+`test/test_img/data/plan.*`, perquè una prova vol que siguin iguals i una pàgina vol que siguin diferents. Una
+imatge és un fitxer de fins a **2 MB** i el que el descodificador necessita a més a més —el que s'infla d'un
+PNG, la banda d'un JPEG— va i torna amb el dibuix: no queda res al heap (docs/75).
 
 I això té una conseqüència sobre `open`: **un fitxer que es passa a una app ha de ser un que l'app
 pugui llegir** —la targeta (`/sd/…`) o un lloc seu—. Els fitxers d'exemple del disc

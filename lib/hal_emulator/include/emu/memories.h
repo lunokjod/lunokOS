@@ -38,6 +38,14 @@ uint8_t* fram();
 // reads with a hex viewer to see what the board kept.
 void flush_memories();
 
+// **The hour the board keeps**, in milliseconds since the epoch, or 0 when the bench never knew one.
+// A board whose hour lives in a chip with a coin cell behind it comes back knowing the hour, and so
+// does a run that said `--persist` —which is a board that was not unplugged—, so the number lives
+// next to the memories as `<state_dir>/clock.bin` and not in the RTC RAM: the chip keeps it even when
+// the RAM of the chip is gone (docs/50, docs/60, docs/85).
+int64_t load_clock_ms();
+void save_clock_ms(int64_t ms);
+
 // What a power cycle does to the memories, following the hardware: the RTC RAM starts at zero again
 // unless the board keeps its hour in a chip with a battery behind it, and the FRAM is never wiped
 // because it is not volatile — it is exactly the memory that is not. A model with no FRAM gets no

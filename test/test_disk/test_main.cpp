@@ -13,6 +13,7 @@
 #include <unity.h>
 
 #include "emu/disk.h"
+#include "emu/memories.h"
 #include "emu/options.h"
 #include "hal/hal.h"
 #include "pal/pal.h"
@@ -62,6 +63,8 @@ static void test_the_table_says_what_each_device_costs() {
   TEST_ASSERT_EQUAL_UINT32(4096, flash.block_bytes);
   TEST_ASSERT_EQUAL_UINT32(819, flash.read_block_us);   // 4 KB at 40 MHz
   TEST_ASSERT_EQUAL_UINT32(45000, flash.erase_us);      // a sector, the maker's typical
+  TEST_ASSERT_EQUAL_UINT32(256, flash.write_unit_bytes);   // a page of the nor
+  TEST_ASSERT_EQUAL_UINT32(700, flash.write_unit_us);      // and 0.7 ms to programme it (W25Q32JV, tPP)
   const emu::DiskTiming card = emu::disk_timing(emu::Disk::kCard);
   TEST_ASSERT_EQUAL_UINT32(512, card.block_bytes);
   TEST_ASSERT_EQUAL_UINT32(410, card.read_block_us);    // 512 B at 10 MHz
@@ -140,6 +143,32 @@ static void test_the_fram_is_the_i2c_and_a_byte_is_ninety_microseconds() {
   TEST_ASSERT_TRUE_MESSAGE(spent >= 750, "eight bytes of the FRAM did not pay the bus");
 }
 
+// **The key-value store writes a page programme and not a sector**, which is what the NVS of the chip
+// does: a thirty-two-byte entry costs the 0.7 ms of a page programme and the 45 ms of the sector only
+// when the page fills, where littlefs pays a sector for every commit (docs/70, docs/85).
+static void test_a_key_of_the_store_pays_a_page_and_the_sector_once_in_a_while() {
+  boot_with_a_disk();
+  hal::IKeyValue* kv = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(kv);
+  pay_times(true);
+  const uint8_t value[4] = {1, 2, 3, 4};
+  const int64_t started = micros();
+  TEST_ASSERT_TRUE(kv->set("timing", "first", value, sizeof(value)));
+  const int64_t first = micros() - started;
+  TEST_ASSERT_TRUE_MESSAGE(first >= 600, "a key of the store did not pay its page programme");
+  TEST_ASSERT_TRUE_MESSAGE(first < 40000, "a key of the store paid a sector it did not need");
+  // A page of the store is 126 entries: a run of them pays the page programmes and the sector when it
+  // turns over, and not a sector per key.
+  const int64_t before = micros();
+  for (int i = 0; i < 127; ++i) {
+    TEST_ASSERT_TRUE(kv->set("timing", "entry", value, sizeof(value)));
+  }
+  const int64_t total = micros() - before;
+  TEST_ASSERT_TRUE_MESSAGE(total >= 44000, "the page turned over and nothing was erased");
+  TEST_ASSERT_TRUE_MESSAGE(total <= 200000, "every key of the store paid a sector");
+  pay_times(false);
+}
+
 // **And the switch that turns all of it off**: with the waits off the same write of a block of flash is
 // the model and no clock, which is what every suite but this one runs with (docs/85).
 static void test_with_the_waits_off_the_disk_is_free() {
@@ -159,6 +188,84 @@ static void test_with_the_waits_off_the_disk_is_free() {
   TEST_ASSERT_TRUE_MESSAGE(spent < 5000, "a write with the waits off asked the clock for a sector");
 }
 
+// **What a board keeps, and what a run that starts again finds** (docs/60, docs/70, docs/85). The bench
+// keeps the two things the hardware keeps outside a volume: the hour a chip with a coin cell holds and
+// the key-value store of the network. These tests are the two files, one run apart.
+//
+// The store is read here **before anything of this suite has touched the radio**, which is exactly the
+// state of a bench that has just started: the name comes from the flash and not from a string of the
+// run.
+static void test_the_network_in_the_store_is_what_a_new_run_answers() {
+  boot_with_a_disk();
+  hal::IKeyValue* kv = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(kv);
+  TEST_ASSERT_TRUE(kv->set("lunoknet", "ssid", "mynet", 5));
+  TEST_ASSERT_TRUE(kv->set("wifidrv", "pass", "secret", 6));
+  hal::INet* net = hal::platform().net();
+  TEST_ASSERT_NOT_NULL(net);
+  char ssid[33] = {0};
+  TEST_ASSERT_TRUE_MESSAGE(net->wifi_stored_ssid(ssid, sizeof(ssid)), "the store has a name in it");
+  TEST_ASSERT_EQUAL_STRING("mynet", ssid);
+  TEST_ASSERT_TRUE(net->wifi_start_stored());
+}
+
+// **What the run stores goes to the flash and not to a string**: `wifi add` is a promise that the next
+// run can keep, and on the board the driver writes the pair to the key-value store (docs/50, docs/85).
+static void test_a_network_that_is_stored_is_written_to_the_key_value_store() {
+  boot_with_a_disk();
+  hal::IKeyValue* kv = hal::platform().nvs();
+  hal::INet* net = hal::platform().net();
+  TEST_ASSERT_NOT_NULL(kv);
+  TEST_ASSERT_NOT_NULL(net);
+  TEST_ASSERT_TRUE(net->wifi_store("other", "pw"));
+  char got[16] = {0};
+  size_t len = 0;
+  TEST_ASSERT_TRUE(kv->get("lunoknet", "ssid", got, sizeof(got) - 1, len));
+  got[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING("other", got);
+  memset(got, 0, sizeof(got));
+  TEST_ASSERT_TRUE(kv->get("wifidrv", "pass", got, sizeof(got) - 1, len));
+  got[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING("pw", got);
+}
+
+// **Forgetting is forgetting on the flash, and the name is what is trusted** (docs/50, docs/85): the
+// system erases its own record —the same `own_record_erase()` the board calls— and the driver keeps its
+// blob, which without a name is a password nobody can use. What matters is that the next run answers
+// `network: none`, and it does.
+static void test_forgetting_a_network_erases_the_name_it_trusts() {
+  boot_with_a_disk();
+  hal::IKeyValue* kv = hal::platform().nvs();
+  hal::INet* net = hal::platform().net();
+  TEST_ASSERT_NOT_NULL(kv);
+  TEST_ASSERT_NOT_NULL(net);
+  TEST_ASSERT_TRUE(net->prov_forget());
+  size_t len = 0;
+  char got[16] = {0};
+  TEST_ASSERT_FALSE(kv->get("lunoknet", "ssid", got, sizeof(got), len));
+  char ssid[33] = {0};
+  TEST_ASSERT_FALSE(net->wifi_stored_ssid(ssid, sizeof(ssid)));
+}
+
+// **The hour is a file and it counts the time the board was unplugged**: the run writes the epoch and
+// the second it was written, so the next run's hour is the one of the clock with the off-time added in,
+// which is what a coin cell does. A state directory that never had one is a board nobody has set.
+static void test_the_hour_a_board_keeps_survives_a_run() {
+  boot_with_a_disk();
+  char path[192];
+  snprintf(path, sizeof(path), "%s/clock.bin", kRoot);
+  ::remove(path);
+  TEST_ASSERT_TRUE(emu::load_clock_ms() == 0);
+  const int64_t saved = 1700000000000LL;
+  emu::save_clock_ms(saved);
+  const int64_t back = emu::load_clock_ms();
+  TEST_ASSERT_TRUE_MESSAGE(back >= saved, "the hour went backwards");
+  TEST_ASSERT_TRUE_MESSAGE(back < saved + 5000, "the hour jumped past the test's own run");
+  // A zero is not an hour: it is a board that never knew one, and it is not written.
+  emu::save_clock_ms(0);
+  TEST_ASSERT_TRUE(emu::load_clock_ms() >= saved);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -168,5 +275,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_flash_write_pays_the_sector_it_takes);
   RUN_TEST(test_the_fram_is_the_i2c_and_a_byte_is_ninety_microseconds);
   RUN_TEST(test_with_the_waits_off_the_disk_is_free);
+  RUN_TEST(test_a_key_of_the_store_pays_a_page_and_the_sector_once_in_a_while);
+  RUN_TEST(test_the_network_in_the_store_is_what_a_new_run_answers);
+  RUN_TEST(test_a_network_that_is_stored_is_written_to_the_key_value_store);
+  RUN_TEST(test_forgetting_a_network_erases_the_name_it_trusts);
+  RUN_TEST(test_the_hour_a_board_keeps_survives_a_run);
   return UNITY_END();
 }

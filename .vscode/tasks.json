@@ -34,7 +34,7 @@
     },
     {
       "label": "lunokOS: seed emulator disk",
-      "detail": "Copies data/apps into emulator/littlefs so the emulator sees the same apps as the flash image.",
+      "detail": "Copies data/apps into emulator/littlefs. Only for a run of a private disk (--flash emulator/littlefs): with no --flash the emulator reads data/ itself.",
       "type": "shell",
       "command": "mkdir -p \"${workspaceFolder}/emulator/littlefs\" && cp -r \"${workspaceFolder}/data/apps\" \"${workspaceFolder}/emulator/littlefs/\"",
       "problemMatcher": []
