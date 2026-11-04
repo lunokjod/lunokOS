@@ -252,12 +252,13 @@ bool boot_once() {
   emu::set_options(opts);
 
   if (!pal::init()) return false;
-  kernel::boot(hal::platform());
-
+  // **The folders of the disk come before the boot** (0.88.2): `/apps` is a mount only when the flash has it, and
+  // a disk that carries apps is the one a board boots on (docs/70, docs/85).
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   if (storage == nullptr) return false;
   storage->mkdir("/apps");
   storage->mkdir("/res");
+  kernel::boot(hal::platform());
   if (!add_app(storage, "hello",
                "{\"title\":\"Hello\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                "console.print(\"hello from an app\")\n"))

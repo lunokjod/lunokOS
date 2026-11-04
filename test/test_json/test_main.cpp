@@ -3,8 +3,14 @@
 // Both are pure logic on purpose: they are the two pieces that decide whether an
 // app is found, and neither needs a real disk to be checked.
 #include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 
 #include <unity.h>
+
+#include "emu/options.h"
 
 #include "hal/hal.h"
 #include "json/json.h"
@@ -15,6 +21,45 @@
 void setUp(void) {}
 
 void tearDown(void) {}
+
+namespace {
+
+// Every directory on the way, because the volume has to exist before the boot looks for it: a backend that finds no
+// directory is a board with no disk (docs/85).
+void make_dirs(const char* path) {
+  char partial[256];
+  const size_t len = strlen(path);
+  if (len >= sizeof(partial)) return;
+  memcpy(partial, path, len + 1);
+  for (size_t i = 1; i <= len; ++i) {
+    if (partial[i] == '/' || partial[i] == '\0') {
+      const char saved = partial[i];
+      partial[i] = '\0';
+      ::mkdir(partial, 0777);  // already there is not an error
+      partial[i] = saved;
+    }
+  }
+}
+
+// **A disk that comes with the folder of the apps**: `/apps` is a mount only when `/littlefs/apps` is there
+// (0.88.2), so the two tests about that mount make their own disk first —a directory of the run's and not the
+// repository's— and then the table, the way a board boots on a disk that carries apps (docs/70, docs/85).
+void mount_a_disk_with_apps(void) {
+  static char root[96];
+  if (root[0] == '\0') {
+    snprintf(root, sizeof(root), "/tmp/lunok-json-XXXXXX");
+    if (mkdtemp(root) == nullptr) root[0] = '\0';
+    char volume[128];
+    snprintf(volume, sizeof(volume), "%s/littlefs", root);
+    make_dirs(volume);
+    emu::Options opts;
+    opts.fs_dir = root;
+    emu::set_options(opts);
+    if (hal::IStorage* storage = hal::platform().storage("/littlefs")) storage->mkdir("/apps");
+  }
+  kernel::vfs::init(hal::platform());
+}
+}  // namespace
 
 void test_extension_is_read_the_same_way_it_is_declared(void) {
   char out[16];
@@ -80,7 +125,7 @@ void test_non_numeric_value_is_not_an_integer(void) {
 }
 
 void test_apps_alias_resolves_inside_the_backend(void) {
-  kernel::vfs::init(hal::platform());
+  mount_a_disk_with_apps();
   hal::IStorage* storage = nullptr;
   char rel[128];
   TEST_ASSERT_TRUE(kernel::vfs::resolve("/apps/demo/manifest.json", storage, rel, sizeof(rel)));
@@ -122,10 +167,11 @@ class CountingSink : public hal::ListSink {
   uint32_t count = 0;
 };
 
+
 }  // namespace
 
 void test_root_lists_the_mounts(void) {
-  kernel::vfs::init(hal::platform());
+  mount_a_disk_with_apps();
   // `/cfg` is not one of the mounts the VFS builds: it is a door, and it is the settings
   // policy that opens it on a unit (docs/70). Without this the table is one row shorter.
   kernel::cfg::boot(hal::platform());

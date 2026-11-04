@@ -139,14 +139,16 @@ void ensure_booted() {
   opts.fs_dir = g_root;
   emu::set_options(opts);
   pal::init();
-  kernel::boot(hal::platform());
   // **The three doors of a disk that has just been formatted**: an empty volume has no `/apps`, `/res` or
-  // `/data`, and the shell's paths are those, so the suite makes them once for every test in it (docs/70).
+  // `/data`, and the shell's paths are those, so the suite makes them once for every test in it. **The folders
+  // come before the boot** (0.88.2): `/apps` is a mount only when the flash has the folder, the way a disk that
+  // carries apps is the one a board boots on (docs/70, docs/85).
   if (hal::IStorage* storage = hal::platform().storage("/littlefs")) {
     storage->mkdir("/apps");
     storage->mkdir("/res");
     storage->mkdir("/data");
   }
+  kernel::boot(hal::platform());
   g_booted = true;
 }
 

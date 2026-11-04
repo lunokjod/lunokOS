@@ -67,11 +67,11 @@ Aquestes són les opcions del binari:
 
 | Opció | Què fa |
 |---|---|
-| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` amb les apps d'`apps/` enllaçades); `/littlefs/apps` és `apps/` i `/littlefs/res` és `data/res`, i no es copia res |
+| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` i prou: **les apps del banc viuen a la targeta**, 0.88.2); `/littlefs/res` és `data/res` i no es copia res |
 | `--state <dir>` | On viuen les memòries que no són un volum: `nvs/` i, quan n'hi hagi, la RTC, la FRAM i l'hora que el xip recorda (per defecte `emulator/`) |
 | `--persist` | **La placa no s'ha desendollat**: el run arrenca on el run anterior va deixar la placa, o sigui que la **RTC RAM** no s'esborra ni a l'ATOM (un reinici no apaga el domini del RTC) i **l'hora** de `clock.bin` es llegeix també als models sense pila, amb `source` = `"soc"`. La NVS i la FRAM no depenen d'això: són flash i ferrita i es guarden sempre (docs/60, docs/85) |
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
-| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, i el banc el crea si el model té ranura; si s'esborra, la ranura queda buida (docs/70) |
+| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, on `tools/make_disk.py` deixa **una còpia de cada app d'`apps/`** (0.88.2), o sigui que el banc arrenca amb targeta i amb les seixanta apps a sobre; si s'esborra, la ranura queda buida i el banc no té cap app (docs/70) |
 | `--battery-mv <mv>` | **Una bateria de mentida**: el que llegeix `power.battery()`. **Mana sobre la de la màquina** (la del punt de sota), i el `%` no es posa: surt de la corba de `hal/battery.h`, la mateixa que fa servir el Paper. Un model **sense indicador** (els ATOM) dona `nil` encara que se li digui un número, que és el que faria la placa (docs/30) |
 | `--battery-host` | **La bateria d'aquesta màquina, prestada a la placa, i la demana poques vegades perquè ja ve sola**: en un Linux, un model amb indicador llegeix el `%` de `/sys/class/power_supply` a l'arrencada sense cap bandera (en un altre amfitrió no hi ha res a llegir i la cel·la comença al nominal) i el passa per la **corba de la cel·la del model** (1150 mAh, 4,2 V plena), o sigui que 99 % d'aquest portàtil són **4 190 mV del Paper** i no 12 V d'una bateria de tres cel·les. Si la màquina no en té cap, la cel·la comença al **seu càrrec nominal (3 700 mV, 42 %)** i el banc ho diu, perquè una placa amb indicador sempre llegeix alguna cosa. La bandera serveix per **demanar-ho en veu alta** (i perquè se't digui que un ATOM no té indicador); amb `--battery-mv` alhora, el banc el refusa (docs/50, docs/85) |
 | `--board <nom>` | **Quina placa és el banc, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, i el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila — el mateix que diu la fitxa de docs/50, ni més ni menys |
@@ -132,10 +132,22 @@ printf 'run echo\n' > /tmp/s.txt
 
 **El disc del banc és el del seu build, `build/disk/emulator`**, i el camí li arriba compilat
 (`-DLUNOK_DISK_DIR` a `platformio.ini`), o sigui que dos builds no comparteixen disc i el banc no llegeix el
-que les proves acaben d'escriure. `/littlefs/apps` és `apps/` —cada app és un enllaç que hi posa
-`tools/make_disk.py`— i `/littlefs/res` és `data/res`: el que
-s'edita és el que corre, i **no cal copiar res**. El que una app escriu va a `data/data/<id>/`, que
-és estat i no codi, i per això és al `.gitignore`.
+que les proves acaben d'escriure. `/littlefs` és `data/` i prou —`/littlefs/res` és `data/res`—, i el que una
+app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.gitignore`.
+
+**Les apps del banc són a la targeta i no a la flash** (0.88.2), com les d'una placa on s'instal·len en lloc
+d'anar-hi al firmware: `tools/make_disk.py` (amb `custom_apps_in_card = emulator/sd`) **copia** cada app
+d'`apps/` a `emulator/sd/apps/`, i el banc arrenca amb aquesta targeta al slot. Tres coses que compra:
+
+- **La flash del banc és el sistema sol** (`res/`, `http/`, `data/`), que és el que veu una placa a la qual
+  les apps se li instal·len: `ls /littlefs` no en té cap i `/apps` **no és ni un muntatge** quan el directori
+  no hi és (0.88.2), o sigui que `ls /` i `mounts` no menteixen.
+- **`repo install` al banc no trepitja el repositori**: escriu a `/sd/apps/<id>/`, i si allà hi hagués un
+  enllaç a `apps/<id>/` l'escriptura cauria dins del codi. Per això són **còpies** i no enllaços, i per això
+  el build les torna a copiar a cada `pio run`: el que s'edita a `apps/` arriba al banc, i una app que el build
+  no porta —una d'instal·lada per la persona— es queda on és.
+- **`apps` i el `run` les troben igual**: la targeta és el primer lloc on es busquen (0.86.0) i el llistat les
+  marca totes amb `[card]`.
 
 A part del disc hi ha les memòries que **no són un volum**, i totes viuen en un sol directori
 (`--state emulator`, per defecte):
@@ -216,21 +228,21 @@ a l'Atom el 31/10: `/data littlefs rw  915701 of 917504 B free` (1 803 B dins de
 Es pot editar amb qualsevol editor. Es pot esborrar per començar net. Es pot versionar un joc de
 proves petit dins del repositori i deixar la resta fora del git.
 
-Per tenir-hi les apps de la imatge de la flash (les de `data/`), es copien un cop:
+Per tenir-hi les apps que el banc porta (ara a la targeta del build, `emulator/sd/apps`), es copien un cop:
 
 ```
 tools/sync_emulator.sh
 ```
 
-Fa el mateix que `mkdir -p emulator/littlefs && cp -rL build/disk/emulator/apps emulator/littlefs/`, però **esborra
-primer** `apps/` i `res/` del disc de l'emulador: és una còpia, no una fusió, i una app treta de
-`apps/` ha de desaparèixer també d'aquí. També hi ha la tasca de VS Code **lunokOS: seed emulator
-disk**.
+Fa el mateix que `mkdir -p emulator/littlefs && cp -r emulator/sd/apps emulator/littlefs/apps &&
+cp -r build/disk/emulator/res emulator/littlefs/`, però **esborra primer** `apps/` i `res/` del disc de
+l'emulador: és una còpia, no una fusió, i una app treta de `apps/` ha de desaparèixer també d'aquí. També
+hi ha la tasca de VS Code **lunokOS: seed emulator disk**.
 
 **Per què cal recordar-ho** (només per a un banc que copiï el seu disc, `--flash emulator/littlefs`):
 editar una app a `apps/` **no canvia res** en aquella còpia; el que corre és el disc de treball.
-Amb el disc del build —el camí per defecte, `build/disk/emulator`— això no passa, perquè les seves
-apps són enllaços al repositori.
+Amb el disc del build —el camí per defecte, `build/disk/emulator`— això no passa, perquè la seva targeta
+es torna a omplir a cada `pio run`.
 
 ## Una sola sortida, i en ordre
 

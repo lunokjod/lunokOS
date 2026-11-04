@@ -1100,7 +1100,16 @@ namespace kernel {
 // començament d'una comanda no és la comanda (`help pow` no és `power`), i un mot que no respon a res diu
 // `no such command: x` i que `help` els llista tots. De passada, la línia de `http` a la llista **tenia un sol espai**
 // i per això sortia plana i no era cap comanda ni per a `help http` (docs/30, docs/85).
-static const char kVersion[] = "0.88.1";
+// 0.88.2 (4/11): **el banc no té apps a la flash**. `tools/make_disk.py` aprèn a posar-les a la targeta
+// (`custom_apps_in_card = emulator/sd`), i l'entorn del banc les **copia** a `emulator/sd/apps/` en lloc d'enllaçar-les
+// a `build/disk/emulator/apps/`: el banc arrenca amb una targeta al slot i les seixanta apps a sobre, la flash és el
+// sistema sol (`res/`, `http/`, `data/`) i **`repo install` escriu en una còpia** en lloc de travessar un enllaç i
+// desar dins d'`apps/` del repositori. Les apps que el build porta es tornen a copiar a cada `pio run` —el que s'edita
+// arriba al banc— i les que hi ha instal·lades i el build no porta es queden. **I `/apps` és un muntatge només quan el
+// directori hi és**: un disc sense apps no té aquesta fila, o sigui que `ls /` i `mounts` no ensenyen una porta que no
+// porta enlloc (la trobava el banc, que deia `no such directory: /apps` i tot seguit `/ has: apps`); les proves munten
+// el seu disc amb les carpetes abans de l'arrencada, com un disc que ve amb les apps a dins (docs/70, docs/80, docs/85).
+static const char kVersion[] = "0.88.2";
 
 }  // namespace kernel
 

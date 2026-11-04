@@ -95,7 +95,15 @@ uint32_t init(hal::IPlatform& platform) {
     // one for a person —the sample files of the disk— and a door for an app: the
     // interpreter opens it onto that app's own `apps/<id>/res/` (docs/70). `/cfg` is not
     // even an alias: it goes wherever the settings live, and that is cfg::boot's to say.
-    add("/apps", "apps", "littlefs", littlefs, false);
+    //
+    // **`/apps` is a row only when the flash has the folder** (0.88.2): a disk whose apps are on the card —the
+    // bench, and a board that was flashed without them— has no `/littlefs/apps`, and a mount that points at
+    // nothing is a root that lists `apps` and an `ls /apps` that says it is not there (found on the bench,
+    // 4/11, docs/70, docs/85).
+    hal::Stat apps_dir;
+    if (littlefs->stat("apps", apps_dir) && apps_dir.type == hal::NodeType::kDir) {
+      add("/apps", "apps", "littlefs", littlefs, false);
+    }
     add("/res", "res", "littlefs", littlefs, false);
     add("/data", "data", "littlefs", littlefs, true);
     // **The faces of the system are one row and not a copy per app** (3/11). A real face is ten to
