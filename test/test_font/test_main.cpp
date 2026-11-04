@@ -153,6 +153,19 @@ static void test_a_font_file_becomes_a_face() {
   TEST_ASSERT_FALSE(kernel::font::has(face, 'A'));
 }
 
+// **How many pixels of a glyph are ink**: two glyphs with the same room are not the same glyph, and this is the
+// count that says so (docs/30).
+static int ink_of(const kernel::font::Face& face, char code) {
+  const uint8_t index = static_cast<uint8_t>(code - face.first);
+  int ink = 0;
+  for (uint8_t y = 0; y < face.height; ++y) {
+    for (uint8_t x = 0; x < face.width; ++x) {
+      if (face.lit != nullptr && face.lit(face.bits, index, x, y)) ++ink;
+    }
+  }
+  return ink;
+}
+
 // **How wide a line is**: the glyph, the gap between two of them, and the scale, with no gap after the last
 // one —the same number the bar uses to centre a title (docs/30).
 static void test_a_line_is_as_wide_as_its_glyphs() {
@@ -171,9 +184,18 @@ static void test_a_line_is_as_wide_as_its_glyphs() {
   TEST_ASSERT_EQUAL_UINT8(7, system.height);
   TEST_ASSERT_EQUAL_UINT16(5, kernel::font::width(system, "A", 1));
   TEST_ASSERT_EQUAL_UINT16(11, kernel::font::width(system, "AB", 1));
-  // **A lowercase letter is its capital in the font of the system**, which is the one thing that face does
-  // and a face from a file does not (docs/30).
+  // **The face of the system carries both alphabets** (0.83.0), so a lowercase letter is itself and not its
+  // capital: the same room in the cell, and a different glyph under it —which is what a keyboard that changes
+  // case needs and what a text that says `a` has always meant— (docs/30, docs/90).
   TEST_ASSERT_EQUAL_UINT16(5, kernel::font::width(system, "a", 1));
+  TEST_ASSERT_TRUE(kernel::font::has(system, 'a'));
+  TEST_ASSERT_TRUE(kernel::font::has(system, 'z'));
+  TEST_ASSERT_FALSE(kernel::font::has(system, '{'));
+  TEST_ASSERT_TRUE(ink_of(system, 'a') != ink_of(system, 'A'));
+  TEST_ASSERT_TRUE(ink_of(system, 'e') != ink_of(system, 'E'));
+  // A capital has more of it than its small letter in this table, which is what the keyboard of the system
+  // shows when the shift is down (docs/90).
+  TEST_ASSERT_GREATER_THAN(ink_of(system, 'e'), ink_of(system, 'E'));
 }
 
 // **The glyphs are drawn as runs of pixels**, and a run that hangs out of the label loses the part that is

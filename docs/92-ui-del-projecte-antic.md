@@ -269,6 +269,7 @@ que res d'això**, perquè són les que diuen si un control nou pot declarar el 
 | **`ui.list`** — files en pàgines, el peu `2 / 4` i `on_page` amb el dial | **0.71.0** | `test_a_list_measures_its_pages_with_one_arithmetic`, `test_a_list_draws_one_page_and_says_which_one_it_is`, `test_a_list_turns_its_page_with_the_dial` |
 | **`ui.textbox`** — la finestra del text i el cursor de bloc amb la lletra en paper | **0.72.0** | `test_a_textbox_keeps_the_caret_on_the_glass` |
 | **el teclat del sistema** — banda pròpia, dial que camina les tecles, i el camp escrit abans de `on_change` | **0.72.0** | `test_the_keyboard_types_into_the_box_it_was_given` |
+| **el teclat, dibuixat** (0.83.0) — QWERTY esglaonat de minúscules amb majúscules, barra d'espai, icones (← ↵ ⇧) en lloc de paraules, cap botó, quatre files en els dos jocs i la banda neta amb `gl16` | **0.83.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
 | **`ui.dialog`** — targeta, missatge que s'ajusta, dues portes i el dit que tria la que toca | **0.73.0** | `test_a_dialog_wraps_its_message_and_has_two_doors`, `test_a_dialog_answers_with_the_door_the_dial_is_on` |
 | **`ui.sparkline`** — una barra per mostra, escala del pic de la finestra i la segona sèrie buida | **0.74.0** | `test_a_sparkline_scales_to_the_peak_of_its_window` |
 | **`ui.pie`** — quatre porcions, angles d'una taula de direccions i tons que camina el control | **0.74.0** | `test_a_pie_is_two_halves_when_the_slices_are_equal` |

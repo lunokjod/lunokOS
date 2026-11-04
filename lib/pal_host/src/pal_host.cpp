@@ -32,6 +32,8 @@ uint32_t g_step_ns = 0;
 uint32_t g_bytes_per_us = 0;
 // What a wait that expired costs before its deadline is delivered, in microseconds (docs/85).
 uint32_t g_dispatch_us = 0;
+// The longest a wait of the queue may block: zero is a wait that lasts as long as it was told (docs/85).
+uint32_t g_wait_slice_ms = 0;
 uint32_t g_walk_ns = 0;  // what the walks have run up but not yet paid
 
 // **The two homes of the board's memory, each one a heap of its own** (docs/75, docs/85). The PC has
@@ -374,10 +376,18 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
  private:
   void wait_for_input(int32_t timeout_ms) {
+    // **A wait is cut to the slice of the bench**, when there is one: the window of the run and the finger on
+    // its glass are looked at between waits, and a wait of six hundred milliseconds would be six hundred
+    // milliseconds of a mouse that is not seen (docs/85, docs/90). The deadline is not lost: it is dispatched
+    // on the slice that reaches it, and the next turn asks the queue again.
+    int32_t slice = timeout_ms;
+    if (g_wait_slice_ms > 0 && (slice < 0 || slice > static_cast<int32_t>(g_wait_slice_ms))) {
+      slice = static_cast<int32_t>(g_wait_slice_ms);
+    }
     if (input_eof_) {
       // Nothing can arrive any more: still honour the deadline, without spinning.
-      sleep_ms(timeout_ms);
-      dispatch_deadline(timeout_ms);
+      sleep_ms(slice);
+      dispatch_deadline(slice);
       return;
     }
     fd_set fds;
@@ -386,15 +396,15 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
     struct timeval tv;
     struct timeval* ptv = nullptr;
-    if (timeout_ms >= 0) {
-      tv.tv_sec = timeout_ms / 1000;
-      tv.tv_usec = (timeout_ms % 1000) * 1000;
+    if (slice >= 0) {
+      tv.tv_sec = slice / 1000;
+      tv.tv_usec = (slice % 1000) * 1000;
       ptv = &tv;
     }
 
     const int ready = select(STDIN_FILENO + 1, &fds, nullptr, nullptr, ptv);
     if (ready <= 0 || FD_ISSET(STDIN_FILENO, &fds) == 0) {
-      dispatch_deadline(timeout_ms);
+      dispatch_deadline(slice);
       return;
     }
     // **Readable is not data.** A /dev/null or a pipe at EOF is readable for ever, and a console event
@@ -730,6 +740,8 @@ void set_console_baud(uint32_t baud) {
 }
 
 void set_dispatch_us(uint32_t us) { g_dispatch_us = us; }
+
+void set_wait_slice_ms(uint32_t ms) { g_wait_slice_ms = ms; }
 
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;

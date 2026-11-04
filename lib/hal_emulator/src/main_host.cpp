@@ -67,6 +67,10 @@ const int32_t kLuaInstructionNs = 60;
 // the bench is paying the times of the hardware, so a loop of awaits takes here what it takes on the
 // board. It is the **turn** that is paced, and not one instruction of it (docs/85).
 const int32_t kTurnOverheadUs = 850;
+// **How often a run with a window comes back to it while it has nothing else to do**: the glass of the board
+// is scanned every ten milliseconds, and a window that is looked at twice as often as that never holds two
+// taps in one batch (docs/85, docs/90).
+const uint32_t kGuiSliceMs = 20;
 
 // What a turn pays: the constant above while the bench is paying the times of the hardware, and nothing
 // at all when it is not, because `--no-delay` is a run about what the code does and not about what the
@@ -773,6 +777,11 @@ int main(int argc, char** argv) {
   // boot is the first thing that takes a block (docs/85).
   pal::set_memory_bytes(hw.free_heap_bytes, hw.extra_free_bytes);
   g_turn_us = opts.delays ? kTurnOverheadUs : 0;
+  // **A run with a window looks at it twenty times a second even when the app is asleep in a promise**: the
+  // queue of a PC waits on the console for as long as the nearest deadline says, and everything that is not
+  // the console waits with it —the window and the finger on its glass— so two clicks poured into the panel
+  // together are one tap (docs/85, docs/90). It is the chip's own scan period, twice.
+  pal::set_wait_slice_ms(opts.gui ? kGuiSliceMs : 0);
 
   // **The boot of the board and not of this process** (docs/75, docs/85): the banner is not the first
   // thing a board says, it is the first thing it says after the image has come out of the flash and the

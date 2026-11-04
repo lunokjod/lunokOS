@@ -121,6 +121,15 @@ void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us);
 // Zero —the default, and what every test wants— is a wait that is over when it is over (docs/85).
 void set_dispatch_us(uint32_t us);
 
+// **The longest a wait of the kernel's queue may block, in milliseconds.** On the board the chip's own tick
+// wakes the system many times a second, and a wait that ends when the chip says so is the chip's business. On
+// a PC the queue sleeps in one `select` until the console has a byte or the deadline arrives, and everything
+// that is not the console —the window of the bench and the finger on its glass— is looked at between those
+// waits: a click that comes and goes inside one of them is drained in a batch with the next one, which is two
+// taps poured into the panel at once and therefore one tap (found on the bench, docs/85, docs/90). Zero —the
+// default, and what every test wants— is a wait that lasts as long as it was told (docs/85).
+void set_wait_slice_ms(uint32_t ms);
+
 // **What a home of the memory has left**, in bytes: the board's own RAM (`extra` false) or its extra
 // memory (`extra` true). `counted` is false on a PAL that hands blocks out of the machine's heap and
 // keeps no books, which is what a test wants and what a bench without a model is (docs/85).

@@ -205,6 +205,12 @@ void set_dispatch_us(uint32_t us) {
   (void)us;
 }
 
+void set_wait_slice_ms(uint32_t ms) {
+  // **The tick of the chip wakes the system by itself**: a slice is a bench's way of looking at a window, and
+  // a board has no window (docs/85).
+  (void)ms;
+}
+
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   // **The chip's allocator is the chip's**: a board is not told what its own malloc costs (docs/85).
   (void)step_ns;

@@ -339,6 +339,12 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   s'enganxa a la vora.
   Sense `--touch` no s'hi envia res, i amb el vidre girat en un altre marc el banc ho diu una vegada en
   comptes de callar. **El que el ratolí no pot fer és un pessic de dos dits**: això és del test o del guió.
+  **Un clic és un dit i no un marc**: el xip escombra cada deu mil·lisegons i qui no hi és en un escombrat no
+  hi és enlloc, o sigui que el banc guarda el toc fins que una lectura se l'emporta i la cua del nucli
+  s'escurça a vint mil·lisegons amb la finestra oberta (0.83.0). Mesurat a la banqueta, dotze clics de 90 ms
+  sobre la mateixa tecla del teclat: **una lletra abans de les tres arregles i deu ara**, amb una tecla
+  premuda 1,8 s que escriu **una** lletra i no una ratxa. Les dues que falten són clics que entren plegats
+  al panell mentre una escriptura del vidre té el fil (docs/90).
 - **La finestra és una placa i no un full blanc** (0.35.0): la pàgina és el panell i és clara; tot el que no
   és la pàgina —la tira de les tecles i el que queda de finestra— es pinta amb el **gris fosc de la carcassa**,
   i els botons són grisos amb el text clar. Un botó **premut es pinta amb el color del paper**, o sigui que un
@@ -571,6 +577,21 @@ sobreviure això és el nucli, no el banc. `--touch-scan 40` és exactament aque
 - **Els dits són del test, del guió o del ratolí**, com les tecles: `emu::touch_panel()->finger_down(0, 100,
   200)`, `finger_move`, `finger_up`, i amb `--gui` el botó esquerre de la finestra fa el mateix en el píxel
   que assenyala. Un punt fora del marc no és un dit i es refusa; el tercer dit també.
+- **Un toc que comença i s'acaba entre dues lectures és encara el marc de l'últim escombrat** (0.83.0): el
+  xip escombra sol i **guarda el que hi ha trobat** fins que una lectura se l'emporta, i el banc fa el
+  mateix. Sense això, el ratolí de la finestra —que deixa anar el botó en el mateix torn en què el va
+  prémer— no arribava mai al vidre: **una de cada vuit premudes** a la banqueta, mesurat amb vuit clics de
+  90 ms sobre una tecla (docs/90). El toc es lliura **una vegada i prou**: la lectura següent diu que no hi
+  ha ningú.
+- **`finger_still_down()` diu si el marc és d'un dit que encara hi és** (0.83.0): el nucli el pregunta i, quan
+  la resposta és que no, lliura el toc com una premuda **i la seva deixada alhora**. És el que fa que un dit
+  que jeu sobre una tecla escrigui una lletra i un dit que toca i se'n va escrigui la seva, sense comptar
+  temps ni endevinar res (docs/50, docs/90).
+- **Una espera de la cua del nucli es talla a vint mil·lisegons quan hi ha finestra** (0.83.0,
+  `pal::set_wait_slice_ms`): el fil d'un PC dorm en un `select` sobre la consola fins al pròxim venciment
+  —sis-cents mil·lisegons en una app que espera—, i la finestra només es mira entre esperes, o sigui que
+  dos clics podien entrar plegats al panell i sortir-ne com un de sol. La retallada és el doble del període
+  d'escombrat del xip i no toca ni el model ni les proves, que la deixen a zero.
 - **El que no hi és, i s'ha de saber**: al banc **no hi ha bus**, o sigui que el tàctil no comparteix res
   amb el rellotge, la FRAM ni el SHT30 i no hi ha cap NAK ni cap conflict; el xip del banc contesta
   sempre a la primera, quan a la placa el probe va haver de preguntar a dues adreces (docs/50); i el marc

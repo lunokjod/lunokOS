@@ -815,7 +815,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la gran més gran. **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (si el bloc es pinta; el parpelleig és de l'app), `mask` (puntets en lloc de lletres), `color`, `scale`. **És enfocable** (3/11, 0.72.0) |
-| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app (3/11, 0.72.0) |
+| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs (3/11, 0.72.0) |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
@@ -949,9 +949,11 @@ end
 ```
 
 - **El text i les cares.** `ui.text` i `cv:text` dibuixen amb **la cara del canvas** i, si no en té cap,
-  amb la font del sistema (5 × 7, només majúscules, 295 bytes de taula a `lib/kernel/font.cpp`). Una app pot
-  carregar-ne d'altres amb `ui.load_font` des de `/res/fonts`, que són fitxers de text (vegeu la secció de
-  les cares, més avall).
+  amb la font del sistema (5 × 7, **les dues caixes de lletres, 455 bytes de taula** a `lib/kernel/font.cpp`).
+  Fins a 0.82.2 aquesta cara tenia només majúscules i plegava la minúscula a la seva capital; des de 0.83.0
+  porta els dos alfabets (els codis `' '` a `'z'`), i per això una lletra escrita amb minúscula es veu
+  minúscula a la caixa, a l'etiqueta i a l'editor. Una app pot carregar-ne d'altres amb `ui.load_font` des de
+  `/res/fonts`, que són fitxers de text (vegeu la secció de les cares, més avall).
 - L'exemple és l'app `panel` (`run panel`), que dibuixa una pàgina de prova a la seva vista i espera que
   el vidre acabi.
 
@@ -1474,11 +1476,23 @@ pàgina ja composta, i que **pren el dit i el dial abans que els controls de la 
   avisa amb `on_change(self, text)`. El **13** no és cap lletra: és el `OK`, i la caixa diu `on_enter(self)` i no
   toca el text.
 - **Les fletxes del dial caminen les tecles** i el centre prem la que hi ha: una placa de tres tecles també pot
-  escriure. El recorregut **salta les caselles buides** —una mitja fila de tecles buides faria deu premudes per
-  creuar-la.
-- **La tecla on ets s'inverteix** i la resta són caixes de paper, que és el mateix senyal que una fila marcada.
-- **Les lletres són majúscules**, perquè la cara del sistema només en té; una app que carregui una altra cara
-  (`ui.load_font`) i vulgui minúscules les ha de decidir ella al seu `on_change`.
+  escriure. El recorregut va **per les tecles que es veuen**, en l'ordre en què es pinten, i no per una graella de
+  caselles buides (0.83.0).
+- **La tecla on ets s'inverteix** i la resta són lletres i prou: des de 0.83.0 el teclat no dibuixa cap botó, i el
+  que diu «aquesta és la que prems» és el bloc de tinta.
+- **Les lletres són les de la cara del sistema, en minúscula** (0.83.0): el joc alfa és un QWERTY esglaonat —la
+  fila de la `a` va mitja tecla més a la dreta que la de la `q`— amb la **barra d'espai** al seu lloc, una tecla de
+  **majúscules** (⇧) a l'esquerra de la `z` i una de **retrocés** (←) a la dreta de la `m`. Les tecles que no són
+  lletres es dibuixen amb el signe i no amb la paraula: ← per esborrar, ↵ per l'enter, ⇧ per les majúscules, i una
+  barra per l'espai.
+- **La tecla de majúscules canvia el joc sencer i deixa anar després d'una lletra**: premuda, totes les lletres es
+  pinten en majúscula i la tecla queda girada; la primera lletra que s'escriu surt en majúscula i el teclat torna
+  a la minúscula. És el que fa un teclat de telèfon i el que espera qui vol una majúscula al mig d'una paraula.
+- **La banda fa quatre files en els dos jocs** (0.83.0): un canvi de joc canvia les tecles i no l'alçada, o la
+  pàgina que s'ha col·locat a sobre es mouria en prémer el `123`.
+- **La banda es pinta amb `gl16` i no amb `du`**: un joc nou posa tinta on hi havia les lletres del vell, i una
+  actualització ràpida deixa les velles a mig esborrar —dos teclats a la mateixa banda, que és el que es va veure a
+  la banqueta en canviar de joc (0.83.0, docs/50, docs/90). El que costa és la banda i no la pàgina.
 
 ```lua
 local box = ui.textbox(view.width - 32, 56)

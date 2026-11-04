@@ -399,6 +399,12 @@ class ITouch {
   // The points that are down now, up to `capacity`; 0 when nobody is touching. A frame that is
   // taken is cleared, so a stale finger is never read twice (docs/50).
   virtual uint8_t read(TouchPoint* out, uint8_t capacity) = 0;
+  // **Whether the frame that was just handed over is of a finger that is still there** (0.83.0). A controller that
+  // scans the glass by itself hands over the frame of its last scan, and a finger that came down and went away
+  // between two reads is a tap that is **already over** when the caller hears about it: `true` here would say the
+  // release comes later, and a keyboard of one press per finger would swallow the next tap. A panel that cannot
+  // tell says `true`, which is the safe answer —a frame is a finger until the panel says otherwise— (docs/50).
+  virtual bool finger_still_down() const { return true; }
 };
 
 // Where a key sits, said the same way on every board: the board is a box and a

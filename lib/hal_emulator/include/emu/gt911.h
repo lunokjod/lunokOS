@@ -28,6 +28,9 @@ class Gt911Panel : public hal::ITouch {
   uint16_t width() const override { return kFrameWidth; }
   uint16_t height() const override { return kFrameHeight; }
   uint8_t read(hal::TouchPoint* out, uint8_t capacity) override;
+  // **A frame the chip kept after the finger left says so**: the bench knows if a finger is on the glass right now,
+  // and it is what tells a tap that is over from a key held down (docs/50, docs/85).
+  bool finger_still_down() const override { return fingers_down() > 0; }
 
   // **The fingers are the test's.** Slot 0 or 1, in the chip's own frame, which on this board is the
   // page's own frame and the right way up (docs/95, E-6). False when the slot does not exist, when the
@@ -62,6 +65,11 @@ class Gt911Panel : public hal::ITouch {
     uint16_t y = 0;
   };
   Finger fingers_[kMaxFingers];
+  // **A finger that was on the glass since the last frame was taken**, which is the frame the chip keeps:
+  // it is set by a finger coming down or moving, and only a read takes it away (docs/50, docs/85).
+  bool latched_ = false;
+  // The slot of the finger that touched the glass last, which is the one the latched frame is about.
+  uint8_t latched_slot_ = 0;
   // The scan whose frame has already been given away, and the counters of the caller's behaviour.
   uint32_t taken_ms_ = 0xFFFFFFFFu;
   uint32_t frames_ = 0;

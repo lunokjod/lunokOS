@@ -3816,8 +3816,10 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 176"), g_out);
   capture_begin();
   pump_turns(20);
-  // The centre presses the key the dial is on —the first one of the second row, which is a Q— twice, then the
-  // down key of the dial walks to the next key and the centre types it.
+  // The centre presses the key the dial is on —the first one of the first row, which is a `q`— twice, then the
+  // down key of the dial walks to the next key of the layout, which is the `w` of the same row, and the centre
+  // types it. **The keyboard is lowercase until the shift says otherwise**, so the letters arrive as they are
+  // drawn (0.83.0, docs/30, docs/90).
   for (int i = 0; i < 2; ++i) {
     emu::press_button(true);
     pump_turns(20);
@@ -3834,10 +3836,10 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   // Four rows of a key of forty-four pixels in a view of the Paper: the band is a hundred and seventy-six.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed Q at 1"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed QQ at 2"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed QQW at 3"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "word QQW"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed q at 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qq at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qqw at 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "word qqw"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its three keys");
 
   storage->remove("/apps/typer/app.lua");

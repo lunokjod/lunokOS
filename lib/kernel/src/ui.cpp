@@ -4387,111 +4387,256 @@ uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count
 
 namespace {
 
-// **Ten columns and four rows**: every row of the alpha layout has ten cells, which is what makes one division
-// enough to find the key under a finger. A cell with no action is not drawn and is not hit —half a keyboard of
-// empty boxes is a keyboard that looks broken (docs/90).
-enum class KeyAction : uint8_t { kNone, kChar, kDel, kSpace, kOk, kMode };
+// **What a key does**: a letter, or one of the five that are not a letter. There is no empty cell in a
+// layout any more —the old one walked over blanks, and half a keyboard of blanks is a keyboard that looks
+// broken— (docs/90).
+enum class KeyAction : uint8_t { kChar, kShift, kBack, kSpace, kEnter, kMode };
 
+// **A key is a label and a share of its row**: `span` counts in twentieths of the width of the view, so a
+// letter is two (a tenth, the unit a finger is measured in), the bar of the space is twelve (six tenths),
+// and shift and enter are three. A label that is empty is a key drawn with an icon (docs/90).
 struct KeyDef {
-  char letter;
+  const char* label;
   KeyAction action;
+  uint8_t span;
 };
 
-const KeyDef kAlpha[40] = {
-    {'1', KeyAction::kChar}, {'2', KeyAction::kChar}, {'3', KeyAction::kChar}, {'4', KeyAction::kChar},
-    {'5', KeyAction::kChar}, {'6', KeyAction::kChar}, {'7', KeyAction::kChar}, {'8', KeyAction::kChar},
-    {'9', KeyAction::kChar}, {'0', KeyAction::kChar},
-    {'Q', KeyAction::kChar}, {'W', KeyAction::kChar}, {'E', KeyAction::kChar}, {'R', KeyAction::kChar},
-    {'T', KeyAction::kChar}, {'Y', KeyAction::kChar}, {'U', KeyAction::kChar}, {'I', KeyAction::kChar},
-    {'O', KeyAction::kChar}, {'P', KeyAction::kChar},
-    {'A', KeyAction::kChar}, {'S', KeyAction::kChar}, {'D', KeyAction::kChar}, {'F', KeyAction::kChar},
-    {'G', KeyAction::kChar}, {'H', KeyAction::kChar}, {'J', KeyAction::kChar}, {'K', KeyAction::kChar},
-    {'L', KeyAction::kChar}, {0, KeyAction::kDel},
-    {'Z', KeyAction::kChar}, {'X', KeyAction::kChar}, {'C', KeyAction::kChar}, {'V', KeyAction::kChar},
-    {'B', KeyAction::kChar}, {'N', KeyAction::kChar}, {'M', KeyAction::kChar}, {0, KeyAction::kSpace},
-    {0, KeyAction::kMode}, {0, KeyAction::kOk},
+// **A row is a staggered list of keys**: `indent` is the air before the first one, in the same twentieths,
+// which is what makes the row of `a` sit half a key to the right of the row of `q` instead of in a grid
+// nobody types in (docs/90).
+struct RowDef {
+  const KeyDef* keys;
+  uint8_t count;
+  uint8_t indent;
 };
 
-const KeyDef kNumeric[40] = {
-    {'1', KeyAction::kChar}, {'2', KeyAction::kChar}, {'3', KeyAction::kChar}, {'4', KeyAction::kChar},
-    {'5', KeyAction::kChar}, {'6', KeyAction::kChar}, {'7', KeyAction::kChar}, {'8', KeyAction::kChar},
-    {'9', KeyAction::kChar}, {'0', KeyAction::kChar},
-    {'.', KeyAction::kChar}, {'-', KeyAction::kChar}, {'+', KeyAction::kChar}, {'/', KeyAction::kChar},
-    {':', KeyAction::kChar}, {'*', KeyAction::kChar}, {'(', KeyAction::kChar}, {')', KeyAction::kChar},
-    {'?', KeyAction::kChar}, {'!', KeyAction::kChar},
-    {0, KeyAction::kDel}, {0, KeyAction::kSpace}, {0, KeyAction::kMode}, {0, KeyAction::kOk},
-    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
-    {0, KeyAction::kNone}, {0, KeyAction::kNone},
-    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
-    {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone}, {0, KeyAction::kNone},
-    {0, KeyAction::kNone}, {0, KeyAction::kNone},
+struct LayoutDef {
+  const RowDef* rows;
+  uint8_t count;
 };
+
+const KeyDef kAlphaRow0[] = {
+    {"q", KeyAction::kChar, 2}, {"w", KeyAction::kChar, 2}, {"e", KeyAction::kChar, 2},
+    {"r", KeyAction::kChar, 2}, {"t", KeyAction::kChar, 2}, {"y", KeyAction::kChar, 2},
+    {"u", KeyAction::kChar, 2}, {"i", KeyAction::kChar, 2}, {"o", KeyAction::kChar, 2},
+    {"p", KeyAction::kChar, 2},
+};
+const KeyDef kAlphaRow1[] = {
+    {"a", KeyAction::kChar, 2}, {"s", KeyAction::kChar, 2}, {"d", KeyAction::kChar, 2},
+    {"f", KeyAction::kChar, 2}, {"g", KeyAction::kChar, 2}, {"h", KeyAction::kChar, 2},
+    {"j", KeyAction::kChar, 2}, {"k", KeyAction::kChar, 2}, {"l", KeyAction::kChar, 2},
+};
+const KeyDef kAlphaRow2[] = {
+    {"", KeyAction::kShift, 3}, {"z", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
+    {"c", KeyAction::kChar, 2}, {"v", KeyAction::kChar, 2}, {"b", KeyAction::kChar, 2},
+    {"n", KeyAction::kChar, 2}, {"m", KeyAction::kChar, 2}, {"", KeyAction::kBack, 3},
+};
+const KeyDef kAlphaRow3[] = {
+    {"123", KeyAction::kMode, 3}, {" ", KeyAction::kSpace, 12}, {".", KeyAction::kChar, 2},
+    {"", KeyAction::kEnter, 3},
+};
+
+const KeyDef kNumericRow0[] = {
+    {"1", KeyAction::kChar, 2}, {"2", KeyAction::kChar, 2}, {"3", KeyAction::kChar, 2},
+    {"4", KeyAction::kChar, 2}, {"5", KeyAction::kChar, 2}, {"6", KeyAction::kChar, 2},
+    {"7", KeyAction::kChar, 2}, {"8", KeyAction::kChar, 2}, {"9", KeyAction::kChar, 2},
+    {"0", KeyAction::kChar, 2},
+};
+const KeyDef kNumericRow1[] = {
+    {"-", KeyAction::kChar, 2}, {"/", KeyAction::kChar, 2}, {":", KeyAction::kChar, 2},
+    {";", KeyAction::kChar, 2}, {"(", KeyAction::kChar, 2}, {")", KeyAction::kChar, 2},
+    {"@", KeyAction::kChar, 2}, {"\"", KeyAction::kChar, 2}, {"&", KeyAction::kChar, 2},
+    {"%", KeyAction::kChar, 2},
+};
+const KeyDef kNumericRow2[] = {
+    {".", KeyAction::kChar, 2}, {",", KeyAction::kChar, 2}, {"+", KeyAction::kChar, 2},
+    {"=", KeyAction::kChar, 2}, {"*", KeyAction::kChar, 2}, {"#", KeyAction::kChar, 2},
+    {"?", KeyAction::kChar, 2}, {"!", KeyAction::kChar, 2}, {"'", KeyAction::kChar, 2},
+    {"~", KeyAction::kChar, 2},
+};
+const KeyDef kNumericRow3[] = {
+    {"ABC", KeyAction::kMode, 3}, {"", KeyAction::kBack, 3}, {" ", KeyAction::kSpace, 11},
+    {"", KeyAction::kEnter, 3},
+};
+
+const RowDef kAlphaRows[] = {{kAlphaRow0, 10, 0}, {kAlphaRow1, 9, 1}, {kAlphaRow2, 9, 0}, {kAlphaRow3, 4, 0}};
+// **Four rows in both alphabets**: the band of the keyboard is a piece of the page an app lays itself out around, so
+// one that changes height when the digits come would move everything above it —and the strip it left behind would be
+// the old row nobody painted over— (found on the bench, 4/11, docs/90).
+const RowDef kNumericRows[] = {
+    {kNumericRow0, 10, 0}, {kNumericRow1, 10, 0}, {kNumericRow2, 10, 0}, {kNumericRow3, 4, 0}};
+
+const LayoutDef kAlphaLayout = {kAlphaRows, 4};
+const LayoutDef kNumericLayout = {kNumericRows, 4};
+
+// **The whole of a row is twenty twentieths**: a row that adds up to more cannot be drawn and one that
+// adds up to less leaves a strip of nothing that a finger falls into.
+const uint8_t kRowUnits = 20;
 
 bool g_kbd_shown = false;
 uint8_t g_kbd_kind = kKeyboardAlpha;
-int8_t g_kbd_row = 1;
-int8_t g_kbd_column = 0;
+bool g_kbd_shift = false;
+int8_t g_kbd_row = 0;
+int8_t g_kbd_key = 0;
 bool g_kbd_held = false;
-uint16_t g_kbd_key_w = 0;
 uint16_t g_kbd_key_h = 0;
 
-const KeyDef* keys_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? kNumeric : kAlpha; }
+const LayoutDef& layout_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? kNumericLayout : kAlphaLayout; }
 
-// **The band of the keyboard**: four rows of a key that a finger can hit, and never more than two fifths of the
+// **Where a key is, in pixels**: the one function the paint and the finger share, because a key drawn
+// where it cannot be pressed is a key that does not exist (docs/90).
+void cell_place(const RowDef& row, uint8_t index, int32_t& x, int32_t& w) {
+  const int32_t width = static_cast<int32_t>(root().width);
+  int32_t before = row.indent;
+  for (uint8_t i = 0; i < index; ++i) before += row.keys[i].span;
+  const int32_t left = static_cast<int32_t>((static_cast<int64_t>(before) * width) / kRowUnits);
+  const int32_t right = static_cast<int32_t>((static_cast<int64_t>(before + row.keys[index].span) * width) / kRowUnits);
+  x = left;
+  w = right - left;
+}
+
+// **The band of the keyboard**: four rows of a key a finger can hit, and never more than two fifths of the
 // view, or the page it is typing into is what disappears (docs/90).
-uint8_t rows_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? 3 : 4; }
-
 void measure() {
   const Canvas& view = root();
   if (view.width == 0 || view.height == 0) return;
-  g_kbd_key_w = static_cast<uint16_t>(view.width / 10);
+  const int32_t rows = layout_of(g_kbd_kind).count;
   int32_t key_h = 44;
   const int32_t room = (static_cast<int32_t>(view.height) * 2) / 5;
-  const int32_t rows = rows_of(g_kbd_kind);
   if (key_h * rows > room) key_h = room / rows;
   if (key_h < 24) key_h = 24;
   g_kbd_key_h = static_cast<uint16_t>(key_h);
 }
 
-const char* label_of(const KeyDef& key, uint8_t kind, char* buffer, size_t cap) {
-  switch (key.action) {
-    case KeyAction::kChar:
-      buffer[0] = key.letter;
-      buffer[1] = '\0';
-      return buffer;
-    case KeyAction::kDel:
-      snprintf(buffer, cap, "DEL");
-      return buffer;
-    case KeyAction::kSpace:
-      snprintf(buffer, cap, "SPACE");
-      return buffer;
-    case KeyAction::kOk:
-      snprintf(buffer, cap, "OK");
-      return buffer;
-    case KeyAction::kMode:
-      snprintf(buffer, cap, "%s", (kind == kKeyboardNumeric) ? "ABC" : "123");
-      return buffer;
-    case KeyAction::kNone:
-      break;
+int32_t band_top() {
+  if (!g_kbd_shown || g_kbd_key_h == 0) return 0;
+  return static_cast<int32_t>(root().height) - layout_of(g_kbd_kind).count * static_cast<int32_t>(g_kbd_key_h);
+}
+
+// **What a key says**: a letter, and the letter is in the case the keyboard is in; the two of the mode say
+// what they would switch to and not what is on (docs/90).
+const char* label_of(const KeyDef& key, char* buffer, size_t cap) {
+  if (key.action == KeyAction::kMode) {
+    snprintf(buffer, cap, "%s", (g_kbd_kind == kKeyboardNumeric) ? "ABC" : "123");
+    return buffer;
   }
-  buffer[0] = '\0';
+  char letter = (key.label != nullptr) ? key.label[0] : '\0';
+  if (g_kbd_shift && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
+  buffer[0] = letter;
+  buffer[1] = '\0';
   return buffer;
 }
 
-// **The key under a point of the view**, or nullptr: the same division that paints, which is the rule a keyboard
-// cannot break —a key that is drawn where it cannot be pressed is a key that does not exist— (docs/90).
-const KeyDef* key_at(uint16_t x, uint16_t y, int32_t& index) {
-  if (!g_kbd_shown || g_kbd_key_w == 0 || g_kbd_key_h == 0) return nullptr;
+// ---- the three icons of the keys that are not letters (docs/90) ----
+
+void icon_arrow_left(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  const int32_t t = (h >= 30) ? 3 : 2;
+  int32_t arm = (h < w) ? h : w;
+  arm = (arm / 3) | 1;  // an odd arm keeps the shaft on one row of pixels
+  const int32_t cx = x + w / 2;
+  const int32_t cy = y + h / 2;
+  put_rect(view, cx - arm, cy - t / 2, 2 * arm, t, level);
+  for (int32_t i = 0; i < arm; ++i) put_rect(view, cx - arm + i, cy - i - t / 2, t, 2 * i + t, level);
+}
+
+// **The shift is the arrow that points up and not the one that points down**: a triangle whose rows grow as
+// they descend —the widest is its base— over a stem, which is 25 pixels wide and 20 tall in the box of a key
+// of forty-four (docs/90).
+void icon_arrow_up(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  const int32_t t = (h >= 30) ? 3 : 2;
+  int32_t arm = ((h < w) ? h : w) / 3 | 1;
+  const int32_t head = (arm / 2) | 1;
+  const int32_t cx = x + w / 2;
+  const int32_t cy = y + h / 2;
+  const int32_t tip = cy - arm / 2 - head;
+  for (int32_t i = 0; i < head; ++i) {
+    const int32_t wide = t + (2 * i * arm) / head;
+    put_rect(view, cx - wide / 2, tip + i, wide, 1, level);
+  }
+  put_rect(view, cx - t / 2, tip + head, t, arm, level);
+}
+
+// **The enter is the arrow that turns**: down the right and along the bottom to the left, which is the
+// symbol of a key that ends a line and not the word for it (docs/90).
+void icon_enter(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  const int32_t t = (h >= 30) ? 3 : 2;
+  int32_t arm = ((h < w) ? h : w) / 3 | 1;
+  const int32_t head = (arm / 2) | 1;
+  const int32_t cx = x + w / 2;
+  const int32_t cy = y + h / 2;
+  const int32_t bar = cy + arm - t;
+  put_rect(view, cx + arm - t, cy - arm, t, 2 * arm, level);  // the stroke that comes down
+  put_rect(view, cx - arm, bar, 2 * arm - head, t, level);    // the bar it turns into
+  // **The arrow of the end of a line**, centred on the bar and pointing left: the same triangle as the
+  // shift's, one quarter turn away (docs/90).
+  for (int32_t i = 0; i < head; ++i) {
+    const int32_t tall = t + (2 * i * arm) / head;
+    put_rect(view, cx - arm + i, bar + t / 2 - tall / 2, 1, tall, level);
+  }
+}
+
+// **The space is a bar and it says nothing**: a short line in the middle is what a keyboard with no word
+// on it draws, and the width of the bar is the message (docs/90).
+void icon_space(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  const int32_t t = (h >= 30) ? 3 : 2;
+  put_rect(view, x + w / 3, y + h / 2 - t / 2, w / 3, t, level);
+}
+
+void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  switch (action) {
+    case KeyAction::kBack:
+      icon_arrow_left(view, x, y, w, h, level);
+      break;
+    case KeyAction::kShift:
+      icon_arrow_up(view, x, y, w, h, level);
+      break;
+    case KeyAction::kEnter:
+      icon_enter(view, x, y, w, h, level);
+      break;
+    case KeyAction::kSpace:
+      icon_space(view, x, y, w, h, level);
+      break;
+    case KeyAction::kChar:
+    case KeyAction::kMode:
+      break;
+  }
+}
+
+// **The band and nothing else**: a key that changes the case of the keyboard is a repaint of the band, and
+// the page under it has not moved (docs/90).
+void invalidate_band() {
   const Canvas& view = root();
-  const int32_t rows = rows_of(g_kbd_kind);
-  const int32_t top = static_cast<int32_t>(view.height) - rows * static_cast<int32_t>(g_kbd_key_h);
-  if (static_cast<int32_t>(y) < top) return nullptr;
-  const int32_t row = (static_cast<int32_t>(y) - top) / static_cast<int32_t>(g_kbd_key_h);
-  const int32_t column = static_cast<int32_t>(x) / static_cast<int32_t>(g_kbd_key_w);
-  if (row < 0 || row >= rows || column < 0 || column >= 10) return nullptr;
-  index = row * 10 + column;
-  const KeyDef& key = keys_of(g_kbd_kind)[index];
-  return (key.action == KeyAction::kNone) ? nullptr : &key;
+  const int32_t top = band_top();
+  if (top < 0) return;
+  const int32_t height = static_cast<int32_t>(view.height) - top;
+  invalidate_rect(0, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(height));
+}
+
+// The flat order of the keys of a layout, which is what the dial walks: row by row, left to right.
+int32_t flat_count(const LayoutDef& layout) {
+  int32_t total = 0;
+  for (uint8_t row = 0; row < layout.count; ++row) total += layout.rows[row].count;
+  return total;
+}
+
+int32_t flat_index(const LayoutDef& layout, int8_t row, int8_t key) {
+  int32_t index = 0;
+  for (int8_t walk = 0; walk < row && walk < static_cast<int8_t>(layout.count); ++walk) {
+    index += layout.rows[walk].count;
+  }
+  return index + key;
+}
+
+void flat_place(const LayoutDef& layout, int32_t index, int8_t& row, int8_t& key) {
+  for (uint8_t walk = 0; walk < layout.count; ++walk) {
+    const int32_t count = layout.rows[walk].count;
+    if (index < count) {
+      row = static_cast<int8_t>(walk);
+      key = static_cast<int8_t>(index);
+      return;
+    }
+    index -= count;
+  }
 }
 
 }  // namespace
@@ -4499,11 +4644,12 @@ const KeyDef* key_at(uint16_t x, uint16_t y, int32_t& index) {
 bool keyboard_show(uint8_t kind) {
   if (!g_attached || root().bits == nullptr) return false;
   g_kbd_kind = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
+  g_kbd_shift = false;
   measure();
-  if (g_kbd_key_w == 0 || g_kbd_key_h == 0) return false;
+  if (g_kbd_key_h == 0) return false;
   g_kbd_shown = true;
-  g_kbd_row = 1;
-  g_kbd_column = 0;
+  g_kbd_row = 0;
+  g_kbd_key = 0;
   g_kbd_held = false;
   invalidate(0);
   return true;
@@ -4521,84 +4667,135 @@ bool keyboard_visible() { return g_kbd_shown; }
 
 uint16_t keyboard_height() {
   if (!g_kbd_shown) return 0;
-  return static_cast<uint16_t>(rows_of(g_kbd_kind) * static_cast<int32_t>(g_kbd_key_h));
+  return static_cast<uint16_t>(layout_of(g_kbd_kind).count * static_cast<int32_t>(g_kbd_key_h));
 }
 
-// **The keyboard is painted over the page and not in it**: the tree is composed first, and the band goes on the
-// glass after it, so a control of the page under the band is covered and does not have to know that the keyboard
-// is there (docs/90).
+// **The keyboard is painted over the page and not in it**: the tree is composed first, and the band goes on
+// the glass after it, so a control of the page under the band is covered and does not have to know that the
+// keyboard is there (docs/90).
 void keyboard_paint() {
-  if (!g_kbd_shown || g_kbd_key_w == 0 || g_kbd_key_h == 0) return;
+  if (!g_kbd_shown || g_kbd_key_h == 0) return;
   Canvas& view = root();
-  if (view.bits == nullptr) return;
-  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  if (view.bits == nullptr || view.width == 0) return;
+  // **The band is painted with the wash of the levels and not with the quick one**: a key that changes the number
+  // or the case of the letters puts new ink where the old letters were, and a `du` leaves the old ones showing
+  // through —two keyboards on one band, which is what the bench showed when the mode was switched— (docs/50,
+  // docs/90). It costs the nine or ten thousand pixels of the band and not the page.
+  const hal::UpdateMode mode = hal::UpdateMode::kGl16;
   const font::Face& face = font::system_face();
-  const int32_t rows = rows_of(g_kbd_kind);
-  const int32_t top = static_cast<int32_t>(view.height) - rows * static_cast<int32_t>(g_kbd_key_h);
-  draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(rows * g_kbd_key_h),
-                 15, mode);
+  const LayoutDef& layout = layout_of(g_kbd_kind);
+  const int32_t key_h = static_cast<int32_t>(g_kbd_key_h);
+  const int32_t top = band_top();
+  const int32_t band = layout.count * key_h;
+  if (top < 0) return;
+  draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(band), 15, mode);
   // A line of ink over the band: the page ends here.
   put_rect(view, 0, top, view.width, 1, 0);
-  mark_box(view, 0, top, view.width, 1, mode);
-  const KeyDef* keys = keys_of(g_kbd_kind);
-  char label[8];
-  for (int32_t i = 0; i < rows * 10; ++i) {
-    const KeyDef& key = keys[i];
-    if (key.action == KeyAction::kNone) continue;
-    const int32_t column = i % 10;
-    const int32_t row = i / 10;
-    const int32_t gap = 3;
-    const int32_t x = column * static_cast<int32_t>(g_kbd_key_w) + gap;
-    const int32_t y = top + row * static_cast<int32_t>(g_kbd_key_h) + gap;
-    const int32_t w = static_cast<int32_t>(g_kbd_key_w) - 2 * gap;
-    const int32_t h = static_cast<int32_t>(g_kbd_key_h) - 2 * gap;
-    const bool chosen = g_kbd_row == row && g_kbd_column == column;
-    if (chosen) {
-      // **The key the dial is on is inverted**, the same signal as a marked row: on this glass there is nothing
-      // else to say "this is the one" (docs/90).
-      draw_round_fill(view, x, y, w, h, 4, 0, mode);
-      draw_round_fill(view, x + 2, y + 2, w - 4, h - 4, 3, 0, mode);
-    } else {
-      draw_round_fill(view, x, y, w, h, 4, 0, mode);
-      draw_round_fill(view, x + 2, y + 2, w - 4, h - 4, 3, 15, mode);
-    }
-    const char* shown = label_of(key, g_kbd_kind, label, sizeof(label));
-    if (shown[0] != '\0') {
-      const uint16_t taken = font::width(face, shown, 3);
-      const int32_t line_h = static_cast<int32_t>(font::kGlyphHeight) * 3;
-      draw_text(view, face, x + (w - static_cast<int32_t>(taken)) / 2, y + (h - line_h) / 2, shown, 3,
-                chosen ? 15 : 0, mode);
+  for (uint8_t row = 0; row < layout.count; ++row) {
+    const RowDef& def = layout.rows[row];
+    const int32_t y = top + row * key_h;
+    for (uint8_t i = 0; i < def.count; ++i) {
+      int32_t x = 0;
+      int32_t w = 0;
+      cell_place(def, i, x, w);
+      const KeyDef& key = def.keys[i];
+      // **The key the dial is on is a block of ink and the letter on it is paper**: on this glass there is
+      // nothing else to say "this is the one", and the same block says the shift is down (docs/90).
+      const bool chosen = (g_kbd_row == row && g_kbd_key == i);
+      const bool lit = chosen || (key.action == KeyAction::kShift && g_kbd_shift);
+      const int32_t inset = 3;
+      const int32_t box_w = w - 2 * inset;
+      const int32_t box_h = key_h - 2 * inset;
+      if (box_w <= 0 || box_h <= 0) continue;
+      if (lit) draw_fill_rect(view, static_cast<uint16_t>(x + inset), static_cast<uint16_t>(y + inset),
+                              static_cast<uint16_t>(box_w), static_cast<uint16_t>(box_h), 0, mode);
+      const uint8_t ink = lit ? 15 : 0;
+      if (key.action == KeyAction::kChar || key.action == KeyAction::kMode) {
+        char label[8];
+        const char* shown = label_of(key, label, sizeof(label));
+        uint8_t scale = static_cast<uint8_t>((key_h - 12) / font::kGlyphHeight);
+        if (scale < 2) scale = 2;
+        if (scale > 4) scale = 4;
+        int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
+        while (scale > 1 && taken > box_w - 6) {
+          --scale;
+          taken = static_cast<int32_t>(font::width(face, shown, scale));
+        }
+        const int32_t line_h = static_cast<int32_t>(font::kGlyphHeight) * scale;
+        const int32_t at_x = x + (w - taken) / 2;
+        const int32_t at_y = y + (key_h - line_h) / 2;
+        if (at_y < top) continue;
+        draw_text(view, face, at_x, at_y, shown, scale, ink, mode);
+      } else {
+        draw_icon(view, key.action, x + inset, y + inset, box_w, box_h, ink);
+      }
     }
   }
+  // The whole band is one region of damage: a key pressed twice in a row repaints it once (docs/90).
+  mark_box(view, 0, top, view.width, band, mode);
 }
 
-// **What a key does**: the letters go to the box as one number and the two that are not letters are the two
-// numbers a box understands. The mode and the hide are the keyboard's own and go no further (docs/90).
+// **What a key does**: a letter goes to the box as one number —in the case the keyboard is in— and the
+// three that are not letters are the numbers a box understands. The shift is one capital and it lets go,
+// and the mode redraws the band with the other alphabet (docs/90).
 namespace {
 
 void press_key(const KeyDef& key) {
   switch (key.action) {
-    case KeyAction::kChar:
-      luabind::ui_keyboard_typed(static_cast<int>(key.letter));
+    case KeyAction::kChar: {
+      char letter = (key.label != nullptr) ? key.label[0] : '\0';
+      const bool cap = g_kbd_shift && letter >= 'a' && letter <= 'z';
+      if (cap) letter = static_cast<char>(letter - 'a' + 'A');
+      luabind::ui_keyboard_typed(static_cast<int>(letter));
+      if (cap) g_kbd_shift = false;
       break;
-    case KeyAction::kDel:
+    }
+    case KeyAction::kShift:
+      g_kbd_shift = !g_kbd_shift;
+      break;
+    case KeyAction::kBack:
       luabind::ui_keyboard_typed(8);
       break;
     case KeyAction::kSpace:
       luabind::ui_keyboard_typed(32);
       break;
-    case KeyAction::kOk:
+    case KeyAction::kEnter:
       luabind::ui_keyboard_typed(13);
       break;
-    case KeyAction::kMode:
+    case KeyAction::kMode: {
       g_kbd_kind = (g_kbd_kind == kKeyboardNumeric) ? kKeyboardAlpha : kKeyboardNumeric;
+      g_kbd_shift = false;
       measure();
-      g_kbd_row = (g_kbd_row >= static_cast<int8_t>(rows_of(g_kbd_kind))) ? 1 : g_kbd_row;
+      const LayoutDef& layout = layout_of(g_kbd_kind);
+      if (g_kbd_row >= static_cast<int8_t>(layout.count)) g_kbd_row = 0;
+      if (g_kbd_key >= static_cast<int8_t>(layout.rows[g_kbd_row].count)) g_kbd_key = 0;
       break;
-    case KeyAction::kNone:
-      return;
+    }
   }
-  invalidate(0);
+  invalidate_band();
+}
+
+// **The key under a point of the view**, which is the cell the paint used: the finger and the glass see the
+// same twenty lines (docs/90).
+bool key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) {
+  if (!g_kbd_shown || g_kbd_key_h == 0) return false;
+  const int32_t top = band_top();
+  if (top < 0 || static_cast<int32_t>(y) < top) return false;
+  const LayoutDef& layout = layout_of(g_kbd_kind);
+  const int32_t at_row = (static_cast<int32_t>(y) - top) / static_cast<int32_t>(g_kbd_key_h);
+  if (at_row < 0 || at_row >= static_cast<int32_t>(layout.count)) return false;
+  const RowDef& def = layout.rows[at_row];
+  for (uint8_t i = 0; i < def.count; ++i) {
+    int32_t cell_x = 0;
+    int32_t cell_w = 0;
+    cell_place(def, i, cell_x, cell_w);
+    if (static_cast<int32_t>(x) >= cell_x && static_cast<int32_t>(x) < cell_x + cell_w) {
+      row = static_cast<int8_t>(at_row);
+      index = static_cast<int8_t>(i);
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -4610,48 +4807,44 @@ bool keyboard_touch(uint16_t x, uint16_t y, bool down) {
     g_kbd_held = false;
     return was;
   }
-  int32_t index = 0;
-  const KeyDef* key = key_at(x, y, index);
-  if (key == nullptr) {
-    // **A finger on the band that is not on a key is still the keyboard's**: the page under the band must not be
-    // pressed through it (docs/90).
-    const Canvas& view = root();
-    return static_cast<int32_t>(y) >= static_cast<int32_t>(view.height) - keyboard_height();
+  // **One press is one key**: the glass hands a frame over once per scan while the finger is there, and a
+  // keyboard that typed on every one of them would type a letter per scan of a held finger (docs/50,
+  // docs/90). The finger of the bench is the same: a click is a frame and a held button is a run of them.
+  if (g_kbd_held) return true;
+  int8_t row = 0;
+  int8_t index = 0;
+  if (!key_at(x, y, row, index)) {
+    // **A finger on the band that is not on a key is still the keyboard's**: the page under the band must
+    // not be pressed through it (docs/90).
+    return static_cast<int32_t>(y) >= band_top();
   }
   g_kbd_held = true;
-  g_kbd_row = static_cast<int8_t>(index / 10);
-  g_kbd_column = static_cast<int8_t>(index % 10);
-  press_key(*key);
+  g_kbd_row = row;
+  g_kbd_key = index;
+  press_key(layout_of(g_kbd_kind).rows[row].keys[index]);
   return true;
 }
 
 bool keyboard_key(const char* kind, uint32_t key_id) {
   if (!g_kbd_shown || kind == nullptr || g_kbd_held) return false;
   if (strcmp(kind, "press") != 0) return false;
-  // **The three keys of the dial in the shape every page has**: key 0 is the centre, 1 is up and 2 is down —the
-  // Paper's dial and the ATOM's single key both arrive here— and the keyboard does not need the names of the
-  // spots to walk its own grid (docs/50, docs/90).
-  const bool centre = (key_id == 0);
-  const int32_t step = (key_id == 1) ? -1 : 1;
-  if (centre) {
-    press_key(keys_of(g_kbd_kind)[g_kbd_row * 10 + g_kbd_column]);
+  const LayoutDef& layout = layout_of(g_kbd_kind);
+  if (g_kbd_row >= static_cast<int8_t>(layout.count)) g_kbd_row = 0;
+  if (g_kbd_key >= static_cast<int8_t>(layout.rows[g_kbd_row].count)) g_kbd_key = 0;
+  // **The three keys of the dial in the shape every page has**: key 0 is the centre, 1 is up and 2 is down
+  // —the Paper's dial and the ATOM's single key both arrive here— and the walk goes round the keyboard in
+  // the order it is drawn, so a row that is not the width of the last one costs nothing (docs/50, docs/90).
+  if (key_id == 0) {
+    press_key(layout.rows[g_kbd_row].keys[g_kbd_key]);
     return true;
   }
-  const int32_t index = g_kbd_row * 10 + g_kbd_column;
-  // **The walk skips the cells that are not keys**: a dial that stops on half a keyboard of empty boxes is a dial
-  // that takes ten presses to cross a row (docs/90).
-  const KeyDef* keys = keys_of(g_kbd_kind);
-  const int32_t cells = rows_of(g_kbd_kind) * 10;
-  for (int32_t moved = 1; moved <= cells; ++moved) {
-    int32_t next = (index + step * moved) % cells;
-    if (next < 0) next += cells;
-    if (keys[next].action != KeyAction::kNone) {
-      g_kbd_row = static_cast<int8_t>(next / 10);
-      g_kbd_column = static_cast<int8_t>(next % 10);
-      invalidate(0);
-      return true;
-    }
-  }
+  const int32_t total = flat_count(layout);
+  if (total <= 0) return true;
+  const int32_t step = (key_id == 1) ? -1 : 1;
+  int32_t next = (flat_index(layout, g_kbd_row, g_kbd_key) + step) % total;
+  if (next < 0) next += total;
+  flat_place(layout, next, g_kbd_row, g_kbd_key);
+  invalidate_band();
   return true;
 }
 

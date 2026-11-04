@@ -164,6 +164,29 @@ static void test_a_finger_that_leaves_is_gone_after_a_scan() {
   TEST_ASSERT_EQUAL_UINT8(0, chip().fingers_down());
 }
 
+// **A tap that begins and ends between two reads is still the frame of the last scan**: the chip scans the glass by
+// itself and holds what it found until a read takes it, so a quick click of the window —which the bench pours into
+// the panel whole, a press and a release inside one turn of the kernel— is a press and not nothing at all (found on
+// the bench, 4/11, docs/50, docs/85).
+static void test_a_tap_between_two_reads_is_still_a_frame() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  hal::TouchPoint frame[kernel::touch::kMaxPoints];
+  TEST_ASSERT_TRUE(chip().finger_down(0, 30, 40));
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  TEST_ASSERT_EQUAL_UINT8(0, chip().fingers_down());
+  TEST_ASSERT_EQUAL_UINT8(1, chip().read(frame, kernel::touch::kMaxPoints));
+  TEST_ASSERT_EQUAL_UINT16(30, frame[0].x);
+  TEST_ASSERT_EQUAL_UINT16(40, frame[0].y);
+  TEST_ASSERT_EQUAL_UINT32(1, chip().frames());
+  // **One frame and not two**: the tap was taken, and the scans that follow find nobody.
+  wait_ms(15);
+  TEST_ASSERT_EQUAL_UINT8(0, chip().read(frame, kernel::touch::kMaxPoints));
+  wait_ms(15);
+  TEST_ASSERT_EQUAL_UINT8(0, chip().read(frame, kernel::touch::kMaxPoints));
+  TEST_ASSERT_EQUAL_UINT32(1, chip().frames());
+}
+
 // **A slow chip against a fast caller**: a panel that reports every forty milliseconds and a kernel
 // that reads every twenty finds nothing on every other turn, which is the hardware problem this model
 // exists to make visible (docs/85). The kernel must survive it, and the chip must count it.
@@ -258,6 +281,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_panel_hands_over_one_frame_per_scan);
   RUN_TEST(test_the_panel_reports_the_two_fingers_of_its_configuration);
   RUN_TEST(test_a_finger_that_leaves_is_gone_after_a_scan);
+  RUN_TEST(test_a_tap_between_two_reads_is_still_a_frame);
   RUN_TEST(test_a_panel_slower_than_the_turn_answers_nothing_half_the_time);
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);

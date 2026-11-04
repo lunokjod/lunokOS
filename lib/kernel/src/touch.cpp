@@ -238,6 +238,12 @@ void poll() {
   // a whole scan (docs/30, docs/50).
   const uint8_t taken = g_glass->read(g_frame, kMaxPoints);
   if (taken > 0) {
+    // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
+    // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
+    // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a
+    // paint held the turns— lands on a finger that is still held and nobody types it (found on the bench, 4/11,
+    // docs/50, docs/90).
+    if (!g_glass->finger_still_down()) ui::keyboard_touch(0, 0, false);
     g_count = taken;
     g_seen_ms = now;
     // **The turn is for the frame that just came and for nothing else**: `turn_frame` writes the view's coordinates over

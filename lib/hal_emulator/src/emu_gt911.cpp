@@ -66,6 +66,10 @@ bool Gt911Panel::finger_down(uint8_t slot, uint16_t x, uint16_t y) {
   fingers_[slot].down = true;
   fingers_[slot].x = x;
   fingers_[slot].y = y;
+  // **A finger that touched the glass is a frame the chip has to hand over**, even when it is lifted again
+  // before the driver asks: the chip scans by itself and keeps the frame of its last scan (docs/50, docs/85).
+  latched_ = true;
+  latched_slot_ = slot;
   return true;
 }
 
@@ -74,6 +78,8 @@ bool Gt911Panel::finger_move(uint8_t slot, uint16_t x, uint16_t y) {
   if (x >= kFrameWidth || y >= kFrameHeight) return false;
   fingers_[slot].x = x;
   fingers_[slot].y = y;
+  latched_ = true;
+  latched_slot_ = slot;
   return true;
 }
 
@@ -103,6 +109,8 @@ void Gt911Panel::reset() {
   taken_ms_ = 0xFFFFFFFFu;
   frames_ = 0;
   missed_ = 0;
+  latched_ = false;
+  latched_slot_ = 0;
 }
 
 uint8_t Gt911Panel::read(hal::TouchPoint* out, uint8_t capacity) {
@@ -127,8 +135,22 @@ uint8_t Gt911Panel::read(hal::TouchPoint* out, uint8_t capacity) {
     return 0;
   }
   taken_ms_ = boundary;
-  // A scan with nobody on the glass has no frame to give, which is what the status bit says.
-  if (down == 0) return 0;
+  // **A tap that began and ended between two reads is still the frame of the last scan**: the chip scans the
+  // glass every ten milliseconds and holds what it found until a read takes it, which is the whole reason a
+  // finger of a hundred milliseconds is always seen and a finger of a microsecond is not a finger at all
+  // (docs/50, docs/85).
+  if (down == 0) {
+    if (!latched_) return 0;
+    latched_ = false;
+    ++frames_;
+    const Finger& last = fingers_[latched_slot_];
+    out[0].id = latched_slot_;
+    out[0].x = last.x;
+    out[0].y = last.y;
+    out[0].size = (latched_slot_ == 0) ? kSizeOfSlotZero : kSizeOfSlotOne;
+    return 1;
+  }
+  latched_ = false;
 
   ++frames_;
   const uint8_t count = (down < capacity) ? down : capacity;

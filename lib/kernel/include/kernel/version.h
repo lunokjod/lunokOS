@@ -936,7 +936,23 @@ namespace kernel {
 // fitxer que no acaba amb un salt en rep un, o el prompt quedaria enganxat a la seva última lletra.
 // **`hexdump` ja el llegia sencer** (les seves 16 B a 16 B, amb el recompte dels zeros del final): s'ha
 // comprovat amb el mateix fitxer i no s'hi ha tocat res (docs/30, docs/50, docs/70, docs/85).
-static const char kVersion[] = "0.82.2";
+// 0.83.0 (4/11): **el teclat del sistema, dibuixat i amb les dues caixes.** La banda era una graella de deu
+// columnes amb caixes de botó i les paraules `DEL`, `SPACE`, `OK` i `123` en una tecla de 54 píxels, mig tallades; i
+// les lletres eren totes majúscules perquè la cara del sistema no en tenia d'altres. Ara és un **QWERTY esglaonat**
+// (la fila de la `a` mitja tecla a la dreta), amb la **barra d'espai** de sis dècimes al seu lloc, **majúscules** (⇧)
+// i **retrocés** (←) a les puntes, `123`/`ABC` per canviar de joc, **↵ per l'enter** i **cap botó**: només lletres, i
+// el bloc de tinta de la tecla on és el dial. La tecla de majúscules gira el joc sencer i deixa anar després d'una
+// lletra. La cara del sistema **porta les dues caixes** (0x20 a 0x7A, 455 B) i no plega la minúscula a la capital, o
+// sigui que el que s'escriu es veu com s'ha escrit, a la caixa i a l'editor. La banda fa **quatre files en els dos
+// jocs** i es pinta amb `gl16`: un `du` deixava les lletres del joc vell a mig esborrar i s'hi veien dos teclats.
+// **I funciona**: tres coses del banc amagaven el dit. El GT911 del banc escombra sol i **guarda el marc** fins que
+// una lectura se l'emporta (un toc que comença i s'acaba entre dues lectures és encara un marc, no res);
+// `ITouch::finger_still_down()` diu si el marc és d'un dit que encara hi és, i el nucli lliura llavors el toc i la
+// seva deixada alhora; i la cua del nucli es talla a vint mil·lisegons quan hi ha finestra, o dos clics entraven
+// plegats al panell i en sortien com un. Mesurat amb dotze clics de 90 ms sobre una tecla i una tecla premuda 1,8 s:
+// **una lletra abans i deu ara**, i el dit que jeu escriu una lletra i no una ratxa (docs/30, docs/50, docs/85,
+// docs/90).
+static const char kVersion[] = "0.83.0";
 
 }  // namespace kernel
 

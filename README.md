@@ -15,7 +15,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **386 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **391 proves natives**
 > passen en 19 suites, totes verdes.
 > A l'ATOM: **2 173 901 B** de flash (82,9 % de la partició d'aplicació) i **116 360 B** de RAM estàtica (35,5 %); `hello` fa un
 > pic de **31 655 B** de 131 072 de sostre —el terra de l'intèrpret és 29 842 B des de la llibreria d'UI— i el port sèrie
@@ -76,6 +76,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cares del disc viuen una sola vegada a `/fonts` (`res/fonts/`, de només lectura) i no una còpia per app.
 > Els exemples són `run controls`, `menu`, `typing`, `dialog`, `form`, `notes`, `trend`, `grid`, `checkbox` i
 > `menubar`, i la revisió del projecte antic que va portar-los és a [docs/92](docs/92-ui-del-projecte-antic.md).
+> **El teclat** (`ui.keyboard`) és una banda del sistema i no un control: des de 0.83.0 és un QWERTY de
+> minúscules amb majúscules i barra d'espai, amb el retrocés, l'enter i les majúscules **dibuixats** i no
+> escrits, i el dit i el dial el prenen abans que la pàgina.
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al

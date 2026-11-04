@@ -1375,6 +1375,91 @@ static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
   TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, 400, 1, 366, 480, emu::KeySide::kLeft));
 }
 
+// **The keyboard of the system is a QWERTY that the finger and the glass agree on** (0.83.0): the band is four
+// rows of a key and never more than two fifths of the view, a letter is the tenth of the width a finger hits, the
+// row of `a` is staggered half a key to the right of the row of `q`, the space is a bar of six tenths where a thumb
+// looks for it, and the shift changes the case of the letters and lets go after one of them (docs/90).
+static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
+  TEST_ASSERT_TRUE(ui::keyboard_visible());
+  // Four rows of forty-four pixels in a view of five hundred and forty, and never the two fifths the rule allows.
+  TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
+  TEST_ASSERT_LESS_OR_EQUAL_UINT16(static_cast<uint16_t>((ui::height() * 2) / 5), ui::keyboard_height());
+  const uint16_t top = static_cast<uint16_t>(ui::height() - ui::keyboard_height());
+  TEST_ASSERT_EQUAL_UINT16(364, top);
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **The page above the band is the page's**: a finger there is not the keyboard's.
+  TEST_ASSERT_FALSE(ui::keyboard_touch(48, top - 1, true));
+  // And a key is the dial's too: it walks the first row before anything else, and the centre presses what it is on.
+  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **The row of `a` is staggered half a key**: the first twentieth of it is air, so a finger there is a touch of
+  // the band that presses nothing and the dial stays where it was —on the second key of the first row—.
+  TEST_ASSERT_TRUE(ui::keyboard_touch(20, top + 44 + 22, true));
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(96 + 10, top + 10), "the dial left the key it was on");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(10, top + 10), "a key of the first row is still the chosen one");
+  // A finger on the `a` itself puts the dial there, which is the cell the paint put down: forty-eight pixels of
+  // indent, a hundred and forty-four of key, and the block of the chosen one is ink inside its three pixels of air.
+  TEST_ASSERT_TRUE(ui::keyboard_touch(48 + 48, top + 44 + 22, true));
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(48 + 10, top + 44 + 10));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(96 + 10, top + 10));
+
+  // **The letters are lowercase until the shift says otherwise, and the shift lets go after one of them**: what a
+  // capital costs is more ink in the cell of the letter and the same cell (docs/30, docs/90).
+  int lower = 0;
+  for (uint16_t x = 192; x < 288; ++x) {
+    for (uint16_t y = top + 4; y < top + 40; ++y) {
+      if (view_level(x, y) == 0) ++lower;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN(0, lower);
+  // The shift is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
+  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_TRUE(ui::present());
+  int capital = 0;
+  for (uint16_t x = 192; x < 288; ++x) {
+    for (uint16_t y = top + 4; y < top + 40; ++y) {
+      if (view_level(x, y) == 0) ++capital;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the shift did not change the case of the letters");
+  // The shift is lit while it is down, and one letter of the row of `q` puts it out again.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, top + 88 + 10));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(20, top + 22, true));
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_TRUE(ui::present());
+  int again = 0;
+  for (uint16_t x = 192; x < 288; ++x) {
+    for (uint16_t y = top + 4; y < top + 40; ++y) {
+      if (view_level(x, y) == 0) ++again;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(lower, again, "a letter did not put the shift out");
+
+  // **The digits are the other alphabet and the same band**: four rows, because a page laid out around a band of
+  // a hundred and seventy-six does not move when the digits come (docs/90).
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardNumeric));
+  TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
+  TEST_ASSERT_TRUE(ui::present());
+  // The `1` of the first row is ink and the band is still at the bottom of the view.
+  const uint16_t foot = static_cast<uint16_t>(ui::height() - ui::keyboard_height());
+  TEST_ASSERT_EQUAL_UINT16(364, foot);
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(0, foot));
+  // The dial is on the `1` of the first row, and the chosen key is a block of ink with the digit in paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, foot + 10));
+  TEST_ASSERT_TRUE(ui::keyboard_hide());
+  TEST_ASSERT_EQUAL_UINT16(0, ui::keyboard_height());
+  TEST_ASSERT_FALSE(ui::keyboard_touch(48, static_cast<uint16_t>(ui::height() - 1), true));
+}
+
 // **The system chooses the wash between two apps, and it chooses it from what the page showed** (docs/50):
 // black and white and nothing else is a page the two-level wash takes away in 290 ms, a few grays take the
 // sixteen-level wash without the black flash, and a photograph —or a page that has taken many quick paints,
@@ -1926,12 +2011,24 @@ void test_a_dialog_wraps_its_message_and_has_two_doors() {
   TEST_ASSERT_GREATER_THAN(0, first);
   TEST_ASSERT_GREATER_THAN(0, second);
 
-  // **The two doors**: the cancel is the emphasised one and it is ink inside, the accept is paper.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 260));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(300, 260));
+  // **The two doors**: the cancel is the emphasised one and it is ink inside, the accept is paper. **The row is
+  // the one the finger asks for**, so a message that wraps to another number of lines —a lowercase face is
+  // narrower than a face of capitals— moves the doors and not this test (docs/30, docs/90).
+  uint16_t door_top = 0;
+  uint16_t door_bottom = 0;
+  for (uint16_t y = 200; y < 300; ++y) {
+    if (ui::dialog_hit(card, 100, y) != 1) continue;
+    if (door_top == 0) door_top = y;
+    door_bottom = y;
+  }
+  TEST_ASSERT_GREATER_THAN_UINT16(200, door_top);
+  // The middle of the door and not its first row, which is the frame of it.
+  const uint16_t door_y = static_cast<uint16_t>((door_top + door_bottom) / 2);
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, door_y));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(300, door_y));
   // And the geometry a finger asks is the one that was painted.
-  TEST_ASSERT_EQUAL_UINT8(1, ui::dialog_hit(card, 100, 260));
-  TEST_ASSERT_EQUAL_UINT8(2, ui::dialog_hit(card, 300, 260));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::dialog_hit(card, 100, door_y));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::dialog_hit(card, 300, door_y));
   TEST_ASSERT_EQUAL_UINT8(0, ui::dialog_hit(card, 200, 100));
   TEST_ASSERT_EQUAL_UINT8(0, ui::dialog_hit(card, 200, 20));
 
@@ -2459,6 +2556,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_label_inside_a_button_is_clipped_to_the_button);
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);
   RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
+  RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();
 }
