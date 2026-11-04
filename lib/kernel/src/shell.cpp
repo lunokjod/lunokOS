@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "hal/hal.h"
+#include "json/json.h"
 #include "kernel/apps.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
@@ -365,6 +366,7 @@ void print_help() {
   help_line("  ntp [server]      set the clock from a time server");
   help_line("  http <url> [path] fetch a page, and save it when it is too big");
   help_line("  repository [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
+  help_line("  repository info <app>  the manifest of one app of the repository");
   help_line("  power [cpu [mhz]]  what this board can do about energy");
   help_line("  power last        how far the last sleep was from the hour it was given");
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
@@ -1173,6 +1175,10 @@ char g_job_ssid[33];
 // ha acabat és `radio_done`, o sigui que el camí ha de viure fora de la pila d'aquella crida (docs/30).
 char g_repo_path[128];
 char g_repo_name[64];
+// **Què s'ha de fer amb la resposta**: la llista d'un directori o el manifest d'una app. La comanda arrenca el
+// treball i plega, i qui el continua quan la ràdio ha acabat és `radio_done` (docs/30).
+bool g_repo_info = false;
+char g_repo_app[32];
 
 void out_int(int32_t value) {
   if (value < 0) {
@@ -1229,9 +1235,14 @@ void say_failed(const char* what, const char* code) {
 
 // The answer of the one radio job that was running. It arrives in the kernel's
 // turn, so this is where the prompt comes back (docs/30).
+// **Un manifest és petit per definició** (el lector del disc en guarda 1 024): dos kilobytes són marge i no una
+// porta oberta a una pàgina qualsevol (docs/40, docs/75).
+const uint32_t kManifestBytes = 2048;
+
 // **El llistat es pinta quan la ràdio ha acabat**, i aquesta funció és més avall perquè és llarga: el que
 // necessita `radio_done` és el nom (docs/30).
 void print_repository(const char* path, const char* repo, uint32_t bytes);
+void print_manifest(const char* text, size_t len, const char* app, const char* repo);
 
 void radio_done(bool ok, const char* code, uint32_t count) {
   const RadioJob job = g_job;
@@ -1351,13 +1362,26 @@ void radio_done(bool ok, const char* code, uint32_t count) {
     // directori que no hi és es diu amb el número, perquè anar a buscar-lo a la documentació de GitHub és el
     // que faria una persona (docs/30).
     const int32_t status = net::http_status();
-    if (ok && status == 200) {
+    if (ok && status == 200 && g_repo_info) {
+      uint32_t len = 0;
+      const char* body = net::http_body(len);
+      if (body == nullptr || len == 0) {
+        error_out("repository: the manifest came empty\r\n");
+      } else {
+        print_manifest(body, len, g_repo_app, g_repo_name);
+      }
+    } else if (ok && status == 200) {
       hal::Stat info;
       uint32_t bytes = 0;
       if (vfs::stat(net::http_saved_path(), info)) bytes = info.size;
       print_repository(net::http_saved_path(), g_repo_name, bytes);
       out("repository: the answer is in ");
       out(net::http_saved_path());
+      newline();
+    } else if (ok && g_repo_info) {
+      error_out("repository: the server answered ");
+      out_int(status);
+      error_out(", and a manifest is a 200 (is the app name right?)");
       newline();
     } else if (ok) {
       error_out("repository: the server answered ");
@@ -1637,6 +1661,108 @@ bool command_http(const char* argument) {
   return true;
 }
 
+// **El manifest d'una app, llegit del cos que ha arribat**: les set claus que un manifest té i el que vol dir
+// cadascuna. El lector de JSON del sistema és el mateix que llegeix els manifests del disc —pull, sense arbre— o
+// sigui que el que surt aquí és el que el sistema veuria si l'app fos a la placa (docs/40, docs/75).
+void print_manifest(const char* text, size_t len, const char* app, const char* repo) {
+  char title[64] = {0};
+  char version[24] = {0};
+  char author[48] = {0};
+  char entry[48] = {0};
+  char opens[24] = {0};
+  char description[256] = {0};
+  char boards[8][lunok::json::kStringItemCap];
+  uint32_t board_count = 0;
+
+  const bool has_title = lunok::json::get_string(text, len, "title", title, sizeof(title));
+  const bool has_entry = lunok::json::get_string(text, len, "entry", entry, sizeof(entry));
+  lunok::json::get_string(text, len, "version", version, sizeof(version));
+  lunok::json::get_string(text, len, "author", author, sizeof(author));
+  lunok::json::get_string(text, len, "opens", opens, sizeof(opens));
+  lunok::json::get_string(text, len, "description", description, sizeof(description));
+  lunok::json::get_strings(text, len, "boards", boards, 8, board_count);
+
+  good_out("repository: ");
+  out((has_title) ? title : app);
+  out(" (");
+  out(repo);
+  out("/apps/");
+  out(app);
+  out(")");
+  newline();
+
+  // **Una clau per línia i el nom a l'esquerra**, que és el que fa llegible una fitxa: el que no hi és es diu
+  // amb un guió llarg i no s'amaga (docs/30).
+  struct Field {
+    const char* name;
+    const char* value;
+    bool known;
+  };
+  const Field fields[] = {
+      {"title", title, has_title},
+      {"version", version, version[0] != '\0'},
+      {"author", author, author[0] != '\0'},
+      {"entry", entry, has_entry},
+      {"opens", opens, opens[0] != '\0'},
+      {"boards", nullptr, board_count > 0},
+      {"description", description, description[0] != '\0'},
+  };
+  for (const Field& field : fields) {
+    out("  ");
+    out(field.name);
+    for (size_t pad = strlen(field.name); pad < 12; ++pad) out(" ");
+    if (!field.known) {
+      colour(kColourDim);
+      out("--");
+      colour_off();
+    } else if (field.value == nullptr) {
+      for (uint32_t i = 0; i < board_count; ++i) {
+        if (i > 0) out(", ");
+        out(boards[i]);
+      }
+    } else if (strcmp(field.value, "") == 0) {
+      out("--");
+    } else if (strcmp(field.name, "description") != 0) {
+      out(field.value);
+    } else {
+      // **La descripció és l'única línia que no cap**: es parteix pel blanc que hi ha abans de la columna 80 i
+      // les continuacions van a sota del que diu el camp, que és el que fa llegible una fitxa (docs/30).
+      const size_t kLine = 80;
+      size_t used = 12;
+      const char* word = field.value;
+      bool first = true;
+      while (*word != '\0') {
+        const char* space = strchr(word, ' ');
+        const size_t len = (space != nullptr) ? static_cast<size_t>(space - word) : strlen(word);
+        // **El primer mot va darrere del que diu el camp i els altres se separen amb un blanc**: comptar-ho malament
+        // enganxa dues paraules, i una fitxa que diu «Amodal» no es pot llegir (vist a la consola, 4/11).
+        const size_t gap = first ? 0 : 1;
+        if (!first && used + gap + len > kLine) {
+          newline();
+          spaces(14);
+          used = 14;
+        } else if (!first) {
+          out(" ");
+          ++used;
+        }
+        out_bytes(word, len);
+        used += len;
+        first = false;
+        word += len;
+        if (*word == ' ') ++word;
+      }
+    }
+    newline();
+  }
+  // **Una app sense `title` o sense `entry` no la pot córrer ningú**: el manifest hi és i el sistema la refusa,
+  // o sigui que la fitxa ho diu en lloc de fer veure que és una app com les altres (docs/40).
+  if (!has_title || !has_entry) {
+    error_out("  not a usable app: ");
+    out(!has_title ? "no title" : "no entry");
+    newline();
+  }
+}
+
 // **El llistat, en columnes i sense tenir-lo sencer**: un passeig pel fitxer per comptar les carpetes i saber
 // l'amplada de la més llarga, i un altre per pintar-les. El que es guarda és una fila, no la llista: el
 // document són desenes de kilobytes i la placa no els ha de tenir enlloc (docs/75).
@@ -1708,9 +1834,43 @@ void print_repository(const char* path, const char* repo, uint32_t bytes) {
 // Porta la ràdio com `http` i la deixa anar en acabar, i **la resposta és massa gran per a la memòria**: va a un
 // fitxer del disc i es llegeix a trossos (docs/30, docs/70, docs/75).
 bool command_repository(const char* argument) {
-  char words[2][kWordCap];
+  char words[3][kWordCap];
   size_t count = 0;
-  if (!read_words(argument, words, 2, count)) return false;
+  if (!read_words(argument, words, 3, count)) return false;
+  // **`repository info <app>` vol el manifest i no la llista**: és un fitxer d'un kilobyte i no cal disc, o
+  // sigui que va amb `http_get` a la memòria i el pinta `print_manifest` (docs/30, docs/75).
+  if (count > 0 && strcmp(words[0], "info") == 0) {
+    if (count < 2) {
+      usage_out("usage: repository info <app> [owner/repo]\r\n");
+      return false;
+    }
+    const char* app = words[1];
+    const char* where = (count > 2) ? words[2] : "lunokjod/lunokOS";
+    // **El manifest cru i no el de l'API**: l'API el dona amb el contingut en base64 a dins d'un objecte, i el
+    // que es vol és el fitxer tal com és (docs/30).
+    char raw[192];
+    const int made = snprintf(raw, sizeof(raw), "https://raw.githubusercontent.com/%s/main/apps/%s/manifest.json",
+                              where, app);
+    if (made <= 0 || static_cast<size_t>(made) >= sizeof(raw) || strpbrk(app, " \"/") != nullptr ||
+        strpbrk(where, " \"?") != nullptr) {
+      error_out("repository: that is not an app of a repository\r\n");
+      return false;
+    }
+    // **Els dos noms es copien amb el que hi cap**: el que no hi cap el refusa la llargada de l'adreça d'adalt,
+    // que és la mateixa que la de les dues paraules (docs/75).
+    copy_text(g_repo_name, sizeof(g_repo_name), where);
+    copy_text(g_repo_app, sizeof(g_repo_app), app);
+    g_repo_info = true;
+    if (!take_radio(RadioJob::kRepository)) return false;
+    if (net::http_get(raw, kManifestBytes, kHttpMs) != luabind::NetRefuse::kOk) {
+      drop_radio();
+      g_repo_info = false;
+      error_out("repository: the radio did not take it\r\n");
+      return false;
+    }
+    return true;
+  }
+  g_repo_info = false;
   const char* repo = (count > 0) ? words[0] : "lunokjod/lunokOS";
   const char* dir = (count > 1) ? words[1] : "apps";
   // The two are what goes into a URL, so a space or a `?` is not a name of either: it is refused here, before

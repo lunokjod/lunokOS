@@ -921,7 +921,14 @@ namespace kernel {
 // L'ordre és `repository [owner/repo] [dir]`, amb `lunokjod/lunokOS` i `apps` per defecte, i els errors són els
 // de `http`: `E_NONET` diu que cal `wifi add`, un 404 diu el número i que un llistat és un 200, i el camí de la
 // resposta es diu al final perquè es pugui tornar a llegir (docs/30, docs/85).
-static const char kVersion[] = "0.82.0";
+// 0.82.1 (4/11): **`repository info <app>`**: la fitxa d'una app del repositori. Demana el **manifest cru**
+// (`raw.githubusercontent.com/…/apps/<app>/manifest.json`) i no el de l'API, que el donaria amb el contingut en
+// base64 a dins d'un objecte; és un fitxer d'un kilobyte i **cap a la memòria** (2 KB de marge), o sigui que
+// no necessita disc com el llistat. El pinta amb el mateix lector de JSON que llegeix els manifests del disc
+// —títol, versió, autor, entrada, extensió, plaques i descripció— i la descripció es parteix a 80 columnes amb
+// la continuació sota del camp, que és el que fa llegible una fitxa. Una app sense `entry` o sense `title` ho
+// diu (`not a usable app`), perquè un manifest així no el pot córrer ningú (docs/30, docs/40).
+static const char kVersion[] = "0.82.1";
 
 }  // namespace kernel
 

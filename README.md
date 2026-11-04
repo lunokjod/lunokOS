@@ -211,7 +211,7 @@ d'ells, la build tria SDL2 si el troba, després X11, i finalment un banc sense 
 Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id> [path]`,
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
 `hexdump [fitxer]` (els bytes en hex i en visible; sense camí, `/rtc`), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
-`ntp`, `http <url>`, `repository [owner/repo] [dir]` (les carpetes d'un directori del repositori, de GitHub), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
+`ntp`, `http <url>`, `repository [owner/repo] [dir]` i `repository info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
 idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
 `button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
 (`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,

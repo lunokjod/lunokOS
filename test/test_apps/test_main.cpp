@@ -1986,6 +1986,46 @@ void test_the_http_command_downloads_a_page(void) {
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
 }
 
+// **`repository info <app>` llegeix el manifest i en fa una fitxa** (0.82.1): la comanda demana el fitxer cru a
+// GitHub i el pinta amb el lector de JSON del sistema, que és el mateix que llegeix els manifests del disc. La
+// xarxa és la falsa del banc —una resposta enllaunada— perquè el que es prova és la comanda i no l'adreça
+// (docs/30, docs/40).
+void test_the_repository_command_shows_the_manifest_of_an_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_status = 200;
+  opts.http_body =
+      "{\"title\":\"Una app\",\"version\":\"1.2.3\",\"author\":\"@algu\",\"entry\":\"a.lua\","
+      "\"opens\":\"txt\",\"boards\":[\"esp32\",\"m5stack-paper\"],"
+      "\"description\":\"A description that is long enough to be worth wrapping when the console is eighty "
+      "columns wide, which is what this line is for.\"}";
+  emu::set_options(opts);
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  pump_captured(400, g_out, sizeof(g_out), "repository info alguna");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repository: Una app (lunokjod/lunokOS/apps/alguna)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "title       Una app"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "version     1.2.3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "author      @algu"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "entry       a.lua"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opens       txt"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "boards      esp32, m5stack-paper"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "description A description"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
+
+  // **Un manifest sense `entry` no és una app que es pugui córrer**, i la fitxa ho diu en lloc de fer veure que
+  // sí (docs/40).
+  opts.http_body = "{\"title\":\"Mig\"}";
+  emu::set_options(opts);
+  pump_captured(400, g_out, sizeof(g_out), "repository info mija");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "not a usable app: no entry"), g_out);
+}
+
 // A page bigger than the room the command has is not cut and not lost: **it goes to a file whole**, and
 // the shell says where. The point of asking for a page is to be able to read it, and half a page is not
 // one (docs/30, docs/70).
@@ -5348,6 +5388,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_ntp_sets_the_clock);
   RUN_TEST(test_ntp_without_a_network_is_refused);
   RUN_TEST(test_the_http_command_downloads_a_page);
+  RUN_TEST(test_the_repository_command_shows_the_manifest_of_an_app);
   RUN_TEST(test_the_http_command_saves_a_page_that_does_not_fit);
   RUN_TEST(test_http_without_a_network_is_refused);
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
