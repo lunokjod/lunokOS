@@ -1083,7 +1083,18 @@ namespace kernel {
 // camins: `no such app: x` i a sota `apps are in /littlefs/apps and /sd/apps` (o que no hi ha targeta al slot). El
 // camí que respon `apps::root_of()` continua sent **la porta** —`/apps/<id>` a la flash, `/sd/apps/<id>` a la
 // targeta—, que és per on una app llegeix el seu `res/` sense que `/littlefs` sencer sigui seu (docs/40, docs/70).
-static const char kVersion[] = "0.87.1";
+// 0.88.0 (4/11): **la barra del desplaçament d'una caixa de diverses línies, i el gest que la mou**. Quan el text no cap
+// a la caixa, el cantó dret és una pista d'un píxel amb un polze tan llarg com la part del text que es veu, i el text es
+// mesura amb el lloc que queda —una línia que passa per sota del polze no es llegeix—, o sigui que **una caixa on el
+// text hi cap no té barra i no perd res**. La finestra és la del cursor mentre l'app no en digui una altra (`top`,
+// `-1` = la del cursor, i la caixa el cedeix als límits del text), i **el gest el registra l'app** amb `on_swipe`:
+// sense aquesta funció el dit hi posa el cursor com sempre. Amb el gest registrat un toc espera al fet que el dit deixi
+// anar —dotze píxels són la ratlla entre un toc i un swipe— i el sistema fa l'aritmètica: una fila cada catorze píxels,
+// el `top` escrit per ell, un `gld16` que neteja i no fa cap flaix i `on_swipe(self, rows)` per a l'app. El començament
+// del dit, els píxels i el cursor que espera **es netegen quan la pàgina entra i quan marxa**, que és el que fa que una
+// app acabada amb el dit a sobre no deixi cap gest a mitges a la que ve després. `box:lines()` diu quantes files té el
+// text sencer, i l'editor les fa servir per dir «row 22 of 120» (docs/30, docs/90).
+static const char kVersion[] = "0.88.0";
 
 }  // namespace kernel
 

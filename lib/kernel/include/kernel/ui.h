@@ -516,18 +516,36 @@ uint16_t textbox_inside(int8_t slot, uint8_t scale);
 // box is cut at the border; with it on a row is broken at the last space that fits. No byte is written into the text
 // either way, and the two decisions —where a row ends and where the cursor is— are made by one function so the caret
 // of the paint and the caret of the finger cannot disagree (docs/90).
+//
+// **La finestra és del cursor i, si l'app en diu una altra, de l'app** (0.88.0): `top` és la primera fila que es veu
+// —`-1` vol dir «la que demani el cursor», que és el que fa una caixa que ningú ha mogut—, i quan el text no hi cap el
+// cantó dret de la caixa és una **barra**: la pista diu quant text hi ha i el polze on és la persona. La barra es mou
+// amb el dit que l'app ha registrat (`on_swipe`) i el polze es torna a calcular de la finestra, o sigui que el dibuix
+// no guarda cap estat del gest (docs/30, docs/90).
 bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
-                            uint8_t background, uint8_t border, uint8_t scale);
+                            uint8_t background, uint8_t border, uint8_t scale, int16_t top = -1);
 
 // **Where a point of the box puts the cursor**: the row from the y and the letter from the x, both measured with the
 // font, which is the only thing that knows how wide a letter comes out. A byte offset of the text, for a finger that
 // went past the end of a row (docs/90).
 uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
-                               uint16_t x, uint16_t y);
+                               uint16_t x, uint16_t y, int16_t top = -1);
 
 // How many rows the box shows with that scale, which is what an app needs to know whether its text fits and how much
 // of the page the keyboard leaves it (docs/90).
 uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale);
+
+// **Quantes files té el text sencer** i **quants píxels fa una fila**: el primer és el que una app diu a la seva línia
+// d'estat («fila 12 de 40») i el segon és el que un dit ha de recórrer per moure la finestra una fila (0.88.0,
+// docs/30, docs/90).
+uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale);
+uint8_t textbox_multiline_line(int8_t slot, uint8_t scale);
+
+// **On queda la finestra quan un dit la mou**: `rows` files sumades a la que es veu ara —la del cursor quan `top` és
+// `-1`—, cedit a `[0, total - fit]`. L'app ho escriu a `top` i el sistema ho escriu quan el gest és seu (0.88.0,
+// docs/90).
+uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                                  int16_t top, int16_t rows);
 
 // ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
 //

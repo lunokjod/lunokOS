@@ -3392,6 +3392,100 @@ void test_a_button_is_navigated_and_touched(void) {
   kernel::boot(hal::platform());
 }
 
+// **Un swipe sobre una caixa de diverses línies mou la finestra, i el gest és de l'app que l'ha registrat** (0.88.0):
+// el sistema fa l'aritmètica —quantes files ha recorregut el dit— i escriu el `top` de la caixa, la pàgina es presenta
+// sola i l'app ho sent amb `on_swipe`. **I el gest no sobreviu a la pàgina**: una app que s'acaba amb el dit a sobre no
+// deixa cap gest a mitges a la que ve després, perquè la pressa de la segona és una pressa nova (docs/30, docs/90).
+void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char* kApp =
+      "local lines = {}\n"
+      "for i = 1, 40 do lines[i] = 'row ' .. i end\n"
+      "local box = ui.textbox_multiline(300, 200)\n"
+      "box:place(10, 10)\n"
+      "box.scale = 2\n"
+      "box.text = table.concat(lines, '\\n')\n"
+      "box.cursor = 0\n"
+      "console.print('lines ' .. box:lines() .. ' rows ' .. box:rows())\n"
+      "box.on_swipe = function(self, rows)\n"
+      "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top))\n"
+      "end\n"
+      "ui.present()\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "swiper",
+                           "{\"title\":\"Swiper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run swiper");
+  // The box shows thirteen rows of the fourteen of a letter and the text is forty, which is a bar and not no bar.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "lines 40 rows 13"), g_out);
+
+  // **El dit baixa, camina cap amunt i deixa anar**: sixty pixels are four rows of fourteen, and the window of the box
+  // goes from the first row to the fifth. The panel counts on the glass, which is the view shifted by its place
+  // (docs/30, docs/50, docs/90).
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100), static_cast<uint16_t>(view.y + 160)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                        static_cast<uint16_t>(view.y + 160 - 15 * (step + 1))));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "swipe "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "top "), g_out);
+
+  // **The gesture is the page's and goes with it**: the finger goes down again and the app is closed with the finger
+  // still on the glass. The app that comes next starts with no gesture at all, so a still finger is not a swipe there
+  // (docs/30, docs/90).
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100), static_cast<uint16_t>(view.y + 160)));
+  pump_turns(10);
+  kernel::shell::close_app();
+  pump_turns(10);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  pump_captured(20, g_out, sizeof(g_out), "run swiper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "lines 40 rows 13"), g_out);
+  capture_begin();
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "swipe "), g_out);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/swiper/app.lua");
+  storage->remove("/apps/swiper/manifest.json");
+  storage->remove("/apps/swiper");
+
+  // The next test gets the default bench back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The quality an app asks for at the present is the quality of the paint** (docs/30, docs/50): a
 // page that must look uniform asks for `gc16` once, and the controls —which ask for `du` on their own—
 // do not leave the ghost of what moved. The mode was read from a stack the root had been pushed on,
@@ -5598,6 +5692,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
   RUN_TEST(test_a_button_is_navigated_and_touched);
+  RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
   RUN_TEST(test_a_key_reaches_the_app_with_its_number);

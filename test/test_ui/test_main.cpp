@@ -2303,6 +2303,101 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   ui::release(bar);
 }
 
+// **La barra del desplaçament d'una caixa de línies** (0.88.0): quan el text és més alt que la caixa, el cantó dret és
+// una pista amb un polze; el polze és tan llarg com la part del text que es veu i camina pel que queda de pista segons
+// la primera fila que es mostra. Una caixa on el text hi cap no té barra, i el text no perd lloc per ella (docs/90).
+void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
+  fresh_view();
+  int8_t box = -1;
+  // A box of a hundred pixels is six rows of the fourteen of a letter: fifteen lines do not fit and five do.
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  const char* text = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\nthirteen\n"
+                     "fourteen\nfifteen";
+
+  // **Sense barra quan el text hi cap**: the five lines of the short text leave the right of the box in paper.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, "one\ntwo", 0, false, false, 0, 15, 0, 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(192, 40));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(196, 40));
+
+  // **Amb barra**: the inner right of the box is the track —a frame of ink— and the thumb is a block of ink inside it.
+  // The track goes from the air of the frame to the last row that fits, and it is the same for every row.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2));
+  int column = -1;
+  for (uint16_t x = 170; x < 200 && column < 0; ++x) {
+    int ink = 0;
+    for (uint16_t y = 8; y < 92; ++y) {
+      if (view_level(x, y) == 0) ++ink;
+    }
+    if (ink > 60) column = x;  // the left side of the track is a line of ink from the top to the bottom
+  }
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, column, "there is no bar on the right of the box");
+  // The frame of the track is the whole height of the rows and the thumb is inside it, so the inside of the bar has
+  // ink where the thumb is and paper where it is not: the frame is the longer one and the thumb is shorter than it.
+  int frame = 0;
+  int thumb = 0;
+  for (uint16_t y = 8; y < 92; ++y) {
+    if (view_level(column, y) == 0) ++frame;
+    if (view_level(static_cast<uint16_t>(column + 2), y) == 0) ++thumb;
+  }
+  TEST_ASSERT_GREATER_THAN(0, frame);
+  TEST_ASSERT_GREATER_THAN(0, thumb);
+  TEST_ASSERT_LESS_THAN(frame, thumb);
+
+  // **El polze camina amb la primera fila**: amb `top` a zero seu a dalt de tot i el mig de la barra és paper; amb
+  // l'última finestra seu a baix i és el dalt de la barra el que és paper.
+  const auto inside_ink = [column](uint16_t y0, uint16_t y1) {
+    int ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      if (view_level(static_cast<uint16_t>(column + 2), y) == 0) ++ink;
+    }
+    return ink;
+  };
+  // The two ends of the track are part of its frame, so the bands are measured inside it.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2, 0));
+  TEST_ASSERT_GREATER_THAN(0, inside_ink(10, 40));
+  TEST_ASSERT_EQUAL_INT(0, inside_ink(60, 90));
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2, 9));
+  TEST_ASSERT_EQUAL_INT(0, inside_ink(10, 40));
+  TEST_ASSERT_GREATER_THAN(0, inside_ink(60, 90));
+
+  ui::release(box);
+}
+
+// **La finestra d'una caixa de línies és la que l'app diu** (0.88.0): `top` mana sobre el cursor —el dit que ha mogut la
+// barra no ha de tornar a la fila del cursor a la pintada següent— i la caixa el cedeix als límits del text, o sigui que
+// una app no ha de saber quantes files hi ha per moure la finestra (docs/30, docs/90).
+void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  const char* text = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\nthirteen\n"
+                     "fourteen\nfifteen";
+  // The cursor is at the start and the window is the one the cursor asks for, which is the first row.
+  TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_scroll(box, text, 0, false, 2, -1, 0));
+  // Three rows down from there, and the same three from a window that was already three down.
+  TEST_ASSERT_EQUAL_UINT16(3, ui::textbox_multiline_scroll(box, text, 0, false, 2, -1, 3));
+  TEST_ASSERT_EQUAL_UINT16(6, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, 3));
+  // **Una finestra no surt del text**: nine rows fit five, so the last window is the fourth row of the last five.
+  TEST_ASSERT_EQUAL_UINT16(9, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, 99));
+  TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, -99));
+  // **El cursor mana quan l'app no ha triat finestra**: with the cursor at the end the window is the last five rows.
+  const uint16_t end = static_cast<uint16_t>(strlen(text));
+  TEST_ASSERT_EQUAL_UINT16(9, ui::textbox_multiline_scroll(box, text, end, false, 2, -1, 0));
+  // **I quants píxels fa una fila és el que el dit ha de recórrer**: the same fourteen of the paint.
+  TEST_ASSERT_EQUAL_UINT8(14, ui::textbox_multiline_line(box, 2));
+  // **Quantes files té el text sencer**, que és el que l'app diu a la seva línia d'estat.
+  TEST_ASSERT_EQUAL_UINT16(15, ui::textbox_multiline_total(box, text, false, 2));
+
+  // **La primera fila del vidre és `top`**: the row that starts at the top of the box is the fourth line, so the byte
+  // the finger asks for one row below the top of the box is the one after "four", which is where "five" starts.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2, 3));
+  TEST_ASSERT_EQUAL_UINT16(19, ui::textbox_multiline_hit(box, text, 0, false, 2, 8, 23, 3));
+
+  ui::release(box);
+}
+
 // **The caret of a box of lines is where the cursor is, and the two ends of a row count** (0.84.1): the block of a
 // cursor at zero is the first cell of the first row —it used to be drawn at the end of it, because the letters of a row
 // are counted from one and the fallback that closes a row took every position that was not counted— and the block of a
@@ -2742,6 +2837,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_box_paints_its_text_and_not_the_one_before_it);
   RUN_TEST(test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row);
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
+  RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
+  RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);
   RUN_TEST(test_a_selector_is_a_field_with_a_door_on_its_right);
   RUN_TEST(test_a_band_of_notifications_puts_the_newest_at_the_bottom);
   RUN_TEST(test_a_grid_puts_the_page_where_the_cursor_is);

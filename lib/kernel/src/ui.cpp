@@ -1284,6 +1284,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      textbox_multiline_draw,
                                      textbox_multiline_hit,
                                      textbox_multiline_rows,
+                                     textbox_multiline_total,
+                                     textbox_multiline_line,
+                                     textbox_multiline_scroll,
                                      selector_draw,
                                      notification_bar_draw_for_lua,
                                      notification_bar_card_at,
@@ -2877,9 +2880,9 @@ int32_t row_fit(const font::Face& face, const char* at, int32_t span, int32_t ro
   return used;
 }
 
-// **The box of several lines, measured once**: the frame, the air, the rows that fit and the window that keeps the
-// cursor on the glass. The paint and the finger ask this, or the caret of one and the caret of the other disagree
-// (docs/90).
+// **The box of several lines, measured once**: the frame, the air, the rows that fit, the window and the bar that says
+// where in the text the window is. The paint, the finger and the swipe ask this, or the caret of one and the bar of
+// the other disagree (docs/90).
 struct MultilineLayout {
   int32_t thickness;
   int32_t pad;
@@ -2890,29 +2893,27 @@ struct MultilineLayout {
   int32_t first;
   int32_t cursor_row;
   int32_t caret_x;
+  // **La barra del desplaçament** (0.88.0): no hi és quan el text cap a la caixa —una barra que sempre és plena no diu
+  // res— i, quan hi és, pren lloc al text pel cantó dret. `bar_w` a zero és que no n'hi ha (docs/90).
+  int32_t bar_w;
+  int32_t bar_x;
+  int32_t bar_top;
+  int32_t bar_h;
+  int32_t thumb_y;
+  int32_t thumb_h;
 };
 
-MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t cursor, bool wrap, uint8_t scale) {
-  MultilineLayout out = {};
-  const font::Face& face = face_of(box.face);
-  out.thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
-  out.pad = out.thickness + 6;
-  out.room = static_cast<int32_t>(box.width) - 2 * out.pad;
-  out.line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
-  if (out.line_h <= 0) out.line_h = 1;
-  out.fit = (static_cast<int32_t>(box.height) - 2 * out.pad) / out.line_h;
-  if (out.fit < 1) out.fit = 1;
-  if (out.fit > 255) out.fit = 255;
-  const char* at = (text != nullptr) ? text : "";
-  const int32_t length = static_cast<int32_t>(strlen(at));
-  const int32_t at_byte = (cursor > length) ? length : static_cast<int32_t>(cursor);
+// Every row of the text, counted with the room the window gives it: **one walk and the same `row_span` the paint
+// uses**, so the row the bar says is the row the letters are on (docs/90).
+void multiline_measure(const font::Face& face, const char* at, int32_t room, uint8_t scale, bool wrap,
+                       int32_t at_byte, MultilineLayout& out) {
   int32_t row = 0;
   int32_t offset = 0;
   do {
     int32_t taken = 0;
     int32_t caret_x = 0;
     bool here = false;
-    const int32_t span = row_span(face, at, out.room, scale, wrap, at_byte - offset, taken, caret_x, here);
+    const int32_t span = row_span(face, at, room, scale, wrap, at_byte - offset, taken, caret_x, here);
     if (here) {
       out.cursor_row = row;
       out.caret_x = caret_x;
@@ -2923,18 +2924,66 @@ MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t c
     offset += taken;
   } while (at[0] != '\0' && row < 4096);
   out.total = row;
-  // **The window follows the cursor**: the caret is always on the glass, and when the text is shorter than the box the
-  // window is the first row, so the lines a person wrote stay at the top where they left them (docs/90).
-  if (out.cursor_row >= out.fit) out.first = out.cursor_row - out.fit + 1;
+}
+
+MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                                 int16_t top) {
+  MultilineLayout out = {};
+  const font::Face& face = face_of(box.face);
+  out.thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
+  out.pad = out.thickness + 6;
+  const int32_t full = static_cast<int32_t>(box.width) - 2 * out.pad;
+  out.room = full;
+  out.line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  if (out.line_h <= 0) out.line_h = 1;
+  out.fit = (static_cast<int32_t>(box.height) - 2 * out.pad) / out.line_h;
+  if (out.fit < 1) out.fit = 1;
+  if (out.fit > 255) out.fit = 255;
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t length = static_cast<int32_t>(strlen(at));
+  const int32_t at_byte = (cursor > length) ? length : static_cast<int32_t>(cursor);
+  multiline_measure(face, at, out.room, scale, wrap, at_byte, out);
+  // **Una barra que es menja el text no és una barra**: quan el text no hi cap, el cantó dret és seu i es mesura una
+  // segona vegada —la finestra és més estreta, i el text que hi cap en fa més files, no menys— (docs/90).
+  const int32_t bar_w = (scale > 1) ? 8 : 5;
+  const int32_t gap = (scale > 1) ? 6 : 4;
+  if (out.total > out.fit && full - bar_w - gap > 8) {
+    out.bar_w = bar_w;
+    out.room = full - bar_w - gap;
+    multiline_measure(face, at, out.room, scale, wrap, at_byte, out);
+    out.bar_x = static_cast<int32_t>(box.width) - out.pad - bar_w;
+    out.bar_top = out.pad;
+    out.bar_h = out.fit * out.line_h;
+    // **El polze és tan llarg com la part del text que es veu**, i camina pel que queda de pista: dos tons i una
+    // aritmètica que el dit entén sense comptar píxels (docs/90).
+    int32_t thumb = (out.total > 0) ? (out.bar_h * out.fit) / out.total : out.bar_h;
+    if (thumb < out.line_h) thumb = out.line_h;
+    if (thumb > out.bar_h) thumb = out.bar_h;
+    out.thumb_h = thumb;
+  }
+  // **The window follows the cursor unless the app said where it is**: the caret is always on the glass, and when the
+  // text is shorter than the box the window is the first row, so the lines a person wrote stay at the top where they
+  // left them. **Un `top` de l'app mana sobre el cursor** (0.88.0), que és el que fa que una barra moguda pel dit no
+  // torni al cursor a la pintada següent (docs/30, docs/90).
+  if (top >= 0) {
+    out.first = top;
+  } else if (out.cursor_row >= out.fit) {
+    out.first = out.cursor_row - out.fit + 1;
+  }
   if (out.first > out.total - out.fit) out.first = out.total - out.fit;
   if (out.first < 0) out.first = 0;
+  if (out.bar_w > 0) {
+    const int32_t span = out.bar_h - out.thumb_h;
+    const int32_t most = out.total - out.fit;
+    out.thumb_y = out.bar_top + ((most > 0) ? (span * out.first) / most : 0);
+  }
   return out;
 }
 
 }  // namespace
 
 bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
-                            uint8_t background, uint8_t border, uint8_t scale) {
+                            uint8_t background, uint8_t border, uint8_t scale, int16_t top) {
   if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
   const Canvas& box = g_canvases[slot];
   const int32_t width = box.width;
@@ -2946,7 +2995,7 @@ bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool
   if (target.canvas == nullptr) return false;
   const hal::UpdateMode mode = hal::UpdateMode::kDu;
   const font::Face& face = face_of(box.face);
-  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale);
+  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale, top);
   // The frame is the one of a text box and of a chip: it is a place a person types into and not a button (docs/90).
   int32_t radius = 8;
   const int32_t most = ((width < height) ? width : height) / 3;
@@ -3019,18 +3068,30 @@ bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool
     offset += taken;
     y += layout.line_h;
   }
+  // **La barra del desplaçament és un marc amb un polze a dins**, al cantó dret de la caixa i només quan el text no hi
+  // cap: la pista és la línia i el polze és la tinta, i la part del text que es veu és la llargada del polze — dos tons
+  // i cap gris, que és el que aquest vidre pot dir d'on és la persona dins del fitxer (docs/90).
+  if (layout.bar_w > 0 && layout.bar_h > 0) {
+    draw_frame_thick(*target.canvas, target.x + layout.bar_x, target.y + layout.bar_top, layout.bar_w, layout.bar_h, 1,
+                     border, mode);
+    const int32_t inner_w = layout.bar_w - 2;
+    if (inner_w > 0 && layout.thumb_h > 0) {
+      put_rect(*target.canvas, target.x + layout.bar_x + 1, target.y + layout.thumb_y, inner_w, layout.thumb_h, color);
+      mark_box(*target.canvas, target.x + layout.bar_x + 1, target.y + layout.thumb_y, inner_w, layout.thumb_h, mode);
+    }
+  }
   close_draw(target);
   return true;
 }
 
 uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
-                               uint16_t x, uint16_t y) {
+                               uint16_t x, uint16_t y, int16_t top) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
   const Canvas& box = g_canvases[slot];
   const font::Face& face = face_of(box.face);
-  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale);
+  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale, top);
   const char* at = (text != nullptr) ? text : "";
   const int32_t length = static_cast<int32_t>(strlen(at));
   int32_t row = layout.first + ((static_cast<int32_t>(y) - layout.pad) / layout.line_h);
@@ -3085,6 +3146,46 @@ uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale) {
   if (rows < 1) rows = 1;
   if (rows > 255) rows = 255;
   return static_cast<uint8_t>(rows);
+}
+
+// **Quantes files té el text sencer**, que és el que una app vol per dir «fila 12 de 40» a la seva línia d'estat
+// (0.88.0): la mateixa mesura que el dibuix, amb la barra inclosa (docs/30, docs/90).
+uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const MultilineLayout layout = multiline_layout(box, text, 0, wrap, scale, -1);
+  return static_cast<uint16_t>((layout.total > 65535) ? 65535 : layout.total);
+}
+
+// **L'alçada d'una fila en píxels**, que és el que un dit ha de recórrer per moure la finestra una fila: la mateixa
+// aritmètica del dibuix, o el gest i el text no parlen de la mateixa distància (0.88.0, docs/90).
+uint8_t textbox_multiline_line(int8_t slot, uint8_t scale) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const font::Face& face = face_of(g_canvases[slot].face);
+  const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+  if (line_h < 1) return 1;
+  return static_cast<uint8_t>((line_h > 255) ? 255 : line_h);
+}
+
+// **On queda la finestra quan un dit la mou** (0.88.0): les files que el dit ha recorregut, sumades a la finestra que
+// es veu ara —la del cursor si l'app no n'ha triada cap— i tornades a la pista de la barra. El resultat és el que
+// l'app ha d'escriure a `top`, i el que el sistema escriu quan el gest és seu (docs/30, docs/90).
+uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                                  int16_t top, int16_t rows) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale, top);
+  int32_t first = layout.first + rows;
+  if (first > layout.total - layout.fit) first = layout.total - layout.fit;
+  if (first < 0) first = 0;
+  if (first > 65535) first = 65535;
+  return static_cast<uint16_t>(first);
 }
 
 // ---- a month: seven columns and six weeks (docs/90) ----

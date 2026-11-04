@@ -80,6 +80,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > **I `run editor [path]` és un editor de text gràfic** amb la barra de menús del sistema: **File** obre, desa,
 > desa com i tanca (el camí s'escriu en una targeta amb el teclat), i **View** porta **Read Only** i **Word wrap**
 > amb una casella dins del menú, que en aquest vidre és una caixa amb el mig ple quan està encesa i buida quan no.
+> **Un fitxer llarg porta la seva barra de desplaçament al cantó dret de la caixa** —la pista diu quant text hi ha i
+> el polze on és la persona— i **es mou amb un swipe** sobre el text: el gest el registra l'app (`on_swipe`), el
+> sistema fa l'aritmètica de les files i el polze, i la finestra no sobreviu a la pàgina que la va obrir.
 > **El teclat** (`ui.keyboard`) és una banda del sistema i no un control: des de 0.85.0 les lletres són
 > **DejaVu Sans Bold** de `/fonts`, dibuixades a doble mida i rebaixades a quatre nivells de tinta —la corba
 > d'una lletra i no una escala de píxels—, amb `MAY` com a **bloqueig de majúscules** (no un shift d'una

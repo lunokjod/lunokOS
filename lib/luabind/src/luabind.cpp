@@ -3248,6 +3248,21 @@ int8_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
 bool g_ui_touch_inside = false;
 
+// **El gest que el sistema recorda d'un dit** (0.88.0): on el dit va començar, on és ara, quants píxels encara no s'han
+// pagat en files, si ja ha recorregut prou per ser un gest i no un toc, i el cursor que el toc deixaria al seu lloc si
+// no es mou. És estat del sistema i no de l'app, i per això es neteja quan la pàgina entra i quan marxa: un gest a
+// mitges d'una app que s'acaba no el pot acabar la següent (docs/30, docs/90).
+uint16_t g_ui_swipe_y0 = 0;
+uint16_t g_ui_swipe_y = 0;
+int16_t g_ui_swipe_rest = 0;
+bool g_ui_swipe_moved = false;
+uint16_t g_ui_swipe_tap = 0;
+bool g_ui_swipe_tap_armed = false;
+
+// **Quan un dit deixa de ser un toc** (0.88.0): dotze píxels són un dit que s'ha mogut i no un que ha tremolat, i per
+// sota d'això la caixa es comporta com sempre — el toc hi posa el cursor (docs/90).
+const int32_t kSwipeSlop = 12;
+
 // **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
 // and not a slot, because the app holds the box in a local and the keyboard must not lose it when a page is made
 // again. It is one keyboard and one box, which is what a keyboard is.
@@ -3552,7 +3567,8 @@ bool menu_bar_field_valid(lua_State* L, const char* key, int value) {
 // wrap, and the three tones with the size (docs/30, docs/90).
 bool is_textbox_multiline_field(const char* key) {
   return strcmp(key, "text") == 0 || strcmp(key, "cursor") == 0 || strcmp(key, "caret") == 0 ||
-         strcmp(key, "wrap") == 0 || strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
+         strcmp(key, "wrap") == 0 || strcmp(key, "top") == 0 || strcmp(key, "color") == 0 ||
+         strcmp(key, "scale") == 0;
 }
 
 bool textbox_multiline_field_valid(lua_State* L, const char* key, int value) {
@@ -3561,6 +3577,9 @@ bool textbox_multiline_field_valid(lua_State* L, const char* key, int value) {
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 65535;
+  // **`top` és l'única cosa d'aquest control que pot valer menys de zero** (0.88.0): `-1` no és una fila, és «la que
+  // demani el cursor» (docs/30, docs/90).
+  if (strcmp(key, "top") == 0) return number >= -1 && number <= 65535;
   if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
   return number >= 0 && number <= 15;
 }
@@ -4439,6 +4458,32 @@ int l_multiline_rows(lua_State* L) {
   }
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
   lua_pushinteger(L, g_ui_ops.textbox_multiline_rows(canvas->slot, static_cast<uint8_t>((scale < 1) ? 1 : scale)));
+  return 1;
+}
+
+// **Quantes files té el text sencer**, que és el que una app vol per dir on és dins del fitxer («fila 12 de 40»): la
+// mesura és la del dibuix, com la de `rows()` (0.88.0, docs/30, docs/90).
+int l_multiline_lines(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  if (!ui_field_bool(L, 1, "__textbox_multiline", false)) {
+    return push_nil_error(L, "E_INVAL", "only a box of several lines has lines");
+  }
+  if (g_ui_ops.textbox_multiline_total == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  lua_getiuservalue(L, 1, 1);
+  const char* text = "";
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "text");
+    if (lua_isstring(L, -1)) text = lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
+  const bool wrap = ui_field_bool(L, 1, "wrap", false);
+  lua_pushinteger(L, g_ui_ops.textbox_multiline_total(canvas->slot, text, wrap,
+                                                      static_cast<uint8_t>((scale < 1) ? 1 : scale)));
   return 1;
 }
 
@@ -5710,9 +5755,11 @@ int l_textbox_multiline_draw(lua_State* L) {
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
   const bool caret = ui_field_bool(L, 1, "caret", true);
   const bool wrap = ui_field_bool(L, 1, "wrap", false);
+  const lua_Integer top = ui_field_number(L, 1, "top", -1);
   g_ui_ops.textbox_multiline_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, wrap,
                                   static_cast<uint8_t>(color), static_cast<uint8_t>(background),
-                                  static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale));
+                                  static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                  static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)));
   lua_pop(L, 2);  // the text and the fields table
   return 0;
 }
@@ -7066,6 +7113,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "add", l_canvas_add);
   set_function(L, "box", l_checkbox_box);
   set_function(L, "rows", l_multiline_rows);
+  set_function(L, "lines", l_multiline_lines);
   set_function(L, "draw", l_canvas_draw);
   set_function(L, "invalidate", l_canvas_invalidate);
   set_function(L, "parent", l_canvas_parent);
@@ -7167,6 +7215,43 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
   lua_setfield(L, -2, key);
   lua_pop(L, 1);
   return true;
+}
+
+// **Un número escrit al camp d'un control**, que és com el sistema mou una cosa que l'app llegeix: `top` d'una caixa de
+// diverses línies és el que un swipe canvia i el que la pinta i la barra obeeixen (0.88.0, docs/30, docs/90).
+bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer value) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, key);
+  const bool same = lua_isnumber(L, -1) && lua_tointeger(L, -1) == value;
+  lua_pop(L, 1);
+  if (same) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_pushinteger(L, value);
+  lua_setfield(L, -2, key);
+  lua_pop(L, 1);
+  return true;
+}
+
+// **Si un control té el hook que li preguntem**, que és el que diu si el gest hi és registrat: el camp pot ser `nil` i
+// llavors el control no ha demanat res (0.88.0, docs/30).
+bool ui_has_hook(lua_State* L, int object, const char* name) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getfield(L, -1, name);
+  const bool there = lua_isfunction(L, -1);
+  lua_pop(L, 2);
+  return there;
 }
 
 bool ui_target_is_focusable(lua_State* L, int object, bool with_boxes) {
@@ -8174,6 +8259,9 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_swipe_moved = false;
+  g_ui_swipe_tap_armed = false;
+  g_ui_swipe_rest = 0;
   // **The keyboard's box is this interpreter's**: a reference into a state that is going away is a number that
   // means nothing in the next one (docs/30, docs/75).
   g_keyboard_target_ref = LUA_NOREF;
@@ -8205,6 +8293,9 @@ void stop() {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_swipe_moved = false;
+  g_ui_swipe_tap_armed = false;
+  g_ui_swipe_rest = 0;
   lua_close(g_state);
   g_state = nullptr;
 }
@@ -8854,6 +8945,43 @@ void ui_draw_and_present(const char* mode) {
   g_ui_ops.present(mode);
 }
 
+// **Una caixa de diverses línies que ha registrat el gest** (0.88.0): l'app diu que vol rebre els swipes amb un
+// `on_swipe`, i una caixa que no l'ha registrat es comporta com sempre —el dit hi posa el cursor i prou— (docs/30,
+// docs/90).
+bool ui_swipeable(lua_State* L, int object) {
+  if (!ui_field_bool(L, object, "__textbox_multiline", false)) return false;
+  return ui_has_hook(L, object, "on_swipe");
+}
+
+// **El dit que ha recorregut una caixa amb gest**: cada fila que el dit camina mou la finestra, el sistema escriu el
+// `top` de la caixa —el que la pinta i la barra llegeixen—, la pàgina es presenta sola amb `gld16` (que neteja i no fa
+// cap flaix) i l'app ho sent amb `on_swipe(self, rows)`. Els píxels que no arriben a una fila es queden per al gest
+// següent, que és el que fa que un dit lent no es mengi el moviment (docs/30, docs/90).
+void ui_swipe_by(int object, int rows) {
+  if (rows == 0 || g_ui_ops.textbox_multiline_scroll == nullptr) return;
+  object = lua_absindex(g_state, object);
+  const lua_Integer scale = ui_field_number(g_state, object, "scale", 3);
+  const uint8_t box_scale = static_cast<uint8_t>((scale < 1) ? 1 : scale);
+  const lua_Integer cursor = ui_field_number(g_state, object, "cursor", 0);
+  const lua_Integer top = ui_field_number(g_state, object, "top", -1);
+  const bool wrap = ui_field_bool(g_state, object, "wrap", false);
+  lua_getiuservalue(g_state, object, 1);
+  const char* text = "";
+  if (lua_istable(g_state, -1)) {
+    lua_getfield(g_state, -1, "text");
+    if (lua_isstring(g_state, -1)) text = lua_tostring(g_state, -1);
+    lua_pop(g_state, 1);
+  }
+  lua_pop(g_state, 1);  // the fields table
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(g_state, object, kCanvasMeta));
+  const uint16_t first = g_ui_ops.textbox_multiline_scroll(
+      canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap, box_scale,
+      static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)), static_cast<int16_t>(rows));
+  if (ui_set_field_number(g_state, object, "top", first)) ui_invalidate(g_state, object);
+  ui_draw_and_present("gld16");
+  ui_call_hook_number(g_state, object, "on_swipe", rows);
+}
+
 // **The finger is the same event as the dial**: a touch that starts on a button focuses it and holds
 // it down; a move outside releases the hold, and a release inside clicks it. The frame is the one
 // `touch::poll` has just put in the view's coordinates (docs/30, docs/50, docs/90).
@@ -8874,12 +9002,22 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       if (index >= 0) {
         lua_rawgeti(g_state, objects, index + 1);
         if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+        // **El toc que esperava el final del dit és ara un cursor** (0.88.0): una caixa amb el gest registrat no mou el
+        // cursor en baixar —el dit encara pot ser un swipe— i, si el dit no s'ha mogut prou, el cursor hi va al deixar
+        // anar. És el mateix cursor i la mateixa presentació que un toc sense gest (docs/30, docs/90).
+        if (g_ui_swipe_tap_armed) {
+          if (ui_set_field_number(g_state, -1, "cursor", g_ui_swipe_tap)) ui_invalidate(g_state, -1);
+          ui_draw_and_present("gld16");
+        }
         lua_pop(g_state, 1);
         if (g_ui_touch_inside) ui_activate(g_state, count, objects, index);
       }
       g_ui_touch_slot = -1;
       g_ui_touch_generation = 0;
       g_ui_touch_inside = false;
+      g_ui_swipe_tap_armed = false;
+      g_ui_swipe_moved = false;
+      g_ui_swipe_rest = 0;
     }
     lua_settop(g_state, top);
     return;
@@ -8887,6 +9025,44 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
 
   if (g_ui_touch_slot >= 0) {
     const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
+    // **El dit que camina per una caixa amb gest mou la finestra** (0.88.0): les files que ha recorregut es paguen una a
+    // una, i el gest és del sistema —el cursor de la caixa i la barra són el mateix número— mentre que l'app només el
+    // registra i el sent. Un dit que no arriba a moure una fila sencera no gasta res: els píxels queden per al següent
+    // (docs/30, docs/90).
+    if (index >= 0 && (g_ui_swipe_tap_armed || g_ui_swipe_moved)) {
+      const int32_t travel = static_cast<int32_t>(y) - static_cast<int32_t>(g_ui_swipe_y);
+      g_ui_swipe_y = y;
+      const int32_t rest = static_cast<int32_t>(g_ui_swipe_rest) + travel;
+      g_ui_swipe_rest = static_cast<int16_t>((rest > 32767) ? 32767 : ((rest < -32767) ? -32767 : rest));
+      if (!g_ui_swipe_moved) {
+        const int32_t moved = static_cast<int32_t>(y) - static_cast<int32_t>(g_ui_swipe_y0);
+        if (moved >= kSwipeSlop || moved <= -kSwipeSlop) {
+          // The finger is a swipe and not a tap: the caret it would have put is dropped, and it stays dropped even if
+          // the finger comes back, because a gesture that ends where it began is still a gesture (docs/90).
+          g_ui_swipe_moved = true;
+          g_ui_swipe_tap_armed = false;
+        }
+      }
+      if (g_ui_swipe_moved && g_ui_ops.textbox_multiline_line != nullptr) {
+        lua_rawgeti(g_state, objects, index + 1);
+        LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(g_state, -1, kCanvasMeta));
+        const lua_Integer scale = ui_field_number(g_state, -1, "scale", 3);
+        const int32_t line = g_ui_ops.textbox_multiline_line(canvas->slot,
+                                                             static_cast<uint8_t>((scale < 1) ? 1 : scale));
+        if (line > 0) {
+          // **El signe és el del dit**: un dit que puja ensenya el que hi ha més avall, que és el que fa un full de
+          // paper quan el gires cap amunt (docs/90).
+          const int32_t rows = -static_cast<int32_t>(g_ui_swipe_rest) / line;
+          if (rows != 0) {
+            g_ui_swipe_rest = static_cast<int16_t>(static_cast<int32_t>(g_ui_swipe_rest) + rows * line);
+            ui_swipe_by(-1, static_cast<int>(rows));
+          }
+        }
+        lua_pop(g_state, 1);
+      }
+      lua_settop(g_state, top);
+      return;
+    }
     const bool inside =
         index >= 0 && x >= targets[index].x && y >= targets[index].y &&
         x < targets[index].x + targets[index].w && y < targets[index].y + targets[index].h;
@@ -9025,10 +9201,28 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       const lua_Integer cursor = ui_field_number(g_state, base, "cursor", 0);
       const lua_Integer scale = ui_field_number(g_state, base, "scale", 3);
       const bool wrap = ui_field_bool(g_state, base, "wrap", false);
+      const lua_Integer top = ui_field_number(g_state, base, "top", -1);
       const uint16_t at = g_ui_ops.textbox_multiline_hit(
           targets[hit].slot, lines, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap,
           static_cast<uint8_t>((scale < 1) ? 1 : scale), static_cast<uint16_t>(x - targets[hit].x),
-          static_cast<uint16_t>(y - targets[hit].y));
+          static_cast<uint16_t>(y - targets[hit].y),
+          static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)));
+      // **Una caixa que ha registrat el gest no mou el cursor en baixar** (0.88.0): el dit que ha tocat la lletra i el
+      // que està començant un swipe són el mateix en aquest moment, i el cursor d'un toc es posa al deixar anar —o no es
+      // posa gens si el dit acaba de recórrer mitja pàgina—. El cursor que espera i el començament del gest són del
+      // sistema, i es netegen quan la pàgina entra i quan marxa (docs/30, docs/90).
+      if (ui_swipeable(g_state, base)) {
+        g_ui_swipe_y0 = y;
+        g_ui_swipe_y = y;
+        g_ui_swipe_rest = 0;
+        g_ui_swipe_moved = false;
+        g_ui_swipe_tap = at;
+        g_ui_swipe_tap_armed = true;
+        // The press a finger makes on a box is its own state and not a button's: nothing is held and nothing is painted
+        // as held, so the page keeps the pixels it had until the finger says which of the two it is (docs/90).
+        lua_settop(g_state, top);
+        return;
+      }
       lua_settop(g_state, base);
       lua_getiuservalue(g_state, base, 1);
       if (lua_istable(g_state, -1)) {

@@ -130,6 +130,9 @@ local function load(path)
   doc.dirty = false
   doc.path = path
   doc.pending = true
+  -- **Un fitxer nou comença per dalt**: la finestra que la persona havia moguda al fitxer d'abans no vol dir res en
+  -- aquest, i el cursor torna a la primera fila (0.88.0, docs/30).
+  box.top = -1
   doc.note = 'opened ' .. path
   console.print('editor: opened ' .. path .. ', ' .. #data .. ' bytes')
   return true
@@ -316,11 +319,28 @@ box = ui.textbox_multiline(view.width - 24, view.height - kBarRow - kStatusH - 2
 box.scale = 2
 box.wrap = doc.wrap
 box:place(12, kBarRow + 8)
+-- **El dit que recorre la caixa mou la finestra i la barra del cantó dret**: l'app registra el gest amb `on_swipe` i el
+-- sistema fa l'aritmètica —escriu el `top` de la caixa i presenta la pàgina—, i aquí només queda dir on és la persona
+-- dins del fitxer, que és el que la línia de sota la pàgina pot fer (0.88.0, docs/30, docs/90). Sense aquesta funció una
+-- caixa no té cap gest: el dit hi posa el cursor i prou, i un swipe no mou res.
+box.on_swipe = function(self, rows)
+  if rows == nil or rows == 0 then return end
+  -- **La fila on és la finestra, amb les dues xifres que la barra ensenya**: el sistema ja ha escrit `top`, o sigui que
+  -- la persona pot llegir on és dins del fitxer sense comptar els píxels del polze (docs/90).
+  local total = self:lines()
+  if total ~= nil and total > 0 and self.top ~= nil and self.top >= 0 then
+    doc.note = 'row ' .. (self.top + 1) .. ' of ' .. total
+  end
+  say()
+end
 box.on_change = function(self, text)
   doc.text = text
   doc.cursor = self.cursor
   doc.dirty = true
   doc.note = ''
+  -- **Escriure torna la finestra al cursor**: la caixa segueix el cursor mentre ningú no l'ha moguda, i qui ha mogut la
+  -- barra i tot seguit escriu vol veure el que escriu (0.88.0, docs/30).
+  self.top = -1
   -- **The letters of the page go to the glass with a wash that cleans and does not blink**: a `du` leaves a third of
   -- the ink it finds and the text of the key before stays under the new one (docs/50, docs/92).
   say()

@@ -557,10 +557,17 @@ struct UIOps {
   // **A box of several lines** (docs/30, docs/90): the window that keeps the caret on the glass, the caret as a block
   // with the letter under it in paper, where a point of the box puts the caret, and how many rows the box shows.
   bool (*textbox_multiline_draw)(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap,
-                                 uint8_t color, uint8_t background, uint8_t border, uint8_t scale);
+                                 uint8_t color, uint8_t background, uint8_t border, uint8_t scale, int16_t top);
   uint16_t (*textbox_multiline_hit)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
-                                    uint16_t x, uint16_t y);
+                                    uint16_t x, uint16_t y, int16_t top);
   uint8_t (*textbox_multiline_rows)(int8_t slot, uint8_t scale);
+  // **La barra del desplaçament** (0.88.0): quantes files té el text sencer, quants píxels fa una fila i on queda la
+  // finestra quan el dit la mou de `rows` files, que és el que el gest d'un `on_swipe` necessita i el que una app vol
+  // per dir «fila 12 de 40» (docs/30, docs/90).
+  uint16_t (*textbox_multiline_total)(int8_t slot, const char* text, bool wrap, uint8_t scale);
+  uint8_t (*textbox_multiline_line)(int8_t slot, uint8_t scale);
+  uint16_t (*textbox_multiline_scroll)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                                       int16_t top, int16_t rows);
   // **A selector** (docs/30, docs/90): a field with the question in the dim tone and the answer in the ink, and the
   // column of the triangle on its right, which is the door. **The value is a word the app resolves** —the chosen option
   // or the one it says "nothing" with— so a field that shows "Hora  09:30" costs one string and not a list, and the only

@@ -822,7 +822,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0) |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
-| `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `color`, `background`, `border` i `scale`, i **`box:rows()`** diu quantes files s'hi veuen. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0) |
+| `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border` i `scale`; **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
 | `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0) |
@@ -1147,6 +1147,7 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 | `button.on_click(self)` | El clic del centre o d'un dit a sobre. Si existeix, és el que es crida |
 | `button.on_activate(self)` | El mateix clic quan no hi ha `on_click`; és el nom genèric per a un control que no és un botó |
 | `button.on_focus(self, focused)` | Quan el dial o el tàctil mouen el focus: arriba (`true`) o se'n va (`false`). El primer control d'una pàgina ja neix enfocat, i per això el seu `on_focus` no es crida en crear-lo |
+| `box.on_swipe(self, rows)` | **El gest d'una caixa de diverses línies** (0.88.0): un dit que recorre la caixa mou la finestra `rows` files —el sistema escriu `top` i presenta la pàgina— i l'app ho sent aquí, per dir on és dins del fitxer. Registrar-lo és el que encén el gest: sense aquesta funció el dit hi posa el cursor i no hi ha swipe |
 
 - **Una cara de bits és de setze per setze, i una taula es pot fer d'una font de debò** (2/11, 0.55.0). La cel·la
   era de vuit per vuit —el que demanava una 5 × 7 doblada— i ara és de **setze per setze amb dues bytes per
@@ -1752,7 +1753,34 @@ El que canvia és què fa amb un text que no hi cap.
   presenta sola amb `gld16` (que neteja i no fa cap flaix) i el cursor del lloc d'abans no es queda al vidre.
 - **Retorn escriu un salt de línia i no acaba l'edició**, que és el que fa en un camp d'una línia (`on_enter`). El text
   arriba sencer a `on_change(self, text)` després de cada tecla, i **`box:rows()`** diu quantes files s'hi veuen, preguntat
-  a la mateixa aritmètica del dibuix.
+  a la mateixa aritmètica del dibuix. **`box:lines()`** diu quantes files té el text sencer, que és el que una app vol
+  per dir «fila 12 de 40» a la seva línia d'estat (0.88.0).
+
+#### La barra del desplaçament i el gest (0.88.0)
+
+**Quan el text no cap a la caixa, el cantó dret és una barra**: una pista d'un píxel de tinta amb un polze a dins, tan
+llarg com la part del text que es veu, que camina pel que queda de pista segons la primera fila que es mostra. Dues
+coses i no tres: la pista diu quant text hi ha i el polze on és la persona. **El text no passa mai per sota de la barra**
+—la finestra es mesura amb el lloc que queda, i això el que fa és partir les línies llargues una mica abans—, i una
+caixa on el text hi cap no en té, de barra (docs/90).
+
+- **`top` és la primera fila que es veu i `-1` vol dir «la que demani el cursor»**: amb `-1` la caixa es comporta com
+  sempre, i una app que escriu un número mana sobre el cursor, que és el que fa que una barra moguda pel dit no torni a
+  la fila del cursor a la pintada següent. La caixa **cedeix `top` als límits del text**: una app no ha de saber quantes
+  files hi ha per moure la finestra.
+- **El gest el registra l'app** amb `box.on_swipe = function(self, rows) end`. Sense aquesta funció la caixa no té cap
+  gest i el dit hi posa el cursor com sempre: un swipe sobre una caixa que ningú no ha preparat no ha de fer res.
+- **El sistema fa l'aritmètica i pinta**: un dit que recorre la caixa paga una fila cada catorze píxels (els que fa una
+  fila, que és el que diu `box`), escriu el `top` nou, presenta la pàgina amb `gld16` i llavors crida `on_swipe` amb les
+  files que ha mogut —positives cap al final del text, negatives cap al principi—. Els píxels que no arriben a una fila
+  es guarden per al moviment següent, o sigui que un dit lent no perd el que ha recorregut.
+- **Un toc i un swipe no es confonen**: amb el gest registrat, el cursor **no** es mou en baixar el dit —encara pot ser un
+  swipe— i es posa al lloc tocat quan el dit deixa anar sense haver-se mogut més de dotze píxels. Un dit que ha caminat
+  prou ja no deixa cursor encara que torni al punt de sortida.
+- **El gest és de la pàgina i no del sistema**: el començament del dit, els píxels que falten i el cursor que espera es
+  netegen quan la pàgina entra i quan marxa, o sigui que una app que s'acaba amb el dit a sobre no deixa cap gest a mitges
+  a la que ve després —la pressa de la segona és una pressa nova—. El `top` que el sistema ha escrit tampoc no viatja:
+  les caixes són de la pàgina (docs/30, docs/90).
 
 ```lua
 local box = ui.textbox_multiline(500, 300)
@@ -1761,7 +1789,9 @@ box.scale = 2
 box.wrap = true
 box.text = 'Notes\n\nThe enter key starts a new line here.'
 box.cursor = 0
-console.print('rows ' .. box:rows())
+console.print('rows ' .. box:rows() .. ' of ' .. box:lines())
+-- The finger scrolls the box and the bar says where in the text it is; written here, that is a setting of the page.
+box.on_swipe = function(self, rows) console.print('moved ' .. rows .. ' to ' .. tostring(self.top)) end
 local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
