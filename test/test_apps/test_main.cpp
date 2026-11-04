@@ -1226,6 +1226,14 @@ void test_an_app_installed_on_the_card_is_the_one_that_runs(void) {
   pump_captured(20, g_out, sizeof(g_out), "apps");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Card twice"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "Flash twice"), g_out);
+  // **I diu que és la de la targeta** (0.87.1): el mateix id pot ser als dos discs, i qui prova una versió ha de poder
+  // llegir quina de les dues li ensenya el llistat (docs/40, docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[card]"), g_out);
+
+  // **Una app que no hi és diu on s'ha buscat** (0.87.1): els dos discs sencers i no l'àlies de la flash (docs/40).
+  TEST_ASSERT_TRUE(run_captured("run nadie_ha_vist_aquesta", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /littlefs/apps and /sd/apps"), g_out);
   TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
@@ -1242,6 +1250,23 @@ void test_an_app_installed_on_the_card_is_the_one_that_runs(void) {
   storage->remove("/apps/twice/app.lua");
   storage->remove("/apps/twice/manifest.json");
   storage->remove("/apps/twice");
+}
+
+// **Una placa sense targeta no engega cap volta pel buit** (0.87.1): la cerca és `/littlefs/apps` i prou, i una app
+// que no hi és nomena un disc —i diu que el segon no hi és— en comptes de dos (docs/40, docs/50, docs/70).
+void test_a_board_with_no_card_looks_only_in_the_flash(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.sd_dir = nullptr;
+  emu::set_options(opts);
+  kernel::vfs::init(hal::platform());
+  kernel::cfg::boot(hal::platform());
+  TEST_ASSERT_NULL(hal::platform().storage("/sd"));
+  TEST_ASSERT_FALSE(kernel::apps::card_here());
+
+  TEST_ASSERT_TRUE(run_captured("run nadie_ha_vist_aquesta", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /littlefs/apps, and there is no card in the slot"), g_out);
 }
 
 // **The faces of the disk are one area for every app** (3/11): `/fonts` is the disk's `res/fonts/`
@@ -5504,6 +5529,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
   RUN_TEST(test_an_app_installed_on_the_card_is_the_one_that_runs);
+  RUN_TEST(test_a_board_with_no_card_looks_only_in_the_flash);
   RUN_TEST(test_the_faces_of_the_disk_are_at_fonts_for_every_app);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
   RUN_TEST(test_the_battery_curve_falls_and_is_clamped);

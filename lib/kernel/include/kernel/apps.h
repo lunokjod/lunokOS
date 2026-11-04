@@ -28,6 +28,9 @@ struct Entry {
   // still an app of the disk —`apps` lists it and says what it needs— but it is not
   // one this board can run (docs/40).
   bool works_here;
+  // **The card is the one that answered** (0.87.1): the same id may sit on both disks and the card is the copy that
+  // runs, so the listing says which of the two it read (docs/40).
+  bool on_card;
 };
 
 // True when the app says it runs on this board: because it names the board itself
@@ -42,6 +45,18 @@ typedef bool (*Visitor)(const Entry& entry, void* context);
 // persona amb `repo install`. Una app de la targeta **mana sobre la de la flash** —el mateix id instal·lat a la
 // targeta és el que s'executa, i treure la targeta torna la de la flash—, i el disc que no hi és no compta
 // (docs/40, docs/70).
+//
+// **Les dues bandes i la porta** (0.87.1): la flash és `/littlefs/apps` i la targeta `/sd/apps` —els camins sencers
+// que el `run` i un missatge d'error ensenyen—, i `/apps` és la porta de la flash per on una persona i el `res/`
+// d'una app hi arriben: la unitat `/littlefs` sencera no és d'una app (docs/30, docs/70).
+extern const char kFlashRoot[];
+extern const char kCardRoot[];
+extern const char kFlashDoor[];
+
+// **Si hi ha targeta al slot**: ho diu el muntatge i no una carpeta, perquè una targeta que el sistema no ha pogut
+// muntar no és un lloc on buscar-hi res (docs/50, docs/70).
+bool card_here();
+
 bool root_of(const char* id, char* out, size_t cap);
 
 // Walks the app roots and loads one manifest at a time. When only_id is not null it stops

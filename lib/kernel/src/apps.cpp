@@ -9,6 +9,18 @@
 
 namespace kernel {
 namespace apps {
+
+// **The two disks apps live on** (0.87.1): the flash, where the firmware puts them, and the card, where a person puts
+// them with `repo install`. The walk and the messages of the shell name them **whole**, because a person who is
+// looking for an app has to know which disk was read, and a path typed in four places is a path that drifts
+// (docs/40, docs/70).
+const char kFlashRoot[] = "/littlefs/apps";
+const char kCardRoot[] = "/sd/apps";
+// **La porta de la flash és `/apps` i no la unitat** (docs/70): una app llegeix el seu `res/` per aquest àlies —el
+// `/littlefs` sencer és el disc del sistema i li respon `E_INVAL`—, o sigui que el camí d'una app és la porta i el
+// disc és el que un missatge ensenya (docs/30, docs/70).
+const char kFlashDoor[] = "/apps";
+
 namespace {
 
 // A manifest is small by definition; anything bigger is not a manifest.
@@ -19,8 +31,8 @@ const size_t kManifestCap = 1024;
 static_assert(sizeof(Entry::boards[0]) == lunok::json::kStringItemCap,
               "board names have to be the same width in the manifest and the entry");
 
-// **The path of one file of an app, given the drive it lives on** (`/apps` or `/sd/apps`): a walk already knows
-// which one it is listing, so the card is not asked twice for the same app (docs/40, docs/70).
+// **The path of one file of an app, given the disk it lives on** (`/littlefs/apps` or `/sd/apps`): a walk already
+// knows which one it is listing, so the card is not asked twice for the same app (docs/40, docs/70).
 bool under_root(char* out, size_t cap, const char* base, const char* id, const char* tail) {
   const int written = snprintf(out, cap, "%s/%s%s", base, id, tail);
   return written > 0 && static_cast<size_t>(written) < cap;
@@ -143,6 +155,7 @@ class WalkSink : public hal::ListSink {
 
     Entry loaded;
     if (!load(base_, entry.name, loaded)) return true;
+    loaded.on_card = strcmp(base_, kCardRoot) == 0;
     remember(entry.name);
     ++visited_;
     if (!visitor_(loaded, context_)) return false;
@@ -174,7 +187,7 @@ class WalkSink : public hal::ListSink {
   Visitor visitor_;
   void* context_;
   uint32_t visited_;
-  const char* base_ = "/apps";
+  const char* base_ = kFlashDoor;
   char seen_[kSeen][sizeof(Entry::id)];
   uint8_t seen_count_ = 0;
 };
@@ -197,27 +210,38 @@ bool compatible(const Entry& entry, const char* board_id, const char* family) {
   return false;
 }
 
+// **Si hi ha targeta al slot**: la fila del muntatge és la que ho diu —una targeta que el sistema no ha pogut muntar
+// no és un lloc on anar a buscar-hi res—, i per això la pregunta es fa al VFS i no a una carpeta (docs/50, docs/70).
+bool card_here() {
+  hal::IStorage* storage = nullptr;
+  char rel[4];
+  return vfs::resolve("/sd", storage, rel, sizeof(rel));
+}
+
 uint32_t for_each(const char* only_id, Visitor visitor, void* context) {
   if (visitor == nullptr) return 0;
   // **The card first and the flash after it** (0.86.0): an app installed on the card is the one that runs, and the
-  // ones the flash has that the card does not are visited all the same. A drive that is not mounted is an empty
-  // list and not an error, and a folder of the card that is not an app is skipped by `load` (docs/40, docs/70).
+  // ones the flash has that the card does not are visited all the same. **The card is walked only when it is in the
+  // slot** (0.87.1), and a folder of either disk that is not an app is skipped by `load` (docs/40, docs/70).
   WalkSink sink(only_id, visitor, context);
-  sink.set_base("/sd/apps");
-  vfs::list("/sd/apps", sink);
-  if (only_id != nullptr && sink.visited() > 0) return sink.visited();
-  sink.set_base("/apps");
-  if (!vfs::list("/apps", sink)) {
-    log_printf(pal::kLogWarn, "APPS", "cannot list /apps");
+  if (card_here()) {
+    sink.set_base(kCardRoot);
+    vfs::list(kCardRoot, sink);
+    if (only_id != nullptr && sink.visited() > 0) return sink.visited();
+  }
+  sink.set_base(kFlashRoot);
+  if (!vfs::list(kFlashRoot, sink)) {
+    log_printf(pal::kLogWarn, "APPS", "cannot list %s", kFlashRoot);
   }
   return sink.visited();
 }
 
-// **On viu una app, si és que hi viu** (0.86.0): la targeta primer, la flash després, i per a una app que no hi és
-// el camí de la flash, que és el que un missatge d'error ha d'ensenyar (docs/40, docs/70).
+// **On viu una app, si és que hi viu** (0.86.0): la targeta primer —si hi és— i la flash després, i per a una app que
+// no hi és el camí de la flash, que és el que la porta d'un `res/` i una escriptura han d'ensenyar. El que respon és
+// **la porta** (`/apps/<id>`) i no el disc: els discs sencers són el que un missatge diu (0.87.1, docs/40, docs/70).
 bool root_of(const char* id, char* out, size_t cap) {
   if (id == nullptr || id[0] == '\0' || out == nullptr || cap == 0) return false;
-  const char* base = has_manifest("/sd/apps", id) ? "/sd/apps" : "/apps";
+  const char* base = (card_here() && has_manifest(kCardRoot, id)) ? kCardRoot : kFlashDoor;
   return under_root(out, cap, base, id, "");
 }
 

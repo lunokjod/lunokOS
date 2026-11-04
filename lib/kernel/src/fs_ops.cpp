@@ -25,7 +25,9 @@ namespace {
 const char kData[] = "/data";
 const char kCfg[] = "/cfg";
 const char kRes[] = "/res";
-const char kApps[] = "/apps";
+// **La porta de les apps de la flash** (0.87.1): el camí que `apps::root_of` respon i pel qual una app llegeix el
+// seu `res/` —`/littlefs` sencer és el disc del sistema i no és d'una app— (docs/40, docs/70).
+const char* const kApps = apps::kFlashDoor;
 const char kFonts[] = "/fonts";
 const char kSd[] = "/sd";
 const char kRtc[] = "/rtc";

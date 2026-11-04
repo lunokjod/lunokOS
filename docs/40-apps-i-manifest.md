@@ -34,10 +34,25 @@ instal·lar una app que ja ve al firmware sigui una actualització i no un no-re
 targeta un lloc on provar coses sense tocar la flash. Un id que només és en un dels dos discs es
 troba igualment.
 
+**La targeta només es camina si hi és** (0.87.1): la pregunta és al muntatge de `/sd` i no a una
+carpeta, o sigui que una placa sense targeta —o amb una que el sistema no ha pogut muntar— no paga
+cap volta pel buit i el llistat no pot ensenyar un disc que no hi és. **I el llistat diu de quin disc
+ve cada app de la targeta** (`[card]` al costat del títol): el mateix id pot ser als dos, i qui prova
+una versió ha de poder llegir quina de les dues li ensenya. Una app que no es troba diu **on s'ha
+buscat**, amb els dos camins sencers:
+
+```
+lunok> run timerss
+no such app: timerss
+  apps are in /littlefs/apps and /sd/apps
+```
+
 El camí d'una app és el que diu **`apps::root_of()`** i no una constant: el llistat, el `run` i la
 porta de `res/` pregunten el mateix, o sigui que una app de la targeta llegeix el seu `res/` de la
-targeta i una de la flash el seu de la flash. Una app que no és enlloc té el camí de la flash, que és
-el que un missatge d'error ha d'ensenyar (docs/70).
+targeta i una de la flash el seu de la flash. El que respon és **la porta** i no el disc —`/apps/<id>`
+per a una app de la flash i `/sd/apps/<id>` per a una de la targeta—, perquè `/apps` és el camí pel
+qual una app llegeix el que porta i `/littlefs` sencer és el disc del sistema, que no és d'una app
+(docs/70). Els **discs** sencers, `/littlefs/apps` i `/sd/apps`, són el que un missatge ensenya.
 
 **`repo install <app> [owner/repo]`** baixa el directori sencer de l'app —el manifest, el codi i el
 que porti a `res/`, carpetes incloses— al disc que la persona ha triat amb `cfg`: la targeta amb
@@ -107,8 +122,8 @@ Regles de validació, totes amb error clar i el nom del camp:
 ## L'escaneig
 
 No hi ha cap registre d'apps desat i **no hi ha cap límit d'apps**: quan algú demana la llista
-(`apps`, `ls`, `run <id>`), es torna a llegir `/apps`, un directori a la vegada. Una app nova la veu
-la petició següent, sense reiniciar.
+(`apps`, `ls`, `run <id>`), es torna a llegir `/sd/apps` i `/littlefs/apps`, un directori a la
+vegada. Una app nova la veu la petició següent, sense reiniciar.
 
 - El manifest es llegeix amb un **sostre** (1 KB) i se n'extreuen només les claus que el sistema
   necessita. No es construeix cap arbre JSON: `75 · Pressupost de memòria` ho prohibeix.
@@ -255,7 +270,7 @@ res més.
 | Via | Estat |
 |---|---|
 | `pio run -e atom -t uploadfs` (imatge de `data/`) | És la via de la v1 |
-| Copiar el directori a `/sd/apps/` | **No es pot**: el Paper munta la targeta a `/sd` (docs/50), però les apps només es busquen a `/littlefs/apps` |
+| Copiar el directori a `/sd/apps/` | Sí: el Paper munta la targeta a `/sd` (docs/50) i `apps` i `run` la busquen abans que la flash (0.86.0) |
 | Baixar-la per Wi-Fi des del prompt | Fora de la v1 |
 
 Desinstal·lar és esborrar el directori. Les alarmes persistents d'una app que ja no hi és es

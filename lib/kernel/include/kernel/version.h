@@ -1075,7 +1075,15 @@ namespace kernel {
 // `/data/editor/note.txt` es veia com `/data/editor/not` amb el cursor sol a la dreta); i la targeta d'un camí **desa a
 // la memòria de l'app** (`/data/editor`) o al camí que el prompt ha nomenat, que és la política de docs/70 i no una
 // porta nova (docs/30, docs/70, docs/90).
-static const char kVersion[] = "0.87.0";
+// 0.87.1 (4/11): **les apps es busquen on són, i ho diuen**. Les dues bandes tenen el camí sencer en un sol lloc de
+// codi —`/littlefs/apps` i `/sd/apps`— i no l'àlies `/apps` que hi havia escampat, **la targeta només es camina si el
+// muntatge de `/sd` hi és** (una placa sense targeta no paga una volta pel buit ni pot ensenyar un disc que no hi ha),
+// i el llistat marca amb **[card]** l'app que ha sortit de la targeta, perquè el mateix id pot ser als dos discs i qui
+// prova una versió ha de poder llegir quina de les dues veu. Una app que no es troba diu on s'ha buscat, amb els dos
+// camins: `no such app: x` i a sota `apps are in /littlefs/apps and /sd/apps` (o que no hi ha targeta al slot). El
+// camí que respon `apps::root_of()` continua sent **la porta** —`/apps/<id>` a la flash, `/sd/apps/<id>` a la
+// targeta—, que és per on una app llegeix el seu `res/` sense que `/littlefs` sencer sigui seu (docs/40, docs/70).
+static const char kVersion[] = "0.87.1";
 
 }  // namespace kernel
 

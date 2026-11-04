@@ -14,8 +14,9 @@ la bateria.
 - La partició es diu **`littlefs`** a `partitions.csv`, i el backend la busca **per aquesta etiqueta**:
   si no se li diu el nom, el core busca un nom per defecte que no és el nostre i falla amb «partition
   could not be found». Passar el nom explícitament és el que fa que munti.
-- Tot seguit **escaneja `/apps/*/manifest.json`** quan algú demana la llista, i el que hi troba és el
-  que responen les comandes (`apps`, `ls`, `cat` i `run`).
+- Tot seguit **escaneja `/sd/apps/*/manifest.json` i `/littlefs/apps/*/manifest.json`** quan algú
+  demana la llista —la targeta primer i només si hi és—, i el que hi troba és el que responen les
+  comandes (`apps`, `ls`, `cat` i `run`).
 
 A la taula de particions de 4 MB, `/littlefs` té **1 408 KB**: comença a `0x290000` i fa `0x160000`
 bytes (1 441 792 B), i l'aplicació es queda `0x280000` bytes a `0x10000`. Els 64 KB del final
@@ -272,8 +273,9 @@ altre camí que no és seu.
 Tres coses que això compra:
 
 - **Els recursos viatgen amb l'app**: `res/` viu dins del directori de l'app (`apps/<id>/res/`) i se
-  n'emporta amb ella. Un `res/` compartit al disc no pot anar amb ningú. Avui les apps només surten de
-  `/littlefs/apps`: copiar-ne una a `/sd/apps/` no la fa arrencar (docs/40).
+  n'emporta amb ella. Un `res/` compartit al disc no pot anar amb ningú, i l'app el llegeix **del
+  disc del qual surt**: de `/littlefs/apps/<id>/res/` quan ve del firmware i de `/sd/apps/<id>/res/`
+  quan ve de la targeta (0.86.0, docs/40).
 - **Dos apps poden tenir el mateix nom de fitxer** sense trepitjar-se, perquè cadascuna té el seu.
 - **El camí que escriu l'app no porta el seu id dins**, que és el que fa que una app es pugui copiar
   d'un disc a un altre sense canviar-ne el codi.

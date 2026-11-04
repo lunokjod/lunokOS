@@ -351,7 +351,7 @@ void print_help() {
   help_line("  version           version and board");
   help_line("  caps              what this board has");
   help_line("  mem               free memory and buffers");
-  help_line("  apps              the apps in /apps");
+  help_line("  apps              the apps of the flash and of the card");
   help_line("  mounts            the mounted file systems and their room");
   help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept");
   help_line("  run <id> [path]   run an app, optionally pointed at a file");
@@ -496,6 +496,14 @@ bool print_app(const apps::Entry& entry, void* context) {
   colour_off();
   spaces((version_len < 10) ? (10 - version_len) : 1);
   out(entry.title);
+  // **The app of the card says so** (0.87.1): the same id may sit on the flash and on the card, and the card is the
+  // one that runs, so a person who is trying a version has to be able to read which of the two the list is showing
+  // (docs/40, docs/70).
+  if (entry.on_card) {
+    colour(kColourDim);
+    out("  [card]");
+    colour_off();
+  }
   // An app of another board is not hidden: it says so, with the boards it wants, so
   // that a person does not have to guess where it went (docs/40).
   if (!entry.works_here) {
@@ -995,6 +1003,17 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   if (!target.found) {
     error_out("no such app: ");
     out(id);
+    newline();
+    // **On s'ha buscat, dit amb els dos camins sencers** (0.87.1): una app viu a la flash i a la targeta, i qui no la
+    // troba ha de saber on mirar abans de dubtar del nom que ha escrit (docs/40, docs/70).
+    out("  apps are in ");
+    out(apps::kFlashRoot);
+    if (apps::card_here()) {
+      out(" and ");
+      out(apps::kCardRoot);
+    } else {
+      out(", and there is no card in the slot");
+    }
     newline();
     return false;
   }
