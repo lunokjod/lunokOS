@@ -1392,6 +1392,12 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
 
   // **The page above the band is the page's**: a finger there is not the keyboard's.
   TEST_ASSERT_FALSE(ui::keyboard_touch(48, top - 1, true));
+  // **A present with nothing pressed does not paint the band** (0.83.1): it is painted on the canvas because it is the
+  // top layer, and what reaches the glass is only what changed of it —a keyboard that marks its nine thousand pixels on
+  // every present is a keyboard that flashes on every blink of the caret of the box it types into— (docs/50, docs/90).
+  const uint32_t painted = glass().paint_count();
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(painted, glass().paint_count(), "a present with nothing pressed painted the band");
   // And a key is the dial's too: it walks the first row before anything else, and the centre presses what it is on.
   TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
   TEST_ASSERT_TRUE(ui::present());
@@ -1443,6 +1449,12 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
     }
   }
   TEST_ASSERT_EQUAL_INT_MESSAGE(lower, again, "a letter did not put the shift out");
+
+  // **The walk of the dial is one paint of the cells it moves between** (0.83.1), and the rest of the band is left alone.
+  const uint32_t walked = glass().paint_count();
+  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(walked + 1, glass().paint_count(), "a walk of the dial painted more than once");
 
   // **The digits are the other alphabet and the same band**: four rows, because a page laid out around a band of
   // a hundred and seventy-six does not move when the digits come (docs/90).

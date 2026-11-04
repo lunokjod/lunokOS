@@ -4602,14 +4602,68 @@ void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, 
   }
 }
 
-// **The band and nothing else**: a key that changes the case of the keyboard is a repaint of the band, and
-// the page under it has not moved (docs/90).
-void invalidate_band() {
-  const Canvas& view = root();
+// **What of the band changed, and nothing else** (0.83.1): a letter typed does not change a pixel of the band, and
+// marking the whole band on every `present` is a keyboard that **flashes on every blink of the caret** of the box it is
+// typing into —the app presents every six hundred milliseconds and did not touch a key— (found on the bench, 4/11,
+// docs/90). The rect is in the view's coordinates and empty when the band has not changed since it was painted.
+int32_t g_kbd_dx = 0;
+int32_t g_kbd_dy = 0;
+int32_t g_kbd_dw = 0;
+int32_t g_kbd_dh = 0;
+
+void note_band(int32_t x, int32_t y, int32_t w, int32_t h) {
+  if (w <= 0 || h <= 0) return;
+  if (g_kbd_dw <= 0 || g_kbd_dh <= 0) {
+    g_kbd_dx = x;
+    g_kbd_dy = y;
+    g_kbd_dw = w;
+    g_kbd_dh = h;
+    return;
+  }
+  const int32_t x1 = ((x + w) > (g_kbd_dx + g_kbd_dw)) ? (x + w) : (g_kbd_dx + g_kbd_dw);
+  const int32_t y1 = ((y + h) > (g_kbd_dy + g_kbd_dh)) ? (y + h) : (g_kbd_dy + g_kbd_dh);
+  if (x < g_kbd_dx) g_kbd_dx = x;
+  if (y < g_kbd_dy) g_kbd_dy = y;
+  g_kbd_dw = x1 - g_kbd_dx;
+  g_kbd_dh = y1 - g_kbd_dy;
+}
+
+// **What is pending on the glass before the band touches it, kept aside and given back**: the band is painted on the
+// canvas at every present —it is the top layer and has to be there— and none of that paint is a reason to refresh the
+// glass. Only the union of what truly changed goes out, and it is `note_band`'s (docs/50, docs/90).
+struct DamageKeep {
+  uint8_t count = 0;
+  Damage region[kMaxDamage];
+
+  void take(Canvas& canvas) {
+    count = canvas.damage_count;
+    if (count > kMaxDamage) count = kMaxDamage;
+    for (uint8_t i = 0; i < count; ++i) region[i] = canvas.damage[i];
+  }
+
+  void give_back(Canvas& canvas) {
+    canvas.damage_count = count;
+    for (uint8_t i = 0; i < count; ++i) canvas.damage[i] = region[i];
+  }
+};
+
+void note_the_whole_band() {
   const int32_t top = band_top();
   if (top < 0) return;
-  const int32_t height = static_cast<int32_t>(view.height) - top;
-  invalidate_rect(0, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(height));
+  note_band(0, top, static_cast<int32_t>(root().width), static_cast<int32_t>(root().height) - top);
+}
+
+// The cell of a key of the layout that is on the glass now, which is the rect a chosen key moves between.
+void note_cell(int8_t row, int8_t key) {
+  if (!g_kbd_shown || g_kbd_key_h == 0) return;
+  const LayoutDef& layout = layout_of(g_kbd_kind);
+  if (row < 0 || row >= static_cast<int8_t>(layout.count)) return;
+  const RowDef& def = layout.rows[row];
+  if (key < 0 || key >= static_cast<int8_t>(def.count)) return;
+  int32_t x = 0;
+  int32_t w = 0;
+  cell_place(def, key, x, w);
+  note_band(x, band_top() + row * static_cast<int32_t>(g_kbd_key_h), w, g_kbd_key_h);
 }
 
 // The flat order of the keys of a layout, which is what the dial walks: row by row, left to right.
@@ -4651,6 +4705,7 @@ bool keyboard_show(uint8_t kind) {
   g_kbd_row = 0;
   g_kbd_key = 0;
   g_kbd_held = false;
+  note_the_whole_band();
   invalidate(0);
   return true;
 }
@@ -4685,6 +4740,8 @@ void keyboard_paint() {
   const font::Face& face = font::system_face();
   const LayoutDef& layout = layout_of(g_kbd_kind);
   const int32_t key_h = static_cast<int32_t>(g_kbd_key_h);
+  DamageKeep keep;
+  keep.take(view);
   const int32_t top = band_top();
   const int32_t band = layout.count * key_h;
   if (top < 0) return;
@@ -4731,8 +4788,14 @@ void keyboard_paint() {
       }
     }
   }
-  // The whole band is one region of damage: a key pressed twice in a row repaints it once (docs/90).
-  mark_box(view, 0, top, view.width, band, mode);
+  keep.give_back(view);
+  // **Only what changed of it goes to the glass**, and with the levels' wash: the band is a picture of nine thousand
+  // pixels and the three keys a finger moves are a tenth of it (docs/50, docs/90).
+  if (g_kbd_dw > 0 && g_kbd_dh > 0) {
+    mark_box(view, g_kbd_dx, g_kbd_dy, g_kbd_dw, g_kbd_dh, mode);
+    g_kbd_dw = 0;
+    g_kbd_dh = 0;
+  }
 }
 
 // **What a key does**: a letter goes to the box as one number —in the case the keyboard is in— and the
@@ -4772,7 +4835,9 @@ void press_key(const KeyDef& key) {
       break;
     }
   }
-  invalidate_band();
+  // **A letter, a space, a backspace or the enter do not change the picture of the band**: the app hears the key and
+  // the box changes, and the band is the same band. The two that change it are the case and the alphabet (docs/90).
+  if (key.action == KeyAction::kShift || key.action == KeyAction::kMode) note_the_whole_band();
 }
 
 // **The key under a point of the view**, which is the cell the paint used: the finger and the glass see the
@@ -4819,8 +4884,10 @@ bool keyboard_touch(uint16_t x, uint16_t y, bool down) {
     return static_cast<int32_t>(y) >= band_top();
   }
   g_kbd_held = true;
+  note_cell(g_kbd_row, g_kbd_key);
   g_kbd_row = row;
   g_kbd_key = index;
+  note_cell(row, index);
   press_key(layout_of(g_kbd_kind).rows[row].keys[index]);
   return true;
 }
@@ -4843,8 +4910,9 @@ bool keyboard_key(const char* kind, uint32_t key_id) {
   const int32_t step = (key_id == 1) ? -1 : 1;
   int32_t next = (flat_index(layout, g_kbd_row, g_kbd_key) + step) % total;
   if (next < 0) next += total;
+  note_cell(g_kbd_row, g_kbd_key);
   flat_place(layout, next, g_kbd_row, g_kbd_key);
-  invalidate_band();
+  note_cell(g_kbd_row, g_kbd_key);
   return true;
 }
 

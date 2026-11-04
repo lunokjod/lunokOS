@@ -952,7 +952,14 @@ namespace kernel {
 // plegats al panell i en sortien com un. Mesurat amb dotze clics de 90 ms sobre una tecla i una tecla premuda 1,8 s:
 // **una lletra abans i deu ara**, i el dit que jeu escriu una lletra i no una ratxa (docs/30, docs/50, docs/85,
 // docs/90).
-static const char kVersion[] = "0.83.0";
+// 0.83.1 (4/11): **el teclat no parpelleja.** `keyboard_paint` marcava la banda sencera a cada `present`, i una app
+// que espera escrivint torna a presentar cada sis-cents mil·lisegons pel cursor de la caixa: el teclat es refrescava
+// sencer a cada parpelleig encara que no s'hi hagués tocat res (vist a la finestra, 4/11). Ara la banda es pinta al
+// llenç —és la capa de sobre i hi ha de ser— i **el que arriba al vidre és només el que ha canviat**: el bloc de la
+// tecla que es mou són dues cel·les i el canvi de joc o de caixa és la banda, i una presentada sense res premut no
+// pinta res. Mesurat a la finestra amb quatre captures seguides: la banda **0 píxels de diferència** entre elles i la
+// caixa 45, que és el cursor (docs/50, docs/90).
+static const char kVersion[] = "0.83.1";
 
 }  // namespace kernel
 

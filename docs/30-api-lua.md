@@ -1492,7 +1492,12 @@ pàgina ja composta, i que **pren el dit i el dial abans que els controls de la 
   pàgina que s'ha col·locat a sobre es mouria en prémer el `123`.
 - **La banda es pinta amb `gl16` i no amb `du`**: un joc nou posa tinta on hi havia les lletres del vell, i una
   actualització ràpida deixa les velles a mig esborrar —dos teclats a la mateixa banda, que és el que es va veure a
-  la banqueta en canviar de joc (0.83.0, docs/50, docs/90). El que costa és la banda i no la pàgina.
+  la banqueta en canviar de joc (0.83.0, docs/50, docs/90).
+- **I només s'envia al vidre el que ha canviat** (0.83.1): la banda es pinta al llenç a cada `present` perquè és la
+  capa de sobre, però una lletra, un espai o un retrocés **no en canvien cap píxel** i no en marquen cap. El bloc de la
+  tecla que es mou són dues cel·les, i el canvi de joc o de caixa és la banda sencera. Sense això el teclat
+  **parpellejava a cada sis-cents mil·lisegons**, que és el que l'app que hi escriu triga a fer parpellejar el cursor
+  de la seva caixa (docs/50, docs/90).
 
 ```lua
 local box = ui.textbox(view.width - 32, 56)
