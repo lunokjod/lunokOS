@@ -150,8 +150,12 @@ def rebuild():
         os.remove(apps_dir)
     elif os.path.isdir(apps_dir):
         shutil.rmtree(apps_dir)
-    os.makedirs(apps_dir)
+    # **A disk that carries no app has no `apps/` folder at all** (0.88.2): the folder is the door `/apps`, and a
+    # door that opens on nothing is what `apps` and `ls /` were showing on the bench. The log says `cannot list`
+    # the day something asks, which is the truth of that disk (docs/70, docs/85).
     apps = wanted_apps()
+    if apps:
+        os.makedirs(apps_dir)
     for app in apps:
         source = os.path.join(APPS_DIR, app)
         target = os.path.join(apps_dir, app)
