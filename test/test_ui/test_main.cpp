@@ -1421,38 +1421,60 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(48 + 10, top + 44 + 10));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(96 + 10, top + 10));
 
-  // **The letters are lowercase until the shift says otherwise, and the shift lets go after one of them**: what a
-  // capital costs is more ink in the cell of the letter and the same cell (docs/30, docs/90).
-  int lower = 0;
-  for (uint16_t x = 192; x < 288; ++x) {
-    for (uint16_t y = top + 4; y < top + 40; ++y) {
-      if (view_level(x, y) == 0) ++lower;
+  // **The capitals are a lock and not a shift**: what a capital costs is more ink in the cell of the letter and the
+  // same cell, the key of the case is lit while it is on, and **a letter does not put it out** —the picture of the
+  // band is the same after a letter, which is the other half of "the keyboard does not repaint on a key"- (docs/30,
+  // docs/90).
+  const auto ink_in = [&](uint16_t x0, uint16_t y0) {
+    int ink = 0;
+    for (uint16_t x = x0; x < x0 + 96; ++x) {
+      for (uint16_t y = y0; y < y0 + 36; ++y) {
+        if (view_level(x, y) == 0) ++ink;
+      }
     }
-  }
+    return ink;
+  };
+  const int lower = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN(0, lower);
-  // The shift is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
+  // The case is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
   TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  int capital = 0;
-  for (uint16_t x = 192; x < 288; ++x) {
-    for (uint16_t y = top + 4; y < top + 40; ++y) {
-      if (view_level(x, y) == 0) ++capital;
-    }
-  }
-  TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the shift did not change the case of the letters");
-  // The shift is lit while it is down, and one letter of the row of `q` puts it out again.
+  const int capital = ink_in(192, top + 4);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the case did not change the letters");
+  // The key is lit while it is on, and the band is painted once for it.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(10, top + 88 + 10));
-  TEST_ASSERT_TRUE(ui::keyboard_touch(20, top + 22, true));
+  // **A letter of the row of `q` does not put it out**, and it does not paint the band either: the capitals stay and
+  // the key stays lit —what a lock is for— (0.84.4).
+  // The dial walks off the case key and onto a letter —the `z` of its row—, which is a move and paints the band once.
+  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
+  TEST_ASSERT_TRUE(ui::present());
+  // **And the centre presses that letter**, which is a letter and not a move: the band's picture is the same one, so the
+  // glass is not refreshed for it (0.84.4).
+  const uint32_t before_the_letter = glass().paint_count();
+  TEST_ASSERT_TRUE(ui::keyboard_key("press", 0));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT_MESSAGE(capital, ink_in(192, top + 4), "a letter put the capitals out");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(10, top + 88 + 10), "the key of the case went out with a letter");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(before_the_letter, glass().paint_count(), "a letter painted the band");
+  // And the key again takes the capitals back.
+  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  int again = 0;
-  for (uint16_t x = 192; x < 288; ++x) {
-    for (uint16_t y = top + 4; y < top + 40; ++y) {
-      if (view_level(x, y) == 0) ++again;
-    }
-  }
-  TEST_ASSERT_EQUAL_INT_MESSAGE(lower, again, "a letter did not put the shift out");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(lower, ink_in(192, top + 4), "the lock did not turn the capitals off");
+
+  // **The band is a picture drawn into the page, and a page that is wiped takes it with it** (0.84.4): `ui.clear` says
+  // so and the next present draws it again —without that, a page that starts again would leave a hole where the
+  // keyboard was, and the app would have to know that the band is not its own— (docs/50, docs/90).
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(0, top));
+  TEST_ASSERT_TRUE(ui::clear(15, nullptr));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, top));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(0, top), "the band did not come back after a clear");
+  // The same with a rectangle the app paints over it, which is the other way a page wipes the band.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, static_cast<uint16_t>(top), 540, 176, 15, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(0, top), "the band did not come back after a rectangle");
 
   // **The walk of the dial is one paint of the cells it moves between** (0.83.1), and the rest of the band is left alone.
   const uint32_t walked = glass().paint_count();

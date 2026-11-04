@@ -997,7 +997,19 @@ namespace kernel {
 // sense eco fins a un `reset`; el PAL del banc instal·la `atexit` en encendre el mode cru i el torna encara que el
 // procés acabi en un `exit` d'una fallada. I l'última espera sense sostre d'una prova —`while (app_running()) poll()`—
 // té el pressupost de torns de les altres (docs/80).
-static const char kVersion[] = "0.84.3";
+// 0.85.0 (4/11): **el teclat, dibuixat de debò.** Les lletres de les tecles eren la taula de 5 × 7 de la barra —la
+// mateixa que diu una hora i una càrrega— escalada, i en una tecla de quaranta-quatre píxels això és una graella de
+// píxels i no una lletra. Ara són **DejaVu Sans Bold de `/fonts`**, que és la cara que tot disc d'aquest sistema porta:
+// `keyboard_face()` la llegeix una vegada a `keyboard_show` (8,5 KB de la memòria extra, els mateixos que paga una
+// pàgina que carrega una cara), la deixa anar a `keyboard_hide`, i si el disc no porta `/fonts` es queda la taula del
+// sistema i ningú no es queda sense teclat. **I cada lletra es dibuixa a doble mida i es rebaixa a quatre nivells de
+// tinta** (`outline_key_text`, `aa_row`): el vidre té setze nivells i la corba d'una `x` és el que fa que no sembli una
+// graella. **La tecla de les majúscules és `MAY` i és un bloqueig**, no el shift d'una lletra: premut es queda premut, i
+// una lletra no el desfà. **I la banda no es repinta en prémer una lletra**: es dibuixa al llenç quan canvia ella
+// —quan surt, quan canvia el bloqueig o l'alfabet— i quan la pàgina la trepitja (`ui.clear`, un rectangle o un píxel, que
+// és el que diu `the_band_may_be_gone`), i res més; el `keyboard_paint` que feia quaranta glifs a cada `present` (i el
+// parpelleig del cursor en fa un cada sis-cents mil·lisegons) és el que costava el dibuix (docs/30, docs/50, docs/90).
+static const char kVersion[] = "0.85.0";
 
 }  // namespace kernel
 

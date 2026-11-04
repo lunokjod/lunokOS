@@ -28,6 +28,10 @@ namespace {
 // needs more of them than this is an app that should compose two into one (docs/90).
 Canvas g_canvases[kMaxControls];
 bool g_attached = false;
+// **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
+// until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
+// not. It lives up here because `clear` is the one that wipes it (docs/50, docs/90).
+bool g_kbd_needs_paint = true;
 // The number the next canvas takes, so an object of an app that points at a slot that was given back
 // never matches the one that took its place (docs/90).
 uint16_t g_generation = 0;
@@ -35,6 +39,9 @@ uint16_t g_generation = 0;
 // The faces an app loaded are given back when the app ends; the table is at the bottom of this file, with
 // the rest of the font work (docs/30).
 void release_faces();
+// **The band of the keyboard is painted into the page** (docs/90), so whatever paints over it leaves a hole where it
+// was: this says whether a rectangle the app drew touches the band, and the band is drawn again at the next present.
+void the_band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
 // The face a handle means, which is the font of the system when the handle is -1 or was given back.
 const font::Face& face_of(int8_t handle);
 
@@ -1332,6 +1339,9 @@ bool clear(uint8_t level, const char* mode) {
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
   draw_clear(root(), level, chosen);
+  // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
+  // present has to put it back (docs/50, docs/90).
+  g_kbd_needs_paint = true;
   return true;
 }
 
@@ -1340,6 +1350,7 @@ bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, co
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
   draw_fill_rect(root(), x, y, w, h, level, chosen);
+  the_band_may_be_gone(x, y, w, h);
   return true;
 }
 
@@ -1355,6 +1366,7 @@ bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
   draw_pixel(root(), x, y, level, chosen);
+  the_band_may_be_gone(x, y, 1, 1);
   return true;
 }
 
@@ -4416,7 +4428,7 @@ namespace {
 // **What a key does**: a letter, or one of the five that are not a letter. There is no empty cell in a
 // layout any more —the old one walked over blanks, and half a keyboard of blanks is a keyboard that looks
 // broken— (docs/90).
-enum class KeyAction : uint8_t { kChar, kShift, kBack, kSpace, kEnter, kMode };
+enum class KeyAction : uint8_t { kChar, kCaps, kBack, kSpace, kEnter, kMode };
 
 // **A key is a label and a share of its row**: `span` counts in twentieths of the width of the view, so a
 // letter is two (a tenth, the unit a finger is measured in), the bar of the space is twelve (six tenths),
@@ -4453,7 +4465,7 @@ const KeyDef kAlphaRow1[] = {
     {"j", KeyAction::kChar, 2}, {"k", KeyAction::kChar, 2}, {"l", KeyAction::kChar, 2},
 };
 const KeyDef kAlphaRow2[] = {
-    {"", KeyAction::kShift, 3}, {"z", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
+    {"MAY", KeyAction::kCaps, 3}, {"z", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
     {"c", KeyAction::kChar, 2}, {"v", KeyAction::kChar, 2}, {"b", KeyAction::kChar, 2},
     {"n", KeyAction::kChar, 2}, {"m", KeyAction::kChar, 2}, {"", KeyAction::kBack, 3},
 };
@@ -4501,6 +4513,8 @@ const uint8_t kRowUnits = 20;
 
 bool g_kbd_shown = false;
 uint8_t g_kbd_kind = kKeyboardAlpha;
+// **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put them
+// back (docs/90).
 bool g_kbd_shift = false;
 int8_t g_kbd_row = 0;
 int8_t g_kbd_key = 0;
@@ -4546,6 +4560,10 @@ const char* label_of(const KeyDef& key, char* buffer, size_t cap) {
     snprintf(buffer, cap, "%s", (g_kbd_kind == kKeyboardNumeric) ? "ABC" : "123");
     return buffer;
   }
+  if (key.action == KeyAction::kCaps) {
+    snprintf(buffer, cap, "%s", (key.label != nullptr) ? key.label : "");
+    return buffer;
+  }
   char letter = (key.label != nullptr) ? key.label[0] : '\0';
   if (g_kbd_shift && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
   buffer[0] = letter;
@@ -4553,10 +4571,143 @@ const char* label_of(const KeyDef& key, char* buffer, size_t cap) {
   return buffer;
 }
 
+// ---- the face of the band: a typeface and not the table of the bar (docs/30, docs/90) ----
+
+// **The letters of the keys are DejaVu Sans Bold from `/fonts`**, the face every disk of this system carries, and the
+// five by seven table of the bar when that file is not there: a table that is right for an hour and a load is not right
+// for a letter a person looks at while typing. The file is nine kilobytes of the extra memory and it is kept while the
+// band is on the glass, the same trade a page makes when it loads a face (docs/30, docs/75).
+const char* const kKeyboardFont = "/fonts/dejavusans-bold.ttf";
+const uint32_t kKeyboardFontBytes = 65536;
+char* g_kbd_font_file = nullptr;
+ttf::Face g_kbd_outline;
+font::Face g_kbd_face;
+bool g_kbd_face_tried = false;
+
+void release_keyboard_face() {
+  if (g_kbd_font_file != nullptr) {
+    void* block = g_kbd_font_file;
+    g_kbd_font_file = nullptr;
+    pal::extra_memory().release(block);
+  }
+  memset(&g_kbd_outline, 0, sizeof(g_kbd_outline));
+  g_kbd_face_tried = false;
+}
+
+const font::Face& keyboard_face() {
+  if (!g_kbd_face_tried) {
+    g_kbd_face_tried = true;
+    hal::Stat info;
+    if (vfs::stat(kKeyboardFont, info) && info.size > 0 && info.size <= kKeyboardFontBytes) {
+      void* block = pal::extra_memory().allocate(static_cast<size_t>(info.size) + 1, true);
+      if (block != nullptr) {
+        char* text = static_cast<char*>(block);
+        size_t read = 0;
+        if (vfs::read_file(kKeyboardFont, text, static_cast<size_t>(info.size), read) && read == info.size) {
+          text[read] = '\0';
+          if (font::load_ttf(text, static_cast<uint32_t>(read), g_kbd_outline, g_kbd_face) == nullptr) {
+            g_kbd_font_file = text;
+          }
+        }
+        if (g_kbd_font_file == nullptr) pal::extra_memory().release(block);
+      }
+    }
+  }
+  return (g_kbd_outline.data != nullptr) ? g_kbd_face : font::system_face();
+}
+
+// **A letter is drawn at twice its size and every pixel of the key is the four samples of that block** (docs/90). The
+// file draws curves and the panel has sixteen levels, so the ink of a diagonal is four steps and not a staircase —which
+// is the whole difference between a keyboard and a grid of pixels—. It costs the glyphs of forty keys, and they are
+// painted when the case or the alphabet changes and not on every key (docs/50).
+const uint16_t kAaMaxWidth = 64;
+const uint16_t kAaMaxHeight = 64;
+const uint16_t kAaRowBytes = kAaMaxWidth / 8;
+uint8_t g_aa_rows[kAaRowBytes * kAaMaxHeight];
+
+bool aa_lit(uint16_t row, uint16_t column) {
+  return (g_aa_rows[row * kAaRowBytes + (column >> 3)] & (0x80u >> (column & 7))) != 0;
+}
+
+// A level between the paper of the key and the ink of the letter, from zero to four samples of ink.
+uint8_t aa_level(uint16_t covered, uint8_t ink, uint8_t paper) {
+  const int32_t span = static_cast<int32_t>(ink) - static_cast<int32_t>(paper);
+  int32_t level = static_cast<int32_t>(paper) + (span * static_cast<int32_t>(covered)) / 4;
+  if (level < 0) level = 0;
+  if (level > 15) level = 15;
+  return static_cast<uint8_t>(level);
+}
+
+// One row of the glyph: the four samples of every pixel of the key, in runs of one level.
+void aa_row(Canvas& view, int32_t x, int32_t y, uint16_t row, uint16_t width, uint8_t ink, uint8_t paper) {
+  const uint16_t columns = static_cast<uint16_t>((width + 1) / 2);
+  int32_t run_start = 0;
+  uint8_t run_level = aa_level(0, ink, paper);
+  for (uint16_t column = 0; column <= columns; ++column) {
+    uint8_t level = 255;
+    if (column < columns) {
+      const uint16_t sx = static_cast<uint16_t>(2 * column);
+      const uint16_t sy = static_cast<uint16_t>(2 * row);
+      uint16_t covered = 0;
+      if (sx < width && sy + 1 < kAaMaxHeight && aa_lit(sy, sx)) ++covered;
+      if (sx + 1 < width && sy + 1 < kAaMaxHeight && aa_lit(sy, sx + 1)) ++covered;
+      if (sx < width && sy + 2 <= kAaMaxHeight && aa_lit(sy + 1, sx)) ++covered;
+      if (sx + 1 < width && sy + 2 <= kAaMaxHeight && aa_lit(sy + 1, sx + 1)) ++covered;
+      level = aa_level(covered, ink, paper);
+    }
+    if (column > 0 && level != run_level) {
+      if (run_level != paper && run_start < static_cast<int32_t>(column)) {
+        put_rect(view, x + run_start, y + static_cast<int32_t>(row), static_cast<int32_t>(column) - run_start, 1,
+                 run_level);
+      }
+      run_start = column;
+      run_level = level;
+    }
+  }
+}
+
+// The text of a key from a face of outlines, with its four steps of ink. False when the glyphs do not fit the block of
+// the bench, and then the caller draws them the plain way.
+bool outline_key_text(Canvas& view, const font::Face& face, int32_t x, int32_t y, const char* text, uint8_t scale,
+                      uint8_t ink, uint8_t paper) {
+  const ttf::Face& font = *face.outline;
+  const uint32_t body = (font.units_per_em == 0) ? 1 : font.units_per_em;
+  const uint16_t px = static_cast<uint16_t>(font::kOutlineBody * scale * 2);
+  const int32_t ascent = static_cast<int32_t>((static_cast<int32_t>(font.ascent) * px) / static_cast<int32_t>(body));
+  int32_t pen = x;
+  for (const char* at = text; *at != '\0'; ++at) {
+    const uint8_t code = static_cast<uint8_t>(*at);
+    if (code < 0x20 || code > 0x7F) continue;
+    uint16_t glyph = 0;
+    if (ttf::glyph_of(font, code, glyph) != ttf::kOk) continue;
+    ttf::Bitmap box;
+    if (ttf::render(font, glyph, px, g_aa_rows, static_cast<uint8_t>(kAaRowBytes), kAaMaxWidth, kAaMaxHeight, box) !=
+        ttf::kOk) {
+      return false;
+    }
+    const int32_t left = pen + box.left / 2;
+    const int32_t top = y + ascent / 2 + box.top / 2;
+    for (uint16_t row = 0; 2 * row + 1 < box.height; ++row) {
+      aa_row(view, left, top, row, box.width, ink, paper);
+    }
+    pen += static_cast<int32_t>(ttf::advance(font, glyph, px)) / 2;
+  }
+  return true;
+}
+
+// **The text of a key**, whichever face the band has: an outline draws with its four steps, a table of bits draws as it
+// always has (docs/30, docs/90).
+void draw_key_text(Canvas& view, const font::Face& face, int32_t x, int32_t y, const char* text, uint8_t scale,
+                   uint8_t ink, uint8_t paper, hal::UpdateMode mode) {
+  if (text == nullptr || text[0] == '\0') return;
+  if (face.outline != nullptr && outline_key_text(view, face, x, y, text, scale, ink, paper)) return;
+  draw_text(view, face, x, y, text, scale, ink, mode);
+}
+
 // ---- the three icons of the keys that are not letters (docs/90) ----
 
 void icon_arrow_left(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 3 : 2;
+  const int32_t t = (h >= 30) ? 4 : 3;
   int32_t arm = (h < w) ? h : w;
   arm = (arm / 3) | 1;  // an odd arm keeps the shaft on one row of pixels
   const int32_t cx = x + w / 2;
@@ -4565,27 +4716,10 @@ void icon_arrow_left(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, u
   for (int32_t i = 0; i < arm; ++i) put_rect(view, cx - arm + i, cy - i - t / 2, t, 2 * i + t, level);
 }
 
-// **The shift is the arrow that points up and not the one that points down**: a triangle whose rows grow as
-// they descend —the widest is its base— over a stem, which is 25 pixels wide and 20 tall in the box of a key
-// of forty-four (docs/90).
-void icon_arrow_up(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 3 : 2;
-  int32_t arm = ((h < w) ? h : w) / 3 | 1;
-  const int32_t head = (arm / 2) | 1;
-  const int32_t cx = x + w / 2;
-  const int32_t cy = y + h / 2;
-  const int32_t tip = cy - arm / 2 - head;
-  for (int32_t i = 0; i < head; ++i) {
-    const int32_t wide = t + (2 * i * arm) / head;
-    put_rect(view, cx - wide / 2, tip + i, wide, 1, level);
-  }
-  put_rect(view, cx - t / 2, tip + head, t, arm, level);
-}
-
 // **The enter is the arrow that turns**: down the right and along the bottom to the left, which is the
 // symbol of a key that ends a line and not the word for it (docs/90).
 void icon_enter(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 3 : 2;
+  const int32_t t = (h >= 30) ? 4 : 3;
   int32_t arm = ((h < w) ? h : w) / 3 | 1;
   const int32_t head = (arm / 2) | 1;
   const int32_t cx = x + w / 2;
@@ -4604,17 +4738,22 @@ void icon_enter(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_
 // **The space is a bar and it says nothing**: a short line in the middle is what a keyboard with no word
 // on it draws, and the width of the bar is the message (docs/90).
 void icon_space(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 3 : 2;
-  put_rect(view, x + w / 3, y + h / 2 - t / 2, w / 3, t, level);
+  const int32_t t = (h >= 30) ? 5 : 4;
+  const int32_t r = t / 2;
+  const int32_t left = x + w / 3;
+  const int32_t length = w / 3;
+  const int32_t middle = y + h / 2;
+  put_rect(view, left, middle - r, length, t, level);
+  // **The two ends are round**, the same as the strokes of a face of outlines: a bar with square ends is a bar of a
+  // drawing made in a terminal (docs/90).
+  draw_disc(view, left, middle, r, level, hal::UpdateMode::kDu);
+  draw_disc(view, left + length, middle, r, level, hal::UpdateMode::kDu);
 }
 
 void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
   switch (action) {
     case KeyAction::kBack:
       icon_arrow_left(view, x, y, w, h, level);
-      break;
-    case KeyAction::kShift:
-      icon_arrow_up(view, x, y, w, h, level);
       break;
     case KeyAction::kEnter:
       icon_enter(view, x, y, w, h, level);
@@ -4624,6 +4763,7 @@ void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, 
       break;
     case KeyAction::kChar:
     case KeyAction::kMode:
+    case KeyAction::kCaps:
       break;
   }
 }
@@ -4639,6 +4779,7 @@ int32_t g_kbd_dh = 0;
 
 void note_band(int32_t x, int32_t y, int32_t w, int32_t h) {
   if (w <= 0 || h <= 0) return;
+  g_kbd_needs_paint = true;
   if (g_kbd_dw <= 0 || g_kbd_dh <= 0) {
     g_kbd_dx = x;
     g_kbd_dy = y;
@@ -4692,6 +4833,19 @@ void note_cell(int8_t row, int8_t key) {
   note_band(x, band_top() + row * static_cast<int32_t>(g_kbd_key_h), w, g_kbd_key_h);
 }
 
+// **What an app paints can land on the band** (0.84.4): a `ui.rect` over it, a pixel, or the whole page in one level,
+// which is the common one —a page that starts again paints its background where the keyboard was—. The band is the top
+// layer and it is drawn again at the next present, and this is the one thing that has to be noticed (docs/50, docs/90).
+void the_band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (!g_kbd_shown || g_kbd_key_h == 0) return;
+  const int32_t top = band_top();
+  if (top < 0) return;
+  if (static_cast<int32_t>(y) + static_cast<int32_t>(h) <= top) return;
+  if (static_cast<int32_t>(y) >= static_cast<int32_t>(root().height)) return;
+  if (w == 0 || static_cast<int32_t>(x) >= static_cast<int32_t>(root().width)) return;
+  g_kbd_needs_paint = true;
+}
+
 // The flat order of the keys of a layout, which is what the dial walks: row by row, left to right.
 int32_t flat_count(const LayoutDef& layout) {
   int32_t total = 0;
@@ -4743,6 +4897,9 @@ bool keyboard_show(uint8_t kind) {
   g_kbd_row = 0;
   g_kbd_key = 0;
   g_kbd_held = false;
+  // **The face of the band is read once per time it comes up**: the file is nine kilobytes and it is kept while the
+  // keyboard is on the glass (docs/30, docs/75).
+  keyboard_face();
   note_the_whole_band();
   invalidate(0);
   tell_the_app(before);
@@ -4754,7 +4911,9 @@ bool keyboard_hide() {
   const bool was = g_kbd_shown;
   g_kbd_shown = false;
   g_kbd_held = false;
+  release_keyboard_face();
   if (was) {
+    g_kbd_needs_paint = true;
     invalidate(0);
     tell_the_app(before);
   }
@@ -4775,12 +4934,18 @@ void keyboard_paint() {
   if (!g_kbd_shown || g_kbd_key_h == 0) return;
   Canvas& view = root();
   if (view.bits == nullptr || view.width == 0) return;
+  // **A band is a picture that changes when it changes and not on every present** (0.84.4): a letter typed does not
+  // touch it —the box is the one that changes—, and redrawing forty glyphs of a face of outlines on the turn of a
+  // blinking caret is the page paying for the keyboard. It is drawn when it comes up, when the case or the alphabet
+  // changes, and when the page under it is wiped, which is what `g_kbd_needs_paint` says (docs/50, docs/90).
+  if (!g_kbd_needs_paint) return;
+  g_kbd_needs_paint = false;
   // **The band is painted with the wash of the levels and not with the quick one**: a key that changes the number
   // or the case of the letters puts new ink where the old letters were, and a `du` leaves the old ones showing
   // through —two keyboards on one band, which is what the bench showed when the mode was switched— (docs/50,
   // docs/90). It costs the nine or ten thousand pixels of the band and not the page.
   const hal::UpdateMode mode = hal::UpdateMode::kGl16;
-  const font::Face& face = font::system_face();
+  const font::Face& face = keyboard_face();
   const LayoutDef& layout = layout_of(g_kbd_kind);
   const int32_t key_h = static_cast<int32_t>(g_kbd_key_h);
   DamageKeep keep;
@@ -4791,6 +4956,7 @@ void keyboard_paint() {
   draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(band), 15, mode);
   // A line of ink over the band: the page ends here.
   put_rect(view, 0, top, view.width, 1, 0);
+  const int32_t body = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight);
   for (uint8_t row = 0; row < layout.count; ++row) {
     const RowDef& def = layout.rows[row];
     const int32_t y = top + row * key_h;
@@ -4800,9 +4966,9 @@ void keyboard_paint() {
       cell_place(def, i, x, w);
       const KeyDef& key = def.keys[i];
       // **The key the dial is on is a block of ink and the letter on it is paper**: on this glass there is
-      // nothing else to say "this is the one", and the same block says the shift is down (docs/90).
+      // nothing else to say "this is the one", and the same block says the capitals are on (docs/90).
       const bool chosen = (g_kbd_row == row && g_kbd_key == i);
-      const bool lit = chosen || (key.action == KeyAction::kShift && g_kbd_shift);
+      const bool lit = chosen || (key.action == KeyAction::kCaps && g_kbd_shift);
       const int32_t inset = 3;
       const int32_t box_w = w - 2 * inset;
       const int32_t box_h = key_h - 2 * inset;
@@ -4810,10 +4976,14 @@ void keyboard_paint() {
       if (lit) draw_fill_rect(view, static_cast<uint16_t>(x + inset), static_cast<uint16_t>(y + inset),
                               static_cast<uint16_t>(box_w), static_cast<uint16_t>(box_h), 0, mode);
       const uint8_t ink = lit ? 15 : 0;
-      if (key.action == KeyAction::kChar || key.action == KeyAction::kMode) {
-        char label[8];
-        const char* shown = label_of(key, label, sizeof(label));
-        uint8_t scale = static_cast<uint8_t>((key_h - 12) / font::kGlyphHeight);
+      const uint8_t paper = lit ? 0 : 15;
+      char label[8];
+      const char* shown = label_of(key, label, sizeof(label));
+      if (shown[0] != '\0') {
+        // **A word of a key is smaller than its letter**: `123` and `MAY` are three cells and a letter is one, and the
+        // body that fits one of them is not the body that fits three (docs/90).
+        const bool word = shown[1] != '\0';
+        uint8_t scale = static_cast<uint8_t>(word ? 2 : ((key_h - 12) / body));
         if (scale < 2) scale = 2;
         if (scale > 4) scale = 4;
         int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
@@ -4821,11 +4991,15 @@ void keyboard_paint() {
           --scale;
           taken = static_cast<int32_t>(font::width(face, shown, scale));
         }
-        const int32_t line_h = static_cast<int32_t>(font::kGlyphHeight) * scale;
+        const int32_t line_h = body * scale;
         const int32_t at_x = x + (w - taken) / 2;
-        const int32_t at_y = y + (key_h - line_h) / 2;
+        // **The letters sit on the line and the line sits in the key**: a face of outlines is measured from the top
+        // of its body, and the ink of a capital starts a fifth of it below that —a fixed share of the line, so the
+        // same rule holds at every size— (docs/90).
+        int32_t at_y = y + (key_h - line_h) / 2;
+        if (face.outline != nullptr) at_y -= (line_h * 6) / 100;
         if (at_y < top) continue;
-        draw_text(view, face, at_x, at_y, shown, scale, ink, mode);
+        draw_key_text(view, face, at_x, at_y, shown, scale, ink, paper, mode);
       } else {
         draw_icon(view, key.action, x + inset, y + inset, box_w, box_h, ink);
       }
@@ -4850,13 +5024,14 @@ void press_key(const KeyDef& key) {
   switch (key.action) {
     case KeyAction::kChar: {
       char letter = (key.label != nullptr) ? key.label[0] : '\0';
-      const bool cap = g_kbd_shift && letter >= 'a' && letter <= 'z';
-      if (cap) letter = static_cast<char>(letter - 'a' + 'A');
+      if (g_kbd_shift && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
       luabind::ui_keyboard_typed(static_cast<int>(letter));
-      if (cap) g_kbd_shift = false;
       break;
     }
-    case KeyAction::kShift:
+    case KeyAction::kCaps:
+      // **A lock and not a shift**: the key turns the alphabet to capitals and leaves it there, and the next press of
+      // it takes them back. A shift of one letter is a keyboard of a phone; a page typed into with a dial wants the
+      // mode to stay where a person put it (docs/90).
       g_kbd_shift = !g_kbd_shift;
       break;
     case KeyAction::kBack:
@@ -4880,7 +5055,7 @@ void press_key(const KeyDef& key) {
   }
   // **A letter, a space, a backspace or the enter do not change the picture of the band**: the app hears the key and
   // the box changes, and the band is the same band. The two that change it are the case and the alphabet (docs/90).
-  if (key.action == KeyAction::kShift || key.action == KeyAction::kMode) note_the_whole_band();
+  if (key.action == KeyAction::kCaps || key.action == KeyAction::kMode) note_the_whole_band();
 }
 
 // **The key under a point of the view**, which is the cell the paint used: the finger and the glass see the

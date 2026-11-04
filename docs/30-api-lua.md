@@ -1500,14 +1500,22 @@ end
   caselles buides (0.83.0).
 - **La tecla on ets s'inverteix** i la resta són lletres i prou: des de 0.83.0 el teclat no dibuixa cap botó, i el
   que diu «aquesta és la que prems» és el bloc de tinta.
-- **Les lletres són les de la cara del sistema, en minúscula** (0.83.0): el joc alfa és un QWERTY esglaonat —la
-  fila de la `a` va mitja tecla més a la dreta que la de la `q`— amb la **barra d'espai** al seu lloc, una tecla de
-  **majúscules** (⇧) a l'esquerra de la `z` i una de **retrocés** (←) a la dreta de la `m`. Les tecles que no són
-  lletres es dibuixen amb el signe i no amb la paraula: ← per esborrar, ↵ per l'enter, ⇧ per les majúscules, i una
-  barra per l'espai.
-- **La tecla de majúscules canvia el joc sencer i deixa anar després d'una lletra**: premuda, totes les lletres es
-  pinten en majúscula i la tecla queda girada; la primera lletra que s'escriu surt en majúscula i el teclat torna
-  a la minúscula. És el que fa un teclat de telèfon i el que espera qui vol una majúscula al mig d'una paraula.
+- **Les lletres són una tipografia de debò** (0.85.0): `DejaVu Sans Bold` de `/fonts`, dibuixada amb
+  `font::load_ttf`, i la cara 5 × 7 del sistema només quan el disc no porta `/fonts`. El joc alfa és un QWERTY
+  esglaonat —la fila de la `a` va mitja tecla més a la dreta que la de la `q`— amb la **barra d'espai** al seu lloc,
+  la tecla de **majúscules** (`MAY`) a l'esquerra de la `z` i la de **retrocés** (←) a la dreta de la `m`. Les tecles
+  que no són lletres es dibuixen amb el signe i no amb la paraula: ← per esborrar, ↵ per l'enter, i una barra
+  d'extrems rodons per l'espai.
+- **Cada lletra es pinta a doble mida i es rebaixa a quatre nivells de tinta** (0.85.0): la cara dona corbes i el
+  vidre té setze nivells, o sigui que la diagonal d'una `x` són quatre passos i no una escala de píxels. És el que fa
+  que el teclat no sembli una graella. El fitxer són **8,5 KB** de la memòria extra i es té mentre la banda és al
+  vidre.
+- **`MAY` és un bloqueig i no un shift** (0.85.0): premut, totes les lletres es pinten en majúscula i la tecla queda
+  girada; **es queda així fins que es torna a prémer**. Una lletra no el desactiva —un shift d'una lletra és el d'un
+  telèfon, i una pàgina que s'escriu amb el dial vol el mode on la persona l'ha posat—.
+- **Prémer una lletra no repinta la banda** (0.85.0): el que canvia és la caixa, i el dibuix del teclat només es
+  torna a fer quan canvia el bloqueig, l'alfabet, o quan la pàgina passa per sobre de la banda (`ui.clear`, un
+  rectangle o un píxel): la banda viu al llenç i el sistema la torna a posar al següent `present`.
 - **La banda fa quatre files en els dos jocs** (0.83.0): un canvi de joc canvia les tecles i no l'alçada, o la
   pàgina que s'ha col·locat a sobre es mouria en prémer el `123`.
 - **La banda es pinta amb `gl16` i no amb `du`**: un joc nou posa tinta on hi havia les lletres del vell, i una
