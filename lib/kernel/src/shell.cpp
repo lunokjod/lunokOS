@@ -20,6 +20,7 @@
 #include "kernel/net.h"
 #include "kernel/bar.h"
 #include "kernel/power.h"
+#include "kernel/repository.h"
 #include "kernel/ui.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
@@ -363,6 +364,7 @@ void print_help() {
   help_line("  provision softap [pop]  the same over the board's own access point");
   help_line("  ntp [server]      set the clock from a time server");
   help_line("  http <url> [path] fetch a page, and save it when it is too big");
+  help_line("  repository [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
   help_line("  power [cpu [mhz]]  what this board can do about energy");
   help_line("  power last        how far the last sleep was from the hour it was given");
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
@@ -1164,9 +1166,13 @@ const uint32_t kHttpBytes = 16384;
 // is said as a number instead of shown (docs/30).
 const uint32_t kHttpShow = 800;
 
-enum class RadioJob { kNone, kScan, kAdd, kConnect, kProvision, kNtp, kHttp };
+enum class RadioJob { kNone, kScan, kAdd, kConnect, kProvision, kNtp, kHttp, kRepository };
 RadioJob g_job = RadioJob::kNone;
 char g_job_ssid[33];
+// **On ha anat el llistat del repositori**: la comanda arrenca la baixada i plega, i qui la rep quan la ràdio
+// ha acabat és `radio_done`, o sigui que el camí ha de viure fora de la pila d'aquella crida (docs/30).
+char g_repo_path[128];
+char g_repo_name[64];
 
 void out_int(int32_t value) {
   if (value < 0) {
@@ -1223,6 +1229,10 @@ void say_failed(const char* what, const char* code) {
 
 // The answer of the one radio job that was running. It arrives in the kernel's
 // turn, so this is where the prompt comes back (docs/30).
+// **El llistat es pinta quan la ràdio ha acabat**, i aquesta funció és més avall perquè és llarga: el que
+// necessita `radio_done` és el nom (docs/30).
+void print_repository(const char* path, const char* repo, uint32_t bytes);
+
 void radio_done(bool ok, const char* code, uint32_t count) {
   const RadioJob job = g_job;
   g_job = RadioJob::kNone;
@@ -1335,6 +1345,33 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       error_out("http: the page did not fit where it was going\r\n");
     } else {
       say_failed("http: nothing came back, ", code);
+    }
+  } else if (job == RadioJob::kRepository) {
+    // **Un 200 és la llista i la resta és una resposta que no ho és**: el 404 d'un repositori o d'un
+    // directori que no hi és es diu amb el número, perquè anar a buscar-lo a la documentació de GitHub és el
+    // que faria una persona (docs/30).
+    const int32_t status = net::http_status();
+    if (ok && status == 200) {
+      hal::Stat info;
+      uint32_t bytes = 0;
+      if (vfs::stat(net::http_saved_path(), info)) bytes = info.size;
+      print_repository(net::http_saved_path(), g_repo_name, bytes);
+      out("repository: the answer is in ");
+      out(net::http_saved_path());
+      newline();
+    } else if (ok) {
+      error_out("repository: the server answered ");
+      out_int(status);
+      error_out(", and a listing is a 200 (is the repository and the directory right?)");
+      newline();
+    } else if (code != nullptr && strcmp(code, "E_NONET") == 0) {
+      error_out("repository: the board has no network to use, try `wifi add`\r\n");
+    } else if (code != nullptr && strcmp(code, "E_TLS") == 0) {
+      error_out("repository: the certificate was not accepted\r\n");
+    } else if (code != nullptr && strcmp(code, "E_IO") == 0) {
+      error_out("repository: the answer did not fit where it was going\r\n");
+    } else {
+      say_failed("repository: nothing came back, ", code);
     }
   }
   prompt();
@@ -1594,6 +1631,117 @@ bool command_http(const char* argument) {
       error_out("http: that is not a place this board can write\r\n");
     } else {
       error_out("http: the radio did not take it\r\n");
+    }
+    return false;
+  }
+  return true;
+}
+
+// **El llistat, en columnes i sense tenir-lo sencer**: un passeig pel fitxer per comptar les carpetes i saber
+// l'amplada de la més llarga, i un altre per pintar-les. El que es guarda és una fila, no la llista: el
+// document són desenes de kilobytes i la placa no els ha de tenir enlloc (docs/75).
+void print_repository(const char* path, const char* repo, uint32_t bytes) {
+  char name[48];
+  uint32_t count = 0;
+  size_t widest = 0;
+  {
+    repository::Listing measure;
+    if (!measure.open(path)) {
+      error_out("repository: the answer is not where it was saved\r\n");
+      return;
+    }
+    while (measure.next(name, sizeof(name))) {
+      ++count;
+      const size_t len = strlen(name);
+      if (len > widest) widest = len;
+    }
+  }
+  good_out("repository: ");
+  out_num(count);
+  out(" folders in ");
+  out(repo);
+  out(" (");
+  out_num(bytes);
+  out(" B of JSON)");
+  newline();
+  if (count == 0) {
+    out("repository: the directory is empty, or it is not a directory of that repository\r\n");
+    return;
+  }
+  const uint16_t kColumns = 80;
+  size_t step = widest + 2;
+  if (step < 8) step = 8;
+  size_t per_row = static_cast<size_t>(kColumns) / step;
+  if (per_row == 0) per_row = 1;
+  if (per_row > 4) per_row = 4;
+  char row[8 * 50];
+  size_t used = 0;
+  size_t in_row = 0;
+  repository::Listing listing;
+  if (!listing.open(path)) return;
+  while (listing.next(name, sizeof(name))) {
+    const size_t len = strlen(name);
+    if (len + 1 > sizeof(row) - used) break;
+    memcpy(row + used, name, len);
+    used += len;
+    ++in_row;
+    const bool last = (in_row == per_row);
+    const size_t pad = last ? 0 : (step - len);
+    for (size_t i = 0; i < pad && used + 1 < sizeof(row); ++i) row[used++] = ' ';
+    if (last) {
+      row[used] = '\0';
+      out(row);
+      newline();
+      used = 0;
+      in_row = 0;
+    }
+  }
+  if (used > 0) {
+    row[used] = '\0';
+    out(row);
+    newline();
+  }
+}
+
+// repository [owner/repo] [path]: **les carpetes d'un directori del repositori, dites pel repositori** (4/11).
+// La pàgina del navegador és HTML; el que vol una comanda és la llista, i l'API de continguts la dona en JSON.
+// Porta la ràdio com `http` i la deixa anar en acabar, i **la resposta és massa gran per a la memòria**: va a un
+// fitxer del disc i es llegeix a trossos (docs/30, docs/70, docs/75).
+bool command_repository(const char* argument) {
+  char words[2][kWordCap];
+  size_t count = 0;
+  if (!read_words(argument, words, 2, count)) return false;
+  const char* repo = (count > 0) ? words[0] : "lunokjod/lunokOS";
+  const char* dir = (count > 1) ? words[1] : "apps";
+  // The two are what goes into a URL, so a space or a `?` is not a name of either: it is refused here, before
+  // an address nobody meant is asked (docs/30).
+  char url[192];
+  const int written = snprintf(url, sizeof(url), "https://api.github.com/repos/%s/contents/%s", repo, dir);
+  if (written <= 0 || static_cast<size_t>(written) >= sizeof(url) ||
+      strpbrk(url + 8, " \"") != nullptr) {
+    error_out("repository: that is not a repository and a directory\r\n");
+    return false;
+  }
+  if (!page_place(url, g_repo_path, sizeof(g_repo_path))) {
+    error_out("repository: there is no volume to hold the answer\r\n");
+    return false;
+  }
+  // The two words are copied and the pair is cut if it would not fit: the line above is the one that says
+  // what is being asked, and a name cut is better than a buffer written past its end (docs/75).
+  const int named = snprintf(g_repo_name, sizeof(g_repo_name), "%s/%s", repo, dir);
+  if (named <= 0) g_repo_name[0] = '\0';
+  if (!take_radio(RadioJob::kRepository)) return false;
+  const luabind::NetRefuse refused = net::http_download(url, g_repo_path, kHttpMs);
+  if (refused != luabind::NetRefuse::kOk) {
+    drop_radio();
+    if (refused == luabind::NetRefuse::kTooBig) {
+      error_out("repository: that address is longer than the ");
+      out_num(net::http_url_cap());
+      error_out(" bytes the system carries\r\n");
+    } else if (refused == luabind::NetRefuse::kNoVolume) {
+      error_out("repository: that is not a place this board can write\r\n");
+    } else {
+      error_out("repository: the radio did not take it\r\n");
     }
     return false;
   }
@@ -2383,6 +2531,9 @@ bool execute(char* line) {
   }
   if (strncmp(line, "http", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     return command_http(line + 4);
+  }
+  if (strncmp(line, "repository", 10) == 0 && (line[10] == '\0' || line[10] == ' ')) {
+    return command_repository(line + 10);
   }
   if (strncmp(line, "power", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_power(line + 5);

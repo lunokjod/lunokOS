@@ -904,14 +904,24 @@ namespace kernel {
 //     disc i deixa el lector de `.ttf` a la seva suite, que és l'única que té vidre.
 // **386 proves natives, totes verdes** (eren 387 amb 12 vermelles, i les quatre de `test_shell` que
 // arrossegàvem des de feia dies també hi són).
-// 0.81.3 (4/11): **`run repository`**, l'exemple que mira el repositori des de la placa. Demana el directori
-// `apps/` de `lunokjod/lunokOS` a l'API de continguts de GitHub —la versió crua de la pàgina `tree/main/apps`
-// del navegador— i en llista les carpetes, que és el que una persona vol saber: quines apps hi ha. És el
-// primer exemple que **no cap a la memòria i no hi ha de cabre**: la resposta són uns 44 KB de JSON amb les
-// URL de cada entrada i `http.get` en porta 16 384 per defecte, o sigui que baixa amb `http.download` a un
-// fitxer del seu terreny i en treu els noms **llegint-lo a trossos de 8 KB**, un objecte sencer a cada pas
-// (docs/30, docs/70, docs/85).
-static const char kVersion[] = "0.81.3";
+// 0.82.0 (4/11): **`repository`, una comanda del prompt que demana al repositori quines apps té.** Escriu
+// `repository` i baixa el directori `apps/` de `lunokjod/lunokOS` de l'API de continguts de GitHub —la versió
+// crua de la pàgina `tree/main/apps` del navegador, que és HTML i no és el que vol una comanda— i en llista les
+// carpetes amb el nom, que és el que una persona vol saber. **És del sistema i no una app**: parla del sistema i
+// el que ha de respondre ho ha de respondre el sistema, amb la ràdio que es porta i deixa anar com `http`
+// (començada com a app de Lua, va durar una hora). Tres coses la fan possible i són les de sempre:
+//   - **La resposta no cap i no hi ha de cabre**: 45 KB de JSON amb la URL de cada entrada. `http_download` la
+//     deixa a `/littlefs/http/apps` i `kernel::repository::Listing` la passeja amb una finestra de **2 KB**,
+//     un objecte a cada pas i cap arbre i cap taula de noms (docs/75).
+//   - **Un objecte és una carpeta**: dins d'un objecte es recorda `name` i quan `type` diu `dir` aquell nom
+//     surt; el nom es llença en començar l'objecte següent, o sigui que un `type` no pot fer sortir el nom d'un
+//     altre (docs/70).
+//   - **En columnes i amb dos passeigs**: un per comptar i saber l'amplada de la més llarga, i un altre per
+//     pintar-les, amb una fila a la pila i el document al disc. L'API ja les dona ordenades pel nom.
+// L'ordre és `repository [owner/repo] [dir]`, amb `lunokjod/lunokOS` i `apps` per defecte, i els errors són els
+// de `http`: `E_NONET` diu que cal `wifi add`, un 404 diu el número i que un llistat és un 200, i el camí de la
+// resposta es diu al final perquè es pugui tornar a llegir (docs/30, docs/85).
+static const char kVersion[] = "0.82.0";
 
 }  // namespace kernel
 

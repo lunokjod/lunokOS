@@ -19,6 +19,7 @@
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/repository.h"
 #include "kernel/shell.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
@@ -391,6 +392,57 @@ void test_the_extension_finder_counts_every_app_that_opens_it(void) {
   storage->remove("/apps/lunok-two");
 }
 
+// **El llistat d'un directori de GitHub, sense tenir-lo sencer** (0.82.0): la comanda `repository` baixa el
+// JSON de l'API de continguts i en treu les carpetes amb una finestra de dos kilobytes. El document de la prova
+// és més gran que la finestra a posta, i un objecte cau just al mig per comprovar que mig objecte es guarda per
+// al tros següent (docs/70, docs/75).
+void test_the_listing_of_a_repository_is_read_in_chunks(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char json[6144];
+  size_t used = 0;
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "[\n"));
+  // Forty objects of about a hundred bytes: 4 KB, two windows, and one of them starts inside an object.
+  for (int i = 1; i <= 40; ++i) {
+    used += static_cast<size_t>(snprintf(
+        json + used, sizeof(json) - used,
+        "  {\n    \"name\": \"app%02d\",\n    \"path\": \"apps/app%02d\",\n"
+        "    \"sha\": \"0123456789abcdef0123456789abcdef01234567\",\n    \"size\": 0,\n"
+        "    \"type\": \"dir\"\n  }%s\n",
+        i, i, (i < 40) ? "," : ""));
+  }
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "]\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/listing.json", json));
+
+  kernel::repository::Listing listing;
+  TEST_ASSERT_TRUE(listing.open("/littlefs/listing.json"));
+  char name[48];
+  int count = 0;
+  char last[48] = {0};
+  while (listing.next(name, sizeof(name))) {
+    ++count;
+    memcpy(last, name, sizeof(last));
+  }
+  listing.close();
+  TEST_ASSERT_EQUAL_INT(40, count);
+  // The last one is the last object and not a name cut by the end of the buffer.
+  TEST_ASSERT_EQUAL_STRING("app40", last);
+
+  // **Un fitxer que diu ser un llistat i no ho és dona la volta i no penja**: el que no es reconeix no és una
+  // carpeta (docs/30).
+  TEST_ASSERT_TRUE(write_text(storage, "/broken.json", "{\"name\": \"x\""));
+  kernel::repository::Listing broken;
+  TEST_ASSERT_TRUE(broken.open("/littlefs/broken.json"));
+  TEST_ASSERT_FALSE(broken.next(name, sizeof(name)));
+  broken.close();
+  TEST_ASSERT_FALSE(broken.open("/littlefs/nowhere.json"));
+
+  storage->remove("/listing.json");
+  storage->remove("/broken.json");
+}
+
 // A path with spaces goes between quotes, and without them the command is
 // refused instead of reading half a path (docs/70). The same splitter serves
 // `cat`, `ls` and `open`, and this is the `cat` and `ls` side of it.
@@ -631,6 +683,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_mounts_command_lists_the_mounts);
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
+  RUN_TEST(test_the_listing_of_a_repository_is_read_in_chunks);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
   RUN_TEST(test_unknown_command_fails);
