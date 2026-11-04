@@ -904,7 +904,14 @@ namespace kernel {
 //     disc i deixa el lector de `.ttf` a la seva suite, que és l'única que té vidre.
 // **386 proves natives, totes verdes** (eren 387 amb 12 vermelles, i les quatre de `test_shell` que
 // arrossegàvem des de feia dies també hi són).
-static const char kVersion[] = "0.81.2";
+// 0.81.3 (4/11): **`run repository`**, l'exemple que mira el repositori des de la placa. Demana el directori
+// `apps/` de `lunokjod/lunokOS` a l'API de continguts de GitHub —la versió crua de la pàgina `tree/main/apps`
+// del navegador— i en llista les carpetes, que és el que una persona vol saber: quines apps hi ha. És el
+// primer exemple que **no cap a la memòria i no hi ha de cabre**: la resposta són uns 44 KB de JSON amb les
+// URL de cada entrada i `http.get` en porta 16 384 per defecte, o sigui que baixa amb `http.download` a un
+// fitxer del seu terreny i en treu els noms **llegint-lo a trossos de 8 KB**, un objecte sencer a cada pas
+// (docs/30, docs/70, docs/85).
+static const char kVersion[] = "0.81.3";
 
 }  // namespace kernel
 

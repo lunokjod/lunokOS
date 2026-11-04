@@ -1,0 +1,8 @@
+{
+  "title": "Repository",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "repository.lua",
+  "boards": ["esp32"],
+  "description": "Asks GitHub for the apps directory of lunokjod/lunokOS over the network and lists the folders it holds, so a person can see which apps the repository has without a browser."
+}

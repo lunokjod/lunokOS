@@ -737,6 +737,7 @@ veu al banc i el que es veu al vidre és la mateixa pàgina, i els números s'hi
 | `run keys` | les tecles del dial | que la posició que prems és la que surt al compte, i a dalt/centre/baix amb la tira de tecles de `--gui` |
 | `run battery` | el gauge | mV, `%` i que `charging` no hi és |
 | `run mtab` | el disc i l'espai | que quatre noms de la mateixa partició són quatre passejades |
+| **`run repository`** | **les apps que té el repositori, dites pel repositori** (4/11): demana a l'API de continguts de GitHub el directori `apps/` de `lunokjod/lunokOS` —la versió crua d'aquella pàgina del navegador— i en llista les carpetes | que el llistat arriba **sencer** (44 KB de JSON, o sigui que va amb `http.download` a un fitxer i es llegeix a trossos de 8 KB) i que surten les 59 carpetes amb el seu nom; al banc necessita xarxa de debò o `--http-fake`, i amb `--no-wifi` diu que la placa no té ràdio |
 
 ## Fidelitat: què s'assembla i què no
 
