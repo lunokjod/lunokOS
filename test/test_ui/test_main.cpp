@@ -2216,6 +2216,79 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   ui::release(bar);
 }
 
+// **The caret of a box of lines is where the cursor is, and the two ends of a row count** (0.84.1): the block of a
+// cursor at zero is the first cell of the first row —it used to be drawn at the end of it, because the letters of a row
+// are counted from one and the fallback that closes a row took every position that was not counted— and the block of a
+// cursor at the end of a row is one cell after its last letter (docs/90).
+static void test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row() {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 120, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  // The ink of a cell of the first line: the letters of "Notes" at scale 2 are five cells of twelve pixels from eight.
+  const auto ink_between = [](uint16_t x0, uint16_t x1) {
+    int ink = 0;
+    for (uint16_t x = x0; x < x1; ++x) {
+      for (uint16_t y = 8; y < 22; ++y) {
+        if (view_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, "Notes\nthe rest", 0, false, false, 0, 15, 0, 2));
+  const int start_without = ink_between(8, 18);
+  const int end_without = ink_between(70, 80);
+  // **The cursor at zero puts a block on the first cell** (0.84.1): the fallback that closes a row took every position
+  // that the loop had not counted, and the first letter is counted from one, so the block of a cursor at the start of
+  // the text was drawn at the end of its first line (docs/90).
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, "Notes\nthe rest", 0, true, false, 0, 15, 0, 2));
+  TEST_ASSERT_GREATER_THAN_MESSAGE(start_without, ink_between(8, 18), "the caret at zero is not on the first cell");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(end_without, ink_between(70, 80), "the caret at zero is at the end of the row");
+
+  // And the cursor at the end of the first line is a block after its last letter, which is where it was drawn before.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, "Notes\nthe rest", 5, true, false, 0, 15, 0, 2));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(start_without, ink_between(8, 18), "the caret went back to the start of the row");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(end_without, ink_between(62, 74), "the caret at the end of the row is not there");
+
+  ui::release(box);
+}
+
+// **A box paints the text it was given and not the one before it** (0.84.1): the tail of the line is a buffer kept
+// between paints and it was never emptied, so every paint appended its text to the last one —a box with "h", then "he",
+// then "hel" showed "h", "hhe", "hhehel", which on the glass is a box full of ghosts of every word typed so far— (found
+// on the bench with `run typing`, 4/11, docs/90).
+static void test_a_box_paints_its_text_and_not_the_one_before_it() {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(480, 60, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 20, 20));
+  // The ink of the line: the box centres a line of twenty-one pixels in sixty, and the text starts eight pixels in.
+  const auto ink_between = [](uint16_t x0, uint16_t x1) {
+    int ink = 0;
+    for (uint16_t x = x0; x < x1; ++x) {
+      for (uint16_t y = 40; y < 58; ++y) {
+        if (view_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "h", 1, false, false, 0, 15, 0, 3));
+  TEST_ASSERT_TRUE(ui::present());
+  const int one = ink_between(26, 100);
+  TEST_ASSERT_GREATER_THAN(0, one);
+  // Two letters and no more: what the first paint left is not part of this one.
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "he", 2, false, false, 0, 15, 0, 3));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_GREATER_THAN_MESSAGE(one, ink_between(26, 100), "the second paint did not add its letter");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_between(80, 300), "the box kept the text of the paint before");
+  // And the same with the caret, which is where the tail is built for a box the person is typing in.
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "hel", 3, true, false, 0, 15, 0, 3));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_between(100, 300), "the box kept the text of the paint before");
+  ui::release(box);
+}
+
 // **A box of several lines keeps the caret on the glass**: eight lines in a box of six rows, so the window starts at the
 // third one, the caret is at the end of the last row it shows, and the finger that lands on a row asks for the byte of the
 // text that is there —which is the same arithmetic the paint used— (docs/30, docs/90).
@@ -2566,6 +2639,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);
   RUN_TEST(test_a_menu_hides_the_options_the_app_cannot_do);
   RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);
+  RUN_TEST(test_a_box_paints_its_text_and_not_the_one_before_it);
+  RUN_TEST(test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row);
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
   RUN_TEST(test_a_selector_is_a_field_with_a_door_on_its_right);
   RUN_TEST(test_a_band_of_notifications_puts_the_newest_at_the_bottom);

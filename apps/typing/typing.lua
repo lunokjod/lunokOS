@@ -29,6 +29,10 @@ box.cursor = 0
 box.mask = false
 box.on_change = function(self, text)
   console.print('typing: "' .. text .. '", caret at ' .. self.cursor)
+  -- **The letters of the box go to the glass with a quality that cleans**: a `du` keeps a third of the ink it finds and
+  -- the text of the key before stays under the new one, which on this panel is a box full of ghosts (0.84.1). The blink
+  -- of the caret, below, is still a `du`: it is one block and the next key cleans it (docs/30, docs/85).
+  ui.present('gl16')
 end
 box.on_enter = function(self)
   console.print('typing: the word is "' .. self.text .. '"')

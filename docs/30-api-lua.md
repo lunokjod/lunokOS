@@ -1519,11 +1519,22 @@ end
   **parpellejava a cada sis-cents mil·lisegons**, que és el que l'app que hi escriu triga a fer parpellejar el cursor
   de la seva caixa (docs/50, docs/90).
 
+- **Una pàgina que es tecleja ha de pintar el que ha teclejat, i amb una qualitat que neteja** (0.84.1). Un `du`
+  deixa **cinc setzens** del que hi havia —és la gràcia del mode ràpid i el que fa que la pàgina es vegi com una
+  pàgina de tinta— i en una caixa de text això són les lletres de la tecla anterior a sota de les noves, que és el que
+  es va veure a `run typing` amb cinc tecles. El que fa una app que escriu és `ui.present('gl16')` al seu `on_change`
+  —una neteja amb un parpelleig— i deixar el `du` per al cursor, que és un bloc i el neteja la tecla següent.
+  **Una app que no presenta no pinta res**: la caixa guarda el text i el vidre no se n'assabenta fins al pròxim
+  `present`, o sigui que un teclat que «no funciona» pot ser una pàgina que no es torna a pintar mai.
+
 ```lua
 local box = ui.textbox(view.width - 32, 56)
 box.scale = 3
 box.cursor = 0
-box.on_change = function(self, text) console.print('now "' .. text .. '"') end
+box.on_change = function(self, text)
+  console.print('now "' .. text .. '"')
+  ui.present('gl16')                -- el text va al vidre, i net
+end
 
 local kb = ui.keyboard()
 kb.target = box

@@ -2692,7 +2692,14 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
   const int32_t before = static_cast<int32_t>(font::width(face, head, scale));
   // What is on the glass is the window and the caret: the tail is cut at the frame by the same width budget, or a
   // long text would run under the border of the box (docs/90).
+  //
+  // **The tail starts empty** (0.84.1): it is a buffer kept between paints —a control draws on the stack of the turn,
+  // and half a kilobyte of text in it is half a kilobyte the board does not always have— and it was never emptied, so
+  // every paint **appended** the text it was given to the text of the one before: `run typing` with five keys showed
+  // "h", then "hhe", then "hhehel", and a box that looked like a ghost of every word typed so far (found on the bench,
+  // 4/11, docs/90).
   static char tail[512];
+  tail[0] = '\0';
   const int32_t room = inner_w - before - ((caret && at >= from) ? caret_w : 0);
   int32_t fit = 0;
   if (room > 0) {
@@ -2793,7 +2800,15 @@ int32_t row_span(const font::Face& face, const char* at, int32_t room, uint8_t s
       caret_here = true;
     }
   }
-  if (!caret_here && at_cursor >= 0 && at_cursor <= used) {
+  // **The two ends of a row, and neither of them is "anywhere inside it"** (0.84.1): the letters of a row are counted
+  // from one, so the loop above sees the cursor of every position but the first, and the fallback that closes the row
+  // said `<= used` —which put the cursor of the first letter at the end of the row, and a box with the caret at the
+  // start drew its block after the whole first line—. The start is zero and the end is the width of the row; anything
+  // else was already counted by the loop (docs/90).
+  if (!caret_here && at_cursor == 0) {
+    caret_x = 0;
+    caret_here = true;
+  } else if (!caret_here && at_cursor == used) {
     // The cursor is at the end of the row, which is where it is when it is about to type the letter that did not fit.
     caret_x = w;
     caret_here = true;

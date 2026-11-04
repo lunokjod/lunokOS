@@ -970,7 +970,16 @@ namespace kernel {
 // tenen píxels propis— prendre la mida nova, i un canvas amb buffer la refusa perquè la seva és un bloc demanat amb una
 // mida. La banda que marxa amb l'app que l'obria no diu res a ningú: `attach` la treu amb la pàgina fora dels llibres
 // (docs/30, docs/90).
-static const char kVersion[] = "0.84.0";
+// 0.84.1 (4/11): **les dues coses que feien mal a la caixa de text.** La finestra d'una línia es pinta amb un buffer que
+// es guarda entre pintades (mig kilobyte que el torn no sempre té) i **no s'esborrava**: cada pintada hi afegia el seu
+// text al de l'anterior, o sigui que la caixa mostrava «h», després «hhe», després «hhehel» —el que a la finestra es veu
+// com un fantasma de cada paraula escrita fins ara— (trobat amb `run typing`, 4/11). I el cursor d'una caixa de línies
+// amb el cursor a zero es pintava **al final de la primera fila**: les lletres d'una fila es compten des d'u i el
+// tros de codi que tanca la fila prenia qualsevol posició que el bucle no hagués comptat. Les dues amb la seva prova.
+// **I les apps que teclegen han de presentar**: `notes` no ho feia i el teclat hi semblava mort (el text canviava i el
+// vidre no), i les dues presenten el canvi amb `gl16` i no amb `du`, perquè un `du` deixa cinc setzens de la lletra
+// anterior sota la nova (docs/30, docs/90).
+static const char kVersion[] = "0.84.1";
 
 }  // namespace kernel
 
