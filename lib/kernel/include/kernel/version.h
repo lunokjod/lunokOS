@@ -1053,7 +1053,13 @@ namespace kernel {
 // `apps::root_of` és el camí que pregunten el llistat, el `run` i la porta de `res/`, o sigui que una app de la
 // targeta llegeix el seu `res/` de la targeta (docs/40, docs/70). Amb `--verbose` una instal·lació deixa una línia per
 // fitxer, que és com s'ha trobat que el buffer d'un nom tallava l'adreça de descàrrega (docs/85).
-static const char kVersion[] = "0.86.0";
+// 0.86.1 (4/11): **un camí que no hi és diu per què, i on és el que sí que hi ha.** `ls /sd/app/timers` responia
+// `cannot list: /sd/app/timers`, que és cert i no ajuda: la meitat que existia era `/sd/apps` i el missatge no ho deia.
+// Ara `ls` mira primer i diu **`no such directory: <path>`** amb el tros que existeix i què té a dins (`/sd has: apps`)
+// —vuit noms i prou, que això és una pista i no un llistat—, `cat` diu el mateix quan el fitxer no hi és, i **`ls`
+// d'un fitxer el llista** amb el seu nom i la seva mida en comptes de dir que no és cap carpeta. El que no s'inventa
+// és el nom: la pista és el que hi ha, i trobar la lletra que falta és de qui llegeix (docs/30, docs/70).
+static const char kVersion[] = "0.86.1";
 
 }  // namespace kernel
 

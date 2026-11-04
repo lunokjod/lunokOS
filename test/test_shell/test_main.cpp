@@ -477,6 +477,61 @@ void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
   storage->remove("/nonl.txt");
 }
 
+// **Una ruta que no hi és diu per què i on és el que sí que hi ha** (0.86.1): `ls /sd/app/timers` amb un `apps` al
+// costat és el que fa trobar la lletra que falta, i un camí que és un fitxer es llista amb el seu nom i la seva mida en
+// comptes de dir que no és cap carpeta. És el mateix per a `cat`, que ja deia «no such file» i ara diu també on és el
+// tros que existeix (docs/30, docs/70).
+void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps");
+  storage->mkdir("/apps/listed");
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/listed/one.lua", "x\n"));
+
+  // A directory lists its entries, with the kind and the size.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ls /apps/listed"));
+  static char said[2048];
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "one.lua"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "file"), said);
+
+  // **A file is listed as one entry**, which is what a person asking for a path wants to know (docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ls /apps/listed/one.lua"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "one.lua"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "no such directory"), said);
+
+  // **El tros que hi és, i què té a dins**: `/apps/listd` no hi és i el que hi ha al costat és `listed`.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ls /apps/listd/one.lua"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such directory: /apps/listd/one.lua"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "/apps has:"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "listed"), said);
+
+  // I `cat` diu on és igual, que és el mateix camí escrit a mà.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("cat /apps/listd/one.lua"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such file: /apps/listd/one.lua"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "/apps has:"), said);
+
+  // A path whose nothing exists still names the root and what it holds, instead of a "cannot list" with no subject.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("ls /nowhere/deeper/x"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such directory: /nowhere/deeper/x"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the root has:"), said);
+
+  // **`/apps` no s'esborra**: és la carpeta que les altres proves d'aquest fitxer fan servir, i `remove` d'una carpeta
+  // és d'aquest backend i no una regla de la prova (docs/70).
+  storage->remove("/apps/listed/one.lua");
+  storage->remove("/apps/listed");
+}
+
 // **El llistat d'un directori de GitHub, sense tenir-lo sencer** (0.82.0): la comanda `repository` baixa el
 // JSON de l'API de continguts i en treu les carpetes amb una finestra de dos kilobytes. El document de la prova
 // és més gran que la finestra a posta, i un objecte cau just al mig per comprovar que mig objecte es guarda per
@@ -815,6 +870,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
+  RUN_TEST(test_a_path_that_is_not_there_says_where_the_rest_is);
   RUN_TEST(test_unknown_command_fails);
   RUN_TEST(test_empty_line_is_not_an_error);
   RUN_TEST(test_overlong_line_is_cut_not_crashed);

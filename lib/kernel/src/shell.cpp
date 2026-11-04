@@ -376,7 +376,7 @@ void print_help() {
   help_line("  sleep [light|deep] <ms>  sleep, and come back at a time");
   help_line("  sleep at <epoch seconds>  the same, at a time of the clock");
   help_line("  open [app] <path>  open a file with the app that handles it");
-  help_line("  ls [path]         list a directory (default /)");
+  help_line("  ls [path]         list a directory or one file (default /)");
   help_line("  cat <path>        print a file");
   help_line("  hexdump [path]    the bytes of a file in hex (default /rtc)");
   help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)");
@@ -605,7 +605,95 @@ class ListPrinter : public hal::ListSink {
   }
 };
 
+// **Fins a vuit noms i prou**: la pista d'una ruta que no hi és ha de cabre en una pantalla, i el que fa falta és
+// veure el nom que hi ha al costat del que s'ha escrit (docs/30).
+const uint8_t kHintEntries = 8;
+
+// Prints the names of a directory as a list of one line, or counts them when `quiet` says so: the backend lends a
+// name for the length of one call, so a header that says what is coming cannot wait for the walk to end (docs/50).
+class NamePrinter : public hal::ListSink {
+ public:
+  explicit NamePrinter(bool quiet) : quiet_(quiet) {}
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (shown_ == kHintEntries) {
+      ++more_;
+      return true;
+    }
+    if (!quiet_) {
+      out((shown_ == 0) ? " " : ", ");
+      out(entry.name);
+    }
+    ++shown_;
+    return true;
+  }
+  uint8_t shown() const { return shown_; }
+  uint32_t more() const { return more_; }
+
+ private:
+  bool quiet_;
+  uint8_t shown_ = 0;
+  uint32_t more_ = 0;
+};
+
+// **On és el que s'ha escrit**: una ruta que no hi és es diu amb el tros que sí que hi és i què té a dins, perquè veure
+// `apps` al costat d'un `app` és el que fa trobar la lletra que falta. Sense això, un `cannot list` deixa la persona
+// mirant una ruta que sembla correcta (docs/30, docs/70).
+void say_where_it_is(const char* path) {
+  char trial[128];
+  snprintf(trial, sizeof(trial), "%s", (path != nullptr) ? path : "");
+  while (true) {
+    char* slash = strrchr(trial, '/');
+    if (slash == nullptr) return;
+    // The last component goes; if what is left is not a directory, another one goes. The root is the last answer.
+    if (slash == trial) {
+      trial[1] = '\0';
+    } else {
+      *slash = '\0';
+    }
+    hal::Stat info;
+    if (vfs::stat(trial, info) && info.type == hal::NodeType::kDir) {
+      NamePrinter count(true);
+      if (!vfs::list(trial, count) || count.shown() == 0) return;
+      colour(kColourDim);
+      out("  ");
+      out((strcmp(trial, "/") == 0) ? "the root" : trial);
+      out(" has:");
+      NamePrinter names(false);
+      vfs::list(trial, names);
+      if (names.more() > 0) {
+        out(" and ");
+        out_num(names.more());
+        out(" more");
+      }
+      colour_off();
+      newline();
+      return;
+    }
+    if (slash == trial) return;
+  }
+}
+
 void list_at(const char* path) {
+  hal::Stat info;
+  if (!vfs::stat(path, info)) {
+    error_out("no such directory: ");
+    out(path);
+    newline();
+    say_where_it_is(path);
+    return;
+  }
+  // **Un fitxer també es llista**: el que demana un camí vol saber què hi ha, i un fitxer té un nom i una mida com
+  // qualsevol entrada d'una carpeta (docs/30).
+  if (info.type != hal::NodeType::kDir) {
+    hal::ListEntry one;
+    const char* base = strrchr(path, '/');
+    one.name = (base != nullptr) ? base + 1 : path;
+    one.type = info.type;
+    one.size = info.size;
+    ListPrinter printer;
+    printer.on_entry(one);
+    return;
+  }
   ListPrinter printer;
   if (!vfs::list(path, printer)) {
     error_out("cannot list: ");
@@ -636,6 +724,9 @@ bool print_file(const char* path) {
     error_out("no such file: ");
     out(path);
     newline();
+    // **I on és el que sí que hi ha**: el mateix que fa `ls`, perquè un camí escrit a mà s'equivoca igual en tots dos
+    // (0.86.1, docs/30).
+    say_where_it_is(path);
     return false;
   }
   if (info.type != hal::NodeType::kFile) {

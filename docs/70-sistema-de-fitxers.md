@@ -386,6 +386,11 @@ silenciar el log: és **no obrir el que no hi és**.
   `E_NO_HANDLES` no es poden confondre mai.
 - `cat` mira primer i diu què passa: `no such file: …`, `that is not a file: …` o `cannot read: …`,
   i **torna fals** quan no ha pogut llegir, que és el que fa que una ordre fallida surti amb codi 1.
+- **`ls` fa la mateixa pregunta** (0.86.1): `no such directory: <camí>` quan no hi és, i **la pista de
+  on sí que hi ha alguna cosa** —`/sd has: apps` quan s'ha escrit `/sd/app/…`—, que és el que fa trobar
+  la lletra que falta. `ls` d'un fitxer el llista amb el nom i la mida, i un error de lectura de debò
+  —no un camí que no hi és— és el que encara diu `cannot list: …`. La pista és el que hi ha i no un
+  endeví: vuit noms i prou, i la resta comptada.
 
 L'única cosa d'aquest canvi que no es pot veure en una prova nativa és el **soroll**, perquè el log és
 de la placa: es comprova amb la traça del port sèrie. **Comprovat a la placa el 30/10**: `cat` d'un
