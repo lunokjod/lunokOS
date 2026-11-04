@@ -19,23 +19,25 @@ if not caps.display then
   return
 end
 
-local view = ui.caps()
-
 ui.title('Notes')
 
-local box = ui.textbox_multiline(view.width - 40, view.height - 260)
-box:place(20, 60)
+local box = ui.textbox_multiline(100, 50)
 box.scale = 2
 box.wrap = true
 box.text = 'Notes\n\nThe enter key of the keyboard writes a line break in this box, and a line longer than the box '
   .. 'is broken at the last space that fits while wrap is on.'
 box.cursor = 0
-console.print('notes: ' .. box:rows() .. ' rows of ' .. box.scale .. 'x')
 
 local saved = box.text
+-- **The keyboard first, because the box gets what the view has left over it** (0.84.0): with the band up, `ui.caps()` says
+-- 736 and not 912, so the page does not have to subtract the keyboard from anything.
 local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
+local view = ui.caps()
+box:resize(view.width - 40, view.height - 76)
+box:place(20, 60)
+console.print('notes: ' .. box:rows() .. ' rows of ' .. box.scale .. 'x, view ' .. view.height)
 
 box.on_change = function(self, text)
   -- **The text of a control is the app's copy**: the box keeps the one it was given and hands the new one over on every
@@ -46,6 +48,13 @@ end
 ui.present('gc16')
 while not ui.idle() do
   sys.delay(10):await()
+end
+
+-- **The box follows the view** when the band comes or goes: the system says the page is another one and the app fits the
+-- box into it (0.84.0, docs/30, docs/90).
+function on_resize(width, height)
+  box:resize(width - 40, height - 76)
+  ui.present('du')
 end
 console.print('notes: type with the keyboard, or walk the keys with the dial')
 

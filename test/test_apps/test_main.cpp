@@ -3847,6 +3847,51 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   storage->remove("/apps/typer");
 }
 
+// **The band of the keyboard comes out of the view the app is given** (0.84.0): `ui.caps().height` is seven hundred and
+// thirty-six with the keyboard up on the Paper and nine hundred and twelve without it, `kb:height()` still says the band,
+// and the app hears `on_resize` —the hook that already means "the view is another one"— when it comes and when it goes.
+// An app that subtracts the band by hand would take it out twice, which is why the two demos that open the keyboard say
+// the size of the system and not their own (docs/30, docs/90).
+void test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "resizer",
+                           "{\"title\":\"Resizer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(300, 48)\n"
+                           "box:place(20, 60)\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "console.print('view ' .. ui.caps().height)\n"
+                           "kb:show('alpha')\n"
+                           "console.print('band ' .. kb:height() .. ', view ' .. ui.caps().height)\n"
+                           "kb:hide()\n"
+                           "console.print('gone, view ' .. ui.caps().height)\n"
+                           "function on_resize(w, h)\n"
+                           "  console.print('resize ' .. w .. 'x' .. h)\n"
+                           "end\n"
+                           "kb:show('numeric')\n"
+                           "console.print('again, view ' .. ui.caps().height)\n"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run resizer");
+  // The page of the Paper is the glass under the bar of the system: five hundred and forty by nine hundred and twelve.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "view 912"), g_out);
+  // With the band up, the four rows of forty-four are the system's and the app has seven hundred and thirty-six.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 176, view 736"), g_out);
+  // And the band going gives them all back, without a word from the app: the hook was not defined yet at that point.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone, view 912"), g_out);
+  // The show that comes after it finds the hook and tells it the view is another one.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "again, view 736"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its keys");
+
+  storage->remove("/apps/resizer/app.lua");
+  storage->remove("/apps/resizer/manifest.json");
+  storage->remove("/apps/resizer");
+}
+
 // **A dialog has two doors and the dial picks one before it presses it**: the chosen door moves with the arrows and
 // the centre fires `on_accept` or `on_cancel`, and closing the card is the app's —the old rule: read the action,
 // close, and then run it— (docs/30, docs/90).
@@ -5433,6 +5478,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
+  RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
   RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);

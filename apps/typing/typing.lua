@@ -34,15 +34,18 @@ box.on_enter = function(self)
   console.print('typing: the word is "' .. self.text .. '"')
 end
 
--- **The keyboard of the system**, and the band it takes is what the page does not have.
+-- **The keyboard of the system goes up first and the view is then what is left**: since 0.84.0 the system takes the band
+-- out of the view an app is given, so `ui.caps().height` is 736 and not 912 with the keyboard on the glass. An app does
+-- not have to subtract anything —and it hears `on_resize` when the band comes or goes— (docs/30, docs/90).
 local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
+view = ui.caps()
 local band = kb:height()
 console.print(string.format('typing: view %d x %d, the keyboard takes %d', view.width, view.height, band))
 
--- The page: what is left above the band, arranged by a panel.
-local page = ui.panel(view.width, view.height - band, 'vertical')
+-- The page: the whole view the app has, arranged by a panel.
+local page = ui.panel(view.width, view.height, 'vertical')
 page:place(0, 0)
 page.padding = 16
 page.gap = 12
@@ -60,6 +63,15 @@ note.color = 8
 page:add(note)
 
 ui.present('gc16')
+
+-- **The view is another one when the band comes or goes** (0.84.0): the system calls this and the page takes the room it
+-- has, which is the whole of what an app has to say about the keyboard.
+function on_resize(width, height)
+  page:resize(width, height)
+  box:resize(width - 32, 56)
+  console.print(string.format('typing: resized to %d x %d', width, height))
+  ui.present('gc16')
+end
 
 -- **The blink**: the caret goes and comes every six hundred milliseconds, and what it costs is the box and not
 -- the page (docs/90).

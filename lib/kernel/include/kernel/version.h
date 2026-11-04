@@ -959,7 +959,18 @@ namespace kernel {
 // tecla que es mou són dues cel·les i el canvi de joc o de caixa és la banda, i una presentada sense res premut no
 // pinta res. Mesurat a la finestra amb quatre captures seguides: la banda **0 píxels de diferència** entre elles i la
 // caixa 45, que és el cursor (docs/50, docs/90).
-static const char kVersion[] = "0.83.1";
+// 0.84.0 (4/11): **la vista d'una app és el que queda sobre el teclat.** La banda sempre havia estat el que queda
+// sota: el sistema la pintava a sobre dels últims cent setanta-sis píxels del llenç i l'app havia de preguntar
+// `kb:height()` i restar-lo ella de la seva pàgina, o posar-hi coses a sota que ningú no podia prémer. Ara
+// `ui.caps().height` i `ui.height()` diuen **736 i no 912** mentre el teclat és al vidre i l'app rep `on_resize` quan la
+// banda surt i quan marxa —el mateix hook d'una rotació—, o sigui que una pàgina feta a partir de `ui.caps()` ja queda
+// bé i no ha de restar res. **El llenç no es torna a demanar** i no costa ni un byte: la banda continua pintant-se a
+// sobre dels seus últims píxels i `ui.canvas().height` diu l'alçada física per a qui la necessiti. El hook arriba amb el
+// motiu i no amb el fet: `canvas:resize(w, h)` (nou) deixa un `ui.panel` —o una etiqueta, o una caixa de text, que no
+// tenen píxels propis— prendre la mida nova, i un canvas amb buffer la refusa perquè la seva és un bloc demanat amb una
+// mida. La banda que marxa amb l'app que l'obria no diu res a ningú: `attach` la treu amb la pàgina fora dels llibres
+// (docs/30, docs/90).
+static const char kVersion[] = "0.84.0";
 
 }  // namespace kernel
 

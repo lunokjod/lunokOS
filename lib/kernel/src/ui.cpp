@@ -970,7 +970,8 @@ bool caps_for_lua(luabind::UIInfo& out) {
   const Canvas& view = root();
   if (!g_attached || view.bits == nullptr) return false;
   out.width = view.width;
-  out.height = view.height;
+  // **The height is the page and not the canvas** (0.84.0): the band of the keyboard is the system's.
+  out.height = height();
   out.levels = 16;
   out.x = view.x;
   out.y = view.y;
@@ -1281,11 +1282,24 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
 bool available() { return root().bits != nullptr; }
 const Canvas& canvas() { return root(); }
 uint16_t width() { return root().width; }
-uint16_t height() { return root().height; }
+// **The page an app has is what is left over the keyboard** (0.84.0): the band is the system's and it is painted over
+// the bottom of the glass, so a view an app lays itself out in ends where the band begins. `ui.height()` and
+// `ui.caps().height` say that number —736 and not 912 on the Paper— and the app hears `on_resize` when it changes, the
+// same way a turn or a resize tells it (docs/30, docs/90).
+uint16_t height() {
+  const uint16_t band = keyboard_height();
+  return (band < root().height) ? static_cast<uint16_t>(root().height - band) : 0;
+}
 uint8_t levels() { return 16; }
 
 void attach() {
   if (root().bits == nullptr) return;
+  // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
+  // after the app that asked for it would be a keyboard typing into nothing (docs/90). It goes **with the page out of
+  // the books**, because the app that leaves is not told that its view grew and the one that comes has not asked for a
+  // keyboard yet (0.84.0).
+  g_attached = false;
+  keyboard_hide();
   g_attached = true;
   // A white view, nothing drawn and nothing pending, and **no controls inside it**: the app that had
   // them is gone (docs/30, docs/90). The glass is not touched until the app presents.
@@ -1293,9 +1307,6 @@ void attach() {
   // **And the faces it loaded go back too**: the block of an app is the app's, and an app that ends with a
   // font loaded would leave a kilobyte of the extra memory spoken for by nobody (docs/30, docs/75).
   release_faces();
-  // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
-  // after the app that asked for it would be a keyboard typing into nothing (docs/90).
-  keyboard_hide();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
   // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
@@ -4693,10 +4704,22 @@ void flat_place(const LayoutDef& layout, int32_t index, int8_t& row, int8_t& key
   }
 }
 
+// **An app is told when the band takes part of its page and when it gives it back** (0.84.0): `on_resize` is the hook
+// that already means "the view is another one, draw it again", and the height it carries is the one `ui.height()` says.
+// It is not called from the `attach` of a new page —the band went before that— and a bench with no interpreter answers
+// nothing, which is what `luabind::call_resize` does with no state (docs/30, docs/90).
+void tell_the_app(uint16_t before) {
+  if (!g_attached) return;
+  const uint16_t after = height();
+  if (after == before) return;
+  luabind::call_resize(width(), after);
+}
+
 }  // namespace
 
 bool keyboard_show(uint8_t kind) {
   if (!g_attached || root().bits == nullptr) return false;
+  const uint16_t before = height();
   g_kbd_kind = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
   g_kbd_shift = false;
   measure();
@@ -4707,14 +4730,19 @@ bool keyboard_show(uint8_t kind) {
   g_kbd_held = false;
   note_the_whole_band();
   invalidate(0);
+  tell_the_app(before);
   return true;
 }
 
 bool keyboard_hide() {
+  const uint16_t before = height();
   const bool was = g_kbd_shown;
   g_kbd_shown = false;
   g_kbd_held = false;
-  if (was) invalidate(0);
+  if (was) {
+    invalidate(0);
+    tell_the_app(before);
+  }
   return true;
 }
 

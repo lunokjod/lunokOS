@@ -1385,9 +1385,13 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::keyboard_visible());
   // Four rows of forty-four pixels in a view of five hundred and forty, and never the two fifths the rule allows.
   TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
-  TEST_ASSERT_LESS_OR_EQUAL_UINT16(static_cast<uint16_t>((ui::height() * 2) / 5), ui::keyboard_height());
-  const uint16_t top = static_cast<uint16_t>(ui::height() - ui::keyboard_height());
+  TEST_ASSERT_LESS_OR_EQUAL_UINT16(static_cast<uint16_t>((ui::canvas().height * 2) / 5), ui::keyboard_height());
+  // **The band is not part of the view an app has** (0.84.0): the canvas is still the five hundred and forty of the
+  // glass under the bar, and `ui.height()` —what `ui.caps().height` says to an app— is what is left over the band.
+  const uint16_t top = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
   TEST_ASSERT_EQUAL_UINT16(364, top);
+  TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(364, ui::height());
   TEST_ASSERT_TRUE(ui::present());
 
   // **The page above the band is the page's**: a finger there is not the keyboard's.
@@ -1461,14 +1465,16 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardNumeric));
   TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
   TEST_ASSERT_TRUE(ui::present());
-  // The `1` of the first row is ink and the band is still at the bottom of the view.
-  const uint16_t foot = static_cast<uint16_t>(ui::height() - ui::keyboard_height());
+  // The `1` of the first row is ink and the band is still at the bottom of the canvas.
+  const uint16_t foot = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
   TEST_ASSERT_EQUAL_UINT16(364, foot);
   TEST_ASSERT_EQUAL_UINT8(0, view_level(0, foot));
   // The dial is on the `1` of the first row, and the chosen key is a block of ink with the digit in paper.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(10, foot + 10));
   TEST_ASSERT_TRUE(ui::keyboard_hide());
   TEST_ASSERT_EQUAL_UINT16(0, ui::keyboard_height());
+  // **And the page is the whole glass again** when the band goes.
+  TEST_ASSERT_EQUAL_UINT16(540, ui::height());
   TEST_ASSERT_FALSE(ui::keyboard_touch(48, static_cast<uint16_t>(ui::height() - 1), true));
 }
 

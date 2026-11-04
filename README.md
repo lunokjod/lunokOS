@@ -78,7 +78,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > `menubar`, i la revisió del projecte antic que va portar-los és a [docs/92](docs/92-ui-del-projecte-antic.md).
 > **El teclat** (`ui.keyboard`) és una banda del sistema i no un control: des de 0.83.0 és un QWERTY de
 > minúscules amb majúscules i barra d'espai, amb el retrocés, l'enter i les majúscules **dibuixats** i no
-> escrits, i el dit i el dial el prenen abans que la pàgina.
+> escrits, i el dit i el dial el prenen abans que la pàgina. I des de 0.84.0 **la vista de l'app és el que
+> queda sobre la banda**: `ui.caps().height` baixa amb el teclat obert i l'app rep `on_resize`, o sigui que
+> cap pàgina ha de restar res a mà.
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al

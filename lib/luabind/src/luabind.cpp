@@ -6412,6 +6412,26 @@ int l_canvas_place(lua_State* L) {
   return 1;
 }
 
+// canvas:resize(w, h): **another size for a control that has no pixels of its own** —a panel, a label, a box of lines—,
+// which is what the `on_resize` of a page needs to arrange itself again when the view changes. A canvas with a buffer is
+// refused: its pixels are a block handed out with a size, and another size is another canvas, which is the app's to ask
+// with `ui.canvas` (0.84.0, docs/30, docs/90).
+int l_canvas_resize(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer w = luaL_checkinteger(L, 2);
+  const lua_Integer h = luaL_checkinteger(L, 3);
+  if (w <= 0 || h <= 0 || w > 0xFFFF || h > 0xFFFF) {
+    return push_nil_error(L, "E_INVAL", "a size is a column and a row");
+  }
+  if (g_ui_ops.canvas_resize == nullptr ||
+      !g_ui_ops.canvas_resize(canvas->slot, static_cast<uint16_t>(w), static_cast<uint16_t>(h))) {
+    return push_nil_error(L, "E_INVAL", "this canvas has its own pixels and a size of its own");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // **The primitives, written once for the view and for a canvas.** `ui.line(...)` and `cv:line(...)` are the
 // same call with a different canvas in the first place, so the body is here and the difference is the slot
 // and where its arguments start (1 for the view, 2 for a method) (docs/30, docs/90).
@@ -7031,6 +7051,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "rect", l_canvas_rect);
   set_function(L, "pixel", l_canvas_pixel);
   set_function(L, "place", l_canvas_place);
+  set_function(L, "resize", l_canvas_resize);
   set_function(L, "frame", l_canvas_frame);
   set_function(L, "line", l_canvas_line);
   set_function(L, "circle", l_canvas_circle);

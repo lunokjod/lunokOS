@@ -136,7 +136,10 @@ const uint16_t kChipPage = 270;
 void turn_frame() {
   if (g_count == 0) return;
   const orientation::Frame chip = {g_glass->width(), g_glass->height()};
-  const orientation::Frame view = {ui::width(), ui::height()};
+  // **The frame the finger is clamped into is the canvas and not the page left over the keyboard** (0.84.0): `ui.height()`
+  // is what an app draws in, and the band of the keyboard is still part of the glass —a finger that lands on it has to
+  // arrive at the keyboard with its own y and not squeezed into the last row of the page— (docs/50, docs/90).
+  const orientation::Frame view = {ui::canvas().width, ui::canvas().height};
   const uint16_t off_x = ui::canvas().x;
   const uint16_t off_y = ui::canvas().y;
   // Turning the page by 180 degrees turns the finger by 180 degrees too; at `kChipPage` the page and the

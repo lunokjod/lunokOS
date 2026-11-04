@@ -792,7 +792,7 @@ la fila 48 i `ui.caps().y` ho diu.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `ui.caps()` | `{width, height, levels, x, y}` | La grandària de la **vista**, els seus nivells (16) i **on està** dins del vidre |
+| `ui.caps()` | `{width, height, levels, x, y}` | La grandària de la **vista**, els seus nivells (16) i **on està** dins del vidre. L'alçada és **el que queda sobre el teclat** mentre la banda és al vidre (0.84.0) |
 | `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell |
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
@@ -815,7 +815,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la gran més gran. **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (si el bloc es pinta; el parpelleig és de l'app), `mask` (puntets en lloc de lletres), `color`, `scale`. **És enfocable** (3/11, 0.72.0) |
-| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs (3/11, 0.72.0) |
+| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`) (3/11, 0.72.0) |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
@@ -931,10 +931,10 @@ la fila 48 i `ui.caps().y` ho diu.
   10 896 B cada una) i amb la seva llicència al costat (`/res/LICENCE.txt`). Són tres perquè **tres és el que
   el sistema guarda alhora**, i la quarta —la negreta— hi entra quan l'app torna el mono: `release()` és el
   que fa lloc.
-- **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia— el canvas es torna a
-  fer, blanc, i l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
-  dibuixar és de l'app. Una app sense `on_resize` és una app legal; simplement no dibuixa mai la vista
-  nova.
+- **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia, o la banda del teclat que hi
+  entra i en surt (0.84.0)— l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
+  dibuixar és de l'app, i `cv:resize(w, h)` és el que necessita un `panel` per prendre la mida nova. Una app sense
+  `on_resize` és una app legal; simplement no dibuixa mai la vista nova.
 
 ```lua
 local view = ui.caps()
@@ -1004,6 +1004,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 | `cv:pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
 | `cv:clear([level], [mode])` | `true` o `nil, error` | Tot el canvas |
 | `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
+| `cv:resize(w, h)` | `true` o `nil, error` | **Una altra mida** per a un control que no té píxels propis (un panel, una etiqueta, una caixa de text): la mesura del grup; el que la necessita és un `on_resize` que torna a col·locar la pàgina (0.84.0). Un canvas **amb buffer** la refusa: els seus píxels són un bloc demanat amb una mida, i una altra mida és un altre canvas |
 | `cv:rect`, `cv:frame`, `cv:line`, `cv:circle`, `cv:disc`, `cv:text` | `true` o `nil, error` | Les mateixes primitives que la vista, dibuixades al canvas propi |
 | `cv:add(fill)` | `true` o `nil, error` | El fill passa a estar **dins** d'aquest canvas, i és l'últim (la capa del davant). Un canvas té **un sol pare** |
 | `cv:draw()` | `true` si ha dibuixat, `false` si no hi havia res | **Es dibuixa ell i després pregunta als fills**, en l'ordre en què es van afegir. **Si no té cap canvi, no fa res** |
@@ -1469,8 +1470,27 @@ pàgina ja composta, i que **pren el dit i el dial abans que els controls de la 
 | `kb.target = box` | La caixa on escriu. És l'únic camp que té |
 | `kb:show('alpha')` · `kb:show('numeric')` | La banda surt, amb el joc de tecles que es demana |
 | `kb:hide()` | La banda marxa (i marxa sola quan l'app s'acaba) |
-| `kb:height()` | **La banda que pren**, perquè la pàgina de l'app sigui la part que queda |
+| `kb:height()` | **La banda que pren** —176 al Paper—, que des de 0.84.0 ja no cal restar de res: és el que es pregunta per pintar una barra pròpia just a sobre |
 | `kb:visible()` | Si és al vidre |
+
+**La vista de l'app és el que queda sobre la banda** (0.84.0). `ui.caps().height` i `ui.height()` diuen **736 i no 912**
+mentre el teclat és al vidre, i l'app rep **`on_resize(width, height)`** quan la banda surt i quan marxa —el mateix hook
+d'una vista que canvia de mida o de gir—, o sigui que una pàgina que es fa a partir de `ui.caps()` ja queda bé i no ha de
+restar res. El llenç de sota no es torna a demanar (no costa ni un byte: la banda es pinta a sobre dels seus últims 176
+píxels), i `ui.canvas().height` continua dient l'alçada del llenç per a qui necessiti la mida física.
+
+```lua
+local kb = ui.keyboard()
+kb.target = box
+kb:show('alpha')            -- la banda primer
+local view = ui.caps()      -- i la vista ja és el que queda: 736
+local page = ui.panel(view.width, view.height, 'vertical')
+
+function on_resize(width, height)   -- la banda ha vingut o se n'ha anat
+  page:resize(width, height)
+  ui.present('gc16')
+end
+```
 
 - **L'app no mana cap tecla**: cada tecla arriba a la caixa que ha nomenat, la caixa escriu el camp i tot seguit
   avisa amb `on_change(self, text)`. El **13** no és cap lletra: és el `OK`, i la caixa diu `on_enter(self)` i no
@@ -1508,7 +1528,7 @@ box.on_change = function(self, text) console.print('now "' .. text .. '"') end
 local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
-local band = kb:height()          -- el que la pàgina no té
+view = ui.caps()                  -- i el que la pàgina té és el que queda: 736 (0.84.0)
 ui.present('gc16')
 ```
 
