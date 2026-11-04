@@ -821,7 +821,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0) |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
-| `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
+| `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `color`, `background`, `border` i `scale`, i **`box:rows()`** diu quantes files s'hi veuen. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
@@ -1704,8 +1704,10 @@ pàgina amb feina a fer —un editor, un gestor de fitxers— on les accions no 
 - **Una ratlla (`'-'`) és una línia entre dues entrades**, amb el seu aire: no és una fila que el dit premi ni una parada
   del dial.
 - **Un tick és una caixa amb el mig ple** (`checked`): dos tons i cap gris, o sigui que «està encesa» és la caixa que té
-  alguna cosa a dins i «està apagada» la que està buida. **Qui sap l'estat és l'app**: ella escriu `checked` i torna a
-  donar la taula d'`items`, que és sempre un repintat.
+  alguna cosa a dins i «està apagada» la que està buida. **Perquè la caixa buida surti hi ha d'haver el camp**, encara
+  que sigui `checked = false`: una entrada amb el camp és un interruptor i una entrada sense el camp és una ordre, i
+  així es distingeixen sense cap paraula. **Qui sap l'estat és l'app**: ella escriu `checked` i torna a donar la taula
+  d'`items`, que és sempre un repintat.
 - **El dit**: a un títol plega o desplega el seu menú (i el títol desplegat s'inverteix); a una entrada la posa al dial i
   **el deixar anar tria**. **El dial**: amb un menú desplegat, les fletxes caminen les entrades que es poden triar i el
   centre tria; **sense cap menú, la fletxa torna al recorregut del dial**, que és el que impedeix que una pàgina amb una
@@ -1719,7 +1721,8 @@ bar:place(20, 40)
 bar.items = {
   { title = 'File', items = { {label = 'Open'}, '-', {label = 'Save'},
                              {label = 'Quit', enabled = false} } },
-  { title = 'View', items = { {label = 'Wrap', checked = true} } },
+  { title = 'View', items = { {label = 'Wrap', checked = true},
+                             {label = 'Read Only', checked = false} } },
 }
 bar.on_pick = function(self, title, entry)
   console.print('menu ' .. title .. ' entry ' .. entry .. ' (open ' .. self.open .. ')')

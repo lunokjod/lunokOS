@@ -1059,7 +1059,23 @@ namespace kernel {
 // —vuit noms i prou, que això és una pista i no un llistat—, `cat` diu el mateix quan el fitxer no hi és, i **`ls`
 // d'un fitxer el llista** amb el seu nom i la seva mida en comptes de dir que no és cap carpeta. El que no s'inventa
 // és el nom: la pista és el que hi ha, i trobar la lletra que falta és de qui llegeix (docs/30, docs/70).
-static const char kVersion[] = "0.86.1";
+// 0.87.0 (4/11): **un editor de text gràfic** (`run editor [path]`). La barra de menús del sistema és el seu comandament:
+// **File** obre, desa, desa com i tanca —el camí s'escriu en una targeta amb el teclat del sistema, i el que no és el
+// camí que el prompt ha nomenat ni el propi de l'app es refusa i es diu per què— i **View** porta **Read Only** i
+// **Word wrap** amb una casella dins del menú (`checked`), que en aquest vidre és una caixa amb el mig ple perquè no hi
+// ha un tercer to per a «encesa» —i **una entrada que és un interruptor porta la caixa buida quan està apagada**
+// (`checkable`: el camp `checked` hi és encara que sigui `false`), perquè una caixa buida i cap caixa són un interruptor
+// i una ordre sense cap paraula—. Cada lletra es pinta amb `gld16` (neteja i no fa cap flaix) i el cursor del text va on
+// toca el dit (docs/30, docs/90). **I tres coses del nucli que l'editor ha destapat**: la barra de menús **no té buffer**
+// i pinta la targeta desplegada a sobre de la pàgina, o sigui que quan el menú es plega —o quan un títol en desplega un
+// altre— les seves lletres es queden al canvas de sota —l'app repinta la pàgina i torna a demanar els píxels de cada
+// control, i això és el que fa `repaint_page`, també quan la pàgina es mou perquè el teclat apareix o desapareix—; **la
+// caixa d'una línia no dibuixava el començament del text** quan el text era més ample que el que quedava després del
+// cursor (dibuixava la «resta» començant pel principi de la finestra i el cap no es dibuixava mai, o sigui que
+// `/data/editor/note.txt` es veia com `/data/editor/not` amb el cursor sol a la dreta); i la targeta d'un camí **desa a
+// la memòria de l'app** (`/data/editor`) o al camí que el prompt ha nomenat, que és la política de docs/70 i no una
+// porta nova (docs/30, docs/70, docs/90).
+static const char kVersion[] = "0.87.0";
 
 }  // namespace kernel
 

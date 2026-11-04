@@ -362,7 +362,8 @@ uint8_t menu_hit(int8_t slot, const char* title, const MenuOption* items, uint8_
 // **An entry that is a line and not a word is a separator**: it has its own row, the finger goes past it and the dial
 // does not land on it. **An entry that cannot be used now is drawn in the dim tone and does not fire**: the ink is the
 // only level a control may spend on "no", and a word that looks like the others and does nothing is worse than a word
-// that says it cannot (docs/90). `checked` is a small box with a tick, which is what says "this one is on".
+// that says it cannot (docs/90). `checkable` is a small box in front of the words and `checked` the tick inside it,
+// which is what says "this one is on" —and the empty box is what says "this one can be turned on"—.
 const uint8_t kMaxMenuBarTitles = 5;
 const uint8_t kMaxMenuBarEntries = 16;
 
@@ -370,6 +371,9 @@ struct MenuBarEntry {
   const char* label;
   bool separator;
   bool checked;
+  // **An entry that is a setting carries its box even when it is off**: an empty square is a switch a finger can turn
+  // and no square at all is a command, so the two kinds of entry are told apart without a word (docs/90).
+  bool checkable;
   bool enabled;
 };
 

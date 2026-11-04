@@ -4333,12 +4333,17 @@ uint8_t ui_menu_bar_items(lua_State* L, int object, UIOps::UIMenuBarTitle* title
           entry.label = "";
           entry.separator = false;
           entry.checked = false;
+          entry.checkable = false;
           entry.enabled = true;
           if (lua_istable(L, -1)) {
             lua_getfield(L, -1, "label");
             if (lua_isstring(L, -1)) entry.label = lua_tostring(L, -1);
             lua_pop(L, 1);
+            // **An entry with a `checked`, even a `false`, is a setting and carries its box**: the field being there is
+            // what the app says with a square in front of the words, and a field that is not there is a command (docs/30,
+            // docs/90).
             lua_getfield(L, -1, "checked");
+            entry.checkable = !lua_isnil(L, -1);
             entry.checked = lua_toboolean(L, -1) != 0;
             lua_pop(L, 1);
             lua_getfield(L, -1, "enabled");

@@ -1123,6 +1123,7 @@ bool menu_bar_build(const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
       entries[used].label = titles[i].entries[j].label;
       entries[used].separator = titles[i].entries[j].separator;
       entries[used].checked = titles[i].entries[j].checked;
+      entries[used].checkable = titles[i].entries[j].checkable;
       entries[used].enabled = titles[i].entries[j].enabled;
       ++used;
     }
@@ -2725,29 +2726,39 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
   // every paint **appended** the text it was given to the text of the one before: `run typing` with five keys showed
   // "h", then "hhe", then "hhehel", and a box that looked like a ghost of every word typed so far (found on the bench,
   // 4/11, docs/90).
-  static char tail[512];
-  tail[0] = '\0';
-  const int32_t room = inner_w - before - ((caret && at >= from) ? caret_w : 0);
+  //
+  // **And what comes after the caret** (0.87.0): the rest of the text from the caret on, measured against what is
+  // left of the window. It used to be copied **from the start of the window** and the head was never drawn at all, so
+  // a box whose text is wider than the window showed its first letters cut in half with the caret alone at the right
+  // —`/data/editor/note.txt` came out as `/data/editor/not` with the caret at the end—; a box with little text never
+  // showed it, because then the rest was the whole text (found in the graphical editor, 4/11).
+  static char rest[512];
+  rest[0] = '\0';
+  const int32_t after_caret = (caret) ? caret_w : 0;
+  const int32_t room = inner_w - before - after_caret;
+  const int32_t tail_from = at + under_bytes;
   int32_t fit = 0;
   if (room > 0) {
     // How many bytes of the rest fit: measured a letter at a time, and a letter that does not fit stops the line.
     char probe[8];
-    while (from + fit < shown_length) {
+    while (tail_from + fit < shown_length) {
       int32_t step = 1;
-      while (from + fit + step < shown_length && (shown[from + fit + step] & 0xC0) == 0x80 && step < 3) ++step;
-      memcpy(probe, shown + from + fit, static_cast<size_t>(step));
+      while (tail_from + fit + step < shown_length && (shown[tail_from + fit + step] & 0xC0) == 0x80 && step < 3) ++step;
+      memcpy(probe, shown + tail_from + fit, static_cast<size_t>(step));
       probe[step] = '\0';
       const int32_t one = static_cast<int32_t>(font::width(face, probe, scale));
-      if (static_cast<int32_t>(font::width(face, tail, scale)) + one > room) break;
-      const size_t have = strlen(tail);
-      if (have + static_cast<size_t>(step) + 1 >= sizeof(tail)) break;
-      memcpy(tail + have, probe, static_cast<size_t>(step));
-      tail[have + static_cast<size_t>(step)] = '\0';
+      if (static_cast<int32_t>(font::width(face, rest, scale)) + one > room) break;
+      const size_t have = strlen(rest);
+      if (have + static_cast<size_t>(step) + 1 >= sizeof(rest)) break;
+      memcpy(rest + have, probe, static_cast<size_t>(step));
+      rest[have + static_cast<size_t>(step)] = '\0';
       fit += step;
     }
   }
-  if (tail[0] != '\0') {
-    draw_text(*window.canvas, face, inner_x, top, tail, scale, color, mode);
+  // **The head and the rest, each in its own place**: what is before the caret from the left edge, and what is after
+  // it right behind the caret, or the two would be drawn on top of each other (docs/90).
+  if (head[0] != '\0') {
+    draw_text(*window.canvas, face, inner_x, top, head, scale, color, mode);
   }
   // **The caret is a block of ink with the letter under it in paper**: a filled block would hide the letter the
   // person is about to type over, and an outline would be a box drawn on a box (docs/90).
@@ -2762,6 +2773,9 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
         draw_text(*window.canvas, face, caret_x, top, under, scale, background, mode);
       }
     }
+  }
+  if (rest[0] != '\0') {
+    draw_text(*window.canvas, face, inner_x + before + after_caret, top, rest, scale, color, mode);
   }
   close_draw(window);
   return true;
@@ -4381,11 +4395,11 @@ bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8
     }
     const int32_t box_x = menu_x + grid.pad;
     const int32_t box_y = y + (grid.row_h - kMenuBarBox) / 2;
-    if (entry.checked) {
-      // **The tick is a box with its middle filled**: two tones and no grey, so "this one is on" is the box that has
-      // something in it and "this one is off" is the box that is empty (docs/90).
+    if (entry.checkable) {
+      // **A setting keeps its box when it is off**: the empty square is what tells a switch from a command, and the
+      // tick in its middle is the one level of ink that says "this one is on" (docs/90).
       draw_frame_thick(*target.canvas, box_x, box_y, kMenuBarBox, kMenuBarBox, 2, color, mode);
-      put_rect(*target.canvas, box_x + 5, box_y + 5, kMenuBarBox - 10, kMenuBarBox - 10, color);
+      if (entry.checked) put_rect(*target.canvas, box_x + 5, box_y + 5, kMenuBarBox - 10, kMenuBarBox - 10, color);
     }
     // **An entry that cannot be used now is the dim tone and not a third colour**: the ink is all the levels a control
     // may spend on "no", and its row is still there so the menu does not change size when it comes back (docs/90).

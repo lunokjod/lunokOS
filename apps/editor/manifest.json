@@ -1,0 +1,8 @@
+{
+  "title": "Editor",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "editor.lua",
+  "boards": ["esp32"],
+  "description": "A graphical text editor on the glass, with the menu bar of the system: File opens, saves and closes a page, and View turns it read-only and turns word wrap on and off, the two of them with a tick in the menu. `run edit` is the modal editor of the serial terminal."
+}

@@ -2042,6 +2042,33 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   // **The border of the box is not the text**: the last column the text may touch is the one before the frame.
   TEST_ASSERT_LESS_THAN(198, widest);
 
+  // **El text que cap sencer es dibuixa sencer** (0.87.0): amb el cursor al final i un text més curt que la finestra,
+  // el que hi ha abans del cursor és tot el text i s'ha de veure des de la vora esquerra. Fins a la 0.86.1 la caixa
+  // dibuixava «el que queda després del cursor» començant pel principi de la finestra i el tros de davant no es
+  // dibuixava mai, o sigui que un camí de vint-i-dos caràcters sortia tallat amb el cursor sol a la dreta (trobat a
+  // l'editor gràfic, 4/11, docs/90).
+  int8_t wide = -1;
+  TEST_ASSERT_TRUE(ui::create(400, 40, 0, false, wide));
+  TEST_ASSERT_TRUE(ui::place(wide, 0, 60));
+  TEST_ASSERT_TRUE(ui::textbox_draw(wide, "/data/editor/note.txt", 22, true, false, 0, 15, 0, 2));
+  // The first letter is an `l` of ink at the left of the inside, and the last `t` is before the caret, at six
+  // pixels a letter of a face of bits.
+  bool first_letter = false;
+  for (uint16_t x = 8; x < 20 && !first_letter; ++x) {
+    for (uint16_t y = 74; y < 86 && !first_letter; ++y) {
+      if (view_level(x, y) == 0) first_letter = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(first_letter, "the head of the text was not drawn");
+  bool last_letter = false;
+  for (uint16_t x = 8 + 21 * 12; x < 8 + 22 * 12 && !last_letter; ++x) {
+    for (uint16_t y = 74; y < 86 && !last_letter; ++y) {
+      if (view_level(x, y) == 0) last_letter = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(last_letter, "the tail of a text that fits was cut");
+  ui::release(wide);
+
   // A colour that is not a level of this panel and a scale of nothing are refused, and the mask is drawn in the
   // place of the letters.
   TEST_ASSERT_FALSE(ui::textbox_draw(box, "x", 1, true, false, 16, 15, 0, 2));
@@ -2215,8 +2242,10 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   TEST_ASSERT_TRUE(ui::create(400, 400, 0, false, bar));
   TEST_ASSERT_TRUE(ui::place(bar, 0, 0));
 
+  // label, separator, checked, checkable, enabled — "Save" is the setting that is off, so it carries an empty square.
   const ui::MenuBarEntry file[4] = {
-      {"Open", false, true, true}, {"", true, false, true}, {"Quit", false, false, false}, {"Save", false, false, true}};
+      {"Open", false, true, true, true}, {"", true, false, false, true}, {"Quit", false, false, false, false},
+      {"Save", false, false, true, true}};
   const ui::MenuBarTitle titles[2] = {{"File", file, 4}, {"Edit", nullptr, 0}};
   TEST_ASSERT_TRUE(ui::menu_bar_draw(bar, titles, 2, 1, 1, 52, 0, 8, 15, 2, true));
   // **The row**: paper, with the word whose menu is down inverted, and the line of ink under it.
@@ -2247,6 +2276,13 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   }
   TEST_ASSERT_GREATER_THAN(0, dim_row);
   TEST_ASSERT_EQUAL_INT(0, ink_row);
+  // **An entry that is a setting keeps its box when it is off**: the square of "Save" is a frame of ink with paper in
+  // its middle, which is what tells a switch from a command without a word (docs/90).
+  // The square of "Save" is around y 204, which is a point of its row: a frame of ink at both sides and paper in the
+  // middle, where the tick would be.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 204));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 204));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 204));
   // **The boxes the finger asks**: the titles of the row, the entries of the menu, and neither the line between two
   // entries nor the space past the menu's width.
   TEST_ASSERT_EQUAL_UINT8(1, ui::menu_bar_title_at(bar, titles, 2, 52, 2, 30, 20));

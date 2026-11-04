@@ -539,6 +539,7 @@ struct UIOps {
     const char* label;
     bool separator;
     bool checked;
+    bool checkable;
     bool enabled;
   };
   struct UIMenuBarTitle {

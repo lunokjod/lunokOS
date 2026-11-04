@@ -66,7 +66,8 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > codi pel port sèrie de la placa i per la consola nadiua**, i per això el teclat sap ser **cru**
 > (`console.raw` i `console.read_byte`: les fletxes senceres, sense eco i sense línia); el fitxer que la
 > persona nomena al prompt és l'únic d'aquell disc que l'app pot desar (`:w` des d'un altre camí respon
-> `E_INVAL`).
+> `E_INVAL`). **`run editor` és el mateix ofici però al vidre**: un editor gràfic que es comanda amb la barra de
+> menús del sistema (vegeu els controls, més avall).
 >
 > **La pàgina té controls i els dibuixa el sistema.** `ui.panel`, `ui.list`, `ui.textbox`,
 > `ui.textbox_multiline`, `ui.selector`, `ui.checkbox`, `ui.progress`, `ui.slider`, `ui.row`, `ui.tabs`,
@@ -76,6 +77,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cares del disc viuen una sola vegada a `/fonts` (`res/fonts/`, de només lectura) i no una còpia per app.
 > Els exemples són `run controls`, `menu`, `typing`, `dialog`, `form`, `notes`, `trend`, `grid`, `checkbox` i
 > `menubar`, i la revisió del projecte antic que va portar-los és a [docs/92](docs/92-ui-del-projecte-antic.md).
+> **I `run editor [path]` és un editor de text gràfic** amb la barra de menús del sistema: **File** obre, desa,
+> desa com i tanca (el camí s'escriu en una targeta amb el teclat), i **View** porta **Read Only** i **Word wrap**
+> amb una casella dins del menú, que en aquest vidre és una caixa amb el mig ple quan està encesa i buida quan no.
 > **El teclat** (`ui.keyboard`) és una banda del sistema i no un control: des de 0.85.0 les lletres són
 > **DejaVu Sans Bold** de `/fonts`, dibuixades a doble mida i rebaixades a quatre nivells de tinta —la corba
 > d'una lletra i no una escala de píxels—, amb `MAY` com a **bloqueig de majúscules** (no un shift d'una
