@@ -321,6 +321,7 @@ unitat, i quina unitat és ho tria el sistema, no l'app:
 | Com ho sap la persona | `cfg` a la consola, o `fs.cfg()` des de Lua: `{unit="sd"\|"littlefs", dir="/sd/cfg/<id>"}` |
 | Com se'n canvia | `cfg sd` / `cfg littlefs` / `cfg auto`, o `fs.cfg("sd")` |
 | On es desa la tria | a l'NVS, `cfg/unit`, així que sobreviu una arrencada |
+| Què més hi va | **les apps que s'instal·len** (0.86.0): `repo install <app>` les baixa a `apps/` de la unitat triada, i `cfg` ho diu (`apps install into: /sd/apps`) |
 
 Tres coses que això compra i que abans no hi eren:
 

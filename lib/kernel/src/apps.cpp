@@ -1,5 +1,6 @@
 #include "kernel/apps.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "json/json.h"
@@ -18,21 +19,19 @@ const size_t kManifestCap = 1024;
 static_assert(sizeof(Entry::boards[0]) == lunok::json::kStringItemCap,
               "board names have to be the same width in the manifest and the entry");
 
-bool manifest_path(char* out, size_t cap, const char* id) {
-  static const char kPrefix[] = "/apps/";
-  static const char kSuffix[] = "/manifest.json";
-  const size_t prefix_len = sizeof(kPrefix) - 1;
-  const size_t suffix_len = sizeof(kSuffix);  // includes the terminator
-  const size_t id_len = strlen(id);
-  if (prefix_len + id_len + suffix_len > cap) return false;
+// **The path of one file of an app, given the drive it lives on** (`/apps` or `/sd/apps`): a walk already knows
+// which one it is listing, so the card is not asked twice for the same app (docs/40, docs/70).
+bool under_root(char* out, size_t cap, const char* base, const char* id, const char* tail) {
+  const int written = snprintf(out, cap, "%s/%s%s", base, id, tail);
+  return written > 0 && static_cast<size_t>(written) < cap;
+}
 
-  size_t used = 0;
-  memcpy(out + used, kPrefix, prefix_len);
-  used += prefix_len;
-  memcpy(out + used, id, id_len);
-  used += id_len;
-  memcpy(out + used, kSuffix, suffix_len);
-  return true;
+// **A manifest is what makes a directory an app**: the question "does this id live here?" is one stat (docs/40).
+bool has_manifest(const char* base, const char* id) {
+  char path[128];
+  if (!under_root(path, sizeof(path), base, id, "/manifest.json")) return false;
+  hal::Stat info;
+  return vfs::stat(path, info) && info.type == hal::NodeType::kFile;
 }
 
 // A band answers to a set of board names (one on a chip, the ones it stands in for on
@@ -50,12 +49,12 @@ bool answers_here(const Entry& entry, hal::IPlatform& band) {
 
 // Reads one app into out, which lives on the caller's stack. Returns false and
 // says why when the manifest is not usable; the walk then carries on.
-bool load(const char* id, Entry& out) {
+bool load(const char* base, const char* id, Entry& out) {
   const size_t id_len = strlen(id);
   if (id_len == 0 || id_len >= sizeof(out.id)) return false;
 
-  char path[96];
-  if (!manifest_path(path, sizeof(path), id)) {
+  char path[128];
+  if (!under_root(path, sizeof(path), base, id, "/manifest.json")) {
     log_printf(pal::kLogWarn, "APPS", "%s has a name that is too long", id);
     return false;
   }
@@ -85,16 +84,13 @@ bool load(const char* id, Entry& out) {
     return false;
   }
   char entry_path[128];
-  if (!manifest_path(entry_path, sizeof(entry_path), id)) return false;
-  // manifest_path ends in /manifest.json; cut it and append the entry instead.
-  char* slash = strrchr(entry_path, '/');
-  if (slash == nullptr) return false;
-  const size_t room = sizeof(entry_path) - static_cast<size_t>(slash - entry_path) - 2;
+  if (!under_root(entry_path, sizeof(entry_path), base, id, "/")) return false;
+  // The path above ends at the app's own root: the entry goes after that slash (docs/40).
+  const size_t room = sizeof(entry_path) - strlen(entry_path) - 1;
   if (strlen(out.entry_file) > room) {
     log_printf(pal::kLogWarn, "APPS", "%s has an entry name that is too long", id);
     return false;
   }
-  slash[1] = '\0';
   strcat(entry_path, out.entry_file);
   hal::Stat info;
   if (!vfs::stat(entry_path, info) || info.type != hal::NodeType::kFile) {
@@ -134,12 +130,20 @@ class WalkSink : public hal::ListSink {
   WalkSink(const char* only_id, Visitor visitor, void* context)
       : only_(only_id), visitor_(visitor), context_(context), visited_(0) {}
 
+  // **The root this walk is listing**, so a manifest is looked for where the entry came from and not twice
+  // (docs/40, docs/70).
+  void set_base(const char* base) { base_ = base; }
+
   bool on_entry(const hal::ListEntry& entry) override {
     if (entry.type != hal::NodeType::kDir) return true;
     if (only_ != nullptr && strcmp(entry.name, only_) != 0) return true;
+    // **An app of the card is the one that runs**: the card is walked first and the flash does not repeat it
+    // (0.86.0, docs/40).
+    if (already(entry.name)) return true;
 
     Entry loaded;
-    if (!load(entry.name, loaded)) return true;
+    if (!load(base_, entry.name, loaded)) return true;
+    remember(entry.name);
     ++visited_;
     if (!visitor_(loaded, context_)) return false;
     // Asking for one app: once found and visited, there is nothing else to do.
@@ -149,10 +153,30 @@ class WalkSink : public hal::ListSink {
   uint32_t visited() const { return visited_; }
 
  private:
+  // How many ids this walk remembers, which is how many apps a card may shadow. Past this the flash repeats one
+  // —the list shows it twice and the card is still the one that runs—, and the number is one constant (docs/75).
+  static const uint8_t kSeen = 24;
+
+  bool already(const char* id) const {
+    for (uint8_t i = 0; i < seen_count_; ++i) {
+      if (strcmp(seen_[i], id) == 0) return true;
+    }
+    return false;
+  }
+
+  void remember(const char* id) {
+    if (seen_count_ >= kSeen) return;
+    snprintf(seen_[seen_count_], sizeof(seen_[0]), "%s", id);
+    ++seen_count_;
+  }
+
   const char* only_;
   Visitor visitor_;
   void* context_;
   uint32_t visited_;
+  const char* base_ = "/apps";
+  char seen_[kSeen][sizeof(Entry::id)];
+  uint8_t seen_count_ = 0;
 };
 
 bool count_visitor(const Entry& entry, void* context) {
@@ -175,19 +199,38 @@ bool compatible(const Entry& entry, const char* board_id, const char* family) {
 
 uint32_t for_each(const char* only_id, Visitor visitor, void* context) {
   if (visitor == nullptr) return 0;
+  // **The card first and the flash after it** (0.86.0): an app installed on the card is the one that runs, and the
+  // ones the flash has that the card does not are visited all the same. A drive that is not mounted is an empty
+  // list and not an error, and a folder of the card that is not an app is skipped by `load` (docs/40, docs/70).
   WalkSink sink(only_id, visitor, context);
+  sink.set_base("/sd/apps");
+  vfs::list("/sd/apps", sink);
+  if (only_id != nullptr && sink.visited() > 0) return sink.visited();
+  sink.set_base("/apps");
   if (!vfs::list("/apps", sink)) {
     log_printf(pal::kLogWarn, "APPS", "cannot list /apps");
-    return 0;
   }
   return sink.visited();
+}
+
+// **On viu una app, si és que hi viu** (0.86.0): la targeta primer, la flash després, i per a una app que no hi és
+// el camí de la flash, que és el que un missatge d'error ha d'ensenyar (docs/40, docs/70).
+bool root_of(const char* id, char* out, size_t cap) {
+  if (id == nullptr || id[0] == '\0' || out == nullptr || cap == 0) return false;
+  const char* base = has_manifest("/sd/apps", id) ? "/sd/apps" : "/apps";
+  return under_root(out, cap, base, id, "");
 }
 
 uint32_t count() { return for_each(nullptr, &count_visitor, nullptr); }
 
 bool read(const char* id, Entry& out) {
   if (id == nullptr || id[0] == '\0') return false;
-  return load(id, out);
+  char root[96];
+  if (!root_of(id, root, sizeof(root))) return false;
+  // The root is the whole path of the app; `load` wants the drive it lives on, which is that path without the id.
+  char base[64];
+  snprintf(base, sizeof(base), "%.*s", static_cast<int>(strlen(root) - strlen(id) - 1), root);
+  return load(base, id, out);
 }
 
 bool normalise_extension(const char* text, char* out, size_t cap) {

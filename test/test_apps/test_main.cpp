@@ -1189,6 +1189,61 @@ void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   storage->remove("/apps/sdreader");
 }
 
+// **Una app de la targeta mana sobre la de la flash** (0.86.0): `repo install` baixa el directori d'una app al disc
+// que `cfg` ha triat —la targeta amb `auto`— i el que baixa ha de ser el que s'executa, o instal·lar una app que ja
+// ve al firmware no faria res. `apps::root_of` és la resposta que fan servir el llistat, el `run` i la porta de `res/`,
+// i treure la targeta torna la de la flash (docs/40, docs/70).
+void test_an_app_installed_on_the_card_is_the_one_that_runs(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  // The same id on both drives, and each one says where it came from. The card has no `apps/` until something makes
+  // it, which is what `repo install` does with the way of a download (docs/70).
+  card->mkdir("/apps");
+  TEST_ASSERT_TRUE(add_app(storage, "twice",
+                           "{\"title\":\"Flash twice\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('from the flash')\n"));
+  TEST_ASSERT_TRUE(add_app(card, "twice",
+                           "{\"title\":\"Card twice\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('from the card')\n"));
+
+  char root[96];
+  TEST_ASSERT_TRUE(kernel::apps::root_of("twice", root, sizeof(root)));
+  TEST_ASSERT_EQUAL_STRING("/sd/apps/twice", root);
+  // An app that is only in the flash has the flash for a root, which is what a message names (docs/40).
+  TEST_ASSERT_TRUE(kernel::apps::root_of("only_the_flash_has_me", root, sizeof(root)));
+  TEST_ASSERT_EQUAL_STRING("/apps/only_the_flash_has_me", root);
+
+  // **La llista en diu una i amb el títol de la targeta**, i el que s'executa és el seu codi (docs/40).
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Card twice"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "Flash twice"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
+
+  // **The card out of the slot is the flash app again**: the same ids, the other drive to answer (docs/70).
+  card->remove("/apps/twice/app.lua");
+  card->remove("/apps/twice/manifest.json");
+  card->remove("/apps/twice");
+  TEST_ASSERT_TRUE(kernel::apps::root_of("twice", root, sizeof(root)));
+  TEST_ASSERT_EQUAL_STRING("/apps/twice", root);
+  TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
+
+  storage->remove("/apps/twice/app.lua");
+  storage->remove("/apps/twice/manifest.json");
+  storage->remove("/apps/twice");
+}
+
 // **The faces of the disk are one area for every app** (3/11): `/fonts` is the disk's `res/fonts/`
 // seen from the root, so an app reads a face without carrying a copy of it, and what it finds there
 // is not only a file but a face the reader can wear — the two halves of "a font works" (docs/30,
@@ -5448,6 +5503,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_write_to_raw_memory_goes_in_place);
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
+  RUN_TEST(test_an_app_installed_on_the_card_is_the_one_that_runs);
   RUN_TEST(test_the_faces_of_the_disk_are_at_fonts_for_every_app);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
   RUN_TEST(test_the_battery_curve_falls_and_is_clamped);

@@ -23,9 +23,27 @@ app amb un nom estrany.
 
 ## On es busquen les apps
 
-Les apps es busquen a **`/littlefs/apps/<id>/`** i enlloc més. El Paper té ranura de targeta i la
-munta a `/sd` (docs/50), però **una targeta és per a dades, no per a codi**: el camí de les apps no canvia
-quan hi ha una targeta posada.
+Des de la 0.86.0 les apps es busquen a **dues bandes, i en aquest ordre**:
+
+1. **`/sd/apps/<id>/`** — la targeta, on les posa la persona amb `repo install`.
+2. **`/littlefs/apps/<id>/`** — la flash, on les posa el firmware.
+
+**Una app de la targeta mana sobre la de la flash.** El mateix id instal·lat a la targeta és el que
+surt al llistat i el que s'executa, i treure la targeta torna la de la flash. És el que fa que
+instal·lar una app que ja ve al firmware sigui una actualització i no un no-res, i el que fa de la
+targeta un lloc on provar coses sense tocar la flash. Un id que només és en un dels dos discs es
+troba igualment.
+
+El camí d'una app és el que diu **`apps::root_of()`** i no una constant: el llistat, el `run` i la
+porta de `res/` pregunten el mateix, o sigui que una app de la targeta llegeix el seu `res/` de la
+targeta i una de la flash el seu de la flash. Una app que no és enlloc té el camí de la flash, que és
+el que un missatge d'error ha d'ensenyar (docs/70).
+
+**`repo install <app> [owner/repo]`** baixa el directori sencer de l'app —el manifest, el codi i el
+que porti a `res/`, carpetes incloses— al disc que la persona ha triat amb `cfg`: la targeta amb
+`auto` quan hi és, la flash quan no. Cada fitxer és una baixada de la cua de la ràdio i el llistat de
+l'API de continguts de GitHub és el que diu quins fitxers té cada carpeta i des d'on baixar-los
+(docs/30, docs/70, docs/75).
 
 ## El manifest
 

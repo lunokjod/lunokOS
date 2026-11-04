@@ -13,6 +13,7 @@
 
 #include "pal/pal.h"
 
+#include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/log.h"
 #include "kernel/vfs.h"
@@ -83,7 +84,12 @@ bool absolute(const char* in, char* out, size_t cap) {
     return placed > 0 && static_cast<size_t>(placed) < cap;
   }
   if (app[0] != '\0' && under(path, kRes)) {
-    const int placed = snprintf(out, cap, "%s/%s/res%s", kApps, app, path + strlen(kRes));
+    // **An app's own files are wherever the app is** (0.86.0): the flash, or the card when it was installed there.
+    // The root comes from the same place the run and the listing get it, so `res/` and the app can never disagree
+    // (docs/40, docs/70).
+    char root[96];
+    if (!apps::root_of(app, root, sizeof(root))) snprintf(root, sizeof(root), "%s/%s", kApps, app);
+    const int placed = snprintf(out, cap, "%s/res%s", root, path + strlen(kRes));
     return placed > 0 && static_cast<size_t>(placed) < cap;
   }
   snprintf(out, cap, "%s", path);

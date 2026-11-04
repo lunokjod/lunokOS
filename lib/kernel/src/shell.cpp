@@ -367,6 +367,7 @@ void print_help() {
   help_line("  http <url> [path] fetch a page, and save it when it is too big");
   help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
   help_line("  repo info <app>   the manifest of one app of the repository");
+  help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names");
   help_line("  power [cpu [mhz]]  what this board can do about energy");
   help_line("  power last        how far the last sleep was from the hour it was given");
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
@@ -878,21 +879,12 @@ struct RunTarget {
 
 bool find_entry(const apps::Entry& entry, void* context) {
   RunTarget* target = static_cast<RunTarget*>(context);
-  static const char kPrefix[] = "/apps/";
-  const size_t prefix = sizeof(kPrefix) - 1;
-  const size_t id_len = strlen(entry.id);
-  const size_t entry_len = strlen(entry.entry_file);
-  if (prefix + id_len + 1 + entry_len + 1 > sizeof(target->path)) return true;
-
-  size_t used = 0;
-  memcpy(target->path + used, kPrefix, prefix);
-  used += prefix;
-  memcpy(target->path + used, entry.id, id_len);
-  used += id_len;
-  target->path[used++] = '/';
-  memcpy(target->path + used, entry.entry_file, entry_len);
-  used += entry_len;
-  target->path[used] = '\0';
+  // **The app is where it lives** (0.86.0): the flash or the card, which is the same answer the listing and the
+  // door of its `res/` get (docs/40, docs/70).
+  char root[96];
+  if (!apps::root_of(entry.id, root, sizeof(root))) return true;
+  const int written = snprintf(target->path, sizeof(target->path), "%s/%s", root, entry.entry_file);
+  if (written <= 0 || static_cast<size_t>(written) >= sizeof(target->path)) return true;
   memcpy(target->title, entry.title, sizeof(target->title));
   memcpy(target->version, entry.version, sizeof(target->version));
   memcpy(target->opens, entry.opens, sizeof(target->opens));
@@ -1200,7 +1192,7 @@ const uint32_t kHttpBytes = 16384;
 // is said as a number instead of shown (docs/30).
 const uint32_t kHttpShow = 800;
 
-enum class RadioJob { kNone, kScan, kAdd, kConnect, kProvision, kNtp, kHttp, kRepository };
+enum class RadioJob { kNone, kScan, kAdd, kConnect, kProvision, kNtp, kHttp, kRepository, kInstall };
 RadioJob g_job = RadioJob::kNone;
 char g_job_ssid[33];
 // **On ha anat el llistat del repositori**: la comanda arrenca la baixada i plega, i qui la rep quan la ràdio
@@ -1211,6 +1203,25 @@ char g_repo_name[64];
 // treball i plega, i qui el continua quan la ràdio ha acabat és `radio_done` (docs/30).
 bool g_repo_info = false;
 char g_repo_app[32];
+
+// **`repo install` és una cadena i no una crida** (0.86.0): el llistat d'una carpeta és una descàrrega i cada fitxer
+// una altra, i entre dues la ràdio torna al nucli. El que ha de viure fora de la pila és el pla —on va, què queda per
+// fer i per quin fitxer va el llistat—, que és tot això (docs/30, docs/70, docs/75).
+char g_install_app[32];
+char g_install_repo[64];
+char g_install_root[96];   // "/sd/apps/notes"
+char g_install_url[208];   // l'adreça que vola
+char g_install_dest[200];  // on va aterrar el fitxer que vola
+char g_install_list[176];  // el llistat de la carpeta que s'està llegint
+char g_install_dir[48];    // la carpeta que s'està llegint, buida per a l'arrel de l'app
+char g_install_waiting[6][48];  // les carpetes que falten per llistar
+uint8_t g_install_waiting_count = 0;
+uint8_t g_install_waiting_at = 0;
+uint32_t g_install_entry = 0;  // per quin element del llistat va
+uint16_t g_install_files = 0;
+uint32_t g_install_bytes = 0;
+bool g_install_listing = false;  // què és el que vola: un llistat o un fitxer
+bool g_install_pending = false;  // el pas següent espera el torn de després
 
 void out_int(int32_t value) {
   if (value < 0) {
@@ -1275,6 +1286,10 @@ const uint32_t kManifestBytes = 2048;
 // necessita `radio_done` és el nom (docs/30).
 void print_listing(const char* path, const char* repo, uint32_t bytes);
 void print_manifest(const char* text, size_t len, const char* app, const char* repo);
+// **La instal·lació, engegada des de la comanda i continuada a `radio_done`**: torna cert mentre queden passos, i
+// aleshores el prompt no torna (docs/30, docs/70).
+bool install_step();
+bool install_done(bool ok, const char* code);
 
 void radio_done(bool ok, const char* code, uint32_t count) {
   const RadioJob job = g_job;
@@ -1389,6 +1404,8 @@ void radio_done(bool ok, const char* code, uint32_t count) {
     } else {
       say_failed("http: nothing came back, ", code);
     }
+  } else if (job == RadioJob::kInstall) {
+    if (install_done(ok, code)) return;  // another download is on its way: the prompt is not due
   } else if (job == RadioJob::kRepository) {
     // **Un 200 és la llista i la resta és una resposta que no ho és**: el 404 d'un repositori o d'un
     // directori que no hi és es diu amb el número, perquè anar a buscar-lo a la documentació de GitHub és el
@@ -1865,10 +1882,246 @@ void print_listing(const char* path, const char* repo, uint32_t bytes) {
 // La pàgina del navegador és HTML; el que vol una comanda és la llista, i l'API de continguts la dona en JSON.
 // Porta la ràdio com `http` i la deixa anar en acabar, i **la resposta és massa gran per a la memòria**: va a un
 // fitxer del disc i es llegeix a trossos (docs/30, docs/70, docs/75).
+// ---- repo install: the whole folder of an app, one download at a time (0.86.0) ----
+
+// **A file the system made goes with the system's own hand**: `vfs::resolve` says which drive it is on and the path
+// inside it, and the backend removes it (docs/70).
+bool drop_file(const char* path) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  return storage->remove(rel);
+}
+
+// The path the next file of the listing lands on: the app's root, the folder being read, and the name (docs/70).
+void install_file_path(char* out, size_t cap, const char* name) {
+  if (g_install_dir[0] == '\0') {
+    snprintf(out, cap, "%s/%s", g_install_root, name);
+  } else {
+    snprintf(out, cap, "%s/%s/%s", g_install_root, g_install_dir, name);
+  }
+}
+
+// **Una carpeta buida tampoc es queda**: el camí d'una descàrrega es fa abans de saber si la baixada arriba, i una
+// instal·lació que falla al primer fitxer deixaria un `apps/<id>` que el llistat pregunta i que no és cap app. Un
+// `remove` d'una carpeta que no és buida no fa res, i per això això és best-effort (docs/40, docs/70).
+bool drop_dir(const char* path) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  return storage->remove(rel);
+}
+
+// **La cua de carpetes**: una app petita en té una o dues, i el que no hi cap es diu en comptes d'instal·lar mitja app
+// (docs/75).
+bool install_queue_dir(const char* name) {
+  if (name[0] == '\0') return true;
+  if (g_install_waiting_count >= static_cast<uint8_t>(sizeof(g_install_waiting) / sizeof(g_install_waiting[0]))) {
+    return false;
+  }
+  snprintf(g_install_waiting[g_install_waiting_count], sizeof(g_install_waiting[0]), "%s", name);
+  ++g_install_waiting_count;
+  return true;
+}
+
+// The last word, and the state goes back to where it started: the next install is a new one (docs/30).
+void install_report(bool ok, const char* why) {
+  // **A listing left behind is not left behind**: the folder of the app is the app's and a temporary file of the
+  // system in it would be a file its own `fs.list` reads (docs/70).
+  if (g_install_list[0] != '\0') drop_file(g_install_list);
+  g_install_list[0] = '\0';
+  // **An install that installed nothing is not an install**: a 200 that carried no entry is a page that is not a
+  // listing, and saying "zero files" with a green face is a lie (docs/30).
+  if (ok && g_install_files == 0) {
+    ok = false;
+    why = "nothing came: is that an app of that repository?";
+  }
+  if (!ok && g_install_files == 0 && g_install_root[0] != '\0') drop_dir(g_install_root);
+  if (ok) {
+    good_out("repo: ");
+    out(g_install_app);
+    out(" in ");
+    out(g_install_root);
+    out(", ");
+    out_num(g_install_files);
+    out((g_install_files == 1) ? " file" : " files");
+    if (g_install_waiting_count > 0) {
+      out(", ");
+      out_num(g_install_waiting_count);
+      out((g_install_waiting_count == 1) ? " folder" : " folders");
+    }
+    out(", ");
+    out_num(g_install_bytes);
+    out(" bytes\r\n");
+  } else {
+    error_out("repo: ");
+    out((why != nullptr) ? why : "the install did not finish");
+    newline();
+  }
+  g_install_app[0] = '\0';
+  g_install_dest[0] = '\0';
+  g_install_files = 0;
+  g_install_bytes = 0;
+  g_install_entry = 0;
+  g_install_waiting_count = 0;
+  g_install_waiting_at = 0;
+  g_install_dir[0] = '\0';
+}
+
+// **Cada baixada de la cadena torna a agafar la ràdio** (0.86.0): `radio_done` la deixa anar quan arriba una resposta i
+// la cadena n'engega una altra, o sigui que el treball en curs s'ha de dir una altra vegada —si no, el prompt torna
+// amb una descàrrega a l'aire i la seva resposta cau en un treball que ja no existeix— (docs/30, docs/70).
+bool install_fetch(const char* url, const char* dest, bool listing) {
+  g_install_listing = listing;
+  // **The address is copied unless it is already the one in the state**: a caller that built it there hands over the
+  // buffer itself, and copying a string onto itself is not a copy (found on the bench, 4/11).
+  if (url != g_install_url) snprintf(g_install_url, sizeof(g_install_url), "%s", url);
+  if (!take_radio(RadioJob::kInstall)) {
+    install_report(false, "the radio is busy with something else");
+    return false;
+  }
+  if (net::http_download(g_install_url, dest, kHttpMs) != luabind::NetRefuse::kOk) {
+    drop_radio();
+    install_report(false, "the radio did not take a download of the app");
+    return false;
+  }
+  return true;
+}
+
+// **El pròxim pas, i el prompt només quan no en queden**: el fitxer següent del llistat, o el llistat de la carpeta
+// següent, o el resum. Cert vol dir que hi ha una descàrrega volant i que la ràdio tornarà a cridar (docs/30, docs/70).
+bool install_step() {
+  while (true) {
+    repository::Kind kind = repository::Kind::kFile;
+    char name[48];
+    char url[192];
+    if (!repository::entry_at(g_install_list, g_install_entry, kind, name, sizeof(name), url, sizeof(url))) {
+      // The folder is read: its listing goes away and the next folder, if there is one, is asked for.
+      drop_file(g_install_list);
+      if (g_install_waiting_at >= g_install_waiting_count) {
+        install_report(true, nullptr);
+        return false;
+      }
+      snprintf(g_install_dir, sizeof(g_install_dir), "%s", g_install_waiting[g_install_waiting_at]);
+      ++g_install_waiting_at;
+      g_install_entry = 0;
+      // **El llistat d'una carpeta és una crida a l'API**, i és el que diu quins fitxers té (docs/30).
+      const int made = snprintf(g_install_url, sizeof(g_install_url), "https://api.github.com/repos/%s/contents/apps/%s/%s",
+                                g_install_repo, g_install_app, g_install_dir);
+      if (made <= 0 || static_cast<size_t>(made) >= sizeof(g_install_url)) {
+        drop_radio();
+        install_report(false, "that folder has a name this system does not carry");
+        return false;
+      }
+      snprintf(g_install_list, sizeof(g_install_list), "%s/%s/.listing.json", g_install_root, g_install_dir);
+      return install_fetch(g_install_url, g_install_list, true);
+    }
+    ++g_install_entry;
+    if (kind == repository::Kind::kDir) {
+      if (!install_queue_dir(name)) {
+        drop_radio();
+        install_report(false, "this app has more folders than an install carries");
+        return false;
+      }
+      continue;
+    }
+    // **Un fitxer de l'app**: l'adreça crua que el llistat dona, escrita on viu l'app —el camí el fa el sistema i
+    // les carpetes del camí també, que és el que fa una descàrrega (docs/30, docs/70).
+    if (url[0] == '\0') continue;
+    install_file_path(g_install_dest, sizeof(g_install_dest), name);
+    return install_fetch(url, g_install_dest, false);
+  }
+}
+
+// **El que ha tornat**: el llistat d'una carpeta o un dels fitxers. Cert mentre quedi feina (docs/30, docs/70).
+bool install_done(bool ok, const char* code) {
+  const int32_t status = net::http_status();
+  char why[128];
+  if (g_install_listing) {
+    if (!ok || status != 200) {
+      drop_radio();
+      if (ok) {
+        snprintf(why, sizeof(why), "the server answered %ld for a folder, and a listing is a 200",
+                 static_cast<long>(status));
+      } else {
+        snprintf(why, sizeof(why), "the folder did not come (%s)", (code != nullptr) ? code : "E_HTTP");
+      }
+      install_report(false, why);
+      return false;
+    }
+    g_install_pending = true;
+    return true;
+  }
+  if (!ok || status != 200) {
+    drop_radio();
+    if (ok) {
+      snprintf(why, sizeof(why), "the server answered %ld for a file of the app", static_cast<long>(status));
+    } else {
+      snprintf(why, sizeof(why), "a file of the app did not come (%s)", (code != nullptr) ? code : "E_HTTP");
+    }
+    install_report(false, why);
+    return false;
+  }
+  hal::Stat info;
+  if (vfs::stat(g_install_dest, info)) g_install_bytes += info.size;
+  ++g_install_files;
+  // **La cadena espera el torn de després**: la pàgina que acaba d'arribar encara és de la placa fins que la resposta
+  // torna, i una baixada demanada des de dins és una segona pàgina amb una de pendent —`E_BUSY`— (docs/30, docs/75).
+  g_install_pending = true;
+  return true;
+}
+
 bool command_repo(const char* argument) {
   char words[3][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
+  // **`repo install <app>` baixa el directori sencer de l'app** (0.86.0): el manifest, el codi i el que porti a
+  // `res/`, al disc que la persona ha triat amb `cfg` —la targeta si hi és amb `auto`, la flash si no—. El llistat
+  // de l'API diu quins fitxers té cada carpeta i l'adreça crua d'on baixar-los, i cada un és una descàrrega de la
+  // cua: la comanda engega la primera i plega, i `radio_done` continua (docs/30, docs/70).
+  if (count > 0 && strcmp(words[0], "install") == 0) {
+    if (count < 2) {
+      usage_out("usage: repo install <app> [owner/repo]\r\n");
+      return false;
+    }
+    const char* app = words[1];
+    const char* where = (count > 2) ? words[2] : "lunokjod/lunokOS";
+    // The two are what goes into an address and into a path: a space, a quote or a `..` is not a name of either
+    // (docs/30, docs/70).
+    if (strpbrk(app, " \"/") != nullptr || strstr(app, "..") != nullptr || app[0] == '\0' ||
+        strpbrk(where, " \"?") != nullptr || strstr(where, "..") != nullptr) {
+      error_out("repo: that is not an app of a repository\r\n");
+      return false;
+    }
+    const char* unit = cfg::unit();
+    if (unit == nullptr || unit[0] == '\0') {
+      error_out("repo: there is nowhere to install it (neither the flash nor a card)\r\n");
+      return false;
+    }
+    // **El disc que `cfg` ha triat**: la targeta quan hi és i la flash quan no, que és el que la comanda diu
+    // (docs/70). El directori és `apps/<app>` i no un altre: és on el sistema busca les apps (docs/40).
+    const int made_root = snprintf(g_install_root, sizeof(g_install_root), "%s/apps/%s",
+                                   (strcmp(unit, "sd") == 0) ? "/sd" : "/littlefs", app);
+    copy_text(g_install_app, sizeof(g_install_app), app);
+    copy_text(g_install_repo, sizeof(g_install_repo), where);
+    g_install_files = 0;
+    g_install_bytes = 0;
+    g_install_entry = 0;
+    g_install_waiting_count = 0;
+    g_install_waiting_at = 0;
+    g_install_dir[0] = '\0';
+    g_install_dest[0] = '\0';
+    const int made_url = snprintf(g_install_url, sizeof(g_install_url), "https://api.github.com/repos/%s/contents/apps/%s",
+                                  where, app);
+    const int made_list = snprintf(g_install_list, sizeof(g_install_list), "%s/.listing.json", g_install_root);
+    if (made_root <= 0 || static_cast<size_t>(made_root) >= sizeof(g_install_root) || made_url <= 0 ||
+        static_cast<size_t>(made_url) >= sizeof(g_install_url) || made_list <= 0 ||
+        static_cast<size_t>(made_list) >= sizeof(g_install_list)) {
+      error_out("repo: that app has a name longer than this system carries\r\n");
+      return false;
+    }
+    return install_fetch(g_install_url, g_install_list, true);
+  }
   // **`repo info <app>` vol el manifest i no la llista**: és un fitxer d'un kilobyte i no cal disc, o
   // sigui que va amb `http_get` a la memòria i el pinta `print_manifest` (docs/30, docs/75).
   if (count > 0 && strcmp(words[0], "info") == 0) {
@@ -2325,7 +2578,7 @@ void prompt() {
 
 bool app_running() { return g_app_alive; }
 
-bool native_running() { return g_job != RadioJob::kNone; }
+bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
 
@@ -2405,6 +2658,13 @@ int32_t app_wait_ms() {
 }
 
 bool poll_app() {
+  // **El pas següent d'una instal·lació, en el torn i no dins de la resposta** (0.86.0): la cua de la ràdio ha de ser
+  // buida i la pàgina d'abans donada, i això és el torn següent (trobat al banc, 4/11, docs/30, docs/75).
+  if (g_install_pending) {
+    g_install_pending = false;
+    if (!install_step()) prompt();
+    return false;
+  }
   if (!g_app_alive) return false;
   // Three ESC in a row, or a line that says !!exit, are the way out of an app
   // that has stopped listening. The app does not get a say, but it still gets
@@ -2493,6 +2753,11 @@ bool command_cfg(const char* argument) {
     out(dir);
     newline();
   }
+  // **On van a parar les apps que s'instal·len**: `repo install` les baixa a `apps/` del disc de dalt, i el sistema
+  // les busca a la targeta primer i a la flash després (0.86.0, docs/40, docs/70).
+  out("  apps install into: ");
+  out((strcmp(cfg::unit(), "sd") == 0) ? "/sd/apps" : "/littlefs/apps");
+  newline();
   return true;
 }
 

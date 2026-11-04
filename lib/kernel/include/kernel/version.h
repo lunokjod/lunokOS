@@ -1043,7 +1043,17 @@ namespace kernel {
 // flaixos de tota la banda a cada `MAY` i a cada `123`, i ara demana `gld16`, que neteja els setze nivells de les lletres
 // amb zero flaixos. És la regla que aquest projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar
 // és `gld16` (docs/30, docs/50, docs/92).
-static const char kVersion[] = "0.85.4";
+// 0.86.0 (4/11): **`repo install <app>`, i una app pot viure a la targeta.** La comanda demana a l'API de continguts de
+// GitHub el directori de l'app, en baixa **cada fitxer** —el manifest, el codi i el que porti a `res/`, carpetes
+// incloses— i els deixa al disc que la persona ha triat amb `cfg`: la targeta amb `auto` quan hi és i la flash quan no.
+// El llistat d'una carpeta és una baixada i cada fitxer una altra, i la cadena fa **un pas per torn**: una baixada
+// demanada dins de la resposta de l'anterior és una segona pàgina amb una de pendent, i el nucli la refusa amb
+// `E_BUSY` (docs/30, docs/75). **I el sistema mira les apps a la targeta i a la flash**, la targeta primer: el mateix
+// id instal·lat a la targeta és el que surt al llistat i el que s'executa, i treure la targeta torna la de la flash —
+// `apps::root_of` és el camí que pregunten el llistat, el `run` i la porta de `res/`, o sigui que una app de la
+// targeta llegeix el seu `res/` de la targeta (docs/40, docs/70). Amb `--verbose` una instal·lació deixa una línia per
+// fitxer, que és com s'ha trobat que el buffer d'un nom tallava l'adreça de descàrrega (docs/85).
+static const char kVersion[] = "0.86.0";
 
 }  // namespace kernel
 

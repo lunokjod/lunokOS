@@ -173,5 +173,91 @@ bool Listing::next(char* out, size_t cap) {
   }
 }
 
+// **Un objecte, una entrada**: el nom i el tipus, i l'adreça de descàrrega quan és un fitxer. És el mateix camí que
+// `next` i el que afegeix és el `download_url`, que ve abans del `type` dins del mateix objecte (docs/70).
+bool Listing::next_entry(Kind& kind, char* name, size_t name_cap, char* url, size_t url_cap) {
+  if (name == nullptr || name_cap == 0) return false;
+  if (url != nullptr && url_cap > 0) url[0] = '\0';
+  char key[16];
+  // **The value of a key is as long as the longest one here**, which is the download address and not a name: a
+  // forty-eight byte buffer cut `download_url` in the middle and the file came back as a 404 of fourteen bytes
+  // (found on the bench, 4/11, docs/30).
+  char value[kUrl];
+  char depth = 0;
+  while (true) {
+    skip_space();
+    const int c = peek();
+    if (c < 0) return false;
+    if (c == '{') {
+      ++depth;
+      if (depth == 1) {
+        have_pending_ = false;
+        have_url_ = false;
+      }
+      ++at_;
+      continue;
+    }
+    if (c == '}') {
+      if (depth > 0) --depth;
+      if (depth == 0) {
+        have_pending_ = false;
+        have_url_ = false;
+      }
+      ++at_;
+      continue;
+    }
+    if (c == '"') {
+      if (!read_string(key, sizeof(key))) return false;
+      skip_space();
+      if (take() != ':') continue;
+      if (!read_word(value, sizeof(value))) continue;
+      if (strcmp(key, "name") == 0) {
+        size_t i = 0;
+        for (; value[i] != '\0' && i + 1 < sizeof(pending_); ++i) pending_[i] = value[i];
+        pending_[i] = '\0';
+        have_pending_ = (i > 0);
+      } else if (strcmp(key, "download_url") == 0) {
+        // **Un nul és una carpeta**: l'API el posa així i no és una adreça buida (docs/30).
+        size_t i = 0;
+        if (strcmp(value, "null") != 0) {
+          for (; value[i] != '\0' && i + 1 < sizeof(pending_url_); ++i) pending_url_[i] = value[i];
+        }
+        pending_url_[i] = '\0';
+        have_url_ = (i > 0);
+      } else if (strcmp(key, "type") == 0 && have_pending_) {
+        const bool file = (strcmp(value, "file") == 0);
+        if (!file && strcmp(value, "dir") != 0) continue;
+        size_t i = 0;
+        for (; pending_[i] != '\0' && i + 1 < name_cap; ++i) name[i] = pending_[i];
+        name[i] = '\0';
+        kind = file ? Kind::kFile : Kind::kDir;
+        if (file && url != nullptr && url_cap > 0) {
+          size_t u = 0;
+          for (; have_url_ && pending_url_[u] != '\0' && u + 1 < url_cap; ++u) url[u] = pending_url_[u];
+          url[u] = '\0';
+        }
+        have_pending_ = false;
+        have_url_ = false;
+        return i > 0;
+      }
+      continue;
+    }
+    // Un número, un `[`, una coma: res que aquest document necessiti.
+    ++at_;
+  }
+}
+
+bool entry_at(const char* path, uint32_t index, Kind& kind, char* name, size_t name_cap, char* url,
+              size_t url_cap) {
+  Listing listing;
+  if (!listing.open(path)) return false;
+  bool found = false;
+  for (uint32_t i = 0; i <= index; ++i) {
+    found = listing.next_entry(kind, name, name_cap, url, url_cap);
+    if (!found) return false;
+  }
+  return found;
+}
+
 }  // namespace repository
 }  // namespace kernel

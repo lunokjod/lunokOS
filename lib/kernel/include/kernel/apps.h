@@ -38,7 +38,13 @@ bool compatible(const Entry& entry, const char* board_id, const char* family);
 // Return false to stop the walk.
 typedef bool (*Visitor)(const Entry& entry, void* context);
 
-// Walks /apps and loads one manifest at a time. When only_id is not null it stops
+// **On viuen les apps d'aquesta placa** (0.86.0): la flash, on les posa el firmware, i la targeta, on les posa la
+// persona amb `repo install`. Una app de la targeta **mana sobre la de la flash** —el mateix id instal·lat a la
+// targeta és el que s'executa, i treure la targeta torna la de la flash—, i el disc que no hi és no compta
+// (docs/40, docs/70).
+bool root_of(const char* id, char* out, size_t cap);
+
+// Walks the app roots and loads one manifest at a time. When only_id is not null it stops
 // after that app. Returns how many apps loaded correctly.
 uint32_t for_each(const char* only_id, Visitor visitor, void* context);
 

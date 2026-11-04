@@ -19,6 +19,10 @@
 namespace kernel {
 namespace repository {
 
+// **Què és una entrada d'un llistat de continguts**: una carpeta, i un fitxer amb una adreça d'on baixar-lo tal com
+// és (docs/30, docs/70).
+enum class Kind : uint8_t { kFile, kDir };
+
 // **Els noms de les carpetes d'un llistat de continguts, un darrere l'altre.** `open` diu si el fitxer s'ha
 // pogut obrir; `next` torna el nom següent (sense cometes) i `false` quan no n'hi ha més o quan el document no
 // és el que sembla. El nom es copia a `out` i el lector no en guarda cap llista.
@@ -33,12 +37,20 @@ class Listing {
   void close();
   bool next(char* out, size_t cap);
 
+  // **El següent element, sigui fitxer o carpeta** (0.86.0): una instal·lació vol els dos i, per a un fitxer,
+  // l'adreça de descàrrega que aquesta API dona al costat del nom. `next` segueix essent el camí curt de la
+  // llista de carpetes (docs/30, docs/70).
+  bool next_entry(Kind& kind, char* name, size_t name_cap, char* url, size_t url_cap);
+
  private:
   // La finestra del fitxer: dos kilobytes, mitja fila de flash i més que un objecte del llistat.
   static const uint16_t kChunk = 2048;
   // **Un nom de directori hi cap sencer**: quaranta-vuit bytes són un nom de fitxer de qualsevol disc, i el
   // que no hi cap es talla en comptes de desbordar (docs/75).
   static const uint8_t kName = 48;
+  // **Una adreça de descàrrega crua hi cap**: `raw.githubusercontent.com/<amo>/<repo>/main/apps/<app>/<nom>` és
+  // cent setze bytes amb noms de trenta-dos, i cent quaranta-vuit són marge (docs/30, docs/75).
+  static const uint8_t kUrl = 148;
 
   bool fill();
   int peek();
@@ -57,7 +69,18 @@ class Listing {
   bool ended_ = false;
   char pending_[kName] = {};
   bool have_pending_ = false;
+  // L'adreça de descàrrega de l'objecte que s'està llegint, si en té: ve abans del `type` i es guarda igual que el
+  // nom (docs/70).
+  char pending_url_[kUrl] = {};
+  bool have_url_ = false;
 };
+
+// **L'element n-èssim d'un llistat, començant per zero.** La instal·lació d'una app recorre el document un element
+// a la vegada i el torna a llegir per cada un: un pla de tots els fitxers seria una taula d'adreces a la RAM i el
+// llistat és un fitxer que es llegeix en unes dècimes (docs/75). False quan l'índex passa del final o el document
+// no és el que sembla.
+bool entry_at(const char* path, uint32_t index, Kind& kind, char* name, size_t name_cap, char* url,
+              size_t url_cap);
 
 }  // namespace repository
 }  // namespace kernel

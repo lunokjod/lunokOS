@@ -528,6 +528,48 @@ void test_the_listing_of_a_repository_is_read_in_chunks(void) {
   storage->remove("/broken.json");
 }
 
+// **Els elements d'un llistat, amb el seu tipus i la seva adreça** (0.86.0): `repo install` baixa el directori
+// sencer d'una app, i per això vol els fitxers (amb l'adreça crua d'on baixar-los) i les carpetes (per demanar-ne el
+// llistat). L'adreça és l'única cadena del document que no és un nom, i la prova la vol sencera: el buffer d'un nom
+// la tallava a quaranta-vuit bytes i el fitxer tornava com un 404 (docs/30, docs/70).
+void test_the_entries_of_a_listing_come_with_their_address(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  static const char json[] =
+      "[\n"
+      "  {\n    \"name\": \"manifest.json\",\n"
+      "    \"download_url\": \"https://raw.githubusercontent.com/lunokjod/lunokOS/main/apps/images/manifest.json\",\n"
+      "    \"type\": \"file\"\n  },\n"
+      "  {\n    \"name\": \"res\",\n    \"download_url\": null,\n    \"type\": \"dir\"\n  },\n"
+      "  {\n    \"name\": \"images.lua\",\n"
+      "    \"download_url\": \"https://raw.githubusercontent.com/lunokjod/lunokOS/main/apps/images/images.lua\",\n"
+      "    \"type\": \"file\"\n  }\n"
+      "]\n";
+  TEST_ASSERT_TRUE(write_text(storage, "/files.json", json));
+
+  kernel::repository::Kind kind = kernel::repository::Kind::kDir;
+  char name[48];
+  char url[148];
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/files.json", 0, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL(kernel::repository::Kind::kFile, kind);
+  TEST_ASSERT_EQUAL_STRING("manifest.json", name);
+  TEST_ASSERT_EQUAL_STRING(
+      "https://raw.githubusercontent.com/lunokjod/lunokOS/main/apps/images/manifest.json", url);
+  // **Una carpeta no té adreça**, i no és una adreça buida la que decideix: és el `type` (docs/30).
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/files.json", 1, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL(kernel::repository::Kind::kDir, kind);
+  TEST_ASSERT_EQUAL_STRING("res", name);
+  TEST_ASSERT_EQUAL_STRING("", url);
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/files.json", 2, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("images.lua", name);
+  // El que passa del final no és cap element, i un document que no ho és tampoc no en té.
+  TEST_ASSERT_FALSE(kernel::repository::entry_at("/littlefs/files.json", 3, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_FALSE(kernel::repository::entry_at("/littlefs/nowhere.json", 0, kind, name, sizeof(name), url, sizeof(url)));
+
+  storage->remove("/files.json");
+}
+
 // A path with spaces goes between quotes, and without them the command is
 // refused instead of reading half a path (docs/70). The same splitter serves
 // `cat`, `ls` and `open`, and this is the `cat` and `ls` side of it.
@@ -769,6 +811,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
   RUN_TEST(test_the_listing_of_a_repository_is_read_in_chunks);
+  RUN_TEST(test_the_entries_of_a_listing_come_with_their_address);
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
