@@ -1009,7 +1009,15 @@ namespace kernel {
 // —quan surt, quan canvia el bloqueig o l'alfabet— i quan la pàgina la trepitja (`ui.clear`, un rectangle o un píxel, que
 // és el que diu `the_band_may_be_gone`), i res més; el `keyboard_paint` que feia quaranta glifs a cada `present` (i el
 // parpelleig del cursor en fa un cada sis-cents mil·lisegons) és el que costava el dibuix (docs/30, docs/50, docs/90).
-static const char kVersion[] = "0.85.0";
+// 0.85.1 (4/11): **el dial de la finestra, dibuixat i petit.** Les tecles de la finestra de l'emulador deien `Up`,
+// `Centre` i `Down` amb la taula del sistema, i una paraula en un botó de vuitanta píxels és el que fa que la finestra
+// sembli un formulari. Ara **el signe de la tecla és un dibuix** —una fletxa amunt, un cercle farcit i una fletxa
+// avall, de quaranta píxels i centrat— que `gui_key_icon` dona com a **runs d'un píxel** i que el SDL i l'X11 pinten
+// igual, perquè el mapa del clic i el dibuix surtin de la mateixa funció; una placa d'**una sola tecla** no en té, de
+// signe, i es queda la paraula, que allà el botó és tot el costat i no una icona. **I els botons són de quaranta per
+// quaranta amb sis de buit** (eren vuitanta per cinquanta-quatre amb vuit): amb el ratolí, un botó de dos dits és un
+// botó gros i el que cal és que la columna no es mengi la pàgina (docs/85).
+static const char kVersion[] = "0.85.1";
 
 }  // namespace kernel
 

@@ -94,7 +94,17 @@ void draw_keys() {
     XSetForeground(g_display, g_gc, down ? g_key_pressed : g_key_edge);
     XDrawRectangle(g_display, g_window, g_gc, x, y, static_cast<unsigned>(kKeyButtonWidth - 1),
                    static_cast<unsigned>(kKeyButtonHeight - 1));
-    if (g_font != nullptr) {
+    // **The sign of the key and not its word** (0.85.1): the runs come from the shared geometry, so the two windows
+    // draw the same arrow and the same circle (docs/85).
+    KeyRun runs[kKeyIconRuns];
+    const uint8_t drawn =
+        gui_key_icon(g_keys_count, key, kKeyButtonWidth, kKeyButtonHeight, runs, kKeyIconRuns);
+    if (drawn > 0) {
+      XSetForeground(g_display, g_gc, down ? g_key_pressed_text : g_key_text);
+      for (uint8_t run = 0; run < drawn; ++run) {
+        XFillRectangle(g_display, g_window, g_gc, x + runs[run].x, y + runs[run].y, runs[run].w, runs[run].h);
+      }
+    } else if (g_font != nullptr) {
       const char* label = gui_key_label(g_keys_count, key);
       const int len = static_cast<int>(strlen(label));
       XSetFont(g_display, g_gc, g_font->fid);

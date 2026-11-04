@@ -1327,51 +1327,78 @@ static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
   TEST_ASSERT_EQUAL_INT(0, emu::gui_key_of_slot(1, 0));
   TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_of_slot(3, 3));
 
-  // **A column takes 96 of window** (a button of 80 and two margins of 8), a row takes 70 of height, the
-  // buttons are 54 tall with 8 between: a column of three is 178 and one button is 54.
-  TEST_ASSERT_EQUAL_UINT16(96, emu::gui_key_strip_width());
-  TEST_ASSERT_EQUAL_UINT16(70, emu::gui_key_row_height());
-  TEST_ASSERT_EQUAL_UINT16(54 * 3 + 8 * 2, emu::gui_keys_height(3));
-  TEST_ASSERT_EQUAL_UINT16(54, emu::gui_keys_height(1));
+  // **A column takes 52 of window** (a button of 40 and two margins of 6), a row takes 52 of height, the buttons are
+  // square with 6 between: a column of three is 132 and one button is 40 —small, because the pointer of a bench is a
+  // mouse and not a finger— (0.85.1, docs/85).
+  TEST_ASSERT_EQUAL_UINT16(52, emu::gui_key_strip_width());
+  TEST_ASSERT_EQUAL_UINT16(52, emu::gui_key_row_height());
+  TEST_ASSERT_EQUAL_UINT16(40 * 3 + 6 * 2, emu::gui_keys_height(3));
+  TEST_ASSERT_EQUAL_UINT16(40, emu::gui_keys_height(1));
   TEST_ASSERT_EQUAL_UINT16(0, emu::gui_keys_height(0));
-  TEST_ASSERT_EQUAL_UINT16(80 * 3 + 8 * 2, emu::gui_keys_width(3));
-  // And both are **centred**: the column of three in a window of 480 starts at 151 (178 + 151 + 151 = 480),
-  // and the row of three in a page of 366 starts at 55 ((366 - 256) / 2).
-  TEST_ASSERT_EQUAL_INT(151, emu::gui_keys_top(480, 3));
-  TEST_ASSERT_EQUAL_INT(213, emu::gui_keys_top(480, 1));
-  TEST_ASSERT_EQUAL_INT(55, emu::gui_keys_left(366, 3));
-  TEST_ASSERT_EQUAL_INT(95, emu::gui_keys_left(270, 1));
+  TEST_ASSERT_EQUAL_UINT16(40 * 3 + 6 * 2, emu::gui_keys_width(3));
+  // And both are **centred**: the column of three in a window of 480 starts at 174 (132 + 174 + 174 = 480),
+  // and the row of three in a page of 366 starts at 117 ((366 - 132) / 2).
+  TEST_ASSERT_EQUAL_INT(174, emu::gui_keys_top(480, 3));
+  TEST_ASSERT_EQUAL_INT(220, emu::gui_keys_top(480, 1));
+  TEST_ASSERT_EQUAL_INT(117, emu::gui_keys_left(366, 3));
+  TEST_ASSERT_EQUAL_INT(115, emu::gui_keys_left(270, 1));
   // A window smaller than the keys starts them at the edge instead of cutting the first button.
   TEST_ASSERT_EQUAL_INT(0, emu::gui_keys_top(100, 3));
   TEST_ASSERT_EQUAL_INT(0, emu::gui_keys_left(100, 3));
 
-  // **A dial on the left face is a column down the left**: the strip is 0..96 and the buttons 8..88.
+  // **A dial on the left face is a column down the left**: the strip is 0..52 and the buttons 6..46.
   const int top = emu::gui_keys_top(480, 3);
-  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(48, top + 27, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(48, top + 54 + 8 + 27, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(48, top + 2 * (54 + 8) + 27, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(26, top + 20, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(26, top + 40 + 6 + 20, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(26, top + 2 * (40 + 6) + 20, 3, 366, 480, emu::KeySide::kLeft));
   // A click in a gap, on the margin, above the column, past the last button or on the page is no key at all.
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 54 + 2, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(4, top + 27, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top - 1, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 178, 3, 366, 480, emu::KeySide::kLeft));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(200, top + 27, 3, 366, 480, emu::KeySide::kLeft));
-  // **The same dial on the right face is the same column on the other side**: the buttons are 278..358 and
-  // the left of the window is the page.
-  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(278 + 40, top + 27, 3, 366, 480, emu::KeySide::kRight));
-  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(278 + 40, top + 54 + 8 + 27, 3, 366, 480, emu::KeySide::kRight));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, top + 27, 3, 366, 480, emu::KeySide::kRight));
-  // **A key on the top face is a row under the page**: the row is the last 70 rows of the window, the
-  // buttons 54 tall and 80 wide with 8 between, starting at 7 of a 270-wide window.
-  const int row_top = 550 - 70 + 8;
-  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(47, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
-  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(135, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
-  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(223, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(91, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(47, 480, 3, 270, 550, emu::KeySide::kBottom));
-  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(0, row_top + 27, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(26, top + 40 + 2, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(3, top + 20, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(26, top - 1, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(26, top + 132, 3, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(200, top + 20, 3, 366, 480, emu::KeySide::kLeft));
+  // **The same dial on the right face is the same column on the other side**: the buttons are 320..360 and the left of
+  // the window is the page.
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(340, top + 20, 3, 366, 480, emu::KeySide::kRight));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(340, top + 40 + 6 + 20, 3, 366, 480, emu::KeySide::kRight));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(26, top + 20, 3, 366, 480, emu::KeySide::kRight));
+  // **A key on the top face is a row under the page**: the row is the last 52 rows of the window, the buttons 40 wide
+  // with 6 between, starting at 69 of a 270-wide window (132 in the middle).
+  const int row_top = 550 - 52 + 6;
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_at(89, row_top + 20, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(135, row_top + 20, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(2, emu::gui_key_at(181, row_top + 20, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(111, row_top + 20, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(89, 545, 3, 270, 550, emu::KeySide::kBottom));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(0, row_top + 20, 3, 270, 550, emu::KeySide::kBottom));
   // A board of one key has its button in the middle of the window, and nothing under it.
-  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(48, 240, 1, 366, 480, emu::KeySide::kLeft));
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_at(26, 240, 1, 366, 480, emu::KeySide::kLeft));
+
+  // **The sign of a key, as runs of one pixel** (0.85.1): the three of the dial are an up arrow, a full circle and a
+  // down arrow, and a board of one button has no sign —its key is the whole board and it keeps its word—.
+  emu::KeyRun runs[emu::kKeyIconRuns];
+  TEST_ASSERT_EQUAL_UINT8(0, emu::gui_key_icon(1, 0, 40, 40, runs, emu::kKeyIconRuns));
+  const uint8_t up = emu::gui_key_icon(3, 1, 40, 40, runs, emu::kKeyIconRuns);
+  TEST_ASSERT_GREATER_THAN(0, up);
+  // The head of an arrow is its narrowest row on top and the widest under it, and the stem is under the widest.
+  TEST_ASSERT_EQUAL_UINT16(1, runs[0].w);
+  TEST_ASSERT_GREATER_THAN(runs[0].w, runs[up - 2].w);
+  // Centred in the key: the tip is one pixel on the middle column, which is twenty of forty.
+  TEST_ASSERT_EQUAL_UINT16(20, runs[0].x);
+  TEST_ASSERT_EQUAL_UINT16(5, runs[up - 1].w);  // the stem: forty over eight, made odd
+  // The arrow pointing down is the same shape the other way up, and its stem is over its head.
+  const uint8_t down = emu::gui_key_icon(3, 2, 40, 40, runs, emu::kKeyIconRuns);
+  TEST_ASSERT_EQUAL_UINT8(up, down);
+  const uint16_t stem_row = runs[down - 1].y;
+  TEST_ASSERT_LESS_THAN(runs[down - 2].y, stem_row);
+  // **The middle is a filled circle**: its rows grow from one pixel to the diameter and go back, and the row of the
+  // middle is the widest of them.
+  const uint8_t disc = emu::gui_key_icon(3, 0, 40, 40, runs, emu::kKeyIconRuns);
+  TEST_ASSERT_GREATER_THAN(1, disc);
+  TEST_ASSERT_EQUAL_UINT16(1, runs[0].w);
+  TEST_ASSERT_EQUAL_UINT16(1, runs[disc - 1].w);
+  TEST_ASSERT_EQUAL_UINT16(2 * (40 / 5) + 1, runs[disc / 2].w);
+  TEST_ASSERT_EQUAL_UINT16(20, runs[disc / 2].y);
   TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, 400, 1, 366, 480, emu::KeySide::kLeft));
 }
 

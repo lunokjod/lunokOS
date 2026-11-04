@@ -364,6 +364,13 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   ho diu. Els botons es mesuren en píxels de finestra i no de pàgina, o sigui que no s'encongiran amb
   l'escala; **els buits entre botons no premen res** i el mapa del clic a tecla (`emu::gui_key_at`) té prova
   a `test_ui`.
+- **El signe d'una tecla és un dibuix** (0.85.1): les tres del dial deien `Up`, `Centre` i `Down` amb la
+  taula de la barra, i una paraula dins d'un botó de vuitanta píxels fa que la finestra sembli un formulari.
+  Ara `gui_key_icon` dona el signe com a **runs d'un píxel** —una fletxa amunt, un **cercle farcit** i una
+  fletxa avall— i el SDL i l'X11 el pinten igual, o sigui que el dibuix i el mapa del clic surten de la
+  mateixa casa. Una placa d'**una sola tecla** no en té, de signe: allà el botó és tot el costat i es queda
+  la paraula. I els botons són de **quaranta per quaranta amb sis de buit** (eren vuitanta per
+  cinquanta-quatre amb vuit): el que cal amb un ratolí és que la columna no es mengi la pàgina.
 - **El que no s'hi veu**: el **temps** de la tinta, que només es nota perquè la finestra s'espera i el
   prompt no torna —el número es llegeix amb `stats` o amb `run panel`, no a l'ull—, i el moviment del
   pigment dins de cada moment (la finestra ensenya blanc, negre i la imatge, no els passos entremig). Per

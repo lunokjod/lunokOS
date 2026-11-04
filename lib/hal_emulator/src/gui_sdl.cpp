@@ -143,10 +143,22 @@ void draw_keys() {
     } else {
       set_colour(kKeyTextR, kKeyTextG, kKeyTextB);
     }
-    const char* label = gui_key_label(g_keys_count, key);
-    const int scale = 2;
-    draw_text(label, x + (kKeyButtonWidth - text_width(label, scale)) / 2,
-              y + (kKeyButtonHeight - 7 * scale) / 2, scale);
+    // **The sign of the key and not its word** (0.85.1): the runs come from the shared geometry, so the two windows
+    // draw the same arrow and the same circle (docs/85).
+    KeyRun runs[kKeyIconRuns];
+    const uint8_t drawn =
+        gui_key_icon(g_keys_count, key, kKeyButtonWidth, kKeyButtonHeight, runs, kKeyIconRuns);
+    if (drawn > 0) {
+      for (uint8_t run = 0; run < drawn; ++run) {
+        SDL_Rect part = {x + runs[run].x, y + runs[run].y, runs[run].w, runs[run].h};
+        SDL_RenderFillRect(g_renderer, &part);
+      }
+    } else {
+      const char* label = gui_key_label(g_keys_count, key);
+      const int scale = 1;
+      draw_text(label, x + (kKeyButtonWidth - text_width(label, scale)) / 2,
+                y + (kKeyButtonHeight - 7 * scale) / 2, scale);
+    }
   }
 }
 

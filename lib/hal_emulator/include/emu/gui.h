@@ -73,12 +73,31 @@ uint8_t gui_fit_scale(uint16_t page_width, uint16_t page_height, uint8_t keys, K
 // The buttons are measured in window pixels and not in page pixels: how big a page is scaled to is the
 // page's business, and a button that shrinks with it is a button a person cannot hit. Both backends draw
 // the same rectangle and the mouse reads the same one (docs/85).
-const uint16_t kKeyMargin = 8;
-const uint16_t kKeyButtonWidth = 80;
-const uint16_t kKeyButtonHeight = 54;
-const uint16_t kKeyGap = 8;
+//
+// **Small and square** (0.85.1): the mouse of a bench is a pointer of one pixel and a finger of eighty by fifty was a
+// key for a hand that is not there. Forty is enough for the aim of a mouse and it leaves the page the room it had.
+const uint16_t kKeyMargin = 6;
+const uint16_t kKeyButtonWidth = 40;
+const uint16_t kKeyButtonHeight = 40;
+const uint16_t kKeyGap = 6;
 const uint16_t kKeyStripWidth = static_cast<uint16_t>(kKeyButtonWidth + 2 * kKeyMargin);
 const uint16_t kKeyRowHeight = static_cast<uint16_t>(kKeyButtonHeight + 2 * kKeyMargin);
+
+// **The sign on a key** (0.85.1): the dial of the Paper is a wheel and its three spots are up, down and the middle, so
+// the buttons draw an arrow, an arrow and a full circle instead of two words and a third. The shapes are here, as runs
+// of one pixel, and not in a backend: the two windows draw the same and a test can say where the ink of a key is
+// without a screen (docs/85).
+const uint8_t kKeyIconRuns = 40;
+
+struct KeyRun {
+  uint16_t x;
+  uint16_t y;
+  uint16_t w;
+  uint16_t h;
+};
+
+// How many runs the key has: zero for a board of one button, which keeps its word.
+uint8_t gui_key_icon(uint8_t count, int key, uint16_t width, uint16_t height, KeyRun* out, uint8_t capacity);
 
 // **One window with the glass and the keys in it** (0.34.0): the page is not covered by anything and the
 // buttons are where the board has them. Two windows were two things to place and to look at, and the window

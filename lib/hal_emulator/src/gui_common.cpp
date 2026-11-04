@@ -184,4 +184,56 @@ const char* gui_key_label(uint8_t count, int key) {
   return "Centre";
 }
 
+// **The sign on a key of the dial** (0.85.1), in the key's own box: an arrow up, an arrow down and a full circle. The
+// runs are one pixel tall, so a backend fills rectangles and nothing else, and the same numbers are what a test reads.
+// A board of one button answers zero and keeps its word: its key is the whole board and a word is what it says.
+uint8_t gui_key_icon(uint8_t count, int key, uint16_t width, uint16_t height, KeyRun* out, uint8_t capacity) {
+  if (count < 2 || out == nullptr || capacity == 0 || width < 8 || height < 8) return 0;
+  if (key != 0 && key != 1 && key != 2) return 0;
+  uint8_t used = 0;
+  const int cx = static_cast<int>(width) / 2;
+  const int cy = static_cast<int>(height) / 2;
+  if (key == 0) {
+    // **The middle is a filled circle**: the wheel's own spot, and the one a person presses for "yes".
+    int radius = static_cast<int>((width < height) ? width : height) / 5;
+    if (radius < 3) radius = 3;
+    for (int dy = -radius; dy <= radius && used < capacity; ++dy) {
+      int dx = 0;
+      while ((dx + 1) * (dx + 1) + dy * dy <= radius * radius) ++dx;
+      const int wide = 2 * dx + 1;
+      out[used].x = static_cast<uint16_t>(cx - dx);
+      out[used].y = static_cast<uint16_t>(cy + dy);
+      out[used].w = static_cast<uint16_t>(wide);
+      out[used].h = 1;
+      ++used;
+    }
+    return used;
+  }
+  // **An arrow**: a head that widens a line at a time and a stem under it —over it, when it points down—.
+  const int head = static_cast<int>(height) / 4;
+  const int half = static_cast<int>(width) / 5;
+  const int stem = (static_cast<int>(width) / 8) | 1;
+  const int tail = static_cast<int>(height) / 6;
+  const int total = head + tail;
+  const int top = (static_cast<int>(height) - total) / 2;
+  const bool up = (key == 1);
+  for (int i = 0; i < head && used < capacity; ++i) {
+    const int wide = 1 + (2 * half * i) / (head - 1);
+    const int row = up ? (top + i) : (top + total - 1 - i);
+    out[used].x = static_cast<uint16_t>(cx - wide / 2);
+    out[used].y = static_cast<uint16_t>(row);
+    out[used].w = static_cast<uint16_t>(wide);
+    out[used].h = 1;
+    ++used;
+  }
+  if (used < capacity) {
+    out[used].x = static_cast<uint16_t>(cx - stem / 2);
+    out[used].y = static_cast<uint16_t>(up ? (top + head) : top);
+    out[used].w = static_cast<uint16_t>(stem);
+    out[used].h = static_cast<uint16_t>(tail);
+    ++used;
+  }
+  return used;
+}
+
 }  // namespace emu
