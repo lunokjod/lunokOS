@@ -35,6 +35,10 @@ entén; si no, amb espais i retrocessos, o sigui que el terminal de la placa i u
 fan el mateix amb mitjans diferents (docs/30, docs/75). Al prompt `lua>`, **Ctrl+D** tanca la sessió
 de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descarta.
 
+**`help` amb una comanda és l'ajuda d'aquella comanda** (0.88.1): `help repo` són les tres línies de `repo` i cap
+altra, `help repo install` és la d'aquella sintaxi, i un mot que només és el començament d'una comanda no ho és
+—`help pow` respon `no such command: pow` i diu on és la llista sencera— (docs/30).
+
 **I la consola té una paleta, i només si el terminal la va demanar** (3/11, 0.57.0): el prompt és el nom
 en verd i el `>` en gris; un error és vermell, un avís groc i una resposta bona verda; `ls` posa el tipus
 i la mida apagats i el directori en blau; `help` posa l'ordre en negreta, i el `log` pinta cada línia pel

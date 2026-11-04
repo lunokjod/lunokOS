@@ -326,69 +326,107 @@ void redraw_line() {
   g_visible = g_prompt_len + len;
 }
 
-// **The command is the first thing after the two spaces and it is what goes in bold**: the description is
-// the rest of the line, and it stays as it was. A line without a description —the two pieces of advice at
-// the end— is written plainly, because it has no column to be a command (docs/30).
-void help_line(const char* text) {
-  const char* start = text;
-  while (*start == ' ') ++start;
+// **The syntax of a line of help is what is before the two spaces** —`repo info <app>`, `cat <path>`—, and it is
+// what goes in bold; the description is the rest of the line and it stays as it was. A line without a description
+// —the two pieces of advice at the end— has no syntax to be a command (docs/30).
+const char* help_syntax(const char* text) {
+  while (*text == ' ') ++text;
+  return text;
+}
+
+size_t help_syntax_len(const char* text) {
+  const char* start = help_syntax(text);
   const char* end = strstr(start, "  ");
-  if (end == nullptr) {
-    out(start);
+  return (end == nullptr) ? 0 : static_cast<size_t>(end - start);
+}
+
+// **Whether the syntax of a line answers to the words a person asked for**: the words are a whole command and not
+// the beginning of one —`help pow` is not `power`—, so what follows them has to be the end of the syntax or a space
+// (0.88.1, docs/30).
+bool help_matches(const char* text, const char* only) {
+  const size_t len = help_syntax_len(text);
+  if (len == 0) return false;
+  const size_t asked = strlen(only);
+  if (asked == 0 || asked > len) return false;
+  if (strncmp(help_syntax(text), only, asked) != 0) return false;
+  return asked == len || help_syntax(text)[asked] == ' ';
+}
+
+// **How many lines of the list answered the question**: `print_help` clears it and a word that answers to nothing is
+// the one thing that is said back (0.88.1, docs/30).
+uint8_t g_help_written = 0;
+
+// One line of the list, or nothing when the person asked for another command.
+void help_line(const char* text, const char* only) {
+  if (only != nullptr && !help_matches(text, only)) return;
+  ++g_help_written;
+  const size_t len = help_syntax_len(text);
+  if (len == 0) {
+    out(help_syntax(text));
     out("\r\n");
     return;
   }
   out("  ");
   colour(kColourBold);
-  out_bytes(start, static_cast<size_t>(end - start));
+  out_bytes(help_syntax(text), len);
   colour_off();
-  out(end);
+  out(help_syntax(text) + len);
   out("\r\n");
 }
 
-void print_help() {
-  help_line("  help              this list");
-  help_line("  version           version and board");
-  help_line("  caps              what this board has");
-  help_line("  mem               free memory and buffers");
-  help_line("  apps              the apps of the flash and of the card");
-  help_line("  mounts            the mounted file systems and their room");
-  help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept");
-  help_line("  run <id> [path]   run an app, optionally pointed at a file");
-  help_line("  wifi              the stored network and the radio");
-  help_line("  wifi scan         the networks the radio sees");
-  help_line("  wifi add <ssid> [password]  store a network and go on it");
-  help_line("  wifi connect      go on the network the board has stored");
-  help_line("  wifi forget       forget the stored network");
-  help_line("  wifi stop         drop whatever the radio is doing");
-  help_line("  provision [pop]   the QR and the Espressif app, over Bluetooth");
-  help_line("  provision softap [pop]  the same over the board's own access point");
-  help_line("  ntp [server]      set the clock from a time server");
-  help_line("  http <url> [path] fetch a page, and save it when it is too big");
-  help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
-  help_line("  repo info <app>   the manifest of one app of the repository");
-  help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names");
-  help_line("  power [cpu [mhz]]  what this board can do about energy");
-  help_line("  power last        how far the last sleep was from the hour it was given");
-  help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
-  help_line("  led [rrggbb|off]  the light of the board");
-  help_line("  button            the button, right now");
-  help_line("  sleep [light|deep] <ms>  sleep, and come back at a time");
-  help_line("  sleep at <epoch seconds>  the same, at a time of the clock");
-  help_line("  open [app] <path>  open a file with the app that handles it");
-  help_line("  ls [path]         list a directory or one file (default /)");
-  help_line("  cat <path>        print a file");
-  help_line("  hexdump [path]    the bytes of a file in hex (default /rtc)");
-  help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)");
-  help_line("  log               last lines of the log ring");
-  help_line("  stats [reset]     what each device cost: calls, time, last call");
-  help_line("  verbose on|off    mirror the log to the console too");
-  help_line("  ansi [on|off]     the colours of the terminal, or why there are none");
-  help_line("  clear             clear the screen");
-  help_line("  reboot            restart");
-  help_line("  poweroff          cut the power of the board, if it can (docs/50)");
-  help_line("three ESC in a row leave an app, or stop a command that waits");
-  help_line("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"");
+void print_help(const char* only) {
+  g_help_written = 0;
+  help_line("  help [command]    this list, or the lines of one command", only);
+  help_line("  version           version and board", only);
+  help_line("  caps              what this board has", only);
+  help_line("  mem               free memory and buffers", only);
+  help_line("  apps              the apps of the flash and of the card", only);
+  help_line("  mounts            the mounted file systems and their room", only);
+  help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept", only);
+  help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
+  help_line("  wifi              the stored network and the radio", only);
+  help_line("  wifi scan         the networks the radio sees", only);
+  help_line("  wifi add <ssid> [password]  store a network and go on it", only);
+  help_line("  wifi connect      go on the network the board has stored", only);
+  help_line("  wifi forget       forget the stored network", only);
+  help_line("  wifi stop         drop whatever the radio is doing", only);
+  help_line("  provision [pop]   the QR and the Espressif app, over Bluetooth", only);
+  help_line("  provision softap [pop]  the same over the board's own access point", only);
+  help_line("  ntp [server]      set the clock from a time server", only);
+  help_line("  http <url> [path]  fetch a page, and save it when it is too big", only);
+  help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub", only);
+  help_line("  repo info <app>   the manifest of one app of the repository", only);
+  help_line("  repo install <app>  the whole folder of an app, onto the disk `cfg` names", only);
+  help_line("  power [cpu [mhz]]  what this board can do about energy", only);
+  help_line("  power last        how far the last sleep was from the hour it was given", only);
+  help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm", only);
+  help_line("  led [rrggbb|off]  the light of the board", only);
+  help_line("  button            the button, right now", only);
+  help_line("  sleep [light|deep] <ms>  sleep, and come back at a time", only);
+  help_line("  sleep at <epoch seconds>  the same, at a time of the clock", only);
+  help_line("  open [app] <path>  open a file with the app that handles it", only);
+  help_line("  ls [path]         list a directory or one file (default /)", only);
+  help_line("  cat <path>        print a file", only);
+  help_line("  hexdump [path]    the bytes of a file in hex (default /rtc)", only);
+  help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)", only);
+  help_line("  log               last lines of the log ring", only);
+  help_line("  stats [reset]     what each device cost: calls, time, last call", only);
+  help_line("  verbose on|off    mirror the log to the console too", only);
+  help_line("  ansi [on|off]     the colours of the terminal, or why there are none", only);
+  help_line("  clear             clear the screen", only);
+  help_line("  reboot            restart", only);
+  help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
+  help_line("three ESC in a row leave an app, or stop a command that waits", only);
+  help_line("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"", only);
+  // **A word that answers to nothing is said and not swallowed**: `help` alone lists them all, and a person who
+  // typed a command that is not there is one line away from the whole list (0.88.1, docs/30).
+  if (only != nullptr && g_help_written == 0) {
+    error_out("no such command: ");
+    out(only);
+    newline();
+    out("  `help` lists them all");
+    newline();
+  }
 }
 
 void print_version() {
@@ -2929,8 +2967,29 @@ bool execute(char* line) {
   // Lua expression there, and the way out is `exit` (docs/30).
   if (g_lua) return lua_line(line);
 
-  if (strcmp(line, "help") == 0 || strcmp(line, "?") == 0) {
-    print_help();
+  // **`help` with a command is the lines of that command**: `help repo` is the three lines of `repo`, and a word
+  // that is the beginning of a command is not the command (0.88.1, docs/30).
+  if (strncmp(line, "help", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    // **The words of the question, as they were typed and with one space between them**: `help repo install` asks for
+    // the one line of `repo install`, and a run of spaces is not another command (0.88.1, docs/30).
+    char asked[64];
+    size_t used = 0;
+    for (const char* c = line + 4; *c != '\0' && used + 1 < sizeof(asked); ++c) {
+      if (*c == ' ') {
+        if (used == 0) continue;                  // the air before the first word and after the last one is not a word
+        if (asked[used - 1] == ' ') continue;     // a run of spaces is one space
+        asked[used++] = ' ';
+        continue;
+      }
+      asked[used++] = *c;
+    }
+    if (used > 0 && asked[used - 1] == ' ') --used;
+    asked[used] = '\0';
+    print_help((used > 0) ? asked : nullptr);
+    return true;
+  }
+  if (strcmp(line, "?") == 0) {
+    print_help(nullptr);
     return true;
   }
   if (strcmp(line, "version") == 0) {

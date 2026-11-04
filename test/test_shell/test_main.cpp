@@ -177,6 +177,38 @@ void test_help_command_is_known(void) {
   TEST_ASSERT_TRUE(kernel::execute("help"));
 }
 
+// **`help` with a command is the lines of that command** (0.88.1): `help repo` is the three lines of `repo` and no
+// other, `help repo install` is the one line of that syntax, a word that is only the beginning of a command is not the
+// command, and a word that answers to nothing is said instead of swallowed (docs/30).
+void test_help_with_a_command_is_the_lines_of_that_command(void) {
+  ensure_booted();
+  static char said[4096];
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("help repo"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "repo [owner/repo] [dir]"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "repo info <app>"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "repo install <app>"), said);
+  // Nothing of the other commands: not the one that starts with the same letters, not the list itself.
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "power"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "version"), said);
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("help repo install"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "repo install <app>"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "repo info"), said);
+
+  // **El començament d'una comanda no és la comanda**: `pow` is not `power`, and what the board says is that it does
+  // not know it and where the whole list is.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("help pow"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such command: pow"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "`help` lists them all"), said);
+}
+
 void test_caps_command_is_known(void) {
   ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute("caps"));
@@ -857,6 +889,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_only_a_device_attributes_reply_is_an_answer);
   RUN_TEST(test_the_colours_are_the_prompt_an_error_and_a_directory);
   RUN_TEST(test_help_command_is_known);
+  RUN_TEST(test_help_with_a_command_is_the_lines_of_that_command);
   RUN_TEST(test_caps_command_is_known);
   RUN_TEST(test_mem_command_is_known);
   RUN_TEST(test_a_block_that_does_not_fit_the_ceilings_is_refused);

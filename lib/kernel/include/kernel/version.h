@@ -1094,7 +1094,13 @@ namespace kernel {
 // del dit, els píxels i el cursor que espera **es netegen quan la pàgina entra i quan marxa**, que és el que fa que una
 // app acabada amb el dit a sobre no deixi cap gest a mitges a la que ve després. `box:lines()` diu quantes files té el
 // text sencer, i l'editor les fa servir per dir «row 22 of 120» (docs/30, docs/90).
-static const char kVersion[] = "0.88.0";
+// 0.88.1 (4/11): **`help` amb una comanda és l'ajuda d'aquella comanda**. `help repo` ensenya les tres línies de `repo` i
+// cap altra, `help repo install` la d'aquella sintaxi, i el que es compara és **la sintaxi de la línia** —el que va abans
+// dels dos espais, que és el que la llista ja posa en negreta— amb les paraules que s'han escrit: un mot que només és el
+// començament d'una comanda no és la comanda (`help pow` no és `power`), i un mot que no respon a res diu
+// `no such command: x` i que `help` els llista tots. De passada, la línia de `http` a la llista **tenia un sol espai**
+// i per això sortia plana i no era cap comanda ni per a `help http` (docs/30, docs/85).
+static const char kVersion[] = "0.88.1";
 
 }  // namespace kernel
 
