@@ -687,7 +687,22 @@ HostExtraMemory g_extra;
 
 }  // namespace
 
-bool init() { return g_system.bring_up(); }
+// **The terminal goes back the way it was when the process ends, however it ends**: the raw mode is this bench's —a key
+// read one at a time, without echo and without a line— and it is not the shell's. `shutdown` puts it back, but a suite
+// of this machine ends in `UNITY_END` and a program that stops on a failing assertion ends in `exit`, and neither of
+// them calls it: the terminal of the person who ran the tests was left with no echo until a `reset` (found the 4/11,
+// docs/80, docs/85).
+void the_terminal_back() { g_system.restore_terminal(); }
+
+bool init() {
+  if (!g_system.bring_up()) return false;
+  static bool hooked = false;
+  if (!hooked) {
+    hooked = true;
+    atexit(&the_terminal_back);
+  }
+  return true;
+}
 
 void shutdown() { g_system.restore_terminal(); }
 

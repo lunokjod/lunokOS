@@ -239,6 +239,22 @@ Regles:
   que vigila. Una prova que no s'ha vist fallar no se sap si mira res.
 - La prova nova d'una crida de Lua ha d'incloure el **cas de la capacitat absent**: és el camí que
   més vegades es trencarà.
+- **El que una prova desa, una prova ho torna.** Dues coses d'aquest banc no són del procés i sí del terminal
+  de qui el llança, i totes dues s'han vist quedar trencades (4/11):
+  - **La consola.** `pump_captured`, `feed_captured` i `capture_begin` posen `stdout` en un fitxer amb `dup2`
+    per llegir el que diu una app. Un `TEST_ASSERT` que falla surt per un `longjmp` de Unity i **no passa mai
+    per la línia que el torna a posar**: la fallada i totes les proves de després s'escrivien al fitxer, i el
+    `pio test` es quedava esperant un resum que no arribava (i el matava amb SIGHUP). La consola es torna a
+    `tearDown`, que Unity crida passi el que passi, i **el que hi havia capturat es torna a dir** quan la prova
+    ha fallat, que és l'única vegada que algú el vol llegir.
+  - **El terminal.** `pal::init()` el posa en mode cru (sense eco i sense línia) i `pal::shutdown()` el torna,
+    però una suite no en diu mai res: s'acabava amb el terminal de qui havia llançat les proves sense eco fins
+    a un `reset`. El PAL del banc instal·la `atexit` en encendre el mode cru, o sigui que el terminal es torna
+    encara que el procés acabi en un `exit` d'una fallada. Comprovat amb un pty (`script -q -c 'stty -g; …;
+    stty -g'`): sense el ganxo el `stty` de després és un altre, i amb el ganxo és el mateix.
+- **Cap espera no és per sempre.** Un bucle de proves que espera una app acaba amb un pressupost de torns
+  (`kTurnBudget`) i diu que no ha acabat; el que no pot passar és que la suite sencera s'aturi en un bucle
+  que no acaba i que ningú sàpiga per què.
 - **Cap prova no paga el temps del maquinari.** `Options::delays` neix **fals**, o sigui que una suite
   no espera els 1 ms d'una lectura del disc, ni els 86,8 µs d'un byte del port, ni el bus i la tinta
   d'una pintada, ni les tres transaccions del tàctil; la que mesura temps el posa a cert i ho diu

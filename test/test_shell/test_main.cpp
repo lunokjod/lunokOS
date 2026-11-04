@@ -28,9 +28,66 @@
 // the kernel (docs/30).
 namespace meter = kernel::meter;
 
+namespace {
+
+// **The console of the test, while a capture holds it** (docs/80): the descriptors live here and not inside the
+// function that takes the console away, because a failing assertion leaves through Unity's `longjmp` and never reaches
+// the line that gives it back —and then the failure and the rest of the run are written into the file of the capture,
+// which is a run that shows nothing at all— (found the 4/11).
+int g_console_saved = -1;
+int g_console_sink = -1;
+const char* const kConsolePath = "/tmp/lunok-shell-out.txt";
+
+// The captured console, said again on the console of the test: a failure is the one time it is worth reading.
+void console_replay() {
+  fflush(stdout);
+  FILE* file = fopen(kConsolePath, "rb");
+  if (file == nullptr) return;
+  char line[256];
+  size_t got = 0;
+  printf("--- the console of the test while it was captured ---\n");
+  while ((got = fread(line, 1, sizeof(line), file)) > 0) fwrite(line, 1, got, stdout);
+  printf("--- end of the captured console ---\n");
+  fclose(file);
+  fflush(stdout);
+}
+
+void console_give_back(bool replay) {
+  fflush(stdout);
+  if (g_console_saved >= 0) {
+    dup2(g_console_saved, STDOUT_FILENO);
+    close(g_console_saved);
+    g_console_saved = -1;
+  }
+  if (g_console_sink >= 0) {
+    close(g_console_sink);
+    g_console_sink = -1;
+  }
+  if (replay) console_replay();
+}
+
+bool console_take_away() {
+  if (g_console_saved >= 0) return true;
+  fflush(stdout);
+  g_console_saved = dup(STDOUT_FILENO);
+  g_console_sink = open(kConsolePath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (g_console_saved < 0 || g_console_sink < 0) {
+    console_give_back(false);
+    return false;
+  }
+  dup2(g_console_sink, STDOUT_FILENO);
+  return true;
+}
+
+}  // namespace
+
 void setUp(void) {}
 
-void tearDown(void) {}
+void tearDown(void) {
+  // **The console comes back before anything else**, whatever the test did: Unity calls this for every test, passed,
+  // failed or blown up, and a capture left open is a run with no output (docs/80).
+  console_give_back(Unity.CurrentTestFailed != 0);
+}
 
 namespace {
 
@@ -95,24 +152,13 @@ void ensure_booted() {
 
 // **What the console said, captured the way a person's terminal would read it**: the host console is
 // stdout, so a file around the call is the whole of it.
-int g_saved = -1;
-int g_sink = -1;
-const char* const kSinkPath = "/tmp/lunok-shell-out.txt";
-
-void capture_begin() {
-  g_saved = dup(STDOUT_FILENO);
-  g_sink = open(kSinkPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (g_saved >= 0 && g_sink >= 0) dup2(g_sink, STDOUT_FILENO);
-}
+void capture_begin() { console_take_away(); }
 
 void capture_end(char* out, size_t cap) {
-  if (out != nullptr && cap > 0) out[0] = '\0';
-  if (g_saved >= 0) dup2(g_saved, STDOUT_FILENO);
-  if (g_sink >= 0) close(g_sink);
-  if (g_saved >= 0) close(g_saved);
-  g_saved = -1;
-  g_sink = -1;
-  FILE* file = fopen(kSinkPath, "rb");
+  console_give_back(false);
+  if (out == nullptr || cap == 0) return;
+  out[0] = '\0';
+  FILE* file = fopen(kConsolePath, "rb");
   if (file == nullptr) return;
   const size_t got = fread(out, 1, cap - 1, file);
   out[got] = '\0';

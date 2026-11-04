@@ -39,9 +39,74 @@ namespace {
 void close_any_app();
 }  // namespace
 
+namespace {
+
+// **The console of the test, while a capture holds it** (docs/80). The two numbers are file descriptors and they live
+// here and not inside the function that takes the console away, because **a test that fails does not come back through
+// it**: Unity's `TEST_ASSERT_*` leaves through a `longjmp`, so the line that puts stdout back was never reached and the
+// console stayed pointing at the file of the capture —the failure was written there, and so was every test after it,
+// which is a run that looks hung with no output at all (found the 4/11)—.
+int g_console_saved = -1;
+int g_console_sink = -1;
+const char* const kConsolePath = "/tmp/lunok-app-tests.out";
+
+// What the console said while it was captured, said again on the console of the test: a failure inside a captured call
+// is the one time a person needs to read it.
+void console_replay() {
+  fflush(stdout);
+  FILE* file = fopen(kConsolePath, "rb");
+  if (file == nullptr) return;
+  char line[256];
+  size_t got = 0;
+  printf("--- the console of the test while it was captured ---\n");
+  while ((got = fread(line, 1, sizeof(line), file)) > 0) fwrite(line, 1, got, stdout);
+  printf("--- end of the captured console ---\n");
+  fclose(file);
+  fflush(stdout);
+}
+
+void console_give_back(bool replay);
+
+// Takes the console away: everything written to stdout goes to the file until `console_give_back`. It answers false
+// when there is no file to write, and then the console is the console and a test still runs.
+bool console_take_away() {
+  if (g_console_saved >= 0) return true;  // a capture already open: the file is the same one
+  fflush(stdout);
+  g_console_saved = dup(STDOUT_FILENO);
+  g_console_sink = open(kConsolePath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (g_console_saved < 0 || g_console_sink < 0) {
+    console_give_back(false);
+    return false;
+  }
+  dup2(g_console_sink, STDOUT_FILENO);
+  return true;
+}
+
+// **And gives it back, however the test ended**: `replay` is for a test that failed, which is the one whose captured
+// console nobody has seen.
+void console_give_back(bool replay) {
+  fflush(stdout);
+  if (g_console_saved >= 0) {
+    dup2(g_console_saved, STDOUT_FILENO);
+    close(g_console_saved);
+    g_console_saved = -1;
+  }
+  if (g_console_sink >= 0) {
+    close(g_console_sink);
+    g_console_sink = -1;
+  }
+  if (replay) console_replay();
+}
+
+}  // namespace
+
 void setUp(void) {}
 
 void tearDown(void) {
+  // **The console comes back before anything else**: a test that failed with a capture open left stdout pointing at
+  // the file of the capture, and Unity writes the failure and the rest of the run to wherever stdout points. It is the
+  // first line of `tearDown` because Unity calls it for every test, passed, failed or blown up (docs/80).
+  console_give_back(Unity.CurrentTestFailed != 0);
   // A test that fails halfway leaves its app running, and the next test then says
   // "cannot start the interpreter" and blames code that is fine — found by breaking
   // the fake sensor on purpose (31/10). Three taps are the system's way out and a
@@ -77,7 +142,6 @@ void tearDown(void) {
 namespace {
 
 const char kRoot[] = "/tmp/lunok-app-tests";
-const char kSinkPath[] = "/tmp/lunok-app-tests.out";
 const int kTurnBudget = 2000;  // turns of 1 ms an app may take in a test
 
 // A disk of this run and no other: a leftover from the run before would add apps
@@ -281,11 +345,7 @@ void make_card() {
 // false when the app never ended.
 bool feed_captured(const char* line, bool through_console, char* out, size_t cap) {
   if (out != nullptr && cap > 0) out[0] = '\0';
-
-  const int saved = dup(STDOUT_FILENO);
-  const int sink = open(kSinkPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (saved < 0 || sink < 0) return false;
-  dup2(sink, STDOUT_FILENO);
+  if (!console_take_away()) return false;
 
   if (through_console) {
     char typed[160];
@@ -301,12 +361,10 @@ bool feed_captured(const char* line, bool through_console, char* out, size_t cap
   }
   if (kernel::app_running()) ended = false;
 
-  dup2(saved, STDOUT_FILENO);
-  close(saved);
-  close(sink);
+  console_give_back(false);
 
   if (out != nullptr && cap > 0) {
-    FILE* file = fopen(kSinkPath, "r");
+    FILE* file = fopen(kConsolePath, "r");
     if (file != nullptr) {
       const size_t got = fread(out, 1, cap - 1, file);
       out[got] = '\0';
@@ -327,11 +385,7 @@ bool run_captured(const char* line, char* out, size_t cap) {
 void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
                    const char* typed = nullptr) {
   if (out != nullptr && cap > 0) out[0] = '\0';
-
-  const int saved = dup(STDOUT_FILENO);
-  const int sink = open(kSinkPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (saved < 0 || sink < 0) return;
-  dup2(sink, STDOUT_FILENO);
+  if (!console_take_away()) return;
 
   if (line != nullptr) kernel::execute(line);
   // Bytes as a keyboard sends them, after the command: a person pressing a key
@@ -349,12 +403,10 @@ void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
     sleep_one_ms();
   }
 
-  dup2(saved, STDOUT_FILENO);
-  close(saved);
-  close(sink);
+  console_give_back(false);
 
   if (out != nullptr && cap > 0) {
-    FILE* file = fopen(kSinkPath, "r");
+    FILE* file = fopen(kConsolePath, "r");
     if (file != nullptr) {
       const size_t got = fread(out, 1, cap - 1, file);
       out[got] = '\0';
@@ -365,26 +417,13 @@ void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
 
 // The console of a call that is not a command: a boot that brings an app back is a
 // function and not a line of the shell, and what it says has to be read too.
-int g_capture_saved = -1;
-int g_capture_sink = -1;
-
-void capture_begin() {
-  g_capture_saved = dup(STDOUT_FILENO);
-  g_capture_sink = open(kSinkPath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (g_capture_saved >= 0 && g_capture_sink >= 0) dup2(g_capture_sink, STDOUT_FILENO);
-}
+void capture_begin() { console_take_away(); }
 
 void capture_end(char* out, size_t cap) {
-  if (g_capture_saved >= 0) {
-    dup2(g_capture_saved, STDOUT_FILENO);
-    close(g_capture_saved);
-  }
-  if (g_capture_sink >= 0) close(g_capture_sink);
-  g_capture_saved = -1;
-  g_capture_sink = -1;
+  console_give_back(false);
   if (out == nullptr || cap == 0) return;
   out[0] = '\0';
-  FILE* file = fopen(kSinkPath, "r");
+  FILE* file = fopen(kConsolePath, "r");
   if (file == nullptr) return;
   const size_t got = fread(out, 1, cap - 1, file);
   out[got] = '\0';
@@ -2330,7 +2369,12 @@ void test_an_app_writes_the_file_the_prompt_named_and_no_other(void) {
   // **I el nom sobreviu a la comanda** (4/11): la paraula del prompt viu en una pila que ja no hi és quan
   // l'app corre, i el camí que el nucli consulta per deixar-la desar ha de ser una còpia.
   TEST_ASSERT_TRUE(kernel::execute("run writer /littlefs/notes.txt"));
-  while (kernel::app_running()) kernel::poll();
+  // **The turns are borrowed and not waited for**: an app that never ends has to fail this test and not take the whole
+  // run with it, which is a suite that stops with no output and a person who cannot tell why (found the 4/11,
+  // docs/80).
+  int turns = 0;
+  while (kernel::app_running() && turns++ < kTurnBudget) kernel::poll();
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app never ended");
   TEST_ASSERT_EQUAL_STRING("/littlefs/notes.txt", luabind::app_path());
 
   // An app started with no file has no way into the person's disk at all.

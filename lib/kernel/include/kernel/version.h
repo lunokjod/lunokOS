@@ -987,7 +987,17 @@ namespace kernel {
 // `hexdump_file` a la shell, des de sempre— i al disc no hi ha cap app amb aquests noms: no hi havia res a treure, i
 // el que fa el sistema des d'aquí és dir-ho, amb la prova de la comanda i sense cap carpeta `apps/cat` ni
 // `apps/hexdump` (docs/30, docs/85).
-static const char kVersion[] = "0.84.2";
+// 0.84.3 (4/11): **les proves tornen el que demanen.** Dues coses del banc no eren del procés i sí del terminal de qui
+// les llança, i totes dues quedaven trencades. La primera: `pump_captured` i les altres captures posen `stdout` en un
+// fitxer amb `dup2`, i un `TEST_ASSERT` que falla surt per un `longjmp` de Unity i no passa per la línia que el torna a
+// posar —la fallada i la resta de la tirada s'escrivien al fitxer, el `pio test` esperava un resum que no arribava i el
+// matava amb SIGHUP—; ara la consola es torna a `tearDown`, que Unity crida passi el que passi, i el que hi havia
+// capturat es torna a dir quan la prova ha fallat. La segona: `pal::init()` posa el terminal en mode cru i
+// `pal::shutdown()` el torna, però cap suite en diu res, o sigui que el terminal de qui havia llançat les proves quedava
+// sense eco fins a un `reset`; el PAL del banc instal·la `atexit` en encendre el mode cru i el torna encara que el
+// procés acabi en un `exit` d'una fallada. I l'última espera sense sostre d'una prova —`while (app_running()) poll()`—
+// té el pressupost de torns de les altres (docs/80).
+static const char kVersion[] = "0.84.3";
 
 }  // namespace kernel
 
