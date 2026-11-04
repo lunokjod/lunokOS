@@ -616,6 +616,19 @@ void list_at(const char* path) {
 // cat: prints the file, and says which of the two things went wrong instead of
 // one word for both. It looks first so a missing file is not an error inside the
 // backend, which logs it (docs/70).
+class StorageReadClock {
+ public:
+  explicit StorageReadClock(hal::IStorage* storage)
+      : id_(meter::storage_id(meter::kOpRead, vfs::unit_of(storage))) {}
+  ~StorageReadClock() { meter::add(id_, us_); }
+  void begin() { start_ = meter::now_us(); }
+  void end() { us_ += meter::now_us() - start_; }
+
+ private:
+  uint8_t id_;
+  uint32_t start_ = 0;
+  uint32_t us_ = 0;
+};
 bool print_file(const char* path) {
   hal::Stat info;
   if (!vfs::stat(path, info)) {
@@ -630,16 +643,48 @@ bool print_file(const char* path) {
     newline();
     return false;
   }
-  char buf[kPrintCap];
-  size_t len = 0;
-  if (!vfs::read_file(path, buf, sizeof(buf), len)) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) {
     error_out("cannot read: ");
     out(path);
     newline();
     return false;
   }
-  if (len > 0) out_bytes(buf, len);
-  if (len > 0 && buf[len - 1] != '\n') newline();
+
+  // **El fitxer sencer i no els seus primers mil bytes** (4/11): això llegia una finestra de 1 024 B amb
+  // `vfs::read_file` i la imprimia, o sigui que un `cat` d'una pàgina de l'`http` s'aturava a la primera
+  // pantalla i mitja sense dir res —el pitjor dels dos móns, perquè una sortida tallada sembla un fitxer
+  // tallat. Ara es llegeix a finestres fins al final, i el que triga és el cable: 1,3 MB a 115 200 baudes són
+  // uns dos minuts, que és el que trigaria la placa (docs/30, docs/50, docs/70).
+  hal::FileSlot slot;
+  StorageReadClock clock(storage);
+  clock.begin();
+  const bool opened = storage->open(rel, hal::OpenMode::kRead, slot);
+  clock.end();
+  if (!opened) {
+    error_out("cannot read: ");
+    out(path);
+    newline();
+    return false;
+  }
+  char buf[kPrintCap];
+  uint32_t total = 0;
+  char last = '\n';
+  while (true) {
+    clock.begin();
+    const int32_t got = storage->read(slot, buf, static_cast<uint32_t>(sizeof(buf)));
+    clock.end();
+    if (got <= 0) break;
+    out_bytes(buf, static_cast<size_t>(got));
+    last = buf[got - 1];
+    total += static_cast<uint32_t>(got);
+  }
+  clock.begin();
+  storage->close(slot);
+  clock.end();
+  // A file that does not end in a newline gets one, or the prompt would be glued to its last line.
+  if (total > 0 && last != '\n') newline();
   return true;
 }
 
@@ -711,19 +756,6 @@ bool hexdump_scan(hal::IStorage* storage, const char* rel, uint32_t size, uint32
 
 // The rows are printed while the file is open, so the console time must not land in the read meter:
 // a `Scope` would include every `hexdump_row` between the open and the close (docs/30).
-class StorageReadClock {
- public:
-  explicit StorageReadClock(hal::IStorage* storage)
-      : id_(meter::storage_id(meter::kOpRead, vfs::unit_of(storage))) {}
-  ~StorageReadClock() { meter::add(id_, us_); }
-  void begin() { start_ = meter::now_us(); }
-  void end() { us_ += meter::now_us() - start_; }
-
- private:
-  uint8_t id_;
-  uint32_t start_ = 0;
-  uint32_t us_ = 0;
-};
 
 bool hexdump_rows(hal::IStorage* storage, const char* rel, uint32_t last) {
   uint8_t row[16];

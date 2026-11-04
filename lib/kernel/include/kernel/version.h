@@ -928,7 +928,15 @@ namespace kernel {
 // —títol, versió, autor, entrada, extensió, plaques i descripció— i la descripció es parteix a 80 columnes amb
 // la continuació sota del camp, que és el que fa llegible una fitxa. Una app sense `entry` o sense `title` ho
 // diu (`not a usable app`), perquè un manifest així no el pot córrer ningú (docs/30, docs/40).
-static const char kVersion[] = "0.82.1";
+// 0.82.2 (4/11): **`cat` imprimeix el fitxer sencer.** Llegia una finestra de **1 024 B** amb `vfs::read_file`
+// i la imprimia sense dir res més, o sigui que un `cat` d'una pàgina que l'`http` havia desat al disc s'aturava
+// a la primera pantalla i mitja i **semblava un fitxer tallat** (trobat amb `cat /sd/http/apps`, 4/11). Ara
+// llegeix a finestres fins al final, amb la lectura comptada al `stats` com qualsevol altra, i el que triga és
+// el cable —1,3 MB a 115 200 baudes són uns dos minuts, que és el que trigaria la placa— i no un sostre. Un
+// fitxer que no acaba amb un salt en rep un, o el prompt quedaria enganxat a la seva última lletra.
+// **`hexdump` ja el llegia sencer** (les seves 16 B a 16 B, amb el recompte dels zeros del final): s'ha
+// comprovat amb el mateix fitxer i no s'hi ha tocat res (docs/30, docs/50, docs/70, docs/85).
+static const char kVersion[] = "0.82.2";
 
 }  // namespace kernel
 

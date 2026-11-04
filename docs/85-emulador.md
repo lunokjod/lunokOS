@@ -711,6 +711,12 @@ Mesurat al banc: amb una canonada, `no terminal, ansi not asked`; dins d'un pseu
 
 **Al banc, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que `run draw` i `run glass` van amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.
 
+**`cat` imprimeix el fitxer sencer** des de la 0.82.2 (abans s'aturava als primers 1 024 B sense dir-ho) i
+`hexdump` el llegia sencer des de sempre: el que triga una pàgina gran és el **cable** —1,3 MB a 115 200
+baudes són uns dos minuts— i no un sostre amagat. Al banc, `cat /sd/http/watch` amb una targeta de debò
+(`--sd emulator/sd`) treu els 1 327 963 B i l'última línia hi és; `hexdump /sd/http/apps` dona 2 783 files i
+l'última comença a `0000ade0`, que és l'últim tros de 16 B del fitxer (docs/30, docs/70).
+
 **El que va fer falta perquè els editors obrissin un fitxer de debò**: un bloc de la PSRAM que no podia créixer
 on era es movia només a l'altra memòria, i si el veí estava ocupat el banc deia `not enough memory` amb quatre
 megabytes lliures (docs/75, la secció del heap del banc). Ara pot anar a qualsevol taca de la seva.

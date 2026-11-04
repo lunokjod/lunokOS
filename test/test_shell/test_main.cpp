@@ -392,6 +392,45 @@ void test_the_extension_finder_counts_every_app_that_opens_it(void) {
   storage->remove("/apps/lunok-two");
 }
 
+// **`cat` imprimeix el fitxer sencer i no la seva primera pantalla** (0.82.2): llegia una finestra de 1 024 B
+// amb `vfs::read_file` i la imprimia sense dir res, o sigui que una pàgina de l'`http` s'aturava a la primera
+// pantalla i mitja i semblava un fitxer tallat. La prova escriu 4 KB amb una marca a l'última línia i mira que
+// hi sigui; el que triga un `cat` gran és el cable i no un sostre (docs/30, docs/70).
+void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char text[4096];
+  size_t used = 0;
+  for (int i = 1; i <= 80; ++i) {
+    used += static_cast<size_t>(snprintf(text + used, sizeof(text) - used, "linia %02d of the file\n", i));
+  }
+  used += static_cast<size_t>(snprintf(text + used, sizeof(text) - used, "the last line is here\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/long.txt", text));
+  // The file is longer than the 1 024 B window `cat` used to read, which is the whole point of the case.
+  TEST_ASSERT_GREATER_THAN(1024, static_cast<int>(used));
+
+  static char said[8192];
+  capture_begin();
+  const bool ok = kernel::execute("cat /littlefs/long.txt");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "linia 01 of the file"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "linia 80 of the file"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the last line is here"), said);
+
+  // I un fitxer que no acaba amb un salt en rep un, o el prompt quedaria enganxat a l'última lletra.
+  TEST_ASSERT_TRUE(write_text(storage, "/nonl.txt", "sense salt"));
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("cat /littlefs/nonl.txt"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "sense salt\r\n"), said);
+
+  storage->remove("/long.txt");
+  storage->remove("/nonl.txt");
+}
+
 // **El llistat d'un directori de GitHub, sense tenir-lo sencer** (0.82.0): la comanda `repository` baixa el
 // JSON de l'API de continguts i en treu les carpetes amb una finestra de dos kilobytes. El document de la prova
 // és més gran que la finestra a posta, i un objecte cau just al mig per comprovar que mig objecte es guarda per
@@ -684,6 +723,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
   RUN_TEST(test_the_listing_of_a_repository_is_read_in_chunks);
+  RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
   RUN_TEST(test_unknown_command_fails);
