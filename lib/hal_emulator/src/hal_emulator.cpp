@@ -28,6 +28,54 @@ Options g_options;
 
 }  // namespace
 
+// **The canned answers of the fake wire**, one per address (0.88.6): a page is one answer and a chain of downloads is
+// many, and the first key that appears in the address is the one that answers. The bodies are copies, so a test can
+// build them in a local or in a static buffer of its own (docs/85).
+namespace {
+struct Answer {
+  char key[96];
+  char body[kHttpAnswerCap];
+  int32_t status;
+  bool used;
+};
+Answer g_answers[kMaxHttpAnswers];
+uint8_t g_answer_count = 0;
+
+const Answer* answer_for(const char* url) {
+  if (url == nullptr) return nullptr;
+  for (uint8_t i = 0; i < g_answer_count; ++i) {
+    if (g_answers[i].used && strstr(url, g_answers[i].key) != nullptr) return &g_answers[i];
+  }
+  return nullptr;
+}
+
+// **An answer that does not fit is refused and not cut**: half a listing would be an install that fails for a reason
+// that is not the one the test is about, and a body cut in the middle is a page that looks real (docs/85).
+bool copy_into(char* out, size_t cap, const char* in) {
+  const size_t len = strlen(in);
+  if (len >= cap) return false;
+  memcpy(out, in, len + 1);
+  return true;
+}
+}  // namespace
+
+bool http_canned(const char* key, const char* body, int32_t status) {
+  if (key == nullptr || body == nullptr || g_answer_count >= kMaxHttpAnswers) return false;
+  Answer answer = {};
+  if (!copy_into(answer.key, sizeof(answer.key), key)) return false;
+  if (!copy_into(answer.body, sizeof(answer.body), body)) return false;
+  answer.status = status;
+  answer.used = true;
+  g_answers[g_answer_count] = answer;
+  ++g_answer_count;
+  return true;
+}
+
+void http_canned_clear() {
+  for (uint8_t i = 0; i < kMaxHttpAnswers; ++i) g_answers[i] = Answer();
+  g_answer_count = 0;
+}
+
 Options::Options()
     : state_dir(nullptr),
       flash_dir(nullptr),
@@ -725,6 +773,15 @@ class HostNet : public INet {
     }
     char text[512];
     const char* body = emu::options().http_body;
+    // **A canned answer of its own wins over the one page of the options**: it is what lets a test walk a chain of
+    // downloads, where the listing of the app, the listing of a folder and every file are four different answers from
+    // the same wire (docs/85).
+    const emu::Answer* answered = emu::answer_for(http_url_);
+    int32_t status = emu::options().http_status;
+    if (answered != nullptr) {
+      body = answered->body;
+      status = answered->status;
+    }
     if (body == nullptr) {
       snprintf(text, sizeof(text), "page for %s", http_url_);
       body = text;
@@ -733,7 +790,7 @@ class HostNet : public INet {
     // **A page that does not fit goes to the volume the kernel picked**: the whole body, from its
     // first byte, which is what makes the file worth opening afterwards (docs/30, docs/85).
     if (http_sink_ != nullptr && (http_max_bytes_ == 0 || len > http_max_bytes_)) {
-      out.status = emu::options().http_status;
+      out.status = status;
       if (!sink_write(body, static_cast<uint32_t>(len))) {
         out.error = HttpError::kStorage;
         return true;
@@ -753,7 +810,7 @@ class HostNet : public INet {
     }
     memcpy(http_body_, body, keep);
     http_body_[keep] = '\0';
-    out.status = emu::options().http_status;
+    out.status = status;
     out.body = http_body_;
     out.body_len = static_cast<uint32_t>(keep);
     if (len > http_max_bytes_) out.error = HttpError::kTooBig;

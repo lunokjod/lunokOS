@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -140,11 +141,12 @@ void ensure_booted() {
   emu::set_options(opts);
   pal::init();
   // **The three doors of a disk that has just been formatted**: an empty volume has no `/apps`, `/res` or
-  // `/data`, and the shell's paths are those, so the suite makes them once for every test in it. **The folders
-  // come before the boot** (0.88.2): `/apps` is a mount only when the flash has the folder, the way a disk that
-  // carries apps is the one a board boots on (docs/70, docs/85).
+  // `/data`, and the shell's paths are those, so the suite makes them once for every test in it. **`/apps` is not made
+  // here on purpose** (0.88.19): `vfs::init` creates it, because the door of the apps has to be there on a disk that
+  // never had one —the bench carries no app at all, and `repo install` writes the first one—. A suite that made the
+  // folder itself would not ask the question, and the question was a real bug: the install worked and `run` said
+  // `cannot read: /apps/<id>/<entry>` (docs/70, docs/85).
   if (hal::IStorage* storage = hal::platform().storage("/littlefs")) {
-    storage->mkdir("/apps");
     storage->mkdir("/res");
     storage->mkdir("/data");
   }
@@ -202,7 +204,7 @@ void test_help_with_a_command_is_the_lines_of_that_command(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "repo install <app>"), said);
   TEST_ASSERT_NULL_MESSAGE(strstr(said, "repo info"), said);
 
-  // **El començament d'una comanda no és la comanda**: `pow` is not `power`, and what the board says is that it does
+  // **The beginning of a command is not the command**: `pow` is not `power`, and what the board says is that it does
   // not know it and where the whole list is.
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("help pow"));
@@ -472,10 +474,10 @@ void test_the_extension_finder_counts_every_app_that_opens_it(void) {
   storage->remove("/apps/lunok-two");
 }
 
-// **`cat` imprimeix el fitxer sencer i no la seva primera pantalla** (0.82.2): llegia una finestra de 1 024 B
-// amb `vfs::read_file` i la imprimia sense dir res, o sigui que una pàgina de l'`http` s'aturava a la primera
-// pantalla i mitja i semblava un fitxer tallat. La prova escriu 4 KB amb una marca a l'última línia i mira que
-// hi sigui; el que triga un `cat` gran és el cable i no un sostre (docs/30, docs/70).
+// **`cat` prints the whole file and not its first screen** (0.82.2): it read one window of 1 024 B with
+// `vfs::read_file` and printed it without saying anything, so a page of `http` stopped after a screen and a half and
+// looked like a cut file. The test writes 4 KB with a mark on the last line and looks for it; what a big `cat` costs is
+// the wire and not a ceiling (docs/30, docs/70).
 void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
   ensure_booted();
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -500,7 +502,7 @@ void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "linia 80 of the file"), said);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the last line is here"), said);
 
-  // I un fitxer que no acaba amb un salt en rep un, o el prompt quedaria enganxat a l'última lletra.
+  // And a file that does not end with a newline gets one, or the prompt would be glued to the last letter.
   TEST_ASSERT_TRUE(write_text(storage, "/nonl.txt", "sense salt"));
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("cat /littlefs/nonl.txt"));
@@ -511,10 +513,10 @@ void test_cat_prints_the_whole_file_and_not_its_first_screen(void) {
   storage->remove("/nonl.txt");
 }
 
-// **Una ruta que no hi és diu per què i on és el que sí que hi ha** (0.86.1): `ls /sd/app/timers` amb un `apps` al
-// costat és el que fa trobar la lletra que falta, i un camí que és un fitxer es llista amb el seu nom i la seva mida en
-// comptes de dir que no és cap carpeta. És el mateix per a `cat`, que ja deia «no such file» i ara diu també on és el
-// tros que existeix (docs/30, docs/70).
+// **A path that is not there says why and where the one that is there lives** (0.86.1): `ls /sd/app/timers` with an
+// `apps` next to it is what finds the letter that is missing, and a path that is a file is listed with its name and its
+// size instead of saying it is not a folder. It is the same for `cat`, which already said "no such file" and now also
+// says where the piece that exists is (docs/30, docs/70).
 void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
   ensure_booted();
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -522,6 +524,12 @@ void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
   storage->mkdir("/apps");
   storage->mkdir("/apps/listed");
   TEST_ASSERT_TRUE(write_text(storage, "/apps/listed/one.lua", "x\n"));
+  // **The hint is what the door presents** (0.88.20): `/apps` is the one entry point of the apps and a folder that
+  // carries no `manifest.json` is not an app, so `listed` says it is one —the point of this test is the letter that is
+  // missing in `/apps/listd`, and the name offered has to be a name the door would really list (docs/40, docs/70).
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/listed/manifest.json",
+                              "{\"title\":\"Listed\",\"version\":\"0.1.0\",\"entry\":\"one.lua\","
+                              "\"boards\":[\"esp32\"]}\n"));
 
   // A directory lists its entries, with the kind and the size.
   capture_begin();
@@ -538,7 +546,7 @@ void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "one.lua"), said);
   TEST_ASSERT_NULL_MESSAGE(strstr(said, "no such directory"), said);
 
-  // **El tros que hi és, i què té a dins**: `/apps/listd` no hi és i el que hi ha al costat és `listed`.
+  // **The piece that is there, and what it holds**: `/apps/listd` is not there and what is next to it is `listed`.
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("ls /apps/listd/one.lua"));
   capture_end(said, sizeof(said));
@@ -546,7 +554,7 @@ void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "/apps has:"), said);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "listed"), said);
 
-  // I `cat` diu on és igual, que és el mateix camí escrit a mà.
+  // And `cat` says where it is all the same, which is the same path typed by hand.
   capture_begin();
   TEST_ASSERT_FALSE(kernel::execute("cat /apps/listd/one.lua"));
   capture_end(said, sizeof(said));
@@ -560,16 +568,16 @@ void test_a_path_that_is_not_there_says_where_the_rest_is(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "no such directory: /nowhere/deeper/x"), said);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the root has:"), said);
 
-  // **`/apps` no s'esborra**: és la carpeta que les altres proves d'aquest fitxer fan servir, i `remove` d'una carpeta
-  // és d'aquest backend i no una regla de la prova (docs/70).
+  // **`/apps` is not removed**: it is the folder the other tests of this file use, and the `remove` of a folder is
+  // this backend's and not a rule of the test (docs/70).
   storage->remove("/apps/listed/one.lua");
   storage->remove("/apps/listed");
 }
 
-// **El llistat d'un directori de GitHub, sense tenir-lo sencer** (0.82.0): la comanda `repository` baixa el
-// JSON de l'API de continguts i en treu les carpetes amb una finestra de dos kilobytes. El document de la prova
-// és més gran que la finestra a posta, i un objecte cau just al mig per comprovar que mig objecte es guarda per
-// al tros següent (docs/70, docs/75).
+// **The listing of a directory of GitHub, without holding it whole** (0.82.0): the `repository` command downloads the
+// JSON of the contents API and takes the folders out of it with a window of two kilobytes. The document of the test is
+// bigger than the window on purpose, and one object falls right in the middle to check that half an object is kept for
+// the piece after (docs/70, docs/75).
 void test_the_listing_of_a_repository_is_read_in_chunks(void) {
   ensure_booted();
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -604,8 +612,8 @@ void test_the_listing_of_a_repository_is_read_in_chunks(void) {
   // The last one is the last object and not a name cut by the end of the buffer.
   TEST_ASSERT_EQUAL_STRING("app40", last);
 
-  // **Un fitxer que diu ser un llistat i no ho és dona la volta i no penja**: el que no es reconeix no és una
-  // carpeta (docs/30).
+  // **A file that says it is a listing and is not turns around and does not hang**: what is not recognised is not a
+  // folder (docs/30).
   TEST_ASSERT_TRUE(write_text(storage, "/broken.json", "{\"name\": \"x\""));
   kernel::repository::Listing broken;
   TEST_ASSERT_TRUE(broken.open("/littlefs/broken.json"));
@@ -617,10 +625,10 @@ void test_the_listing_of_a_repository_is_read_in_chunks(void) {
   storage->remove("/broken.json");
 }
 
-// **Els elements d'un llistat, amb el seu tipus i la seva adreça** (0.86.0): `repo install` baixa el directori
-// sencer d'una app, i per això vol els fitxers (amb l'adreça crua d'on baixar-los) i les carpetes (per demanar-ne el
-// llistat). L'adreça és l'única cadena del document que no és un nom, i la prova la vol sencera: el buffer d'un nom
-// la tallava a quaranta-vuit bytes i el fitxer tornava com un 404 (docs/30, docs/70).
+// **The entries of a listing, with their type and their address** (0.86.0): `repo install` downloads the whole
+// directory of an app, and that is why it wants the files (with the raw address to download them from) and the folders
+// (to ask for their listing). The address is the only string of the document that is not a name, and the test wants it
+// whole: the buffer of a name cut it at forty-eight bytes and the file came back as a 404 (docs/30, docs/70).
 void test_the_entries_of_a_listing_come_with_their_address(void) {
   ensure_booted();
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -645,18 +653,280 @@ void test_the_entries_of_a_listing_come_with_their_address(void) {
   TEST_ASSERT_EQUAL_STRING("manifest.json", name);
   TEST_ASSERT_EQUAL_STRING(
       "https://raw.githubusercontent.com/lunokjod/lunokOS/main/apps/images/manifest.json", url);
-  // **Una carpeta no té adreça**, i no és una adreça buida la que decideix: és el `type` (docs/30).
+  // **A folder has no address**, and it is not an empty address that decides it: it is the `type` (docs/30).
   TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/files.json", 1, kind, name, sizeof(name), url, sizeof(url)));
   TEST_ASSERT_EQUAL(kernel::repository::Kind::kDir, kind);
   TEST_ASSERT_EQUAL_STRING("res", name);
   TEST_ASSERT_EQUAL_STRING("", url);
   TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/files.json", 2, kind, name, sizeof(name), url, sizeof(url)));
   TEST_ASSERT_EQUAL_STRING("images.lua", name);
-  // El que passa del final no és cap element, i un document que no ho és tampoc no en té.
+  // What goes past the end is no entry, and a document that is not one has none either.
   TEST_ASSERT_FALSE(kernel::repository::entry_at("/littlefs/files.json", 3, kind, name, sizeof(name), url, sizeof(url)));
   TEST_ASSERT_FALSE(kernel::repository::entry_at("/littlefs/nowhere.json", 0, kind, name, sizeof(name), url, sizeof(url)));
 
   storage->remove("/files.json");
+}
+
+// **The listing is one object and not a frame of the stack** (0.88.4): it carries a window of two kilobytes, a name and
+// an address —about 2 300 B—, and the stack of the loop task is sixteen with the shell, the radio and the install
+// already on it; the QR of four kilobytes broke the board once with a canary watchpoint (docs/75). So the reader the
+// install and the shell walk is the same object every time, **and an open that fails does not leave a state behind**:
+// the next one starts from the beginning.
+void test_the_listing_is_one_object_and_not_a_frame_of_the_stack(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  static const char json[] = "[\n  {\"name\": \"notes\", \"type\": \"dir\"},\n"
+                             "  {\"name\": \"app.lua\", \"download_url\": null, \"type\": \"file\"}\n]\n";
+  // **A second listing with two folders in it**, to see which object `entry_at` walks: if it built one of its own, the
+  // shared reader would still be on this file, half way through.
+  static const char other[] = "[\n  {\"name\": \"photos\", \"type\": \"dir\"},\n"
+                              "  {\"name\": \"music\", \"type\": \"dir\"}\n]\n";
+  TEST_ASSERT_TRUE(write_text(storage, "/one.json", json));
+  TEST_ASSERT_TRUE(write_text(storage, "/two.json", other));
+
+  kernel::repository::Listing& first = kernel::repository::Listing::one();
+  // Every caller gets the same object: two of them would be two windows of two kilobytes, and the point is to have
+  // one of each.
+  TEST_ASSERT_EQUAL_PTR(&first, &kernel::repository::Listing::one());
+
+  // A file that is not there leaves the reader as it was: the next open starts at the first byte of the new file.
+  TEST_ASSERT_TRUE(first.open("/littlefs/nowhere.json") == false);
+  char name[48];
+  TEST_ASSERT_FALSE(first.next(name, sizeof(name)));
+  TEST_ASSERT_TRUE(first.open("/littlefs/one.json"));
+  // **`next` is the short way for a list of folders** and a file in the document is not one of them (docs/30).
+  TEST_ASSERT_TRUE(first.next(name, sizeof(name)));
+  TEST_ASSERT_EQUAL_STRING("notes", name);
+  TEST_ASSERT_FALSE(first.next(name, sizeof(name)));
+  first.close();
+
+  // And `entry_at`, which walks for a caller that asks one entry at a time, uses that same object and answers the same
+  // thing after the walk above.
+  kernel::repository::Kind kind = kernel::repository::Kind::kFile;
+  char url[148];
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/one.json", 0, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("notes", name);
+  TEST_ASSERT_EQUAL(kernel::repository::Kind::kDir, kind);
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/one.json", 1, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("app.lua", name);
+  TEST_ASSERT_EQUAL(kernel::repository::Kind::kFile, kind);
+
+  // **`entry_at` walks the shared reader and leaves it closed**: it is put on the second file and half walked, and an
+  // `entry_at` on the first one takes the object away from it —which is what a frame of its own would not do—, so the
+  // next name of the first walk is not there any more.
+  TEST_ASSERT_TRUE(first.open("/littlefs/two.json"));
+  TEST_ASSERT_TRUE(first.next(name, sizeof(name)));
+  TEST_ASSERT_EQUAL_STRING("photos", name);
+  TEST_ASSERT_TRUE(kernel::repository::entry_at("/littlefs/one.json", 0, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("notes", name);
+  TEST_ASSERT_FALSE(first.next(name, sizeof(name)));
+
+  storage->remove("/one.json");
+  storage->remove("/two.json");
+}
+
+// **A listing is walked once and not once per entry** (0.88.5): `entry_at` answers an index by reading the document from
+// its first byte, so asking it for the twenty files of an app was twenty opens and twenty passes over forty-four
+// kilobytes of JSON. `start` / `next` / `stop` walk it in order —one open, one pass— and give the same entries, which is
+// what an install asks for. The two ways are measured here on a document of forty entries: the numbers are of the bench
+// and not of the board, but the ratio is the point (docs/75).
+void test_a_listing_is_walked_once_and_not_once_per_entry(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // Forty entries of about a hundred bytes, like the real answer of the contents API.
+  static char json[6144];
+  size_t used = 0;
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "[\n"));
+  for (int i = 1; i <= 40; ++i) {
+    used += static_cast<size_t>(snprintf(
+        json + used, sizeof(json) - used,
+        "  {\n    \"name\": \"app%02d\",\n    \"path\": \"apps/app%02d\",\n"
+        "    \"sha\": \"0123456789abcdef0123456789abcdef01234567\",\n    \"size\": 0,\n"
+        "    \"type\": \"dir\"\n  }%s\n",
+        i, i, (i < 40) ? "," : ""));
+  }
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "]\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/walk.json", json));
+
+  // The way of before: one call per entry, each of them from the first byte of the document.
+  char name[48];
+  char url[148];
+  kernel::repository::Kind kind = kernel::repository::Kind::kFile;
+  const uint32_t indexed_from = meter::now_us();
+  uint32_t indexed = 0;
+  for (uint32_t i = 0; i < 40; ++i) {
+    if (!kernel::repository::entry_at("/littlefs/walk.json", i, kind, name, sizeof(name), url, sizeof(url))) break;
+    ++indexed;
+  }
+  const uint32_t indexed_us = meter::now_us() - indexed_from;
+  TEST_ASSERT_EQUAL_UINT32(40, indexed);
+
+  // The way of now: the document is opened once and the entries come out one behind the other.
+  TEST_ASSERT_TRUE(kernel::repository::start("/littlefs/walk.json"));
+  const uint32_t walked_from = meter::now_us();
+  uint32_t walked = 0;
+  char first[48] = {0};
+  char last[48] = {0};
+  while (kernel::repository::next(kind, name, sizeof(name), url, sizeof(url))) {
+    if (walked == 0) memcpy(first, name, sizeof(first));
+    memcpy(last, name, sizeof(last));
+    ++walked;
+  }
+  const uint32_t walked_us = meter::now_us() - walked_from;
+  // **The reader has to be given back**: every entry, the same ones, and the next question after `stop` says there is
+  // no more, which is a reader that closed its file.
+  kernel::repository::stop();
+  TEST_ASSERT_EQUAL_UINT32(40, walked);
+  TEST_ASSERT_EQUAL_STRING("app01", first);
+  TEST_ASSERT_EQUAL_STRING("app40", last);
+  TEST_ASSERT_FALSE(kernel::repository::next(kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_FALSE(kernel::repository::start("/littlefs/nowhere.json"));
+
+  printf("listing: 40 entries, %u us with one call each, %u us in one walk\n",
+         static_cast<unsigned>(indexed_us), static_cast<unsigned>(walked_us));
+
+  storage->remove("/walk.json");
+}
+
+// **A document deeper than a signed byte does not invent an entry** (0.88.7): the depth of the two walkers was a `char`,
+// and a listing with a hundred and thirty objects one inside the other took it past `CHAR_MAX` and into negative
+// numbers —signed overflow, which is undefined behaviour—. With a negative depth the reset of the name at the end of an
+// object never comes (`depth == 0` is never true), so the `name` of one object is answered as the entry of a later
+// `type` that has no name of its own: an entry that is not in the answer, and a file an install would download for
+// nobody (docs/30, docs/70).
+void test_a_listing_deeper_than_a_signed_byte_does_not_invent_an_entry(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  static char json[2048];
+  size_t used = 0;
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "[\n  {\n"));
+  // A hundred and thirty objects one inside the other, with a name in the deepest one and no type of its own.
+  for (int i = 0; i < 130; ++i) used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "{\n"));
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "\"name\": \"ghost\"\n"));
+  for (int i = 0; i < 130; ++i) used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "}\n"));
+  // And a second object of the answer, this one with a type and no name.
+  used += static_cast<size_t>(snprintf(json + used, sizeof(json) - used, "  },\n  {\n    \"type\": \"dir\"\n  }\n]\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/deep.json", json));
+
+  kernel::repository::Kind kind = kernel::repository::Kind::kFile;
+  char name[48];
+  char url[148];
+  TEST_ASSERT_TRUE(kernel::repository::start("/littlefs/deep.json"));
+  // **No entry at all**: the deep object has a name and no type, and the one that has a type has no name.
+  TEST_ASSERT_FALSE(kernel::repository::next(kind, name, sizeof(name), url, sizeof(url)));
+  kernel::repository::stop();
+
+  // **The walker of folders carries the same counter and the same fix**: a hundred and thirty objects one inside the
+  // other with a name at the bottom is not a folder of anybody (docs/30).
+  kernel::repository::Listing& folders = kernel::repository::Listing::one();
+  TEST_ASSERT_TRUE(folders.open("/littlefs/deep.json"));
+  TEST_ASSERT_FALSE(folders.next(name, sizeof(name)));
+  folders.close();
+
+  storage->remove("/deep.json");
+}
+
+// **A key that does not fit is dropped whole and never compared from its beginning** (0.88.8): the key was read into
+// sixteen bytes and cut at fifteen without a word, and the lesson of the address that was cut at forty-eight and cost a
+// 404 was not applied to it. A key cut in the middle can only ever fail a comparison, so what it must not do is what a
+// prefix comparison would do —take the address of a field that only starts like `download_url`— and what it must not do
+// either is take the real fields of the object with it (docs/30, docs/75).
+void test_a_key_longer_than_the_buffer_is_dropped_and_does_not_match(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **The long key starts with `download_url` and comes before it**: a reader that looked at the beginning of the key
+  // would give the entry the address of this field, which is a file the listing never named (docs/30).
+  static const char json[] =
+      "[\n"
+      "  {\n"
+      "    \"download_url_and_this_is_not_the_one_of_the_entry\": \"https://h/a/wrong.txt\",\n"
+      "    \"name\": \"right.txt\",\n"
+      "    \"download_url\": \"https://h/a/right.txt\",\n"
+      "    \"type\": \"file\"\n"
+      "  }\n"
+      "]\n";
+  TEST_ASSERT_TRUE(write_text(storage, "/longkey.json", json));
+
+  kernel::repository::Kind kind = kernel::repository::Kind::kDir;
+  char name[48];
+  char url[148];
+  TEST_ASSERT_TRUE(
+      kernel::repository::entry_at("/littlefs/longkey.json", 0, kind, name, sizeof(name), url, sizeof(url)));
+  TEST_ASSERT_EQUAL(kernel::repository::Kind::kFile, kind);
+  // **The name and the address of the entry and not the ones of the field of before**: the key that did not fit was
+  // dropped whole, so the object is read as if it were not there (docs/30).
+  TEST_ASSERT_EQUAL_STRING("right.txt", name);
+  TEST_ASSERT_EQUAL_STRING("https://h/a/right.txt", url);
+  // And the answer has one entry and not two.
+  TEST_ASSERT_FALSE(
+      kernel::repository::entry_at("/littlefs/longkey.json", 1, kind, name, sizeof(name), url, sizeof(url)));
+
+  storage->remove("/longkey.json");
+}
+
+// **The terminal of the person who ran the suite comes back as it was, however many times the board came up**
+// (0.88.17): `pal::init()` puts stdin in raw mode —a key at a time, no echo— and saves what it found to put it back at
+// the end. The suites that boot the interpreter once per test call it forty-three times, and the second call saved the
+// **raw** mode that the first had just put there, so the restore at the end of the process put raw mode back and the
+// terminal was left with no echo until a `reset` (found the 4/11, docs/80, docs/85).
+void test_the_terminal_comes_back_after_more_than_one_init(void) {
+  // **No terminal, nothing to save**: the suite can run with its stdin on a file, and then this is not a thing.
+  if (isatty(STDIN_FILENO) == 0) return;
+  // Whatever the test before left, this starts from a terminal the bench has given back.
+  pal::shutdown();
+  struct termios before;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, tcgetattr(STDIN_FILENO, &before), "the terminal cannot be read");
+
+  // The board comes up three times, which is what a suite of forty tests does.
+  pal::init();
+  pal::init();
+  pal::init();
+  // And the raw mode is on, which is what lets a key be read without a line.
+  struct termios during;
+  TEST_ASSERT_EQUAL_INT(0, tcgetattr(STDIN_FILENO, &during));
+  TEST_ASSERT_TRUE_MESSAGE((during.c_lflag & ECHO) == 0, "the bench did not put stdin in raw mode");
+
+  pal::shutdown();
+  struct termios after;
+  TEST_ASSERT_EQUAL_INT(0, tcgetattr(STDIN_FILENO, &after));
+  // **The flags of before and not the raw ones**: a terminal with no `ECHO` and no `ICANON` after the suite is a shell
+  // nobody can type into (docs/85).
+  TEST_ASSERT_EQUAL_MESSAGE(before.c_lflag, after.c_lflag, "the flags of the terminal are not the ones of before");
+  TEST_ASSERT_EQUAL_MESSAGE(before.c_cc[VMIN], after.c_cc[VMIN], "VMIN is not the one of before");
+  TEST_ASSERT_EQUAL_MESSAGE(before.c_cc[VTIME], after.c_cc[VTIME], "VTIME is not the one of before");
+}
+
+// **The door of the apps opens on a disk that never had one** (0.88.19): `/apps` is the virtual directory that puts
+// `littlefs/apps` and `sd/apps` together, and the bench carries no app at all, so `repo install` writes the first app
+// into a disk that has no `apps/`. The row was decided at boot and nothing looked again: the install worked, `apps`
+// listed the app (it walks the drive) and `run` answered `cannot read: /apps/<id>/<entry>` because the door was shut
+// (found on the bench, 4/11, docs/40, docs/70).
+void test_the_door_of_the_apps_opens_on_a_disk_that_had_none(void) {
+  ensure_booted();
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // The disk of this suite is made without `apps`, and it is `vfs::init` that makes it.
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::stat("/apps", info), "the door of the apps is not there");
+  TEST_ASSERT_EQUAL(hal::NodeType::kDir, info.type);
+
+  // **And a folder that appears later is the door's**, without a second boot: the path a `repo install` writes is the
+  // one `run` reads (docs/70).
+  storage->mkdir("/apps/late");
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/late/app.lua", "late\n"));
+  char text[16] = {0};
+  size_t len = 0;
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/late/app.lua", text, sizeof(text), len));
+  TEST_ASSERT_EQUAL_STRING("late\n", text);
+  TEST_ASSERT_EQUAL_UINT32(5, static_cast<uint32_t>(len));
+
+  storage->remove("/apps/late/app.lua");
+  storage->remove("/apps/late");
 }
 
 // A path with spaces goes between quotes, and without them the command is
@@ -899,9 +1169,15 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_page_does_not_fit_a_home_that_has_it_in_pieces);
   RUN_TEST(test_mounts_command_lists_the_mounts);
   RUN_TEST(test_cfg_command_says_the_unit_and_refuses_a_missing_card);
+  RUN_TEST(test_the_terminal_comes_back_after_more_than_one_init);
+  RUN_TEST(test_the_door_of_the_apps_opens_on_a_disk_that_had_none);
   RUN_TEST(test_a_path_with_spaces_goes_in_quotes);
   RUN_TEST(test_the_listing_of_a_repository_is_read_in_chunks);
   RUN_TEST(test_the_entries_of_a_listing_come_with_their_address);
+  RUN_TEST(test_the_listing_is_one_object_and_not_a_frame_of_the_stack);
+  RUN_TEST(test_a_listing_is_walked_once_and_not_once_per_entry);
+  RUN_TEST(test_a_listing_deeper_than_a_signed_byte_does_not_invent_an_entry);
+  RUN_TEST(test_a_key_longer_than_the_buffer_is_dropped_and_does_not_match);
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);

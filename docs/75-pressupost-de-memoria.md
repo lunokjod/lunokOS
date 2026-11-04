@@ -48,6 +48,7 @@ per aquests, no heretats.
 | Cua de temporitzadors | N × mida fixa, ordenada en lloc | encara no existeix (M3) |
 | Cua d'alarmes (`lib/alarms`) | 8 entrades de 112 B | **896 B** (mesurat amb `sizeof`: `alarms::Entry` fa 112 B) |
 | Còpia del nom de l'app (`luabind`) | 1 × 32 B | **32 B** (el `Boot` porta punters del qui crida i poden morir abans que l'app) |
+| Lector del llistat de GitHub (`repository`) | 1 × `sizeof(Listing)` | **2 280 B** (mesurat amb `sizeof` el 4/11: finestra de 2 KB + 48 B de nom + 148 B d'adreça + el mànec). **És estàtic i és un de sol** (`Listing::one()`, 0.88.4): era una local de `entry_at` i dues de `print_listing`, o sigui fins a 4 560 B de pila en un camí que ja ve del shell amb la baixada a sobre, i la pila del `loopTask` fa 16 384 B (el QR de 4 096 B la va fer petar amb `canary watchpoint`, §«Pila») |
 | Buffer del valor de `/nvs` (`kernel`) | 1 × 1 024 B | **1 024 B** (un valor sencer a la memòria: obrir un fitxer no pot reservar; docs/70) |
 
 ### Què costa la ràdio (mesurat el 30/10, ATOM)
@@ -625,3 +626,28 @@ mirar quan una app no cap.
 - No es mata una altra app per fer lloc: no n'hi ha cap altra.
 - Si qui no hi cap és el nucli en arrencar, s'obre el prompt amb menys capacitats i es diu al log
   quina s'ha desactivat.
+
+## El llistat del repositori, d'una passada (4/11, 0.88.5)
+
+`kernel::repository::entry_at(path, index, …)` contesta un índex **rellegint el document des del
+principi**: un `open`, una passada per la finestra de 2 KB i una parsejada, per a cada element que se
+li demana. `repo install` el cridava un cop per **fitxer de l'app**, o sigui que una app de vint
+fitxers pagava vint obertures i vint passades sobre el mateix document de ~44 KB: O(n²) en el nombre
+d'entrades.
+
+Ara l'install **camina el llistat obert**: `repository::start` obre el document, `next` torna
+l'entrada següent (el lector comparteix el mateix objecte que `entry_at`, que és l'estàtic de 2 280 B
+de §«Consum estàtic») i `stop` el torna al backend. L'índex `g_install_entry` ha desaparegut: el
+lector ja sap on és.
+
+**Mesurat al banc** (`test_a_listing_is_walked_once_and_not_once_per_entry`, 40 entrades d'uns cent
+bytes cadascuna, el relleu de la resposta real de l'API):
+
+| Manera | Cost |
+|---|---|
+| Una crida a `entry_at` per entrada (la d'abans) | **3 131 µs** — 40 obertures i 40 passades |
+| Un sol passeig amb `start`/`next` | **110 µs** — 1 obertura i 1 passada |
+
+Són **28 vegades** menys en aquest document, i el guany creix amb el nombre d'entrades perquè una
+manera és O(n²) i l'altra O(n). El número és del PC i no de la placa: a la flash, on una lectura de
+4 KB costa 819 µs, el que compta és la quantitat de passades, i aquesta és la que ha canviat.

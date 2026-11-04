@@ -2743,6 +2743,15 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
   int32_t fit = 0;
   if (room > 0) {
     // How many bytes of the rest fit: measured a letter at a time, and a letter that does not fit stops the line.
+    //
+    // **The width of the run is carried and not measured again** (0.88.13): the loop asked `font::width` for the whole
+    // accumulated tail after every letter it added —O(n²) in the letters the window shows— and `strlen` for the same
+    // buffer. `pen` is how far the pen has moved (a face of bits moves a cell and its gap for every byte it draws, a
+    // face of outlines the advance of the glyph) and what the run is worth without the separation after its last
+    // letter is `pen` minus that gap, which is exactly the width the whole string would answer. It is the same
+    // accumulation `advance_of` does for a row of a box of several lines (docs/90, docs/75).
+    const int32_t gap = (face.outline != nullptr) ? 0 : static_cast<int32_t>(face.gap) * scale;
+    int32_t pen = 0;
     char probe[8];
     while (tail_from + fit < shown_length) {
       int32_t step = 1;
@@ -2750,11 +2759,13 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
       memcpy(probe, shown + tail_from + fit, static_cast<size_t>(step));
       probe[step] = '\0';
       const int32_t one = static_cast<int32_t>(font::width(face, probe, scale));
-      if (static_cast<int32_t>(font::width(face, rest, scale)) + one > room) break;
-      const size_t have = strlen(rest);
-      if (have + static_cast<size_t>(step) + 1 >= sizeof(rest)) break;
-      memcpy(rest + have, probe, static_cast<size_t>(step));
-      rest[have + static_cast<size_t>(step)] = '\0';
+      const int32_t run = (pen > 0) ? pen - gap : 0;
+      if (run + one > room) break;
+      // **`rest` holds `fit` bytes and no others**, so its length is a number the loop already has (docs/90).
+      if (static_cast<size_t>(fit) + static_cast<size_t>(step) + 1 >= sizeof(rest)) break;
+      memcpy(rest + fit, probe, static_cast<size_t>(step));
+      rest[fit + step] = '\0';
+      pen += one + gap;
       fit += step;
     }
   }
@@ -2893,8 +2904,9 @@ struct MultilineLayout {
   int32_t first;
   int32_t cursor_row;
   int32_t caret_x;
-  // **La barra del desplaçament** (0.88.0): no hi és quan el text cap a la caixa —una barra que sempre és plena no diu
-  // res— i, quan hi és, pren lloc al text pel cantó dret. `bar_w` a zero és que no n'hi ha (docs/90).
+  // **The scroll bar** (0.88.0): it is not there when the text fits in the box —a bar that is always full says
+  // nothing— and, when it is, it takes room from the text on the right side. `bar_w` at zero is that there is none
+  // (docs/90).
   int32_t bar_w;
   int32_t bar_x;
   int32_t bar_top;
@@ -2943,8 +2955,8 @@ MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t c
   const int32_t length = static_cast<int32_t>(strlen(at));
   const int32_t at_byte = (cursor > length) ? length : static_cast<int32_t>(cursor);
   multiline_measure(face, at, out.room, scale, wrap, at_byte, out);
-  // **Una barra que es menja el text no és una barra**: quan el text no hi cap, el cantó dret és seu i es mesura una
-  // segona vegada —la finestra és més estreta, i el text que hi cap en fa més files, no menys— (docs/90).
+  // **A bar that eats the text is not a bar**: when the text does not fit, the right side is its and the measurement is
+  // made a second time —the window is narrower, and the text that fits makes more rows, not fewer— (docs/90).
   const int32_t bar_w = (scale > 1) ? 8 : 5;
   const int32_t gap = (scale > 1) ? 6 : 4;
   if (out.total > out.fit && full - bar_w - gap > 8) {
@@ -2954,8 +2966,8 @@ MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t c
     out.bar_x = static_cast<int32_t>(box.width) - out.pad - bar_w;
     out.bar_top = out.pad;
     out.bar_h = out.fit * out.line_h;
-    // **El polze és tan llarg com la part del text que es veu**, i camina pel que queda de pista: dos tons i una
-    // aritmètica que el dit entén sense comptar píxels (docs/90).
+    // **The thumb is as long as the part of the text that is seen**, and it walks the rest of the track: two tones
+    // and an arithmetic the finger understands without counting pixels (docs/90).
     int32_t thumb = (out.total > 0) ? (out.bar_h * out.fit) / out.total : out.bar_h;
     if (thumb < out.line_h) thumb = out.line_h;
     if (thumb > out.bar_h) thumb = out.bar_h;
@@ -2963,8 +2975,8 @@ MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t c
   }
   // **The window follows the cursor unless the app said where it is**: the caret is always on the glass, and when the
   // text is shorter than the box the window is the first row, so the lines a person wrote stay at the top where they
-  // left them. **Un `top` de l'app mana sobre el cursor** (0.88.0), que és el que fa que una barra moguda pel dit no
-  // torni al cursor a la pintada següent (docs/30, docs/90).
+  // left them. **A `top` of the app rules over the cursor** (0.88.0), which is what keeps a bar moved by the finger from
+  // going back to the cursor on the next paint (docs/30, docs/90).
   if (top >= 0) {
     out.first = top;
   } else if (out.cursor_row >= out.fit) {
@@ -3068,9 +3080,10 @@ bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool
     offset += taken;
     y += layout.line_h;
   }
-  // **La barra del desplaçament és un marc amb un polze a dins**, al cantó dret de la caixa i només quan el text no hi
-  // cap: la pista és la línia i el polze és la tinta, i la part del text que es veu és la llargada del polze — dos tons
-  // i cap gris, que és el que aquest vidre pot dir d'on és la persona dins del fitxer (docs/90).
+  // **The scroll bar is a frame with a thumb inside**, on the right side of the box and only when the text does not
+  // fit: the track is the line and the thumb is the ink, and the part of the text that is seen is the length of the
+  // thumb — two tones and no grey, which is what this glass can say about where a person is inside the file
+  // (docs/90).
   if (layout.bar_w > 0 && layout.bar_h > 0) {
     draw_frame_thick(*target.canvas, target.x + layout.bar_x, target.y + layout.bar_top, layout.bar_w, layout.bar_h, 1,
                      border, mode);
@@ -3148,8 +3161,8 @@ uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale) {
   return static_cast<uint8_t>(rows);
 }
 
-// **Quantes files té el text sencer**, que és el que una app vol per dir «fila 12 de 40» a la seva línia d'estat
-// (0.88.0): la mateixa mesura que el dibuix, amb la barra inclosa (docs/30, docs/90).
+// **How many rows the whole text has**, which is what an app wants to say "row 12 of 40" in its status line
+// (0.88.0): the same measurement the paint makes, the bar included (docs/30, docs/90).
 uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
@@ -3159,8 +3172,8 @@ uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8
   return static_cast<uint16_t>((layout.total > 65535) ? 65535 : layout.total);
 }
 
-// **L'alçada d'una fila en píxels**, que és el que un dit ha de recórrer per moure la finestra una fila: la mateixa
-// aritmètica del dibuix, o el gest i el text no parlen de la mateixa distància (0.88.0, docs/90).
+// **The height of one row in pixels**, which is what a finger has to travel to move the window one row: the same
+// arithmetic of the paint, or the gesture and the text do not speak of the same distance (0.88.0, docs/90).
 uint8_t textbox_multiline_line(int8_t slot, uint8_t scale) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
@@ -3171,9 +3184,10 @@ uint8_t textbox_multiline_line(int8_t slot, uint8_t scale) {
   return static_cast<uint8_t>((line_h > 255) ? 255 : line_h);
 }
 
-// **On queda la finestra quan un dit la mou** (0.88.0): les files que el dit ha recorregut, sumades a la finestra que
-// es veu ara —la del cursor si l'app no n'ha triada cap— i tornades a la pista de la barra. El resultat és el que
-// l'app ha d'escriure a `top`, i el que el sistema escriu quan el gest és seu (docs/30, docs/90).
+// **Where the window is left when a finger moves it** (0.88.0): the rows the finger has travelled, added to the window
+// that is seen now —the cursor's if the app has not chosen one— and turned back into a row of the bar's track. The
+// result is what the app has to write in `top`, and what the system writes when the gesture is its own
+// (docs/30, docs/90).
 uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                   int16_t top, int16_t rows) {
   if (!live(slot)) return 0;
@@ -4598,8 +4612,7 @@ const KeyDef kAlphaRow1[] = {
     {"a", KeyAction::kChar, 2}, {"s", KeyAction::kChar, 2}, {"d", KeyAction::kChar, 2},
     {"f", KeyAction::kChar, 2}, {"g", KeyAction::kChar, 2}, {"h", KeyAction::kChar, 2},
     {"j", KeyAction::kChar, 2}, {"k", KeyAction::kChar, 2}, {"l", KeyAction::kChar, 2},
-};
-const KeyDef kAlphaRow2[] = {
+};const KeyDef kAlphaRow2[] = {
     {"MAY", KeyAction::kCaps, 3}, {"z", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
     {"c", KeyAction::kChar, 2}, {"v", KeyAction::kChar, 2}, {"b", KeyAction::kChar, 2},
     {"n", KeyAction::kChar, 2}, {"m", KeyAction::kChar, 2}, {"", KeyAction::kBack, 3},
@@ -4642,8 +4655,10 @@ const RowDef kNumericRows[] = {
 const LayoutDef kAlphaLayout = {kAlphaRows, 4};
 const LayoutDef kNumericLayout = {kNumericRows, 4};
 
-// **The whole of a row is twenty twentieths**: a row that adds up to more cannot be drawn and one that
-// adds up to less leaves a strip of nothing that a finger falls into.
+// **The whole of a row is twenty twentieths, which is the width of the page**: a row that adds up to more runs past the
+// right edge and is cut there, and one that adds up to less leaves air. The air is what the row of `a` wants —one unit
+// at each end, half a key of it, is what makes a staggered keyboard read as one— and a finger that lands on it is the
+// keyboard's and presses nothing, which is what `keyboard_touch` answers (0.88.16, docs/90).
 const uint8_t kRowUnits = 20;
 
 bool g_kbd_shown = false;

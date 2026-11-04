@@ -25,9 +25,10 @@ namespace {
 const char kData[] = "/data";
 const char kCfg[] = "/cfg";
 const char kRes[] = "/res";
-// **La porta de les apps de la flash** (0.87.1): el camí que `apps::root_of` respon i pel qual una app llegeix el
-// seu `res/` —`/littlefs` sencer és el disc del sistema i no és d'una app— (docs/40, docs/70).
-const char* const kApps = apps::kFlashDoor;
+// **The one door of the apps** (0.88.20): the path `apps::root_of` answers for any app and the one through which an app
+// reads its `res/` —the whole `/littlefs` is the disk of the system and does not belong to an app—. The door is the same
+// for an app of the flash and an app of the card: the VFS knows which disk answered (docs/40, docs/70).
+const char* const kApps = apps::kAppsDoor;
 const char kFonts[] = "/fonts";
 const char kSd[] = "/sd";
 const char kRtc[] = "/rtc";
@@ -142,20 +143,19 @@ bool on_raw_memory(const char* path) { return under(path, kRtc) || under(path, k
 //
 // Anything else —another app's ground, /littlefs/apps/..., /nvs/session— answers E_INVAL
 // instead of being hidden: an app should know it asked for something that is not its.
-// **El camí que la persona va nomenar** (0.65.0). Quan el prompt arrenca una app amb un camí
-// —`run edit /littlefs/notes.txt`— l'app té l'autoritat del prompt **sobre aquell camí i no un altre**:
-// el pot llegir i el pot escriure, que és el que necessita un editor per desar on la persona ha dit. No
-// és una porta al disc: un camí que l'app no ha rebut del prompt continua responent `E_INVAL`, i una app
-// que obri un fitxer d'un altre lloc no el podrà desar sense que el prompt l'hi hagi donat (docs/30,
-// docs/70).
+// **The path a person named** (0.65.0). When the prompt starts an app with a path
+// —`run edit /littlefs/notes.txt`— the app has the prompt's authority **over that path and no other**:
+// it can read it and it can write it, which is what an editor needs to save where the person said. It is not
+// a door to the disk: a path the app has not been given by the prompt keeps answering `E_INVAL`, and an app
+// that opens a file from somewhere else cannot save it unless the prompt gave it (docs/30, docs/70).
 bool on_the_named_path(const char* path) {
   const char* named = luabind::app_path();
   if (named == nullptr || named[0] == '\0') return false;
   char granted[128];
   if (!absolute(named, granted, sizeof(granted))) return false;
-  // **El temporal del camí nomenat també és el camí nomenat**: desar des d'una app vol dir escriure
-  // `<path>.tmp` i reanomenar-lo, que és el que fa el nucli perquè una escriptura que mor a mitges no deixi
-  // el fitxer a mitges (docs/70). Un temporal amb un altre nom no hi entra.
+  // **The temporary of the named path is the named path too**: saving from an app means writing `<path>.tmp` and
+  // renaming it, which is what the kernel does so that a write that dies halfway does not leave the file halfway
+  // (docs/70). A temporary with another name does not go in.
   char temp[160];
   const int written = snprintf(temp, sizeof(temp), "%s.tmp", granted);
   if (written > 0 && static_cast<size_t>(written) < sizeof(temp) && strcmp(path, temp) == 0) return true;
@@ -312,9 +312,9 @@ luabind::FsError failure_code(const char* full, size_t len) {
   return luabind::FsError::kUnsupported;
 }
 
-// **Escriure una memòria crua**: no hi ha fitxers a dins, el muntatge és el fitxer, i el que s'escriu és
-// el que hi queda. Si el que es vol escriure no hi cap, no s'hi escriu res: mitja memòria canviada és pitjor
-// que un no, perquè el que hi havia a l'altra meitat ja no es pot recuperar (docs/50, docs/70).
+// **Writing raw memory**: there are no files inside, the mount is the file, and what is written is what stays
+// there. If what is to be written does not fit, nothing is written: half a memory changed is worse than a no,
+// because what was in the other half cannot be recovered (docs/50, docs/70).
 int64_t write_raw_memory(const char* full, const char* data, size_t len, int64_t started_ms,
                          luabind::FsError& err) {
   hal::IStorage* storage = nullptr;
@@ -377,12 +377,12 @@ int64_t write_atomic(const char* path, const char* data, size_t len, luabind::Fs
   // it goes is not measuring (docs/75).
   const int64_t started_ms = pal::system().millis();
 
-  // **La memòria crua no té temporal ni reanomenament** (0.65.1): `/rtc` i `/fram` són **un sol fitxer**
-  // cadascun i el seu nom és el del muntatge, o sigui que no hi ha `/fram/x.tmp` on escriure i després
-  // reanomenar, i el camí del mig donava `E_NOENT` —el `no such file or directory` que veia un editor en
-  // desar-hi (trobat amb `run hexedit /fram`, 4/11). Aquí s'hi escriu al lloc: els bytes al començament de
-  // la memòria i la resta a zero, perquè el que s'ha escrit és el que s'ha de poder tornar a llegir, i una
-  // escriptura que no hi cap sencera és `E_NOSPC` i no mitja memòria canviada (docs/50, docs/70).
+  // **Raw memory has no temporary and no rename** (0.65.1): `/rtc` and `/fram` are **one single file** each and their
+  // name is the name of the mount, so there is no `/fram/x.tmp` to write to and then rename, and the middle path answered
+  // `E_NOENT` —the `no such file or directory` an editor saw when saving there (found with `run hexedit /fram`, 4/11).
+  // Here it is written in place: the bytes at the start of the memory and the rest at zero, because what has been written
+  // is what has to be readable again, and a write that does not fit whole is `E_NOSPC` and not half a memory changed
+  // (docs/50, docs/70).
   if (strcmp(full, kRtc) == 0 || strcmp(full, kFram) == 0) {
     return write_raw_memory(full, data, len, started_ms, err);
   }

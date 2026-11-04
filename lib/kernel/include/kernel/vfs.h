@@ -34,6 +34,11 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
 // or the FRAM (docs/30, docs/70).
 uint8_t unit_of(const hal::IStorage* storage);
 
+// **The whole path of a path of the door, on the disk that answered** (0.89.0): `/apps/squares` is
+// `/littlefs/apps/squares` and `/apps/squares-SD` is `/sd/apps/squares`. A door is not a place, and a message that has to
+// say where something was says the row of the table that is a disk and not the alias (docs/70).
+bool on_disk(const char* path, char* out, size_t cap);
+
 bool stat(const char* path, hal::Stat& out);
 bool list(const char* path, hal::ListSink& sink);
 
@@ -47,6 +52,21 @@ bool space(const char* path, uint64_t& total, uint64_t& free_bytes);
 // Reads at most cap bytes. out_len says how many were read; a file larger than cap
 // comes back truncated, and that is the caller's business.
 bool read_file(const char* path, char* buf, size_t cap, size_t& out_len);
+
+// **What an `/apps` listing presents** (0.88.20): `/apps` is the one door of the apps —the flash's `apps/` and the
+// card's `apps/` in one directory— and it is also where the system decides what there is. The filesystem cannot know
+// what an app is (a folder that carries a manifest, a board it does not run on), so the kernel gives it a presenter and
+// every name it refuses is not in the listing at all: what is not presented is never looked for, which is what a disk
+// with a hundred folders of things that are not apps would cost otherwise (docs/40, docs/70). A null presenter presents
+// everything, which is what a test with no kernel sees.
+//
+// A name the flash has and the card also has is presented **once as `name` and once as `name-SD`**, so the two can be
+// read and run apart.
+//
+// The presenter is asked about a name **and the disk it came from** (`/littlefs/apps` or `/sd/apps`), because the same
+// name on the two disks is two different folders and only one of them may be an app.
+using AppsPresenter = bool (*)(const char* disk, const char* name);
+void set_apps_presenter(AppsPresenter presenter);
 
 }  // namespace vfs
 }  // namespace kernel

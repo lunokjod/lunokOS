@@ -279,6 +279,11 @@ void boot(hal::IPlatform& platform) {
   // The filesystem is mandatory: it is where the apps live. If it does not mount,
   // the system still boots, says so in the log, and the prompt is what is left.
   vfs::init(platform);
+  // **What the door of the apps presents is the system's to say** (0.88.20): a folder of the flash or of the card that
+  // carries no `manifest.json` is not an app, and from here it is not listed, not run and not walked by anyone looking for
+  // a handler. The door is the one entry point of the apps —the `run`, the listing and the files of an app all go through
+  // it— so a folder the system does not present is a folder nothing reaches (docs/40, docs/70).
+  vfs::set_apps_presenter(&apps::is_an_app);
 
   // `/cfg` is not a disk but a door, and this says which unit is behind it: the card when
   // there is one, the flash otherwise, or whatever the person asked for (docs/70). It

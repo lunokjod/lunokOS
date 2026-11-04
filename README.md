@@ -222,7 +222,9 @@ pio test -e test         # proves natives
 `LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none` força el backend de la finestra; sense cap
 d'ells, la build tria SDL2 si el troba, després X11, i finalment un banc sense finestra.
 
-Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `mounts`, `run <id> [path]`,
+Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `apps remove <id>` (esborra l'app
+d'aquell nom —`squares` o `squares-SD`—, del disc on és, i els seus ajustos i dades es queden),
+`mounts`, `run <id> [path]`,
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
 `hexdump [fitxer]` (els bytes en hex i en visible; sense camí, `/rtc`), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
 `ntp`, `http <url>`, `repo [owner/repo] [dir]` i `repo info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `repo install <app>` (el directori sencer d'una app, al disc que `cfg` diu), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power

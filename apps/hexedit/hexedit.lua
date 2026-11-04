@@ -1,21 +1,20 @@
--- hexedit: **un editor hexadecimal**, per al port sèrie de la placa i per a la consola nadiua.
+-- hexedit: **a hexadecimal editor**, for the serial port of the board and for the native console.
 --
---   run hexedit <path>     obre el fitxer (binari o no) i el mostra en una graella
---   open bin <path>        el mateix, si ningú altre obre els .bin
+--   run hexedit <path>     opens the file (binary or not) and shows it in a grid
+--   open bin <path>        the same, when nobody else opens .bin files
 --
--- La graella és la de sempre: el desplaçament a l'esquerra, setze bytes en hexadecimal al mig i el que es pot
--- llegir a la dreta. **El cursor té dos nibli**: `0`–`9` i `a`–`f` escriuen el de dalt i passen al de baix, i el
--- segon escriu el byte i passa al següent. Les fletxes mouen, `PgUp`/`PgDn` salten una pàgina, `u` desfà i
--- `:w`, `:q`, `:wq`, `:e` i `:<desplaçament>` (en hexadecimal si comença per `0x`) són les ordres del `edit`.
+-- The grid is the usual one: the offset on the left, sixteen bytes in hexadecimal in the middle and what can be read
+-- on the right. **The caret has two nibbles**: `0`–`9` and `a`–`f` write the top one and move to the bottom one, and
+-- the second one writes the byte and moves to the next. The arrows move, `PgUp`/`PgDn` jump a page, `u` undoes and
+-- `:w`, `:q`, `:wq`, `:e` and `:<offset>` (in hexadecimal when it starts with `0x`) are the orders of `edit`.
 --
--- **El fitxer no es carrega sencer si no hi cap.** Fins a 256 KB es té a la memòria i s'hi pot esborrar i
--- inserir un byte (`x` i `i`), que mouen el que hi ha darrere; més gran, l'editor llegeix **la finestra que es
--- veu** amb `fs.read_at` i els bytes que s'escriuen es guarden amb un mànec al seu desplaçament (`:w`), o
--- sigui que un binari de qualsevol mida es pot mirar i pedaçar sense tenir-lo sencer enlloc. En un fitxer
--- d'aquesta mida `x` i `i` no hi són: esborrar un byte voldria dir tornar a escriure el fitxer sencer (docs/30,
--- docs/70, docs/75).
+-- **The file is not loaded whole if it does not fit.** Up to 256 KB it is in memory and a byte can be erased and
+-- inserted there (`x` and `i`), which move what is behind; bigger than that, the editor reads **the window that is
+-- seen** with `fs.read_at` and the bytes written are saved with a handle at their offset (`:w`), so a binary of any
+-- size can be looked at and patched without holding it whole anywhere. In a file of that size `x` and `i` are not
+-- there: erasing a byte would mean writing the whole file again (docs/30, docs/70, docs/75).
 --
--- El fitxer que la persona ha nomenat al prompt és el que es pot desar (docs/30, docs/70).
+-- The file a person named at the prompt is the one that can be saved (docs/30, docs/70).
 
 local caps = sys.caps()
 if not caps.ansi then
@@ -23,16 +22,17 @@ if not caps.ansi then
   return
 end
 
--- Fins a això el fitxer cap a la memòria de l'intèrpret i l'editor el té sencer.
+-- Up to this size the file fits in the memory of the interpreter and the editor holds it whole.
 local kWhole = 256 * 1024
 
 local path, size = nil, 0
-local whole = false     -- el fitxer sencer a `data`, o una finestra a `win`
+local whole = false     -- the whole file in `data`, or a window in `win`
 local data = ''
 local win = {base = 1, text = ''}
--- Els bytes que s'han escrit i encara no són al fitxer (a la finestra; al sencer ja són a `data`).
+-- The bytes that have been written and are not in the file yet (in the window; in the whole one they are already in
+-- `data`).
 local dirty = {}
--- Desfer: el que hi havia abans de cada byte, amb el seu desplaçament.
+-- Undo: what was there before every byte, with its offset.
 local undo = {}
 local kUndoDepth = 64
 
@@ -63,11 +63,11 @@ local function printable(b)
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- Els bytes: del fitxer sencer o de la finestra
+-- The bytes: from the whole file or from the window
 -- ---------------------------------------------------------------------------------------------------
 
--- **La finestra del fitxer**: el que cal per pintar la pàgina i dues files de marge a cada costat, perquè
--- moure's una fila amunt o avall no torni a llegir res (docs/70).
+-- **The window of the file**: what is needed to paint the page and two rows of margin on each side, so that moving one
+-- row up or down does not read anything again (docs/70).
 local function load_window(per, text_rows)
   local span = per * (text_rows + 4)
   local row_of_pos = math.floor((pos - 1) / per)
@@ -86,7 +86,7 @@ local function byte_at(i)
   if put ~= nil then return put end
   local at = i - win.base + 1
   if at < 1 or at > #win.text then
-    -- Una fila que la finestra no cobreix (no ha de passar si es carrega bé): es demana el byte sol.
+    -- A row the window does not cover (it must not happen if it loads right): the byte is asked for on its own.
     local one = fs.read_at(path, i - 1, 1)
     if one == nil or #one == 0 then return nil end
     return one:byte(1)
@@ -226,8 +226,8 @@ local function load(name)
   return true
 end
 
--- **Desar**: el fitxer sencer d'un cop si el té a la memòria, i si no els bytes que s'han escrit, cadascun al
--- seu desplaçament amb un mànec (docs/70).
+-- **Saving**: the whole file in one go if it is in memory, and if not the bytes that have been written, each one at its
+-- offset with a handle (docs/70).
 local function save()
   if path == nil then return false, 'no file name' end
   if whole then
@@ -337,7 +337,7 @@ local function write_nibble(value)
   end
 end
 
--- Esborrar i inserir mouen el que hi ha darrere: només es fa quan el fitxer és a la memòria.
+-- Erasing and inserting move what is behind them: it is only done when the file is in memory.
 local function structural_ok()
   if whole then return true end
   message = string.format('%d B: too big to move the bytes (the ceiling is %d); x and i need it whole',
@@ -385,7 +385,7 @@ local function undo_once()
   else
     local now = byte_at(entry.offset)
     set_byte(entry.offset, entry.before)
-    table.remove(undo)  -- `set_byte` hi afegeix la desfeta, que no és una acció nova
+    table.remove(undo)  -- `set_byte` adds the undo there, and it is not a new action
     if pos ~= entry.offset then pos = entry.offset end
   end
   message = 'undo'

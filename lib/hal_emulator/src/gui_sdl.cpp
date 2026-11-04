@@ -186,7 +186,7 @@ void put_the_finger(int window_x, int window_y, bool moving) {
     if (!said) {
       said = true;
       fprintf(stderr,
-              "gui: the window is %ux%u and the touch panel counts in %ux%u, so the mouse does not reach it\n",
+              "gui: the page is %ux%u and the touch panel counts in %ux%u, so the mouse does not reach it\n",
               static_cast<unsigned>(g_width), static_cast<unsigned>(g_height),
               static_cast<unsigned>(Gt911Panel::kFrameWidth),
               static_cast<unsigned>(Gt911Panel::kFrameHeight));

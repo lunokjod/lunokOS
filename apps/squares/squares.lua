@@ -6,6 +6,13 @@
 -- Neither of them costs a page —**nothing is ever repainted as a whole**— and only the region of the
 -- square travels and gets painted (docs/30, docs/50).
 --
+-- **The trace stays, and that is the demo** (4/11): the square is erased with `du`, which lands close
+-- to white and not on it, so what is left is a block of light grey. Erasing every square with `gc16`
+-- —what this app did until today— left the page perfectly white, which is the one thing an app about
+-- damage must not do: `gc16` takes the region back to the level and the dirt with it, and a page of
+-- squares ended up cleaner than it started. One square in `kCleanEvery` is erased with `gc16` all the
+-- same, so the two qualities can be seen side by side (measured on the board, docs/95).
+--
 -- Leave it with three ESC, like any app.
 local caps = sys.caps()
 if not caps.display then
@@ -30,8 +37,13 @@ local kSettleMs = 260
 -- square erased with `du` leaves its grey trace, and after a while the page has darker areas and the
 -- edges of the squares before it (measured on the board, 1/11). `gc16` does bring the white back, and
 -- over **the region of the square** — which is what this app does, not a page clean (docs/50, docs/95).
+-- So the erase is `du` —the trace is the app's whole point— and one square in `kCleanEvery` is erased
+-- with `gc16` instead, which is the same white rectangle with the quality that leaves no history: what
+-- a real system does now and then, in the region it dirtied and not on the page.
 local kDrawQuality = 'du'
-local kEraseQuality = 'gc16'
+local kEraseQuality = 'du'
+local kCleanQuality = 'gc16'
+local kCleanEvery = 20
 
 local painted = 0
 while true do
@@ -70,14 +82,18 @@ while true do
   sys.delay(kSettleMs):await()
 
   -- Erasing is drawing white over the same rectangle: there is no `erase`, because a canvas does not
-  -- know what is behind it — and there is nothing behind it. **With `gc16`**, which is the quality that
-  -- leaves no history: the ink of the previous square is taken away, not painted over.
-  ui.rect(x, y, size, size, 15, kEraseQuality)
+  -- know what is behind it — and there is nothing behind it. **With `du`**, which paints white and lands
+  -- near it: what is left is the light grey trace that makes a page of squares a page of damage. Every
+  -- `kCleanEvery` squares the same rectangle goes with `gc16`, the quality that leaves no history, and
+  -- that region does come back white (docs/50, docs/95).
+  local clean = (painted > 0) and (painted % kCleanEvery == 0)
+  local erase_quality = clean and kCleanQuality or kEraseQuality
+  ui.rect(x, y, size, size, 15, erase_quality)
   started = sys.time_ms()
   ui.present()
-  if first then
+  if first or clean then
     while not ui.idle() do sys.delay(10):await() end
-    console.print(string.format('erased with %s in %d ms', kEraseQuality, sys.time_ms() - started))
+    console.print(string.format('erased with %s in %d ms', erase_quality, sys.time_ms() - started))
   end
   sys.delay(kSettleMs):await()
 

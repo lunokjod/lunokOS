@@ -45,9 +45,14 @@ InkMode ink_mode(hal::UpdateMode mode) {
       return InkMode{450, 0, 0, 0, true, 2, {0, 15, 0, 0, 0, 0}, 6};
     case hal::UpdateMode::kGlr16:
     case hal::UpdateMode::kGld16:
-      // The reduced ones: they clean and they do not blink. The image lands at the end of the time, with
-      // no frame in between (docs/85).
-      return InkMode{450, 0, 0, 0, false, 0, {0, 0, 0, 0, 0, 0}, 0};
+      // **The reduced ones, which is what the system lives on, and they are not a free clean** (0.88.18): a waveform
+      // that does not blink does not take the page back either —it lands close to the level and not on it—, so a share
+      // of what was there stays and the paint adds a little dirt. It is lighter than a `du` (two sixteenths against
+      // five) and it is not the clean a `gc16` is: the ghost of a page painted this way goes away with a blink and with
+      // nothing else. **The model said the opposite until now** —"they clean without deafening the page"— and that made
+      // the one choice this project takes everywhere (`gld16` instead of `gc16`, so nothing flickers) free on the bench,
+      // which is the one thing a bench must not do (docs/85, docs/92).
+      return InkMode{450, 2, 1, 2, false, 0, {0, 0, 0, 0, 0, 0}, 0};
     case hal::UpdateMode::kDu:
       // The quick one: **almost a third of what was there stays** and it leaves a little dirt, so a page
       // painted with it once is a page with the one before it showing through (docs/85).

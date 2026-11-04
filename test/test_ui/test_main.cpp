@@ -19,6 +19,7 @@
 #include "emu/ink.h"
 #include "hal/hal.h"
 #include "kernel/display.h"
+#include "kernel/meter.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
 
@@ -2001,6 +2002,39 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
   ui::release(list);
 }
 
+// **The quality the system lives on is not a free clean** (0.88.18): `glr16` and `gld16` are what an app presents with,
+// what the bar repaints a box with and what the band of the keyboard is washed with, and they are chosen **because they
+// do not blink** —the rule of this project is that nothing that flickers reaches the glass—. A waveform that does not
+// blink does not take the page back either: it lands close to the level and not on it, so a share of the page before
+// stays and the paint adds a little dirt. **The bench said the opposite until now**, and with that the one choice this
+// system takes everywhere was free here —a page that never gets dirty no matter how many times it is painted—, which is
+// the one thing a bench must not say (docs/85, docs/92).
+void test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  // A black square with the quick quality, and white over it with `gld16`, which does not blink.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  wait_ms(150);
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gld16"));
+  TEST_ASSERT_TRUE(ui::present());
+  // **A reduced quality takes its 450 ms and does not put a frame in between**: no blink, so there is nothing to see
+  // until it lands (docs/85).
+  wait_ms(500);
+  const uint8_t left = glass().shown_at(20, 20);
+  TEST_ASSERT_LESS_THAN_MESSAGE(15, left, "a gld16 left the page before it exactly as it was");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(9, left, "the trace of a gld16 is as dark as the one of a du");
+  // **And it leaves dirt**, which is what a page painted this way for an hour shows: the ghost of the hour before.
+  TEST_ASSERT_TRUE_MESSAGE(glass().dirt_at(20, 20) > 0, "a gld16 that does not blink adds no dirt");
+
+  // **A `gc16` takes the trace all the way to the page**, because that is the whole difference between the two.
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(0, 10, 10, 40, 40, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  wait_ms(500);
+  TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
+}
+
 // **The caret is a block on the glass and never outside it**: an empty box has the bar at the left of the inside,
 // without the caret the box is paper again, and a text longer than the frame is a **window** that keeps the caret
 // where the next letter goes (docs/30, docs/90).
@@ -2042,11 +2076,11 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   // **The border of the box is not the text**: the last column the text may touch is the one before the frame.
   TEST_ASSERT_LESS_THAN(198, widest);
 
-  // **El text que cap sencer es dibuixa sencer** (0.87.0): amb el cursor al final i un text més curt que la finestra,
-  // el que hi ha abans del cursor és tot el text i s'ha de veure des de la vora esquerra. Fins a la 0.86.1 la caixa
-  // dibuixava «el que queda després del cursor» començant pel principi de la finestra i el tros de davant no es
-  // dibuixava mai, o sigui que un camí de vint-i-dos caràcters sortia tallat amb el cursor sol a la dreta (trobat a
-  // l'editor gràfic, 4/11, docs/90).
+  // **The text that fits whole is drawn whole** (0.87.0): with the caret at the end and a text shorter than the window,
+  // what is before the caret is the whole text and it has to be seen from the left edge. Up to 0.86.1 the box drew
+  // "what is left after the caret" starting at the beginning of the window and the piece in front was never drawn, so a
+  // path of twenty-two characters came out cut with the caret alone on the right (found in the graphical editor, 4/11,
+  // docs/90).
   int8_t wide = -1;
   TEST_ASSERT_TRUE(ui::create(400, 40, 0, false, wide));
   TEST_ASSERT_TRUE(ui::place(wide, 0, 60));
@@ -2076,6 +2110,52 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   TEST_ASSERT_FALSE(ui::textbox_draw(box, "x", 1, true, false, 0, 15, 16, 2));
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "secret", 6, false, true, 0, 15, 0, 2));
   ui::release(box);
+}
+
+// **The window of a text box carries the width of the tail and does not measure it again** (0.88.13): to know how much
+// of the rest fits, the paint asked `font::width` for the whole accumulated tail after every letter it added, which is
+// O(n²) in the letters the window shows, and `strlen` for the same buffer. The width is carried in a variable now, the
+// way `advance_of` carries it for a row of a box of several lines, and what a paint costs on the bench is the number
+// this test prints —the bench's numbers and not the board's, but the shape of the loop is the same— (docs/75, docs/90).
+void test_the_window_of_a_textbox_carries_the_width_of_the_tail(void) {
+  fresh_view();
+  int8_t wide = -1;
+  TEST_ASSERT_TRUE(ui::create(900, 40, 0, false, wide));
+  TEST_ASSERT_TRUE(ui::place(wide, 0, 0));
+  // **Three hundred letters with the caret at the front**: the window fills nine hundred pixels, which is about seventy
+  // letters of the face at this scale, so the loop runs seventy times and not three hundred (docs/90).
+  static char text[301];
+  for (int i = 0; i < 300; ++i) text[i] = static_cast<char>('a' + (i % 26));
+  text[300] = '\0';
+
+  const uint32_t kPaints = 20;
+  const uint32_t from = kernel::meter::now_us();
+  for (uint32_t i = 0; i < kPaints; ++i) {
+    TEST_ASSERT_TRUE(ui::textbox_draw(wide, text, 0, true, false, 0, 15, 0, 2));
+  }
+  const uint32_t us = (kernel::meter::now_us() - from) / kPaints;
+  printf("textbox window: %u us a paint of a line of 300 letters\n", static_cast<unsigned>(us));
+
+  // **And the tail stops at the inside of the box**: a width carried wrong draws more letters than fit and they land on
+  // the paper between the inside and the frame —the box is nine hundred wide, the inside is eight hundred and eighty-four
+  // from column eight, and the frame is the last two columns—, which is what a text running over its own border is. The
+  // rows are the ones of the line and not the whole box: the corners of the frame are round and the last eight columns
+  // of the last eight rows are the frame itself (docs/90).
+  for (uint16_t x = 892; x < 898; ++x) {
+    for (uint16_t y = 13; y < 27; ++y) {
+      TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(x, y), "a letter of the tail is drawn past the inside");
+    }
+  }
+  // **And the tail reaches the right side of the inside**, which is the other half: a window that stops too soon is a
+  // box that shows half a line and a person who cannot see what they typed (docs/90).
+  bool near_end = false;
+  for (uint16_t x = 860; x < 892 && !near_end; ++x) {
+    for (uint16_t y = 6; y < 34 && !near_end; ++y) {
+      if (view_level(x, y) == 0) near_end = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(near_end, "the tail of the window stops before the frame");
+  ui::release(wide);
 }
 
 // **A dialog is a card with a message that wraps and two doors**: the card is opaque with the weight of a card, the
@@ -2303,9 +2383,9 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   ui::release(bar);
 }
 
-// **La barra del desplaçament d'una caixa de línies** (0.88.0): quan el text és més alt que la caixa, el cantó dret és
-// una pista amb un polze; el polze és tan llarg com la part del text que es veu i camina pel que queda de pista segons
-// la primera fila que es mostra. Una caixa on el text hi cap no té barra, i el text no perd lloc per ella (docs/90).
+// **The scroll bar of a box of lines** (0.88.0): when the text is taller than the box, the right side is a track with a
+// thumb; the thumb is as long as the part of the text that is seen and it walks the rest of the track according to the
+// first row shown. A box the text fits in has no bar, and the text loses no room to it (docs/90).
 void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
   fresh_view();
   int8_t box = -1;
@@ -2344,8 +2424,8 @@ void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
   TEST_ASSERT_GREATER_THAN(0, thumb);
   TEST_ASSERT_LESS_THAN(frame, thumb);
 
-  // **El polze camina amb la primera fila**: amb `top` a zero seu a dalt de tot i el mig de la barra és paper; amb
-  // l'última finestra seu a baix i és el dalt de la barra el que és paper.
+  // **The thumb walks with the first row**: with `top` at zero it is at the very top and the middle of the bar is
+  // paper; with the last window it is at the bottom and it is the top of the bar that is paper.
   const auto inside_ink = [column](uint16_t y0, uint16_t y1) {
     int ink = 0;
     for (uint16_t y = y0; y < y1; ++y) {
@@ -2364,9 +2444,9 @@ void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
   ui::release(box);
 }
 
-// **La finestra d'una caixa de línies és la que l'app diu** (0.88.0): `top` mana sobre el cursor —el dit que ha mogut la
-// barra no ha de tornar a la fila del cursor a la pintada següent— i la caixa el cedeix als límits del text, o sigui que
-// una app no ha de saber quantes files hi ha per moure la finestra (docs/30, docs/90).
+// **The window of a box of lines is the one the app says** (0.88.0): `top` rules over the cursor —the finger that has
+// moved the bar must not go back to the row of the caret on the next paint— and the box gives it up to the limits of the
+// text, so an app does not have to know how many rows there are to move the window (docs/30, docs/90).
 void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
   fresh_view();
   int8_t box = -1;
@@ -2379,18 +2459,20 @@ void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
   // Three rows down from there, and the same three from a window that was already three down.
   TEST_ASSERT_EQUAL_UINT16(3, ui::textbox_multiline_scroll(box, text, 0, false, 2, -1, 3));
   TEST_ASSERT_EQUAL_UINT16(6, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, 3));
-  // **Una finestra no surt del text**: nine rows fit five, so the last window is the fourth row of the last five.
+  // **A window does not come out of the text**: nine rows fit five, so the last window is the fourth row of the last
+  // five.
   TEST_ASSERT_EQUAL_UINT16(9, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, 99));
   TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_scroll(box, text, 0, false, 2, 3, -99));
-  // **El cursor mana quan l'app no ha triat finestra**: with the cursor at the end the window is the last five rows.
+  // **The caret rules when the app has not chosen a window**: with the cursor at the end the window is the last five
+  // rows.
   const uint16_t end = static_cast<uint16_t>(strlen(text));
   TEST_ASSERT_EQUAL_UINT16(9, ui::textbox_multiline_scroll(box, text, end, false, 2, -1, 0));
-  // **I quants píxels fa una fila és el que el dit ha de recórrer**: the same fourteen of the paint.
+  // **And how many pixels one row is is what the finger has to travel**: the same fourteen of the paint.
   TEST_ASSERT_EQUAL_UINT8(14, ui::textbox_multiline_line(box, 2));
-  // **Quantes files té el text sencer**, que és el que l'app diu a la seva línia d'estat.
+  // **How many rows the whole text has**, which is what the app says in its status line.
   TEST_ASSERT_EQUAL_UINT16(15, ui::textbox_multiline_total(box, text, false, 2));
 
-  // **La primera fila del vidre és `top`**: the row that starts at the top of the box is the fourth line, so the byte
+  // **The first row of the glass is `top`**: the row that starts at the top of the box is the fourth line, so the byte
   // the finger asks for one row below the top of the box is the one after "four", which is where "five" starts.
   TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2, 3));
   TEST_ASSERT_EQUAL_UINT16(19, ui::textbox_multiline_hit(box, text, 0, false, 2, 8, 23, 3));
@@ -2803,6 +2885,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child);
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
+  RUN_TEST(test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away);
   RUN_TEST(test_the_trace_of_a_rich_page_is_richer_than_a_flat_one);
   RUN_TEST(test_a_paint_takes_the_time_of_its_quality);
   RUN_TEST(test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink);
@@ -2828,6 +2911,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
   RUN_TEST(test_a_textbox_keeps_the_caret_on_the_glass);
+  RUN_TEST(test_the_window_of_a_textbox_carries_the_width_of_the_tail);
   RUN_TEST(test_a_dialog_wraps_its_message_and_has_two_doors);
   RUN_TEST(test_a_sparkline_scales_to_the_peak_of_its_window);
   RUN_TEST(test_a_pie_is_two_halves_when_the_slices_are_equal);

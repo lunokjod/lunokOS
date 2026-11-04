@@ -167,207 +167,196 @@ namespace kernel {
 // the object carries the slot and the generation, every call checks both, and an object whose control is
 // no longer there answers `nil, E_INVAL` —`canvas (gone)` from `tostring`— while a new canvas in that slot
 // can never be written through it, because the generation of that slot has moved on (docs/30, docs/90).
-// 0.19.1 (1/11): **el dia a la placa, escrit**. La capa de controls diu el mateix al banc i a la Paper
-// —`run layers` dona les sis línies iguals, els comptes `1 / 1 / 2` inclosos—, i els números que falten
-// són al seu lloc: `ui: view 540x932 at 0,28, 251640 bytes of canvas`, el tàctil amb dos punts i el gest
-// de prémer llarg amb 1002 ms de debò. I dues coses que el run ha destapat i que la documentació deia al
-// revés: el `~120 ms` que imprimeix `run panel` és **l'espera de l'app** i no el temps de la tinta (el
-// `gc16` continua sense número), i la pàgina de prova es dibuixava amb `du4`, que aquí mateix està
-// mesurat com a **no pintar** —ara va amb `du` i `gc16`, i a la placa la pàgina hi és sencera i neta, o
-// sigui que qui no pintava era el mode i no el camí— (docs/95, E-6, E-7 i E-8; docs/75; docs/85;
-// docs/90). El que continua **sense número** és el temps d'un `gc16`: la mesura de l'app no el pot donar
-// (espera 120 ms i pregunta, i el bucle surt a la primera).
-// 0.19.2 (1/11): **`ui.idle()` no diu la veritat, i ara sí**. El controlador del panell no es marca ocupat
-// en el mateix instant que rep la comanda de pintar, i una pregunta feta un mil·lisegon després llegia zero
-// amb la pàgina encara per començar: `run panel` treia un `0 ms` que no era cap mesura, i un `present` de
-// dues qualitats podia enviar el segon pintat a sobre d'un primer que no havia començat. El conductor
-// guarda ara quan es va demanar el pintat i no contesta que sí fins passats `kEngineStartMs` (20 ms), una
-// **guarda** i no una mesura, i la mateixa pregunta la fan `idle()` i l'espera del pintat anterior. I
-// `run panel` compta des d'abans del `present` i pregunta cada 10 ms en lloc de dormir 120 ms i restar-ho:
-// el número que ara imprimeix és el del vidre (docs/30, docs/50, docs/95 E-7).
-// 0.19.3 (1/11): **el primer número de debò del vidre**. `run panel` a la placa amb la 0.19.2 diu
-// `the ink took 1985 ms` per a una pàgina de dues regions (`du` i `gc16`), i aquest número porta a dins
-// l'enviament de la pàgina sencera per SPI i els dos pintats: és **tres o quatre vegades** el que voldrien
-// dir els 450 ms del fabricant per a un `gc16`, i no se sap encara quina de les tres parts paga. La
-// mesura que ho separa és `squares`, que pinta una sola qualitat per `present` i ara imprimeix
-// `painted with du in N ms` i `erased with gc16 in N ms` d'un quadrat de 40 × 40, on la transferència és
-// 800 B i el número és el motor (docs/95, E-7).
-// 0.20.0 (1/11): **el sistema diu el que costa, i el log té una sola forma**. Cada porta d'un
-// dispositiu —el sistema de fitxers per portes, la vista amb `flush` i la pregunta d'`idle()`, la lectura
-// del tàctil— té un comptador amb **quantes vegades, quant de temps i quan va ser l'última**, i `stats`
-// les ensenya en una taula que es pot posar a zero amb `stats reset`. **Cada crida d'una app a l'API es
-// compta i es cronometra** amb el ganxo del propi intèrpret —un ganxo i cap tanc per funció, perquè una
-// app de l'ATOM té 64 KB i els tancs se'n menjarien cinc— i la fila `app <id>` dona el que aquella app ha
-// costat des que va arrencar. I el log: **`[nivell][etiqueta] missatge`**, amb la lletra de nivell i
-// l'etiqueta posades pel format i no a mà dins del text, els trenta-vuit `printf` dels conductors
-// convertits a `hal::logf` amb un *sink* que el nucli instal·la, i el mirall a la consola encès mentre el
-// sistema arrenca. I **el temps d'una crida es compta fins que es resol**: una crida que torna una
-// promesa no ha acabat quan torna, i `sys.delay(50)` costa cinquanta mil·lisegons a `lua.call` i no els
-// vuit microsegons de la trucada. El repàs de cada porta del HAL —el que es compta i el que no, amb el
-// per què— és a `docs/50`. **I un error que va sortir al banc**: la memòria d'un *userdata* de Lua no ve
-// a zero, i el camp del comptador d'una promesa hi portava escombraries; una promesa sense temps hi
-// va posar **una hora i mitja** des de cinc crides (`lua.call 4988744 ms`, mesurat a la placa l'1/11).
-// El camp s'inicia en fer la promesa i el tancament refusa un començament que no ha passat mai. I **cada
-// temps de `stats` s'escriu en l'escala que es llegeix** (`845 us`, `12.3 ms`, `1.98 s`, `3 min 07 s`,
-// `1 h 23 min`), perquè `4988744 ms` no diu res i `1 h 23 min` sí. **I el repàs de debò, que va destapar
-// tres forats**: el sistema de fitxers té ara **una fila per unitat i porta** (`flash.read`, `sd.read`,
-// `nvs.write`, `rtc.stat`…) perquè una targeta no és una flash; `clock.mono` hi és perquè el comptador
-// monòton **és una lectura del xip RTC** i el botó, la llum i la ràdio el demanen cada torn (abans
-// `clock.now` deia una crida en dos minuts); i la vista té dues files, `glass.flush` i `glass.gc16`,
-// perquè una pintada que neteja no és una pintada qualsevol. **I la suma amb el repartiment**: la darrera
-// línia de `stats` diu el **temps de sistema** (el que sumen les files) contra el **temps d'usuari** (la
-// resta de la vida del sistema, comptada des de l'última arrencada o l'últim `stats reset`), que és el
-// que separa «l'app és lenta» de «el dispositiu és lent». **I `stats` no és una línia de log**: no porta
-// nivell ni etiqueta, perquè ningú no fa `grep` d'una taula —es llegeix— i amb les etiquetes a sobre les
-// columnes no s'alineaven; ara és una taula de columnes fixes. **I el compte complet**: `kernel.loop` (el
-// torn del nucli), `lua.run`/`lua.own` (el torn de l'app i el que és codi seu), `psram.alloc`/`psram.free`
-// (la memòria extra és un dispositiu d'aquesta placa), i **el mínim i el màxim** de cada fila a més de la
-// mitjana. **I el `boot` era un comptador mort** —hi havia l'identificador i ningú no hi apuntava res, o
-// sigui que la fila no hauria sortit mai— i ara compta el que el sistema triga a venir: 108 ms al banc.
-// I els medidors que **contenen** d'altres (`boot`, `kernel.loop`, `lua.run`, `lua.own`, `lua.call`) no
-// entren a la suma de portes, o el mateix microsegon es comptava tres vegades i el total passava del cent
-// per cent (138 %, mesurat). Costa **1 208 B de RAM i 9 076 B de flash** al
-// Paper (docs/30, docs/50, docs/75, docs/80, docs/85).
-// 0.21.0 (1/11): **el vidre del banc en una finestra**. `--gui` obre una finestra X11 amb el buffer del
-// `MemorySurface` dins, i la pinta cada cop que el panell es pinta —el comptador de pintades és la
-// pregunta, o sigui que un torn sense pintada no costa res— amb els setze nivells en grisos i la pàgina
-// com la dibuixa l'app (540x960, no el vidre ajagut). Porta `--display` amb ell, diu que no si no hi ha
-// `DISPLAY`, i tancar-la acaba el run com tres ESC. És X11 i un `-lX11` darrere de `-DLUNOK_GUI_X11`;
-// sense Xlib el banc compila igual i diu que no té finestra. **La finestra no és el panell**: no hi ha
-// tinta, ni fantasma, ni parpelleig, i la conversió de quatre bits a píxel —la part que es pot provar
-// sense pantalla— té prova a `test_ui` (docs/85).
-// 0.22.0 (1/11): **el vidre del banc mou tinta**. Un panell d'e-ink no encén píxels: una pintada de `du`
-// deixa un quart del que hi havia, la brutícia s'acumula si res no neteja, una de cada mil la falla un
-// nivell, i una pintada dura el que dura la qualitat (450 ms un `gc16`, 120 un `du`), o sigui que
-// `idle()` al banc diu la veritat i `run panel` hi dona 480 ms en lloc de 1. El paper és calent
-// (`#EFEADC`) i la tinta no és negra del tot (`#1A1B18`), perquè una pàgina llegida en un monocrom
-// perfecte és una pàgina que es veu millor que la que tindrà la persona a les mans. Tot el model és una
-// taula (`emu_ink.cpp`) i `--no-ink` el treu; les proves corren amb ell fora i n'hi ha dues que el
-// proven —el rastre d'un `du`, la neteja d'un `gc16`, i el temps de cada qualitat— (docs/50, docs/85).
-// 0.23.0 (1/11): **el banc paga el bus i dibuixa el parpelleig**. Una pintada val ara el que val a la
-// placa: la regió que canvia s'envia abans de demanar el pintat (`ink_transfer_us`) a 0,8 µs el byte —el
-// bus del driver, 10 MHz— **més 1 100 µs per fila**, que és l'únic número d'aquest model que surt d'una
-// mesura: la pàgina de `run panel` va costar 1 985 ms a la placa i els seus comptes deixen això per fila,
-// i el camí sencer al banc dona 1 970 ms (docs/95, E-7). L'espera és dins del `flush`, com a la placa: el
-// bus atura el nucli i el banc fa el mateix amb un `usleep`, i una pintada espera la tinta de l'anterior
-// (`wait_paint`). I **`a2` parpelleja**: blanc, després negre i després la imatge (`step_ink`), que és el
-// que diu el full del fabricant i no el que va fer aquesta unitat, on `a2` no va pintar res (docs/95,
-// E-7). `--no-ink` segueix essent el vidre de les proves: tampoc hi ha res a enviar (docs/50, docs/85).
-// 0.24.0 (1/11): **el vidre del banc té dits**. `--touch` dona al model de la Paper el seu GT911
-// (`emu::Gt911Panel`): el marc de la pàgina —un dit a (100,200) és a (100,172) de la vista—, els **dos**
-// dits de la seva configuració, la mida del contacte que va donar la placa (28 i 30) i el que costa
-// llegir-lo: **800 µs** sense dit, **1 830** amb un i **2 550** amb dos, tres transaccions a 100 kHz i nou
-// bits per byte, més els ~17 ms del probe de 186 bytes. **I el problema de debò**: el xip escombra sol i
-// dona el marc **una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» amb un dit a
-// sobre; `--touch-scan <ms>` és com es reprodueix (40 ms contra un torn de 20) i `Gt911Panel::missed()` ho
-// compta. Al banc no hi ha bus, i això també es diu (docs/50, docs/85, docs/95).
-// 0.25.0 (1/11): **un commutador per a tots els temps del banc**. `Options::delays` —que neix **fals**, que
-// és com sempre han corregut les proves, i que el binari encén— decideix si una lectura del disc, un byte
-// del port, el bus i la tinta d'una pintada i les tres transaccions del tàctil es paguen o no. El model
-// no canvia: el fantasma, la brutícia i el marc d'una vegada hi són igual. `--no-delay` el deixa apagat, i
-// `--gui` **l'exigeix**: un run amb finestra i sense esperes, o amb un vidre que canvia píxels
-// (`--no-ink`), es refusa, perquè és una foto d'una placa que no existeix. Mesurat: `run panel` 2 899 ms
-// amb els temps i 24 ms sense, i el run sencer 3,11 s contra 0,03 s (docs/85).
-// 0.26.0 (1/11): **el disc costa el que costa cada dispositiu, i la PSRAM no és gratis**. S'ha acabat el
-// "1 ms per lectura" per a tot: cada volum passa pel seu temps (`emu/disk.h`) — la flash a 40 MHz, blocs
-// de 4 KB (819 µs de cable), pàgines de 256 B (0,4 ms) i **sectors de 45 ms que s'han d'esborrar abans
-// d'escriure**; la targeta a 10 MHz, sectors de 512 B (410 µs) i una comanda de 200; i la FRAM, que és I2C
-// a 100 kHz i on **un byte són 90 µs**. La NVS és una partició de la flash i paga el mateix. I el bloc de
-// la PSRAM que demana el nucli costa el recorregut de l'assignador (20 µs): els bytes són temps de CPU i
-// aquest banc no té rellotge de CPU, i es diu. `--read-delay` desapareix perquè el rellotge pla era part
-// del que s'ha arreglat (docs/50, docs/85).
-// 0.27.0 (1/11): **la bateria d'on corre el banc, prestada a la placa**. La cel·la del Paper és de
-// **1150 mAh** i es llegeix com a mil·livolts darrere d'un divisor a GPIO35; la màquina del banc en diu un
-// percentatge. `--battery-host` agafa aquest percentatge i el passa per **la corba de la cel·la del model**
-// (`hal::battery_mv`, la inversa de `battery_percent`), o sigui que 63 % del portàtil són 3 847 mV del
-// Paper i no els 11 V de la seva bateria. I es paga el que costa preguntar-ho: **quatre conversions d'ADC
-// a ~100 µs i ~1 ms de caracterització la primera vegada**. Amb `--no-delay`, res (docs/50, docs/85).
-// 0.28.0 (1/11): **tres apps que proven el banc i la placa amb la mateixa pàgina**. `ghost` pinta vuit
-// passades de `du` sobre el mateix bloc i les neteja amb un `gc16` —el fantasma, amb el temps de cada
-// pintada—; `draw` fa un traç que segueix el dit i té un quadre que neteja la pàgina, i diu on cau cada
-// punt; i `cost` mesura a on corre el que costa un `stat`, una llista, un llegir, un escriure, una
-// pintada de cada qualitat, el gauge, el tàctil i la memòria, per posar les dues taules al costat
+// 0.19.1 (1/11): **the day on the board, written down**. The control layer says the same on the bench and on the Paper
+// —`run layers` gives the six lines the same, the counts `1 / 1 / 2` included—, and the numbers that were missing are
+// in their place: `ui: view 540x932 at 0,28, 251640 bytes of canvas`, the touch with two points and the long press
+// gesture with 1002 ms of real time. And two things the run brought out and the documentation said the other way
+// round: the `~120 ms` that `run panel` prints is **the app's wait** and not the time of the ink (the `gc16` is still
+// without a number), and the test page was drawn with `du4`, which is measured right here as **not painting** —it goes
+// with `du` and `gc16` now, and on the board the page is whole and clean, so what did not paint was the mode and not
+// the path— (docs/95, E-6, E-7 and E-8; docs/75; docs/85; docs/90). What is still **without a number** is the time of
+// a `gc16`: the measurement of the app cannot give it (it waits 120 ms and asks, and the loop goes out on the first
+// one).
+// 0.19.2 (1/11): **`ui.idle()` does not tell the truth, and now it does**. The driver of the panel does not mark
+// itself busy in the same instant it receives the order to paint, and a question asked one millisecond later read zero
+// with the page not even started: `run panel` came out with a `0 ms` that was no measurement at all, and a `present` of
+// two qualities could send the second paint over a first one that had not started. The driver keeps now when the paint
+// was asked for and does not answer yes until `kEngineStartMs` (20 ms) have gone by, a **guard** and not a
+// measurement, and the same question is asked by `idle()` and by the wait of the paint before. And `run panel` counts
+// from before the `present` and asks every 10 ms instead of sleeping 120 ms and subtracting it: the number it prints
+// now is the one of the glass (docs/30, docs/50, docs/95 E-7).
+// 0.19.3 (1/11): **the first real number of the glass**. `run panel` on the board with 0.19.2 says `the ink took 1985
+// ms` for a page of two regions (`du` and `gc16`), and that number carries inside it the sending of the whole page over
+// SPI and the two paints: it is **three or four times** what the 450 ms of the maker for a `gc16` would mean, and it is
+// not known yet which of the three parts pays. The measurement that separates them is `squares`, which paints one
+// quality per `present` and now prints `painted with du in N ms` and `erased with gc16 in N ms` of a square of 40 × 40,
+// where the transfer is 800 B and the number is the engine (docs/95, E-7).
+// 0.20.0 (1/11): **the system says what it costs, and the log has one single shape**. Every door of a device —the file
+// system through its doors, the view with `flush` and the question of `idle()`, the read of the touch— has a counter
+// with **how many times, how long and when it was the last one**, and `stats` shows them in a table that can be put to
+// zero with `stats reset`. **Every call of an app to the API is counted and timed** with the hook of the interpreter
+// itself —one hook and no closure per function, because an app of the ATOM has 64 KB and the closures would eat five of
+// them— and the row `app <id>` gives what that app has cost since it started. And the log: **`[level][tag] message`**,
+// with the letter of the level and the tag put there by the format and not by hand inside the text, the thirty-eight
+// `printf` of the drivers turned into `hal::logf` with a *sink* the kernel installs, and the mirror on the console on
+// while the system boots. And **the time of a call is counted until it resolves**: a call that returns a promise has
+// not finished when it returns, and `sys.delay(50)` costs fifty milliseconds in `lua.call` and not the eight
+// microseconds of the call. The review of every door of the HAL —what is counted and what is not, with the reason— is
+// in `docs/50`. **And one error the bench brought out**: the memory of a Lua *userdata* does not come at zero, and the
+// field of the counter of a promise carried rubbish in it; a promise without a time put **an hour and a half** there
+// from five calls (`lua.call 4988744 ms`, measured on the board on 1/11). The field is started when the promise is made
+// and the closure refuses a beginning that has never happened. And **every time of `stats` is written in the scale it
+// is read in** (`845 us`, `12.3 ms`, `1.98 s`, `3 min 07 s`, `1 h 23 min`), because `4988744 ms` says nothing and
+// `1 h 23 min` does. **And the real review, which brought out three holes**: the file system has **one row per unit and
+// door** now (`flash.read`, `sd.read`, `nvs.write`, `rtc.stat`…) because a card is not a flash; `clock.mono` is there
+// because the monotonic counter **is a read of the RTC chip** and the button, the light and the radio ask for it every
+// turn (before, `clock.now` said one call in two minutes); and the view has two rows, `glass.flush` and `glass.gc16`,
+// because a paint that cleans is not just any paint. **And the sum with the split**: the last line of `stats` says the
+// **system time** (what the rows add up to) against the **user time** (the rest of the life of the system, counted from
+// the last boot or the last `stats reset`), which is what separates "the app is slow" from "the device is slow". **And
+// `stats` is not a line of log**: it carries no level and no tag, because nobody greps a table —it is read— and with the
+// tags on top the columns did not line up; it is a table of fixed columns now. **And the full count**: `kernel.loop`
+// (the turn of the kernel), `lua.run`/`lua.own` (the turn of the app and what is its own code), `psram.alloc`/`psram.free`
+// (the extra memory is a device of this board), and **the least and the most** of every row on top of the average. **And
+// `boot` was a dead counter** —the identifier was there and nobody pointed anything at it, so the row would never have
+// come out— and it counts now what the system takes to come up: 108 ms on the bench. And the meters that **contain**
+// others (`boot`, `kernel.loop`, `lua.run`, `lua.own`, `lua.call`) do not go into the sum of the doors, or the same
+// microsecond was counted three times and the total went past a hundred per cent (138 %, measured). It costs **1 208 B
+// of RAM and 9 076 B of flash** on the Paper (docs/30, docs/50, docs/75, docs/80, docs/85).
+// 0.21.0 (1/11): **the glass of the bench in a window**. `--gui` opens an X11 window with the buffer of the
+// `MemorySurface` inside, and paints it every time the panel paints —the counter of paints is the question, so a turn
+// with no paint costs nothing— with the sixteen levels in greys and the page as the app draws it (540x960, not the
+// glass lying down). It carries `--display` with it, it says no if there is no `DISPLAY`, and closing it ends the run
+// like three ESC. It is X11 and a `-lX11` behind `-DLUNOK_GUI_X11`; without Xlib the bench compiles the same and says it
+// has no window. **The window is not the panel**: there is no ink, no ghost and no blink in it, and the conversion of
+// four bits to a pixel —the part that can be tested with no screen— has its test in `test_ui` (docs/85).
+// 0.22.0 (1/11): **the glass of the bench moves ink**. An e-ink panel does not light pixels: a paint of `du` leaves a
+// quarter of what was there, the dirt piles up if nothing cleans, one in a thousand misses a level, and a paint lasts
+// as long as its quality (450 ms a `gc16`, 120 a `du`), so `idle()` on the bench tells the truth and `run panel` gives
+// 480 ms there instead of 1. The paper is warm (`#EFEADC`) and the ink is not completely black (`#1A1B18`), because a
+// page read in a perfect monochrome is a page that looks better than the one the person will have in their hands. The
+// whole model is a table (`emu_ink.cpp`) and `--no-ink` takes it out; the tests run with it out and two of them try it
+// —the trace of a `du`, the clean of a `gc16`, and the time of each quality— (docs/50, docs/85).
+// 0.23.0 (1/11): **the bench pays the bus and draws the blink**. A paint is worth now what it is worth on the board:
+// the region that changes is sent before the paint is asked for (`ink_transfer_us`) at 0.8 µs a byte —the bus of the
+// driver, 10 MHz— **plus 1 100 µs per row**, which is the only number of this model that comes out of a measurement:
+// the page of `run panel` cost 1 985 ms on the board and its counts leave that per row, and the whole path on the bench
+// gives 1 970 ms (docs/95, E-7). The wait is inside `flush`, the way it is on the board: the bus stops the kernel and
+// the bench does the same with a `usleep`, and a paint waits for the ink of the one before (`wait_paint`). And **`a2`
+// blinks**: white, then black and then the image (`step_ink`), which is what the sheet of the maker says and not what
+// this unit did, where `a2` painted nothing (docs/95, E-7). `--no-ink` is still the glass of the tests: there is nothing
+// to send either (docs/50, docs/85).
+// 0.24.0 (1/11): **the glass of the bench has fingers**. `--touch` gives the Paper's model its GT911
+// (`emu::Gt911Panel`): the frame of the page —a finger at (100,200) is at (100,172) of the view—, the **two** fingers
+// of its configuration, the size of the contact the board gave (28 and 30) and what it costs to read it: **800 µs**
+// with no finger, **1 830** with one and **2 550** with two, three transactions at 100 kHz and nine bits per byte, plus
+// the ~17 ms of the probe of 186 bytes. **And the real problem**: the chip scans by itself and gives the frame **once**,
+// so a reader faster than the glass reads "nobody" with a finger on it; `--touch-scan <ms>` is how that is reproduced
+// (40 ms against a turn of 20) and `Gt911Panel::missed()` counts it. On the bench there is no bus, and that is said
+// too (docs/50, docs/85, docs/95).
+// 0.25.0 (1/11): **one switch for every time of the bench**. `Options::delays` —which is born **false**, which is how
+// the tests have always run, and which the binary turns on— decides whether a read of the disk, a byte of the port, the
+// bus and the ink of a paint and the three transactions of the touch are paid or not. The model does not change: the
+// ghost, the dirt and the frame of one time are still there the same. `--no-delay` leaves it off, and `--gui`
+// **demands it**: a run with a window and with no waits, or with a glass that changes pixels (`--no-ink`), is refused,
+// because it is a photograph of a board that does not exist. Measured: `run panel` 2 899 ms with the times and 24 ms
+// without them, and the whole run 3.11 s against 0.03 s (docs/85).
+// 0.26.0 (1/11): **the disk costs what each device costs, and the PSRAM is not free**. The "1 ms per read" for
+// everything is over: every volume goes through its own time (`emu/disk.h`) — the flash at 40 MHz, blocks of 4 KB
+// (819 µs of wire), pages of 256 B (0.4 ms) and **sectors of 45 ms that have to be erased before writing**; the card at
+// 10 MHz, sectors of 512 B (410 µs) and an order of 200; and the FRAM, which is I2C at 100 kHz and where **one byte is
+// 90 µs**. The NVS is a partition of the flash and pays the same. And the block of the PSRAM the kernel asks for costs
+// the walk of the allocator (20 µs): the bytes are CPU time and this bench has no CPU clock, and it says so.
+// `--read-delay` disappears because the flat clock was part of what was fixed (docs/50, docs/85).
+// 0.27.0 (1/11): **the battery the bench runs on, borrowed from the board**. The cell of the Paper is **1150 mAh** and
+// it is read as millivolts behind a divider on GPIO35; the machine of the bench says a percentage. `--battery-host`
+// takes that percentage and runs it through **the curve of the cell of the model** (`hal::battery_mv`, the inverse of
+// `battery_percent`), so 63 % of the laptop is 3 847 mV of the Paper and not the 11 V of its battery. And what it costs
+// to ask is paid: **four conversions of ADC at ~100 µs and ~1 ms of characterisation the first time**. With
+// `--no-delay`, nothing (docs/50, docs/85).
+// 0.28.0 (1/11): **three apps that try the bench and the board with the same page**. `ghost` paints eight passes of
+// `du` over the same block and cleans them with a `gc16` —the ghost, with the time of every paint—; `draw` makes a
+// stroke that follows the finger and has a box that cleans the page, and says where every point lands; and `cost`
+// measures where it runs what a `stat`, a listing, a read, a write, a paint of each quality, the gauge, the touch and
+// the memory cost, to put the two tables side by side (docs/85).
+// 0.28.1 (1/11): **the ghost is seen**. The model of the ink left a quarter and, above all, the dirt could reach fifteen
+// sixteenths and freeze the page, so the ghost faded in two passes and the one of a page of sixteen levels could not be
+// told from the one of a page of two. The `du` leaves **five sixteenths** now (a `du4`, seven), the dirt adds up to a
+// ceiling of eleven —the stuck image, which is what the glass does and not a pixel that stops— and the grain is **eight
+// in a thousand** with a miss of two levels once in every four. The test that measures it: a step of sixteen levels
+// repainted with `du` leaves five levels of travel on the bands, and the same paint over a flat page leaves zero.
+// 0.29.0 (1/11): **the code of the app costs too**. The bench ran the instructions of Lua at the speed of a PC, so a
+// loop that lasts a second on the glass lasted one millisecond here and no number of `lua.own` meant anything. The hook
+// of the interpreter counts **two thousand** of them and pays the price when the sum passes half a millisecond, and what
+// is left is paid at the end of the turn (`--lua-cpu`, **60 ns at 160 MHz**, divided by the simulated frequency). The
+// band says what one instruction costs —zero on a board, where the time is the real one— and the bench is the one that
+// says sixty (docs/85).
+// 0.30.0 (1/11): **the battery of the bench does not have to be asked for any more**. A model with a gauge answers
+// `power.battery()` on the first try, because the `%` of this machine is read by itself at the boot and goes through the
+// curve of the cell of the Paper; a machine with no battery leaves the cell at **its nominal charge (3 700 mV, 42 %)**, says
+// so, and `--battery-mv` rules over the loan. Before this, `run battery` on the Paper said "this board does not know its
+// battery", which is what the board says only when it has none (docs/50, docs/85).
+// 0.31.0 (1/11): **the hardware of the model is there from the boot, and does not have to be asked for**. The glass and
+// the GT911 were opt-in, and `run draw` on a Paper of the bench said "this board needs a touch panel and a glass for
+// this": a board somebody has in their hands does not have that state. `Model::glass` says which board draws now (the
+// Paper; the ATOMs have no screen), the binary turns on the glass and the fingers the model has, and `--no-display` /
+// `--no-touch` take them out for a measurement that is not of pixels. A `--display` or a `--gui` on an ATOM is refused
+// saying so, and `sys.caps()` only announces what the board has (docs/50, docs/85).
+// 0.32.0 (1/11): **the mouse of the window is a finger of the GT911**. A Paper of the bench with `--gui` had the glass on
+// the screen and no way of touching it: `run draw` and `run glass` asked for a finger nobody could put there. Pressing is
+// the finger that goes down, moving with the button down is the finger that moves and letting it go is the finger that
+// comes up, in the frame of the chip —and the pixel of the window is turned into the pixel of the page through the centre
+// of the block of the scale (`gui_page_point`, with its test). What the mouse cannot do is a pinch of two fingers: that
+// is for the test or for the script (docs/50, docs/85).
+// 0.33.0 (1/11): **the keys of the board, in a window of their own**. With `--gui` the glass is seen and a finger can be
+// put on it, but the three keys of the dial were not there: `run keys` asked for a key nobody could press. There is a
+// second window now with one button per key —the up one on top, the centre one in the middle and the down one at the
+// bottom, the shape of the wheel of the board— and pressing is `press_key(key, true)` and letting go is
+// `press_key(key, false)`, the same path a test or a script uses. The map of the click to a key (`gui_key_at`) is a pure
+// function with its test, because a button that presses the key next to it is an error that is not seen. And `--gui`
+// comes to be "the windows of what the board has": an ATOM, with no glass, takes out only the one of the keys instead of
+// being refused (docs/50, docs/85).
+// 0.34.0 (1/11): **one single window**: the glass and the keys together. Two windows were two things to place and to
+// look at, and the window manager put them wherever it wanted. The keys are now inside the window of the glass, and a
+// click on a button is a key and a click on the page is a finger, with the buttons measured in pixels of the window so
+// that they do not shrink with the scale (docs/85).
+// 0.34.1 (1/11): **the side of the buttons is said by the descriptor of the input, and not by the bench**. In 0.34.0 the
+// strip was on the left and that was it, when what rules is `IInput::face()`: the dial of the Paper is on the **left
+// face** (key 0 = GPIO38 centre, key 1 = GPIO37 `Spot::kUp`, key 2 = GPIO39 `Spot::kDown`) and the key of an ATOM is on
+// the **top face**. The side comes out of the face now and out of the order of the spots, so a dial is a column on that
+// side and a key of the top face is a row under the page, and the page is painted where the keys leave it
+// (docs/50, docs/85).
+// 0.34.2 (1/11): **the dial of the Paper is on the right of the page, and the descriptor said on the left**. Whoever has
+// the board in their hands says it plainly, and `Face::kLeft` was a guess of the sheet of the maker (their README
+// contradicts itself about left and right, docs/50). `hal_paper` and the bench say `Face::kRight` now, and the window
+// draws the three buttons on the right of the page, which is where they are. Which of the two side keys is `up` is still
+// waiting for somebody to press them (docs/95, E-1).
+// 0.35.0 (1/11): **the window looks like a board and says whether a click arrives**. What is not the page is painted in
+// the **dark grey of the shell** —the strip of the keys and the rest of the window— and the buttons are grey with the
+// text light, so that whoever looks goes to the page and not to a white frame; **a pressed button is painted with the
+// colour of the paper** of the panel, which is the only way of seeing that the click has arrived. And with `--verbose`
+// every key says `gui: key 0 (Centre) down` and `up`, to tell a button that does nothing from a button nobody has pressed
 // (docs/85).
-// 0.28.1 (1/11): **el fantasma es veu**. El model de la tinta deixava un quart i, sobretot, la brutícia
-// podia arribar a quinze setzens i congelar la pàgina, o sigui que el fantasma s'esvaïa en dues passades
-// i el d'una pàgina de setze nivells no es distingia del d'una de dues. Ara el `du` deixa **cinc setzens**
-// (un `du4`, set), la brutícia suma fins a un sostre d'onze —la imatge enganxada, que és el que fa el
-// vidre i no un píxel que es para— i el gra és **vuit de cada mil** amb una fallada de dos nivells una
-// vegada de cada quatre. La prova que ho mesura: un esglaó de setze nivells repintat amb `du` deixa cinc
-// nivells de recorregut a les bandes, i la mateixa pintada sobre una pàgina plana en deixa zero.
-// 0.29.0 (1/11): **el codi de l'app també costa**. El banc executava les instruccions de Lua a la
-// velocitat d'un PC, o sigui que un bucle que al vidre dura un segon aquí durava un mil·lisegon i cap
-// número de `lua.own` volia dir res. El ganxo de l'intèrpret en compta **dos mil** i en paga el preu quan
-// la suma passa de mig mil·lisegon, i el que queda es paga al final del torn (`--lua-cpu`, **60 ns a
-// 160 MHz**, dividit per la freqüència simulada). La banda diu quant costa una instrucció —zero en una
-// placa, on el temps és el de debò— i el banc és qui en diu seixanta (docs/85).
-// 0.30.0 (1/11): **la bateria del banc ja no s'ha de demanar**. Un model amb indicador contesta
-// `power.battery()` a la primera, perquè el `%` d'aquesta màquina es llegeix sol a l'arrencada i passa per
-// la corba de la cel·la del Paper; una màquina sense bateria deixa la cel·la al **seu càrrec nominal
-// (3 700 mV, 42 %)**, ho diu, i `--battery-mv` mana sobre el préstec. Abans d'això `run battery` al Paper
-// deia «this board does not know its battery», que és el que diu la placa només quan no en té (docs/50,
-// docs/85).
-// 0.31.0 (1/11): **el maquinari del model hi és des de l'arrencada, i no s'ha de demanar**. El vidre i el
-// GT911 eren opt-in, i `run draw` en una Paper del banc deia «this board needs a touch panel and a glass
-// for this»: una placa que algú té a les mans no té aquest estat. `Model::glass` passa a dir quina placa
-// dibuixa (la Paper; els ATOM no tenen pantalla), el binari encén el vidre i els dits que el model té, i
-// `--no-display` / `--no-touch` els treuen per a la mesura que no és de píxels. Un `--display` o un
-// `--gui` a un ATOM es refusa dient-ho, i `sys.caps()` només anuncia el que la placa té (docs/50, docs/85).
-// 0.32.0 (1/11): **el ratolí de la finestra és un dit del GT911**. Una Paper del banc amb `--gui` tenia el
-// vidre a la pantalla i cap manera de tocar-lo: `run draw` i `run glass` demanaven un dit que ningú no
-// podia posar. Prémer és el dit que baixa, moure amb el botó premut és el dit que es mou i deixar-lo anar
-// és el dit que puja, en el marc del xip —i el píxel de la finestra es tradueix al píxel de la pàgina pel
-// centre del bloc d'escala (`gui_page_point`, amb prova). El que el ratolí no pot fer és un pessic de dos
-// dits: això és del test o del guió (docs/50, docs/85).
-// 0.33.0 (1/11): **les tecles de la placa, en una finestra de les seves**. Amb `--gui` el vidre es veu i
-// s'hi pot posar un dit, però les tres tecles del dial no hi eren: `run keys` demanava una tecla que
-// ningú no podia prémer. Ara hi ha una segona finestra amb un botó per tecla —a dalt la de pujar, al mig la
-// del centre i a baix la de baixar, la forma de la roda de la placa— i prémer és `press_key(key, true)` i
-// deixar anar `press_key(key, false)`, el mateix camí que fa servir una prova o un guió. El mapa del clic a
-// tecla (`gui_key_at`) és una funció pura amb prova, perquè un botó que prem la tecla del costat és un
-// error que no es veu. I `--gui` passa a ser «les finestres del que la placa té»: un ATOM, sense vidre,
-// treu només la de les tecles en lloc de refusar-se (docs/50, docs/85).
-// 0.34.0 (1/11): **una sola finestra**: el vidre i les tecles junts. Dues finestres eren dues coses per
-// col·locar i per mirar, i el gestor de finestres les posava on volia. Les tecles passen a estar dins de la
-// finestra del vidre, i un clic a un botó és una tecla i un clic a la pàgina és un dit, amb els botons
-// mesurats en píxels de finestra perquè no s'enconguin amb l'escala (docs/85).
-// 0.34.1 (1/11): **el costat dels botons el diu el descriptor de l'entrada, i no el banc**. A la 0.34.0 la
-// tira era a l'esquerra i prou, quan el que mana és `IInput::face()`: el dial del Paper és a la **cara
-// esquerra** (key 0 = GPIO38 centre, key 1 = GPIO37 `Spot::kUp`, key 2 = GPIO39 `Spot::kDown`) i la tecla
-// d'un ATOM és a la **cara de dalt**. Ara el costat surt de la cara i l'ordre de les posicions, o sigui que
-// un dial és una columna en aquell costat i una tecla de cara de dalt és una fila sota la pàgina, i la
-// pàgina es pinta on les tecles li deixen (docs/50, docs/85).
-// 0.34.2 (1/11): **el dial del Paper és a la dreta de la pàgina, i el descriptor deia que a l'esquerra**.
-// Qui té la placa a les mans ho diu clar, i `Face::kLeft` era una suposició del full del fabricant (el
-// seu README es contradiu sobre esquerra i dreta, docs/50). `hal_paper` i el banc passen a dir
-// `Face::kRight`, i la finestra dibuixa els tres botons a la dreta de la pàgina, que és on són. Quina de
-// les dues tecles del costat és `up` segueix pendent de prémer-les (docs/95, E-1).
-// 0.35.0 (1/11): **la finestra sembla una placa i diu si un clic arriba**. El que no és la pàgina es pinta en
-// el **gris fosc de la carcassa** —la tira de les tecles i la resta de la finestra— i els botons són grisos
-// amb el text clar, de manera que el que mira va a la pàgina i no a un marc blanc; **un botó premut es pinta
-// amb el color del paper** del panell, que és l'única manera de veure que el clic ha arribat. I amb
-// `--verbose` cada tecla diu `gui: key 0 (Centre) down` i `up`, per distingir un botó que no fa res d'un botó
-// que ningú no ha premut (docs/85).
-// 0.36.0 (1/11): **el text té cares, i una cara és un fitxer de text**. Fins ara hi havia una sola lletra: la
-// de 5 × 7 de la barra, a la flash i només en majúscules. Ara `UICanvas` pot carregar-ne d'altres amb
-// `ui.load_font` d'un fitxer de `/res/fonts` (`lunok-font 1`, `width`, `height`, `gap` i un bloc de `#` i `.`
-// per glif: portable, llegible i sense descodificador) i dibuixar-hi el seu text; `ui.font` i `cv:font`
-// trien la cara, `font:text_width` i `font:size` la deixen mesurar, i el bloc és de l'app i torna quan ella
-// el deixa anar o quan s'acaba. La font del sistema passa a ser **una cara més** del mateix camí, i dues
-// apps de prova ho ensenyen: `run fonts` i `run sheet` (docs/30, docs/80).
-// 0.37.0 (1/11): **el sistema tria com neteja la pàgina entre una app i la següent**. Fins ara la vista es
-// posava blanca i el vidre s'esperava que la pintada de l'app que venia ho tapés; ara, quan una app marxa, el
-// sistema mira **quins dels setze nivells ha ensenyat la pàgina i quantes pintades ràpides ha pres**
-// (`ui::levels_shown`, `ui::cleaner_for`) i demana el rentat que toca: `a2` si només hi ha hagut negre i
-// blanc, `gl16` si hi ha hagut uns quants grisos, `gc16` si era una fotografia o si la brutícia de tantes
-// pintades ja és el que es veu. Són 290 ms contra 450 per canvi d'app, i no ho decideix cap app perquè cap app
-// no sap què hi havia abans (docs/50, docs/90).
-// 0.38.0 (1/11): **el deflate llegit de tornada**, que és el que cal per obrir un zip —i un epub és un zip—.
-// `lib/inflate` descomprimeix els tres tipus de bloc del format (stored, taula fixa i taula dinàmica) cap a un
-// buffer que és del qui crida i que fa de finestra, sense reservar res: la distància cap enrere d'un stream
-// mira dins del que ja s'ha escrit, i un stream que demana més enllà del principi es refusa. Amb els dos
-// checksums dels contenidors (Adler-32 del zlib/woff i CRC-32 del zip) i quatre proves fetes amb blocs que ha
-// comprimit el zlib de debò, no inventats. El lector del zip i la lectura de l'epub venen darrera (docs/70).
+// 0.36.0 (1/11): **the text has faces, and a face is a text file**. Until now there was one single letter: the 5 × 7 one
+// of the bar, on the flash and only in capitals. `UICanvas` can load others now with `ui.load_font` from a file of
+// `/res/fonts` (`lunok-font 1`, `width`, `height`, `gap` and a block of `#` and `.` per glyph: portable, readable and
+// with no decoder) and draw its text with them; `ui.font` and `cv:font`
+// choose the face, `font:text_width` and `font:size` let it be measured, and the block is the app's and comes back when
+// it lets it go or when it ends. The font of the system becomes **one more face** of the same path, and two test apps
+// show it: `run fonts` and `run sheet` (docs/30, docs/80).
+// 0.37.0 (1/11): **the system chooses how it cleans the page between one app and the next**. Until now the view was put
+// white and the glass was expected to be covered by the paint of the app that came; now, when an app goes, the system
+// looks at **which of the sixteen levels the page has shown and how many fast paints it has taken**
+// (`ui::levels_shown`, `ui::cleaner_for`) and asks for the wash that is due: `a2` if there has only been black and
+// white, `gl16` if there have been a few greys, `gc16` if it was a photograph or if the dirt of so many paints is
+// already what is seen. It is 290 ms against 450 per change of app, and no app decides it because no app knows what was
+// there before (docs/50, docs/90).
+// 0.38.0 (1/11): **the deflate read back**, which is what is needed to open a zip —and an epub is a zip—. `lib/inflate`
+// decompresses the three kinds of block of the format (stored, fixed table and dynamic table) into a buffer that is the
+// caller's and acts as the window, reserving nothing: the distance back of a stream looks inside what has already been
+// written, and a stream that asks beyond the beginning is refused. With the two checksums of the containers (Adler-32 of
+// zlib/woff and CRC-32 of zip) and four tests made with blocks the real zlib compressed, not invented ones. The reader
+// of the zip and the reading of the epub come after it (docs/70).
 // 0.39.0 (1/11): **a face can come out of a BDF**, the bitmap format an X server read: plain text with
 // `STARTFONT`, a box, and for every glyph its rows in hexadecimal. `font::load_bdf` reads it into the same
 // block as always (eight by eight, ninety-six codes, in order) and `font::load_any` looks at **what the file
@@ -621,90 +610,84 @@ namespace kernel {
 // drive for the prompt—, so a page cannot go where `fs.write` would answer `E_INVAL`, and a path that is
 // not a drive of this board is `E_UNAVAIL` before the server is asked (docs/30, docs/50, docs/70,
 // docs/75, docs/85).
-// 0.63.0 (3/11): **les imatges**. `lib/img` és una llibreria de descodificadors sense cap assignació pròpia que
-// treu les files d'una imatge en l'empaquetament de quatre bits del vidre, i `ui.image` i `ui.image_info` les
-// porten a la pàgina: **PNG** (tipus 0, 2, 3, 4 i 6, profunditats 1 a 16, tots els filtres, paleta i
-// transparència), **JPEG** base i seqüencial estès (qualsevol mostreig, marcadors de reinici, IDCT en coma
-// flotant i YCbCr), **BMP** de 1, 4, 8, 16, 24 i 32 bits amb paleta o màscares i de dalt o de baix, **GIF**
-// 87a/89a amb LZW, transparència i entrellaçat, **ICO** amb una imatge de BMP o un PNG a dins, i la família
-// **netpbm** (PBM, PGM i PPM, en text i en cru). El color es converteix amb la lluminància dels setze nivells i
-// un **dither ordenat de 4×4** —el negre és negre i el blanc és blanc a tot arreu, i un degradat no fa
-// franges—, una imatge amb transparència es compon sobre el paper, i una mida més gran o més petita és un
-// escalat al més proper. El que no es llegeix es diu i no es dibuixa malament: PNG entrellaçat, JPEG progressiu
-// o aritmètic, CMYK i BMP amb RLE són `E_UNSUPPORTED`; un fitxer que diu ser una imatge i no ho és, `E_IO`; i
-// una imatge de més de 2 MB, de més de 4 096 píxels o que no cap a la memòria, `E_INVAL`/`E_NOSPC`. L'exemple
-// `run images` porta **una imatge de cada família** a `apps/images/res` —i **una imatge diferent per a
-// cadascuna**, que ensenya el que aquell format sap fer: una fotografia en JPEG, tinta plana en BMP, una
-// paleta de vuit tintes, una cantonada transparent en GIF, una icona amb alfa, línies primes en PNG, dos
-// degradats i un bit— passades totes amb els botons; el **mateix pla en sis formats**, que és el que demostra
-// que els sis descodificadors donen els mateixos píxels, viu amb les proves a `test/test_img/data/plan.*`. **Dues coses que només es veuen al vidre** i que l'exemple va haver
-// d'aprendre: una app que plega després de pintar és una app que ningú no pot prémer —l'exemple escolta i té
-// una sortida—, i un control es compon pel que diu que ha canviat, o sigui que una pàgina que neteja el seu
-// canvas ha de tornar a demanar els botons o els perd (docs/30, docs/70, docs/75, docs/85, docs/90).
-// 0.64.0 (4/11): **el parpelleig del vidre arriba a la finestra**. El model de la tinta ja hi era des de la
-// 0.22.0 —un `du` deixa una part del que hi havia, un `gc16` blinca i neteja, i la brutícia s'acumula—, però
-// la finestra es dibuixava un cop per torn i un torn és una pintada: entre la pàgina d'abans i la de després
-// no hi havia cap fotograma, i el que una persona veia era una pàgina que es canviava d'un cop. La culpa era
-// del banc i no del model: una pintada té el seu cridador parat més d'un segon —el bus de la regió que
-// s'envia i la tinta que ha de moure— i el panell, durant tot aquest temps, continua fent les blincades de la
-// qualitat que li han demanat. Ara `MemorySurface::wait_and_pump()` parteix cada espera del vidre en trossos
-// de **10 ms** i crida el *pump* de la finestra entremig, que és `pump_gui` amb la mateixa `step_ink()` de
-// sempre; el binari el instal·la i el model no canvia cap número, només qui mira i quan. Gravat a 25
-// fotogrames per segon, un `gc16` de pàgina sencera són dos fotogrames negres, dos de blancs, dos de negres i
-// dos de blancs abans de la imatge —els 450 ms del full del fabricant— i la finestra respon al teclat durant
-// tota l'espera. Amb això `run ghost` ensenya el que l'app diu que ensenya: vuit passades de `du` que deixen
-// el rastre de les anteriors i un `gc16` que se l'emporta (docs/85).
-// 0.64.1 (4/11): **el focus de `run images` es veu**. L'app tenia tres botons i cap `on_focus`, o sigui que
-// el dial movia el focus i el systema invalidava els dos controls, però la repintada sortia amb `du`: l'anell
-// que arribava quedava gris i el que se n'anava quedava allà com un anell gris més, i la pàgina semblava no
-// moure's (trobat amb les tecles de la finestra, 4/11). Ara cada botó diu a `on_focus` que cal un rentat i el
-// torn següent presenta amb `gc16`; com que els únics danys són els dos botons, el parpelleig és la fila dels
-// botons —l'1/11 del model de la tinta— i no la pàgina sencera. És la mateixa regla que ja segueix
-// `run buttons` i que diu docs/30: un canvi de focus és un canvi d'estat de la pàgina i s'ha de rentar
-// (docs/30, docs/50, docs/90).
-// 0.65.0 (4/11): **els editors**. Dues apps noves —`run edit <path>` i `run hexedit <path>`— que funcionen
-// igual pel **port sèrie** de la placa i per la **consola nadiua**, perquè són el mateix codi: `edit` és un
-// editor de text modal com el vim (`h j k l`, `i a o`, `x`, `dd`, `yy`, `p`, `u`/`Ctrl+R`, `/` amb `n`/`N`,
-// `:w`, `:q`, `:wq`, `:e`, i els nombres de línia) i `hexedit` és l'editor hexadecimal de sempre (setze bytes
-// per fila, el desplaçament i l'ASCII, dos niblies per byte, `x` esborra, `i` insereix, `u` desfà). Tres coses
-// del sistema han hagut de canviar perquè hi cabessin:
-//   - **`console.raw([on])` i `console.read_byte()`**: el teclat deixa de ser una línia i passa a ser bytes
-//     —les fletxes senceres, sense eco i sense edició—, amb una cua de 256 claus perquè escriure sigui més
-//     ràpid que el torn, i amb els tres ESC de sempre com a sortida d'emergència.
-//   - **El camí que la persona nomena**: `run edit /littlefs/notes.txt` dona a l'app l'autoritat del prompt
-//     **sobre aquell fitxer** mentre viu (llegir i escriure) i sobre cap altre, que és el que fa que un editor
-//     desi on li han dit; la resta del disc de la persona segueix dient `E_INVAL`. De passada s'ha arreglat un
-//     error de debò: el nom de l'app era un punter a una pila del shell que ja no hi era quan l'app corria, i
-//     ara se'n guarda una còpia (`luabind::app_path`).
-//   - **El sostre del codi d'entrada, de 16 a 32 KB**: l'editor fa 26 644 B i el buffer és al heap des de la
-//     0.56.0 i es torna just després de compilar, o sigui que el que puja és un bloc transitori (docs/75).
-// El mode cru i el camí nomenat porten prova nativa (`test_luabind`, `test_apps`), i els dos editors s'han
-// conduït per un pseudo-terminal contra el binari: `jA!` + `:wq` sobre un fitxer i el fitxer queda amb el
-// signe, i `41` i `:wq` sobre un binari i el byte queda en `41` (docs/30, docs/70, docs/75, docs/85).
-// 0.65.1 (4/11): **`fs.write` sobre `/rtc` i `/fram`**. Aquelles dues memòries són **un sol fitxer** cadascuna
-// i el seu nom és el del muntatge, o sigui que no tenen `/rtc.tmp` on escriure i després reanomenar: el camí
-// atòmic de `fs.write` responia `E_NOENT`, i el que veia una persona era un editor dient `write failed: no
-// such file or directory` en desar-hi (trobat amb `run hexedit /fram`, 4/11). Des d'aquí una escriptura a una
-// memòria crua **va al lloc**: els bytes al començament de la memòria i la resta a zero, perquè el que s'ha
-// escrit sigui el que es torna a llegir, i una escriptura que no hi cap sencera és `E_NOSPC` i no canvia res
-// —mitja memòria no es pot desfer. El mànec (`fs.open` + `write`) segueix sent el camí per posar el que es
-// vulgui a qualsevol desplaçament (docs/30, docs/50, docs/70).
-// 0.66.0 (4/11): **els editors obren un fitxer de qualsevol mida**. La 0.65.0 hi posava un sostre de 64 KB a
-// `edit` i de 512 KB a `hexedit`, i era un sostre inventat: el sistema deixa llegir un fitxer a trossos
-// (`fs.read_at`, `fs.open` + `file:read`) i el que una app no ha de fer és carregar-lo sencer. Ara:
-//   - **`edit` en fa un índex de línies** llegint el fitxer a trossos de 64 KB, llegeix **només les línies que
-//     es veuen** (una finestra de 2 KB per a una línia de més de 8 KB, que es veu però no s'edita) i desa
-//     escrivint un temporal on el que no ha canviat **es copia de l'original**, 64 KB a la vegada. Obrir el
-//     fitxer d'1,3 MB que deixa el `http`, anar-ne a l'última línia, escriure-hi i desar-lo funciona.
-//   - **`hexedit` llegeix la finestra que es veu** i desa els bytes escrits amb un mànec al seu desplaçament;
-//     fins a 256 KB continua tenint el fitxer sencer a la memòria, que és el que permet `x` i `i` de moure el
-//     que hi ha darrere. Un binari d'1,5 MB es mira i es pedaça sense tenir-lo sencer enlloc.
-//   - **El temporal del camí nomenat també és el camí nomenat**: `fs.open('/littlefs/x.txt.tmp', 'w')` estava
-//     prohibit i un desament atòmic des d'una app no podia existir; ara és el mateix permís que el fitxer
-//     (docs/70).
-//   - I **un error del heap del banc**, que és el que va fer sortir el problema: un bloc de la PSRAM que no
-//     podia créixer al seu lloc només provava l'altra casa i deia `not enough memory` amb quatre megabytes
-//     lliures a la mateixa PSRAM (docs/75). `move_into` el mou a qualsevol taca de la seva.
+// 0.63.0 (3/11): **the pictures**. `lib/img` is a library of decoders with no allocation of its own that takes the rows of
+// a picture out in the packed four-bit form of the glass, and `ui.image` and `ui.image_info` carry them to the page:
+// **PNG** (types 0, 2, 3, 4 and 6, depths 1 to 16, every filter, palette and transparency), **JPEG** base and extended
+// sequential (any sampling, restart markers, IDCT in floating point and YCbCr), **BMP** of 1, 4, 8, 16, 24 and 32 bits
+// with a palette or masks and top down or bottom up, **GIF** 87a/89a with LZW, transparency and interlacing, **ICO** with
+// a BMP image or a PNG inside, and the **netpbm** family (PBM, PGM and PPM, in text and in raw). The colour is turned
+// with the luminance of the sixteen levels and an **ordered dither of 4×4** —black is black and white is white
+// everywhere, and a gradient does not band—, a picture with transparency is composed over the paper, and a size bigger
+// or smaller is a scale to the nearest one. What is not read is said and is not drawn badly: interlaced PNG,
+// progressive or arithmetic JPEG, CMYK and BMP with RLE are `E_UNSUPPORTED`; a file that says it is a picture and is not,
+// `E_IO`; and a picture of more than 2 MB, of more than 4 096 pixels or that does not fit in the memory,
+// `E_INVAL`/`E_NOSPC`. The example `run images` carries **one picture of every family** in `apps/images/res` —and **a
+// different picture for each one**, which shows what that format can do: a photograph in JPEG, flat ink in BMP, a
+// palette of eight inks, a transparent corner in GIF, an icon with alpha, thin lines in PNG, two gradients and one bit—
+// all of them with the buttons; the **same plan in six formats**, which is what proves the six decoders give the same
+// pixels, lives with the tests in `test/test_img/data/plan.*`. **Two things that are only seen on the glass** and that the
+// example had to learn: an app that folds after painting is an app nobody can press —the example listens and has a way
+// out—, and a control is composed by what it says has changed, so a page that wipes its canvas has to ask for the buttons
+// again or it loses them (docs/30, docs/70, docs/75, docs/85, docs/90).
+// 0.64.0 (4/11): **the blink of the glass reaches the window**. The model of the ink was already there since 0.22.0 —a
+// `du` leaves a part of what was there, a `gc16` blinks and cleans, and the dirt piles up—, but the window was drawn once
+// per turn and a turn is one paint: between the page before and the one after there was no frame at all, and what a person
+// saw was a page that changed in one go. The fault was the bench's and not the model's: a paint has its caller stopped for
+// more than a second —the bus of the region that is sent and the ink that has to move— and the panel, all that time, keeps
+// doing the blinks of the quality it has been asked for. `MemorySurface::wait_and_pump()` splits every wait of the glass
+// into pieces of **10 ms** now and calls the *pump* of the window in between, which is `pump_gui` with the same `step_ink()`
+// as always; the binary installs it and the model changes no number, only who looks and when. Recorded at 25 frames a
+// second, a `gc16` of the whole page is two black frames, two white ones, two black ones and two white ones before the
+// image —the 450 ms of the sheet of the maker— and the window answers the keyboard all through the wait. With that `run
+// ghost` shows what the app says it shows: eight passes of `du` that leave the trace of the ones before and a `gc16` that
+// takes it away (docs/85).
+// 0.64.1 (4/11): **the focus of `run images` is seen**. The app had three buttons and no `on_focus`, so the dial moved the
+// focus and the system invalidated the two controls, but the repaint came out with `du`: the ring that arrived stayed grey
+// and the one that went stayed there as one more grey ring, and the page seemed not to move (found with the keys of the
+// window, 4/11). Every button says in `on_focus` that a wash is needed now and the turn after presents with `gc16`; since
+// the only damage is the two buttons, the blink is the row of buttons —the 1/11 of the model of the ink— and not the whole
+// page. It is the same rule `run buttons` already follows and that docs/30 states: a change of focus is a change of state
+// of the page and has to be washed (docs/30, docs/50, docs/90).
+// 0.65.0 (4/11): **the editors**. Two new apps —`run edit <path>` and `run hexedit <path>`— that work the same through the
+// **serial port** of the board and through the **native console**, because they are the same code: `edit` is a modal text
+// editor like vim (`h j k l`, `i a o`, `x`, `dd`, `yy`, `p`, `u`/`Ctrl+R`, `/` with `n`/`N`, `:w`, `:q`, `:wq`, `:e`, and
+// the line numbers) and `hexedit` is the hexadecimal editor of always (sixteen bytes per row, the offset and the ASCII,
+// two nibbles per byte, `x` erases, `i` inserts, `u` undoes). Three things of the system have had to change for them to
+// fit:
+//   - **`console.raw([on])` and `console.read_byte()`**: the keyboard stops being a line and becomes bytes —whole arrows,
+//     with no echo and no editing—, with a queue of 256 keys so that typing is faster than the turn, and with the three ESC
+//     as always as the emergency way out.
+//   - **The path a person names**: `run edit /littlefs/notes.txt` gives the app the authority of the prompt **over that
+//     file** while it lives (read and write) and over no other, which is what makes an editor save where it has been told;
+//     the rest of the disk of the person keeps saying `E_INVAL`. On the way a real error has been fixed: the name of the
+//     app was a pointer into a stack of the shell that was not there any more when the app ran, and a copy of it is kept
+//     now (`luabind::app_path`).
+//   - **The ceiling of the entry code, from 16 to 32 KB**: the editor is 26 644 B and the buffer has been on the heap since
+//     0.56.0 and is given back right after compiling, so what goes up is a passing block (docs/75).
+// The raw mode and the named path have their native test (`test_luabind`, `test_apps`), and the two editors have been
+// driven through a pseudo-terminal against the binary: `jA!` + `:wq` on a file and the file comes out with the sign, and
+// `41` and `:wq` on a binary and the byte comes out in `41` (docs/30, docs/70, docs/75, docs/85).
+// 0.65.1 (4/11): **`fs.write` on `/rtc` and `/fram`**. Those two memories are **one single file** each and their name is
+// the name of the mount, so they have no `/rtc.tmp` to write to and then rename: the atomic path of `fs.write` answered
+// `E_NOENT`, and what a person saw was an editor saying `write failed: no such file or directory` when saving there (found
+// with `run hexedit /fram`, 4/11). From here a write to a raw memory **goes in place**: the bytes at the start of the
+// memory and the rest at zero, so that what has been written is what is read again, and a write that does not fit whole is
+// `E_NOSPC` and changes nothing —half a memory cannot be undone. The handle (`fs.open` + `write`) is still the path for
+// putting whatever one wants at any offset (docs/30, docs/50, docs/70).
+// 0.66.0 (4/11): **the editors open a file of any size**. 0.65.0 put a ceiling of 64 KB on `edit` and of 512 KB on
+// `hexedit`, and it was an invented ceiling: the system lets a file be read in pieces (`fs.read_at`, `fs.open` +
+// `file:read`) and what an app must not do is load it whole. Now:
+//   - **`edit` makes an index of lines** reading the file in pieces of 64 KB, reads **only the lines that are seen** (a
+//     window of 2 KB for a line of more than 8 KB, which is seen but not edited) and saves by writing a temporary file
+//     where what has not changed **is copied from the original**, 64 KB at a time. Opening the 1.3 MB file `http` leaves
+//     behind, going to the last line, writing in it and saving it works.
+//   - **`hexedit` reads the window that is seen** and saves the bytes written with a handle at their offset; up to 256 KB
+//     it still holds the whole file in memory, which is what lets `x` and `i` move what is behind.
+//   - **The temporary of the named path is the named path too**: `fs.open('/littlefs/x.txt.tmp', 'w')` was forbidden and
+//     an atomic save from an app could not exist; it is the same permission as the file now (docs/70).
+//   - And **an error of the heap of the bench**, which is what brought the problem out: a block of the PSRAM that could
+//     not grow in its place only tried the other home and said `not enough memory` with four megabytes free in the same
+//     PSRAM (docs/75). `move_into` moves it to any spot of its own.
 // 0.66.1 (4/11): **the apps leave `data/` and move to `apps/`**, at the root of the project, one folder
 // per id, because they do not fit the flash image of the small boards. Measured on 3/11 with
 // `tool-mklittlefs` 1.203.210628 and a block of 4 KB: the 113 files of `apps/` need **between 1 179 648
@@ -882,232 +865,401 @@ namespace kernel {
 // **the turn of the frame follows the frame that arrived** and not every poll (the point was being turned once per
 // turn and a finger walked away on its own). And the grid was missing from the list of controls that take the
 // arrows, so the dial crossed it and the cells never moved (docs/30, docs/50, docs/90).
-// 0.81.2 (4/11): **el que estava trencat després de la feina dels controls.** Cap línia de codi de la pàgina
-// canvia; el que canvia és el que la fa funcionar i el que la comprova.
-//   - **Les plaques tornaven a no compilar** en una màquina sense `tool-mklittlefs`: `get_package_dir` contesta
-//     `None` quan el paquet no hi és i no llança, i `os.path.join(None, "mklittlefs")` era un `TypeError` que
-//     aturava el build d'`atom`, `paper` i `atom_matrix` just després de la línia que diu que la mida no es
-//     comprova. Ara el disc es munta igual i només se salta la comprovació.
-//   - **El disc del banc torna a ser el de qui el demana.** `Options::flash_dir` tenia `LUNOK_DISK_DIR` de
-//     sèrie, o sigui que **tapava `fs_dir`** i qualsevol prova llegia el disc del build i no el seu: cinc
-//     proves de `test_img` deien que no hi havia les imatges que sí que hi eren. El disc del build és el
-//     defecte del **binari** (`main_host` ja el posa) i no el de l'estructura d'opcions.
-//   - **El sostre d'una app puja a 128 KB** (era 64): el terra de l'intèrpret és **29 842 B** des de la
-//     llibreria d'UI (13 021 de Lua, 13 200 de la UI i 3 600 dels altres globals), i a l'ATOM això deixava
-//     35 KB per a l'app: el mateix `writer` de la prova que escrivia sis fitxers de 15 000 B va començar a dir
-//     `not enough memory`, i `run edit` no arrencava. L'ATOM contesta **338 864 B lliures**, i 128 KB és el
-//     39 % (docs/75, docs/85).
-//   - **Els bancs de proves són seus de debò**: `test_shell` no tenia disc —escrivia el que trobava, i per
-//     això les seves quatre proves feia dies que estaven vermelles i es van posar verdes per accident quan un
-//     defecte d'opcions els va fer escriure dins del repositori—; ara es fa un directori temporal amb les tres
-//     portes (`/apps`, `/res`, `/data`). La prova de les cares de `/fonts` escriu les seves dues cares al seu
-//     disc i deixa el lector de `.ttf` a la seva suite, que és l'única que té vidre.
-// **386 proves natives, totes verdes** (eren 387 amb 12 vermelles, i les quatre de `test_shell` que
-// arrossegàvem des de feia dies també hi són).
-// 0.82.0 (4/11): **`repository`, una comanda del prompt que demana al repositori quines apps té.** Escriu
-// `repository` i baixa el directori `apps/` de `lunokjod/lunokOS` de l'API de continguts de GitHub —la versió
-// crua de la pàgina `tree/main/apps` del navegador, que és HTML i no és el que vol una comanda— i en llista les
-// carpetes amb el nom, que és el que una persona vol saber. **És del sistema i no una app**: parla del sistema i
-// el que ha de respondre ho ha de respondre el sistema, amb la ràdio que es porta i deixa anar com `http`
-// (començada com a app de Lua, va durar una hora). Tres coses la fan possible i són les de sempre:
-//   - **La resposta no cap i no hi ha de cabre**: 45 KB de JSON amb la URL de cada entrada. `http_download` la
-//     deixa a `/littlefs/http/apps` i `kernel::repository::Listing` la passeja amb una finestra de **2 KB**,
-//     un objecte a cada pas i cap arbre i cap taula de noms (docs/75).
-//   - **Un objecte és una carpeta**: dins d'un objecte es recorda `name` i quan `type` diu `dir` aquell nom
-//     surt; el nom es llença en començar l'objecte següent, o sigui que un `type` no pot fer sortir el nom d'un
-//     altre (docs/70).
-//   - **En columnes i amb dos passeigs**: un per comptar i saber l'amplada de la més llarga, i un altre per
-//     pintar-les, amb una fila a la pila i el document al disc. L'API ja les dona ordenades pel nom.
-// L'ordre és `repository [owner/repo] [dir]`, amb `lunokjod/lunokOS` i `apps` per defecte, i els errors són els
-// de `http`: `E_NONET` diu que cal `wifi add`, un 404 diu el número i que un llistat és un 200, i el camí de la
-// resposta es diu al final perquè es pugui tornar a llegir (docs/30, docs/85).
-// 0.82.1 (4/11): **`repository info <app>`**: la fitxa d'una app del repositori. Demana el **manifest cru**
-// (`raw.githubusercontent.com/…/apps/<app>/manifest.json`) i no el de l'API, que el donaria amb el contingut en
-// base64 a dins d'un objecte; és un fitxer d'un kilobyte i **cap a la memòria** (2 KB de marge), o sigui que
-// no necessita disc com el llistat. El pinta amb el mateix lector de JSON que llegeix els manifests del disc
-// —títol, versió, autor, entrada, extensió, plaques i descripció— i la descripció es parteix a 80 columnes amb
-// la continuació sota del camp, que és el que fa llegible una fitxa. Una app sense `entry` o sense `title` ho
-// diu (`not a usable app`), perquè un manifest així no el pot córrer ningú (docs/30, docs/40).
-// 0.82.2 (4/11): **`cat` imprimeix el fitxer sencer.** Llegia una finestra de **1 024 B** amb `vfs::read_file`
-// i la imprimia sense dir res més, o sigui que un `cat` d'una pàgina que l'`http` havia desat al disc s'aturava
-// a la primera pantalla i mitja i **semblava un fitxer tallat** (trobat amb `cat /sd/http/apps`, 4/11). Ara
-// llegeix a finestres fins al final, amb la lectura comptada al `stats` com qualsevol altra, i el que triga és
-// el cable —1,3 MB a 115 200 baudes són uns dos minuts, que és el que trigaria la placa— i no un sostre. Un
-// fitxer que no acaba amb un salt en rep un, o el prompt quedaria enganxat a la seva última lletra.
-// **`hexdump` ja el llegia sencer** (les seves 16 B a 16 B, amb el recompte dels zeros del final): s'ha
-// comprovat amb el mateix fitxer i no s'hi ha tocat res (docs/30, docs/50, docs/70, docs/85).
-// 0.83.0 (4/11): **el teclat del sistema, dibuixat i amb les dues caixes.** La banda era una graella de deu
-// columnes amb caixes de botó i les paraules `DEL`, `SPACE`, `OK` i `123` en una tecla de 54 píxels, mig tallades; i
-// les lletres eren totes majúscules perquè la cara del sistema no en tenia d'altres. Ara és un **QWERTY esglaonat**
-// (la fila de la `a` mitja tecla a la dreta), amb la **barra d'espai** de sis dècimes al seu lloc, **majúscules** (⇧)
-// i **retrocés** (←) a les puntes, `123`/`ABC` per canviar de joc, **↵ per l'enter** i **cap botó**: només lletres, i
-// el bloc de tinta de la tecla on és el dial. La tecla de majúscules gira el joc sencer i deixa anar després d'una
-// lletra. La cara del sistema **porta les dues caixes** (0x20 a 0x7A, 455 B) i no plega la minúscula a la capital, o
-// sigui que el que s'escriu es veu com s'ha escrit, a la caixa i a l'editor. La banda fa **quatre files en els dos
-// jocs** i es pinta amb `gl16`: un `du` deixava les lletres del joc vell a mig esborrar i s'hi veien dos teclats.
-// **I funciona**: tres coses del banc amagaven el dit. El GT911 del banc escombra sol i **guarda el marc** fins que
-// una lectura se l'emporta (un toc que comença i s'acaba entre dues lectures és encara un marc, no res);
-// `ITouch::finger_still_down()` diu si el marc és d'un dit que encara hi és, i el nucli lliura llavors el toc i la
-// seva deixada alhora; i la cua del nucli es talla a vint mil·lisegons quan hi ha finestra, o dos clics entraven
-// plegats al panell i en sortien com un. Mesurat amb dotze clics de 90 ms sobre una tecla i una tecla premuda 1,8 s:
-// **una lletra abans i deu ara**, i el dit que jeu escriu una lletra i no una ratxa (docs/30, docs/50, docs/85,
-// docs/90).
-// 0.83.1 (4/11): **el teclat no parpelleja.** `keyboard_paint` marcava la banda sencera a cada `present`, i una app
-// que espera escrivint torna a presentar cada sis-cents mil·lisegons pel cursor de la caixa: el teclat es refrescava
-// sencer a cada parpelleig encara que no s'hi hagués tocat res (vist a la finestra, 4/11). Ara la banda es pinta al
-// llenç —és la capa de sobre i hi ha de ser— i **el que arriba al vidre és només el que ha canviat**: el bloc de la
-// tecla que es mou són dues cel·les i el canvi de joc o de caixa és la banda, i una presentada sense res premut no
-// pinta res. Mesurat a la finestra amb quatre captures seguides: la banda **0 píxels de diferència** entre elles i la
-// caixa 45, que és el cursor (docs/50, docs/90).
-// 0.84.0 (4/11): **la vista d'una app és el que queda sobre el teclat.** La banda sempre havia estat el que queda
-// sota: el sistema la pintava a sobre dels últims cent setanta-sis píxels del llenç i l'app havia de preguntar
-// `kb:height()` i restar-lo ella de la seva pàgina, o posar-hi coses a sota que ningú no podia prémer. Ara
-// `ui.caps().height` i `ui.height()` diuen **736 i no 912** mentre el teclat és al vidre i l'app rep `on_resize` quan la
-// banda surt i quan marxa —el mateix hook d'una rotació—, o sigui que una pàgina feta a partir de `ui.caps()` ja queda
-// bé i no ha de restar res. **El llenç no es torna a demanar** i no costa ni un byte: la banda continua pintant-se a
-// sobre dels seus últims píxels i `ui.canvas().height` diu l'alçada física per a qui la necessiti. El hook arriba amb el
-// motiu i no amb el fet: `canvas:resize(w, h)` (nou) deixa un `ui.panel` —o una etiqueta, o una caixa de text, que no
-// tenen píxels propis— prendre la mida nova, i un canvas amb buffer la refusa perquè la seva és un bloc demanat amb una
-// mida. La banda que marxa amb l'app que l'obria no diu res a ningú: `attach` la treu amb la pàgina fora dels llibres
+// 0.81.2 (4/11): **what was broken after the work on the controls**. No line of code of the page changes; what changes is
+// what makes it work and what tries it.
+//   - **The boards stopped compiling again** on a machine with no `tool-mklittlefs`: `get_package_dir` answers `None`
+//     when the package is not there and does not throw, and `os.path.join(None, "mklittlefs")` was a `TypeError` that
+//     stopped the build of `atom`, `paper` and `atom_matrix` right after the line that says the size is not checked. The
+//     disk is assembled the same now and only the check is skipped.
+//   - **The disk of the bench is the one of whoever asks for it again.** `Options::flash_dir` had `LUNOK_DISK_DIR`
+//     serialised into it, so it **covered `fs_dir`** and every test read the disk of the build and not its own: five
+//     tests of `test_img` said the pictures that were there were not. The disk of the build is the default of the
+//     **binary** (`main_host` already sets it) and not of the structure of options.
+//   - **The ceiling of an app goes up to 128 KB** (it was 64): the floor of the interpreter is **29 842 B** since the UI
+//     library (13 021 of Lua, 13 200 of the UI and 3 600 of the other globals), and on the ATOM that left 35 KB for the
+//     app: the same `writer` of the test that wrote six files of 15 000 B began to say `not enough memory`, and
+//     `run edit` did not start. The ATOM answers **338 864 B free**, and 128 KB is 39 % (docs/75, docs/85).
+//   - **The test benches are their own for real**: `test_shell` had no disk —it wrote what it found, and that is why its
+//     four tests had been red for days and turned green by accident when an error of the options made them write
+//     inside the repository—; a temporary directory with the three doors (`/apps`, `/res`, `/data`) is made now. The
+//     test of the faces of `/fonts` writes its two faces on its own disk and leaves the reader of `.ttf` to its suite,
+//     which is the only one that has a glass.
+// **386 native cases, all green** (they were 387 with 12 red, and the four of `test_shell` that we had been dragging
+// along for days are there too).
+// 0.82.0 (4/11): **`repository`, a command of the prompt that asks the repository which apps it has.** Type
+// `repository` and it downloads the `apps/` directory of `lunokjod/lunokOS` from the GitHub contents API —the raw
+// version of the browser's `tree/main/apps` page, which is HTML and not what a command wants— and lists its folders
+// with their name, which is what a person wants to know. **It is the system's and not an app**: it talks about the
+// system and what has to answer has to be answered by the system, with the radio taken and let go the way `http` does
+// (started as a Lua app, it lasted an hour). Three things make it possible and they are the usual ones:
+//   - **The answer does not fit and does not have to**: 45 KB of JSON with the URL of every entry. `http_download`
+//     leaves it at `/littlefs/http/apps` and `kernel::repository::Listing` walks it with a window of **2 KB**, one
+//     object at each step, with no tree and no table of names (docs/75).
+//   - **An object is a folder**: inside an object `name` is remembered and when `type` says `dir` that name comes out;
+//     the name is thrown away when the next object starts, so a `type` cannot make the name of another one come out
+//     (docs/70).
+//   - **In columns and with two walks**: one to count and know the width of the widest one, and another to paint them,
+//     with one row on the stack and the document on the disk. The API already gives them sorted by name.
+// The order is `repository [owner/repo] [dir]`, with `lunokjod/lunokOS` and `apps` by default, and the errors are those
+// of `http`: `E_NONET` says that `wifi add` is needed, a 404 says the number and that a listing is a 200, and the path
+// of the answer is said at the end so that it can be read again (docs/30, docs/85).
+// 0.82.1 (4/11): **`repository info <app>`**: the card of an app of the repository. It asks for the **raw manifest**
+// (`raw.githubusercontent.com/…/apps/<app>/manifest.json`) and not the one of the API, which would give it with the
+// contents in base64 inside an object; it is a file of one kilobyte and it goes **into the memory** (2 KB of margin),
+// so it needs no disk the way the listing does. It paints it with the same JSON reader that reads the manifests of the
+// disk —title, version, author, entry, extension, boards and description— and the description is broken at 80 columns
+// with the continuation under the field, which is what makes a card readable. An app without `entry` or without `title`
+// says so (`not a usable app`), because such a manifest cannot be run by anybody (docs/30, docs/40).
+// 0.82.2 (4/11): **`cat` prints the whole file.** It read a window of **1 024 B** with `vfs::read_file` and printed it
+// without saying anything more, so a `cat` of a page `http` had saved on the disk stopped after a screen and a half and
+// **looked like a cut file** (found with `cat /sd/http/apps`, 4/11). It reads in windows up to the end now, with the
+// read counted in `stats` like any other, and what it costs is the wire —1.3 MB at 115 200 baud is about two minutes,
+// which is what the board would take— and not a ceiling. A file that does not end with a newline gets one, or the
+// prompt would be glued to its last letter.
+// **`hexdump` already read it whole** (its 16 B at a time, with the count of the zeros at the end): it has been checked
+// with the same file and nothing has been touched (docs/30, docs/50, docs/70, docs/85).
+// 0.83.0 (4/11): **the keyboard of the system, drawn, with both cases.** The band was a grid of ten columns with
+// button boxes and the words `DEL`, `SPACE`, `OK` and `123` in a key of 54 pixels, half cut; and the letters were all
+// capitals because the face of the system had no others. It is a **staggered QWERTY** now (the row of the `a` half a key
+// to the right), with the **space bar** six tenths wide in its place, **capitals** (⇧) and **backspace** (←) at the ends,
+// `123`/`ABC` to change the set, **↵ for the enter** and **no button**: only letters and the block of ink of the key the
+// dial is on. The capitals key turns the whole set and lets go after one letter. The face of the system **carries both
+// cases** (0x20 to 0x7A, 455 B) and does not fold the lower case into the capital, so what is typed is seen as typed, in
+// the box and in the editor. The band is **four rows in both sets** and it is painted with `gl16`: a `du` left the
+// letters of the old set half erased and two keyboards could be seen in it.
+// **And it works**: three things of the bench were hiding the finger. The GT911 of the bench scans by itself and **keeps
+// the frame** until a read takes it away (a touch that starts and ends between two reads is still one frame, not
+// nothing); `ITouch::finger_still_down()` says whether the frame is of a finger that is still there, and the kernel then
+// delivers the touch and its lift together; and the queue of the kernel is cut at twenty milliseconds when there is a
+// window, or two clicks went into the panel together and came out as one. Measured with twelve clicks of 90 ms on one
+// key and one key held for 1.8 s: **one letter before and ten now**, and the finger that lies still types one letter and
+// not a run (docs/30, docs/50, docs/85, docs/90).
+// 0.83.1 (4/11): **the keyboard does not blink.** `keyboard_paint` marked the whole band on every `present`, and an app
+// that waits while typing presents again every six hundred milliseconds for the caret of the box: the keyboard was
+// refreshed whole on every blink even when nothing had been touched (seen in the window, 4/11). The band is painted on
+// the canvas now —it is the layer on top and it has to be there— and **what reaches the glass is only what has
+// changed**: the block of the key that moves is two cells and a change of set or of case is the band, and a present with
+// nothing pressed paints nothing. Measured in the window with four captures one after the other: the band **0 pixels of
+// difference** between them and the box 45, which is the caret (docs/50, docs/90).
+// 0.84.0 (4/11): **the view of an app is what is left over the keyboard.** The band had always been what is left below:
+// the system painted it over the last hundred and seventy-six pixels of the canvas and the app had to ask `kb:height()`
+// and subtract it from its page, or put things under it that nobody could press. `ui.caps().height` and `ui.height()`
+// say **736 and not 912** now while the keyboard is on the glass and the app receives `on_resize` when the band comes out
+// and when it goes —the same hook of a rotation—, so a page made from `ui.caps()` is already right and has nothing to
+// subtract. **The canvas is not asked for again** and it costs not one byte: the band keeps painting itself over its last
+// pixels and `ui.canvas().height` says the physical height for whoever needs it. The hook arrives with the reason and
+// not with the fact: `canvas:resize(w, h)` (new) lets a `ui.panel` —or a label, or a text box, which have no pixels of
+// their own— take the new size, and a canvas with a buffer refuses it because its size is a block asked for with a size.
+// The band that goes away with the app that opened it says nothing to anybody: `attach` takes it out with the page off
+// the books (docs/30, docs/90).
+// 0.84.1 (4/11): **the two things that hurt the text box.** The window of one line is painted with a buffer kept between
+// paints (half a kilobyte that the turn does not always have) and **it was not cleared**: every paint added its text to
+// the one before, so the box showed "h", then "hhe", then "hhehel" —what in the window is seen as a ghost of every word
+// written so far— (found with `run typing`, 4/11). And the caret of a box of lines with the cursor at zero was painted
+// **at the end of the first row**: the letters of a row are counted from one and the piece of code that closes the row
+// took any position the loop had not counted. Both with their test.
+// **And the apps that type have to present**: `notes` did not and the keyboard looked dead in it (the text changed and
+// the glass did not), and both present the change with `gl16` and not with `du`, because a `du` leaves five sixteenths of
+// the letter before under the new one (docs/30, docs/90).
+// 0.84.2 (4/11): **the command of the prompt is called `repo`.** It was called `repository` —ten letters for a name the
+// repository already says— and from today it is `repo [owner/repo] [dir]` and `repo info <app>`; `repository` does **not**
+// stay as an alias, because two names for one command is a person typing the one that does not work. What does not change
+// is the concept: `repository::Listing` and the work of the radio are the same, and what talks to GitHub is still the
+// contents API and the raw `manifest.json`. **`cat` and `hexdump` were already commands and not apps** —`print_file` and
+// `hexdump_file` in the shell, from the beginning— and there is no app on the disk with those names: there was nothing to
+// take out, and what the system does from here is say it, with the test of the command and without an `apps/cat` or an
+// `apps/hexdump` folder (docs/30, docs/85).
+// 0.84.3 (4/11): **the tests give back what they ask for.** Two things of the bench were not of the process but of the
+// terminal of whoever starts it, and both were left broken. The first: `pump_captured` and the other captures put
+// `stdout` in a file with `dup2`, and a `TEST_ASSERT` that fails goes out through a `longjmp` of Unity and does not pass
+// through the line that puts it back —the failure and the rest of the run were written to the file, `pio test` waited for
+// a summary that did not arrive and killed it with SIGHUP—; the console is put back in `tearDown` now, which Unity calls
+// whatever happens, and what had been captured is said again when the test has failed. The second: `pal::init()` puts
+// the terminal in raw mode and `pal::shutdown()` puts it back, but no suite says anything about it, so the terminal of
+// whoever had started the tests was left without echo until a `reset`; the PAL of the bench installs `atexit` when it
+// turns raw mode on and puts it back even when the process ends in the `exit` of a failure. And the last wait without a
+// ceiling of a test —`while (app_running()) poll()`— has the turn budget of the others (docs/80).
+// 0.85.0 (4/11): **the keyboard, drawn for real.** The letters of the keys were the 5 × 7 table of the bar —the same one
+// that says an hour and a charge— scaled, and in a key of forty-four pixels that is a grid of pixels and not a letter.
+// They are **DejaVu Sans Bold from `/fonts`** now, which is the face every disk of this system carries: `keyboard_face()`
+// reads it once at `keyboard_show` (8.5 KB of the extra memory, the same a page that loads a face pays), it lets it go
+// at `keyboard_hide`, and if the disk does not carry `/fonts` the table of the system stays and nobody is left without a
+// keyboard. **And every letter is drawn at double size and brought down to four levels of ink** (`outline_key_text`,
+// `aa_row`): the glass has sixteen levels and the curve of an `x` is what keeps it from looking like a grid. **The key of
+// the capitals is `MAY` and it is a lock**, not the shift of one letter: pressed it stays pressed, and one letter does
+// not undo it. **And the band does not repaint when a letter is pressed**: it is drawn on the canvas when the band
+// changes —when it comes out, when the lock or the alphabet change— and when the page steps on it (`ui.clear`, a
+// rectangle or a pixel, which is what `the_band_may_be_gone` says), and nothing more; the `keyboard_paint` that made
+// forty glyphs on every `present` (and the blink of the caret makes one every six hundred milliseconds) is what the
+// drawing cost (docs/30, docs/50, docs/90).
+// 0.85.1 (4/11): **the dial of the window, drawn and small.** The keys of the window of the emulator said `Up`, `Centre`
+// and `Down` with the table of the system, and a word in a button of eighty pixels is what makes the window look like a
+// form. **The sign of the key is a drawing** now —an arrow up, a filled circle and an arrow down, forty pixels and
+// centred— which `gui_key_icon` gives as **runs of one pixel** and which SDL and X11 paint the same way, so the map of
+// the click and the drawing come out of the same function; a board of **a single key** has no sign, and keeps the word,
+// because there the button is the whole side and not an icon. **And the buttons are forty by forty with six of air**
+// (they were eighty by fifty-four with eight): with a mouse, a button of two fingers is a big button and what is needed
+// is that the column does not eat the page (docs/85).
+// 0.85.2 (4/11): **the caret goes where the finger lands, and the bar paints its boxes.** A finger in a field of several
+// lines put the caret in the middle of the last line when it landed below the text, and the page was not repainted: the
+// caret moved in the model and the glass showed the one from before. **A row that is not there is the end of the whole
+// text** now, an empty row that is there is a row, and **the system presents what it has moved** with `gld16` —it cleans
+// and does no flash, which is the rule of this project (docs/92)—, with the box drawn before composing, because
+// presenting what the box has not painted yet is presenting the old caret. And **the bar is three boxes** and not one
+// strip: the hour, the title and the charge, each one measured with the widest text it can carry, and what changes is
+// cleaned and drawn on its own. A new title was a `gc16` of the whole strip —four flashes for one word— and a minute was
+// a `du`, which paints but does not clean; both are a `gld16` of the box that changed now. The `gc16` of the whole strip
+// is left for the boot and for a turn of the page, which are the two cases in which the whole strip is new
+// (docs/50, docs/85, docs/92).
+// 0.85.3 (4/11): **what is seen in the window, said with one line.** With `--verbose` every paint of the glass comes
+// out with its region and its quality (`gui: paint 12,9 116x28 gld16`), which is how "does the title repaint the strip?"
+// is answered with the log and not with the eye: what is seen is the boot with a `gc16` of 0,0 540x48, the page of the
+// app, and then **one hour of 116x28 per minute** and nothing more. And **the apps of controls stop asking for `gc16`**:
+// a page of text and of controls is binary —ink and paper, and what is chosen is inverted— and the wash it deserves is
+// `gld16`, which cleans and **does no flash**; `gc16` is four flashes of the page for one marked box. The demos that
+// draw greys or photos stay as they were (docs/50, docs/85, docs/92).
+// 0.85.4 (4/11): **the controls are two levels.** The relief of a button was `background + 4` and `background − 4`
+// —eleven and seven in a white button— and the one of a checkbox the same, with the body one step darker when pressed:
+// **four greys in a control that only says two things**, and a grey is a control that asks for the wash of sixteen
+// levels to look right and that leaves a grey ghost when it moves. The relief is **paper and ink** now: a light body has
+// no lighter edge and its shadow is ink, and a dark body has the shine of paper and no shadow; pressing is the relief
+// changing place and the body staying as it was, and what is chosen is inverted. **And the band of the keyboard cleans
+// with no flash**: it asked for `gl16`, which is two flashes of the whole band on every `MAY` and on every `123`, and it
+// asks for `gld16` now, which cleans the sixteen levels of the letters with zero flashes. It is the rule this project
+// already had written: nothing that blinks reaches the glass, and cleaning is `gld16` (docs/30, docs/50, docs/92).
+// 0.86.0 (4/11): **`repo install <app>`, and an app can live on the card.** The command asks the contents API of GitHub
+// for the directory of the app, downloads **every file** —the manifest, the code and whatever it carries in `res/`,
+// folders included— and leaves them on the disk the person chose with `cfg`: the card with `auto` when there is one and
+// the flash when not. The listing of a folder is one download and every file another, and the chain takes **one step per
+// turn**: a download asked for inside the answer of the previous one is a second page with one pending, and the kernel
+// refuses it with `E_BUSY` (docs/30, docs/75). **And the system looks for apps on the card and on the flash**, the card
+// first: the same id installed on the card is the one that comes out in the listing and the one that runs, and taking
+// the card out brings the flash one back — `apps::root_of` is the path the listing, the `run` and the door of `res/` ask
+// about, so an app of the card reads its `res/` from the card (docs/40, docs/70). With `--verbose` an install leaves one
+// line per file, which is how it was found that the buffer of a name cut the download address (docs/85).
+// 0.86.1 (4/11): **a path that is not there says why, and where the one that is there lives.** `ls /sd/app/timers`
+// answered `cannot list: /sd/app/timers`, which is true and does not help: the half that existed was `/sd/apps` and the
+// message did not say so. `ls` looks first and says **`no such directory: <path>`** now with the piece that exists and
+// what it holds (`/sd has: apps`) —eight names and no more, because this is a hint and not a listing—, `cat` says the
+// same when the file is not there, and **`ls` of a file lists it** with its name and its size instead of saying it is not
+// a folder. What is not invented is the name: the hint is what is there, and finding the letter that is missing is the
+// reader's job (docs/30, docs/70).
+// 0.87.0 (4/11): **a graphical text editor** (`run editor [path]`). The menu bar of the system is its command: **File**
+// opens, saves, saves as and closes —the path is typed in a card with the keyboard of the system, and what is neither the
+// path the prompt named nor the app's own is refused and said why— and **View** carries **Read Only** and **Word wrap**
+// with a box inside the menu (`checked`), which on this glass is a box with the middle filled because there is no third
+// tone for "on" —and **an entry that is a switch carries the empty box when it is off** (`checkable`: the field `checked`
+// is there even when it is `false`), because an empty box and no box are a switch and an order with no word
+// between them—. Every letter is painted with `gld16` (it cleans and does no flash) and the caret of the text goes where
+// the finger lands (docs/30, docs/90). **And three things of the kernel the editor brought out**: the menu bar **has no
+// buffer** and paints the unfolded card over the page, so when the menu folds —or when one title unfolds another— its
+// letters stay on the canvas under it —the app repaints the page and asks for the pixels of every control again, and that
+// is what `repaint_page` does, also when the page moves because the keyboard appears or goes away—; **the box of one
+// line did not draw the beginning of the text** when the text was wider than what was left after the caret (it drew the
+// "rest" starting at the beginning of the window and the head was never drawn, so `/data/editor/note.txt` was seen as
+// `/data/editor/not` with the caret alone on the right); and the card of a path **saves in the memory of the app**
+// (`/data/editor`) or at the path the prompt named, which is the policy of docs/70 and not a new door
+// (docs/30, docs/70, docs/90).
+// 0.87.1 (4/11): **apps are looked for where they are, and they say so**. The two bands have the whole path in one place
+// of the code —`/littlefs/apps` and `/sd/apps`— and not the `/apps` alias that was spread around, **the card is walked
+// only when the mount of `/sd` is there** (a board with no card does not pay a turn through the void and cannot show a
+// disk that is not there), and the listing marks with **[card]** the app that has come from the card, because the same
+// id can be on both disks and whoever tries a version has to be able to read which of the two is being seen. An app
+// that is not found says where it was looked for, with both paths: `no such app: x` and under it `apps are in
+// /littlefs/apps and /sd/apps` (or that there is no card in the slot). The path `apps::root_of()` answers is still **the
+// door** —`/apps/<id>` on the flash, `/sd/apps/<id>` on the card—, which is how an app reads its `res/` without the whole
+// `/littlefs` being its own (docs/40, docs/70).
+// 0.88.0 (4/11): **the scroll bar of a box of several lines, and the gesture that moves it**. When the text does not fit
+// in the box, the right side is a track of one pixel with a thumb as long as the part of the text that is seen, and the
+// text is measured with the room that is left —a line that goes under the thumb is not read—, so **a box the text fits in
+// has no bar and loses nothing**. The window is the caret's while the app does not name another one (`top`, `-1` = the
+// caret's, and the box gives it up to the limits of the text), and **the gesture is registered by the app** with
+// `on_swipe`: without that function the finger puts the caret there as always. With the gesture registered a tap waits
+// for the finger to let go —twelve pixels are the line between a tap and a swipe— and the system does the arithmetic:
+// one row every fourteen pixels, the `top` written by it, a `gld16` that cleans and does no flash and `on_swipe(self,
+// rows)` for the app. The start of the finger, the pixels and the caret that waits **are cleared when the page comes in
+// and when it goes**, which is what keeps an app that ended with the finger down from leaving a half gesture to the one
+// after it. `box:lines()` says how many rows the whole text has, and the editor uses it to say "row 22 of 120"
 // (docs/30, docs/90).
-// 0.84.1 (4/11): **les dues coses que feien mal a la caixa de text.** La finestra d'una línia es pinta amb un buffer que
-// es guarda entre pintades (mig kilobyte que el torn no sempre té) i **no s'esborrava**: cada pintada hi afegia el seu
-// text al de l'anterior, o sigui que la caixa mostrava «h», després «hhe», després «hhehel» —el que a la finestra es veu
-// com un fantasma de cada paraula escrita fins ara— (trobat amb `run typing`, 4/11). I el cursor d'una caixa de línies
-// amb el cursor a zero es pintava **al final de la primera fila**: les lletres d'una fila es compten des d'u i el
-// tros de codi que tanca la fila prenia qualsevol posició que el bucle no hagués comptat. Les dues amb la seva prova.
-// **I les apps que teclegen han de presentar**: `notes` no ho feia i el teclat hi semblava mort (el text canviava i el
-// vidre no), i les dues presenten el canvi amb `gl16` i no amb `du`, perquè un `du` deixa cinc setzens de la lletra
-// anterior sota la nova (docs/30, docs/90).
-// 0.84.2 (4/11): **la comanda del prompt es diu `repo`.** Es deia `repository` —deu lletres per a un nom que el
-// repositori ja diu— i des d'avui és `repo [owner/repo] [dir]` i `repo info <app>`; `repository` **no** queda com a
-// àlies, perquè dos noms per a una comanda és una persona que escriu el que no funciona. El que no canvia és el
-// concepte: `repository::Listing` i el treball de la ràdio són els mateixos, i el que parla amb GitHub continua essent
-// l'API de continguts i el `manifest.json` cru. **`cat` i `hexdump` ja eren comandes i no apps** —`print_file` i
-// `hexdump_file` a la shell, des de sempre— i al disc no hi ha cap app amb aquests noms: no hi havia res a treure, i
-// el que fa el sistema des d'aquí és dir-ho, amb la prova de la comanda i sense cap carpeta `apps/cat` ni
-// `apps/hexdump` (docs/30, docs/85).
-// 0.84.3 (4/11): **les proves tornen el que demanen.** Dues coses del banc no eren del procés i sí del terminal de qui
-// les llança, i totes dues quedaven trencades. La primera: `pump_captured` i les altres captures posen `stdout` en un
-// fitxer amb `dup2`, i un `TEST_ASSERT` que falla surt per un `longjmp` de Unity i no passa per la línia que el torna a
-// posar —la fallada i la resta de la tirada s'escrivien al fitxer, el `pio test` esperava un resum que no arribava i el
-// matava amb SIGHUP—; ara la consola es torna a `tearDown`, que Unity crida passi el que passi, i el que hi havia
-// capturat es torna a dir quan la prova ha fallat. La segona: `pal::init()` posa el terminal en mode cru i
-// `pal::shutdown()` el torna, però cap suite en diu res, o sigui que el terminal de qui havia llançat les proves quedava
-// sense eco fins a un `reset`; el PAL del banc instal·la `atexit` en encendre el mode cru i el torna encara que el
-// procés acabi en un `exit` d'una fallada. I l'última espera sense sostre d'una prova —`while (app_running()) poll()`—
-// té el pressupost de torns de les altres (docs/80).
-// 0.85.0 (4/11): **el teclat, dibuixat de debò.** Les lletres de les tecles eren la taula de 5 × 7 de la barra —la
-// mateixa que diu una hora i una càrrega— escalada, i en una tecla de quaranta-quatre píxels això és una graella de
-// píxels i no una lletra. Ara són **DejaVu Sans Bold de `/fonts`**, que és la cara que tot disc d'aquest sistema porta:
-// `keyboard_face()` la llegeix una vegada a `keyboard_show` (8,5 KB de la memòria extra, els mateixos que paga una
-// pàgina que carrega una cara), la deixa anar a `keyboard_hide`, i si el disc no porta `/fonts` es queda la taula del
-// sistema i ningú no es queda sense teclat. **I cada lletra es dibuixa a doble mida i es rebaixa a quatre nivells de
-// tinta** (`outline_key_text`, `aa_row`): el vidre té setze nivells i la corba d'una `x` és el que fa que no sembli una
-// graella. **La tecla de les majúscules és `MAY` i és un bloqueig**, no el shift d'una lletra: premut es queda premut, i
-// una lletra no el desfà. **I la banda no es repinta en prémer una lletra**: es dibuixa al llenç quan canvia ella
-// —quan surt, quan canvia el bloqueig o l'alfabet— i quan la pàgina la trepitja (`ui.clear`, un rectangle o un píxel, que
-// és el que diu `the_band_may_be_gone`), i res més; el `keyboard_paint` que feia quaranta glifs a cada `present` (i el
-// parpelleig del cursor en fa un cada sis-cents mil·lisegons) és el que costava el dibuix (docs/30, docs/50, docs/90).
-// 0.85.1 (4/11): **el dial de la finestra, dibuixat i petit.** Les tecles de la finestra de l'emulador deien `Up`,
-// `Centre` i `Down` amb la taula del sistema, i una paraula en un botó de vuitanta píxels és el que fa que la finestra
-// sembli un formulari. Ara **el signe de la tecla és un dibuix** —una fletxa amunt, un cercle farcit i una fletxa
-// avall, de quaranta píxels i centrat— que `gui_key_icon` dona com a **runs d'un píxel** i que el SDL i l'X11 pinten
-// igual, perquè el mapa del clic i el dibuix surtin de la mateixa funció; una placa d'**una sola tecla** no en té, de
-// signe, i es queda la paraula, que allà el botó és tot el costat i no una icona. **I els botons són de quaranta per
-// quaranta amb sis de buit** (eren vuitanta per cinquanta-quatre amb vuit): amb el ratolí, un botó de dos dits és un
-// botó gros i el que cal és que la columna no es mengi la pàgina (docs/85).
-// 0.85.2 (4/11): **el cursor va on toca el dit, i la barra pinta les seves caixes.** Un dit en un camp de diverses
-// línies posava el cursor al mig de l'última línia quan tocava per sota del text, i la pàgina no es repintava: el
-// cursor es movia al model i el vidre ensenyava el d'abans. Ara **una fila que no hi és és el final de tot el text**,
-// una fila buida que hi és és una fila, i **el sistema presenta el que ha mogut ell** amb `gld16` —neteja i no fa cap
-// flaix, que és la regla d'aquest projecte (docs/92)—, amb la caixa dibuixada abans de compondre, perquè presentar el
-// que la caixa encara no ha pintat és presentar el cursor vell. I **la barra són tres caixes** i no una franja: l'hora,
-// el títol i la càrrega, cadascuna mesurada amb el text més ample que pot portar, i el que canvia es neteja i es dibuixa
-// sol. Un títol nou era un `gc16` de tota la franja —quatre ensurts per una paraula— i un minut era un `du`, que pinta
-// però no neteja; ara les dues coses són un `gld16` de la caixa que ha canviat. El `gc16` de la franja sencera queda per
-// al boot i per a un gir de pàgina, que són els dos casos en què la franja sencera és nova (docs/50, docs/85, docs/92).
-// 0.85.3 (4/11): **el que es veu a la finestra, dit amb una línia.** Amb `--verbose` cada pintat del vidre surt amb la
-// seva regió i la seva qualitat (`gui: paint 12,9 116x28 gld16`), que és com es respon «el títol repinta la franja?» amb
-// el log i no amb l'ull: el que s'hi veu és el boot amb `gc16` de 0,0 540x48, la pàgina de l'app, i després **una hora de
-// 116x28 per minut** i res més. I **les apps de controls deixen de demanar `gc16`**: una pàgina de text i de controls és
-// binària —tinta i paper, i el que està triat s'inverteix— i el rentat que li toca és `gld16`, que neteja i **no fa cap
-// flaix**; `gc16` són quatre ensurts de pàgina per una casella marcada. Les demos que dibuixen grisos o fotos es queden
-// com estaven (docs/50, docs/85, docs/92).
-// 0.85.4 (4/11): **els controls són dos nivells.** El relleu d'un botó era `fons + 4` i `fons − 4` —onze i set en un
-// botó blanc— i el d'una casella el mateix, amb el cos un pas més fosc en prémer-se: **quatre grisos en un control que
-// només diu dues coses**, i un gris és un control que demana el rentat de setze nivells perquè quedi bé i que deixa un
-// fantasma gris quan es mou. Ara el relleu és **paper i tinta**: un cos clar no té aresta més clara i la seva ombra és
-// tinta, i un cos fosc té lluentor de paper i cap ombra; prémer-se és el relleu que canvia de lloc i el cos que es queda
-// com era, i el que està triat s'inverteix. **I la banda del teclat neteja sense ensurt**: demanava `gl16`, que són dos
-// flaixos de tota la banda a cada `MAY` i a cada `123`, i ara demana `gld16`, que neteja els setze nivells de les lletres
-// amb zero flaixos. És la regla que aquest projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar
-// és `gld16` (docs/30, docs/50, docs/92).
-// 0.86.0 (4/11): **`repo install <app>`, i una app pot viure a la targeta.** La comanda demana a l'API de continguts de
-// GitHub el directori de l'app, en baixa **cada fitxer** —el manifest, el codi i el que porti a `res/`, carpetes
-// incloses— i els deixa al disc que la persona ha triat amb `cfg`: la targeta amb `auto` quan hi és i la flash quan no.
-// El llistat d'una carpeta és una baixada i cada fitxer una altra, i la cadena fa **un pas per torn**: una baixada
-// demanada dins de la resposta de l'anterior és una segona pàgina amb una de pendent, i el nucli la refusa amb
-// `E_BUSY` (docs/30, docs/75). **I el sistema mira les apps a la targeta i a la flash**, la targeta primer: el mateix
-// id instal·lat a la targeta és el que surt al llistat i el que s'executa, i treure la targeta torna la de la flash —
-// `apps::root_of` és el camí que pregunten el llistat, el `run` i la porta de `res/`, o sigui que una app de la
-// targeta llegeix el seu `res/` de la targeta (docs/40, docs/70). Amb `--verbose` una instal·lació deixa una línia per
-// fitxer, que és com s'ha trobat que el buffer d'un nom tallava l'adreça de descàrrega (docs/85).
-// 0.86.1 (4/11): **un camí que no hi és diu per què, i on és el que sí que hi ha.** `ls /sd/app/timers` responia
-// `cannot list: /sd/app/timers`, que és cert i no ajuda: la meitat que existia era `/sd/apps` i el missatge no ho deia.
-// Ara `ls` mira primer i diu **`no such directory: <path>`** amb el tros que existeix i què té a dins (`/sd has: apps`)
-// —vuit noms i prou, que això és una pista i no un llistat—, `cat` diu el mateix quan el fitxer no hi és, i **`ls`
-// d'un fitxer el llista** amb el seu nom i la seva mida en comptes de dir que no és cap carpeta. El que no s'inventa
-// és el nom: la pista és el que hi ha, i trobar la lletra que falta és de qui llegeix (docs/30, docs/70).
-// 0.87.0 (4/11): **un editor de text gràfic** (`run editor [path]`). La barra de menús del sistema és el seu comandament:
-// **File** obre, desa, desa com i tanca —el camí s'escriu en una targeta amb el teclat del sistema, i el que no és el
-// camí que el prompt ha nomenat ni el propi de l'app es refusa i es diu per què— i **View** porta **Read Only** i
-// **Word wrap** amb una casella dins del menú (`checked`), que en aquest vidre és una caixa amb el mig ple perquè no hi
-// ha un tercer to per a «encesa» —i **una entrada que és un interruptor porta la caixa buida quan està apagada**
-// (`checkable`: el camp `checked` hi és encara que sigui `false`), perquè una caixa buida i cap caixa són un interruptor
-// i una ordre sense cap paraula—. Cada lletra es pinta amb `gld16` (neteja i no fa cap flaix) i el cursor del text va on
-// toca el dit (docs/30, docs/90). **I tres coses del nucli que l'editor ha destapat**: la barra de menús **no té buffer**
-// i pinta la targeta desplegada a sobre de la pàgina, o sigui que quan el menú es plega —o quan un títol en desplega un
-// altre— les seves lletres es queden al canvas de sota —l'app repinta la pàgina i torna a demanar els píxels de cada
-// control, i això és el que fa `repaint_page`, també quan la pàgina es mou perquè el teclat apareix o desapareix—; **la
-// caixa d'una línia no dibuixava el començament del text** quan el text era més ample que el que quedava després del
-// cursor (dibuixava la «resta» començant pel principi de la finestra i el cap no es dibuixava mai, o sigui que
-// `/data/editor/note.txt` es veia com `/data/editor/not` amb el cursor sol a la dreta); i la targeta d'un camí **desa a
-// la memòria de l'app** (`/data/editor`) o al camí que el prompt ha nomenat, que és la política de docs/70 i no una
-// porta nova (docs/30, docs/70, docs/90).
-// 0.87.1 (4/11): **les apps es busquen on són, i ho diuen**. Les dues bandes tenen el camí sencer en un sol lloc de
-// codi —`/littlefs/apps` i `/sd/apps`— i no l'àlies `/apps` que hi havia escampat, **la targeta només es camina si el
-// muntatge de `/sd` hi és** (una placa sense targeta no paga una volta pel buit ni pot ensenyar un disc que no hi ha),
-// i el llistat marca amb **[card]** l'app que ha sortit de la targeta, perquè el mateix id pot ser als dos discs i qui
-// prova una versió ha de poder llegir quina de les dues veu. Una app que no es troba diu on s'ha buscat, amb els dos
-// camins: `no such app: x` i a sota `apps are in /littlefs/apps and /sd/apps` (o que no hi ha targeta al slot). El
-// camí que respon `apps::root_of()` continua sent **la porta** —`/apps/<id>` a la flash, `/sd/apps/<id>` a la
-// targeta—, que és per on una app llegeix el seu `res/` sense que `/littlefs` sencer sigui seu (docs/40, docs/70).
-// 0.88.0 (4/11): **la barra del desplaçament d'una caixa de diverses línies, i el gest que la mou**. Quan el text no cap
-// a la caixa, el cantó dret és una pista d'un píxel amb un polze tan llarg com la part del text que es veu, i el text es
-// mesura amb el lloc que queda —una línia que passa per sota del polze no es llegeix—, o sigui que **una caixa on el
-// text hi cap no té barra i no perd res**. La finestra és la del cursor mentre l'app no en digui una altra (`top`,
-// `-1` = la del cursor, i la caixa el cedeix als límits del text), i **el gest el registra l'app** amb `on_swipe`:
-// sense aquesta funció el dit hi posa el cursor com sempre. Amb el gest registrat un toc espera al fet que el dit deixi
-// anar —dotze píxels són la ratlla entre un toc i un swipe— i el sistema fa l'aritmètica: una fila cada catorze píxels,
-// el `top` escrit per ell, un `gld16` que neteja i no fa cap flaix i `on_swipe(self, rows)` per a l'app. El començament
-// del dit, els píxels i el cursor que espera **es netegen quan la pàgina entra i quan marxa**, que és el que fa que una
-// app acabada amb el dit a sobre no deixi cap gest a mitges a la que ve després. `box:lines()` diu quantes files té el
-// text sencer, i l'editor les fa servir per dir «row 22 of 120» (docs/30, docs/90).
-// 0.88.1 (4/11): **`help` amb una comanda és l'ajuda d'aquella comanda**. `help repo` ensenya les tres línies de `repo` i
-// cap altra, `help repo install` la d'aquella sintaxi, i el que es compara és **la sintaxi de la línia** —el que va abans
-// dels dos espais, que és el que la llista ja posa en negreta— amb les paraules que s'han escrit: un mot que només és el
-// començament d'una comanda no és la comanda (`help pow` no és `power`), i un mot que no respon a res diu
-// `no such command: x` i que `help` els llista tots. De passada, la línia de `http` a la llista **tenia un sol espai**
-// i per això sortia plana i no era cap comanda ni per a `help http` (docs/30, docs/85).
-// 0.88.2 (4/11): **el banc no té cap app**. Ni a la flash ni a la targeta: el seu disc és el sistema (`res/`,
-// `http/`, `data/`) i el slot és buit fins que algú hi posa una targeta, o sigui que `apps` en un banc acabat de fer diu
-// `no apps` i `run` diu que no coneix el nom. Una app arriba al banc com arriba a una placa: amb `repo install <app>`, o
-// amb una targeta pròpia per `--sd`. **I `/apps` és un muntatge només quan el directori hi és**: un disc sense apps no
-// té aquesta fila, o sigui que `ls /` i `mounts` no ensenyen una porta que no porta enlloc (la trobava el banc, que deia
-// `no such directory: /apps` i tot seguit `/ has: apps`); les proves munten el seu disc amb les carpetes abans de
-// l'arrencada, com un disc que ve amb les apps a dins (docs/70, docs/80, docs/85).
-static const char kVersion[] = "0.88.2";
+// 0.88.1 (4/11): **`help` with a command is the help of that command**. `help repo` shows the three lines of `repo` and
+// no other, `help repo install` the one of that syntax, and what is compared is **the syntax of the line** —what goes
+// before the two spaces, which is what the list already puts in bold— with the words that have been typed: a word that
+// is only the beginning of a command is not the command (`help pow` is not `power`), and a word that answers to nothing
+// says `no such command: x` and that `help` lists them all. On the way, the line of `http` in the list **had a single
+// space** and that is why it came out flat and was no command, not even for `help http` (docs/30, docs/85).
+// 0.88.2 (4/11): **the bench has no app at all**. Neither on the flash nor on the card: its disk is the system (`res/`,
+// `http/`, `data/`) and the slot is empty until somebody puts a card in it, so `apps` on a bench just made says
+// `no apps` and `run` says it does not know the name. An app arrives at the bench as it arrives at a board: with
+// `repo install <app>`, or with a card of its own through `--sd`. **And `/apps` is a mount only when the directory is
+// there**: a disk with no apps has no such row, so `ls /` and `mounts` do not show a door that leads nowhere (the bench
+// found it, saying `no such directory: /apps` and right after `/ has: apps`); the tests mount their disk with the
+// folders before the boot, like a disk that comes with the apps inside (docs/70, docs/80, docs/85).
+// 0.88.3 (4/11): **the code speaks English.** The law says every comment in this repository is in English, and the work of
+// 0.82 to 0.88 had left 172 lines of Catalan in the comments of the kernel, the bridge, the headers, the apps and the
+// tests —the review of 4/11 measured them file by file: `shell.cpp` 68, `luabind.cpp` 22, `repository.h` 20, `ui.cpp` 15,
+// `repository.cpp` 11, `apps.cpp` 8, `editor.lua` 10—. All of them are English now, and so is everything else that was
+// left: **the 233 lines of the entries of 0.10 to 0.81 of this file**, which were the only Catalan left in the tree apart
+// from three old apps (`apps/edit`, `apps/hexedit`, `apps/images`, 93 lines between them, also translated here). Nothing
+// of the behaviour changes: it is the same code with its reasons written in the language the law asks for, and the three
+// apps still parse (`luac -p`) with their keys and their messages untouched.
+// 0.88.4 (4/11): **the listing of the repository is one object in static memory and not a frame of the stack.** It
+// carries a window of two kilobytes, a name and a download address —`sizeof(Listing)` is **2 280 B**, measured with the
+// header— and it was a local of `entry_at`, which the install calls **once per file of an app**, on a path that already
+// comes from the shell with the radio and the download on top; `print_listing` had two of them alive at the same time,
+// which is 4 560 B of one frame. The stack of the loop task is sixteen kilobytes and the QR of four broke the board once
+// with a canary watchpoint (docs/75). **`Listing::one()`** gives the object every caller walks now —the install, the
+// listing of the prompt and the test that guards it—, `open` throws away what the one before left in it, and the reader
+// gives its file back to the backend when it has finished so a shared handle is never held by nobody (docs/70, docs/75).
+// 0.88.5 (4/11): **the listing of the repository is walked in one pass and not once per entry.** `entry_at` answers an
+// index by reading the document from its first byte, and `repo install` asked it for every file of the app: an app of
+// twenty files paid twenty opens and twenty parses of the same forty-four kilobytes of JSON, which is O(n²) in the
+// number of entries. The install walks the listing it has open now —`repository::start`, `next` and `stop`, over the
+// same static reader `entry_at` uses— and the index it used to carry between turns (`g_install_entry`) is gone, because
+// the reader knows where it is. **Measured on the bench** with forty entries of about a hundred bytes: **3 131 µs** one
+// call each against **110 µs** in one walk, **28 times less**, and the gap grows with the number of entries. The reader
+// gives its file back when the folder is finished and also when an install dies in the middle of one (docs/70, docs/75).
+// 0.88.6 (4/11): **`repo install` has a test of the whole chain, and the bench answers per address to make it possible.**
+// The fake wire had one canned page for every URL, which is a page and not a chain: an install asks for the listing of
+// the app, the listing of each folder and every file, and all of them are different answers of the same server.
+// **`emu::http_canned(key, body, status)`** adds an answer whose key is a part of the address —the first that matches
+// wins, and with none of them the canned page answers—, and `http_canned_clear` starts a test from a wire with none
+// (docs/85). The test installs an app of four files and a folder on the flash, checks that the summary says the count of
+// what came down and that every file is on the disk with its bytes, that no `.listing.json` is left behind, and that the
+// app that landed is one the system runs; a second one makes the last file of the folder answer a 404 and checks that
+// the shell says which file stopped it and that the same command afterwards is a whole install and not the rest (docs/30,
+// docs/70, docs/85).
+// 0.88.7 (4/11): **the depth of a listing is an `int` and not a `char`.** Both walkers of `repository.cpp` counted the
+// objects they were inside in a `char`, which has a sign on this board: a document with a hundred and thirty open
+// objects took it past `CHAR_MAX` and into numbers no document has, which is signed overflow and undefined behaviour.
+// **The consequence is not theoretical**: with a negative depth `depth == 0` never comes, the name kept for an object is
+// never thrown away where the document closes, and the `name` of one object is answered as the entry of a later `type`
+// that has no name of its own —an entry that is not in the answer, and a file an install would download for nobody—. Two
+// bytes of `int` instead of one of `char`, and the cost is zero (found in the review of 4/11, docs/30, docs/75).
+// 0.88.8 (4/11): **a key of the answer that does not fit is dropped whole and not cut in the middle.** Both walkers read
+// the key into sixteen bytes and the sixteenth character went to the bin without a word: the lesson of the address that
+// was cut at forty-eight and cost a 404 had not been applied to the key. A key cut in the middle can only ever fail a
+// comparison —it is fifteen bytes and the keys this reader knows are shorter—, so what it must not do is pretend it was
+// read: `kKey` is now the name of that size, `read_string` says when it dropped something, and the walkers skip such a
+// key whole without comparing it, so the object is read as if the field were not there (the API sends `submodule_git_url`
+// with sixteen characters in some answers) (found in the review of 4/11, docs/30, docs/75).
+// 0.88.9 (4/11): **the folders an install has to walk are a file of the app's folder and not a table of six.** The queue
+// was `g_install_waiting[6][48]`, so an app of seven folders was an install that said "this app has more folders than an
+// install carries" and stopped —a fixed ceiling written on the disk— and a folder inside a folder had no room in the table
+// at all: the name it took was the bare one, so its files landed in the root of the app. The plan is `<root>/.folders`
+// now, one line per folder with the path it has inside the app, appended as the walk finds them and read line by line
+// when the one before is finished; the ceiling is the disk and the nesting is the path. **It is also smaller**: the table
+// was 288 B of `.bss` and what is there now is a path of 112 B and two counters of two, with the queue on the disk —ten
+// folders are a hundred and twenty bytes read once per folder, next to the two kilobytes of the listing—. The plan goes
+// away with the listing, also when the install dies in the middle, because the app's own `fs.list` must not see a file
+// of the system (found in the review of 4/11, docs/30, docs/70, docs/75).
+// 0.88.10 (4/11): **the list of apps does not repeat one from its twenty-fifth app on.** The walk kept the ids of the card
+// in a table of twenty-four (`kSeen`) so the flash would not list them again, and past that the flash repeated an app the
+// card also had: the card is the one that runs, so the list showed the same app twice with different titles, which is a
+// degradation of something a person reads and the only place it happened. The question "does the card carry this id?" is
+// `has_manifest` on the card now —one stat, no logging, the same call `root_of` already used—, so there is no number of
+// apps that breaks it. **It is also 768 B of `.bss` less**: the table was `24 x sizeof(Entry::id)`, which is 24 x 32
+// (found in the review of 4/11, docs/40, docs/75).
+// 0.88.11 (4/11): **a manifest that names more boards than the system carries says so, instead of saying it names none.**
+// `get_strings` refused the whole list when it did not fit —which is right, because a list with one board left out would
+// say the app runs where it does not— and the caller said `%s does not say which boards it runs on` for every way of
+// failing: a lie about a file that says nine of them. The reader returns **why** now (`Strings::kAbsent`, `kNotArray`,
+// `kUnclosed`, `kEmptyItem`, `kItemTooLong`, `kTooMany`), walks the list **whole even when it does not fit** so it can
+// say how many there were (`total`), and the two places that read a list of boards tell the truth: the log of the walk
+// (`names 9 boards and this system carries 8`) and the card of `repo info` (`9 in the manifest, more than this system
+// carries` instead of a dash) (found in the review of 4/11, docs/40, docs/75).
+// 0.88.12 (4/11): **the userdata of the keyboard does not pretend to carry a datum.** It was `struct LuaKeyboard { int
+// placeholder; }`: a field that existed so the struct would not be empty, with nothing in the code that said so —the one
+// thing the keyboard has, the box it types into, is a reference of the registry for the whole system—, and a field with a
+// name is a field the next reader takes for data that is there for a reason. The struct is empty now —one byte, which is
+// what `lua_newuserdatauv` wants— with the reason written above it and a `static_assert` that keeps it from becoming zero
+// (found in the review of 4/11, docs/30, docs/75).
+// 0.88.13 (4/11): **the window of a text box measures the tail once and not once per letter.** To know how many letters
+// after the caret fit, the paint asked `font::width(face, rest, scale)` for the whole accumulated tail after every
+// letter it added —O(n²) in the letters the window shows— and `strlen` for the same buffer, all of it over a `static`
+// that the paint before had written. The width is carried in `pen` now, the way `advance_of` carries it for a row of a
+// box of several lines, with the separation after the last letter taken out of it, which is the same number the whole
+// string answered; and the length of `rest` is `fit`, which the loop already knows. Same letters on the glass, and one
+// pass (found in the review of 4/11, docs/75, docs/90).
+// 0.88.14 (4/11): **`repo install` puts the app in place in one step and an install that dies leaves nothing behind.**
+// Every file was downloaded straight into `apps/<id>` and a failure only took the folder away when no file had arrived:
+// a chain that died at the fifth file of nine left half an app that `apps` counted as one —its manifest and its entry
+// were the first two files— and an update that died left a mixture of the two versions. The downloads go to
+// `apps/.<id>.install` now, `.listing.json` and `.folders` are inside it, and the last step renames the folder whole;
+// an app that was already there is moved to `apps/<id>.old`, taken back if the last move fails, and dropped when the
+// new one is in place. **What a failure leaves is no file of the app in `apps/`**, which is what the test of the chain
+// checks —nothing of the four files that did come, no folder of the work, and no app in the listing— (found in the
+// review of 4/11, docs/30, docs/70).
+// 0.88.15 (4/11): **`install_fetch` says whether the address is already in the state instead of comparing pointers.**
+// It skipped the copy when `url == g_install_url`, which works and was written down, but it is a rule about the caller's
+// buffer that neither the compiler nor a reader can check: two callers build the address in the state and one hands over
+// a buffer of its own, and now each one says which it is with a word of the call (found in the review of 4/11, docs/75).
+// 0.88.16 (4/11): **two lines that said something that is not true.** The window of the bench answered a mouse that
+// cannot reach the panel with `gui: the window is 540x960 …`, and the number it printed is the **page** and not the
+// window —the window is that plus the strip of the keys, five hundred and ninety-two on the Paper— so whoever read it
+// went looking for a window that size. Both backends say `the page is` now. And the rule written over `kRowUnits` was
+// "the whole of a row is twenty twentieths", which the row of `a`..`l` does not keep: it is nine keys of two units with
+// one unit of air at each end, nineteen of twenty, and that air is what makes a staggered keyboard read as one —a finger
+// that lands on it is the keyboard's and presses nothing, which is what `keyboard_touch` answers—. Both found in the
+// review of the pieces that ask to look at pixels (docs/85, docs/90).
+// 0.88.17 (4/11): **the terminal of whoever runs the tests comes back as it was.** `pal::init()` puts stdin in raw mode
+// —a key at a time, no echo— and saves what it found to give it back at the end of the process. The suites that boot the
+// interpreter once per test call it forty-three times in one run (`test_luabind`), and **the second call saved the raw
+// mode that the first had just put there**: the restore at the end then put the raw mode back, and the terminal was left
+// with no echo and no line until a `reset`. The save is done once now —a `tcgetattr` that runs only when the mode is not
+// already this bench's— and the test that guards it asks `tcgetattr` for the flags of before and of after, with three
+// `init`s in the middle (measured: `c_lflag` 35387 before and 35377 after with the defect, which is `ECHO` and `ICANON`
+// gone; 35387 and 35387 with the fix) (found on the bench, 4/11, docs/80, docs/85).
+// 0.88.18 (4/11): **the bench says what not blinking costs.** `glr16` and `gld16` —the qualities an app presents with,
+// the bar repaints a box with and the band of the keyboard is washed with, chosen **because they do not blink**, which
+// is the rule of this project— were modelled as a perfect clean: no ghost, no dirt, no speckle. With that, the one
+// decision this system takes everywhere was free here, and a page could be painted a thousand times without showing a
+// mark, which is the one thing a bench must not say. A waveform that does not blink does not take the page back: it
+// lands close to the level and not on it, so the model gives them **two sixteenths** of what was there and **one
+// sixteenth of dirt per paint** (lighter than a `du`, which is five and one, and not the clean a `gc16` is), with a
+// speckle of two in a thousand. **The numbers are the model's and not a measurement** (docs/95): the test that guards
+// them paints black with `du`, white over it with `gld16` and reads the glass (docs/85, docs/92).
+// 0.88.19 (4/11): **`/apps` is the two disks in one directory, and it is there from the boot.** The row was added only
+// when `littlefs/apps` existed at `vfs::init`, and the bench is a disk with no app at all: `repo install squares` wrote
+// the first one, the install said `2 files, 4028 bytes`, `apps` listed it —it walks the drive— and `run` answered
+// `cannot read: /apps/squares/squares.lua`, because the door of the apps had never been opened. The folder is **made**
+// now on every mounted disk (a card too), so the door is always a row, and it is what its name promises: `ls /apps`
+// shows `littlefs/apps` and `sd/apps` together —the card first, an app of the card is the one that runs, and no name
+// twice— and a path under it reads the disk that runs that app, which is the same rule `apps` and `root_of` already
+// followed. **Measured on the bench**: a disk with no `apps/` boots with 8 mounts instead of 7 and `ls /` shows it,
+// and the two tests that guard it —the door on a disk that had none, and the card and the flash in one listing— fall
+// when either half is taken away (found on the bench, 4/11, docs/40, docs/70).
+// 0.88.20 (4/11): **`/apps` is the only entry point of the apps, and it presents what the system wants.** One name on
+// both disks is now presented **twice** —`squares` is the copy of the flash and `squares-SD` the copy of the card, and
+// each name reads and runs its own— instead of the card's copy hiding the flash's, which is what made installing an app
+// the firmware already carries a blind replacement and made the two impossible to compare. The VFS decides it in the
+// listing (`CardSink` adds the suffix after the flash's list said which names it has, `PresentedSink` drops what the
+// kernel refuses), `vfs::resolve` answers `/apps/<name>` from the flash and `/apps/<name>-SD` from the card, and
+// **nothing outside the VFS builds a path of a disk any more**: `apps::for_each` is one walk of the door —the second
+// pass over `/sd/apps`, the table of ids and the `has_manifest` shadow are gone—, `apps::root_of` answers `/apps/<id>`
+// for either disk, and `apps::load` reads `/apps/<id>/manifest.json`, so `run`, the listing, the handler search and an
+// app's own `/res/` all ask the same door. The kernel installs a presenter at boot (`vfs::set_apps_presenter` with
+// `apps::is_an_app`): a folder that carries no `manifest.json` is not listed, not run and not read by anyone, and one
+// that names another board is still presented with its `[needs …]`, because hiding it would leave a person with an app
+// on their disk and no trace of it. **The id grew to 40 bytes** (`apps::Entry::id`, `luabind`'s `kAppIdBytes`, the
+// shell's choice table and `open`) because the suffix rides on it and `/cfg` and `/res` hang from that name. **Measured
+// on the bench**: the suite is **419 cases and all of them pass**, and each half of this was taken away on purpose to
+// see it fall —without the suffix in `CardSink` the three tests that read a name twice go red (the two disks, the door
+// and the thirty apps of a card); with the flash's half listed without the presenter the test of the folder that is not
+// an app goes red; and with `root_of` answering `/littlefs/apps/<id>` an app cannot read its own `res/` any more —
+// `/littlefs` is the system's disk and answers `E_INVAL` to an app, which is exactly the reason the path of an app is
+// the door— (docs/40, docs/70).
+// 0.89.0 (4/11): **`apps remove <id>` deletes an app**, and the id is the name the listing shows —`squares` for the copy
+// of the flash and `squares-SD` for the copy of the card— so one of two copies can go without the other; when the flash's
+// goes, the card's loses the suffix and `run squares` is the app of the card, because what the door presents is what
+// exists. The disk is asked **once** and kept: the first shape of this asked the door again after deleting and reported
+// that it had failed at the moment it worked, since the door then answered with the card's folder (found by the test the
+// same minute). **Only the app goes** —`/data/<id>` and `/cfg/<id>` are what it left behind and not the app— and a folder
+// of `/apps` that carries no `manifest.json` cannot be deleted by typing its name. The message says the disk, not the
+// door: `apps: squares removed from /littlefs/apps/squares, 2 files, 4 028 bytes`, which is what `vfs::on_disk` is for
+// —the mount row that is a disk and not an alias—. Measured on the bench: the suite is **420 cases and all of them
+// pass**, and with the manifest question taken out the test of the folder that is not an app goes red, and with the disk
+// asked twice instead of once the delete says the app is still there (docs/30, docs/40, docs/70).
+static const char kVersion[] = "0.89.0";
 
 }  // namespace kernel
 

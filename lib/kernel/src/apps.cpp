@@ -5,21 +5,17 @@
 
 #include "json/json.h"
 #include "kernel/log.h"
+#include "kernel/meter.h"
 #include "kernel/vfs.h"
 
 namespace kernel {
 namespace apps {
 
-// **The two disks apps live on** (0.87.1): the flash, where the firmware puts them, and the card, where a person puts
-// them with `repo install`. The walk and the messages of the shell name them **whole**, because a person who is
-// looking for an app has to know which disk was read, and a path typed in four places is a path that drifts
-// (docs/40, docs/70).
-const char kFlashRoot[] = "/littlefs/apps";
-const char kCardRoot[] = "/sd/apps";
-// **La porta de la flash és `/apps` i no la unitat** (docs/70): una app llegeix el seu `res/` per aquest àlies —el
-// `/littlefs` sencer és el disc del sistema i li respon `E_INVAL`—, o sigui que el camí d'una app és la porta i el
-// disc és el que un missatge ensenya (docs/30, docs/70).
-const char kFlashDoor[] = "/apps";
+// **One door for the apps** (0.88.20): `/apps` is the virtual directory of the two disks —the flash's `apps/` and the
+// card's, with `-SD` on the names the flash also has— and it is the only place this system looks for an app. A folder
+// that is not an app is not presented there, a disk the system did not offer is never read, and the listing, the `run`
+// and the files of an app all ask the same question (docs/40, docs/70).
+const char kAppsDoor[] = "/apps";
 
 namespace {
 
@@ -46,6 +42,18 @@ bool has_manifest(const char* base, const char* id) {
   return vfs::stat(path, info) && info.type == hal::NodeType::kFile;
 }
 
+// **Which disk answered for a name of the door** (0.88.20): the meter's unit of the storage that `/apps/<id>` resolves
+// to, which is the same answer a read of it gets. It is the one question about the disks this module still asks, and it
+// asks it to the door and never to `/littlefs/apps` or `/sd/apps` (docs/40, docs/70).
+bool comes_from_the_card(const char* name) {
+  char path[96];
+  if (!under_root(path, sizeof(path), kAppsDoor, name, "")) return false;
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  return vfs::unit_of(storage) == meter::kUnitSd;
+}
+
 // A band answers to a set of board names (one on a chip, the ones it stands in for on
 // the bench) and to a chip family. An app runs here when its `boards` list names one
 // of them, or the family (docs/40, docs/50).
@@ -61,12 +69,14 @@ bool answers_here(const Entry& entry, hal::IPlatform& band) {
 
 // Reads one app into out, which lives on the caller's stack. Returns false and
 // says why when the manifest is not usable; the walk then carries on.
-bool load(const char* base, const char* id, Entry& out) {
+// **The manifest is asked for by the id the door presents** (0.88.20): `/apps/<id>/manifest.json`, which the filesystem
+// answers from the flash or from the card, so the caller does not have to know which one (docs/40, docs/70).
+bool load(const char* id, Entry& out) {
   const size_t id_len = strlen(id);
   if (id_len == 0 || id_len >= sizeof(out.id)) return false;
 
   char path[128];
-  if (!under_root(path, sizeof(path), base, id, "/manifest.json")) {
+  if (!under_root(path, sizeof(path), kAppsDoor, id, "/manifest.json")) {
     log_printf(pal::kLogWarn, "APPS", "%s has a name that is too long", id);
     return false;
   }
@@ -96,7 +106,7 @@ bool load(const char* base, const char* id, Entry& out) {
     return false;
   }
   char entry_path[128];
-  if (!under_root(entry_path, sizeof(entry_path), base, id, "/")) return false;
+  if (!under_root(entry_path, sizeof(entry_path), kAppsDoor, id, "/")) return false;
   // The path above ends at the app's own root: the entry goes after that slash (docs/40).
   const size_t room = sizeof(entry_path) - strlen(entry_path) - 1;
   if (strlen(out.entry_file) > room) {
@@ -115,9 +125,29 @@ bool load(const char* base, const char* id, Entry& out) {
   // it is not an app at all —not listed, not run, not offered as a handler (docs/40).
   // A list that names another board is a different thing: the app is there, and it
   // says what it needs (see `works_here` below).
-  if (!lunok::json::get_strings(text, len, "boards", out.boards, Entry::kMaxBoards,
-                                out.board_count)) {
-    log_printf(pal::kLogWarn, "APPS", "%s does not say which boards it runs on", id);
+  // **A manifest that says too much is not a manifest that says nothing** (0.88.11): the list is refused whole because
+  // a board of it would be left out, and the line says which of the two happened —nine boards where this system carries
+  // eight is a fact about the file, and telling the person it says nothing is a lie about their own app— (docs/40, docs/75).
+  uint32_t boards_total = 0;
+  const lunok::json::Strings boards_read =
+      lunok::json::get_strings(text, len, "boards", out.boards, Entry::kMaxBoards, out.board_count, &boards_total);
+  if (boards_read != lunok::json::Strings::kOk) {
+    switch (boards_read) {
+      case lunok::json::Strings::kTooMany:
+        log_printf(pal::kLogWarn, "APPS", "%s names %u boards and this system carries %u", id,
+                   static_cast<unsigned>(boards_total), static_cast<unsigned>(Entry::kMaxBoards));
+        break;
+      case lunok::json::Strings::kItemTooLong:
+        log_printf(pal::kLogWarn, "APPS", "%s has a board name longer than this system carries", id);
+        break;
+      case lunok::json::Strings::kAbsent:
+      case lunok::json::Strings::kNotArray:
+        log_printf(pal::kLogWarn, "APPS", "%s does not say which boards it runs on", id);
+        break;
+      default:
+        log_printf(pal::kLogWarn, "APPS", "%s has a list of boards that is not one", id);
+        break;
+    }
     return false;
   }
   // The boards of this band, which is the board itself on a chip and the ones it
@@ -142,21 +172,15 @@ class WalkSink : public hal::ListSink {
   WalkSink(const char* only_id, Visitor visitor, void* context)
       : only_(only_id), visitor_(visitor), context_(context), visited_(0) {}
 
-  // **The root this walk is listing**, so a manifest is looked for where the entry came from and not twice
-  // (docs/40, docs/70).
-  void set_base(const char* base) { base_ = base; }
-
   bool on_entry(const hal::ListEntry& entry) override {
     if (entry.type != hal::NodeType::kDir) return true;
     if (only_ != nullptr && strcmp(entry.name, only_) != 0) return true;
-    // **An app of the card is the one that runs**: the card is walked first and the flash does not repeat it
-    // (0.86.0, docs/40).
-    if (already(entry.name)) return true;
-
+    // **The name the door presents is the id of the app** (0.88.20): `squares` is the copy of the flash and
+    // `squares-SD` the copy of the card, and each one is run and read by its own name. There is no table of ids here any
+    // more and no rule about which disk wins: the door already said what there is, once (docs/40, docs/70).
     Entry loaded;
-    if (!load(base_, entry.name, loaded)) return true;
-    loaded.on_card = strcmp(base_, kCardRoot) == 0;
-    remember(entry.name);
+    if (!load(entry.name, loaded)) return true;
+    loaded.on_card = comes_from_the_card(entry.name);
     ++visited_;
     if (!visitor_(loaded, context_)) return false;
     // Asking for one app: once found and visited, there is nothing else to do.
@@ -166,30 +190,10 @@ class WalkSink : public hal::ListSink {
   uint32_t visited() const { return visited_; }
 
  private:
-  // How many ids this walk remembers, which is how many apps a card may shadow. Past this the flash repeats one
-  // —the list shows it twice and the card is still the one that runs—, and the number is one constant (docs/75).
-  static const uint8_t kSeen = 24;
-
-  bool already(const char* id) const {
-    for (uint8_t i = 0; i < seen_count_; ++i) {
-      if (strcmp(seen_[i], id) == 0) return true;
-    }
-    return false;
-  }
-
-  void remember(const char* id) {
-    if (seen_count_ >= kSeen) return;
-    snprintf(seen_[seen_count_], sizeof(seen_[0]), "%s", id);
-    ++seen_count_;
-  }
-
   const char* only_;
   Visitor visitor_;
   void* context_;
   uint32_t visited_;
-  const char* base_ = kFlashDoor;
-  char seen_[kSeen][sizeof(Entry::id)];
-  uint8_t seen_count_ = 0;
 };
 
 bool count_visitor(const Entry& entry, void* context) {
@@ -210,8 +214,9 @@ bool compatible(const Entry& entry, const char* board_id, const char* family) {
   return false;
 }
 
-// **Si hi ha targeta al slot**: la fila del muntatge és la que ho diu —una targeta que el sistema no ha pogut muntar
-// no és un lloc on anar a buscar-hi res—, i per això la pregunta es fa al VFS i no a una carpeta (docs/50, docs/70).
+// **Whether there is a card in the slot**: the row of the mount is the one that says so —a card the system could not
+// mount is not a place to look for anything in—, and that is why the question goes to the VFS and not to a folder
+// (docs/50, docs/70).
 bool card_here() {
   hal::IStorage* storage = nullptr;
   char rel[4];
@@ -220,41 +225,41 @@ bool card_here() {
 
 uint32_t for_each(const char* only_id, Visitor visitor, void* context) {
   if (visitor == nullptr) return 0;
-  // **The card first and the flash after it** (0.86.0): an app installed on the card is the one that runs, and the
-  // ones the flash has that the card does not are visited all the same. **The card is walked only when it is in the
-  // slot** (0.87.1), and a folder of either disk that is not an app is skipped by `load` (docs/40, docs/70).
+  // **One door and one walk** (0.88.20): `/apps` puts the flash's apps and the card's together —with `-SD` on the ones
+  // the flash also has— and it is what the listing, the `run` and the files of an app ask. There is no second pass over
+  // a disk here, no table of ids and no rule about which copy wins: what the door did not present does not exist for
+  // this system, and a disk it did not offer is never read (docs/40, docs/70).
   WalkSink sink(only_id, visitor, context);
-  if (card_here()) {
-    sink.set_base(kCardRoot);
-    vfs::list(kCardRoot, sink);
-    if (only_id != nullptr && sink.visited() > 0) return sink.visited();
-  }
-  sink.set_base(kFlashRoot);
-  if (!vfs::list(kFlashRoot, sink)) {
-    log_printf(pal::kLogWarn, "APPS", "cannot list %s", kFlashRoot);
+  if (!vfs::list(kAppsDoor, sink)) {
+    // A door that does not resolve is worth a line; an empty one is not —a board can be flashed with no app at all.
+    log_printf(pal::kLogWarn, "APPS", "cannot list %s", kAppsDoor);
   }
   return sink.visited();
 }
 
-// **On viu una app, si és que hi viu** (0.86.0): la targeta primer —si hi és— i la flash després, i per a una app que
-// no hi és el camí de la flash, que és el que la porta d'un `res/` i una escriptura han d'ensenyar. El que respon és
-// **la porta** (`/apps/<id>`) i no el disc: els discs sencers són el que un missatge diu (0.87.1, docs/40, docs/70).
+// **The path of an app is the door** (0.88.20): `/apps/<id>`, whichever disk has it, which is also the path an app reads
+// its own `res/` through. Nobody outside the VFS is told which disk an app came from —that is what `on_card` is for— so
+// a path of a disk the system did not offer is never built (docs/40, docs/70).
 bool root_of(const char* id, char* out, size_t cap) {
   if (id == nullptr || id[0] == '\0' || out == nullptr || cap == 0) return false;
-  const char* base = (card_here() && has_manifest(kCardRoot, id)) ? kCardRoot : kFlashDoor;
-  return under_root(out, cap, base, id, "");
+  return under_root(out, cap, kAppsDoor, id, "");
+}
+
+// **What the door presents** (0.88.20): a folder of the flash or of the card that carries a `manifest.json` is an app of
+// that disk, and one that carries none is not presented at all —neither listed, nor run, nor walked by everyone looking
+// for a handler—. **A folder that carries one and names another board still is presented**: the listing says what it
+// needs and the `run` refuses it, which is more use than hiding it (docs/40). Which disk is being asked is part of the
+// question, because the same name on the two disks is two folders.
+bool is_an_app(const char* disk, const char* name) {
+  if (disk == nullptr || name == nullptr || name[0] == '\0') return false;
+  return has_manifest(disk, name);
 }
 
 uint32_t count() { return for_each(nullptr, &count_visitor, nullptr); }
 
 bool read(const char* id, Entry& out) {
   if (id == nullptr || id[0] == '\0') return false;
-  char root[96];
-  if (!root_of(id, root, sizeof(root))) return false;
-  // The root is the whole path of the app; `load` wants the drive it lives on, which is that path without the id.
-  char base[64];
-  snprintf(base, sizeof(base), "%.*s", static_cast<int>(strlen(root) - strlen(id) - 1), root);
-  return load(base, id, out);
+  return load(id, out);
 }
 
 bool normalise_extension(const char* text, char* out, size_t cap) {

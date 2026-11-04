@@ -130,8 +130,8 @@ local function load(path)
   doc.dirty = false
   doc.path = path
   doc.pending = true
-  -- **Un fitxer nou comença per dalt**: la finestra que la persona havia moguda al fitxer d'abans no vol dir res en
-  -- aquest, i el cursor torna a la primera fila (0.88.0, docs/30).
+  -- **A new file starts at the top**: the window a person had moved in the file before means nothing in this one,
+  -- and the caret goes back to the first row (0.88.0, docs/30).
   box.top = -1
   doc.note = 'opened ' .. path
   console.print('editor: opened ' .. path .. ', ' .. #data .. ' bytes')
@@ -288,9 +288,9 @@ function ask_path(kind)
   kb:show('alpha')
   layout()
   say()
-  -- **El que queda darrere la targeta és paper**: una targeta que penja sobre el text el talla per la meitat d'una
-  -- fila, i mitja lletra no es llegeix. La banda es pinta a la vista abans de compondre-hi la targeta a sobre, i el
-  -- paper que tapa torna quan la targeta plega, perquè llavors la pàgina es pinta sencera (docs/30, docs/90).
+  -- **What is left behind the card is paper**: a card that hangs over the text cuts it in the middle of a row, and half
+  -- a letter cannot be read. The band is painted on the view before the card is composed over it, and the paper it
+  -- covers comes back when the card folds, because then the page is painted whole (docs/30, docs/90).
   local y = math.min(kBarRow + 24, now.height - kCardH - 12)
   ui.rect(0, y - 6, now.width, kCardH + 12, 15)
   ui.present('gld16')
@@ -319,14 +319,15 @@ box = ui.textbox_multiline(view.width - 24, view.height - kBarRow - kStatusH - 2
 box.scale = 2
 box.wrap = doc.wrap
 box:place(12, kBarRow + 8)
--- **El dit que recorre la caixa mou la finestra i la barra del cantó dret**: l'app registra el gest amb `on_swipe` i el
--- sistema fa l'aritmètica —escriu el `top` de la caixa i presenta la pàgina—, i aquí només queda dir on és la persona
--- dins del fitxer, que és el que la línia de sota la pàgina pot fer (0.88.0, docs/30, docs/90). Sense aquesta funció una
--- caixa no té cap gest: el dit hi posa el cursor i prou, i un swipe no mou res.
+-- **The finger that walks the box moves the window and the bar on the right**: the app registers the gesture with
+-- `on_swipe` and the system does the arithmetic —it writes the `top` of the box and presents the page—, and all that is
+-- left here is saying where the person is inside the file, which is what the line under the page can do
+-- (0.88.0, docs/30, docs/90). Without this function a box has no gesture: the finger puts the caret there and nothing
+-- more, and a swipe moves nothing.
 box.on_swipe = function(self, rows)
   if rows == nil or rows == 0 then return end
-  -- **La fila on és la finestra, amb les dues xifres que la barra ensenya**: el sistema ja ha escrit `top`, o sigui que
-  -- la persona pot llegir on és dins del fitxer sense comptar els píxels del polze (docs/90).
+  -- **The row the window is on, with the two numbers the bar shows**: the system has already written `top`, so the
+  -- person can read where they are inside the file without counting the pixels of the thumb (docs/90).
   local total = self:lines()
   if total ~= nil and total > 0 and self.top ~= nil and self.top >= 0 then
     doc.note = 'row ' .. (self.top + 1) .. ' of ' .. total
@@ -338,8 +339,8 @@ box.on_change = function(self, text)
   doc.cursor = self.cursor
   doc.dirty = true
   doc.note = ''
-  -- **Escriure torna la finestra al cursor**: la caixa segueix el cursor mentre ningú no l'ha moguda, i qui ha mogut la
-  -- barra i tot seguit escriu vol veure el que escriu (0.88.0, docs/30).
+  -- **Writing takes the window back to the caret**: the box follows the caret while nobody has moved it, and whoever has
+  -- moved the bar and then writes wants to see what they write (0.88.0, docs/30).
   self.top = -1
   -- **The letters of the page go to the glass with a wash that cleans and does not blink**: a `du` leaves a third of
   -- the ink it finds and the text of the key before stays under the new one (docs/50, docs/92).

@@ -25,6 +25,7 @@
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
+#include "kernel/log.h"
 #include "kernel/meter.h"
 #include "luabind/luabind.h"
 #include "kernel/power.h"
@@ -447,6 +448,19 @@ void pump_turns(int turns) {
 // The console of a run, including a QR when provisioning prints one: 37 modules in
 // 19 lines of UTF-8 blocks is a few thousand bytes, so this is not small.
 char g_out[8192];
+
+// **What a file of the disk carries**, for a test that says a download landed as it was and not as a name (docs/70).
+bool read_text(hal::IStorage* storage, const char* path, char* out, size_t cap) {
+  if (out == nullptr || cap < 2) return false;
+  out[0] = '\0';
+  hal::FileSlot slot;
+  if (!storage->open(path, hal::OpenMode::kRead, slot)) return false;
+  const int32_t got = storage->read(slot, out, static_cast<uint32_t>(cap - 1));
+  storage->close(slot);
+  if (got < 0) return false;
+  out[got] = '\0';
+  return true;
+}
 
 void close_any_app() {
   if (!g_booted || !kernel::app_running()) return;
@@ -1056,11 +1070,10 @@ void test_an_app_writes_inside_its_own_ground(void) {
   storage->remove("/apps/writer");
 }
 
-// **`fs.write` sobre una memòria crua va al lloc i no a un temporal** (0.65.1): `/rtc` és *un* fitxer i no
-// té `/rtc.tmp` on escriure per després reanomenar, o sigui que el camí atòmic responia `E_NOENT` —el `no
-// such file or directory` que veia `run hexedit /fram` en desar (4/11). El que s'escriu és el que es
-// llegeix, la resta de la memòria queda a zero i el que no hi cap sencer és `E_NOSPC` sense tocar res
-// (docs/50, docs/70).
+// **`fs.write` on raw memory goes in place and not to a temporary file** (0.65.1): `/rtc` is *one* file and it has no
+// `/rtc.tmp` to write to and then rename, so the atomic path answered `E_NOENT` —the `no such file or directory` that
+// `run hexedit /fram` saw when saving (4/11). What is written is what is read, the rest of the memory is left at zero and
+// what does not fit whole is `E_NOSPC` without touching anything (docs/50, docs/70).
 void test_a_write_to_raw_memory_goes_in_place(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -1082,7 +1095,7 @@ void test_a_write_to_raw_memory_goes_in_place(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wrote 4 nil"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back 7168 hola"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tail zero true"), g_out);
-  // **Una escriptura que no hi cap no hi deixa res a mitges**: 8 000 B en una memòria de 7 168 és un no.
+  // **A write that does not fit leaves nothing half done**: 8 000 B in a memory of 7 168 is a no.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "big nil E_NOSPC"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "still hola"), g_out);
 
@@ -1190,11 +1203,12 @@ void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   storage->remove("/apps/sdreader");
 }
 
-// **Una app de la targeta mana sobre la de la flash** (0.86.0): `repo install` baixa el directori d'una app al disc
-// que `cfg` ha triat —la targeta amb `auto`— i el que baixa ha de ser el que s'executa, o instal·lar una app que ja
-// ve al firmware no faria res. `apps::root_of` és la resposta que fan servir el llistat, el `run` i la porta de `res/`,
-// i treure la targeta torna la de la flash (docs/40, docs/70).
-void test_an_app_installed_on_the_card_is_the_one_that_runs(void) {
+// **The same app on the two disks is listed twice and each one runs** (0.88.20): `/apps` is the one door of the apps and
+// it presents the copy of the flash as `twice` and the copy of the card as `twice-SD`, instead of one of them
+// disappearing behind the other. `root_of` answers the door for either of them, the disk that answers is the one the door
+// resolved —which is what `[card]` says in the listing—, and an app's own `res/` follows the same name to the same disk
+// (docs/40, docs/70).
+void test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -1206,55 +1220,431 @@ void test_an_app_installed_on_the_card_is_the_one_that_runs(void) {
   hal::IStorage* card = hal::platform().storage("/sd");
   TEST_ASSERT_NOT_NULL(card);
 
-  // The same id on both drives, and each one says where it came from. The card has no `apps/` until something makes
-  // it, which is what `repo install` does with the way of a download (docs/70).
+  // The same id on both drives, and each copy says which one it is. The card has no `apps/` until something makes it,
+  // which is what `repo install` does with the way of a download (docs/70).
   card->mkdir("/apps");
   TEST_ASSERT_TRUE(add_app(storage, "twice",
                            "{\"title\":\"Flash twice\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "console.print('from the flash')\n"));
+                           "console.print('from the flash')\n"
+                           "console.print('res ' .. tostring(fs.read('res/which.txt')))\n"));
   TEST_ASSERT_TRUE(add_app(card, "twice",
                            "{\"title\":\"Card twice\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "console.print('from the card')\n"));
+                           "console.print('from the card')\n"
+                           "console.print('res ' .. tostring(fs.read('res/which.txt')))\n"));
+  // **The files of each copy are its own** (docs/70): the two say the same name and the door sends each app to the disk it
+  // was started from, which is the whole point of keeping the two apart.
+  TEST_ASSERT_TRUE(storage->mkdir("apps/twice/res"));
+  TEST_ASSERT_TRUE(write_text(storage, "apps/twice/res/which.txt", "flash-res\n"));
+  TEST_ASSERT_TRUE(card->mkdir("/apps/twice/res"));
+  TEST_ASSERT_TRUE(write_text(card, "/apps/twice/res/which.txt", "card-res\n"));
 
   char root[96];
   TEST_ASSERT_TRUE(kernel::apps::root_of("twice", root, sizeof(root)));
-  TEST_ASSERT_EQUAL_STRING("/sd/apps/twice", root);
-  // An app that is only in the flash has the flash for a root, which is what a message names (docs/40).
-  TEST_ASSERT_TRUE(kernel::apps::root_of("only_the_flash_has_me", root, sizeof(root)));
-  TEST_ASSERT_EQUAL_STRING("/apps/only_the_flash_has_me", root);
+  TEST_ASSERT_EQUAL_STRING("/apps/twice", root);
+  TEST_ASSERT_TRUE(kernel::apps::root_of("twice-SD", root, sizeof(root)));
+  TEST_ASSERT_EQUAL_STRING("/apps/twice-SD", root);
 
-  // **La llista en diu una i amb el títol de la targeta**, i el que s'executa és el seu codi (docs/40).
+  // **The list names both**: the two titles, and the one of the card carries the suffix and says it is the card's
+  // (docs/40).
   pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Flash twice"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Card twice"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "Flash twice"), g_out);
-  // **I diu que és la de la targeta** (0.87.1): el mateix id pot ser als dos discs, i qui prova una versió ha de poder
-  // llegir quina de les dues li ensenya el llistat (docs/40, docs/70).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "twice-SD"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[card]"), g_out);
 
-  // **Una app que no hi és diu on s'ha buscat** (0.87.1): els dos discs sencers i no l'àlies de la flash (docs/40).
-  TEST_ASSERT_TRUE(run_captured("run nadie_ha_vist_aquesta", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /littlefs/apps and /sd/apps"), g_out);
+  // **And each name runs its own copy**, with its own `res/`.
   TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "res flash-res"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run twice-SD", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "res card-res"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
 
-  // **The card out of the slot is the flash app again**: the same ids, the other drive to answer (docs/70).
+  // **An app that is not there says where the door is** (0.88.20): the one path, and not a path of a disk that the system
+  // did not offer (docs/40).
+  TEST_ASSERT_TRUE(run_captured("run nadie_ha_vist_aquesta", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /apps"), g_out);
+
+  // **The card out of the slot takes the `-SD` name with it**: the flash app is still there and still runs (docs/70).
+  card->remove("/apps/twice/res/which.txt");
+  card->remove("/apps/twice/res");
   card->remove("/apps/twice/app.lua");
   card->remove("/apps/twice/manifest.json");
   card->remove("/apps/twice");
-  TEST_ASSERT_TRUE(kernel::apps::root_of("twice", root, sizeof(root)));
-  TEST_ASSERT_EQUAL_STRING("/apps/twice", root);
+  TEST_ASSERT_TRUE(run_captured("run twice-SD", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: twice-SD"), g_out);
   TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
 
+  storage->remove("apps/twice/res/which.txt");
+  storage->remove("apps/twice/res");
   storage->remove("/apps/twice/app.lua");
   storage->remove("/apps/twice/manifest.json");
   storage->remove("/apps/twice");
 }
 
-// **Una placa sense targeta no engega cap volta pel buit** (0.87.1): la cerca és `/littlefs/apps` i prou, i una app
-// que no hi és nomena un disc —i diu que el segon no hi és— en comptes de dos (docs/40, docs/50, docs/70).
+// **A manifest of nine boards says it names too many** (0.88.11): `get_strings` refuses the whole list when it does not
+// fit, which is right —a list with one board left out would say the app runs where it does not—, and what the shell said
+// about it was `%s does not say which boards it runs on`: a lie about a file that says nine of them. The reader says why
+// now and how many there were, and both places that read a list of boards —the walk of the disk and the card of
+// `repo info`— tell the person what is really in the file (docs/40, docs/75).
+void test_a_manifest_of_nine_boards_says_it_names_too_many(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "manyboards",
+                           "{\"title\":\"Manyboards\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\",\"m5stack-paper\",\"m5stack-atom\",\"one\",\"two\",\"three\","
+                           "\"four\",\"five\",\"six\"]}",
+                           "console.print('nine')\n"));
+  // **The line of the log is the one a person reads**, so it is the one the test reads: the boot mirrors the log to the
+  // console and the capture takes it (docs/30).
+  kernel::log_echo(true);
+
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  // **The app is not an app** —a list of boards with one of them left out would say it runs where it does not— **and the
+  // line says the reason that is true**: nine boards, eight carried (docs/40).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "Manyboards"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "names 9 boards and this system carries 8"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "does not say which boards"), g_out);
+
+  // **And a card that showed a dash for it would be a card that lies**: `repo info` says how long the list is (docs/30).
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.wifi_ms = 50;
+  opts.http_fake = true;
+  opts.http_ms = 20;
+  opts.http_status = 200;
+  opts.http_body =
+      "{\"title\":\"Manyboards\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+      "\"boards\":[\"esp32\",\"m5stack-paper\",\"m5stack-atom\",\"one\",\"two\",\"three\",\"four\",\"five\",\"six\"]}";
+  emu::set_options(opts);
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  pump_captured(400, g_out, sizeof(g_out), "repo info manyboards");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "boards      9 in the manifest, more than this system carries"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "boards      --"), g_out);
+
+  storage->remove("/apps/manyboards/app.lua");
+  storage->remove("/apps/manyboards/manifest.json");
+  storage->remove("/apps/manyboards");
+  opts.http_body = nullptr;
+  opts.http_fake = false;
+  emu::set_options(opts);
+}
+
+// **`/apps` is the two disks in one directory** (0.88.19): the flash's apps and the card's in one listing, with the names
+// the flash also has presented twice —`both` and `both-SD`— so neither copy disappears behind the other (0.88.20). It is
+// the rule `apps` already follows to list and to run, and the door has to answer the same thing: a page that lists one app
+// and reads another is a page nobody can trust (docs/40, docs/70).
+void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  TEST_ASSERT_TRUE(add_app(card, "oncard",
+                           "{\"title\":\"On card\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('the one of the card')\n"));
+  TEST_ASSERT_TRUE(
+      add_app(storage, "onflash",
+              "{\"title\":\"On flash\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+              "console.print('the one of the flash')\n"));
+  // **The same id on both disks**: the door presents the two of them, `both` for the flash's copy and `both-SD` for the
+  // card's (0.88.20, docs/40).
+  TEST_ASSERT_TRUE(add_app(card, "both",
+                           "{\"title\":\"Both card\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('both, from the card')\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "both",
+                           "{\"title\":\"Both flash\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('both, from the flash')\n"));
+
+  // The listing of the door, which is the two of them: the six apps of this suite are on the flash too, so what is
+  // counted here is the names this test put there and not the whole list.
+  struct Names : public hal::ListSink {
+    char rows[32][32] = {};
+    uint8_t count = 0;
+    bool on_entry(const hal::ListEntry& entry) override {
+      if (count < 32 && entry.name != nullptr) snprintf(rows[count], sizeof(rows[0]), "%s", entry.name);
+      ++count;
+      return true;
+    }
+  } names;
+  TEST_ASSERT_TRUE(kernel::vfs::list("/apps", names));
+  int both = 0;
+  bool card_one = false;
+  bool flash_one = false;
+  bool card_suffixed = false;
+  for (uint8_t i = 0; i < names.count && i < 32; ++i) {
+    if (strcmp(names.rows[i], "both") == 0) ++both;
+    if (strcmp(names.rows[i], "both-SD") == 0) card_suffixed = true;
+    if (strcmp(names.rows[i], "oncard") == 0) card_one = true;
+    if (strcmp(names.rows[i], "onflash") == 0) flash_one = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(card_one, "the app of the card is not in the door");
+  TEST_ASSERT_TRUE_MESSAGE(flash_one, "the app of the flash is not in the door");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, both, "the app of the flash is not listed once under its own name");
+  TEST_ASSERT_TRUE_MESSAGE(card_suffixed, "the app of the card is not listed as <name>-SD");
+
+  // **And a path of the door reads the copy its name says**: `/apps/both` is the flash's, `/apps/both-SD` is the card's,
+  // and the one only the flash has is the flash's (docs/70). `read_file` hands back how many bytes it read and does not
+  // terminate the buffer —the caller owns the room—, so each read is terminated here or the previous name's tail would
+  // be read as part of this one.
+  static char text[64];
+  size_t len = 0;
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/both/app.lua", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING("console.print('both, from the flash')\n", text);
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/both-SD/app.lua", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING("console.print('both, from the card')\n", text);
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/onflash/app.lua", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING("console.print('the one of the flash')\n", text);
+
+  card->remove("/apps/oncard/app.lua");
+  card->remove("/apps/oncard/manifest.json");
+  card->remove("/apps/oncard");
+  card->remove("/apps/both/app.lua");
+  card->remove("/apps/both/manifest.json");
+  card->remove("/apps/both");
+  storage->remove("/apps/onflash/app.lua");
+  storage->remove("/apps/onflash/manifest.json");
+  storage->remove("/apps/onflash");
+  storage->remove("/apps/both/app.lua");
+  storage->remove("/apps/both/manifest.json");
+  storage->remove("/apps/both");
+}
+
+// **The door presents the apps and nothing else** (0.88.20): a folder of the flash or of the card that carries no
+// `manifest.json` is not an app there, so `/apps` does not show it, `run` does not find it and the search for a handler
+// never reads it —which is the point of the door being the one entry point: a folder the system does not present is a
+// folder nothing reaches—. A folder that does carry one is presented even when it names another board, because the
+// listing says what it needs instead of hiding it (docs/40, docs/70).
+void test_the_door_of_the_apps_presents_no_folder_that_is_not_an_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  // Two folders that are not apps —one per disk— and one app, so the listing has something true to show.
+  TEST_ASSERT_TRUE(storage->mkdir("apps/notanapp"));
+  TEST_ASSERT_TRUE(write_text(storage, "apps/notanapp/notes.txt", "res\n"));
+  card->mkdir("/apps");
+  TEST_ASSERT_TRUE(card->mkdir("/apps/alsonotanapp"));
+  TEST_ASSERT_TRUE(write_text(card, "/apps/alsonotanapp/notes.txt", "res\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "realapp",
+                           "{\"title\":\"Real app\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('real')\n"));
+
+  struct Names : public hal::ListSink {
+    char rows[40][32] = {};
+    uint8_t count = 0;
+    bool on_entry(const hal::ListEntry& entry) override {
+      if (count < 40 && entry.name != nullptr) snprintf(rows[count], sizeof(rows[0]), "%s", entry.name);
+      ++count;
+      return true;
+    }
+  } names;
+  TEST_ASSERT_TRUE(kernel::vfs::list("/apps", names));
+  bool real = false;
+  bool not_an_app = false;
+  for (uint8_t i = 0; i < names.count && i < 40; ++i) {
+    if (strcmp(names.rows[i], "realapp") == 0) real = true;
+    if (strcmp(names.rows[i], "notanapp") == 0) not_an_app = true;
+    if (strcmp(names.rows[i], "alsonotanapp") == 0) not_an_app = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(real, "the app is not in the door");
+  TEST_ASSERT_FALSE_MESSAGE(not_an_app, "a folder that is not an app is in the door");
+
+  // **And it is not runnable either**: the walk that finds the entry file is the same door, so the answer is the same.
+  TEST_ASSERT_TRUE(run_captured("run notanapp", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: notanapp"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run alsonotanapp", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: alsonotanapp"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run realapp", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "real"), g_out);
+
+  card->remove("/apps/alsonotanapp/notes.txt");
+  card->remove("/apps/alsonotanapp");
+  storage->remove("apps/notanapp/notes.txt");
+  storage->remove("apps/notanapp");
+  storage->remove("/apps/realapp/app.lua");
+  storage->remove("/apps/realapp/manifest.json");
+  storage->remove("/apps/realapp");
+}
+
+// **`apps remove <id>` takes the copy the name says** (0.89.0): the id is what the listing shows —`both` for the flash
+// and `both-SD` for the card— so one of two copies leaves the disk and the other stays, and once the flash's copy is
+// gone the card's one loses the suffix and `run both` is the app of the card: what the door presents is what exists.
+// **Only the app goes**: what it left in `/data` is not the app, and a folder of `/apps` that carries no manifest is not
+// an app and cannot be deleted by typing its name (docs/30, docs/40, docs/70).
+void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  TEST_ASSERT_TRUE(add_app(storage, "gone",
+                           "{\"title\":\"Flash gone\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('gone, from the flash')\n"));
+  TEST_ASSERT_TRUE(add_app(card, "gone",
+                           "{\"title\":\"Gone card\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('gone, from the card')\n"));
+  // What the app left behind, which is not the app: its data, and a folder of `/apps` that is not an app at all.
+  TEST_ASSERT_TRUE(storage->mkdir("data/gone"));
+  TEST_ASSERT_TRUE(write_text(storage, "data/gone/notes.txt", "mine\n"));
+  TEST_ASSERT_TRUE(storage->mkdir("apps/notanapp"));
+
+  // **The flash's copy goes by its own name**, and the message says the disk it was on and what came back.
+  TEST_ASSERT_TRUE(run_captured("apps remove gone", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: gone removed from /littlefs/apps/gone"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 files"), g_out);
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("apps/gone", info), "the app of the flash is still there");
+  TEST_ASSERT_TRUE_MESSAGE(card->stat("apps/gone", info), "the copy of the card went with it");
+
+  // **The card's copy is now the only one, and it is the one without the suffix**.
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Gone card"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gone-SD"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run gone", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone, from the card"), g_out);
+
+  // **The data is not the app**: the file the app wrote is still there after the app is gone.
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("data/gone/notes.txt", info), "the data of the app went with it");
+
+  // **A folder that is not an app is not deletable by its name**, and a name that is not there says so.
+  TEST_ASSERT_TRUE(run_captured("apps remove notanapp", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "not an app: notanapp has no manifest.json"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("apps/notanapp", info), "a folder that is not an app was deleted");
+  TEST_ASSERT_TRUE(run_captured("apps remove nadie", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie"), g_out);
+  TEST_ASSERT_TRUE(run_captured("apps remove", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "usage: apps [remove <id>]"), g_out);
+
+  // **And the copy of the card goes by the name it has now**, which is the one without the suffix.
+  TEST_ASSERT_TRUE(run_captured("apps remove gone", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: gone removed from /sd/apps/gone"), g_out);
+  TEST_ASSERT_FALSE(card->stat("apps/gone", info));
+
+  // **The suffix picks the copy of the card**: with both disks carrying `pair`, `pair-SD` takes the card's one away and the
+  // flash's stays under its own name (docs/40, docs/70).
+  TEST_ASSERT_TRUE(add_app(storage, "pair",
+                           "{\"title\":\"Flash pair\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('pair, from the flash')\n"));
+  TEST_ASSERT_TRUE(add_app(card, "pair",
+                           "{\"title\":\"Gone pair\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('pair, from the card')\n"));
+  TEST_ASSERT_TRUE(run_captured("apps remove pair-SD", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: pair-SD removed from /sd/apps/pair"), g_out);
+  TEST_ASSERT_FALSE(card->stat("apps/pair", info));
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("apps/pair", info), "the copy of the flash went with the card's");
+
+  storage->remove("/apps/pair/app.lua");
+  storage->remove("/apps/pair/manifest.json");
+  storage->remove("/apps/pair");
+  storage->remove("apps/notanapp");
+  storage->remove("data/gone/notes.txt");
+  storage->remove("data/gone");
+}
+
+// **A card of more than two dozen apps lists the one of the flash too** (0.88.10, 0.88.20): the walk once remembered the
+// ids of the card in a table of twenty-four, so from the twenty-fifth on an app of two disks was presented by a rule and
+// not by the door. Now the suffix is decided by the listing of the door, one name at a time: the flash's copy is
+// `shared` and the card's `shared-SD` whatever place they take in the folder, and the thirty of the card are all there
+// (docs/40, docs/70, docs/75).
+void test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+  card->mkdir("/apps");
+
+  // **Thirty of them on the card**, and then the one the flash also has: past twenty-four ids is where the table gave up
+  // and the listing showed the app of two disks twice (docs/40).
+  static char manifest[128];
+  for (int i = 1; i <= 30; ++i) {
+    char id[16];
+    snprintf(id, sizeof(id), "card%02d", i);
+    snprintf(manifest, sizeof(manifest),
+             "{\"title\":\"Card %02d\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}", i);
+    TEST_ASSERT_TRUE(add_app(card, id, manifest, "console.print('from the card')\n"));
+  }
+  TEST_ASSERT_TRUE(
+      add_app(card, "shared",
+              "{\"title\":\"Shared card\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+              "console.print('from the card')\n"));
+  TEST_ASSERT_TRUE(
+      add_app(storage, "shared",
+              "{\"title\":\"Shared flash\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+              "console.print('from the flash')\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  // **Both copies are listed**, the one of the flash under its own name and the one of the card with the suffix, past the
+  // twenty-fourth id of the card as well (0.88.20, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Shared card"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Shared flash"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "shared-SD"), g_out);
+  // **And the thirty of the card are all there, each one once**: the count of what a person can read on the listing.
+  int shown = 0;
+  for (const char* p = g_out; (p = strstr(p, "Card ")) != nullptr; p += 5) ++shown;
+  TEST_ASSERT_EQUAL_INT(30, shown);
+  // **And each name runs its own copy** (0.88.20, docs/40, docs/70).
+  TEST_ASSERT_TRUE(run_captured("run shared", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run shared-SD", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
+
+  for (int i = 1; i <= 30; ++i) {
+    char id[16];
+    snprintf(id, sizeof(id), "card%02d", i);
+    char path[64];
+    snprintf(path, sizeof(path), "/apps/%s/app.lua", id);
+    card->remove(path);
+    snprintf(path, sizeof(path), "/apps/%s/manifest.json", id);
+    card->remove(path);
+    snprintf(path, sizeof(path), "/apps/%s", id);
+    card->remove(path);
+  }
+  card->remove("/apps/shared/app.lua");
+  card->remove("/apps/shared/manifest.json");
+  card->remove("/apps/shared");
+  storage->remove("/apps/shared/app.lua");
+  storage->remove("/apps/shared/manifest.json");
+  storage->remove("/apps/shared");
+}
+
+// **A board with no card takes no turn through the void** (0.87.1): the door is `/apps` and nothing behind it asks for a
+// card that is not there, and an app that is not there names the door and says the card is not in the slot
+// (docs/40, docs/50, docs/70).
 void test_a_board_with_no_card_looks_only_in_the_flash(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -1267,7 +1657,7 @@ void test_a_board_with_no_card_looks_only_in_the_flash(void) {
 
   TEST_ASSERT_TRUE(run_captured("run nadie_ha_vist_aquesta", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /littlefs/apps, and there is no card in the slot"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /apps, and there is no card in the slot"), g_out);
 }
 
 // **The faces of the disk are one area for every app** (3/11): `/fonts` is the disk's `res/fonts/`
@@ -1279,8 +1669,8 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
-  // **Les cares del repositori, en aquest disc**: el banc no llegeix el disc del build, o sigui que les
-  // dues que aquesta prova nomena s'escriuen aquí (docs/70, docs/85).
+  // **The faces of the repository, on this disk**: the bench does not read the disk of the build, so the two this
+  // test names are written here (docs/70, docs/85).
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   TEST_ASSERT_TRUE(copy_a_face(storage, "LICENCE.txt"));
 
@@ -1306,11 +1696,11 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   TEST_ASSERT_TRUE(run_captured("run facedoor", g_out, sizeof(g_out)));
   // The file is reachable: sixty-four bytes of the licence come back and no error with them.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 64 nil"), g_out);
-  // **La cara també arriba sencera** (4096 B del `.ttf` que hi ha darrere de la porta). Que el lector la
-  // converteixi en una cara que es pot portar és una altra prova i un altre banc: `ui.load_font` necessita
-  // el vidre de l'app —l'`ui::boot` que instal·la les operacions— i aquest banc és un ATOM sense pantalla,
-  // on `E_UNSUPPORTED` és la veritat de la placa i no una fallada. El lector de `.ttf` té la seva suite
-  // (`test_ttf`, amb dos fitxers de debò) i `test_font` prova les cares de `/res` (docs/30, docs/50).
+  // **The face arrives whole as well** (4096 B of the `.ttf` that is behind the door). Whether the reader turns it into
+  // a face that can be carried is another test and another bench: `ui.load_font` needs the glass of the app —the
+  // `ui::boot` that installs the operations— and this bench is an ATOM with no screen, where `E_UNSUPPORTED` is the
+  // truth of the board and not a failure. The reader of `.ttf` has its own suite (`test_ttf`, with two real files) and
+  // `test_font` tests the faces of `/res` (docs/30, docs/50).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "face 4096"), g_out);
   // A face of the disk is the person's: an app reads it and does not write it (docs/70).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
@@ -2106,9 +2496,9 @@ void test_the_http_command_downloads_a_page(void) {
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
 }
 
-// **`repo info <app>` llegeix el manifest i en fa una fitxa** (0.82.1): la comanda demana el fitxer cru a
-// GitHub i el pinta amb el lector de JSON del sistema, que és el mateix que llegeix els manifests del disc. La
-// xarxa és la falsa del banc —una resposta enllaunada— perquè el que es prova és la comanda i no l'adreça
+// **`repo info <app>` reads the manifest and makes a card of it** (0.82.1): the command asks GitHub for the raw file
+// and paints it with the JSON reader of the system, which is the same one that reads the manifests of the disk. The
+// network is the fake one of the bench —a canned answer— because what is tested is the command and not the address
 // (docs/30, docs/40).
 void test_the_repo_command_shows_the_manifest_of_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -2138,8 +2528,8 @@ void test_the_repo_command_shows_the_manifest_of_an_app(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "description A description"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
 
-  // **Un manifest sense `entry` no és una app que es pugui córrer**, i la fitxa ho diu en lloc de fer veure que
-  // sí (docs/40).
+  // **A manifest without `entry` is not an app that can be run**, and the card says so instead of pretending it is one
+  // (docs/40).
   opts.http_body = "{\"title\":\"Mig\"}";
   emu::set_options(opts);
   pump_captured(400, g_out, sizeof(g_out), "repo info mija");
@@ -2150,6 +2540,335 @@ void test_the_repo_command_shows_the_manifest_of_an_app(void) {
   pump_captured(40, g_out, sizeof(g_out), "repository info alguna");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "unknown command: repository"), g_out);
 }
+
+// **The chain of an install, one answer per address** (0.88.6): the app `chain`, with its manifest, its code and a folder
+// of two files —four files and a folder, which is the smallest app that walks every step of the chain: the listing of the
+// app, the listing of the folder, and a download for each file—. The answers are asked in the order they were given and
+// the first key that appears in the address wins, so the folder goes in before the app: the address of the folder starts
+// with the address of the app (docs/30, docs/70, docs/85).
+const char* const kChainManifest =
+    "{\"title\":\"Chain\",\"version\":\"1.0.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}";
+const char* const kChainSource = "console.print('chain ok')\n";
+const char* const kChainNotes = "one line\n";
+const char* const kChainNumbers = "42\n";
+// **The address of a file is the one the listing gives it**, and the bench answers by a part of it: what the address of
+// GitHub looks like is GitHub's business and not the chain's (docs/30).
+const char* const kChainAppListing =
+    "[{\"name\":\"manifest.json\",\"download_url\":\"https://h/a/manifest.json\",\"type\":\"file\"},"
+    "{\"name\":\"app.lua\",\"download_url\":\"https://h/a/app.lua\",\"type\":\"file\"},"
+    "{\"name\":\"res\",\"download_url\":null,\"type\":\"dir\"}]";
+const char* const kChainFolderListing =
+    "[{\"name\":\"notes.txt\",\"download_url\":\"https://h/a/notes.txt\",\"type\":\"file\"},"
+    "{\"name\":\"numbers.bin\",\"download_url\":\"https://h/a/numbers.bin\",\"type\":\"file\"}]";
+
+// The six answers of the chain, with the status of the last file of the folder —which is how a server that fails at the
+// end of an install is tried (docs/30).
+bool install_the_chain(int32_t numbers_status) {
+  emu::http_canned_clear();
+  return emu::http_canned("contents/apps/chain/res", kChainFolderListing, 200) &&
+         emu::http_canned("contents/apps/chain", kChainAppListing, 200) &&
+         emu::http_canned("a/manifest.json", kChainManifest, 200) &&
+         emu::http_canned("a/app.lua", kChainSource, 200) &&
+         emu::http_canned("a/notes.txt", kChainNotes, 200) &&
+         emu::http_canned("a/numbers.bin", kChainNumbers, numbers_status);
+}
+
+// **An app of ten folders and a folder inside a folder** (0.88.9): the queue of folders was a table of six, and the
+// seventh folder of an app was the install that said so and stopped; a folder inside a folder had no room in the table at
+// all. The queue is a file of the app's folder now, so ten folders cost what one costs, and the path a folder has inside
+// the app is the path its files land on (docs/30, docs/70, docs/75). The bench answers one address per folder and per
+// file, which is the whole of the chain.
+const char* const kWideManifest =
+    "{\"title\":\"Wide\",\"version\":\"1.0.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}";
+const char* const kWideSource = "console.print('wide ok')\n";
+
+bool install_a_wide_app(void) {
+  emu::http_canned_clear();
+  static char app_listing[1024];
+  static char one[256];
+  static char key[64];
+  // The listing of the app: the manifest, the code and nine folders.
+  size_t used = 0;
+  used += static_cast<size_t>(snprintf(
+      app_listing + used, sizeof(app_listing) - used,
+      "[{\"name\":\"manifest.json\",\"download_url\":\"https://f/m\",\"type\":\"file\"},"));
+  used += static_cast<size_t>(snprintf(
+      app_listing + used, sizeof(app_listing) - used,
+      "{\"name\":\"app.lua\",\"download_url\":\"https://f/a\",\"type\":\"file\"},"));
+  for (int i = 1; i <= 9; ++i) {
+    used += static_cast<size_t>(snprintf(app_listing + used, sizeof(app_listing) - used,
+                                         "{\"name\":\"f%d\",\"download_url\":null,\"type\":\"dir\"}%s", i,
+                                         (i < 9) ? "," : ""));
+  }
+  used += static_cast<size_t>(snprintf(app_listing + used, sizeof(app_listing) - used, "]"));
+  // **The folder inside the folder goes in first**, and then the nine: the address of `f1/inner` starts with the one of
+  // `f1`, and the first answer that matches an address wins (docs/85).
+  snprintf(one, sizeof(one), "[{\"name\":\"deep.txt\",\"download_url\":\"https://f/d\",\"type\":\"file\"}]");
+  if (!emu::http_canned("contents/apps/wide/f1/inner", one, 200)) return false;
+  for (int i = 1; i <= 9; ++i) {
+    if (i == 1) {
+      // **The folder inside the folder**: it is a `dir` of this listing, which is how the plan learns a path with a
+      // slash in it (docs/30, docs/70).
+      snprintf(one, sizeof(one),
+               "[{\"name\":\"inner\",\"download_url\":null,\"type\":\"dir\"},"
+               "{\"name\":\"x1.txt\",\"download_url\":\"https://f/x1\",\"type\":\"file\"}]");
+    } else {
+      snprintf(one, sizeof(one), "[{\"name\":\"x%d.txt\",\"download_url\":\"https://f/x%d\",\"type\":\"file\"}]", i, i);
+    }
+    snprintf(key, sizeof(key), "contents/apps/wide/f%d", i);
+    if (!emu::http_canned(key, one, 200)) return false;
+  }
+  // And the listing of the app, whose address is the beginning of every one of those.
+  if (!emu::http_canned("contents/apps/wide", app_listing, 200)) return false;
+  if (!emu::http_canned("f/m", kWideManifest, 200)) return false;
+  if (!emu::http_canned("f/a", kWideSource, 200)) return false;
+  if (!emu::http_canned("f/d", "deep\n", 200)) return false;
+  for (int i = 1; i <= 9; ++i) {
+    snprintf(key, sizeof(key), "f/x%d", i);
+    snprintf(one, sizeof(one), "file %d\n", i);
+    if (!emu::http_canned(key, one, 200)) return false;
+  }
+  return true;
+}
+
+// **`repo install <app>` is a chain of downloads and it ends with the app on the disk** (0.88.6): the listing of the app,
+// the listing of its folder and each one of its files are a download each, the reader walks every listing once and gives
+// it back, and what the summary says is what the disk has. The bench answers per address, which is what makes a chain
+// testable at all: one page for every URL would be the same file saved four times, and a listing read as a file (docs/30,
+// docs/70, docs/85).
+void test_the_repo_command_installs_an_app_with_its_folders(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  // **The flash and not a card that another test left in the slot**: `repo install` writes on the disk `cfg` chose, and
+  // a test that says `/littlefs/apps/chain` has to be able to say which disk that is (docs/70, docs/85).
+  opts.sd_dir = nullptr;
+  emu::set_options(opts);
+  kernel::vfs::init(hal::platform());
+  kernel::cfg::boot(hal::platform());
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_status = 200;
+  // **A canned page that is not a listing**: an address of the chain that were answered here instead of by its own
+  // answer would stop the install with "the answer is not where it was saved", so the test fails out loud and not by
+  // luck (docs/85).
+  opts.http_body = "not a listing";
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(install_the_chain(200));
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wifi: on the network casa"), g_out);
+
+  pump_captured(2000, g_out, sizeof(g_out), "repo install chain");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the chain never ended");
+  // **The count is measured and not written here**: what the line says is the four bodies that came down, and the test
+  // builds the same number out of them (docs/30).
+  char expected[128];
+  snprintf(expected, sizeof(expected), "repo: chain in /littlefs/apps/chain, 4 files, 1 folder, %u bytes",
+           static_cast<unsigned>(strlen(kChainManifest) + strlen(kChainSource) + strlen(kChainNotes) +
+                                 strlen(kChainNumbers)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, expected), g_out);
+
+  // **What the line says is what the disk has**, byte by byte: a count of four files with three of them empty is a count
+  // of downloads and not an app (docs/70).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **Eight hundred bytes and static**: a buffer of this suite lives outside the frame, the way the ones of the board
+  // do (docs/75).
+  static char file[400];
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/manifest.json", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainManifest, file);
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/app.lua", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainSource, file);
+  // **The file of a folder is the point of the queue**: a chain that lists a folder and never downloads what is in it
+  // says "one folder" and carries nothing (docs/30).
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/res/notes.txt", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainNotes, file);
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/res/numbers.bin", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainNumbers, file);
+
+  // **A listing is a temporary file of the system inside the folder of the app**, and the app's own `fs.list` would read
+  // it: none is left, neither the one of the app nor the one of its folder (docs/70).
+  hal::Stat info;
+  TEST_ASSERT_FALSE(storage->stat("/apps/chain/.listing.json", info));
+  TEST_ASSERT_FALSE(storage->stat("/apps/chain/res/.listing.json", info));
+
+  // **And what landed is an app the system runs**, which is what the install was for (docs/40).
+  pump_captured(300, g_out, sizeof(g_out), "run chain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "chain ok"), g_out);
+
+  storage->remove("/apps/chain/res/notes.txt");
+  storage->remove("/apps/chain/res/numbers.bin");
+  storage->remove("/apps/chain/res");
+  storage->remove("/apps/chain/app.lua");
+  storage->remove("/apps/chain/manifest.json");
+  storage->remove("/apps/chain");
+  emu::http_canned_clear();
+  opts.http_body = nullptr;
+  opts.http_fake = false;
+  emu::set_options(opts);
+}
+
+// **An app with more folders than a table in RAM carries, and a folder inside a folder** (0.88.9): the queue was
+// `g_install_waiting[6][48]` and the seventh folder of an app was an install that said "this app has more folders than
+// an install carries" and stopped. It is a file of the app's folder now —one line per folder, with the path it has
+// inside the app—, so the ceiling is the disk, and a folder inside a folder is one more line instead of a path nobody
+// could write down (docs/30, docs/70, docs/75).
+void test_an_app_with_more_folders_than_a_table_in_ram_carries_is_installed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.sd_dir = nullptr;
+  emu::set_options(opts);
+  kernel::vfs::init(hal::platform());
+  kernel::cfg::boot(hal::platform());
+  opts.wifi_absent = false;
+  // **Fifty milliseconds a network and twenty a page**: the chain is twenty-three downloads and the suite does not have
+  // to pay a second for each one (docs/85).
+  opts.wifi_ms = 50;
+  opts.http_fake = true;
+  opts.http_ms = 20;
+  opts.http_status = 200;
+  opts.http_body = "not a listing";
+  emu::set_options(opts);
+  TEST_ASSERT_TRUE(install_a_wide_app());
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wifi: on the network casa"), g_out);
+
+  pump_captured(3000, g_out, sizeof(g_out), "repo install wide");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the chain never ended");
+  // **Twelve files and ten folders**, which is above the six of the table: the manifest, the code, one file per folder
+  // and one in the folder of the first folder (docs/30).
+  char expected[128];
+  snprintf(expected, sizeof(expected), "repo: wide in /littlefs/apps/wide, 12 files, 10 folders, %u bytes",
+           static_cast<unsigned>(strlen(kWideManifest) + strlen(kWideSource) + 9 * 7 + 5));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, expected), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "more folders"), g_out);
+
+  // **The folders are on the disk with the files they carry**, the ninth one included: a queue that stopped at the sixth
+  // would leave four folders of the plan unanswered (docs/70).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  static char file[400];
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/wide/f1/x1.txt", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING("file 1\n", file);
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/wide/f9/x9.txt", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING("file 9\n", file);
+  // **And the file of the folder inside the folder lands where its path says**: `f1/inner/deep.txt` and not
+  // `inner/deep.txt` of the root, which is what a queue of bare names would have made (docs/30, docs/70).
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/wide/f1/inner/deep.txt", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING("deep\n", file);
+
+  // **And the plan is a temporary file of the system like the listing**: none of them is left inside the app (docs/70).
+  hal::Stat info;
+  TEST_ASSERT_FALSE(storage->stat("/apps/wide/.folders", info));
+  TEST_ASSERT_FALSE(storage->stat("/apps/wide/.listing.json", info));
+  TEST_ASSERT_FALSE(storage->stat("/apps/wide/f1/.listing.json", info));
+  TEST_ASSERT_FALSE(storage->stat("/apps/wide/f1/inner/.listing.json", info));
+
+  // **And it runs**, which is what an install of twelve files was for (docs/40).
+  pump_captured(300, g_out, sizeof(g_out), "run wide");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wide ok"), g_out);
+
+  for (int i = 1; i <= 9; ++i) {
+    char path[64];
+    snprintf(path, sizeof(path), "/apps/wide/f%d/x%d.txt", i, i);
+    storage->remove(path);
+    snprintf(path, sizeof(path), "/apps/wide/f%d", i);
+    storage->remove(path);
+  }
+  storage->remove("/apps/wide/f1/inner/deep.txt");
+  storage->remove("/apps/wide/f1/inner");
+  storage->remove("/apps/wide/app.lua");
+  storage->remove("/apps/wide/manifest.json");
+  storage->remove("/apps/wide");
+  emu::http_canned_clear();
+  opts.http_body = nullptr;
+  opts.http_fake = false;
+  emu::set_options(opts);
+}
+
+// **An install that fails in the middle says which file and can be tried again** (0.88.6): the chain stops at the first
+// answer that is not a 200, the reader goes back with it, and what is left is a state a new install can use —a command
+// that keeps the board and has to be given it back is a command whose second try is not a try (docs/30, docs/75).
+void test_an_install_that_hits_a_404_says_so_and_can_be_tried_again(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  // Without a card, for the reason of the test above.
+  opts.sd_dir = nullptr;
+  emu::set_options(opts);
+  kernel::vfs::init(hal::platform());
+  kernel::cfg::boot(hal::platform());
+  opts.wifi_absent = false;
+  opts.wifi_ms = 100;
+  opts.http_fake = true;
+  opts.http_ms = 50;
+  opts.http_status = 200;
+  opts.http_body = "not a listing";
+  emu::set_options(opts);
+
+  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wifi: on the network casa"), g_out);
+
+  // **The last file of the folder is a 404**: the three of before it came, and the install says where it stopped and
+  // not that it worked (docs/30).
+  TEST_ASSERT_TRUE(install_the_chain(404));
+  pump_captured(2000, g_out, sizeof(g_out), "repo install chain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repo: the server answered 404 for a file of the app"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "4 files, 1 folder"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
+
+  // **And what is left is nothing, and not half an app** (0.88.14): the four files that did come are in a folder of the
+  // system's that goes away with the failure, so `apps/<id>` never appears and the listing does not count an app that
+  // cannot run (docs/30, docs/70).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  hal::Stat info;
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("/apps/chain", info), "half an app stayed on the disk");
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("/apps/.chain.install", info), "the folder of the work stayed on the disk");
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "Chain"), g_out);
+
+  // **The same command again with the wire answering is a whole install** and not the rest of the one before: the
+  // counters, the queue of folders and the reader are the ones of a new one (docs/75).
+  TEST_ASSERT_TRUE(install_the_chain(200));
+  pump_captured(2000, g_out, sizeof(g_out), "repo install chain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repo: chain in /littlefs/apps/chain, 4 files, 1 folder,"), g_out);
+
+  static char file[400];
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/res/numbers.bin", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainNumbers, file);
+
+  // **An update that dies leaves the app that was there** (0.88.14): the second install of the same id fails at its
+  // last file and the one of before is whole, with its own bytes —a name taken before the files are there would have
+  // left a mixture of the two, which is the half app this rule is for (docs/30, docs/70).
+  TEST_ASSERT_TRUE(install_the_chain(404));
+  pump_captured(2000, g_out, sizeof(g_out), "repo install chain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repo: the server answered 404 for a file of the app"), g_out);
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/res/numbers.bin", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainNumbers, file);
+  TEST_ASSERT_TRUE(read_text(storage, "/apps/chain/app.lua", file, sizeof(file)));
+  TEST_ASSERT_EQUAL_STRING(kChainSource, file);
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("/apps/chain.old", info), "the app of before stayed under another name");
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Chain"), g_out);
+
+  storage->remove("/apps/chain/res/notes.txt");
+  storage->remove("/apps/chain/res/numbers.bin");
+  storage->remove("/apps/chain/res");
+  storage->remove("/apps/chain/app.lua");
+  storage->remove("/apps/chain/manifest.json");
+  storage->remove("/apps/chain");
+  emu::http_canned_clear();
+  opts.http_body = nullptr;
+  opts.http_fake = false;
+  emu::set_options(opts);
+}
+
 
 // A page bigger than the room the command has is not cut and not lost: **it goes to a file whole**, and
 // the shell says where. The point of asking for a page is to be able to read it, and half a page is not
@@ -2366,11 +3085,10 @@ void test_an_app_downloads_a_page_to_a_file(void) {
   storage->remove("/apps/dl");
 }
 
-// **Un fitxer es llegeix a trossos i el banc no diu que no** (0.66.0): `fs.read_at` demana un bloc a
-// l'intèrpret que creix, i el heap del banc responia `not enough memory` amb megabytes lliures perquè un bloc
-// que no podia créixer on era només provava l'altra memòria (docs/75, docs/85). El sostre d'aquest banc de
-// proves és el de l'ATOM (64 KB per app), o sigui que el tros és de 12 KB i el fitxer de 60: el que es prova
-// és que cada tros arriba sencer.
+// **A file is read in pieces and the bench does not say no** (0.66.0): `fs.read_at` asks the interpreter that grows for
+// a block, and the heap of the bench answered `not enough memory` with megabytes free because a block that could not
+// grow where it was only tried the other memory (docs/75, docs/85). The ceiling of this test bench is the one of the ATOM
+// (64 KB per app), so the piece is 12 KB and the file is 60: what is tested is that every piece arrives whole.
 void test_a_big_file_is_read_in_chunks(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -2410,10 +3128,10 @@ void test_a_big_file_is_read_in_chunks(void) {
   storage->remove("/apps/reader");
 }
 
-// **El camí que el prompt nomena és l'única porta de l'app al disc de la persona** (0.65.0): una app
-// arrencada amb `run <id> <path>` pot llegir i escriure **aquell** fitxer, i qualsevol altre camí del disc
-// de la persona continua responent `E_INVAL`. És el que fa que un editor desi on la persona ha dit i no on
-// l'app vulgui (docs/30, docs/70).
+// **The path the prompt names is the only door of the app to the disk of the person** (0.65.0): an app started with
+// `run <id> <path>` can read and write **that** file, and any other path of the disk of the person keeps answering
+// `E_INVAL`. It is what makes an editor save where the person said and not where the app wants
+// (docs/30, docs/70).
 void test_an_app_writes_the_file_the_prompt_named_and_no_other(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -2440,15 +3158,15 @@ void test_an_app_writes_the_file_the_prompt_named_and_no_other(void) {
 
   TEST_ASSERT_TRUE(run_captured("run writer /littlefs/notes.txt", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "named true nil"), g_out);
-  // **La resta del disc segueix tancada**: el camí nomenat és una excepció i no una porta oberta.
+  // **The rest of the disk stays closed**: the named path is an exception and not an open door.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "other nil E_INVAL"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read from the app"), g_out);
-  // **El temporal del camí nomenat també és el camí nomenat** (0.66.0): desar des d'una app és escriure
-  // `<path>.tmp` i reanomenar-lo, i sense això l'escriptura atòmica no podia existir des d'una app.
+  // **The temporary of the named path is the named path too** (0.66.0): saving from an app is writing `<path>.tmp`
+  // and renaming it, and without that the atomic write could not exist from an app.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "temp true nil"), g_out);
 
-  // **I el nom sobreviu a la comanda** (4/11): la paraula del prompt viu en una pila que ja no hi és quan
-  // l'app corre, i el camí que el nucli consulta per deixar-la desar ha de ser una còpia.
+  // **And the name outlives the command** (4/11): the word of the prompt lives on a stack that is not there any more
+  // when the app runs, and the path the kernel asks about to let it save has to be a copy.
   TEST_ASSERT_TRUE(kernel::execute("run writer /littlefs/notes.txt"));
   // **The turns are borrowed and not waited for**: an app that never ends has to fail this test and not take the whole
   // run with it, which is a suite that stops with no output and a person who cannot tell why (found the 4/11,
@@ -3140,10 +3858,10 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
       text[got] = '\0';
       char boards[kernel::apps::Entry::kMaxBoards][lunok::json::kStringItemCap];
       uint32_t count = 0;
-      TEST_ASSERT_TRUE_MESSAGE(
-          lunok::json::get_strings(text, got, "boards", boards,
-                                   kernel::apps::Entry::kMaxBoards, count),
-          item->d_name);
+      TEST_ASSERT_TRUE_MESSAGE(lunok::json::get_strings(text, got, "boards", boards,
+                                                        kernel::apps::Entry::kMaxBoards, count) ==
+                                   lunok::json::Strings::kOk,
+                               item->d_name);
       TEST_ASSERT_TRUE_MESSAGE(count > 0, item->d_name);
       for (uint32_t i = 0; i < count; ++i) {
         TEST_ASSERT_TRUE_MESSAGE(strcmp(boards[i], "emulator") != 0, item->d_name);
@@ -3393,10 +4111,11 @@ void test_a_button_is_navigated_and_touched(void) {
   kernel::boot(hal::platform());
 }
 
-// **Un swipe sobre una caixa de diverses línies mou la finestra, i el gest és de l'app que l'ha registrat** (0.88.0):
-// el sistema fa l'aritmètica —quantes files ha recorregut el dit— i escriu el `top` de la caixa, la pàgina es presenta
-// sola i l'app ho sent amb `on_swipe`. **I el gest no sobreviu a la pàgina**: una app que s'acaba amb el dit a sobre no
-// deixa cap gest a mitges a la que ve després, perquè la pressa de la segona és una pressa nova (docs/30, docs/90).
+// **A swipe on a box of several lines moves the window, and the gesture belongs to the app that registered it**
+// (0.88.0): the system does the arithmetic —how many rows the finger has travelled— and writes the `top` of the box, the
+// page presents itself and the app hears it at `on_swipe`. **And the gesture does not outlive the page**: an app that
+// ends with the finger down leaves no half gesture to the next one, because the press of the second is a new press
+// (docs/30, docs/90).
 void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -5623,7 +6342,12 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_write_to_raw_memory_goes_in_place);
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
-  RUN_TEST(test_an_app_installed_on_the_card_is_the_one_that_runs);
+  RUN_TEST(test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD);
+  RUN_TEST(test_a_manifest_of_nine_boards_says_it_names_too_many);
+  RUN_TEST(test_the_door_of_the_apps_puts_the_card_and_the_flash_together);
+  RUN_TEST(test_the_door_of_the_apps_presents_no_folder_that_is_not_an_app);
+  RUN_TEST(test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest);
+  RUN_TEST(test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too);
   RUN_TEST(test_a_board_with_no_card_looks_only_in_the_flash);
   RUN_TEST(test_the_faces_of_the_disk_are_at_fonts_for_every_app);
   RUN_TEST(test_the_settings_of_an_app_go_to_the_card_when_there_is_one);
@@ -5662,6 +6386,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_ntp_without_a_network_is_refused);
   RUN_TEST(test_the_http_command_downloads_a_page);
   RUN_TEST(test_the_repo_command_shows_the_manifest_of_an_app);
+  RUN_TEST(test_the_repo_command_installs_an_app_with_its_folders);
+  RUN_TEST(test_an_app_with_more_folders_than_a_table_in_ram_carries_is_installed);
+  RUN_TEST(test_an_install_that_hits_a_404_says_so_and_can_be_tried_again);
   RUN_TEST(test_the_http_command_saves_a_page_that_does_not_fit);
   RUN_TEST(test_http_without_a_network_is_refused);
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);

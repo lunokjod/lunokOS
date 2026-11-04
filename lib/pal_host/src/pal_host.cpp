@@ -209,7 +209,12 @@ const uint16_t kQueueLength = 16;
 class HostSystem : public ISystem, public IQueue, public IConsole {
  public:
   bool bring_up() {
-    if (isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &saved_) == 0) {
+    // **The state that is saved is the one of a terminal nobody has touched** (0.88.17): `bring_up` runs once per test
+    // of the suites that boot the interpreter again and again —`test_luabind` says `pal::init()` forty-three times in one
+    // run— and a second `tcgetattr` saved the raw mode that the first call had just put there. The restore at the end of
+    // the process then put the **raw** mode back, and the terminal of whoever ran the tests was left with no echo and no
+    // line until a `reset` (found the 4/11, docs/80, docs/85).
+    if (!raw_active_ && isatty(STDIN_FILENO) != 0 && tcgetattr(STDIN_FILENO, &saved_) == 0) {
       struct termios raw = saved_;
       raw.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
       raw.c_cc[VMIN] = 0;
@@ -624,10 +629,10 @@ class HostExtraMemory : public IExtraMemory {
     return move_into(block, bytes, home);
   }
 
-  // **Un bloc que no creix on és pot anar a qualsevol altra taca de la seva memòria**, no només a l'altra:
-  // un heap de debò no demana que el bloc tingui el lloc lliure just darrere, i el de la PSRAM d'aquest banc
-  // deia que no a un bloc de 88 572 B amb **quatre megabytes lliures** perquè el veí estava ocupat i només
-  // provava l'altra casa, que és la petita (trobat amb l'editor obrint un fitxer d'1,3 MB, 4/11) (docs/75).
+  // **A block that does not grow where it is can go to any other spot of its memory**, not only to the other one: a
+  // real heap does not ask that the block have the free room right behind it, and the one of the PSRAM of this bench
+  // said no to a block of 88 572 B with **four megabytes free** because the neighbour was taken and it only tried the
+  // other home, which is the small one (found with the editor opening a file of 1.3 MB, 4/11) (docs/75).
   void* move_into(void* block, size_t bytes, uint8_t home) {
     Chunk* chunk = head_of(block);
     void* fresh = take(home, bytes);

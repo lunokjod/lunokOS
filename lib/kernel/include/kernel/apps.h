@@ -11,7 +11,9 @@ namespace kernel {
 namespace apps {
 
 struct Entry {
-  char id[32];
+  // **The id is the name the door presents** (0.88.20): `squares` for the app of the flash and `squares-SD` for the copy
+  // of the card, so it has room for the suffix on top of the longest folder the disks carry.
+  char id[40];
   char title[48];
   char version[16];
   char entry_file[48];
@@ -28,8 +30,8 @@ struct Entry {
   // still an app of the disk —`apps` lists it and says what it needs— but it is not
   // one this board can run (docs/40).
   bool works_here;
-  // **The card is the one that answered** (0.87.1): the same id may sit on both disks and the card is the copy that
-  // runs, so the listing says which of the two it read (docs/40).
+  // **Which half of the door answered** (0.88.20): the same id may sit on both disks and the door presents them apart, so
+  // the listing says which of the two it read (docs/40).
   bool on_card;
 };
 
@@ -41,25 +43,29 @@ bool compatible(const Entry& entry, const char* board_id, const char* family);
 // Return false to stop the walk.
 typedef bool (*Visitor)(const Entry& entry, void* context);
 
-// **On viuen les apps d'aquesta placa** (0.86.0): la flash, on les posa el firmware, i la targeta, on les posa la
-// persona amb `repo install`. Una app de la targeta **mana sobre la de la flash** —el mateix id instal·lat a la
-// targeta és el que s'executa, i treure la targeta torna la de la flash—, i el disc que no hi és no compta
-// (docs/40, docs/70).
-//
-// **Les dues bandes i la porta** (0.87.1): la flash és `/littlefs/apps` i la targeta `/sd/apps` —els camins sencers
-// que el `run` i un missatge d'error ensenyen—, i `/apps` és la porta de la flash per on una persona i el `res/`
-// d'una app hi arriben: la unitat `/littlefs` sencera no és d'una app (docs/30, docs/70).
-extern const char kFlashRoot[];
-extern const char kCardRoot[];
-extern const char kFlashDoor[];
+// **The one door of the apps** (0.88.20): `/apps` is the virtual directory that puts the flash's `apps/` and the card's
+// `apps/` together, and it is the only place the system looks —the listing, the `run` and the files of an app all go
+// through it—. A name the flash has and the card also has is presented **once as `name` and once as `name-SD`**, so the
+// two can be read and run apart, and what the door presents is what the system decides to present: a folder that is not
+// an app is not in it, and a disk the system did not offer is never read (docs/40, docs/70).
+extern const char kAppsDoor[];
 
-// **Si hi ha targeta al slot**: ho diu el muntatge i no una carpeta, perquè una targeta que el sistema no ha pogut
-// muntar no és un lloc on buscar-hi res (docs/50, docs/70).
+// **Whether there is a card in the slot**: the mount says so and not a folder, because a card the system could not
+// mount is not a place to look for anything in (docs/50, docs/70).
 bool card_here();
 
+// **The id of the door of an app, `name` or `name-SD`**: `/apps/<id>`, which the filesystem answers from the disk that
+// has that app (docs/40, docs/70).
 bool root_of(const char* id, char* out, size_t cap);
 
-// Walks the app roots and loads one manifest at a time. When only_id is not null it stops
+// **What the door of the apps presents** (0.88.20): the kernel hands this to the VFS, which asks it for every name of
+// `/apps` and lists only the ones it accepts. `disk` is the half of the door the name came from (`/littlefs/apps` or
+// `/sd/apps`) and `name` is the folder on that disk: a folder that carries a `manifest.json` is an app there. An app that
+// names another board is still presented —the listing says what it needs— because hiding it would leave a person with an
+// app on their disk and no trace of it (docs/40, docs/70).
+bool is_an_app(const char* disk, const char* name);
+
+// Walks the door of the apps and loads one manifest at a time. When only_id is not null it stops
 // after that app. Returns how many apps loaded correctly.
 uint32_t for_each(const char* only_id, Visitor visitor, void* context);
 

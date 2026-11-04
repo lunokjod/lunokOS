@@ -381,6 +381,7 @@ void print_help(const char* only) {
   help_line("  caps              what this board has", only);
   help_line("  mem               free memory and buffers", only);
   help_line("  apps              the apps of the flash and of the card", only);
+  help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
   help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept", only);
   help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
@@ -534,9 +535,9 @@ bool print_app(const apps::Entry& entry, void* context) {
   colour_off();
   spaces((version_len < 10) ? (10 - version_len) : 1);
   out(entry.title);
-  // **The app of the card says so** (0.87.1): the same id may sit on the flash and on the card, and the card is the
-  // one that runs, so a person who is trying a version has to be able to read which of the two the list is showing
-  // (docs/40, docs/70).
+  // **The app of the card says so** (0.87.1): the same id may sit on the flash and on the card, and the two are presented
+  // apart —`<id>` and `<id>-SD`— so a person who is trying a version can read which of the two copies each line is
+  // (0.88.20, docs/40, docs/70).
   if (entry.on_card) {
     colour(kColourDim);
     out("  [card]");
@@ -651,8 +652,8 @@ class ListPrinter : public hal::ListSink {
   }
 };
 
-// **Fins a vuit noms i prou**: la pista d'una ruta que no hi és ha de cabre en una pantalla, i el que fa falta és
-// veure el nom que hi ha al costat del que s'ha escrit (docs/30).
+// **Eight names and no more**: the hint of a path that is not there has to fit on one screen, and what is needed
+// is seeing the name that is there next to the one that was typed (docs/30).
 const uint8_t kHintEntries = 8;
 
 // Prints the names of a directory as a list of one line, or counts them when `quiet` says so: the backend lends a
@@ -681,9 +682,9 @@ class NamePrinter : public hal::ListSink {
   uint32_t more_ = 0;
 };
 
-// **On és el que s'ha escrit**: una ruta que no hi és es diu amb el tros que sí que hi és i què té a dins, perquè veure
-// `apps` al costat d'un `app` és el que fa trobar la lletra que falta. Sense això, un `cannot list` deixa la persona
-// mirant una ruta que sembla correcta (docs/30, docs/70).
+// **Where what was typed is**: a path that is not there is said with the piece that is there and what it holds,
+// because seeing `apps` next to an `app` is what finds the letter that is missing. Without it, a `cannot list`
+// leaves a person looking at a path that seems right (docs/30, docs/70).
 void say_where_it_is(const char* path) {
   char trial[128];
   snprintf(trial, sizeof(trial), "%s", (path != nullptr) ? path : "");
@@ -728,8 +729,8 @@ void list_at(const char* path) {
     say_where_it_is(path);
     return;
   }
-  // **Un fitxer també es llista**: el que demana un camí vol saber què hi ha, i un fitxer té un nom i una mida com
-  // qualsevol entrada d'una carpeta (docs/30).
+  // **A file is listed too**: a person who asks about a path wants to know what is there, and a file has a name
+  // and a size like any entry of a folder (docs/30).
   if (info.type != hal::NodeType::kDir) {
     hal::ListEntry one;
     const char* base = strrchr(path, '/');
@@ -770,8 +771,8 @@ bool print_file(const char* path) {
     error_out("no such file: ");
     out(path);
     newline();
-    // **I on és el que sí que hi ha**: el mateix que fa `ls`, perquè un camí escrit a mà s'equivoca igual en tots dos
-    // (0.86.1, docs/30).
+    // **And where the one that is there lives**: the same `ls` does, because a path typed by hand gets it wrong the
+    // same way in both (0.86.1, docs/30).
     say_where_it_is(path);
     return false;
   }
@@ -790,11 +791,11 @@ bool print_file(const char* path) {
     return false;
   }
 
-  // **El fitxer sencer i no els seus primers mil bytes** (4/11): això llegia una finestra de 1 024 B amb
-  // `vfs::read_file` i la imprimia, o sigui que un `cat` d'una pàgina de l'`http` s'aturava a la primera
-  // pantalla i mitja sense dir res —el pitjor dels dos móns, perquè una sortida tallada sembla un fitxer
-  // tallat. Ara es llegeix a finestres fins al final, i el que triga és el cable: 1,3 MB a 115 200 baudes són
-  // uns dos minuts, que és el que trigaria la placa (docs/30, docs/50, docs/70).
+  // **The whole file and not its first thousand bytes** (4/11): this used to read one window of 1 024 B with
+  // `vfs::read_file` and print it, so a `cat` of a page of `http` stopped after a screen and a half without saying
+  // anything —the worst of both worlds, because a cut output looks like a cut file. It is read in windows up to the
+  // end now, and what it costs is the wire: 1.3 MB at 115 200 baud is about two minutes, which is what the board
+  // would take (docs/30, docs/50, docs/70).
   hal::FileSlot slot;
   StorageReadClock clock(storage);
   clock.begin();
@@ -1016,8 +1017,8 @@ struct RunTarget {
 
 bool find_entry(const apps::Entry& entry, void* context) {
   RunTarget* target = static_cast<RunTarget*>(context);
-  // **The app is where it lives** (0.86.0): the flash or the card, which is the same answer the listing and the
-  // door of its `res/` get (docs/40, docs/70).
+  // **The app is where the door says it is** (0.88.20): `/apps/<id>`, which is the flash's copy for `squares` and the
+  // card's for `squares-SD` —the same answer the listing and the `res/` of the app get— (docs/40, docs/70).
   char root[96];
   if (!apps::root_of(entry.id, root, sizeof(root))) return true;
   const int written = snprintf(target->path, sizeof(target->path), "%s/%s", root, entry.entry_file);
@@ -1042,16 +1043,12 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
     error_out("no such app: ");
     out(id);
     newline();
-    // **On s'ha buscat, dit amb els dos camins sencers** (0.87.1): una app viu a la flash i a la targeta, i qui no la
-    // troba ha de saber on mirar abans de dubtar del nom que ha escrit (docs/40, docs/70).
+    // **Where it was looked for, said once and in full** (0.88.20): the apps live in the door `/apps`, which is the
+    // flash's `apps/` and the card's together, so a person who does not find it knows where to look before doubting the
+    // name they typed —and a name the flash has and the card also has is the one without the `-SD`— (docs/40, docs/70).
     out("  apps are in ");
-    out(apps::kFlashRoot);
-    if (apps::card_here()) {
-      out(" and ");
-      out(apps::kCardRoot);
-    } else {
-      out(", and there is no card in the slot");
-    }
+    out(apps::kAppsDoor);
+    if (!apps::card_here()) out(", and there is no card in the slot");
     newline();
     return false;
   }
@@ -1176,7 +1173,9 @@ const size_t kChoicePathBytes = 128;
 
 char g_choice_ext[16];
 char g_choice_path[kChoicePathBytes];
-char g_choice_ids[kMaxChoices][32];
+// **The ids of the apps that can open a file** (0.88.20): the name the door of the apps presents, which carries `-SD` on the
+// copy of the card, so the table is as wide as `apps::Entry::id` and an app is never offered by a cut name.
+char g_choice_ids[kMaxChoices][40];
 uint32_t g_choice_count = 0;
 bool g_choosing = false;
 
@@ -1254,7 +1253,7 @@ bool answer_choice(const char* line) {
     return true;
   }
 
-  char id[32];
+  char id[40];
   char path[kChoicePathBytes];
   copy_text(id, sizeof(id), g_choice_ids[chosen - 1]);
   copy_text(path, sizeof(path), g_choice_path);
@@ -1274,7 +1273,9 @@ bool open_file(const char* argument) {
     return false;
   }
 
-  char app_id[32];
+  // **The name of an app as the door presents it** (0.88.20): `reader`, or `reader-SD` for the copy of the card, which is
+  // what `run` and the listing answer to.
+  char app_id[40];
   app_id[0] = '\0';
   const char* path = words[count - 1];
   if (count == 2) {
@@ -1343,33 +1344,49 @@ const uint32_t kHttpShow = 800;
 enum class RadioJob { kNone, kScan, kAdd, kConnect, kProvision, kNtp, kHttp, kRepository, kInstall };
 RadioJob g_job = RadioJob::kNone;
 char g_job_ssid[33];
-// **On ha anat el llistat del repositori**: la comanda arrenca la baixada i plega, i qui la rep quan la ràdio
-// ha acabat és `radio_done`, o sigui que el camí ha de viure fora de la pila d'aquella crida (docs/30).
+// **Where the listing of the repository went**: the command starts the download and folds, and the one that receives
+// it when the radio has finished is `radio_done`, so the path has to live outside the stack of that call (docs/30).
 char g_repo_path[128];
 char g_repo_name[64];
-// **Què s'ha de fer amb la resposta**: la llista d'un directori o el manifest d'una app. La comanda arrenca el
-// treball i plega, i qui el continua quan la ràdio ha acabat és `radio_done` (docs/30).
+// **What has to be done with the answer**: the list of a directory or the manifest of an app. The command starts the
+// work and folds, and the one that carries on when the radio has finished is `radio_done` (docs/30).
 bool g_repo_info = false;
 char g_repo_app[32];
 
-// **`repo install` és una cadena i no una crida** (0.86.0): el llistat d'una carpeta és una descàrrega i cada fitxer
-// una altra, i entre dues la ràdio torna al nucli. El que ha de viure fora de la pila és el pla —on va, què queda per
-// fer i per quin fitxer va el llistat—, que és tot això (docs/30, docs/70, docs/75).
+// **`repo install` is a chain and not a call** (0.86.0): the listing of a folder is one download and every file is
+// another, and between two of them the radio comes back to the kernel. What has to live outside the stack is the
+// plan —where it goes, what is left to do and which file of the listing it is on—, which is all of this
+// (docs/30, docs/70, docs/75).
 char g_install_app[32];
 char g_install_repo[64];
-char g_install_root[96];   // "/sd/apps/notes"
-char g_install_url[208];   // l'adreça que vola
-char g_install_dest[200];  // on va aterrar el fitxer que vola
-char g_install_list[176];  // el llistat de la carpeta que s'està llegint
-char g_install_dir[48];    // la carpeta que s'està llegint, buida per a l'arrel de l'app
-char g_install_waiting[6][48];  // les carpetes que falten per llistar
-uint8_t g_install_waiting_count = 0;
-uint8_t g_install_waiting_at = 0;
-uint32_t g_install_entry = 0;  // per quin element del llistat va
+// **Where the app is and where it is being made** (0.88.14): the name of the app is taken only when every file is there,
+// so what is downloaded lives in a folder of its own inside `apps/` and a chain that dies half way does not leave half
+// an app that `apps` would count as one (docs/30, docs/70).
+char g_install_root[96];   // "/sd/apps/notes", and what a message says
+char g_install_work[112];  // "/sd/apps/.notes.install"
+char g_install_url[208];   // the address in flight
+// **The path of the file in flight, whole**: the folder of the work (a hundred and eleven), the folder being read
+// (forty-seven) and the name (forty-seven) are two hundred and eight with the two slashes and the terminator, and a
+// destination of two hundred cut the path —the compiler found it on the board's build, 4/11—, which is a file written
+// somewhere the system did not mean (docs/30, docs/70).
+char g_install_dest[224];  // where the file in flight lands
+char g_install_list[176];  // the listing of the folder being read
+char g_install_dir[48];    // the folder being read, empty for the root of the app
+// **The queue of folders is a file of the app's folder and not a table in RAM** (0.88.9): six of them was a ceiling that
+// an app has no reason to respect —an app of nine folders was an install that said so and stopped—, and a folder inside
+// a folder had no room in it at all. One line per folder, with the path it has inside the app, and the disk is the
+// ceiling (docs/70, docs/75).
+char g_install_plan[112];        // "<root>/.folders"
+uint16_t g_install_folders = 0;  // folders in the plan
+uint16_t g_install_folders_done = 0;
+// **Whether the reader is walking the listing of this folder**: it is opened on the first entry and it stays open until
+// the folder is finished, which is what turns a listing of twenty files from twenty passes over the document into one
+// (0.88.5, docs/75). There is no index to keep: the reader knows where it is.
+bool g_install_walking = false;
 uint16_t g_install_files = 0;
 uint32_t g_install_bytes = 0;
-bool g_install_listing = false;  // què és el que vola: un llistat o un fitxer
-bool g_install_pending = false;  // el pas següent espera el torn de després
+bool g_install_listing = false;  // what is in flight: a listing or a file
+bool g_install_pending = false;  // the next step waits for the turn after
 
 void out_int(int32_t value) {
   if (value < 0) {
@@ -1426,16 +1443,16 @@ void say_failed(const char* what, const char* code) {
 
 // The answer of the one radio job that was running. It arrives in the kernel's
 // turn, so this is where the prompt comes back (docs/30).
-// **Un manifest és petit per definició** (el lector del disc en guarda 1 024): dos kilobytes són marge i no una
-// porta oberta a una pàgina qualsevol (docs/40, docs/75).
+// **A manifest is small by definition** (the reader of the disk keeps 1 024): two kilobytes are margin and not an
+// open door to any page (docs/40, docs/75).
 const uint32_t kManifestBytes = 2048;
 
-// **El llistat es pinta quan la ràdio ha acabat**, i aquesta funció és més avall perquè és llarga: el que
-// necessita `radio_done` és el nom (docs/30).
+// **The listing is painted when the radio has finished**, and this function is further down because it is long: what
+// `radio_done` needs is the name (docs/30).
 void print_listing(const char* path, const char* repo, uint32_t bytes);
 void print_manifest(const char* text, size_t len, const char* app, const char* repo);
-// **La instal·lació, engegada des de la comanda i continuada a `radio_done`**: torna cert mentre queden passos, i
-// aleshores el prompt no torna (docs/30, docs/70).
+// **The install, started by the command and carried on in `radio_done`**: it returns true while steps are left, and
+// then the prompt does not come back (docs/30, docs/70).
 bool install_step();
 bool install_done(bool ok, const char* code);
 
@@ -1555,9 +1572,9 @@ void radio_done(bool ok, const char* code, uint32_t count) {
   } else if (job == RadioJob::kInstall) {
     if (install_done(ok, code)) return;  // another download is on its way: the prompt is not due
   } else if (job == RadioJob::kRepository) {
-    // **Un 200 és la llista i la resta és una resposta que no ho és**: el 404 d'un repositori o d'un
-    // directori que no hi és es diu amb el número, perquè anar a buscar-lo a la documentació de GitHub és el
-    // que faria una persona (docs/30).
+    // **A 200 is the list and everything else is an answer that is not**: the 404 of a repository or of a directory
+    // that is not there is said with the number, because looking it up in the documentation of GitHub is what a
+    // person would do (docs/30).
     const int32_t status = net::http_status();
     if (ok && status == 200 && g_repo_info) {
       uint32_t len = 0;
@@ -1858,9 +1875,9 @@ bool command_http(const char* argument) {
   return true;
 }
 
-// **El manifest d'una app, llegit del cos que ha arribat**: les set claus que un manifest té i el que vol dir
-// cadascuna. El lector de JSON del sistema és el mateix que llegeix els manifests del disc —pull, sense arbre— o
-// sigui que el que surt aquí és el que el sistema veuria si l'app fos a la placa (docs/40, docs/75).
+// **The manifest of an app, read from the body that arrived**: the seven keys a manifest has and what each of them
+// means. The JSON reader of the system is the same one that reads the manifests of the disk —pull, no tree— so what
+// comes out here is what the system would see if the app were on the board (docs/40, docs/75).
 void print_manifest(const char* text, size_t len, const char* app, const char* repo) {
   char title[64] = {0};
   char version[24] = {0};
@@ -1870,6 +1887,11 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   char description[256] = {0};
   char boards[8][lunok::json::kStringItemCap];
   uint32_t board_count = 0;
+  uint32_t board_total = 0;
+  // **A card that shows a dash for a list of nine is a card that lies**: the list is read the same way the board reads
+  // it, and when it is longer than this system carries the card says how long it is (docs/30, docs/75).
+  const lunok::json::Strings boards_read =
+      lunok::json::get_strings(text, len, "boards", boards, 8, board_count, &board_total);
 
   const bool has_title = lunok::json::get_string(text, len, "title", title, sizeof(title));
   const bool has_entry = lunok::json::get_string(text, len, "entry", entry, sizeof(entry));
@@ -1877,7 +1899,6 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   lunok::json::get_string(text, len, "author", author, sizeof(author));
   lunok::json::get_string(text, len, "opens", opens, sizeof(opens));
   lunok::json::get_string(text, len, "description", description, sizeof(description));
-  lunok::json::get_strings(text, len, "boards", boards, 8, board_count);
 
   good_out("repo: ");
   out((has_title) ? title : app);
@@ -1888,8 +1909,8 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   out(")");
   newline();
 
-  // **Una clau per línia i el nom a l'esquerra**, que és el que fa llegible una fitxa: el que no hi és es diu
-  // amb un guió llarg i no s'amaga (docs/30).
+  // **One key per line and the name on the left**, which is what makes a card readable: what is not there is said
+  // with a long dash and is not hidden (docs/30).
   struct Field {
     const char* name;
     const char* value;
@@ -1901,7 +1922,7 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
       {"author", author, author[0] != '\0'},
       {"entry", entry, has_entry},
       {"opens", opens, opens[0] != '\0'},
-      {"boards", nullptr, board_count > 0},
+      {"boards", nullptr, board_count > 0 || boards_read == lunok::json::Strings::kTooMany},
       {"description", description, description[0] != '\0'},
   };
   for (const Field& field : fields) {
@@ -1913,17 +1934,22 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
       out("--");
       colour_off();
     } else if (field.value == nullptr) {
-      for (uint32_t i = 0; i < board_count; ++i) {
-        if (i > 0) out(", ");
-        out(boards[i]);
+      if (boards_read == lunok::json::Strings::kTooMany) {
+        out_num(board_total);
+        out(" in the manifest, more than this system carries");
+      } else {
+        for (uint32_t i = 0; i < board_count; ++i) {
+          if (i > 0) out(", ");
+          out(boards[i]);
+        }
       }
     } else if (strcmp(field.value, "") == 0) {
       out("--");
     } else if (strcmp(field.name, "description") != 0) {
       out(field.value);
     } else {
-      // **La descripció és l'única línia que no cap**: es parteix pel blanc que hi ha abans de la columna 80 i
-      // les continuacions van a sota del que diu el camp, que és el que fa llegible una fitxa (docs/30).
+      // **The description is the only line that does not fit**: it is broken at the space before column 80 and the
+      // continuations go under what the field says, which is what makes a card readable (docs/30).
       const size_t kLine = 80;
       size_t used = 12;
       const char* word = field.value;
@@ -1931,8 +1957,8 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
       while (*word != '\0') {
         const char* space = strchr(word, ' ');
         const size_t len = (space != nullptr) ? static_cast<size_t>(space - word) : strlen(word);
-        // **El primer mot va darrere del que diu el camp i els altres se separen amb un blanc**: comptar-ho malament
-        // enganxa dues paraules, i una fitxa que diu «Amodal» no es pot llegir (vist a la consola, 4/11).
+        // **The first word goes after what the field says and the others are separated by a space**: counting it
+        // wrong glues two words together, and a card that says "Amodal" cannot be read (seen on the console, 4/11).
         const size_t gap = first ? 0 : 1;
         if (!first && used + gap + len > kLine) {
           newline();
@@ -1951,8 +1977,8 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
     }
     newline();
   }
-  // **Una app sense `title` o sense `entry` no la pot córrer ningú**: el manifest hi és i el sistema la refusa,
-  // o sigui que la fitxa ho diu en lloc de fer veure que és una app com les altres (docs/40).
+  // **An app without `title` or without `entry` cannot be run by anybody**: the manifest is there and the system
+  // refuses it, so the card says it instead of pretending it is an app like the others (docs/40).
   if (!has_title || !has_entry) {
     error_out("  not a usable app: ");
     out(!has_title ? "no title" : "no entry");
@@ -1960,15 +1986,18 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   }
 }
 
-// **El llistat, en columnes i sense tenir-lo sencer**: un passeig pel fitxer per comptar les carpetes i saber
-// l'amplada de la més llarga, i un altre per pintar-les. El que es guarda és una fila, no la llista: el
-// document són desenes de kilobytes i la placa no els ha de tenir enlloc (docs/75).
+// **The listing, in columns and without holding it whole**: one walk of the file to count the folders and know the
+// width of the widest one, and another to paint them. What is kept is a row, not the list: the document is tens of
+// kilobytes and the board does not have to hold them anywhere (docs/75).
 void print_listing(const char* path, const char* repo, uint32_t bytes) {
   char name[48];
   uint32_t count = 0;
   size_t widest = 0;
   {
-    repository::Listing measure;
+    // **The listing is not a local**: it is about 2 300 B of window and the board's stack is sixteen kilobytes with the
+    // shell, the radio and the install already on it. The two walks of this function take turns on the same object
+    // (docs/75).
+    repository::Listing& measure = repository::Listing::one();
     if (!measure.open(path)) {
       error_out("repo: the answer is not where it was saved\r\n");
       return;
@@ -1978,6 +2007,7 @@ void print_listing(const char* path, const char* repo, uint32_t bytes) {
       const size_t len = strlen(name);
       if (len > widest) widest = len;
     }
+    measure.close();
   }
   good_out("repo: ");
   out_num(count);
@@ -2000,7 +2030,7 @@ void print_listing(const char* path, const char* repo, uint32_t bytes) {
   char row[8 * 50];
   size_t used = 0;
   size_t in_row = 0;
-  repository::Listing listing;
+  repository::Listing& listing = repository::Listing::one();
   if (!listing.open(path)) return;
   while (listing.next(name, sizeof(name))) {
     const size_t len = strlen(name);
@@ -2024,12 +2054,15 @@ void print_listing(const char* path, const char* repo, uint32_t bytes) {
     out(row);
     newline();
   }
+  // **The shared reader does not go back to the prompt with a file open**: the next command asks it for another one
+  // and its `open` would close this one anyway, but a handle held for nobody is a handle (docs/70, docs/75).
+  listing.close();
 }
 
-// repo [owner/repo] [path]: **les carpetes d'un directori del repositori, dites pel repositori** (4/11).
-// La pàgina del navegador és HTML; el que vol una comanda és la llista, i l'API de continguts la dona en JSON.
-// Porta la ràdio com `http` i la deixa anar en acabar, i **la resposta és massa gran per a la memòria**: va a un
-// fitxer del disc i es llegeix a trossos (docs/30, docs/70, docs/75).
+// repo [owner/repo] [path]: **the folders of a directory of the repository, said by the repository** (4/11).
+// The browser page is HTML; what a command wants is the list, and the contents API gives it as JSON. It takes the
+// radio the way `http` does and lets it go when it is done, and **the answer is too big for the memory**: it goes to a
+// file of the disk and is read in pieces (docs/30, docs/70, docs/75).
 // ---- repo install: the whole folder of an app, one download at a time (0.86.0) ----
 
 // **A file the system made goes with the system's own hand**: `vfs::resolve` says which drive it is on and the path
@@ -2041,50 +2074,289 @@ bool drop_file(const char* path) {
   return storage->remove(rel);
 }
 
-// The path the next file of the listing lands on: the app's root, the folder being read, and the name (docs/70).
-void install_file_path(char* out, size_t cap, const char* name) {
-  if (g_install_dir[0] == '\0') {
-    snprintf(out, cap, "%s/%s", g_install_root, name);
-  } else {
-    snprintf(out, cap, "%s/%s/%s", g_install_root, g_install_dir, name);
-  }
+// **A path the system can carry, or nothing**: `vfs::resolve` refuses a path of a hundred and twenty-eight bytes or
+// more (docs/70), and a `snprintf` that does not fit writes half a path, which is a file somewhere nobody asked for. So
+// every path the install makes is said whole or the install stops and says why (docs/30, docs/70).
+const size_t kPathCap = 128;
+
+bool path_fits(int made, size_t cap) {
+  return made > 0 && static_cast<size_t>(made) < cap && static_cast<size_t>(made) < kPathCap;
 }
 
-// **Una carpeta buida tampoc es queda**: el camí d'una descàrrega es fa abans de saber si la baixada arriba, i una
-// instal·lació que falla al primer fitxer deixaria un `apps/<id>` que el llistat pregunta i que no és cap app. Un
-// `remove` d'una carpeta que no és buida no fa res, i per això això és best-effort (docs/40, docs/70).
-bool drop_dir(const char* path) {
+// The path the next file of the listing lands on: the folder the download is being made in, the folder being read, and
+// the name (docs/70). False when it does not fit, and then nothing is downloaded to it (docs/30).
+bool install_file_path(char* out, size_t cap, const char* name) {
+  int made = 0;
+  if (g_install_dir[0] == '\0') {
+    made = snprintf(out, cap, "%s/%s", g_install_work, name);
+  } else {
+    made = snprintf(out, cap, "%s/%s/%s", g_install_work, g_install_dir, name);
+  }
+  return path_fits(made, cap);
+}
+
+// **A folder goes with everything inside it**: an install that dies half way leaves the files it already had in its
+// folder, and the folder of the download has to be thrown away whole —a `remove` of a folder that is not empty does
+// nothing— (docs/70). The tree of an app is two or three levels of what the listing says and the walk is capped there,
+// because a folder that is deeper than anything this system makes is not worth a stack.
+//
+// **What was thrown away is counted** (0.89.0): the same three numbers `repo install` says when it puts an app in, so an
+// app that is deleted says how much room came back. A caller that does not care passes nothing.
+struct Dropped {
+  uint32_t files;
+  uint32_t folders;
+  uint32_t bytes;
+};
+
+void drop_tree(const char* path, uint8_t depth, Dropped* counted = nullptr);
+
+class TreeSink : public hal::ListSink {
+ public:
+  TreeSink(hal::IStorage* storage, const char* rel, uint8_t depth, Dropped* counted)
+      : storage_(storage), depth_(depth), counted_(counted) {
+    copy_text(rel_, sizeof(rel_), rel);
+  }
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    char child[128];
+    const int made = snprintf(child, sizeof(child), "%s/%s", rel_, entry.name);
+    if (made <= 0 || static_cast<size_t>(made) >= sizeof(child)) return true;
+    if (counted_ != nullptr) {
+      if (entry.type == hal::NodeType::kDir) {
+        ++counted_->folders;
+      } else {
+        ++counted_->files;
+        counted_->bytes += entry.size;
+      }
+    }
+    if (entry.type == hal::NodeType::kDir && depth_ < 6) {
+      TreeSink deeper(storage_, child, static_cast<uint8_t>(depth_ + 1), counted_);
+      storage_->list(child, deeper);
+    }
+    storage_->remove(child);
+    return true;
+  }
+
+ private:
+  hal::IStorage* storage_;
+  char rel_[128];
+  uint8_t depth_;
+  Dropped* counted_;
+};
+
+void drop_tree(const char* path, uint8_t depth, Dropped* counted) {
   hal::IStorage* storage = nullptr;
   char rel[128];
-  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
-  return storage->remove(rel);
+  if (!vfs::resolve(path, storage, rel, sizeof(rel)) || storage == nullptr || depth > 6) return;
+  TreeSink sink(storage, rel, depth, counted);
+  storage->list(rel, sink);
+  storage->remove(rel);
 }
 
-// **La cua de carpetes**: una app petita en té una o dues, i el que no hi cap es diu en comptes d'instal·lar mitja app
-// (docs/75).
-bool install_queue_dir(const char* name) {
-  if (name[0] == '\0') return true;
-  if (g_install_waiting_count >= static_cast<uint8_t>(sizeof(g_install_waiting) / sizeof(g_install_waiting[0]))) {
+// **`apps remove <id>`: the app goes, and only the app** (0.89.0). The id is the name `apps` and `run` show —`squares`
+// for the copy of the flash and `squares-SD` for the copy of the card— so one of two copies leaves the disk without the
+// other, which is the whole reason the door presents them apart. **Its settings and its data stay** (`/cfg/<id>` and
+// `/data/<id>`): those are what the app left behind and not the app, and a person who wants them gone says so with
+// another path, not with this one (docs/30, docs/40, docs/70).
+bool apps_remove(const char* id) {
+  char root[96];
+  if (id == nullptr || id[0] == '\0' || !apps::root_of(id, root, sizeof(root))) {
+    usage_out("usage: apps remove <id>\r\n");
     return false;
   }
-  snprintf(g_install_waiting[g_install_waiting_count], sizeof(g_install_waiting[0]), "%s", name);
-  ++g_install_waiting_count;
+  // **The disk is asked once and kept** (0.89.0): the door answers which of the two copies the name is, and every question
+  // after that goes to that copy and not to the door again —a door that is asked twice would answer the card's folder as
+  // soon as the flash's has gone, and a delete would report that it failed at the moment it worked— (docs/40, docs/70).
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  hal::Stat info;
+  if (!vfs::resolve(root, storage, rel, sizeof(rel)) || storage == nullptr || !storage->stat(rel, info) ||
+      info.type != hal::NodeType::kDir) {
+    error_out("no such app: ");
+    out(id);
+    newline();
+    return false;
+  }
+  // **A folder is not an app because it is in `/apps`** (0.89.0): the manifest is the same question the door asks when it
+  // lists one, so a folder of notes that a person keeps next to the apps cannot be deleted by typing its name by mistake
+  // (docs/40).
+  char manifest[160];
+  const int made = snprintf(manifest, sizeof(manifest), "%s/manifest.json", rel);
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(manifest) || !storage->stat(manifest, info) ||
+      info.type != hal::NodeType::kFile) {
+    error_out("not an app: ");
+    out(id);
+    out(" has no manifest.json\r\n");
+    return false;
+  }
+  // **Where it was is said with the disk and not with the door**: `/apps/squares-SD` is a name and `/sd/apps/squares` is
+  // a place (docs/70).
+  char disk[160];
+  if (!vfs::on_disk(root, disk, sizeof(disk))) copy_text(disk, sizeof(disk), root);
+  Dropped gone{0, 0, 0};
+  drop_tree(root, 0, &gone);
+  // **A delete that deleted nothing is not a delete**: the folder is asked for again on the disk it came from, because a
+  // read-only disk or one that was pulled out answers the same as a success otherwise (docs/30, docs/70).
+  if (storage->stat(rel, info)) {
+    error_out("apps: ");
+    out(id);
+    out(" is still there (a read-only disk, or a file the disk would not remove)\r\n");
+    return false;
+  }
+  good_out("apps: ");
+  out(id);
+  out(" removed from ");
+  out(disk);
+  out(", ");
+  out_num(gone.files);
+  out((gone.files == 1) ? " file" : " files");
+  if (gone.folders > 0) {
+    out(", ");
+    out_num(gone.folders);
+    out((gone.folders == 1) ? " folder" : " folders");
+  }
+  out(", ");
+  out_num(gone.bytes);
+  out(" bytes\r\n");
+  return true;
+}
+
+// **A folder of the disk moves**, and only inside the same one: an app is not moved from the card to the flash by a
+// rename, and a caller that asked for that is asking for the wrong thing (docs/70).
+bool path_rename(const char* from, const char* to) {
+  hal::IStorage* a = nullptr;
+  hal::IStorage* b = nullptr;
+  char rel_a[128];
+  char rel_b[128];
+  if (!vfs::resolve(from, a, rel_a, sizeof(rel_a)) || a == nullptr) return false;
+  if (!vfs::resolve(to, b, rel_b, sizeof(rel_b)) || b == nullptr) return false;
+  if (a != b) return false;
+  return a->rename(rel_a, rel_b);
+}
+
+// **The app goes into place in one step** (0.88.14): every file was downloaded into a folder of the system, and the name
+// of the app is only taken when the chain has arrived whole. An app that was already there is moved out of the way first
+// and put back if the last move fails, so an update that dies leaves the app of before and not a mixture of the two
+// (docs/30, docs/70).
+bool install_place() {
+  hal::Stat info;
+  const bool there = vfs::stat(g_install_root, info) && info.type == hal::NodeType::kDir;
+  char old[112];
+  const int made = snprintf(old, sizeof(old), "%s.old", g_install_root);
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(old)) return false;
+  if (there) {
+    // A folder of an install that died in the middle of this step is not a wall.
+    drop_tree(old, 0);
+    if (!path_rename(g_install_root, old)) return false;
+  }
+  if (!path_rename(g_install_work, g_install_root)) {
+    if (there) path_rename(old, g_install_root);
+    return false;
+  }
+  if (there) drop_tree(old, 0);
+  return true;
+}
+
+// **A folder of the plan, one per line**: the path it has inside the app, so a folder inside a folder is one more line
+// and not a second level of a table that never had room for it (docs/30, docs/70).
+bool install_plan_add(const char* path) {
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(g_install_plan, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  hal::FileSlot slot;
+  if (!storage->open(rel, hal::OpenMode::kAppend, slot)) return false;
+  const size_t len = strlen(path);
+  bool ok = storage->write(slot, path, static_cast<uint32_t>(len)) == static_cast<int32_t>(len);
+  if (ok) ok = storage->write(slot, "\n", 1) == 1;
+  storage->close(slot);
+  return ok;
+}
+
+// **The k-th folder of the plan**: the file is read from its first byte every time, which is one pass over a few bytes
+// per folder —ten folders are a hundred and twenty bytes, next to the two kilobytes of the listing it walks— and not a
+// table in RAM with a ceiling on it (docs/70, docs/75).
+bool install_plan_line(uint16_t index, char* out, size_t cap) {
+  if (out == nullptr || cap == 0) return false;
+  out[0] = '\0';
+  hal::IStorage* storage = nullptr;
+  char rel[128];
+  if (!vfs::resolve(g_install_plan, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  hal::FileSlot slot;
+  if (!storage->open(rel, hal::OpenMode::kRead, slot)) return false;
+  char chunk[128];
+  uint16_t line = 0;
+  size_t used = 0;
+  bool found = false;
+  int32_t got = 0;
+  while (!found && (got = storage->read(slot, chunk, sizeof(chunk))) > 0) {
+    for (int32_t i = 0; i < got; ++i) {
+      const char c = chunk[i];
+      if (c == '\n') {
+        if (line == index) {
+          found = true;
+          break;
+        }
+        ++line;
+        used = 0;
+        continue;
+      }
+      if (line == index && used + 1 < cap) out[used++] = c;
+    }
+  }
+  storage->close(slot);
+  out[used] = '\0';
+  return found;
+}
+
+// **The queue of folders**: the app has as many as it has, and a folder inside a folder is queued with the path it has
+// inside the app —which is what its listing is asked for and where its files land— (docs/30, docs/70, docs/75).
+bool install_queue_dir(const char* name) {
+  if (name[0] == '\0') return true;
+  char path[48];
+  int made = 0;
+  if (g_install_dir[0] == '\0') {
+    made = snprintf(path, sizeof(path), "%s", name);
+  } else {
+    made = snprintf(path, sizeof(path), "%s/%s", g_install_dir, name);
+  }
+  // **A path that does not fit is said and not cut**: half a path is a folder that is never asked for and an app that
+  // arrives without it (docs/30, docs/75).
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(path)) return false;
+  if (!install_plan_add(path)) return false;
+  ++g_install_folders;
   return true;
 }
 
 // The last word, and the state goes back to where it started: the next install is a new one (docs/30).
 void install_report(bool ok, const char* why) {
+  // **The reader goes back with it**: an install that ends in a failure in the middle of a folder leaves no file of the
+  // listing open, and the next command finds the reader as it was (docs/70, docs/75).
+  repository::stop();
+  g_install_walking = false;
   // **A listing left behind is not left behind**: the folder of the app is the app's and a temporary file of the
   // system in it would be a file its own `fs.list` reads (docs/70).
   if (g_install_list[0] != '\0') drop_file(g_install_list);
   g_install_list[0] = '\0';
+  // **The plan goes with it**: the queue of folders is the system's too, and the app's own `fs.list` would read it
+  // (docs/70).
+  if (g_install_plan[0] != '\0') drop_file(g_install_plan);
   // **An install that installed nothing is not an install**: a 200 that carried no entry is a page that is not a
   // listing, and saying "zero files" with a green face is a lie (docs/30).
   if (ok && g_install_files == 0) {
     ok = false;
     why = "nothing came: is that an app of that repository?";
   }
-  if (!ok && g_install_files == 0 && g_install_root[0] != '\0') drop_dir(g_install_root);
+  // **The app takes its name only now** (0.88.14): every file is in the folder of the work, and what is on `apps/<id>`
+  // after this line is either the app whole or nothing of it —a chain that dies at the fifth file of nine throws the
+  // folder of the work away and leaves the app of before, if there was one, untouched— (docs/30, docs/70).
+  if (ok && g_install_work[0] != '\0' && !install_place()) {
+    ok = false;
+    why = "the app could not be put in place (a disk that is gone or full)";
+  }
+  // **What the work folder has of the app goes with the failure**: half an app of files is not a folder a person has to
+  // clean up by hand (docs/70).
+  if (!ok && g_install_work[0] != '\0') drop_tree(g_install_work, 0);
   if (ok) {
     good_out("repo: ");
     out(g_install_app);
@@ -2093,14 +2365,27 @@ void install_report(bool ok, const char* why) {
     out(", ");
     out_num(g_install_files);
     out((g_install_files == 1) ? " file" : " files");
-    if (g_install_waiting_count > 0) {
+    if (g_install_folders > 0) {
       out(", ");
-      out_num(g_install_waiting_count);
-      out((g_install_waiting_count == 1) ? " folder" : " folders");
+      out_num(g_install_folders);
+      out((g_install_folders == 1) ? " folder" : " folders");
     }
     out(", ");
     out_num(g_install_bytes);
     out(" bytes\r\n");
+    // **A copy that lands beside one the flash already has is run by its `-SD` name** (0.88.20): the door presents the
+    // flash's copy as `<id>` and the card's as `<id>-SD`, so a person who installed an app to try a version has to know
+    // which name runs what they have just downloaded. The question is the presenter's own —does the flash carry an app
+    // of that name?— and not a stat of `/apps/<id>`, which the card would answer too (docs/40, docs/70).
+    if (strncmp(g_install_root, "/sd/", 4) == 0 && apps::is_an_app("/littlefs/apps", g_install_app)) {
+      colour(kColourDim);
+      out("  the flash has a ");
+      out(g_install_app);
+      out(" too: run ");
+      out(g_install_app);
+      out("-SD to run this copy\r\n");
+      colour_off();
+    }
   } else {
     error_out("repo: ");
     out((why != nullptr) ? why : "the install did not finish");
@@ -2110,20 +2395,20 @@ void install_report(bool ok, const char* why) {
   g_install_dest[0] = '\0';
   g_install_files = 0;
   g_install_bytes = 0;
-  g_install_entry = 0;
-  g_install_waiting_count = 0;
-  g_install_waiting_at = 0;
+  g_install_folders = 0;
+  g_install_folders_done = 0;
   g_install_dir[0] = '\0';
 }
-
-// **Cada baixada de la cadena torna a agafar la ràdio** (0.86.0): `radio_done` la deixa anar quan arriba una resposta i
-// la cadena n'engega una altra, o sigui que el treball en curs s'ha de dir una altra vegada —si no, el prompt torna
-// amb una descàrrega a l'aire i la seva resposta cau en un treball que ja no existeix— (docs/30, docs/70).
-bool install_fetch(const char* url, const char* dest, bool listing) {
+// **Every download of the chain takes the radio again** (0.86.0): `radio_done` lets it go when an answer arrives and
+// the chain starts another one, so the work in progress has to be said again —if not, the prompt comes back with a
+// download in the air and its answer falls into a job that no longer exists— (docs/30, docs/70).
+bool install_fetch(const char* url, const char* dest, bool listing, bool address_in_place) {
   g_install_listing = listing;
-  // **The address is copied unless it is already the one in the state**: a caller that built it there hands over the
-  // buffer itself, and copying a string onto itself is not a copy (found on the bench, 4/11).
-  if (url != g_install_url) snprintf(g_install_url, sizeof(g_install_url), "%s", url);
+  // **The address is copied unless the caller says it is already the one in the state** (0.88.14): two of the three
+  // callers build it in `g_install_url` and one hands a buffer of its own, and which one it is is now a word of the
+  // call and not a comparison of pointers —a pointer comparison is a rule about the caller's buffer that neither the
+  // compiler nor a reader can check— (found in the review of 4/11, docs/75).
+  if (!address_in_place) snprintf(g_install_url, sizeof(g_install_url), "%s", url);
   if (!take_radio(RadioJob::kInstall)) {
     install_report(false, "the radio is busy with something else");
     return false;
@@ -2136,24 +2421,44 @@ bool install_fetch(const char* url, const char* dest, bool listing) {
   return true;
 }
 
-// **El pròxim pas, i el prompt només quan no en queden**: el fitxer següent del llistat, o el llistat de la carpeta
-// següent, o el resum. Cert vol dir que hi ha una descàrrega volant i que la ràdio tornarà a cridar (docs/30, docs/70).
+// **The next step, and the prompt only when none are left**: the next file of the listing, or the listing of the next
+// folder, or the summary. True means a download is in the air and the radio will call again (docs/30, docs/70).
 bool install_step() {
   while (true) {
     repository::Kind kind = repository::Kind::kFile;
     char name[48];
     char url[192];
-    if (!repository::entry_at(g_install_list, g_install_entry, kind, name, sizeof(name), url, sizeof(url))) {
-      // The folder is read: its listing goes away and the next folder, if there is one, is asked for.
+    // **The listing is opened once and walked on**: `entry_at` answers an index by reading the document from its first
+    // byte, so asking it for the twenty files of an app was twenty opens and twenty passes over forty-four kilobytes of
+    // JSON. The reader is the same object and it only has to be where it left off (0.88.5, docs/75).
+    if (!g_install_walking) {
+      if (!repository::start(g_install_list)) {
+        drop_radio();
+        install_report(false, "the answer is not where it was saved");
+        return false;
+      }
+      g_install_walking = true;
+    }
+    if (!repository::next(kind, name, sizeof(name), url, sizeof(url))) {
+      // The folder is read: the reader gives the file back, its listing goes away and the next folder, if there is one,
+      // is asked for.
+      repository::stop();
+      g_install_walking = false;
       drop_file(g_install_list);
-      if (g_install_waiting_at >= g_install_waiting_count) {
+      // **The next folder comes out of the plan, which is a file on the disk**: there is no ceiling but the disk, and a
+      // folder that the plan says it has and the file does not give is a disk that went away in the middle and not a
+      // finished install (docs/70, docs/75).
+      if (!install_plan_line(g_install_folders_done, g_install_dir, sizeof(g_install_dir))) {
+        if (g_install_folders_done < g_install_folders) {
+          drop_radio();
+          install_report(false, "the plan of the install is not where it was saved");
+          return false;
+        }
         install_report(true, nullptr);
         return false;
       }
-      snprintf(g_install_dir, sizeof(g_install_dir), "%s", g_install_waiting[g_install_waiting_at]);
-      ++g_install_waiting_at;
-      g_install_entry = 0;
-      // **El llistat d'una carpeta és una crida a l'API**, i és el que diu quins fitxers té (docs/30).
+      ++g_install_folders_done;
+      // **The listing of a folder is a call to the API**, and it is what says which files it has (docs/30).
       const int made = snprintf(g_install_url, sizeof(g_install_url), "https://api.github.com/repos/%s/contents/apps/%s/%s",
                                 g_install_repo, g_install_app, g_install_dir);
       if (made <= 0 || static_cast<size_t>(made) >= sizeof(g_install_url)) {
@@ -2161,27 +2466,39 @@ bool install_step() {
         install_report(false, "that folder has a name this system does not carry");
         return false;
       }
-      snprintf(g_install_list, sizeof(g_install_list), "%s/%s/.listing.json", g_install_root, g_install_dir);
-      return install_fetch(g_install_url, g_install_list, true);
+      // **Where the listing of that folder is saved is a path like any other**: it is said whole or the install stops
+      // (docs/30, docs/70).
+      const int made_list =
+          snprintf(g_install_list, sizeof(g_install_list), "%s/%s/.listing.json", g_install_work, g_install_dir);
+      if (!path_fits(made_list, sizeof(g_install_list))) {
+        drop_radio();
+        install_report(false, "the listing of that folder has a path longer than this system carries");
+        return false;
+      }
+      return install_fetch(g_install_url, g_install_list, true, true);
     }
-    ++g_install_entry;
     if (kind == repository::Kind::kDir) {
       if (!install_queue_dir(name)) {
         drop_radio();
-        install_report(false, "this app has more folders than an install carries");
+        install_report(false, "a folder of this app has a path this system does not carry");
         return false;
       }
       continue;
     }
-    // **Un fitxer de l'app**: l'adreça crua que el llistat dona, escrita on viu l'app —el camí el fa el sistema i
-    // les carpetes del camí també, que és el que fa una descàrrega (docs/30, docs/70).
+    // **A file of the app**: the raw address the listing gives, written where the app lives —the system makes the
+    // path and the folders of the path too, which is what a download does (docs/30, docs/70). **And a path that does not
+    // fit is said and not cut**: half a path is a download that lands where nobody asked for it (docs/70).
     if (url[0] == '\0') continue;
-    install_file_path(g_install_dest, sizeof(g_install_dest), name);
-    return install_fetch(url, g_install_dest, false);
+    if (!install_file_path(g_install_dest, sizeof(g_install_dest), name)) {
+      drop_radio();
+      install_report(false, "a file of this app has a path longer than this system carries");
+      return false;
+    }
+    return install_fetch(url, g_install_dest, false, false);
   }
 }
 
-// **El que ha tornat**: el llistat d'una carpeta o un dels fitxers. Cert mentre quedi feina (docs/30, docs/70).
+// **What came back**: the listing of a folder or one of the files. True while there is work left (docs/30, docs/70).
 bool install_done(bool ok, const char* code) {
   const int32_t status = net::http_status();
   char why[128];
@@ -2213,8 +2530,8 @@ bool install_done(bool ok, const char* code) {
   hal::Stat info;
   if (vfs::stat(g_install_dest, info)) g_install_bytes += info.size;
   ++g_install_files;
-  // **La cadena espera el torn de després**: la pàgina que acaba d'arribar encara és de la placa fins que la resposta
-  // torna, i una baixada demanada des de dins és una segona pàgina amb una de pendent —`E_BUSY`— (docs/30, docs/75).
+  // **The chain waits for the turn after**: the page that has just arrived is still the board's until the answer
+  // returns, and a download asked for from inside is a second page with one pending — `E_BUSY` (docs/30, docs/75).
   g_install_pending = true;
   return true;
 }
@@ -2223,10 +2540,11 @@ bool command_repo(const char* argument) {
   char words[3][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
-  // **`repo install <app>` baixa el directori sencer de l'app** (0.86.0): el manifest, el codi i el que porti a
-  // `res/`, al disc que la persona ha triat amb `cfg` —la targeta si hi és amb `auto`, la flash si no—. El llistat
-  // de l'API diu quins fitxers té cada carpeta i l'adreça crua d'on baixar-los, i cada un és una descàrrega de la
-  // cua: la comanda engega la primera i plega, i `radio_done` continua (docs/30, docs/70).
+  // **`repo install <app>` downloads the whole directory of the app** (0.86.0): the manifest, the code and whatever
+  // it carries in `res/`, onto the disk the person chose with `cfg` —the card when there is one with `auto`, the
+  // flash when not—. The listing of the API says which files every folder has and the raw address to download them
+  // from, and each one is a download of the queue: the command starts the first and folds, and `radio_done` carries
+  // on (docs/30, docs/70).
   if (count > 0 && strcmp(words[0], "install") == 0) {
     if (count < 2) {
       usage_out("usage: repo install <app> [owner/repo]\r\n");
@@ -2246,32 +2564,43 @@ bool command_repo(const char* argument) {
       error_out("repo: there is nowhere to install it (neither the flash nor a card)\r\n");
       return false;
     }
-    // **El disc que `cfg` ha triat**: la targeta quan hi és i la flash quan no, que és el que la comanda diu
-    // (docs/70). El directori és `apps/<app>` i no un altre: és on el sistema busca les apps (docs/40).
+    // **The disk `cfg` chose**: the card when there is one and the flash when not, which is what the command says
+    // (docs/70). The directory is `apps/<app>` and not another one: it is where the system looks for apps (docs/40).
     const int made_root = snprintf(g_install_root, sizeof(g_install_root), "%s/apps/%s",
+                                   (strcmp(unit, "sd") == 0) ? "/sd" : "/littlefs", app);
+    // **The folder the download is made in**, next to the app and with a dot in front so a person reading `ls apps`
+    // knows it is not an app: the app takes the name of the folder only when it is whole (0.88.14, docs/70).
+    const int made_work = snprintf(g_install_work, sizeof(g_install_work), "%s/apps/.%s.install",
                                    (strcmp(unit, "sd") == 0) ? "/sd" : "/littlefs", app);
     copy_text(g_install_app, sizeof(g_install_app), app);
     copy_text(g_install_repo, sizeof(g_install_repo), where);
     g_install_files = 0;
     g_install_bytes = 0;
-    g_install_entry = 0;
-    g_install_waiting_count = 0;
-    g_install_waiting_at = 0;
+    g_install_folders = 0;
+    g_install_folders_done = 0;
     g_install_dir[0] = '\0';
     g_install_dest[0] = '\0';
     const int made_url = snprintf(g_install_url, sizeof(g_install_url), "https://api.github.com/repos/%s/contents/apps/%s",
                                   where, app);
-    const int made_list = snprintf(g_install_list, sizeof(g_install_list), "%s/.listing.json", g_install_root);
-    if (made_root <= 0 || static_cast<size_t>(made_root) >= sizeof(g_install_root) || made_url <= 0 ||
+    const int made_list = snprintf(g_install_list, sizeof(g_install_list), "%s/.listing.json", g_install_work);
+    // **The plan of the folders**, next to the listing and for the same reason: inside the folder of the work, so it is
+    // the disk `cfg` chose that carries it (docs/70).
+    const int made_plan = snprintf(g_install_plan, sizeof(g_install_plan), "%s/.folders", g_install_work);
+    if (made_root <= 0 || static_cast<size_t>(made_root) >= sizeof(g_install_root) || made_work <= 0 ||
+        static_cast<size_t>(made_work) >= sizeof(g_install_work) || made_url <= 0 ||
         static_cast<size_t>(made_url) >= sizeof(g_install_url) || made_list <= 0 ||
-        static_cast<size_t>(made_list) >= sizeof(g_install_list)) {
+        static_cast<size_t>(made_list) >= sizeof(g_install_list) || made_plan <= 0 ||
+        static_cast<size_t>(made_plan) >= sizeof(g_install_plan)) {
       error_out("repo: that app has a name longer than this system carries\r\n");
       return false;
     }
-    return install_fetch(g_install_url, g_install_list, true);
+    // **A folder of work left by an install that died is not the folder of this one**: it goes whole before the first
+    // file, so what lands there is this chain and nothing of the one before (docs/70).
+    drop_tree(g_install_work, 0);
+    return install_fetch(g_install_url, g_install_list, true, true);
   }
-  // **`repo info <app>` vol el manifest i no la llista**: és un fitxer d'un kilobyte i no cal disc, o
-  // sigui que va amb `http_get` a la memòria i el pinta `print_manifest` (docs/30, docs/75).
+  // **`repo info <app>` wants the manifest and not the list**: it is a file of one kilobyte and there is no disk
+  // needed, so it goes with `http_get` into the memory and `print_manifest` paints it (docs/30, docs/75).
   if (count > 0 && strcmp(words[0], "info") == 0) {
     if (count < 2) {
       usage_out("usage: repo info <app> [owner/repo]\r\n");
@@ -2279,8 +2608,8 @@ bool command_repo(const char* argument) {
     }
     const char* app = words[1];
     const char* where = (count > 2) ? words[2] : "lunokjod/lunokOS";
-    // **El manifest cru i no el de l'API**: l'API el dona amb el contingut en base64 a dins d'un objecte, i el
-    // que es vol és el fitxer tal com és (docs/30).
+    // **The raw manifest and not the one of the API**: the API gives it with the contents in base64 inside an object,
+    // and what is wanted is the file as it is (docs/30).
     char raw[192];
     const int made = snprintf(raw, sizeof(raw), "https://raw.githubusercontent.com/%s/main/apps/%s/manifest.json",
                               where, app);
@@ -2289,8 +2618,8 @@ bool command_repo(const char* argument) {
       error_out("repo: that is not an app of a repository\r\n");
       return false;
     }
-    // **Els dos noms es copien amb el que hi cap**: el que no hi cap el refusa la llargada de l'adreça d'adalt,
-    // que és la mateixa que la de les dues paraules (docs/75).
+    // **The two names are copied with what fits**: what does not fit is refused by the length of the address above,
+    // which is the same as the one of the two words (docs/75).
     copy_text(g_repo_name, sizeof(g_repo_name), where);
     copy_text(g_repo_app, sizeof(g_repo_app), app);
     g_repo_info = true;
@@ -2806,8 +3135,8 @@ int32_t app_wait_ms() {
 }
 
 bool poll_app() {
-  // **El pas següent d'una instal·lació, en el torn i no dins de la resposta** (0.86.0): la cua de la ràdio ha de ser
-  // buida i la pàgina d'abans donada, i això és el torn següent (trobat al banc, 4/11, docs/30, docs/75).
+  // **The next step of an install, in the turn and not inside the answer** (0.86.0): the queue of the radio has to be
+  // empty and the page of before given back, and that is the turn after (found on the bench, 4/11, docs/30, docs/75).
   if (g_install_pending) {
     g_install_pending = false;
     if (!install_step()) prompt();
@@ -2901,8 +3230,8 @@ bool command_cfg(const char* argument) {
     out(dir);
     newline();
   }
-  // **On van a parar les apps que s'instal·len**: `repo install` les baixa a `apps/` del disc de dalt, i el sistema
-  // les busca a la targeta primer i a la flash després (0.86.0, docs/40, docs/70).
+  // **Where the apps that are installed end up**: `repo install` downloads them to `apps/` of the disk above, and the
+  // system looks for them on the card first and on the flash after (0.86.0, docs/40, docs/70).
   out("  apps install into: ");
   out((strcmp(cfg::unit(), "sd") == 0) ? "/sd/apps" : "/littlefs/apps");
   newline();
@@ -3004,9 +3333,22 @@ bool execute(char* line) {
     print_mem();
     return true;
   }
-  if (strcmp(line, "apps") == 0) {
-    print_apps();
-    return true;
+  if (strncmp(line, "apps", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    char words[2][kWordCap];
+    size_t count = 0;
+    if (!read_words(line + 4, words, 2, count)) return false;
+    if (count == 0) {
+      print_apps();
+      return true;
+    }
+    // **`remove` is a whole word and not a beginning** (0.89.0): `apps remove <id>` deletes the app of that name —the
+    // name the listing shows, so `squares` or `squares-SD`— and anything else after `apps` is the usage line instead of a
+    // listing that quietly ignored what a person typed (docs/30, docs/40).
+    if (strcmp(words[0], "remove") != 0 || count < 2) {
+      usage_out("usage: apps [remove <id>]\r\n");
+      return false;
+    }
+    return apps_remove(words[1]);
   }
   if (strcmp(line, "lua") == 0) {
     return command_lua();

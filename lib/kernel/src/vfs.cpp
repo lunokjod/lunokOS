@@ -1,5 +1,6 @@
 #include "kernel/vfs.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "kernel/log.h"
@@ -82,6 +83,118 @@ void add(const char* path, const char* rel, const char* kind, hal::IStorage* sto
 
 }  // namespace
 
+namespace {
+
+// The storage of a door of the table, or null when that door is not mounted: the two disks of `/apps` are asked for by
+// the name of their row (docs/70).
+hal::IStorage* storage_of(const char* door) {
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (strcmp(g_mounts[i].path, door) == 0) return g_mounts[i].storage;
+  }
+  return nullptr;
+}
+
+// **`apps/<name>` in a buffer of a known size**: a `snprintf` with an unbounded `%s` is a cut the compiler cannot see,
+// and half a path is a file somewhere the system did not mean (docs/70).
+bool join_apps(char* out, size_t cap, const char* name) {
+  if (out == nullptr || name == nullptr) return false;
+  const size_t len = strlen(name);
+  if (len + 6 > cap) return false;  // "apps/", the name and the terminator
+  memcpy(out, "apps/", 5);
+  memcpy(out + 5, name, len + 1);
+  return true;
+}
+
+// **The mark of the app that lives on the card** when the flash carries one with the same name (0.88.20): a person sees
+// `squares` and `squares-SD` and can run the two of them.
+const char kCardSuffix[] = "-SD";
+
+// **The two halves of the door, whole** (0.88.20): the presenter is asked about a name and the disk it came from, because
+// `squares` on the flash and `squares` on the card are two folders and only one of them may be an app.
+const char kFlashApps[] = "/littlefs/apps";
+const char kCardApps[] = "/sd/apps";
+
+// **What an `/apps` listing presents**: the filesystem cannot know what an app is —a folder that carries a manifest, a
+// board it does not run on— and the door of the apps is where the system says what there is, so the ones it does not
+// want to present are not in the listing at all (0.88.20, docs/40, docs/70). A null presenter presents everything,
+// which is what a test and a disk with no kernel see.
+AppsPresenter g_presenter = nullptr;
+
+// **What the system presents and nothing else**: the presenter is asked for every name of the door and the ones it
+// refuses never reach the caller —an app the system does not want to show is not listed, and a disk does not have to be
+// read twice to find that out— (0.88.20, docs/40, docs/70).
+class PresentedSink : public hal::ListSink {
+ public:
+  PresentedSink(AppsPresenter presenter, const char* disk, hal::ListSink& inner)
+      : presenter_(presenter), disk_(disk), inner_(inner) {}
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (presenter_ != nullptr && entry.name != nullptr && !presenter_(disk_, entry.name)) return true;
+    return inner_.on_entry(entry);
+  }
+
+ private:
+  AppsPresenter presenter_;
+  const char* disk_;
+  hal::ListSink& inner_;
+};
+
+// **The card's half of `/apps`**: an app of the card whose name the door also presents from the flash is presented as
+// `<name>-SD`, so a person sees both and can run both —`squares` is the one of the flash and `squares-SD` the one of the
+// card— instead of one of them disappearing behind the other (0.88.20, docs/40, docs/70).
+class CardSink : public hal::ListSink {
+ public:
+  CardSink(hal::IStorage* flash, hal::ListSink& inner) : flash_(flash), inner_(inner) {}
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    if (flash_ == nullptr) return inner_.on_entry(entry);
+    // **The suffix says there are two of that name in the door**, so the flash's folder has to be one the door presents:
+    // a folder of the flash that is not an app does not push the card's copy into `-SD`, because there is nothing to tell
+    // the two apart from (docs/40, docs/70).
+    char rel[kMaxPathBytes];
+    hal::Stat info;
+    if (!join_apps(rel, sizeof(rel), entry.name) || !flash_->stat(rel, info)) return inner_.on_entry(entry);
+    if (g_presenter != nullptr && !g_presenter(kFlashApps, entry.name)) return inner_.on_entry(entry);
+    const size_t len = strlen(entry.name);
+    if (len + 4 > sizeof(renamed_)) return inner_.on_entry(entry);
+    memcpy(renamed_, entry.name, len);
+    memcpy(renamed_ + len, kCardSuffix, sizeof(kCardSuffix));  // "-SD" and the terminator
+    hal::ListEntry copy = entry;
+    copy.name = renamed_;
+    return inner_.on_entry(copy);
+  }
+
+ private:
+  hal::IStorage* flash_;
+  hal::ListSink& inner_;
+  char renamed_[64];
+};
+
+// **The two disks of `/apps` in one listing**: the flash first and the card after it, with the names of the card that
+// the flash also has carrying `-SD` (0.88.20, docs/40, docs/70).
+bool list_the_apps(hal::ListSink& sink) {
+  hal::IStorage* flash = storage_of("/apps");
+  hal::IStorage* card = storage_of("/sd");
+  bool any = false;
+  if (flash != nullptr) {
+    PresentedSink shown(g_presenter, kFlashApps, sink);
+    meter::Scope scope(meter::storage_id(meter::kOpList, meter::kUnitFlash));
+    if (flash->list("apps", shown)) any = true;
+  }
+  if (card != nullptr) {
+    CardSink suffix(flash, sink);
+    PresentedSink shown(g_presenter, kCardApps, suffix);
+    meter::Scope scope(meter::storage_id(meter::kOpList, meter::kUnitSd));
+    if (card->list("apps", shown)) any = true;
+  }
+  return any;
+}
+
+}  // namespace
+
+void set_apps_presenter(AppsPresenter presenter) { g_presenter = presenter; }
+
 uint32_t init(hal::IPlatform& platform) {
   g_count = 0;
 
@@ -96,11 +209,14 @@ uint32_t init(hal::IPlatform& platform) {
     // interpreter opens it onto that app's own `apps/<id>/res/` (docs/70). `/cfg` is not
     // even an alias: it goes wherever the settings live, and that is cfg::boot's to say.
     //
-    // **`/apps` is a row only when the flash has the folder** (0.88.2): a disk whose apps are on the card —the
-    // bench, and a board that was flashed without them— has no `/littlefs/apps`, and a mount that points at
-    // nothing is a root that lists `apps` and an `ls /apps` that says it is not there (found on the bench,
-    // 4/11, docs/70, docs/85).
+    // **`/apps` is the virtual directory of the two disks** (0.88.19): what a person lists there is `littlefs/apps`
+    // and `sd/apps` in one, and the card goes first —an app of the card is the one that runs—. The folder is **made**
+    // when the disk does not have it: the bench carries no app at all (0.88.2) and `repo install` writes one into a
+    // disk that had none, so a row that only appeared when the folder was there at boot was a door that stayed shut
+    // until the next boot —the install worked, `apps` listed the app (it walks the drive) and `run` answered `cannot
+    // read: /apps/<id>/<entry>` (found on the bench, 4/11, docs/40, docs/70).
     hal::Stat apps_dir;
+    littlefs->mkdir("apps");  // there is no folder to make when there already is one
     if (littlefs->stat("apps", apps_dir) && apps_dir.type == hal::NodeType::kDir) {
       add("/apps", "apps", "littlefs", littlefs, false);
     }
@@ -116,7 +232,13 @@ uint32_t init(hal::IPlatform& platform) {
   }
 
   hal::IStorage* sd = platform.storage("/sd");
-  if (sd != nullptr) add("/sd", "", "sd", sd, true);
+  if (sd != nullptr) {
+    // **And the same folder on the card** (0.88.19): an app installed on the card lives in `sd/apps/<id>`, and a card
+    // without the folder is a card an install has to make room on —which it does— but the door of the apps is also
+    // what a listing goes through (docs/70).
+    sd->mkdir("apps");
+    add("/sd", "", "sd", sd, true);
+  }
 
   // /rtc: the RTC memory as one file the size of the memory. It is the only memory that survives a
   // deep sleep and dies with the power, so what is written there is what a board keeps between two
@@ -215,14 +337,54 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
   }
   if (best == nullptr) return false;
 
+  const char* rest = full + best_len;
+  while (*rest == '/') ++rest;
+  // **A name of `/apps` is answered by the disk that has it**: the flash first —`squares` is the app of the flash— and
+  // the card when the flash does not have that name, and a name that ends in `-SD` is the app of the card whose name is
+  // the one without the suffix. It is the same rule the listing follows, so what a person lists is what a person can
+  // open (0.88.20, docs/40, docs/70).
+  if (rest[0] != '\0' && strcmp(best->path, "/apps") == 0) {
+    hal::IStorage* flash = best->storage;
+    hal::IStorage* card = storage_of("/sd");
+    char rel[kMaxPathBytes];
+    hal::Stat info;
+    const bool in_flash = (flash != nullptr) && join_apps(rel, sizeof(rel), rest) && flash->stat(rel, info);
+    if (!in_flash && card != nullptr) {
+      bool in_card = join_apps(rel, sizeof(rel), rest) && card->stat(rel, info);
+      if (!in_card) {
+        // **The suffix is on the name and not on the end of the path** (0.88.20): `/apps/squares-SD/res/x` is the card's
+        // `apps/squares/res/x`, and looking for `-SD` at the end of the whole path only stripped it for the folder itself
+        // and not for anything inside it —the app listed and `run squares-SD` answering `has no readable manifest`—.
+        const char* slash = strchr(rest, '/');
+        const size_t name_len = (slash != nullptr) ? static_cast<size_t>(slash - rest) : strlen(rest);
+        const size_t mark = sizeof(kCardSuffix) - 1;
+        if (name_len > mark && strncmp(rest + name_len - mark, kCardSuffix, mark) == 0) {
+          const size_t bare = name_len - mark;
+          const size_t tail_len = strlen(rest + name_len);  // the "/..." after the name, empty at the folder
+          char stripped[kMaxPathBytes];
+          if (bare + tail_len < sizeof(stripped)) {
+            memcpy(stripped, rest, bare);
+            memcpy(stripped + bare, rest + name_len, tail_len + 1);
+            in_card = join_apps(rel, sizeof(rel), stripped) && card->stat(rel, info);
+          }
+        }
+      }
+      if (in_card) {
+        const size_t len = strlen(rel);
+        if (len >= rel_cap) return false;
+        memcpy(rel_out, rel, len + 1);
+        storage = card;
+        return true;
+      }
+    }
+  }
+
   size_t used = 0;
   const char* rel = best->rel;
   while (*rel != '\0') {
     if (used + 1 >= rel_cap) return false;
     rel_out[used++] = *rel++;
   }
-  const char* rest = full + best_len;
-  while (*rest == '/') ++rest;
   if (used > 0 && *rest != '\0') {
     if (used + 1 >= rel_cap) return false;
     rel_out[used++] = '/';
@@ -235,6 +397,25 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
 
   storage = best->storage;
   return true;
+}
+
+// **The whole path of a path of the door, on the disk that answered** (0.89.0): `/apps/squares` is
+// `/littlefs/apps/squares` and `/apps/squares-SD` is `/sd/apps/squares`. A door is not a place, and a message that has to
+// say where something was —an app that was removed, a folder that was made— says the row of the table that **is a disk**:
+// a mount with nothing in front of it inside its backend. The rows with a prefix (`/apps`, `/res`, `/data`, `/fonts`) are
+// doors and are skipped, so the same storage cannot answer with the alias instead of the disk (docs/70).
+bool on_disk(const char* path, char* out, size_t cap) {
+  hal::IStorage* storage = nullptr;
+  char rel[kMaxPathBytes];
+  if (!resolve(path, storage, rel, sizeof(rel)) || storage == nullptr) return false;
+  for (uint32_t i = 0; i < g_count; ++i) {
+    const Mount& m = g_mounts[i];
+    if (m.storage != storage) continue;
+    if (m.rel != nullptr && m.rel[0] != '\0') continue;
+    const int made = snprintf(out, cap, "%s/%s", m.path, rel);
+    return made > 0 && static_cast<size_t>(made) < cap;
+  }
+  return false;
 }
 
 // **Every door of the filesystem is metered**, because a card and a flash cost very different things:
@@ -273,6 +454,9 @@ bool list(const char* path, hal::ListSink& sink) {
 
   hal::IStorage* storage = nullptr;
   char rel[kMaxPathBytes];
+  // **The door of the apps is the two disks in one listing** (0.88.19): asking for it is not asking one backend, and
+  // what a person sees there is the apps of the card and the apps of the flash without one repeated (docs/40, docs/70).
+  if (path != nullptr && (strcmp(path, "/apps") == 0 || strcmp(path, "/apps/") == 0)) return list_the_apps(sink);
   if (!resolve(path, storage, rel, sizeof(rel))) {
     log_printf(pal::kLogWarn, "VFS", "cannot resolve %s", path);
     return false;

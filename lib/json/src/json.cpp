@@ -76,24 +76,38 @@ bool get_string(const char* text, size_t len, const char* key, char* out, size_t
   return true;
 }
 
-bool get_strings(const char* text, size_t len, const char* key,
-                 char out[][kStringItemCap], size_t max, uint32_t& count) {
+Strings get_strings(const char* text, size_t len, const char* key, char out[][kStringItemCap], size_t max,
+                    uint32_t& count, uint32_t* total) {
   count = 0;
-  if (text == nullptr || key == nullptr || out == nullptr) return false;
+  if (total != nullptr) *total = 0;
+  if (text == nullptr || key == nullptr || out == nullptr) return Strings::kAbsent;
   size_t i = find_value(text, len, key);
-  if (i >= len || text[i] != '[') return false;
+  if (i >= len) return Strings::kAbsent;
+  if (text[i] != '[') return Strings::kNotArray;
   ++i;
 
+  // **The list is walked whole even when it does not fit** (0.88.11): past `max` the items are counted and thrown away
+  // instead of ending the walk there, because how many there are is the difference between "this manifest does not say
+  // which boards it runs on" and "it names nine and this system carries eight". **The first thing that goes wrong is
+  // what is said**, in the order of the document (docs/40, docs/75).
+  uint32_t seen = 0;
+  Strings reason = Strings::kOk;
   while (i < len) {
     while (i < len && (is_space(text[i]) || text[i] == ',')) ++i;
     if (i >= len) break;
-    if (text[i] == ']') return true;
-    if (text[i] != '"' || count >= max) return false;
+    if (text[i] == ']') {
+      count = (seen < max) ? seen : static_cast<uint32_t>(max);
+      if (total != nullptr) *total = seen;
+      return reason;
+    }
+    if (text[i] != '"') return Strings::kUnclosed;
     ++i;
 
-    // One item, with the same escapes as a plain string. An item that does not fit
-    // refuses the whole list: a board name cut in half would never match.
+    // One item, with the same escapes as a plain string. An item that does not fit refuses the whole list: a board name
+    // cut in half would never match.
+    char item[kStringItemCap];
     size_t used = 0;
+    bool cut = false;
     while (i < len && text[i] != '"') {
       char c = text[i];
       if (c == '\\' && i + 1 < len) {
@@ -113,17 +127,26 @@ bool get_strings(const char* text, size_t len, const char* key,
             break;
         }
       }
-      if (used + 1 >= kStringItemCap) return false;
-      out[count][used++] = c;
+      if (used + 1 >= sizeof(item)) {
+        cut = true;
+      } else {
+        item[used++] = c;
+      }
       ++i;
     }
-    if (i >= len) return false;  // the item was never closed
-    out[count][used] = '\0';
-    if (used == 0) return false;  // an empty board name names nothing
-    ++count;
+    if (i >= len) return (reason != Strings::kOk) ? reason : Strings::kUnclosed;  // the item was never closed
+    item[used] = '\0';
+    if (cut && reason == Strings::kOk) reason = Strings::kItemTooLong;
+    if (used == 0 && reason == Strings::kOk) reason = Strings::kEmptyItem;
+    if (seen < max) {
+      memcpy(out[seen], item, used + 1);
+    } else if (reason == Strings::kOk) {
+      reason = Strings::kTooMany;
+    }
+    ++seen;
     ++i;  // past the closing quote
   }
-  return false;  // the array was never closed
+  return Strings::kUnclosed;  // the array was never closed
 }
 
 bool get_int(const char* text, size_t len, const char* key, long& out) {

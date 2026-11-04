@@ -50,7 +50,10 @@ Boot g_boot;  // the default Boot says "?" and nothing else
 // A copy of the app id. g_boot.app_id points at the caller's text, which may be
 // a buffer that dies while the app is still alive (an alarm's entry, a line of
 // the shell), so this is the one that is answered.
-const size_t kAppIdBytes = 32;
+// **The id is the name the door of the apps presents** (0.88.20): `squares` for the copy of the flash and `squares-SD` for
+// the copy of the card, so the room holds the suffix on top of the longest id `apps::Entry` carries. `/cfg` and `/res` are
+// hung from this name, and a truncation here would point an app at the files of another one (docs/40, docs/70).
+const size_t kAppIdBytes = 40;
 char g_app_id[kAppIdBytes] = {0};
 
 // The most a line at the prompt may carry. It is the shell's line (128 bytes) with
@@ -3248,10 +3251,11 @@ int8_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
 bool g_ui_touch_inside = false;
 
-// **El gest que el sistema recorda d'un dit** (0.88.0): on el dit va començar, on és ara, quants píxels encara no s'han
-// pagat en files, si ja ha recorregut prou per ser un gest i no un toc, i el cursor que el toc deixaria al seu lloc si
-// no es mou. És estat del sistema i no de l'app, i per això es neteja quan la pàgina entra i quan marxa: un gest a
-// mitges d'una app que s'acaba no el pot acabar la següent (docs/30, docs/90).
+// **The gesture the system remembers of one finger** (0.88.0): where the finger started, where it is now, how many
+// pixels have not been paid in rows yet, whether it has travelled far enough to be a gesture and not a tap, and the caret
+// the tap would have left in its place if it does not move. It is state of the system and not of the app, and that is why
+// it is cleared when a page comes in and when it goes: a gesture half way through an app that ends cannot be finished by
+// the next one (docs/30, docs/90).
 uint16_t g_ui_swipe_y0 = 0;
 uint16_t g_ui_swipe_y = 0;
 int16_t g_ui_swipe_rest = 0;
@@ -3259,8 +3263,8 @@ bool g_ui_swipe_moved = false;
 uint16_t g_ui_swipe_tap = 0;
 bool g_ui_swipe_tap_armed = false;
 
-// **Quan un dit deixa de ser un toc** (0.88.0): dotze píxels són un dit que s'ha mogut i no un que ha tremolat, i per
-// sota d'això la caixa es comporta com sempre — el toc hi posa el cursor (docs/90).
+// **When a finger stops being a tap** (0.88.0): twelve pixels are a finger that has moved and not one that has
+// trembled, and under that the box behaves as always —the tap puts the caret there (docs/90).
 const int32_t kSwipeSlop = 12;
 
 // **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
@@ -3577,8 +3581,8 @@ bool textbox_multiline_field_valid(lua_State* L, const char* key, int value) {
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 65535;
-  // **`top` és l'única cosa d'aquest control que pot valer menys de zero** (0.88.0): `-1` no és una fila, és «la que
-  // demani el cursor» (docs/30, docs/90).
+  // **`top` is the only thing of this control that can be worth less than zero** (0.88.0): `-1` is not a row, it is
+  // "whichever the caret asks for" (docs/30, docs/90).
   if (strcmp(key, "top") == 0) return number >= -1 && number <= 65535;
   if (strcmp(key, "scale") == 0) return number >= 1 && number <= 16;
   return number >= 0 && number <= 15;
@@ -4461,8 +4465,8 @@ int l_multiline_rows(lua_State* L) {
   return 1;
 }
 
-// **Quantes files té el text sencer**, que és el que una app vol per dir on és dins del fitxer («fila 12 de 40»): la
-// mesura és la del dibuix, com la de `rows()` (0.88.0, docs/30, docs/90).
+// **How many rows the whole text has**, which is what an app wants to say where it is in the file ("row 12 of 40"):
+// the measurement is the one of the paint, like `rows()` (0.88.0, docs/30, docs/90).
 int l_multiline_lines(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   if (!ui_field_bool(L, 1, "__textbox_multiline", false)) {
@@ -5825,8 +5829,8 @@ int l_ui_textbox_multiline(lua_State* L) {
 
 // **The `on_draw` of a selector**: the question, the answer and the column of the triangle. **The answer is resolved here**,
 // where the table of options is, so a field shows the chosen option without the app keeping a second copy of a text that
-// can be forty characters, and when nothing is chosen it is the word the app said —a dash, or `ningú` in its language—
-// (docs/30, docs/90).
+// can be forty characters, and when nothing is chosen it is the word the app said —a dash, or `nobody` in its
+// language— (docs/30, docs/90).
 int l_selector_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
@@ -6300,14 +6304,18 @@ int l_ui_textbox(lua_State* L) {
   return 1;
 }
 
-// **The keyboard of the system**: an object and not a control. It has no frame of its own and it is not in the
-// app's tree —it is a band the system paints over the page— so what it carries is the three calls an app needs
-// and the box it types into (docs/30, docs/90).
+// **The keyboard of the system**: an object and not a control. It has no frame of its own and it is not in the app's
+// tree —it is a band the system paints over the page— so what an app gets from it is three calls and one field, the box
+// it types into (docs/30, docs/90).
 const char kKeyboardMeta[] = "lunokOS.UIKeyboard";
 
-struct LuaKeyboard {
-  int placeholder;
-};
+// **The userdata of the keyboard carries nothing, and that is not an omission**: the box it types into is one for the
+// whole system and it lives in the registry (`g_keyboard_target_ref`), so the object on the Lua side is an identity with
+// a metatable and no data of its own. An empty struct is one byte and not zero, which is what `lua_newuserdatauv` wants;
+// what it had —an `int placeholder`— was a field with a name, and the next reader takes a field with a name for data
+// that is there for a reason (found in the review of 4/11, docs/30, docs/75).
+struct LuaKeyboard {};
+static_assert(sizeof(LuaKeyboard) == 1, "the userdata of the keyboard is one byte and not zero");
 
 int l_keyboard_show(lua_State* L) {
   if (g_ui_ops.keyboard_show == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no keys");
@@ -7217,8 +7225,8 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
   return true;
 }
 
-// **Un número escrit al camp d'un control**, que és com el sistema mou una cosa que l'app llegeix: `top` d'una caixa de
-// diverses línies és el que un swipe canvia i el que la pinta i la barra obeeixen (0.88.0, docs/30, docs/90).
+// **A number written in the fields of a control**, which is how the system moves something the app reads: `top` of a
+// box of several lines is what a swipe changes and what the paint and the bar obey (0.88.0, docs/30, docs/90).
 bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer value) {
   object = lua_absindex(L, object);
   lua_getiuservalue(L, object, 1);
@@ -7239,8 +7247,8 @@ bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer 
   return true;
 }
 
-// **Si un control té el hook que li preguntem**, que és el que diu si el gest hi és registrat: el camp pot ser `nil` i
-// llavors el control no ha demanat res (0.88.0, docs/30).
+// **Whether a control has the hook we ask about**, which is what says whether the gesture is registered: the field
+// can be `nil` and then the control has not asked for anything (0.88.0, docs/30).
 bool ui_has_hook(lua_State* L, int object, const char* name) {
   object = lua_absindex(L, object);
   lua_getiuservalue(L, object, 1);
@@ -8945,18 +8953,18 @@ void ui_draw_and_present(const char* mode) {
   g_ui_ops.present(mode);
 }
 
-// **Una caixa de diverses línies que ha registrat el gest** (0.88.0): l'app diu que vol rebre els swipes amb un
-// `on_swipe`, i una caixa que no l'ha registrat es comporta com sempre —el dit hi posa el cursor i prou— (docs/30,
-// docs/90).
+// **A box of several lines that has registered the gesture** (0.88.0): the app says it wants to hear the swipes with an
+// `on_swipe`, and a box that has not registered one behaves as always —the finger puts the caret there and nothing more
+// (docs/30, docs/90).
 bool ui_swipeable(lua_State* L, int object) {
   if (!ui_field_bool(L, object, "__textbox_multiline", false)) return false;
   return ui_has_hook(L, object, "on_swipe");
 }
 
-// **El dit que ha recorregut una caixa amb gest**: cada fila que el dit camina mou la finestra, el sistema escriu el
-// `top` de la caixa —el que la pinta i la barra llegeixen—, la pàgina es presenta sola amb `gld16` (que neteja i no fa
-// cap flaix) i l'app ho sent amb `on_swipe(self, rows)`. Els píxels que no arriben a una fila es queden per al gest
-// següent, que és el que fa que un dit lent no es mengi el moviment (docs/30, docs/90).
+// **The finger that has walked a box with a gesture**: every row the finger walks moves the window, the system writes
+// the `top` of the box —what the paint and the bar read—, the page presents itself with `gld16` (which cleans and does
+// no flash) and the app hears it at `on_swipe(self, rows)`. The pixels that do not reach a row are kept for the next
+// gesture, which is what keeps a slow finger from eating the movement (docs/30, docs/90).
 void ui_swipe_by(int object, int rows) {
   if (rows == 0 || g_ui_ops.textbox_multiline_scroll == nullptr) return;
   object = lua_absindex(g_state, object);
@@ -9002,9 +9010,10 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       if (index >= 0) {
         lua_rawgeti(g_state, objects, index + 1);
         if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
-        // **El toc que esperava el final del dit és ara un cursor** (0.88.0): una caixa amb el gest registrat no mou el
-        // cursor en baixar —el dit encara pot ser un swipe— i, si el dit no s'ha mogut prou, el cursor hi va al deixar
-        // anar. És el mateix cursor i la mateixa presentació que un toc sense gest (docs/30, docs/90).
+        // **The tap that waited for the end of the finger is a caret now** (0.88.0): a box with the gesture registered
+        // does not move the caret on the way down —the finger can still be a swipe— and, if the finger has not moved
+        // far enough, the caret goes there on the way up. It is the same caret and the same present as a tap without a
+        // gesture (docs/30, docs/90).
         if (g_ui_swipe_tap_armed) {
           if (ui_set_field_number(g_state, -1, "cursor", g_ui_swipe_tap)) ui_invalidate(g_state, -1);
           ui_draw_and_present("gld16");
@@ -9025,10 +9034,10 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
 
   if (g_ui_touch_slot >= 0) {
     const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
-    // **El dit que camina per una caixa amb gest mou la finestra** (0.88.0): les files que ha recorregut es paguen una a
-    // una, i el gest és del sistema —el cursor de la caixa i la barra són el mateix número— mentre que l'app només el
-    // registra i el sent. Un dit que no arriba a moure una fila sencera no gasta res: els píxels queden per al següent
-    // (docs/30, docs/90).
+    // **The finger that walks a box with a gesture moves the window** (0.88.0): the rows it has travelled are paid one
+    // at a time, and the gesture is the system's —the caret of the box and the bar are the same number— while the app
+    // only registers it and hears it. A finger that does not reach a whole row spends nothing: the pixels are kept for
+    // the next one (docs/30, docs/90).
     if (index >= 0 && (g_ui_swipe_tap_armed || g_ui_swipe_moved)) {
       const int32_t travel = static_cast<int32_t>(y) - static_cast<int32_t>(g_ui_swipe_y);
       g_ui_swipe_y = y;
@@ -9050,8 +9059,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         const int32_t line = g_ui_ops.textbox_multiline_line(canvas->slot,
                                                              static_cast<uint8_t>((scale < 1) ? 1 : scale));
         if (line > 0) {
-          // **El signe és el del dit**: un dit que puja ensenya el que hi ha més avall, que és el que fa un full de
-          // paper quan el gires cap amunt (docs/90).
+          // **The sign is the finger's**: a finger that goes up shows what is further down, which is what a sheet of
+          // paper does when you turn it upwards (docs/90).
           const int32_t rows = -static_cast<int32_t>(g_ui_swipe_rest) / line;
           if (rows != 0) {
             g_ui_swipe_rest = static_cast<int16_t>(static_cast<int32_t>(g_ui_swipe_rest) + rows * line);
@@ -9207,10 +9216,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
           static_cast<uint8_t>((scale < 1) ? 1 : scale), static_cast<uint16_t>(x - targets[hit].x),
           static_cast<uint16_t>(y - targets[hit].y),
           static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)));
-      // **Una caixa que ha registrat el gest no mou el cursor en baixar** (0.88.0): el dit que ha tocat la lletra i el
-      // que està començant un swipe són el mateix en aquest moment, i el cursor d'un toc es posa al deixar anar —o no es
-      // posa gens si el dit acaba de recórrer mitja pàgina—. El cursor que espera i el començament del gest són del
-      // sistema, i es netegen quan la pàgina entra i quan marxa (docs/30, docs/90).
+      // **A box that has registered the gesture does not move the caret on the way down** (0.88.0): the finger that has
+      // touched the letter and the one that is starting a swipe are the same at this moment, and the caret of a tap goes
+      // in on the way up —or does not go in at all if the finger has just travelled half a page—. The caret that waits and
+      // the start of the gesture are the system's, and they are cleared when a page comes in and when it goes
+      // (docs/30, docs/90).
       if (ui_swipeable(g_state, base)) {
         g_ui_swipe_y0 = y;
         g_ui_swipe_y = y;

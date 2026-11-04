@@ -1,26 +1,25 @@
--- edit: **un editor de text modal, com el vim**, per al port sèrie de la placa i per a la consola nadiua.
+-- edit: **a modal text editor, like vim**, for the serial port of the board and for the native console.
 --
---   run edit <path>        obre el fitxer (i en crea un de nou si no hi és)
---   open txt <path>        el mateix, si ningú altre obre els .txt
+--   run edit <path>        opens the file (and makes a new one if it is not there)
+--   open txt <path>        the same, when nobody else opens .txt files
 --
--- Les tecles són les del vim que es fa servir cada dia, i `Ctrl+L` torna a pintar la pàgina (el log del
--- sistema va per la mateixa consola i la pot haver trencada). **Normal**: `h j k l` (o les fletxes), `0 $`,
--- `w b`, `gg G`, `x X`, `dd yy p P`, `D J`, `r<c>`, `u` i `Ctrl+R`, `/` per cercar amb `n`/`N`, `:` per a les
--- ordres. **Inserció** (`i a I o O`): s'escriu, `Enter` parteix la línia, `Retrocés` la torna a ajuntar, `Tab`
--- posa dos espais i `ESC` torna al mode normal.
+-- The keys are those of the vim people use every day, and `Ctrl+L` paints the page again (the log of the system goes
+-- through the same console and may have broken it). **Normal**: `h j k l` (or the arrows), `0 $`, `w b`, `gg G`,
+-- `x X`, `dd yy p P`, `D J`, `r<c>`, `u` and `Ctrl+R`, `/` to search with `n`/`N`, `:` for the orders. **Insert**
+-- (`i a I o O`): it types, `Enter` splits the line, `Backspace` joins it again, `Tab` puts two spaces and `ESC` goes
+-- back to normal mode.
 --
--- **El fitxer no es carrega mai sencer.** L'editor en llegeix **l'índex de línies** una vegada —on comença
--- cada línia, amb `fs.read_at` a trossos de 64 KB— i després llegeix **només les línies que es veuen**: obrir
--- el fitxer d'1,3 MB que deixa el `http` és llegir vint-i-dues línies i una taula de posicions. El que limita
--- no és la mida del fitxer sinó la memòria de l'intèrpret, i el que hi va és **un número per línia**
--- (docs/30, docs/70, docs/75).
+-- **The file is never loaded whole.** The editor reads **the index of lines** once —where every line starts, with
+-- `fs.read_at` in pieces of 64 KB— and after that it reads **only the lines that are seen**: opening the 1.3 MB file
+-- `http` leaves behind is reading twenty-two lines and a table of positions. What limits it is not the size of the
+-- file but the memory of the interpreter, and what goes in is **one number per line** (docs/30, docs/70, docs/75).
 --
--- **Una línia de més de 8 KB es llegeix per finestra i no s'hi escriu**: es veu i s'hi navega (la finestra es
--- mou amb el cursor) però editar-la voldria dir tenir-la sencera a la memòria. Les línies normals sí que
--- s'editen, i `:w` escriu el fitxer nou **copiant de l'original els trossos que no han canviat**, 64 KB a la
--- vegada: el fitxer sencer no és mai enlloc.
+-- **A line of more than 8 KB is read by window and is not written**: it is seen and navigated (the window moves with
+-- the caret) but editing it would mean holding it whole in memory. Normal lines are edited, and `:w` writes the new
+-- file **copying from the original the pieces that have not changed**, 64 KB at a time: the whole file is never
+-- anywhere.
 --
--- El fitxer que el prompt nomena és el que l'app pot desar: el prompt li ha donat aquell camí i només aquell
+-- The file the prompt names is the one the app can save: the prompt has given it that path and only that one
 -- (docs/30, docs/70).
 
 local caps = sys.caps()
@@ -30,26 +29,26 @@ if not caps.ansi then
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- El fitxer: un índex de línies i les línies que es veuen
+-- The file: an index of lines and the lines that are seen
 -- ---------------------------------------------------------------------------------------------------
 
--- **`starts[i]` és on comença la línia i, en bytes i 1-based**, i `0` vol dir que la línia l'ha feta l'editor
--- i que el seu text és a `edits[i]`. El final del fitxer fa de final de l'última línia (docs/70).
+-- **`starts[i]` is where line i starts, in bytes and 1-based**, and `0` means the line has been made by the editor and
+-- its text is in `edits[i]`. The end of the file acts as the end of the last line (docs/70).
 local file = {path = nil, size = 0, eol = false}
 local starts = {}
--- El text de les línies que no són el que hi ha al fitxer. Són poques entrades: només hi és el que ha
--- canviat, no el fitxer (docs/75).
+-- The text of the lines that are not what is in the file. They are few entries: only what has changed is there, not
+-- the file (docs/75).
 local edits = {}
--- El que s'ha llegit per pintar: `{text, from, long}` per línia.
+-- What has been read to paint: `{text, from, long}` per line.
 local cache = {}
--- Hi ha canvis sense desar?
+-- Are there changes that are not saved?
 local changed = false
 
--- Una línia de més d'això es llegeix per finestra i no s'hi escriu (docs/30).
+-- A line longer than this is read by window and is not written (docs/30).
 local kLineCap = 8192
--- La finestra d'una línia llarga: el que es té a la memòria al seu voltant.
+-- The window of a long line: what is held in memory around it.
 local kWindow = 2048
--- El tros amb què es llegeix el fitxer per fer l'índex i per copiar-lo al desar.
+-- The piece the file is read with to make the index and to copy it when saving.
 local kChunk = 65536
 
 local row, col = 1, 1
@@ -66,7 +65,7 @@ local yank_linewise = false
 local search = nil
 local pending = nil
 
--- Desfer i refer: una pila d'operacions, no de pàgines.
+-- Desfer i refer: a stack of operations, not of pages.
 local undo, redo = {}, {}
 local kUndoDepth = 200
 
@@ -102,12 +101,12 @@ local function expand(text)
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- Les línies, a trossos
+-- The lines, in pieces
 -- ---------------------------------------------------------------------------------------------------
 
 local function line_count() return #starts end
 
--- El que fa la línia i, sense comptar el salt.
+-- What line i makes, without counting the newline.
 local function line_len(i)
   if starts[i] == nil then return 0 end
   if starts[i] == 0 then return #(edits[i] or '') end
@@ -123,20 +122,20 @@ local function read_range(i, from, want)
   return got
 end
 
--- El text sencer d'una línia, o el que l'editor hi té posat.
+-- The whole text of a line, or what the editor has put in it.
 local function text_of(i)
   local put = edits[i]
   if put ~= nil then return put end
   if starts[i] == nil or starts[i] == 0 then return '' end
   local text = read_range(i, 1, line_len(i))
-  -- El CR d'un fitxer de Windows no és part de la línia (docs/70).
+  -- The CR of a Windows file is not part of the line (docs/70).
   if #text > 0 and text:sub(-1) == '\r' then text = text:sub(1, -2) end
   return text
 end
 
--- **El text d'una línia per pintar-la**: sencera si hi cap, i una finestra al voltant del cursor si no. La
--- finestra es torna a llegir quan el cursor en surt, o sigui que moure's per una línia de cent mil bytes és
--- llegir dos mil bytes cada vegada (docs/70).
+-- **The text of a line to paint it**: whole if it fits, and a window around the caret if not. The window is read again
+-- when the caret leaves it, so moving through a line of a hundred thousand bytes is reading two thousand bytes every
+-- time (docs/70).
 local function line_cache(i, want_col)
   local cached = cache[i]
   if cached ~= nil then
@@ -160,7 +159,7 @@ local function line_cache(i, want_col)
   return entry
 end
 
--- El text d'una línia que es pot editar, o `nil` si és massa llarga (i es diu).
+-- The text of a line that can be edited, or `nil` if it is too long (and it says so).
 local function editable(i)
   if starts[i] ~= 0 and line_len(i) > kLineCap then
     message = string.format('the line is %d B: over the %d B of a line that can be edited (it is shown in a window)',
@@ -304,7 +303,7 @@ local function set_line(r, text, grouping)
   end
 end
 
--- Mou les claus de `edits` quan les línies es mouen de lloc, i llença el que s'ha pintat.
+-- Moves the keys of `edits` when the lines move place, and throws away what has been painted.
 local function shift_edits(from, delta)
   local moved = {}
   for k, v in pairs(edits) do
@@ -323,7 +322,7 @@ local function splice_lines(r, remove_count, new_lines)
   shift_edits(r, -remove_count)
   for i = #new_lines, 1, -1 do
     table.insert(starts, r, 0)
-    -- Cada línia nova entra a `r` i empeny les de després.
+    -- Every new line goes into `r` and pushes the ones after it.
     local moved = {}
     for k, v in pairs(edits) do
       if k >= r then moved[k + 1] = v else moved[k] = v end
@@ -404,11 +403,11 @@ local function redo_once()
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- L'índex i el desament
+-- The index and the save
 -- ---------------------------------------------------------------------------------------------------
 
--- **L'índex de línies, en una passada i a trossos**: el fitxer no es té mai sencer, només es demanen 64 KB
--- darrere de 64 KB i es guarden les posicions on comença cada línia (docs/70, docs/75).
+-- **The index of lines, in one walk and in pieces**: the file is never held whole, 64 KB after 64 KB are asked for and
+-- the positions where every line starts are kept (docs/70, docs/75).
 local function build_index(path, total)
   starts = {1}
   local at = 0
@@ -425,7 +424,7 @@ local function build_index(path, total)
     end
     at = at + #got
   end
-  -- Un salt al final no és una línia buida de més: el vim tampoc la compta.
+  -- A newline at the end is not one empty line too many: vim does not count it either.
   if #starts > 1 and starts[#starts] == total + 1 then table.remove(starts) end
 end
 
@@ -447,7 +446,7 @@ local function load(path)
   end
   build_index(path, file.size)
   edits = {}
-  -- Un fitxer buit és una línia buida, i el vim tampoc en fa una de més.
+  -- An empty file is one empty line, and vim does not make one more either.
   if file.size == 0 then starts, edits = {0}, {[1] = ''} end
   changed = false
   row, col, top, left = 1, 1, 1, 0
@@ -455,7 +454,7 @@ local function load(path)
   return true
 end
 
--- Copia un tros de línies sense tocar de l'original al fitxer nou, 64 KB a la vegada.
+-- Copies a run of lines untouched from the original to the new file, 64 KB at a time.
 local function copy_run(handle, from_line, to_line)
   local at = starts[from_line]
   local stop = starts[to_line + 1] or (file.size + 1)
@@ -468,8 +467,8 @@ local function copy_run(handle, from_line, to_line)
   end
 end
 
--- **Desar és escriure el fitxer nou a un temporal i reanomenar**: el que no ha canviat es copia de
--- l'original a trossos i el que ha canviat s'escriu de la memòria (docs/70).
+-- **Saving is writing the new file to a temporary one and renaming it**: what has not changed is copied from the
+-- original in pieces and what has changed is written from memory (docs/70).
 local function save(path)
   if path == nil or path == '' then path = file.path end
   if path == nil or path == '' then return false, 'no file name: :w <path>' end
@@ -511,7 +510,7 @@ local function save(path)
     local last = fs.read_at(path, file.size - 1, 1)
     file.eol = (last == '\n')
   end
-  -- El que s'ha escrit és el fitxer: l'índex es torna a fer i el que s'havia editat passa a ser del fitxer.
+  -- What has been written is the file: the index is made again and what had been edited now belongs to the file.
   edits, cache, changed = {}, {}, false
   build_index(path, file.size)
   if #starts == 0 then starts = {0} end
@@ -571,11 +570,11 @@ local function read_key()
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- Cercar sense el fitxer sencer
+-- Searching without the whole file
 -- ---------------------------------------------------------------------------------------------------
 
--- El primer tros on surt el patró a partir d'un desplaçament, amb el marge del patró perquè una coincidència
--- que cau al mig de dos trossos també es trobi (docs/70).
+-- The first piece where the pattern appears from an offset, with the margin of the pattern so that a match that falls
+-- in the middle of two pieces is found too (docs/70).
 local function first_hit(from)
   local at = from
   while at < file.size do
@@ -589,7 +588,7 @@ local function first_hit(from)
   return nil
 end
 
--- L'última aparició abans d'un desplaçament, i la de tot el fitxer si no n'hi ha cap abans.
+-- The last appearance before an offset, and the one of the whole file if there is none before it.
 local function last_hit(before)
   local found = nil
   local at = 0
@@ -806,8 +805,8 @@ local function normal_key(k)
       return
     end
     if k == 'w' then
-      -- **Fins on arriba la paraula**: si el moviment es queda a la línia s'esborra el tros, i si se'n va a
-      -- la de sota s'esborra fins al final d'aquesta, que és el que fa el vim amb `dw` (docs/30).
+      -- **How far the word reaches**: if the movement stays on the line the piece is erased, and if it goes to the one
+      -- below it is erased up to the end of that one, which is what vim does with `dw` (docs/30).
       local text = editable(row)
       if text == nil then return end
       local start_row, start_col = row, col
@@ -940,7 +939,7 @@ local function normal_key(k)
 end
 
 -- ---------------------------------------------------------------------------------------------------
--- El mode d'inserció
+-- The insert mode
 -- ---------------------------------------------------------------------------------------------------
 
 local function insert_key(k)

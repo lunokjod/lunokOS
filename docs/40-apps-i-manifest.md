@@ -23,42 +23,66 @@ app amb un nom estrany.
 
 ## On es busquen les apps
 
-Des de la 0.86.0 les apps es busquen a **dues bandes, i en aquest ordre**:
+Des de la 0.88.20 les apps es busquen **en un sol lloc: la porta `/apps`**, que és els dos discs en
+una sola carpeta virtual —`littlefs/apps` de la flash i `sd/apps` de la targeta junts—. No hi ha cap
+altre camí: el llistat, el `run` i els fitxers propis d'una app (`/res/`) hi passen tots, i mai pel
+directori real d'una unitat. L'ordre és la flash primer i la targeta després.
 
-1. **`/sd/apps/<id>/`** — la targeta, on les posa la persona amb `repo install`.
-2. **`/littlefs/apps/<id>/`** — la flash, on les posa el firmware.
-
-**Una app de la targeta mana sobre la de la flash.** El mateix id instal·lat a la targeta és el que
-surt al llistat i el que s'executa, i treure la targeta torna la de la flash. És el que fa que
-instal·lar una app que ja ve al firmware sigui una actualització i no un no-res, i el que fa de la
-targeta un lloc on provar coses sense tocar la flash. Un id que només és en un dels dos discs es
-troba igualment.
+**Un nom que els dos discs tenen es presenta dues vegades.** `<id>` és la còpia de la flash i
+**`<id>-SD`** la de la targeta —el sufix és literalment `-SD`—, o sigui que les dues es poden llegir
+i córrer per separat: `run squares` corre l'app de la flash i `run squares-SD` la de la targeta, i
+el `res/` de cadascuna surt del seu disc. És el que fa que instal·lar una app que ja ve al firmware
+sigui una actualització que es pot comparar amb l'original en lloc d'un reemplaçament cec, i que
+treure la targeta esborri el nom amb sufix i deixi el de la flash. Un id que només és en un dels
+dos discs es troba igualment, sense sufix.
 
 **La targeta només es camina si hi és** (0.87.1): la pregunta és al muntatge de `/sd` i no a una
 carpeta, o sigui que una placa sense targeta —o amb una que el sistema no ha pogut muntar— no paga
 cap volta pel buit i el llistat no pot ensenyar un disc que no hi és. **I el llistat diu de quin disc
 ve cada app de la targeta** (`[card]` al costat del títol): el mateix id pot ser als dos, i qui prova
 una versió ha de poder llegir quina de les dues li ensenya. Una app que no es troba diu **on s'ha
-buscat**, amb els dos camins sencers:
+buscat**, que és la porta:
 
 ```
 lunok> run timerss
 no such app: timerss
-  apps are in /littlefs/apps and /sd/apps
+  apps are in /apps, and there is no card in the slot
 ```
 
-El camí d'una app és el que diu **`apps::root_of()`** i no una constant: el llistat, el `run` i la
-porta de `res/` pregunten el mateix, o sigui que una app de la targeta llegeix el seu `res/` de la
-targeta i una de la flash el seu de la flash. El que respon és **la porta** i no el disc —`/apps/<id>`
-per a una app de la flash i `/sd/apps/<id>` per a una de la targeta—, perquè `/apps` és el camí pel
-qual una app llegeix el que porta i `/littlefs` sencer és el disc del sistema, que no és d'una app
-(docs/70). Els **discs** sencers, `/littlefs/apps` i `/sd/apps`, són el que un missatge ensenya.
+**Què presenta la porta ho decideix el sistema.** La carpeta virtual no sap què és una app, i el
+kernel li dona un presentador al boot (`vfs::set_apps_presenter`, amb `apps::is_an_app`): el que
+refusa **no arriba al llistat**, i com que la porta és l'únic punt d'entrada, tampoc no arriba a un
+`run` ni a la cerca d'un obridor. Avui la regla és **«la carpeta porta un `manifest.json`»**: una
+carpeta que no en porta no és una app i no es veu enlloc, i una que en porta però diu una altra placa
+**sí** que hi surt, amb el `[needs …]` que diu què necessita —amagar-la deixaria una persona amb una
+app al disc i cap rastre d'ella—. La política és aquí i no al disc: una app que el sistema no vulgui
+ensenyar no s'ha de poder llistar per cap altre camí.
+
+El camí d'una app és el que diu **`apps::root_of()`**, i és **sempre la porta**: `/apps/<id>`, tant
+si l'app és de la flash (`/apps/squares`) com si és de la targeta (`/apps/squares-SD`). El que respon
+darrere el resol la VFS, i el disc que ha contestat es diu amb `Entry::on_card` —el `[card]` del
+llistat— i no amb un camí, perquè `/littlefs` sencer és el disc del sistema i no és d'una app
+(docs/70). Els **discs** sencers, `/littlefs/apps` i `/sd/apps`, només surten al missatge de
+`repo install`, que diu on ha deixat els fitxers.
 
 **`repo install <app> [owner/repo]`** baixa el directori sencer de l'app —el manifest, el codi i el
 que porti a `res/`, carpetes incloses— al disc que la persona ha triat amb `cfg`: la targeta amb
 `auto` quan hi és, la flash quan no. Cada fitxer és una baixada de la cua de la ràdio i el llistat de
 l'API de continguts de GitHub és el que diu quins fitxers té cada carpeta i des d'on baixar-los
 (docs/30, docs/70, docs/75).
+
+**`apps remove <id>` esborra l'app** (0.89.0), i el nom és el que surt al llistat: `squares` per a la
+còpia de la flash i `squares-SD` per a la de la targeta, o sigui que una de les dues còpies se'n va i
+l'altra es queda —i quan la de la flash ja no hi és, la de la targeta perd el sufix—. Se'n va **la
+carpeta de l'app i res més**: el que ha deixat a `/data/<id>` i a `/cfg/<id>` és el seu passat i no
+l'app, i qui ho vulgui esborrar ha de dir aquell camí. Una carpeta de `/apps` que no porta
+`manifest.json` **no és cap app** i no es pot esborrar escrivint-ne el nom, i l'ordre diu el disc i el
+que ha tornat:
+
+```
+lunok> apps remove squares
+apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes
+```
 
 ## El manifest
 
@@ -103,6 +127,13 @@ Regles de validació, totes amb error clar i el nom del camp:
   coses en una línia (`elsewhere runs on m5stack-core2 and this board is m5stack-atom`), i no pot ser
   el gestor de cap extensió (un gestor que no pot arrencar no obre res). Una llista buida, o que
   falta, és una altra cosa: **no és una app** a cap banda.
+- **Una llista de més de vuit noms es refusa sencera, i es diu per què** (0.88.11): el sistema en
+  guarda vuit (la fila `boards` de la taula), i una llista amb un nom deixat fora diria que l'app
+  corre on no corre. El que **no** passa és que la línia digui el que no és: quan el manifest en
+  nomena nou, el log diu `apps: <id> names 9 boards and this system carries 8` — i no pas «does not
+  say which boards it runs on», que seria una mentida sobre un fitxer que sí que ho diu. La fitxa de
+  `repo info` diu el mateix en una línia (`boards      9 in the manifest, more than this system
+  carries`) en lloc d'un guió.
 - **`esp32` és el xip, no una placa amb tot.** Una ESP32 pelada no porta cap botó, o sigui que una app
   que **necessita** tecles les ha de nomenar pel seu nom (`m5stack-atom`, `m5stack-paper`) i no pot
   dir `esp32`: el manifest diu on l'app **funciona**, i la família sencera inclouria una placa sense

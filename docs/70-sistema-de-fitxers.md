@@ -14,9 +14,10 @@ la bateria.
 - La partició es diu **`littlefs`** a `partitions.csv`, i el backend la busca **per aquesta etiqueta**:
   si no se li diu el nom, el core busca un nom per defecte que no és el nostre i falla amb «partition
   could not be found». Passar el nom explícitament és el que fa que munti.
-- Tot seguit **escaneja `/sd/apps/*/manifest.json` i `/littlefs/apps/*/manifest.json`** quan algú
-  demana la llista —la targeta primer i només si hi és—, i el que hi troba és el que responen les
-  comandes (`apps`, `ls`, `cat` i `run`).
+- Tot seguit **escaneja `/apps`** quan algú demana la llista: la carpeta virtual posa la flash
+  (`littlefs/apps`) i la targeta (`sd/apps`) en un sol directori —la targeta només si hi és— i deixa
+  passar només els noms que el presentador accepta, que és el que responen les comandes (`apps`,
+  `ls`, `cat` i `run`) (0.88.20).
 
 A la taula de particions de 4 MB, `/littlefs` té **1 408 KB**: comença a `0x290000` i fa `0x160000`
 bytes (1 441 792 B), i l'aplicació es queda `0x280000` bytes a `0x10000`. Els 64 KB del final
@@ -43,7 +44,7 @@ deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb 
 | `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump` l'ensenya en hex i en visible, que és el que cal per a un binari. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1: una escriptura atòmica necessita un reanomenament que una memòria no té, i el que fa és escriure al lloc —els bytes al començament i la resta a zero— |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
 | `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
-| `/apps` | àlies, i **només quan el directori hi és** (0.88.2) | `/littlefs/apps`: un disc sense apps —el banc, o una placa a la qual se li instal·len a la targeta— no té aquest muntatge, i `ls /` i `mounts` no diuen que sí |
+| `/apps` | **directori virtual: els dos discs en un, i l'únic punt d'entrada de les apps** (0.88.19, 0.88.20) | **`littlefs/apps` i `sd/apps` junts**, amb la flash primer i la targeta després. Un nom que la flash té **i** la targeta també es presenta **dues vegades**: `<id>` és la còpia de la flash i **`<id>-SD` la de la targeta**, i cada nom llegeix i corre la seva —`run squares` és l'app de la flash i `run squares-SD` la de la targeta—, en lloc d'una desapareixent darrere l'altra. La carpeta **es crea si no hi és** (a la flash i a la targeta): el banc no porta cap app i `repo install` n'hi posa la primera, i una porta que s'obrís només quan la carpeta ja hi era al boot deixava l'app instal·lada **llistada per `apps` i no oberta per `run`** (`cannot read: /apps/<id>/<entry>`, trobat al banc el 4/11). **És l'únic camí per on el sistema mira una app**: el llistat, el `run` i els fitxers d'una app (`/res/`) hi passen, i mai pel directori real d'una unitat, o sigui que **el sistema decideix què presenta la porta** (`vfs::set_apps_presenter`, instal·lat al boot amb `apps::is_an_app`): una carpeta que no porta `manifest.json` **no es llista, no es corre i no la llegeix ningú** que busqui un obridor; una que en porta i diu una altra placa **sí** que hi és, i el llistat diu què necessita |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
 | `/fonts` | àlies | `/littlefs/res/fonts`: **les cares del disc, una sola còpia per a totes les apps** (3/11, 0.68.0). De només lectura des d'una app, com `/apps`: una cara no és d'una app sinó de la placa. El perquè és un número: les quatre cares de DejaVu són 37 476 B i, quan cada app en portava la seva còpia, el disc les pagava dues vegades (docs/30) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
@@ -274,8 +275,8 @@ Tres coses que això compra:
 
 - **Els recursos viatgen amb l'app**: `res/` viu dins del directori de l'app (`apps/<id>/res/`) i se
   n'emporta amb ella. Un `res/` compartit al disc no pot anar amb ningú, i l'app el llegeix **del
-  disc del qual surt**: de `/littlefs/apps/<id>/res/` quan ve del firmware i de `/sd/apps/<id>/res/`
-  quan ve de la targeta (0.86.0, docs/40).
+  disc del qual surt** per la porta: `/res/x` és `/apps/<id>/res/x`, i el nom del camí ja diu el disc
+  —`/apps/reader/res/x` és la flash i `/apps/reader-SD/res/x` la targeta— (0.86.0, 0.88.20, docs/40).
 - **Dos apps poden tenir el mateix nom de fitxer** sense trepitjar-se, perquè cadascuna té el seu.
 - **El camí que escriu l'app no porta el seu id dins**, que és el que fa que una app es pugui copiar
   d'un disc a un altre sense canviar-ne el codi.
@@ -324,6 +325,17 @@ unitat, i quina unitat és ho tria el sistema, no l'app:
 | Com se'n canvia | `cfg sd` / `cfg littlefs` / `cfg auto`, o `fs.cfg("sd")` |
 | On es desa la tria | a l'NVS, `cfg/unit`, així que sobreviu una arrencada |
 | Què més hi va | **les apps que s'instal·len** (0.86.0): `repo install <app>` les baixa a `apps/` de la unitat triada, i `cfg` ho diu (`apps install into: /sd/apps`) |
+
+**Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
+directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
+que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen
+quan l'install acaba, i també quan falla a la meitat.
+
+**I l'app no té nom fins que és sencera** (0.88.14): tot el que baixa va a `apps/.<id>.install` i només
+al final el directori sencer es renombra a `apps/<id>`; si la cadena mor al cinquè fitxer de nou, el
+directori de treball s'esborra sencer i l'app que hi havia —si n'hi havia una— queda intacta, perquè
+abans se la mou a `apps/<id>.old` i es torna a posar si l'últim moviment falla. És el que fa que `apps`
+no compti mai una meitat d'app: el nom és el que diu que l'app hi és i no un fitxer de dins.
 
 Tres coses que això compra i que abans no hi eren:
 

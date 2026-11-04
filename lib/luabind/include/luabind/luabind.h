@@ -561,9 +561,9 @@ struct UIOps {
   uint16_t (*textbox_multiline_hit)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                     uint16_t x, uint16_t y, int16_t top);
   uint8_t (*textbox_multiline_rows)(int8_t slot, uint8_t scale);
-  // **La barra del desplaçament** (0.88.0): quantes files té el text sencer, quants píxels fa una fila i on queda la
-  // finestra quan el dit la mou de `rows` files, que és el que el gest d'un `on_swipe` necessita i el que una app vol
-  // per dir «fila 12 de 40» (docs/30, docs/90).
+  // **The scroll bar** (0.88.0): how many rows the whole text has, how many pixels one row is and where the window is
+  // left when the finger moves it by `rows` rows, which is what the gesture of an `on_swipe` needs and what an app wants
+  // to say "row 12 of 40" (docs/30, docs/90).
   uint16_t (*textbox_multiline_total)(int8_t slot, const char* text, bool wrap, uint8_t scale);
   uint8_t (*textbox_multiline_line)(int8_t slot, uint8_t scale);
   uint16_t (*textbox_multiline_scroll)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,

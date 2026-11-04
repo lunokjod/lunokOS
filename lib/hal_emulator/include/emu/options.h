@@ -157,6 +157,23 @@ struct Options {
 const Options& options();
 void set_options(const Options& opts);
 
+// **A canned answer for one address** (0.88.6): `http_fake` puts the same page back for every URL, which is a page and
+// not a chain —an install of an app asks for the listing of the app, the listing of each of its folders and every one of
+// its files, and each of those is its own answer—. The answers are asked in the order they were given and the first
+// whose `key` appears in the address wins, body and status included; with none of them the canned page of the options is
+// what answers. A body of up to `kHttpAnswerCap` bytes is copied, so a test can build it in a local. Cleared with
+// `http_canned_clear`, which is what a test does before its own chain (docs/85).
+// **A body of the fake wire fits a listing of a real app**: the answer of the contents API for an app of ten folders is
+// about six hundred bytes, and the cap used to be five hundred and twelve —a listing that does not fit is refused and
+// not cut, so the cap is the one that has to grow (docs/30, docs/85).
+const uint16_t kHttpAnswerCap = 1024;
+// **As many answers as an app needs to be installed**: the listing of the app, a listing per folder and a body per file.
+// The app of the test of the whole chain has ten folders and twelve files, which is twenty-three, and the list is of
+// twenty-four so that the test is not the ceiling (docs/85).
+const uint8_t kMaxHttpAnswers = 24;
+bool http_canned(const char* key, const char* body, int32_t status);
+void http_canned_clear();
+
 // The keys of this band are the test's to press: there is no finger on a PC, and a
 // scripted press is what makes the path through the kernel runnable (docs/85).
 // Key 0 is the main one —the ATOM's only button, the Paper's middle key— and the

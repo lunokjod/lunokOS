@@ -517,11 +517,11 @@ uint16_t textbox_inside(int8_t slot, uint8_t scale);
 // either way, and the two decisions —where a row ends and where the cursor is— are made by one function so the caret
 // of the paint and the caret of the finger cannot disagree (docs/90).
 //
-// **La finestra és del cursor i, si l'app en diu una altra, de l'app** (0.88.0): `top` és la primera fila que es veu
-// —`-1` vol dir «la que demani el cursor», que és el que fa una caixa que ningú ha mogut—, i quan el text no hi cap el
-// cantó dret de la caixa és una **barra**: la pista diu quant text hi ha i el polze on és la persona. La barra es mou
-// amb el dit que l'app ha registrat (`on_swipe`) i el polze es torna a calcular de la finestra, o sigui que el dibuix
-// no guarda cap estat del gest (docs/30, docs/90).
+// **The window belongs to the cursor and, if the app names another one, to the app** (0.88.0): `top` is the first row
+// that is seen —`-1` means "whichever the caret asks for", which is what a box nobody has moved does—, and when the
+// text does not fit the right side of the box is a **bar**: the track says how much text there is and the thumb where a
+// person is. The bar moves with the finger the app has registered (`on_swipe`) and the thumb is worked out again from
+// the window, so the paint keeps no state of the gesture (docs/30, docs/90).
 bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
                             uint8_t background, uint8_t border, uint8_t scale, int16_t top = -1);
 
@@ -535,15 +535,15 @@ uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, b
 // of the page the keyboard leaves it (docs/90).
 uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale);
 
-// **Quantes files té el text sencer** i **quants píxels fa una fila**: el primer és el que una app diu a la seva línia
-// d'estat («fila 12 de 40») i el segon és el que un dit ha de recórrer per moure la finestra una fila (0.88.0,
+// **How many rows the whole text has** and **how many pixels one row is**: the first is what an app says in its status
+// line ("row 12 of 40") and the second is what a finger has to travel to move the window one row (0.88.0,
 // docs/30, docs/90).
 uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale);
 uint8_t textbox_multiline_line(int8_t slot, uint8_t scale);
 
-// **On queda la finestra quan un dit la mou**: `rows` files sumades a la que es veu ara —la del cursor quan `top` és
-// `-1`—, cedit a `[0, total - fit]`. L'app ho escriu a `top` i el sistema ho escriu quan el gest és seu (0.88.0,
-// docs/90).
+// **Where the window is left when a finger moves it**: `rows` rows added to the one that is seen now —the cursor's
+// when `top` is `-1`—, clamped to `[0, total - fit]`. The app writes it in `top` and the system writes it when the
+// gesture is its own (0.88.0, docs/90).
 uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                   int16_t top, int16_t rows);
 

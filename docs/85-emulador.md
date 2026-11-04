@@ -63,6 +63,18 @@ vol una prova que no ha de dependre de la xarxa. I cada run ho diu una vegada a 
 que comença per `emulator:` i diu que `http` baixa la pàgina de debò—, perquè una petició que surt
 d'aquesta màquina no ha de ser una sorpresa.
 
+**Un banc que només sap contestar una pàgina no pot provar una cadena** (4/11, 0.88.6): `repo install <app>`
+demana el llistat de l'app, el llistat de cada carpeta i cada fitxer, i tots són respostes diferents del mateix
+servidor. Per això la xarxa falsa té, a més de la pàgina dels `--http-*`, **una taula de respostes per adreça**:
+`emu::http_canned(<tros d'adreça>, <cos>, <codi>)` n'hi afegeix una —la primera que encaixa amb l'adreça
+demanada és la que contesta, i si no n'hi ha cap, contesta la pàgina de sempre— i `emu::http_canned_clear()`
+deixa la xarxa sense cap, que és com comença una prova la seva pròpia cadena. La taula és del banc i no del
+nucli: el nucli no en sap res, i la baixada que arriba és la de debò, amb el fitxer escrivint-se pel camí dels
+volums. **Un cos que no cap a la taula es refusa** i no es talla, perquè mig llistat és un install que falla
+per un motiu que no és el de la prova. Amb això, la cadena d'un `repo install` es prova sencera al banc
+(`test_the_repo_command_installs_an_app_with_its_folders` i
+`test_an_install_that_hits_a_404_says_so_and_can_be_tried_again`).
+
 Aquestes són les opcions del binari:
 
 | Opció | Què fa |
@@ -397,7 +409,7 @@ una barreja d'enters (`lib/hal_emulator/src/emu_ink.cpp`):
 |---|---|---|---|
 | `gc16` | **450 ms** | res: neteja, i la brutícia del píxel torna a zero | **quatre** (negre, blanc, negre, blanc) |
 | `gl16` | **450 ms** | res: neteja | **dues** (negre, blanc) |
-| `glr16`, `gld16` | **450 ms** | res: netegen sense ensordir la pàgina | cap |
+| `glr16`, `gld16` | **450 ms** | **dos setzens** del que hi havia, i deixa un punt de brutícia: no parpellegen i, per això mateix, no tornen la pàgina | cap |
 | `du` | **120 ms** | **casi un terç** del que hi havia (cinc setzens), i deixa un punt de brutícia | cap |
 | `du4` | 120 ms | **set setzens**, i el doble de brutícia | cap |
 | `a2` | 290 ms | gairebé res | **dues** (blanc, negre) |
@@ -413,8 +425,15 @@ pàgina plana en deixa **zero**.
 - **La brutícia s'acumula i té sostre**: cada pintada ràpida afegeix un setzè de brutícia al píxel i fa el
 rastre més fort —fins a **onze setzens**, que és el que anomenem imatge enganxada—, però **no es
 congela**: una pàgina que es queda quieta no és una pàgina, i el que fa el vidre és embrutar-se. Una de
-`gc16` torna la brutícia a zero.
-- **El gra**: **vuit de cada mil** píxels d'una pintada de `du` no arriben al nivell que se'ls va demanar
+`gc16` torna la brutícia a zero.- **No parpellejar té un preu, i és el que el sistema paga** (0.88.18): `glr16` i `gld16` són les
+  qualitats amb què una app presenta la seva pàgina, amb què la barra repinta una caixa de l'hora i amb
+  què es renta la banda del teclat —**perquè no parpellegen**, que és la regla d'aquest projecte—, i una
+  forma d'ona que no parpelleja tampoc no es recupera la pàgina: aterra a prop del nivell i no al nivell.
+  Deixa **dos setzens** del que hi havia —un vuitè, més clar que un `du` i molt més fosc que un `gc16`— i
+  un setzè de brutícia per pintada, o sigui que una caixa que canvia cada minut acaba ensenyant el minut
+  deabans. **Fins a la 0.88.18 el banc deia el contrari** («netegen sense ensordir la pàgina») i això feia
+  gratis, aquí, l'única decisió que el sistema pren a tot arreu: una pàgina que no s'embruta mai.
+  La prova que ho separa és `test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away`.- **El gra**: **vuit de cada mil** píxels d'una pintada de `du` no arriben al nivell que se'ls va demanar
 (quinze de cada mil amb `du4`), i **una de cada quatre vegades la fallada és de dos nivells** i no d'un.
 El píxel s'hi queda fins que alguna cosa neteja la zona. És determinista —un hash del lloc i no un
 `random`— perquè una pàgina que canvia a cada tirada no es pot provar.
@@ -765,7 +784,7 @@ veu al banc i el que es veu al vidre és la mateixa pàgina, i els números s'hi
 | App | Què prova | Què mirar |
 |---|---|---|
 | `run panel` | la pàgina, la vora i les setze qualitats | que el dibuix hi és i recte, i `the ink took N ms` |
-| `run squares` | una pintada per qualitat, cronometrada | `painted with du in N ms` contra `erased with gc16 in N ms` |
+| `run squares` | una pintada per qualitat, cronometrada | `painted with du in N ms` contra `erased with du in N ms`, i cada vint quadrats un `erased with gc16 in N ms`: el rastre gris que queda és el dany, i el quadrat del `gc16` torna blanc |
 | **`run ghost`** | **el fantasma**: vuit passades de `du` sobre el mateix bloc i un `gc16` al final | el bloc que guarda la forma de cada passada i el comptador amb els números dels passats a sota; al banc, a més, la finestra |
 | **`run draw`** | **el tàctil**: un traç que segueix el dit, i un quadre que neteja la pàgina | que el punt cau on és el dit —amb `--gui`, el del ratolí—, el traç de la vora del gest i el temps de cada pintada |
 | **`run cost`** | **el que costa tot**: `stat`, `list`, llegir, escriure, una pintada de cada qualitat, la bateria, el tàctil i la memòria | les dues taules (placa i banc) al costat: si no s'assemblen, algú menteix i `docs/85` diu qui |

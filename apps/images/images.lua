@@ -1,14 +1,14 @@
--- images: **una imatge de cada família que el sistema llegeix**, i el que cada família sap fer.
+-- images: **one picture of every family the system reads**, and what every family can do.
 --   run images
 --
--- Les imatges són a `/res` —el que l'app porta—: una fotografia en JPEG, un cartell en BMP de 24 bits, vuit
--- tintes en un BMP de 8, un dibuix amb transparència en GIF, una icona amb alfa en ICO, línies primes en PNG
--- —que no les sua—, dos degradats en PGM i PPM i un quadre d'un bit en PBM. **No són el mateix dibuix
--- nou vegades**: cada format s'hi veu pel que hi sap fer, i la línia de sota ho diu.
+-- The pictures are in `/res` —what the app carries—: a photograph in JPEG, a poster in 24-bit BMP, eight inks in an
+-- 8-bit BMP, a drawing with transparency in GIF, an icon with alpha in ICO, thin lines in PNG —which it does not
+-- sweat over—, two gradients in PGM and PPM and a one-bit picture in PBM. **They are not the same drawing nine
+-- times**: every format is seen for what it can do, and the line under it says so.
 --
--- `ui.image_info` llegeix la capçalera i diu la família i la mida; `ui.image` descodifica el fitxer dins del
--- canvas fila a fila, i la pàgina només decideix on cau i com de gran. El requadre gris de darrere és perquè
--- **es vegi la transparència** del GIF i de l'ICO: el que hi ha darrere és el paper, i sobre gris es nota.
+-- `ui.image_info` reads the header and says the family and the size; `ui.image` decodes the file into the canvas row
+-- by row, and the page only decides where it lands and how big. The grey box behind is so that **the transparency
+-- is seen** of the GIF and of the ICO: what is behind is the paper, and over grey it stands out.
 local caps = sys.caps()
 if not caps.display then
   console.print('images: this board has no glass')
@@ -18,7 +18,7 @@ end
 local view = ui.caps()
 ui.title('Images')
 
--- **Cada fitxer amb el que hi fa**: el nom, i la frase que explica per què aquest format i no un altre.
+-- **Every file with what it does there**: the name, and the sentence that explains why this format and not another.
 local pictures = {
   { path = '/res/photo.jpg', why = 'JPEG: a photograph, and the gradients hold' },
   { path = '/res/poster.bmp', why = 'BMP 24 bits: flat ink, not a byte wasted' },
@@ -36,10 +36,10 @@ local shown = 0
 local failures = 0
 local leaving = false
 local controls = {}
--- **Un canvi de focus és un canvi d'estat de la pàgina i s'ha de rentar**: l'anell és negre sobre blanc i
--- un `du` hi deixa el de abans a un quart de la tinta, o sigui un anell gris que ningú no ha demanat. El
--- torn següent al moviment el pinta amb `gc16`, i com que els botons són l'únic que ha canviat, la regió
--- que parpalleja és la fila dels botons i no la pàgina (docs/30, docs/50).
+-- **A change of focus is a change of state of the page and has to be washed**: the ring is black over white and a
+-- `du` leaves the one from before at a quarter of the ink, which is a grey ring nobody asked for. The turn after the
+-- movement paints it with `gc16`, and since the buttons are the only thing that changed, the region that flashes is
+-- the row of buttons and not the page (docs/30, docs/50).
 local clean = false
 
 local top = 64
@@ -63,8 +63,8 @@ local function draw(i)
   local picture = pictures[i]
   local info = info_of(picture.path)
   ui.clear(15)
-  -- **Els botons tornen a la pàgina**: `ui.clear` esborra la vista i cada botó és el seu propi canvas, o
-  -- sigui que el que no ha canviat no es tornaria a compondre i la pàgina el perdria (docs/30, docs/90).
+  -- **The buttons come back to the page**: `ui.clear` wipes the view and every button is its own canvas, so what has
+  -- not changed would not be composed again and the page would lose it (docs/30, docs/90).
   for _, control in ipairs(controls) do control:invalidate() end
   ui.text(40, 12, string.format('%d / %d', i, #pictures), 2, 0)
   if info == nil then
@@ -74,15 +74,15 @@ local function draw(i)
     ui.present('gc16')
     return
   end
-  -- **La imatge cap al requadre amb la seva proporció**: l'escala és la més petita de les dues i la mida a
-  -- què es dibuixa és la del fitxer per aquesta escala (docs/30).
+  -- **The picture into the box with its proportion**: the scale is the smaller of the two and the size it is drawn at
+  -- is the one of the file times that scale (docs/30).
   local scale = math.min(box_w / info.width, box_h / info.height)
   local w = math.max(1, math.floor(info.width * scale))
   local h = math.max(1, math.floor(info.height * scale))
   local x = math.floor((view.width - w) / 2)
   local y = top + math.floor((box_h - h) / 2)
-  -- **Un fons gris de la mida del dibuix**, perquè la transparència es vegi: el que no és del GIF és el paper
-  -- i sobre gris es nota què hi és i què no (docs/30).
+  -- **A grey background the size of the drawing**, so that the transparency is seen: what is not of the GIF is the
+  -- paper and over grey it stands out what is there and what is not (docs/30).
   ui.rect(x, y, w, h, 11)
 
   local ok, why = ui.image(x, y, picture.path, w, h)
@@ -101,7 +101,7 @@ local function draw(i)
   ui.text(40, view.height - 196, picture.path, 1, 8)
   ui.text(40, view.height - 168, picture.why, 1, 0)
   ui.present('gc16')
-  -- La pàgina sencera acaba de sortir d'un `gc16`: no hi ha cap anell pendent de rentar.
+  -- The whole page has just come out of a `gc16`: there is no ring pending a wash.
   clean = false
 end
 
@@ -112,8 +112,8 @@ local function step(delta)
   draw(index)
 end
 
--- **Tres botons al peu de la pàgina**: enrere, sortir i endavant, que amb el dial de la placa és el mateix
--- que amb un dit (docs/30, docs/90).
+-- **Three buttons at the foot of the page**: back, quit and next, which with the dial of the board is the same as
+-- with a finger (docs/30, docs/90).
 local function make_button(x, width, text, action)
   local button, err = ui.button(width, 72)
   if button == nil then
@@ -154,13 +154,13 @@ make_button(view.width - 170, 140, 'next', function() step(1) end)
 draw(index)
 console.print(string.format('images: %d pictures, %d drawn, %d failed', #pictures, shown, failures))
 
--- **L'app es queda i escolta**: una app que plega després de pintar és una app que ningú no pot prémer. La
--- imatge de cada pas es presenta amb el seu rentat dins de `draw`; els torns del mig presenten només el que
--- els controls han canviat —no res, quasi sempre— i no costen tinta (docs/30, docs/90).
+-- **The app stays and listens**: an app that folds after painting is an app nobody can press. The picture of every
+-- step is presented with its wash inside `draw`; the turns in between present only what the controls have changed
+-- —nothing, almost always— and cost no ink (docs/30, docs/90).
 while not leaving do
-  -- **El torn després d'un moviment de focus és un rentat**: `gc16` és el que deixa l'anell que arriba
-  -- nítid i el que se'n va esborrat, i només els botons són a la llista de danys, o sigui que el que
-  -- parpalleja és la fila dels botons (docs/30, docs/90).
+  -- **The turn after a movement of focus is a wash**: `gc16` is what leaves the ring that arrives sharp and the one
+  -- that goes erased, and only the buttons are in the damage list, so what flashes is the row of buttons
+  -- (docs/30, docs/90).
   ui.present(clean and 'gc16' or nil)
   clean = false
   sys.delay(200):await()
