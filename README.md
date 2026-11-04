@@ -15,10 +15,11 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **200 proves natives**
-> passen en 7 suites.
-> A l'ATOM: **2 020 769 B** de flash (64,2 % d'una partició de 3 MB) i **93 096 B** de RAM estàtica (28,4 %); `hello` fa un
-> pic de **10 897 B** de 65 536 de sostre i el port sèrie **4,1 ms** d'anada i tornada.
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **386 proves natives**
+> passen en 19 suites, totes verdes.
+> A l'ATOM: **2 173 901 B** de flash (82,9 % de la partició d'aplicació) i **116 360 B** de RAM estàtica (35,5 %); `hello` fa un
+> pic de **31 655 B** de 131 072 de sostre —el terra de l'intèrpret és 29 842 B des de la llibreria d'UI— i el port sèrie
+> **4,1 ms** d'anada i tornada.
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
 > (escriure és **atòmic**: un temporal i un reanomenament), `mkdir`/`remove`/`rename`, `fs.data()` per
@@ -66,6 +67,15 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > (`console.raw` i `console.read_byte`: les fletxes senceres, sense eco i sense línia); el fitxer que la
 > persona nomena al prompt és l'únic d'aquell disc que l'app pot desar (`:w` des d'un altre camí respon
 > `E_INVAL`).
+>
+> **La pàgina té controls i els dibuixa el sistema.** `ui.panel`, `ui.list`, `ui.textbox`,
+> `ui.textbox_multiline`, `ui.selector`, `ui.checkbox`, `ui.progress`, `ui.slider`, `ui.row`, `ui.tabs`,
+> `ui.dots`, `ui.dialog`, `ui.sparkline`, `ui.pie`, `ui.month`, `ui.menu`, `ui.menu_bar`,
+> `ui.notification_bar` i `ui.icon_grid`: cada un és una ranura del nucli on l'app posa camps i el sistema
+> pinta, guarda el focus i la tecla premuda, i **només passa les fletxes al control que les vol**. Les
+> cares del disc viuen una sola vegada a `/fonts` (`res/fonts/`, de només lectura) i no una còpia per app.
+> Els exemples són `run controls`, `menu`, `typing`, `dialog`, `form`, `notes`, `trend`, `grid`, `checkbox` i
+> `menubar`, i la revisió del projecte antic que va portar-los és a [docs/92](docs/92-ui-del-projecte-antic.md).
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al

@@ -152,6 +152,26 @@ bool add_app(hal::IStorage* storage, const char* id, const char* manifest, const
   return add_app_file(storage, id, manifest, source, "app.lua");
 }
 
+// **A face of the repository, in the disk of this bench** (4/11): the suite keeps its own volume, so what it
+// lists has to be written here — `data/res/fonts/` is the disk's `/res/fonts` and the bench does not read the
+// disk of the build (docs/70, docs/85). Binary and not text: a `.ttf` is outlines with zero bytes inside.
+bool copy_a_face(hal::IStorage* storage, const char* name) {
+  static char bytes[65536];
+  char host[128];
+  snprintf(host, sizeof(host), "data/res/fonts/%s", name);
+  const size_t got = read_host_file(host, bytes, sizeof(bytes));
+  if (got == 0) return false;
+  char path[160];
+  snprintf(path, sizeof(path), "/res/fonts/%s", name);
+  storage->mkdir("/res");
+  storage->mkdir("/res/fonts");
+  hal::FileSlot slot;
+  if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+  const bool ok = storage->write(slot, bytes, static_cast<uint32_t>(got)) == static_cast<int32_t>(got);
+  storage->close(slot);
+  return ok;
+}
+
 bool boot_once() {
   if (g_booted) return true;
   // The emulated disk is a directory; the storage backends expect their own root
@@ -1139,6 +1159,11 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
+  // **Les cares del repositori, en aquest disc**: el banc no llegeix el disc del build, o sigui que les
+  // dues que aquesta prova nomena s'escriuen aquí (docs/70, docs/85).
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "LICENCE.txt"));
+
   // The prompt sees the mount and walks it, and the licence of the faces travels with them.
   pump_captured(20, g_out, sizeof(g_out), "mounts");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/fonts"), g_out);
@@ -1152,16 +1177,8 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
                            "local licence, lerr = fs.read('/fonts/LICENCE.txt', 64)\n"
                            "console.print('read ' .. tostring(licence and #licence) .. ' '\n"
                            "  .. tostring(lerr and lerr.code))\n"
-                           "local face, ferr = ui.load_font('/fonts/dejavusans-bold.ttf')\n"
-                           "console.print('face ' .. tostring(face ~= nil) .. ' '\n"
-                           "  .. tostring(ferr and ferr.message))\n"
-                           "if face ~= nil then\n"
-                           "  local w, h, glyphs = face:size()\n"
-                           "  console.print('size ' .. w .. ' ' .. h .. ' ' .. glyphs)\n"
-                           "  console.print('wide ' .. tostring(face:text_width('Handgloves', 4) "
-                           "> 0))\n"
-                           "  face:release()\n"
-                           "end\n"
+                           "local face_bytes = fs.read('/fonts/dejavusans-bold.ttf', 4096)\n"
+                           "console.print('face ' .. tostring(face_bytes and #face_bytes))\n"
                            "local ok, werr = fs.write('/fonts/x.txt', 'no')\n"
                            "console.print('write ' .. tostring(ok) .. ' ' .. tostring(werr and "
                            "werr.code))\n"));
@@ -1169,16 +1186,21 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   TEST_ASSERT_TRUE(run_captured("run facedoor", g_out, sizeof(g_out)));
   // The file is reachable: sixty-four bytes of the licence come back and no error with them.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 64 nil"), g_out);
-  // And it is a face: the reader takes it, says it is outlines (`0, 8, 0`, docs/30) and measures a
-  // line, which is what a page needs before it draws a word.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "face true nil"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "size 0 8 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wide true"), g_out);
+  // **La cara també arriba sencera** (4096 B del `.ttf` que hi ha darrere de la porta). Que el lector la
+  // converteixi en una cara que es pot portar és una altra prova i un altre banc: `ui.load_font` necessita
+  // el vidre de l'app —l'`ui::boot` que instal·la les operacions— i aquest banc és un ATOM sense pantalla,
+  // on `E_UNSUPPORTED` és la veritat de la placa i no una fallada. El lector de `.ttf` té la seva suite
+  // (`test_ttf`, amb dos fitxers de debò) i `test_font` prova les cares de `/res` (docs/30, docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "face 4096"), g_out);
   // A face of the disk is the person's: an app reads it and does not write it (docs/70).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
   hal::Stat info;
   TEST_ASSERT_FALSE_MESSAGE(storage->stat("res/fonts/x.txt", info), "an app wrote in /fonts");
 
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  storage->remove("/res/fonts/LICENCE.txt");
+  storage->remove("/res/fonts");
+  storage->remove("/res");
   storage->remove("/apps/facedoor/app.lua");
   storage->remove("/apps/facedoor/manifest.json");
   storage->remove("/apps/facedoor");
@@ -1310,7 +1332,7 @@ void test_the_extra_memory_is_there_for_any_app(void) {
   TEST_ASSERT_EQUAL_UINT32(0, hal::platform().heap_limit_kb());
   TEST_ASSERT_TRUE(run_captured("run big", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "extra 0"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 65536"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 131072"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "big 60000"), g_out);
 
   // The Paper: the chip carries 8 MB and the CPU addresses 4, the ceiling is that memory, and the

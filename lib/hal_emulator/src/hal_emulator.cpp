@@ -30,7 +30,7 @@ Options g_options;
 
 Options::Options()
     : state_dir(nullptr),
-      flash_dir(LUNOK_DISK_DIR),
+      flash_dir(nullptr),
       fs_dir("emulator"),
       board(nullptr),
       sd_dir(nullptr),

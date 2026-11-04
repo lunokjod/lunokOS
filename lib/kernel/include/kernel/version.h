@@ -882,7 +882,29 @@ namespace kernel {
 // **the turn of the frame follows the frame that arrived** and not every poll (the point was being turned once per
 // turn and a finger walked away on its own). And the grid was missing from the list of controls that take the
 // arrows, so the dial crossed it and the cells never moved (docs/30, docs/50, docs/90).
-static const char kVersion[] = "0.81.1";
+// 0.81.2 (4/11): **el que estava trencat després de la feina dels controls.** Cap línia de codi de la pàgina
+// canvia; el que canvia és el que la fa funcionar i el que la comprova.
+//   - **Les plaques tornaven a no compilar** en una màquina sense `tool-mklittlefs`: `get_package_dir` contesta
+//     `None` quan el paquet no hi és i no llança, i `os.path.join(None, "mklittlefs")` era un `TypeError` que
+//     aturava el build d'`atom`, `paper` i `atom_matrix` just després de la línia que diu que la mida no es
+//     comprova. Ara el disc es munta igual i només se salta la comprovació.
+//   - **El disc del banc torna a ser el de qui el demana.** `Options::flash_dir` tenia `LUNOK_DISK_DIR` de
+//     sèrie, o sigui que **tapava `fs_dir`** i qualsevol prova llegia el disc del build i no el seu: cinc
+//     proves de `test_img` deien que no hi havia les imatges que sí que hi eren. El disc del build és el
+//     defecte del **binari** (`main_host` ja el posa) i no el de l'estructura d'opcions.
+//   - **El sostre d'una app puja a 128 KB** (era 64): el terra de l'intèrpret és **29 842 B** des de la
+//     llibreria d'UI (13 021 de Lua, 13 200 de la UI i 3 600 dels altres globals), i a l'ATOM això deixava
+//     35 KB per a l'app: el mateix `writer` de la prova que escrivia sis fitxers de 15 000 B va començar a dir
+//     `not enough memory`, i `run edit` no arrencava. L'ATOM contesta **338 864 B lliures**, i 128 KB és el
+//     39 % (docs/75, docs/85).
+//   - **Els bancs de proves són seus de debò**: `test_shell` no tenia disc —escrivia el que trobava, i per
+//     això les seves quatre proves feia dies que estaven vermelles i es van posar verdes per accident quan un
+//     defecte d'opcions els va fer escriure dins del repositori—; ara es fa un directori temporal amb les tres
+//     portes (`/apps`, `/res`, `/data`). La prova de les cares de `/fonts` escriu les seves dues cares al seu
+//     disc i deixa el lector de `.ttf` a la seva suite, que és l'única que té vidre.
+// **386 proves natives, totes verdes** (eren 387 amb 12 vermelles, i les quatre de `test_shell` que
+// arrossegàvem des de feia dies també hi són).
+static const char kVersion[] = "0.81.2";
 
 }  // namespace kernel
 

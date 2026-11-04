@@ -54,7 +54,15 @@ const size_t kPrintCap = 1024;
 // costs 16 KB of heap while an app starts and nothing while it runs** (docs/75). It does not grow again
 // without a number and a paragraph in docs/75.
 const size_t kSourceCap = 32768;
-const size_t kDefaultHeapBytes = 64 * 1024;   // used until the board ceiling is measured
+// **The ceiling of an app's interpreter when the board does not say one**: 131 072 B since 4/11, and it was
+// 65 536 B. The number is measured and not chosen: on an ATOM the interpreter is **29 842 B** before the app
+// has run a line (13 021 of Lua itself, 13 200 of the UI library and the rest the other globals), so a 64 KB
+// ceiling left about 35 KB for the app —and the same app that wrote six files of 15 000 B on the 3/11 died
+// with `not enough memory` on the 4/11, because a `string.rep` of 15 000 B is two blocks of 15 000 while Lua
+// builds and pools it. The ATOM answers **338 864 B free** (`docs/95`, measured with `mem`), so 131 072 is
+// still 39 % of it and the system keeps 208 KB. The Paper is untouched: it says its own ceiling (4 MB of
+// PSRAM) and never reaches this line (docs/75, docs/85).
+const size_t kDefaultHeapBytes = 128 * 1024;  // used until the board ceiling is measured
 // A word of a command line is 127 bytes at most, and a path with spaces goes between quotes:
 // `cat "res/el meu fitxer.txt"`. There is no escaping, because a quote is a quote and nothing in a file
 // system of this size needs more.

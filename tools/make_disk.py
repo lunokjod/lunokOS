@@ -212,6 +212,12 @@ def littlefs_tool():
         package = env.PioPlatform().get_package_dir("tool-mklittlefs")
     except Exception:  # the platform has no such package, or it is not installed yet
         return ""
+    # **`get_package_dir` answers `None` when the package is not installed**, and it does not raise:
+    # `os.path.join(None, "mklittlefs")` was a `TypeError` that stopped the build of every board on a
+    # machine without the tool, after the line that says the size is not checked (found the 4/11 building
+    # `atom` on a fresh machine, 4/11). The disk is still assembled; only the check is skipped.
+    if not package:
+        return ""
     for name in ("mklittlefs", "mklittlefs.exe"):
         path = os.path.join(package, name)
         if os.path.isfile(path):

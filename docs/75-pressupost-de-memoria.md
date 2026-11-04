@@ -16,8 +16,9 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | RAM de la placa | El maquinari | 320 KB a l'M5 ATOM, sense PSRAM |
 | Heap lliure amb el prompt | **Mesurat a l'ATOM, 30/10, amb LittleFS muntada i Lua al binari** | **338 864 B** |
 | Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb l'app `demo` (colors, espera i lectura) |
-| Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **65 536 B** mentre `heap_limit_kb()` no digui un altre número |
-| Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (65 536 B) mentre la placa no en digui un altre |
+| Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **131 072 B** mentre `heap_limit_kb()` no digui un altre número (era 65 536 fins a la 0.81.2, vegeu la secció del terra) |
+| Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (131 072 B) mentre la placa no en digui un altre |
+| **Terra de l'intèrpret** | Mesurat a l'ATOM de l'emulador, 4/11, amb `sys.heap()` en arrencar una app | **29 842 B** abans que l'app corri una línia: 13 021 de Lua i les seves llibreries, 13 200 de la llibreria d'UI (canvas, teclat, cares) i 3 600 dels altres globals. És el que una app **no** pot fer servir del seu sostre |
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
 | Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
 | Pressupost d'instruccions | **No existeix encara** | Avui una app que no cedeix penja la placa (docs/20, docs/90) |
@@ -108,8 +109,8 @@ RAM** sobre la mesura anterior del mateix dia (2 005 361 B i 92 624 B).
 | Flash lliure | **1 124 959 B** |
 | RAM estàtica | **93 096 B** de 327 680 (28,4 %) |
 | **Mesurat amb la 0.10.0** (1/11, `pio run -e atom`): és el total d'avui, i el que creix des de la columna del mig d'aquesta secció són el `/rtc`, el `/fram`, el `poweroff`, la memòria extra, els efectes del llum i el sensor d'ambient. L'`atom_matrix` dona **2 020 781 B** i **95 464 B** (29,1 %) | — |
-| Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`) |
-| Pic de l'app `hello` a l'emulador | **14 364 B** de 65 536 (mateix codi al PC) |
+| Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`, amb la 0.10.0 i el terra de llavors). **Amb la 0.81.2 i el sostre de 128 KB, el mateix `run hello` a l'ATOM de l'emulador dona 31 655 B de 131 072** — el terra de l'intèrpret és el que ha crescut, no l'app |
+| Pic de l'app `hello` a l'emulador | **31 655 B** de 131 072 (mesurat el 4/11 amb la 0.81.2; eren **14 364 B** de 65 536 amb la 0.10.0, i el que ha pujat és la llibreria d'UI que tot intèrpret registra en arrencar) |
 | Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `run wait` i `mem`) |
 | Pic de l'app `demo` (colors + espera + línia) a l'ATOM | **26 821 B** de 65 536 (**mesurat a la placa el 30/10**, dues vegades: 26 808 i 26 821); heap mínim vist, **301 640 B** |
 | Pic d'una app amb `sys.delay(1000)` a l'emulador | **17 285 B** de 65 536 (`wait`, mateix codi al PC) |
@@ -213,6 +214,29 @@ Ara un `resize` que no cap on és **mou el bloc a qualsevol altra taca de la sev
 el que fa un heap de debò: un bloc de vuitanta-vuit kilobytes no necessita el lloc just darrere seu, només
 algun lloc. És un error del banc i no de la placa —l'`esp32` porta el seu propi `malloc`— i per això el que
 canvia és el model, no el sistema (docs/85).
+
+## El sostre d'una app, a 128 KB (4/11)
+
+El sostre per defecte era de **65 536 B** des del començament, i el 4/11 va deixar de ser suficient **sense
+que cap app hagués crescut**: el mateix `writer` que la prova escrivia sis fitxers de 15 000 B el 3/11 va
+començar a dir `not enough memory` amb la llibreria de controls a dins, i `run edit` (31 937 B de codi, 32 KB
+de buffer d'entrada) no arrencava a l'ATOM. El motiu és el **terra**: cada intèrpret gasta **29 842 B** abans
+que l'app corri una línia.
+
+| | Amb la 0.67.0 (abans dels controls) | Amb la 0.81.2 |
+|---|---|---|
+| Terra de l'intèrpret a l'ATOM | uns 12 000 B | **29 842 B** |
+| Pic de `hello` | 14 364 B de 65 536 | **31 655 B** de 65 536 |
+| El `writer` de la prova (6 × 15 000 B) | passa | **`not enough memory`** |
+
+El sostre és ara de **131 072 B**, i el número no és un gust: l'ATOM contesta **338 864 B lliures** (mesurat
+amb `mem`, docs/95), o sigui que 128 KB és el 39 % del que hi ha i el sistema se'n queda 208. El Paper no hi
+arriba mai —diu el seu propi sostre de 4 MB de PSRAM— i les plaques sense memòria extra (l'ATOM, la Matrix)
+són les úniques que el fan servir.
+
+**El que això no és**: un permís per gastar. El terra de 29 842 B és el que s'ha de mirar quan una app diu
+`not enough memory`, i una app que en demana 128 ho ha de poder justificar amb una mesura com la d'aquest
+paràgraf.
 
 ## El sostre del codi, a 32 KB (4/11)
 

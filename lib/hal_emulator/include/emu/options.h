@@ -20,9 +20,13 @@ struct Options {
   // means "the same directory as the disk", which is what a test wants: everything of one run in
   // one place it can wipe (docs/85).
   const char* state_dir;
-  // The directory that **is** the emulated flash volume, or nullptr for `<fs_dir>/littlefs`. It is the disk
-  // the environment was built for (`LUNOK_DISK_DIR`), which is `data/` plus the apps this build carries, so
-  // what a person edits is what the bench runs and nothing has to be copied (docs/85).
+  // The directory that **is** the emulated flash volume, or nullptr for `<fs_dir>/littlefs`. **nullptr is
+  // the default here and the disk of the build is the binary's default** (`main_host`, `LUNOK_DISK_DIR`):
+  // `data/` plus the apps this build carries, assembled by `tools/make_disk.py`, so what a person edits is
+  // what the bench runs and nothing has to be copied. A test builds its own options and wants the volume
+  // next to `fs_dir`, which is where it copied its fixtures — with the build's disk as the default of this
+  // struct, every suite read the repository's disk and its own copy was never looked at (found the 4/11
+  // with `test_img`: five pictures that were there and a bench that said they were not) (docs/85).
   const char* flash_dir;
   const char* fs_dir;    // where the emulated disks live
   // Which board this bench is, by the name the board has in platformio.ini. nullptr is

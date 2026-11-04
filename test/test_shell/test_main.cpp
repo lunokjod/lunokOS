@@ -7,9 +7,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 
 #include <unity.h>
 
+#include "emu/options.h"
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
@@ -43,10 +46,49 @@ uint32_t storage_calls(meter::Op op) {
   return total;
 }
 
+// **The disk of this suite, and only of this suite** (4/11): a directory of its own that the run makes and
+// wipes, because these tests write apps and files and then ask the shell to find them. They used to write
+// into whatever disk the options happened to name —`data/` and then the build's— which is why four of them
+// were red for days and why one default elsewhere in the bench could turn them green without touching them:
+// a test that writes in the repository is not testing the repository (docs/85).
+char g_root[96];
+
+// Every directory on the way, because the volume has to exist before the boot looks for it: a backend that
+// finds no directory is a board with no disk (docs/85).
+void make_dirs(const char* path) {
+  char partial[256];
+  const size_t len = strlen(path);
+  if (len >= sizeof(partial)) return;
+  memcpy(partial, path, len + 1);
+  for (size_t i = 1; i <= len; ++i) {
+    if (partial[i] == '/' || partial[i] == '\0') {
+      const char saved = partial[i];
+      partial[i] = '\0';
+      ::mkdir(partial, 0777);  // already there is not an error
+      partial[i] = saved;
+    }
+  }
+}
+
 void ensure_booted() {
   if (g_booted) return;
+  snprintf(g_root, sizeof(g_root), "/tmp/lunok-shell-XXXXXX");
+  if (mkdtemp(g_root) == nullptr) g_root[0] = '\0';  // no disk: the tests that need one say so
+  char volume[128];
+  snprintf(volume, sizeof(volume), "%s/littlefs", g_root);
+  make_dirs(volume);
+  emu::Options opts;
+  opts.fs_dir = g_root;
+  emu::set_options(opts);
   pal::init();
   kernel::boot(hal::platform());
+  // **The three doors of a disk that has just been formatted**: an empty volume has no `/apps`, `/res` or
+  // `/data`, and the shell's paths are those, so the suite makes them once for every test in it (docs/70).
+  if (hal::IStorage* storage = hal::platform().storage("/littlefs")) {
+    storage->mkdir("/apps");
+    storage->mkdir("/res");
+    storage->mkdir("/data");
+  }
   g_booted = true;
 }
 
