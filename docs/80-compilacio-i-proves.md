@@ -166,11 +166,10 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   Cada app del disc és **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves
   proves escriuen al disc). El banc i les proves no són cap placa i les porten totes. I `custom_apps =
   id1,id2` mana sobre el filtre, per a un build que vulgui una llista exacta.
-- **El banc les posa a la targeta i no a la flash** (0.88.2): `custom_apps_in_card = emulator/sd` fa que
-  `make_disk` **copiï** les apps a `emulator/sd/apps/` i deixi la flash del banc amb el sistema sol. És la
-  placa on les apps s'instal·len en lloc d'anar-hi al firmware, i sobretot és el que fa que `repo install` al
-  banc escrigui en una còpia i no a través d'un enllaç dins d'`apps/` del repositori. Les apps que el build
-  porta es tornen a copiar a cada `pio run`; les que hi ha instal·lades i el build no porta, es queden
+- **El banc no en porta cap** (0.88.2): el seu entorn diu `custom_apps_in_disk = no`, o sigui que el disc
+  del banc és el sistema sol i `run` no coneix cap nom fins que una app hi arriba com hi arriba a una
+  placa —`repo install <app>`, o una targeta pròpia amb `--sd`—. És el que fa que `apps` en un banc acabat de
+  fer digui `no apps`, i el que fa que provar una app instal·lada sigui provar el que la placa faria
   (docs/70, docs/85).
 - **Les de 4 MB no hi caben, i el build ho diu en comptes de perdre fitxers en silenci.** Mesurat el 3/11
   amb blocs de 4 KB i la partició de 917 504 B: de les 48 apps de l'ATOM (124 fitxers) en queden **15 fora**;

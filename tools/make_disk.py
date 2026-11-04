@@ -61,12 +61,6 @@ def option(name, fallback=""):
     return value.strip() if isinstance(value, str) else fallback
 
 
-# **Where the apps go when they are not the firmware's** (0.88.2): an environment with a card in its slot —the
-# bench— carries them **on the card and not on the flash**, so the flash of that build is the system alone and
-# `repo install` on it writes to a copy and not into `apps/` of the repository (docs/70, docs/80, docs/85).
-CARD_DIR = option("custom_apps_in_card")
-
-
 def board_identity():
     """The id and the family this environment builds for, read from its own header."""
     # **The board is the one its `-Ilib/board_<id>/include` selects**, and not the `board =` option: the ATOM
@@ -156,37 +150,18 @@ def rebuild():
         os.remove(apps_dir)
     elif os.path.isdir(apps_dir):
         shutil.rmtree(apps_dir)
+    os.makedirs(apps_dir)
     apps = wanted_apps()
-    if CARD_DIR:
-        # **The card is the one that carries them** (0.88.2) and the flash is the system alone. The card is
-        # **state** and not an image: what the build carries is copied over it —so an edit in `apps/` reaches the
-        # bench— and a folder the build does not carry stays where it is, because it is an app the person
-        # installed with `repo install` and a `pio run` is not a reason to lose it (docs/70, docs/85).
-        card_apps = os.path.join(PROJECT, CARD_DIR, "apps")
-        os.makedirs(card_apps, exist_ok=True)
-        for app in apps:
-            source = os.path.join(APPS_DIR, app)
-            target = os.path.join(card_apps, app)
-            # **A copy and never a link**: the kernel writes `/sd/apps/<id>/...` when the person installs an app,
-            # and through a link that write would land in `apps/` of the repository (found while moving the
-            # bench's apps onto its card, 4/11, docs/85).
-            if os.path.islink(target) or os.path.isfile(target):
-                os.remove(target)
-            elif os.path.isdir(target):
-                shutil.rmtree(target)
+    for app in apps:
+        source = os.path.join(APPS_DIR, app)
+        target = os.path.join(apps_dir, app)
+        if COPY_APPS:
             shutil.copytree(source, target)
-    else:
-        os.makedirs(apps_dir, exist_ok=True)
-        for app in apps:
-            source = os.path.join(APPS_DIR, app)
-            target = os.path.join(apps_dir, app)
-            if COPY_APPS:
-                shutil.copytree(source, target)
-            else:
-                # Absolute on purpose: the disk is generated and never moved, and a relative target would point
-                # nowhere if the disk ever gained a level —and a link that points nowhere leaves the app out of
-                # the image without a word.
-                os.symlink(source, target)
+        else:
+            # Absolute on purpose: the disk is generated and never moved, and a relative target would point
+            # nowhere if the disk ever gained a level —and a link that points nowhere leaves the app out of
+            # the image without a word.
+            os.symlink(source, target)
     # **The builders read `$PROJECT_DATA_DIR`, and this is what points it at this build's disk**: the project
     # has one value for every environment and the image of an environment is its own (docs/80).
     env.Replace(PROJECT_DATA_DIR=DISK_DIR)
@@ -198,20 +173,14 @@ def rebuild():
         for name in names:
             files += 1
             payload += os.path.getsize(os.path.join(root, name))
-    if CARD_DIR:
-        how = ("no apps in the flash: the %d of this build are on the card at %s" % (len(apps), CARD_DIR)
-               if apps else "no apps in the flash, and the card at %s has none" % CARD_DIR)
-    elif not apps:
+    if not apps:
         how = "no apps: this board carries none"
     elif COPY_APPS:
         how = "%d apps, copied" % len(apps)
     else:
         how = "%d apps, linked to apps/" % len(apps)
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
-    # **The image is asked about the apps it carries and not about the ones on the card**: the card is not the
-    # flash, and a disk that says `60 apps` when it has none would be the kind of number this check exists to
-    # stop (docs/70, docs/80).
-    check_it_fits(files, apps if not CARD_DIR else [])
+    check_it_fits(files, apps)
 
 
 def partition_bytes():
