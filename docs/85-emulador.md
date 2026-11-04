@@ -108,7 +108,7 @@ Aquestes són les opcions del binari:
 | `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms) i un número més gran que el torn del nucli és un vidre que contesta «ningú» a la meitat de les lectures, que és exactament el cas que es vol poder reproduir (docs/85) |
 | `--no-delay` | **Cap espera**: el model del disc, del port, de la tinta i del tàctil és el mateix i el rellotge no es toca — ni el torn del nucli, que deixa de costar els 850 µs que costa a la placa (`kTurnOverheadUs`). És el que fa servir una prova o una mesura que no és de temps, i el que un run amb `--gui` **no pot** demanar (docs/85) |
 | `--lua-cpu <ns>` | Què costa **una instrucció de l'intèrpret** a 160 MHz: **60 ns** per defecte (el model; la mesura de la placa encara es deu, docs/95), i `0` perquè el codi de l'app sigui gratis, que és el que era el banc fins a la 0.29.0. Es divideix per la freqüència simulada, o sigui que a 240 MHz una instrucció costa 40 ns i a 80, 120 |
-| `--verbose` | El log també surt per la consola |
+| `--verbose` | El log també surt per la consola, i amb ell **cada pintat del vidre**: `gui: paint 12,9 116x28 gld16` és la regió i la qualitat que s'ha demanat, que és com es comprova que un títol nou no repinta la franja sencera (0.85.2) |
 
 En mode lot, cada app que arrenca es deixa acabar abans de la línia següent, i **també cada ordre que
 treballa** (`wifi add`, `ntp`, `http`): una comanda que espera la ràdio tindria la línia següent

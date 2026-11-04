@@ -61,23 +61,23 @@ local function ask()
     -- **Read the action, close, then run it**: the card is gone before anything else happens (docs/90).
     answer.text = 'deleted'
     close()
-    ui.present('gc16')
+    ui.present('gld16')
     console.print('dialog: deleted')
   end
   card.on_cancel = function(self)
     answer.text = 'kept'
     close()
-    ui.present('gc16')
+    ui.present('gld16')
     console.print('dialog: kept')
   end
 end
 
 open.on_click = function(self)
   ask()
-  ui.present('gc16')
+  ui.present('gld16')
 end
 
-ui.present('gc16')
+ui.present('gld16')
 console.print('dialog: the button opens the card; the dial walks its two doors')
 
 -- The app stays while the page is on the glass: the card and the button answer as long as it lives.

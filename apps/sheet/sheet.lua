@@ -32,5 +32,5 @@ while code <= 90 do
 end
 ui.text(margin, y + step + 8, 'CODES 32 TO 90, FIVE BY SEVEN', 1, 0)
 console.print('a sheet of ' .. (90 - 32 + 1) .. ' glyphs in cells of ' .. cell)
-ui.present('gc16')
+ui.present('gld16')
 ui.idle()

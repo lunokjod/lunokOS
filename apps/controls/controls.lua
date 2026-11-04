@@ -15,7 +15,8 @@
 -- slider changes its number. The field is already written when `on_change` arrives, and at the end of the range
 -- the key goes back to the walk of the dial, so a page is never stuck on a control that cannot move.
 --
--- Every change washes the page with `gc16`: a knob that moved is a ghost of the knob before it (docs/50).
+-- Every change washes the page with `gld16`, which cleans and does not blink: a knob that moved is a ghost of the knob
+-- before it, and a tick is not worth four blinks of the page (docs/50, docs/92).
 local caps = sys.caps()
 if not caps.display then
   console.print('controls: this board has no glass')
@@ -92,7 +93,7 @@ list.on_page = function(self, page)
 end
 page:add(list)
 
-ui.present('gc16')
+ui.present('gld16')
 console.print('controls: the page is out; the arrows move the tab, the slider and the list')
 
 -- **The page stays while there is somebody on it.** An app that draws and returns leaves the shell in front, and

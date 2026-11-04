@@ -66,7 +66,7 @@ note.scale = 1
 note.color = 8
 page:add(note)
 
-ui.present('gc16')
+ui.present('gld16')
 
 -- **The view is another one when the band comes or goes** (0.84.0): the system calls this and the page takes the room it
 -- has, which is the whole of what an app has to say about the keyboard.
@@ -74,7 +74,7 @@ function on_resize(width, height)
   page:resize(width, height)
   box:resize(width - 32, 56)
   console.print(string.format('typing: resized to %d x %d', width, height))
-  ui.present('gc16')
+  ui.present('gld16')
 end
 
 -- **The blink**: the caret goes and comes every six hundred milliseconds, and what it costs is the box and not

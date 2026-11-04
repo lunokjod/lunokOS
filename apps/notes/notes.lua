@@ -50,7 +50,7 @@ box.on_change = function(self, text)
   ui.present('gld16')
 end
 
-ui.present('gc16')
+ui.present('gld16')
 while not ui.idle() do
   sys.delay(10):await()
 end

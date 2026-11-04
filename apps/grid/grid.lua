@@ -46,10 +46,10 @@ grid.on_pick = function(self, index)
   self.marked = index
   status.text = 'you chose ' .. self.items[index].label
   console.print('grid: ' .. status.text)
-  ui.present('gc16')
+  ui.present('gld16')
 end
 
-ui.present('gc16')
+ui.present('gld16')
 console.print('grid: the arrows walk the cells, the page follows, and the centre opens one')
 
 -- **The page stays while there is somebody on it**: a demo that closes after forty seconds closes in the middle of

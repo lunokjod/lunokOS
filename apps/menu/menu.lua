@@ -41,8 +41,8 @@ local first_y = 130
 local marks = {}
 local chosen = 0
 
-ui.text(24, 40, 'menu: touch a note, and the menu opens where the finger is', 1, 8, 'gc16')
-ui.text(24, 66, 'a finger outside the card closes it', 1, 8, 'gc16')
+ui.text(24, 40, 'menu: touch a note, and the menu opens where the finger is', 1, 8, 'gld16')
+ui.text(24, 66, 'a finger outside the card closes it', 1, 8, 'gld16')
 
 for i = 1, #notes do
   local row = ui.row(view.width - 40, line_h)
@@ -99,7 +99,7 @@ local function open_menu(x, y, line)
     answer.text = what .. ' ' .. notes[line]
     console.print('menu: ' .. answer.text)
     close_menu()
-    ui.present('gc16')
+    ui.present('gld16')
   end
   place_card(x, y)
 end
@@ -112,7 +112,7 @@ local function line_at(y)
   return 0
 end
 
-if not ui.present('gc16') then
+if not ui.present('gld16') then
   console.print('the panel did not take the page')
   return
 end
@@ -154,7 +154,7 @@ while true do
         -- A finger outside the card closes it at once; a finger on the card is the card's and the system takes it.
         if not press_on_card then
           close_menu()
-          ui.present('gc16')
+          ui.present('gld16')
         end
       else
         press_line = line_at(press_y)
@@ -166,7 +166,7 @@ while true do
       chosen = press_line
       for i = 1, #notes do marks[i].marked = (i == press_line) end
       open_menu(press_x, press_y, press_line)
-      ui.present('gc16')
+      ui.present('gld16')
     end
     press_line = 0
     press_on_card = false

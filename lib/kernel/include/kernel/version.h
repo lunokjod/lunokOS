@@ -1027,7 +1027,14 @@ namespace kernel {
 // sol. Un títol nou era un `gc16` de tota la franja —quatre ensurts per una paraula— i un minut era un `du`, que pinta
 // però no neteja; ara les dues coses són un `gld16` de la caixa que ha canviat. El `gc16` de la franja sencera queda per
 // al boot i per a un gir de pàgina, que són els dos casos en què la franja sencera és nova (docs/50, docs/85, docs/92).
-static const char kVersion[] = "0.85.2";
+// 0.85.3 (4/11): **el que es veu a la finestra, dit amb una línia.** Amb `--verbose` cada pintat del vidre surt amb la
+// seva regió i la seva qualitat (`gui: paint 12,9 116x28 gld16`), que és com es respon «el títol repinta la franja?» amb
+// el log i no amb l'ull: el que s'hi veu és el boot amb `gc16` de 0,0 540x48, la pàgina de l'app, i després **una hora de
+// 116x28 per minut** i res més. I **les apps de controls deixen de demanar `gc16`**: una pàgina de text i de controls és
+// binària —tinta i paper, i el que està triat s'inverteix— i el rentat que li toca és `gld16`, que neteja i **no fa cap
+// flaix**; `gc16` són quatre ensurts de pàgina per una casella marcada. Les demos que dibuixen grisos o fotos es queden
+// com estaven (docs/50, docs/85, docs/92).
+static const char kVersion[] = "0.85.3";
 
 }  // namespace kernel
 

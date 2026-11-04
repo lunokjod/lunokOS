@@ -16,8 +16,10 @@
 -- a person only reads, and it is here to show that the walk of the system skips it. The fourth is a dark row,
 -- which is what `background`, `border` and `mark` are for.
 --
--- **Every change washes the page with `gc16`**: a tick is a few pixels of ink and a ring that moved is a ghost
--- of the ring before it, and a page of controls that leaves one is a page of grey rings (docs/50, docs/90).
+-- **Every change washes the page, and the wash is `gld16`**: a tick is a few pixels of ink and a ring that moved is a ghost
+-- of the ring before it, and a page of controls that leaves one is a page of grey rings. `gld16` cleans and does not blink,
+-- which is the rule of this project —nothing that flickers reaches the glass— and `gc16` is the same clean with four blinks
+-- of the page for a tick (docs/50, docs/92, docs/90).
 local caps = sys.caps()
 if not caps.display then
   console.print('checkbox: this board has no glass')
@@ -111,12 +113,12 @@ end
 
 say_the_count()
 console.print(string.format('checkbox: a row of 56 holds a box of %d px', rows[1].row:box()))
-ui.present('gc16')  -- the first page, washed: nothing of the page before it
+ui.present('gld16')  -- the first page, washed: nothing of the page before it
 while not done do
   sys.delay(50):await()
   if wash then
     wash = false
-    ui.present('gc16')
+    ui.present('gld16')
   end
 end
 console.print(string.format('checkbox: %d of %d on at the end', count_on(), #rows))

@@ -50,7 +50,7 @@ local function open_list(field, items)
     card = nil
     chosen = 0
     console.print('form: ' .. field.label .. ' ' .. field.items[index])
-    ui.present('gc16')
+    ui.present('gld16')
   end
 end
 
@@ -73,10 +73,10 @@ band.on_close = function(self, item)
   table.remove(band.items, item)
   band.items = band.items
   console.print('form: notice ' .. item .. ' dismissed, ' .. #band.items .. ' left')
-  ui.present('gc16')
+  ui.present('gld16')
 end
 
-ui.present('gc16')
+ui.present('gld16')
 console.print('form: the centre of the dial opens the list of a field')
 
 -- **The page stays while there is somebody on it**: a form that closes after forty seconds closes before the person
@@ -92,7 +92,7 @@ while true do
   if not announced and hour.index > 0 and minute.index > 0 then
     announced = true
     band.items = { {title = 'Alarm', text = hours[hour.index] .. ':' .. minutes[minute.index] .. ' set'} }
-    ui.present('gc16')
+    ui.present('gld16')
   end
   sys.delay(100):await()
 end

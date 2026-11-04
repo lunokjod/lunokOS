@@ -53,10 +53,10 @@ bar.on_pick = function(self, title, entry)
     bar.items = menus
   end
   console.print('menubar: ' .. status.text .. ', wrap ' .. tostring(wrap))
-  ui.present('gc16')
+  ui.present('gld16')
 end
 
-ui.present('gc16')
+ui.present('gld16')
 console.print('menubar: touch a word of the bar; the arrows walk the entries of the open menu')
 
 -- **The page stays while there is somebody on it**: a bar that closes after forty seconds is a bar nobody can
