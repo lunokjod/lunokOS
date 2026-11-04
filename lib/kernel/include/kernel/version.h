@@ -1034,7 +1034,16 @@ namespace kernel {
 // binària —tinta i paper, i el que està triat s'inverteix— i el rentat que li toca és `gld16`, que neteja i **no fa cap
 // flaix**; `gc16` són quatre ensurts de pàgina per una casella marcada. Les demos que dibuixen grisos o fotos es queden
 // com estaven (docs/50, docs/85, docs/92).
-static const char kVersion[] = "0.85.3";
+// 0.85.4 (4/11): **els controls són dos nivells.** El relleu d'un botó era `fons + 4` i `fons − 4` —onze i set en un
+// botó blanc— i el d'una casella el mateix, amb el cos un pas més fosc en prémer-se: **quatre grisos en un control que
+// només diu dues coses**, i un gris és un control que demana el rentat de setze nivells perquè quedi bé i que deixa un
+// fantasma gris quan es mou. Ara el relleu és **paper i tinta**: un cos clar no té aresta més clara i la seva ombra és
+// tinta, i un cos fosc té lluentor de paper i cap ombra; prémer-se és el relleu que canvia de lloc i el cos que es queda
+// com era, i el que està triat s'inverteix. **I la banda del teclat neteja sense ensurt**: demanava `gl16`, que són dos
+// flaixos de tota la banda a cada `MAY` i a cada `123`, i ara demana `gld16`, que neteja els setze nivells de les lletres
+// amb zero flaixos. És la regla que aquest projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar
+// és `gld16` (docs/30, docs/50, docs/92).
+static const char kVersion[] = "0.85.4";
 
 }  // namespace kernel
 

@@ -1185,12 +1185,14 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 - **El botó té forma i volum, i el focus no es pot perdre de vista** (2/11, 0.51.0): el marc és una **caixa
   amb els cantons rodons** (dotze píxels, i mai més d'un terç del costat més petit — un botó que és tot cantó
   és una pastilla i no un botó), amb una vora de dos píxels —tres en un botó de pàgina des de la 0.56.2—. A
-  dins hi ha el **relleu**: una aresta clara a dalt i a l'esquerra i una ombra a baix i a la dreta (`fons + 4`
-  i `fons − 4`, o sigui que un botó blanc té ombra grisa i un de negre té lluentor grisa), i **mentre es prem
-  les dues canvien de lloc**, que és tota la diferència entre un botó que surt i un que s'enfonsa. El **focus
-  és un anell** cinc passes endins, en el nivell que no es pot confondre: negre sobre un botó clar i blanc
-  sobre un de fosc. És un píxel de tinta i no un degradat, perquè el panell té setze nivells i el que es veu
-  és una aresta. El gruix de la vora i el de l'anell són els de la 0.56.2, més amunt.
+  dins hi ha el **relleu**: una aresta clara a dalt i a l'esquerra i una ombra a baix i a la dreta, i **mentre
+  es prem les dues canvien de lloc**, que és tota la diferència entre un botó que surt i un que s'enfonsa. **I
+  el relleu és paper i tinta i no un gris** (0.85.4): un cos clar no té aresta més clara i la seva ombra és
+  tinta, i un cos fosc té lluentor de paper i cap ombra —una aresta de grisos (`fons ± 4`) era un control que
+  demanava el rentat de setze nivells i que deixava un fantasma gris quan es movia—. El **focus és un anell**
+  cinc passes endins, en el nivell que no es pot confondre: negre sobre un botó clar i blanc sobre un de fosc.
+  És un píxel de tinta i no un degradat, perquè el que es veu és una aresta. El gruix de la vora i el de
+  l'anell són els de la 0.56.2, més amunt.
 - **El fill és un control de debò**: `button:add(label)` el treu del pare anterior i el posa dins del botó;
   `label:place(x, y)` passa a comptar-se en píxels del botó. `button:add` i `button:place` són els
   mateixos mètodes de qualsevol canvas (docs/30).
@@ -1262,7 +1264,7 @@ docs/90).
 | `checkbox.border` | 0–15 (0 per defecte) | El nivell de la vora de la caixa |
 | `checkbox.mark` | 0–15 (0 per defecte) | El nivell del **tick**, que és un color propi perquè un tick negre en una caixa negra és un checkbox que no diu res |
 | `checkbox.checked` | `true` o `false` (fals per defecte) | **L'estat**: l'app el llegeix i l'escriu, i el clic del sistema el gira |
-| `checkbox.pressed` | `true` o `false` | Mentre és cert la caixa és un forat: el cos baixa un pas i el relleu s'inverteix |
+| `checkbox.pressed` | `true` o `false` | Mentre és cert la caixa és un forat: **el relleu s'inverteix** i el cos es queda els dos nivells que tenia —el pas més fosc era un gris, i un gris demana el rentat de setze nivells (0.85.4)— |
 | `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: l'anell es pinta **fora de la caixa** |
 | `checkbox.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil s'hi aturen |
 

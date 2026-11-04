@@ -597,14 +597,25 @@ void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h,
   mark_box(canvas, x, y, w, h, mode);
 }
 
-// **A level and not a number**: the bevel of a control is its background a few steps out of itself, and a
-// background of thirteen plus four is sixteen, which is not a colour of this panel —`put_rect` refuses it, so
-// the edge would simply not be drawn and a mid-grey button would come out flat— (docs/30, docs/90).
-uint8_t shade(uint8_t level, int32_t delta) {
-  const int32_t value = static_cast<int32_t>(level) + delta;
-  if (value < 0) return 0;
-  if (value > 15) return 15;
-  return static_cast<uint8_t>(value);
+// **The two edges of a bevel, in two levels** (0.85.4): the one that catches the light on the top and the left and the
+// shadow on the bottom and the right, and what the mouth of a pressed control is made of. On a body of paper the light
+// edge has nothing to draw and the shadow is ink; on a body of ink it is the other way round. **A control that is black
+// and white is a control that can be cleaned without a flash**, and a bevel of greys —a white button's was eleven and
+// seven— is a control that needs the wash of sixteen levels and leaves a grey ghost when its bevel moves
+// (docs/50, docs/92, docs/90).
+struct Bevel {
+  uint8_t light;
+  uint8_t dark;
+  uint8_t deep;
+};
+
+Bevel bevel_of(uint8_t background) {
+  const bool paper = (background >= 8);
+  Bevel out;
+  out.light = paper ? background : 15;
+  out.dark = paper ? 0 : background;
+  out.deep = paper ? 0 : 15;
+  return out;
 }
 
 // **The edge of a rounded box, one pixel of it, split into a light half and a dark one**: that is what makes
@@ -1971,10 +1982,12 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
                   height - 2 * thickness, radius - thickness, background, mode);
   // **The volume**: a light edge on the top and the left, a shadow on the bottom and the right. While the
   // button is held the two swap, which is the whole difference between a button that is out and one that is
-  // pushed in — and it is a line of ink and not a gradient, because the panel has sixteen levels and a person
-  // looking at a page sees an edge and not a ramp (docs/50, docs/90).
-  const uint8_t light = shade(background, 4);
-  const uint8_t dark = shade(background, -4);
+  // pushed in — and the two edges are **paper and ink and not a shade of the body** (0.85.4): a button whose bevel
+  // is a grey is a button that has to be painted with sixteen levels and that leaves a grey ghost when it goes
+  // (docs/50, docs/92, docs/90).
+  const Bevel edge = bevel_of(background);
+  const uint8_t light = edge.light;
+  const uint8_t dark = edge.dark;
   const int32_t face_w = width - 2 * thickness;
   const int32_t face_h = height - 2 * thickness;
   if (!pressed) {
@@ -1984,9 +1997,9 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
     }
   } else {
     // **A button that is pushed in is a hole, and a hole has a mouth**: the shadow on the top and the left is
-    // **as many pixels of a much darker level as the frame is thick**, and the light goes to the bottom and
-    // the right. More than one ring is the difference between "held" and "drawn twice" (docs/30, docs/90).
-    const uint8_t deep = (background >= 8) ? static_cast<uint8_t>(background - 8) : 0;
+    // **as many pixels of ink as the frame is thick** —of paper on a body of ink—, and the light goes to the bottom
+    // and the right. More than one ring is the difference between "held" and "drawn twice" (docs/30, docs/90).
+    const uint8_t deep = edge.deep;
     for (int32_t i = 0; i < thickness; ++i) {
       draw_round_bevel(*target.canvas, target.x + thickness + i, target.y + thickness + i,
                        face_w - 2 * i, face_h - 2 * i, radius - thickness - i, deep, light, mode);
@@ -2078,18 +2091,20 @@ bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark
       draw_round_fill(*target.canvas, box_x - 1, box_y - 1, side + 2, side + 2, radius + 1, background,
                       mode);
     }
-    // **Held, the box is a hole**: the body goes a step darker and the bevel swaps, which is the same
-    // language the button speaks at a quarter of the size (docs/30, docs/90).
-    const uint8_t body = pressed ? shade(background, -4) : background;
+    // **Held, the box is a hole**: the bevel swaps and the body stays the two levels it had —a body that goes a step
+    // darker is a grey, and a grey is the wash of sixteen levels for a tick—, which is the same language the button
+    // speaks at a quarter of the size (0.85.4, docs/30, docs/92, docs/90).
+    const uint8_t body = background;
     draw_round_fill(*target.canvas, box_x, box_y, side, side, radius, border, mode);
     draw_round_fill(*target.canvas, box_x + thickness, box_y + thickness, side - 2 * thickness,
                     side - 2 * thickness, (radius > thickness) ? radius - thickness : 0, body, mode);
     const int32_t inner = side - 2 * thickness;
     if (inner >= 10) {
       const int32_t bevel = (thickness > 1) ? thickness - 1 : 1;
-      const uint8_t light = shade(background, 4);
-      const uint8_t dark = shade(background, -4);
-      const uint8_t deep = shade(background, -8);
+      const Bevel edge = bevel_of(background);
+      const uint8_t light = edge.light;
+      const uint8_t dark = edge.dark;
+      const uint8_t deep = edge.deep;
       const int32_t face_radius = (radius > thickness) ? radius - thickness : 0;
       if (!pressed) {
         for (int32_t i = 0; i < bevel; ++i) {
@@ -4949,7 +4964,10 @@ void keyboard_paint() {
   // or the case of the letters puts new ink where the old letters were, and a `du` leaves the old ones showing
   // through —two keyboards on one band, which is what the bench showed when the mode was switched— (docs/50,
   // docs/90). It costs the nine or ten thousand pixels of the band and not the page.
-  const hal::UpdateMode mode = hal::UpdateMode::kGl16;
+  // **And the wash is `gld16` and not `gl16`** (0.85.4): both clean the sixteen levels the letters are drawn in, and
+  // `gl16` does it with two blinks of the whole band —which is what a person sees on every MAY and every `123`— and
+  // `gld16` does it without one. It is the rule of this project: nothing that flickers reaches the glass (docs/92).
+  const hal::UpdateMode mode = hal::UpdateMode::kGld16;
   const font::Face& face = keyboard_face();
   const LayoutDef& layout = layout_of(g_kbd_kind);
   const int32_t key_h = static_cast<int32_t>(g_kbd_key_h);

@@ -1236,12 +1236,13 @@ static void test_a_button_paints_a_frame_and_a_second_border_when_pressed() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 10));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 20));
-  // The bevel of a white button is the shadow along its bottom, and held it is the light.
-  TEST_ASSERT_EQUAL_UINT8(11, view_level(29, 27));
+  // **The bevel of a white button is ink and paper and not a shade of grey** (0.85.4): the shadow along its bottom is
+  // ink —a white body has no lighter edge— and held it is the body, because the mouth of the hole goes to the top.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 27));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 25));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, true));
-  TEST_ASSERT_EQUAL_UINT8(7, view_level(29, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 12));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 27));
   TEST_ASSERT_FALSE(ui::button_draw(slot, 16, 0, false));
   ui::release(slot);
@@ -1569,28 +1570,28 @@ void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the frame is three pixels now
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));  // the body, white
-  // **The volume of a light button is its shadow**: a white button has no lighter edge to draw, so what says
-  // it comes out of the page is a grey line of two pixels along the bottom, inside the frame.
-  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 136));
-  TEST_ASSERT_EQUAL_UINT8(11, view_level(140, 135));
+  // **The volume of a light button is its shadow, and the shadow is ink** (0.85.4): two pixels of ink along the bottom,
+  // inside the frame, because a white body has no lighter edge to draw. A bevel of greys was eleven and seven, which is a
+  // control that needs the wash of sixteen levels and leaves a grey ghost (docs/50, docs/92).
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 136));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 135));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 134));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 137));  // and the frame below it
-  // **And the dark one's is the highlight**, which is the same idea the other way round.
+  // **And the dark one's is the highlight**, which is the same idea the other way round: paper on a body of ink.
   TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, false, false));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 44));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));
   // **Held, the two swap**: the light goes to the bottom and the shadow to the top, which is a button pushed in.
   TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, true, false));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 42));  // the border is still the border
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(140, 136));
-  // **And on a white button the hole has a mouth**: the shadow is as many pixels of a much darker level as the
-  // frame is thick and not one line of the grey that was there when it was out, which is what a person reads
-  // as pressed (docs/90).
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 136));
+  // **And on a white button the hole has a mouth**: the shadow is as many pixels of ink as the frame is thick and not
+  // one line of the grey that was there when it was out, which is what a person reads as pressed (docs/90).
   TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, true, false));
-  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 44));
-  TEST_ASSERT_EQUAL_UINT8(7, view_level(140, 45));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 43));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 44));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 45));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 46));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the border is still the border, and it is black here
   // **The ring of the focus**: a white gap of two after the border and seven black pixels after it, and the
@@ -1645,14 +1646,15 @@ void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
   TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 23));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the border is the other colour and it did not move
 
-  // **Held, the body goes a step darker and the bevel swaps**, which is the hole the button teaches at a
-  // quarter of the size.
+  // **Held, the bevel swaps and the body stays the two levels it had** (0.85.4): the mouth of the hole is ink on the
+  // top and the body on the bottom, which is the hole the button teaches at a quarter of the size —and no step darker,
+  // because a darker body is a grey and a grey is the wash of sixteen levels for a tick— (docs/92).
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
-  TEST_ASSERT_EQUAL_UINT8(4, view_level(15, 15));   // the top of the body, which is the dark edge now
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 24));  // and the bottom, which is the light one
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 15));   // the top of the body, which is the mouth now
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 24));  // and the bottom, which is the body again
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 15));
-  TEST_ASSERT_EQUAL_UINT8(8, view_level(15, 24));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 24));
 
   // **The focus is a ring outside the box**: two pixels of band, one of pause and then the border, so a person
   // reads two frames and not a thicker one. Without the focus that pixel is the row.
