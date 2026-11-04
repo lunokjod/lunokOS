@@ -1986,11 +1986,11 @@ void test_the_http_command_downloads_a_page(void) {
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "the command never ended");
 }
 
-// **`repository info <app>` llegeix el manifest i en fa una fitxa** (0.82.1): la comanda demana el fitxer cru a
+// **`repo info <app>` llegeix el manifest i en fa una fitxa** (0.82.1): la comanda demana el fitxer cru a
 // GitHub i el pinta amb el lector de JSON del sistema, que és el mateix que llegeix els manifests del disc. La
 // xarxa és la falsa del banc —una resposta enllaunada— perquè el que es prova és la comanda i no l'adreça
 // (docs/30, docs/40).
-void test_the_repository_command_shows_the_manifest_of_an_app(void) {
+void test_the_repo_command_shows_the_manifest_of_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
   opts.wifi_absent = false;
@@ -2007,8 +2007,8 @@ void test_the_repository_command_shows_the_manifest_of_an_app(void) {
 
   pump_captured(20, g_out, sizeof(g_out), "wifi forget");
   pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
-  pump_captured(400, g_out, sizeof(g_out), "repository info alguna");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repository: Una app (lunokjod/lunokOS/apps/alguna)"), g_out);
+  pump_captured(400, g_out, sizeof(g_out), "repo info alguna");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "repo: Una app (lunokjod/lunokOS/apps/alguna)"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "title       Una app"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "version     1.2.3"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "author      @algu"), g_out);
@@ -2022,8 +2022,13 @@ void test_the_repository_command_shows_the_manifest_of_an_app(void) {
   // sí (docs/40).
   opts.http_body = "{\"title\":\"Mig\"}";
   emu::set_options(opts);
-  pump_captured(400, g_out, sizeof(g_out), "repository info mija");
+  pump_captured(400, g_out, sizeof(g_out), "repo info mija");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "not a usable app: no entry"), g_out);
+
+  // **The name of the command is `repo` and nothing else** (0.84.2): the old `repository` is not an alias that lives on
+  // —two names for one command is a person who types the one that does not work— (docs/30).
+  pump_captured(40, g_out, sizeof(g_out), "repository info alguna");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "unknown command: repository"), g_out);
 }
 
 // A page bigger than the room the command has is not cut and not lost: **it goes to a file whole**, and
@@ -5435,7 +5440,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_ntp_sets_the_clock);
   RUN_TEST(test_ntp_without_a_network_is_refused);
   RUN_TEST(test_the_http_command_downloads_a_page);
-  RUN_TEST(test_the_repository_command_shows_the_manifest_of_an_app);
+  RUN_TEST(test_the_repo_command_shows_the_manifest_of_an_app);
   RUN_TEST(test_the_http_command_saves_a_page_that_does_not_fit);
   RUN_TEST(test_http_without_a_network_is_refused);
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);

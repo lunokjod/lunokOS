@@ -365,8 +365,8 @@ void print_help() {
   help_line("  provision softap [pop]  the same over the board's own access point");
   help_line("  ntp [server]      set the clock from a time server");
   help_line("  http <url> [path] fetch a page, and save it when it is too big");
-  help_line("  repository [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
-  help_line("  repository info <app>  the manifest of one app of the repository");
+  help_line("  repo [owner/repo] [dir]  the folders of a directory of the repository, from GitHub");
+  help_line("  repo info <app>   the manifest of one app of the repository");
   help_line("  power [cpu [mhz]]  what this board can do about energy");
   help_line("  power last        how far the last sleep was from the hour it was given");
   help_line("  power idle [on|off]  whether the board may sleep on its own to the next alarm");
@@ -1273,7 +1273,7 @@ const uint32_t kManifestBytes = 2048;
 
 // **El llistat es pinta quan la ràdio ha acabat**, i aquesta funció és més avall perquè és llarga: el que
 // necessita `radio_done` és el nom (docs/30).
-void print_repository(const char* path, const char* repo, uint32_t bytes);
+void print_listing(const char* path, const char* repo, uint32_t bytes);
 void print_manifest(const char* text, size_t len, const char* app, const char* repo);
 
 void radio_done(bool ok, const char* code, uint32_t count) {
@@ -1398,7 +1398,7 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       uint32_t len = 0;
       const char* body = net::http_body(len);
       if (body == nullptr || len == 0) {
-        error_out("repository: the manifest came empty\r\n");
+        error_out("repo: the manifest came empty\r\n");
       } else {
         print_manifest(body, len, g_repo_app, g_repo_name);
       }
@@ -1406,28 +1406,28 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       hal::Stat info;
       uint32_t bytes = 0;
       if (vfs::stat(net::http_saved_path(), info)) bytes = info.size;
-      print_repository(net::http_saved_path(), g_repo_name, bytes);
-      out("repository: the answer is in ");
+      print_listing(net::http_saved_path(), g_repo_name, bytes);
+      out("repo: the answer is in ");
       out(net::http_saved_path());
       newline();
     } else if (ok && g_repo_info) {
-      error_out("repository: the server answered ");
+      error_out("repo: the server answered ");
       out_int(status);
       error_out(", and a manifest is a 200 (is the app name right?)");
       newline();
     } else if (ok) {
-      error_out("repository: the server answered ");
+      error_out("repo: the server answered ");
       out_int(status);
       error_out(", and a listing is a 200 (is the repository and the directory right?)");
       newline();
     } else if (code != nullptr && strcmp(code, "E_NONET") == 0) {
-      error_out("repository: the board has no network to use, try `wifi add`\r\n");
+      error_out("repo: the board has no network to use, try `wifi add`\r\n");
     } else if (code != nullptr && strcmp(code, "E_TLS") == 0) {
-      error_out("repository: the certificate was not accepted\r\n");
+      error_out("repo: the certificate was not accepted\r\n");
     } else if (code != nullptr && strcmp(code, "E_IO") == 0) {
-      error_out("repository: the answer did not fit where it was going\r\n");
+      error_out("repo: the answer did not fit where it was going\r\n");
     } else {
-      say_failed("repository: nothing came back, ", code);
+      say_failed("repo: nothing came back, ", code);
     }
   }
   prompt();
@@ -1714,7 +1714,7 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   lunok::json::get_string(text, len, "description", description, sizeof(description));
   lunok::json::get_strings(text, len, "boards", boards, 8, board_count);
 
-  good_out("repository: ");
+  good_out("repo: ");
   out((has_title) ? title : app);
   out(" (");
   out(repo);
@@ -1798,14 +1798,14 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
 // **El llistat, en columnes i sense tenir-lo sencer**: un passeig pel fitxer per comptar les carpetes i saber
 // l'amplada de la més llarga, i un altre per pintar-les. El que es guarda és una fila, no la llista: el
 // document són desenes de kilobytes i la placa no els ha de tenir enlloc (docs/75).
-void print_repository(const char* path, const char* repo, uint32_t bytes) {
+void print_listing(const char* path, const char* repo, uint32_t bytes) {
   char name[48];
   uint32_t count = 0;
   size_t widest = 0;
   {
     repository::Listing measure;
     if (!measure.open(path)) {
-      error_out("repository: the answer is not where it was saved\r\n");
+      error_out("repo: the answer is not where it was saved\r\n");
       return;
     }
     while (measure.next(name, sizeof(name))) {
@@ -1814,7 +1814,7 @@ void print_repository(const char* path, const char* repo, uint32_t bytes) {
       if (len > widest) widest = len;
     }
   }
-  good_out("repository: ");
+  good_out("repo: ");
   out_num(count);
   out(" folders in ");
   out(repo);
@@ -1823,7 +1823,7 @@ void print_repository(const char* path, const char* repo, uint32_t bytes) {
   out(" B of JSON)");
   newline();
   if (count == 0) {
-    out("repository: the directory is empty, or it is not a directory of that repository\r\n");
+    out("repo: the directory is empty, or it is not a directory of that repository\r\n");
     return;
   }
   const uint16_t kColumns = 80;
@@ -1861,19 +1861,19 @@ void print_repository(const char* path, const char* repo, uint32_t bytes) {
   }
 }
 
-// repository [owner/repo] [path]: **les carpetes d'un directori del repositori, dites pel repositori** (4/11).
+// repo [owner/repo] [path]: **les carpetes d'un directori del repositori, dites pel repositori** (4/11).
 // La pàgina del navegador és HTML; el que vol una comanda és la llista, i l'API de continguts la dona en JSON.
 // Porta la ràdio com `http` i la deixa anar en acabar, i **la resposta és massa gran per a la memòria**: va a un
 // fitxer del disc i es llegeix a trossos (docs/30, docs/70, docs/75).
-bool command_repository(const char* argument) {
+bool command_repo(const char* argument) {
   char words[3][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 3, count)) return false;
-  // **`repository info <app>` vol el manifest i no la llista**: és un fitxer d'un kilobyte i no cal disc, o
+  // **`repo info <app>` vol el manifest i no la llista**: és un fitxer d'un kilobyte i no cal disc, o
   // sigui que va amb `http_get` a la memòria i el pinta `print_manifest` (docs/30, docs/75).
   if (count > 0 && strcmp(words[0], "info") == 0) {
     if (count < 2) {
-      usage_out("usage: repository info <app> [owner/repo]\r\n");
+      usage_out("usage: repo info <app> [owner/repo]\r\n");
       return false;
     }
     const char* app = words[1];
@@ -1885,7 +1885,7 @@ bool command_repository(const char* argument) {
                               where, app);
     if (made <= 0 || static_cast<size_t>(made) >= sizeof(raw) || strpbrk(app, " \"/") != nullptr ||
         strpbrk(where, " \"?") != nullptr) {
-      error_out("repository: that is not an app of a repository\r\n");
+      error_out("repo: that is not an app of a repository\r\n");
       return false;
     }
     // **Els dos noms es copien amb el que hi cap**: el que no hi cap el refusa la llargada de l'adreça d'adalt,
@@ -1897,7 +1897,7 @@ bool command_repository(const char* argument) {
     if (net::http_get(raw, kManifestBytes, kHttpMs) != luabind::NetRefuse::kOk) {
       drop_radio();
       g_repo_info = false;
-      error_out("repository: the radio did not take it\r\n");
+      error_out("repo: the radio did not take it\r\n");
       return false;
     }
     return true;
@@ -1911,11 +1911,11 @@ bool command_repository(const char* argument) {
   const int written = snprintf(url, sizeof(url), "https://api.github.com/repos/%s/contents/%s", repo, dir);
   if (written <= 0 || static_cast<size_t>(written) >= sizeof(url) ||
       strpbrk(url + 8, " \"") != nullptr) {
-    error_out("repository: that is not a repository and a directory\r\n");
+    error_out("repo: that is not a repository and a directory\r\n");
     return false;
   }
   if (!page_place(url, g_repo_path, sizeof(g_repo_path))) {
-    error_out("repository: there is no volume to hold the answer\r\n");
+    error_out("repo: there is no volume to hold the answer\r\n");
     return false;
   }
   // The two words are copied and the pair is cut if it would not fit: the line above is the one that says
@@ -1927,13 +1927,13 @@ bool command_repository(const char* argument) {
   if (refused != luabind::NetRefuse::kOk) {
     drop_radio();
     if (refused == luabind::NetRefuse::kTooBig) {
-      error_out("repository: that address is longer than the ");
+      error_out("repo: that address is longer than the ");
       out_num(net::http_url_cap());
       error_out(" bytes the system carries\r\n");
     } else if (refused == luabind::NetRefuse::kNoVolume) {
-      error_out("repository: that is not a place this board can write\r\n");
+      error_out("repo: that is not a place this board can write\r\n");
     } else {
-      error_out("repository: the radio did not take it\r\n");
+      error_out("repo: the radio did not take it\r\n");
     }
     return false;
   }
@@ -2724,8 +2724,8 @@ bool execute(char* line) {
   if (strncmp(line, "http", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
     return command_http(line + 4);
   }
-  if (strncmp(line, "repository", 10) == 0 && (line[10] == '\0' || line[10] == ' ')) {
-    return command_repository(line + 10);
+  if (strncmp(line, "repo", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
+    return command_repo(line + 4);
   }
   if (strncmp(line, "power", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_power(line + 5);

@@ -979,7 +979,15 @@ namespace kernel {
 // **I les apps que teclegen han de presentar**: `notes` no ho feia i el teclat hi semblava mort (el text canviava i el
 // vidre no), i les dues presenten el canvi amb `gl16` i no amb `du`, perquè un `du` deixa cinc setzens de la lletra
 // anterior sota la nova (docs/30, docs/90).
-static const char kVersion[] = "0.84.1";
+// 0.84.2 (4/11): **la comanda del prompt es diu `repo`.** Es deia `repository` —deu lletres per a un nom que el
+// repositori ja diu— i des d'avui és `repo [owner/repo] [dir]` i `repo info <app>`; `repository` **no** queda com a
+// àlies, perquè dos noms per a una comanda és una persona que escriu el que no funciona. El que no canvia és el
+// concepte: `repository::Listing` i el treball de la ràdio són els mateixos, i el que parla amb GitHub continua essent
+// l'API de continguts i el `manifest.json` cru. **`cat` i `hexdump` ja eren comandes i no apps** —`print_file` i
+// `hexdump_file` a la shell, des de sempre— i al disc no hi ha cap app amb aquests noms: no hi havia res a treure, i
+// el que fa el sistema des d'aquí és dir-ho, amb la prova de la comanda i sense cap carpeta `apps/cat` ni
+// `apps/hexdump` (docs/30, docs/85).
+static const char kVersion[] = "0.84.2";
 
 }  // namespace kernel
 
