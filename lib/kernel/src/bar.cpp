@@ -40,11 +40,6 @@ const int64_t kBatteryEveryMs = 30000;
 // clock chip on each of them is a keyboard that does not keep up (measured on the board, 1/11).
 const int64_t kClockEveryMs = 2000;
 
-// Every so many minutes the bar is painted with `gc16` instead of `du`: `du` is quick and leaves its
-// own history, and twelve repaints of a digit on the same spot is a digit that never goes away
-// (measured on the board: `du` does not clean, docs/95).
-const uint32_t kCleanEveryMinutes = 10;
-
 // **The charge has to move by this much to be a change.** The gauge is an ADC behind a divider and a
 // reading of 83 comes back as 84 on the next one; the bar shows the number but it does not repaint for
 // a pixel of electricity, because a repaint is ink and the ink is not free (docs/50).
@@ -63,6 +58,8 @@ struct Status {
 hal::IPlatform* g_platform = nullptr;
 char g_title[48] = {0};
 bool g_title_changed = true;
+// **The glass under the bar changed** —a turn, a new size, the boot— and the whole strip is owed, not one box of it.
+bool g_whole_changed = false;
 bool g_drawn = false;
 
 // What is on the glass, and the last values read, which may be newer than it.
@@ -112,52 +109,115 @@ void format_charge(bool has_battery, int percent, char* out, size_t cap) {
   snprintf(out, cap, "%d%%", percent);
 }
 
-// One paint of the whole strip, of **the values it was given**: it reads nothing, so what is on the
-// glass is exactly what the decision compared (docs/30).
+// **The three boxes of the strip** (0.85.2): the hour on the left, the title in the middle and the charge on the right.
+// Each one is measured from the widest text it can carry —"00:00" and "100%"— so a box is where it was on every paint
+// and one of them can be cleaned and drawn again on its own. The boxes do not touch, so a repaint of one is a repaint of
+// one (docs/50, docs/85).
+struct Box {
+  uint16_t x;
+  uint16_t y;
+  uint16_t w;
+  uint16_t h;
+};
+
+struct Layout {
+  uint16_t panel_w;
+  Box time;
+  Box title;
+  Box charge;
+};
+
+Layout layout_of(uint16_t panel_w) {
+  const uint16_t glyph_h = static_cast<uint16_t>(font::kGlyphHeight * kScale);
+  const uint16_t time_w = font::width("00:00", kScale);
+  const uint16_t charge_w = font::width("100%", kScale);
+  Layout out = {};
+  out.panel_w = panel_w;
+  out.time = Box{kPaddingX, kTextTop, time_w, glyph_h};
+  const int32_t title_left = static_cast<int32_t>(kPaddingX + time_w + kTitleGap);
+  const int32_t title_right = static_cast<int32_t>(panel_w) - kPaddingX - charge_w - kTitleGap;
+  out.title = Box{static_cast<uint16_t>(title_left), kTextTop,
+                  static_cast<uint16_t>((title_right > title_left) ? (title_right - title_left) : 0), glyph_h};
+  const int32_t charge_x = static_cast<int32_t>(panel_w) - kPaddingX - charge_w;
+  out.charge = Box{static_cast<uint16_t>((charge_x > 0) ? charge_x : 0), kTextTop, charge_w, glyph_h};
+  return out;
+}
+
+// **A box goes back to paper and its text is drawn over it**, cut at the box: what the bar draws is ink of two levels
+// and paper, and the whole of what a box does is clean itself (docs/50).
+void draw_time(hal::ISurface& surface, const Layout& at, const Status& status) {
+  char text[8] = {0};
+  format_time(status.minute, text, sizeof(text));
+  surface.fill_rect(at.time.x, at.time.y, at.time.w, at.time.h, 15);
+  font::draw(surface, at.time.x, at.time.y, text, kScale, 0);
+}
+
+void draw_title(hal::ISurface& surface, const Layout& at) {
+  if (at.title.w == 0) return;
+  surface.fill_rect(at.title.x, at.title.y, at.title.w, at.title.h, 15);
+  if (g_title[0] == '\0') return;
+  // **The title sits in the box between the hour and the charge, and the box cuts it.** It is centred on the strip and
+  // what hangs off that box is not painted, so a long title loses its ends instead of running over the hour or under
+  // the charge: the border is what cuts a text, not the caller counting margins (docs/30, docs/90).
+  const uint16_t title_w = font::width(g_title, kScale);
+  const int32_t centred = (static_cast<int32_t>(at.panel_w) - static_cast<int32_t>(title_w)) / 2;
+  font::Clip box;
+  box.x0 = static_cast<int32_t>(at.title.x);
+  box.x1 = static_cast<int32_t>(at.title.x + at.title.w);
+  box.y0 = static_cast<int32_t>(at.title.y);
+  box.y1 = static_cast<int32_t>(at.title.y + at.title.h);
+  font::draw(surface, static_cast<uint16_t>((centred < 0) ? 0 : centred), at.title.y, g_title, kScale, 0, box);
+}
+
+void draw_charge(hal::ISurface& surface, const Layout& at, const Status& status) {
+  char text[8] = {0};
+  format_charge(status.has_battery, status.percent, text, sizeof(text));
+  surface.fill_rect(at.charge.x, at.charge.y, at.charge.w, at.charge.h, 15);
+  // The number is against the right padding and not against the left of its box: a charge of three digits and one of
+  // two are the same number of the same corner (docs/30).
+  const uint16_t text_w = font::width(text, kScale);
+  const int32_t x = static_cast<int32_t>(at.panel_w) - kPaddingX - static_cast<int32_t>(text_w);
+  if (x >= static_cast<int32_t>(at.charge.x)) {
+    font::draw(surface, static_cast<uint16_t>(x), at.charge.y, text, kScale, 0);
+  }
+}
+
+// The paper of the strip, and the line under it, which belong to all three boxes and are painted with the strip.
+void paint_ground(hal::ISurface& surface) {
+  const uint16_t panel_w = surface.width();
+  surface.fill_rect(0, 0, panel_w, kBarHeight, 15);
+  surface.fill_rect(0, static_cast<uint16_t>(kBarHeight - kLineHeight), panel_w, kLineHeight, 0);
+}
+
+// One paint of the whole strip, of **the values it was given**: it reads nothing, so what is on the glass is exactly
+// what the decision compared (docs/30).
 void paint(hal::UpdateMode mode, const Status& status) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return;
-  const uint16_t panel_w = surface->width();
-  char time_text[8] = {0};
-  char charge_text[8] = {0};
-  format_time(status.minute, time_text, sizeof(time_text));
-  format_charge(status.has_battery, status.percent, charge_text, sizeof(charge_text));
+  paint_ground(*surface);
+  const Layout at = layout_of(surface->width());
+  draw_time(*surface, at, status);
+  draw_title(*surface, at);
+  draw_charge(*surface, at, status);
+  display::present(mode);
+  g_shown = status;
+  g_title_changed = false;
+  g_whole_changed = false;
+  g_drawn = true;
+}
 
-  // The background and the line first: what the texts have to sit on.
-  surface->fill_rect(0, 0, panel_w, kBarHeight, 15);
-  surface->fill_rect(0, static_cast<uint16_t>(kBarHeight - kLineHeight), panel_w, kLineHeight, 0);
-
-  const uint16_t time_w = font::width(time_text, kScale);
-  const uint16_t charge_w = font::width(charge_text, kScale);
-
-  // The hour, on the left.
-  font::draw(*surface, kPaddingX, kTextTop, time_text, kScale, 0);
-
-  // **The title sits in the box between the hour and the charge, and the box cuts it.** It is centred on
-  // the bar and what hangs off that box is not painted, so a long title loses its ends instead of
-  // running over the hour or under the charge: the border is what cuts a text, not the caller counting
-  // margins (docs/30, docs/90). This is the bar's stand-in for a label until the control layer exists.
-  if (g_title[0] != '\0') {
-    const uint16_t title_w = font::width(g_title, kScale);
-    const int32_t at = (static_cast<int32_t>(panel_w) - static_cast<int32_t>(title_w)) / 2;
-    font::Clip box;
-    box.x0 = static_cast<int32_t>(kPaddingX + time_w + kTitleGap);
-    box.x1 =
-        static_cast<int32_t>(panel_w) - static_cast<int32_t>(kPaddingX + charge_w + kTitleGap);
-    box.y0 = static_cast<int32_t>(kTextTop);
-    box.y1 = static_cast<int32_t>(kTextTop + font::kGlyphHeight * kScale);
-    if (box.x1 > box.x0) {
-      font::draw(*surface, static_cast<uint16_t>((at < 0) ? 0 : at), kTextTop, g_title, kScale, 0,
-                 box);
-    }
-  }
-
-  // The charge, on the right.
-  if (charge_w + kPaddingX <= panel_w) {
-    font::draw(*surface, static_cast<uint16_t>(panel_w - kPaddingX - charge_w), kTextTop,
-               charge_text, kScale, 0);
-  }
-
+// **A box of the strip and not the strip** (0.85.2): a title that changes is the middle of the bar, and the hour is the
+// hour. The quality is **`gld16`, which cleans and does not blink**, and not `gc16`, which is four blinks over the whole
+// strip for a word that changed; `du` is not used at all, because it paints and does not clean and a digit of a minute
+// ago would stay on the glass. It is the rule the project already had written down: nothing that flickers reaches the
+// glass, and cleaning is `gld16` (docs/50, docs/92, docs/95).
+void paint_boxes(hal::UpdateMode mode, const Status& status, bool time, bool title, bool charge) {
+  hal::ISurface* surface = display::surface();
+  if (surface == nullptr) return;
+  const Layout at = layout_of(surface->width());
+  if (time) draw_time(*surface, at, status);
+  if (title) draw_title(*surface, at);
+  if (charge) draw_charge(*surface, at, status);
   display::present(mode);
   g_shown = status;
   g_title_changed = false;
@@ -199,7 +259,7 @@ void title(const char* text) {
 void refresh() {
   // The glass changed under the bar —a turn, a new size— and what it has on it is not the bar any more:
   // it is painted again whole, with the quality that leaves no history (docs/50).
-  g_title_changed = true;
+  g_whole_changed = true;
 }
 
 void poll() {
@@ -214,7 +274,7 @@ void poll() {
   const bool battery_due = (mono - g_battery_read_ms) >= kBatteryEveryMs;
   // **Nothing due and nothing said: no read and no paint.** This is the whole turn of a bar that has not
   // changed, and it is two comparisons (docs/30).
-  if (!clock_due && !battery_due && !g_title_changed) return;
+  if (!clock_due && !battery_due && !g_title_changed && !g_whole_changed) return;
 
   if (clock_due || battery_due) {
     g_read = read_status(clock_due, battery_due);
@@ -228,13 +288,17 @@ void poll() {
       (g_read.has_battery && (g_read.percent - g_shown.percent >= kChargeDeadBand)) ||
       (g_read.has_battery && (g_shown.percent - g_read.percent >= kChargeDeadBand));
   // **A bar with nothing new paints nothing.** Not on a turn, not every five seconds, not at all.
-  if (!g_title_changed && !minute_changed && !charge_changed) return;
+  if (!g_whole_changed && !g_title_changed && !minute_changed && !charge_changed) return;
 
-  // **The quality of this repaint.** A digit that changed wants `du`, which is quick; a bar that has
-  // been repainted ten times wants `gc16`, which is the one that takes the history away, and a new
-  // title wants it too because the whole middle of the bar changes at once (docs/50).
-  const bool clean = g_title_changed || (g_read.minute % kCleanEveryMinutes) == 0;
-  paint(clean ? hal::UpdateMode::kGc16 : hal::UpdateMode::kDu, g_read);
+  // **The strip is whole when the glass under it moved**, and only then: a page that turned took the bar with it and
+  // there is no box to clean, there is a strip to draw (docs/50).
+  if (g_whole_changed) {
+    paint(hal::UpdateMode::kGc16, g_read);
+    return;
+  }
+  // **And otherwise the boxes that changed, at the wash of two levels** (0.85.2): the hour is a digit and the title is
+  // a word, and neither of them is worth four blinks of the whole strip (docs/50, docs/85).
+  paint_boxes(hal::UpdateMode::kGld16, g_read, minute_changed, g_title_changed, charge_changed);
 }
 
 }  // namespace bar

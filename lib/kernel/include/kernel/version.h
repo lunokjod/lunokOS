@@ -1017,7 +1017,17 @@ namespace kernel {
 // signe, i es queda la paraula, que allà el botó és tot el costat i no una icona. **I els botons són de quaranta per
 // quaranta amb sis de buit** (eren vuitanta per cinquanta-quatre amb vuit): amb el ratolí, un botó de dos dits és un
 // botó gros i el que cal és que la columna no es mengi la pàgina (docs/85).
-static const char kVersion[] = "0.85.1";
+// 0.85.2 (4/11): **el cursor va on toca el dit, i la barra pinta les seves caixes.** Un dit en un camp de diverses
+// línies posava el cursor al mig de l'última línia quan tocava per sota del text, i la pàgina no es repintava: el
+// cursor es movia al model i el vidre ensenyava el d'abans. Ara **una fila que no hi és és el final de tot el text**,
+// una fila buida que hi és és una fila, i **el sistema presenta el que ha mogut ell** amb `gld16` —neteja i no fa cap
+// flaix, que és la regla d'aquest projecte (docs/92)—, amb la caixa dibuixada abans de compondre, perquè presentar el
+// que la caixa encara no ha pintat és presentar el cursor vell. I **la barra són tres caixes** i no una franja: l'hora,
+// el títol i la càrrega, cadascuna mesurada amb el text més ample que pot portar, i el que canvia es neteja i es dibuixa
+// sol. Un títol nou era un `gc16` de tota la franja —quatre ensurts per una paraula— i un minut era un `du`, que pinta
+// però no neteja; ara les dues coses són un `gld16` de la caixa que ha canviat. El `gc16` de la franja sencera queda per
+// al boot i per a un gir de pàgina, que són els dos casos en què la franja sencera és nova (docs/50, docs/85, docs/92).
+static const char kVersion[] = "0.85.2";
 
 }  // namespace kernel
 

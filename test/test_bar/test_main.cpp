@@ -120,7 +120,9 @@ static void test_a_turn_with_nothing_new_paints_nothing() {
   TEST_ASSERT_EQUAL_UINT32(before, glass().paint_count());
 }
 
-// A new title is a new middle of the bar, and it is painted at once.
+// **A new title is the middle of the bar and not the bar** (0.85.2): the box between the hour and the charge is
+// cleaned and drawn again, with the two-level wash, and the hour and the charge are not touched. A whole strip of
+// `gc16` for a word that changed was four blinks of the bar every time an app opened (docs/50, docs/85).
 static void test_a_new_title_repaints_the_bar() {
   boot_with_a_panel();
   const uint32_t before = glass().paint_count();
@@ -129,14 +131,60 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
   const emu::MemorySurface::Paint* paint = glass().paint_at(before);
   TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);  // a new title is worth a clean paint
-  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(48, paint->h);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);  // cleans, and does not blink
+  // The box: after the hour and its air (12 + "00:00" of 116 + 8) and before the charge and its own (92 + 8 + 12),
+  // on the rows of the text and not on the whole strip.
+  TEST_ASSERT_EQUAL_UINT16(136, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(9, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(960 - 136 - (12 + 92 + 8), paint->w);
+  TEST_ASSERT_EQUAL_UINT16(28, paint->h);
   // And the same title again is not a change.
   const uint32_t after = glass().paint_count();
   bar::title("SQUARES");
   bar::poll();
   TEST_ASSERT_EQUAL_UINT32(after, glass().paint_count());
+}
+
+// **The hour is its own box too**, and the ten-minute full wash is gone: a minute is a digit and a digit is a box
+// cleaned without a blink, not a strip blinking four times (0.85.2, docs/50, docs/92).
+static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
+  boot_with_a_panel();
+  bar::poll();
+  hal::IClock* clock = hal::platform().clock();
+  TEST_ASSERT_NOT_NULL(clock);
+  const int64_t was = clock->epoch_ms();
+  TEST_ASSERT_TRUE(clock->set_epoch_ms(was + 60000));
+  // The bar reads the chip every two seconds, so the hour is looked at again after them: the turn of the bench is a
+  // wait on the queue, which is what a turn with nothing to do is (docs/85).
+  const uint32_t before = glass().paint_count();
+  pal::Event event;
+  pal::system().queue()->pop(event, 2100);
+  bar::poll();
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(12, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(9, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(116, paint->w);
+  TEST_ASSERT_EQUAL_UINT16(28, paint->h);
+}
+
+// **The strip is whole when the glass under it moved**: a turn or a new size is not a box, and the whole bar is
+// washed with the quality that leaves no history (0.85.2).
+static void test_a_turn_paints_the_whole_strip() {
+  boot_with_a_panel();
+  bar::poll();
+  const uint32_t before = glass().paint_count();
+  bar::refresh();
+  bar::poll();
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(48, paint->h);
 }
 
 // **A title too long for the middle is cut at the border of its box and does not run over the hour.**
@@ -193,6 +241,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_turning_the_page_turns_the_bar_and_the_view);
   RUN_TEST(test_a_turn_with_nothing_new_paints_nothing);
   RUN_TEST(test_a_new_title_repaints_the_bar);
+  RUN_TEST(test_a_new_minute_repaints_the_hour_and_not_the_strip);
+  RUN_TEST(test_a_turn_paints_the_whole_strip);
   RUN_TEST(test_a_long_title_is_cut_at_its_box);
   RUN_TEST(test_the_title_goes_away_with_the_app);
   return UNITY_END();

@@ -2368,6 +2368,17 @@ void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
   TEST_ASSERT_EQUAL_UINT16(8, ui::textbox_multiline_hit(box, text, end, false, 2, 8, 9));
   TEST_ASSERT_EQUAL_UINT16(14, ui::textbox_multiline_hit(box, text, end, false, 2, 8, 23));
   TEST_ASSERT_EQUAL_UINT16(18, ui::textbox_multiline_hit(box, text, end, false, 2, 300, 23));
+  // **A finger below the last line is the end of the text** (0.85.2): the row it found has no letter, so there is no
+  // letter to be beside and the caret goes after the last one, at whatever x the finger landed. It used to go to the
+  // middle of the last line, which is not the height the person touched.
+  TEST_ASSERT_EQUAL_UINT16(end, ui::textbox_multiline_hit(box, text, end, false, 2, 8, 200));
+  TEST_ASSERT_EQUAL_UINT16(end, ui::textbox_multiline_hit(box, text, end, false, 2, 300, 200));
+  // And a row that is there and has no letter in it is still a row: the caret goes to it, at the height of the finger.
+  const char* gaps = "no\n\nsir";
+  TEST_ASSERT_EQUAL_UINT16(3, ui::textbox_multiline_hit(box, gaps, 0, false, 2, 8, 23));
+  TEST_ASSERT_EQUAL_UINT16(3, ui::textbox_multiline_hit(box, gaps, 0, false, 2, 300, 23));
+  TEST_ASSERT_EQUAL_UINT16(4, ui::textbox_multiline_hit(box, gaps, 0, false, 2, 8, 37));
+  TEST_ASSERT_EQUAL_UINT16(7, ui::textbox_multiline_hit(box, gaps, 0, false, 2, 300, 37));
 
   // **A wrapped row breaks at the last space that fits**: the room is eighty-four pixels and a letter is twelve, so
   // "aaaa" is the first row, the space is the break and the next row starts after it.
@@ -2378,8 +2389,10 @@ void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
   TEST_ASSERT_TRUE(ui::textbox_multiline_draw(narrow, words, 0, false, true, 0, 15, 0, 2));
   TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_hit(narrow, words, 0, true, 2, 8, 9));
   TEST_ASSERT_EQUAL_UINT16(5, ui::textbox_multiline_hit(narrow, words, 0, true, 2, 8, 23));
-  // Without the wrapping the same row is the whole line and the second row of the glass is not a row at all.
-  TEST_ASSERT_EQUAL_UINT16(0, ui::textbox_multiline_hit(narrow, words, 0, false, 2, 8, 23));
+  // Without the wrapping the same row is the whole line and the second row of the glass is not a row at all: a finger
+  // there is below the last letter, and the end of the text is where it goes (0.85.2).
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(strlen(words)),
+                           ui::textbox_multiline_hit(narrow, words, 0, false, 2, 8, 23));
 
   // A colour that is not a level of this panel is refused.
   TEST_ASSERT_FALSE(ui::textbox_multiline_draw(box, text, end, true, false, 16, 15, 0, 2));

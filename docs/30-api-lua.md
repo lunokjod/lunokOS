@@ -1738,8 +1738,13 @@ El que canvia és què fa amb un text que no hi cap.
   **No s'escriu ni un byte dins del text** de cap de les dues maneres.
 - **On acaba una fila i on és el cursor surten d'una sola funció**, o sigui que el cursor del dibuix i el cursor del dit
   no es poden contradir; **el cursor és un bloc de tinta amb la lletra de sota en paper**, com al camp d'una línia.
-- **El dit posa el cursor allà on toca**: la fila pel `y` i la lletra pel `x`, mesurada amb la font, que és l'única cosa
-  que sap com n'és d'ample una lletra. Un punt passat el final d'una fila és el final d'aquella fila.
+- **El dit posa el cursor allà on toca** (0.78.0, afinat a la 0.85.2): la fila pel `y` i la lletra pel `x`, mesurada amb
+  la font, que és l'única cosa que sap com n'és d'ample una lletra. Un punt passat el final d'una fila és el final
+  d'aquella fila; **un punt per sota de l'última lletra és el final de tot el text** —la fila que el dit ha trobat no té
+  cap lletra i el cursor no pot quedar-se al mig de l'última línia, que no és l'altura que s'ha tocat—, i **una fila que
+  hi és i és buida és una fila**: el cursor hi va, a l'altura del dit. I el sistema **pinta el cursor que ha mogut ell**:
+  un dit sobre el text no és una tecla, i la caixa no té cap `on_change` que avisi l'app, o sigui que la pàgina es
+  presenta sola amb `gld16` (que neteja i no fa cap flaix) i el cursor del lloc d'abans no es queda al vidre.
 - **Retorn escriu un salt de línia i no acaba l'edició**, que és el que fa en un camp d'una línia (`on_enter`). El text
   arriba sencer a `on_change(self, text)` després de cada tecla, i **`box:rows()`** diu quantes files s'hi veuen, preguntat
   a la mateixa aritmètica del dibuix.

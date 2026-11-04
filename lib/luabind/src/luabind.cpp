@@ -7164,11 +7164,15 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
   return true;
 }
 
-bool ui_target_is_focusable(lua_State* L, int object) {
+bool ui_target_is_focusable(lua_State* L, int object, bool with_boxes) {
   const bool button = ui_field_bool(L, object, "__button", false);
   const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
   const bool slider = ui_field_bool(L, object, "__slider", false);
-  return ui_field_bool(L, object, "focusable", button || checkbox || slider);
+  if (ui_field_bool(L, object, "focusable", button || checkbox || slider)) return true;
+  // **A box of text is a target of the finger and not of the dial** (0.85.2): a finger on a line puts the caret where it
+  // landed, and a box the keyboard types into has nothing to say to the dial, so it is not a stop of the walk
+  // (docs/30, docs/90).
+  return with_boxes && ui_field_bool(L, object, "__textbox_multiline", false);
 }
 
 bool ui_control_alive(LuaCanvas* canvas) {
@@ -7321,7 +7325,7 @@ bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* t
 // their fathers. A control is a target when it is a button or when the app said `focusable`; a label
 // inside a button is not one, which is what makes the button the thing a person lands on.
 void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t clip_x0,
-                     int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth,
+                     int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth, bool with_boxes,
                      FocusTarget* targets, int& count, int& order, int objects) {
   object = lua_absindex(L, object);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
@@ -7369,7 +7373,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       continue;
     }
 
-    if (ui_target_is_focusable(L, -1) && count < kMaxFocusTargets) {
+    if (ui_target_is_focusable(L, -1, with_boxes) && count < kMaxFocusTargets) {
       FocusTarget& target = targets[count];
       target.slot = child->slot;
       target.generation = child->generation;
@@ -7383,7 +7387,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       lua_rawseti(L, objects, count + 1);
       ++count;
     }
-    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, targets, count, order, objects);
+    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, with_boxes, targets, count, order, objects);
     lua_pop(L, 1);  // the child
   }
   lua_settop(L, base);
@@ -7392,7 +7396,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
 // Builds the list and **leaves the Lua objects in a table on top of the stack**: both the event and
 // the thing the event changes live in Lua, and finding a slot again after a callback is a search that
 // can hit a released control. The caller pops the table.
-int ui_collect_targets(lua_State* L, FocusTarget* targets) {
+int ui_collect_targets(lua_State* L, FocusTarget* targets, bool with_boxes = false) {
   const int top = lua_gettop(L);
   lua_createtable(L, 0, 0);
   const int objects = top + 1;
@@ -7404,7 +7408,7 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets) {
   }
   int count = 0;
   int order = 0;
-  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, targets, count, order, objects);
+  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, with_boxes, targets, count, order, objects);
   lua_pop(L, 1);  // the root
   return count;
 }
@@ -8821,6 +8825,30 @@ bool ui_has_focusable() {
   return count > 0;
 }
 
+// **The page draws what it owes and then the glass is painted**: what `ui.present` does, for the system when it is the
+// one that changed a control —a caret moved by a finger is not a letter, and a box has no `on_change` to tell the app
+// that its caret moved— (0.85.2, docs/30, docs/90).
+void ui_draw_and_present(const char* mode) {
+  if (g_state == nullptr || g_ui_ops.present == nullptr) return;
+  const int top = lua_gettop(g_state);
+  if (l_ui_root(g_state) == 1) {
+    lua_getfield(g_state, -1, "draw");
+    if (lua_isfunction(g_state, -1)) {
+      lua_pushvalue(g_state, -2);
+      if (lua_pcall(g_state, 1, 0, 0) != LUA_OK) {
+        // A draw that throws is said and does not take the app down, the same as an `on_draw` of a control (docs/30).
+        con_text("draw: ");
+        const char* message = lua_tostring(g_state, -1);
+        con_text((message != nullptr) ? message : "(no message)");
+        con_text("\r\n");
+        lua_pop(g_state, 1);
+      }
+    }
+  }
+  lua_settop(g_state, top);
+  g_ui_ops.present(mode);
+}
+
 // **The finger is the same event as the dial**: a touch that starts on a button focuses it and holds
 // it down; a move outside releases the hold, and a release inside clicks it. The frame is the one
 // `touch::poll` has just put in the view's coordinates (docs/30, docs/50, docs/90).
@@ -8831,7 +8859,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   if (!down && g_ui_touch_slot < 0) return;
   FocusTarget targets[kMaxFocusTargets];
   const int top = lua_gettop(g_state);
-  const int count = ui_collect_targets(g_state, targets);
+  // **The finger lands on boxes the dial does not walk** (0.85.2): a line of text is a place to put a caret.
+  const int count = ui_collect_targets(g_state, targets, true);
   const int objects = top + 1;
 
   if (!down) {
@@ -9003,6 +9032,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       }
       lua_pop(g_state, 1);
       ui_invalidate(g_state, base);
+      // **The caret that moved is a paint** (0.85.2): a finger on the text is not a letter, so the box has no
+      // `on_change` to wake the app with and the page would keep the caret where the keyboard left it. The system moved
+      // it, so the system presents, and what a box of text wants is the clean that does not blink: `du` would leave the
+      // caret of the row before on the glass (docs/30, docs/90, docs/92).
+      ui_draw_and_present("gld16");
     } else if (ui_field_bool(g_state, -1, "__notifications", false) &&
                g_ui_ops.notification_bar_card_at != nullptr && g_ui_ops.notification_bar_close_at != nullptr) {
       // **The cross dismisses on the way down and the rest of a card opens on the way up**: dismissing is a command and not a

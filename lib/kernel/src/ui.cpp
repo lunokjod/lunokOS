@@ -3002,13 +3002,18 @@ uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, b
   const Canvas& box = g_canvases[slot];
   const font::Face& face = face_of(box.face);
   const MultilineLayout layout = multiline_layout(box, text, cursor, wrap, scale);
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t length = static_cast<int32_t>(strlen(at));
   int32_t row = layout.first + ((static_cast<int32_t>(y) - layout.pad) / layout.line_h);
   if (static_cast<int32_t>(y) < layout.pad) row = layout.first;
-  if (row >= layout.total) row = layout.total - 1;
   if (row < 0) return 0;
+  // **A finger below the last letter is the end of the text** (0.85.2): the row the finger found has no letter in it,
+  // and a caret put in the middle of the last line —which is where the end of the box used to send it— is a caret that
+  // is not at the height the person touched. A row that is there and empty is still a row: the caret goes to it
+  // (docs/90).
+  if (row >= layout.total) return static_cast<uint16_t>(length);
   // **A row and then a letter**: the y is the row of the window and the x is the letter inside it, and which letter it
   // is comes from the width of what is before it, which only the font knows (docs/90).
-  const char* at = (text != nullptr) ? text : "";
   int32_t offset = 0;
   for (int32_t which = 0; which < row && at[0] != '\0'; ++which) {
     int32_t taken = 0;

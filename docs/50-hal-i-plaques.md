@@ -792,9 +792,13 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   lectura de 83 torna com a 84 a la següent. La barra ensenya el número però no repinta per un píxel
   d'electricitat, perquè un repintat és tinta i la tinta no és gratis. El rellotge es llegeix com a molt
   cada 2 s i la càrrega cada 30 s.
-- **La qualitat la tria ella**: `du` per a un dígit que canvia, `gc16` quan el títol canvia (tot el mig de
-  la barra és nou) i cada deu minuts, perquè `du` no neteja i deu repintats del mateix dígit són un dígit
-  que no marxa (docs/95).
+- **La qualitat la tria ella, i la regió també** (0.85.2): la franja és **tres caixes** —l'hora, el títol
+  i la càrrega, cadascuna mesurada amb el text més ample que pot portar— i el que canvia és la seva caixa
+  i no la franja. Un títol nou és el mig de la barra i no la barra; un minut és el dígit i no el mig. La
+  qualitat és **`gld16`, que neteja i no fa cap flaix**: `du` pinta però no neteja —i el dígit d'abans es
+  queda al vidre—, `gc16` neteja a canvi de quatre ensurts i `a2` deixa dos setzens del que hi havia. És la
+  regla que el projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar és `gld16`
+  (docs/92). La franja sencera amb `gc16` queda per al que la fa nova sencera: el boot i un gir de pàgina.
 - **El text és una font de 5 × 7 píxels** (`lib/kernel/font.cpp`), escalada al doble i dibuixada amb un
   rectangle per tirada horitzontal i no un per píxel: 295 bytes de taula i cap decodificador. **Només
   majúscules**: una minúscula es dibuixa com la seva majúscula, que és el que feia una barra de títol
