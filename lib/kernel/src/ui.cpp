@@ -2651,6 +2651,21 @@ bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t 
 
 // ---- a text box: the window of the text and the caret (docs/90) ----
 
+// **The caret is a block of the size of a letter** (0.92.0): under a letter it is that letter, and at the end of the
+// text —where there is no letter to take the width from— it is an `M`, the widest of the small ones, instead of the
+// three-pixel hairline the first boxes drew. A cursor a person has to look for is a cursor that is not there
+// (docs/30, docs/90).
+static int32_t caret_cell_width(const font::Face& face, const char* under, int32_t under_bytes, uint8_t scale) {
+  int32_t width = 0;
+  if (under_bytes > 0 && under != nullptr) {
+    width = static_cast<int32_t>(font::width(face, under, scale));
+  } else {
+    width = static_cast<int32_t>(font::width(face, "M", scale));
+  }
+  if (width < 2) width = 2;
+  return width;
+}
+
 bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
                   uint8_t background, uint8_t border, uint8_t scale) {
   if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
@@ -2692,8 +2707,9 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
                                    : static_cast<int32_t>(sizeof(shown)) - 1;
   for (int32_t i = 0; i < shown_length; ++i) shown[i] = mask ? '.' : text[i];
   shown[shown_length] = '\0';
-  // **The width of the caret is the width of the letter under it**, and at the end of the text it is a thin bar:
-  // a block that does not fit the letter it sits on is a block that hides the letter after it (docs/90).
+  // **The width of the caret is the width of the letter under it**, and at the end of the text it is a letter's
+  // block: a block that does not fit the letter it sits on is a block that hides the letter after it, and a hairline
+  // is a block nobody sees (0.92.0, docs/90).
   char under[8] = {0};
   int32_t under_bytes = 0;
   if (at < shown_length) {
@@ -2706,8 +2722,7 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
     for (int32_t i = 0; i < under_bytes; ++i) under[i] = shown[at + i];
     under[under_bytes] = '\0';
   }
-  int32_t caret_w = (under_bytes > 0) ? static_cast<int32_t>(font::width(face, under, scale)) : 3 * scale;
-  if (caret_w < 2) caret_w = 2;
+  int32_t caret_w = caret_cell_width(face, under, under_bytes, scale);
   // **The window**: the text is drawn from a byte that keeps the caret on the glass. The search drops one letter
   // at a time from the front, which is what a person sees: the beginning of a long line goes away as the end is
   // typed, and the caret is always where the next letter goes (docs/90).
@@ -3073,8 +3088,7 @@ bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool
         for (int32_t i = 0; i < under_bytes; ++i) under[i] = at[at_cursor + i];
         under[under_bytes] = '\0';
       }
-      int32_t caret_w = (under_bytes > 0) ? static_cast<int32_t>(font::width(face, under, scale)) : 3 * scale;
-      if (caret_w < 2) caret_w = 2;
+      int32_t caret_w = caret_cell_width(face, under, under_bytes, scale);
       int32_t caret_at = target.x + layout.pad + layout.caret_x;
       if (caret_at + caret_w > target.x + layout.pad + layout.room) {
         caret_w = target.x + layout.pad + layout.room - caret_at;

@@ -707,6 +707,11 @@ bool run_source(const char* name, const char* source, size_t len);
 // died, which is when stop() is due.
 bool poll();
 
+// **The block of the caret blinks between turns** (0.92.0): the kernel calls this every turn, and it toggles the
+// `caret` of the box the keyboard types into every six hundred milliseconds and presents the box. It does not resume
+// the app, so an app that waits for a promise still has a cursor (docs/30, docs/90).
+void caret_poll();
+
 // Runs one line at a prompt, in the state that is already open, and prints what it
 // answers. A line that is not a statement is tried as an expression, so `1 + 1`
 // answers 2; a mistake comes out as one line and the state stays usable. There is

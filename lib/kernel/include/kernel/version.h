@@ -1305,7 +1305,13 @@ namespace kernel {
 // writes the alphabet on the box. **Text boxes are stops of the finger and not of the dial**, as docs/30 said and the
 // code now says; the keyboard on the glass counts as a control for `ui_has_focusable`, so the centre is Enter and not
 // the three-tap exit. `run editor` keeps its read-only page scrollable with `box.keyboard = false` (docs/30, docs/90).
-static const char kVersion[] = "0.91.0";
+// 0.92.0 (5/11): **the caret of a text box blinks without the app**. The system owns the block of the box the keyboard
+// types into: `caret_poll` in the kernel loop turns `box.caret` every six hundred milliseconds, invalidates that box and
+// paints it with a `du`, and `until_next_ms` counts the blink as a deadline so an app that waits for a promise still has
+// a cursor. A key puts the block back and restarts the clock. **And the block is the size of a letter**: under a letter
+// it is that letter, and at the end of the text it is an `M` instead of the three-pixel hairline the first boxes drew;
+// an empty box had a cursor nobody could see (docs/30, docs/90). `run typing` no longer keeps a blink loop of its own.
+static const char kVersion[] = "0.92.0";
 
 }  // namespace kernel
 

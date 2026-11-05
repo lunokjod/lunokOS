@@ -2046,14 +2046,27 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   // Two pixels of border and six of padding on each side: a hundred and eighty-four pixels of inside.
   TEST_ASSERT_EQUAL_UINT16(184, ui::textbox_inside(box, 2));
 
-  // An empty box with the caret: a bar of six pixels at the left of the inside, as tall as a line of the face.
+  // An empty box with the caret: a block of the width of a letter at the left of the inside, as tall as a line of the
+  // face. **Since 0.92.0 it is a block and not the three-pixel hairline it was**: an empty box had a bar nobody saw.
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "", 0, true, false, 0, 15, 0, 2));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(9, 14));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(9, 25));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 30));  // the inside, below the line
   TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 20)); // and nothing else is drawn
+  int caret_columns = 0;
+  for (uint16_t x = 8; x < 60; ++x) {
+    bool solid = true;
+    for (uint16_t y = 14; y <= 25; ++y) {
+      if (view_level(x, y) != 0) {
+        solid = false;
+        break;
+      }
+    }
+    if (solid) ++caret_columns;
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(6, caret_columns, "the caret at the end of the text is still a hairline");
 
-  // **Without the caret the box is paper**: the blink is the app's and it is this field.
+  // **Without the caret the box is paper**: the system blinks it, and this is the other half of the blink.
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "", 0, false, false, 0, 15, 0, 2));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 14));
 

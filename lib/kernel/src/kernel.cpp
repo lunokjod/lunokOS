@@ -478,6 +478,10 @@ void poll() {
   // just arrived is already queued when it wakes up.
   shell::poll_app();
 
+  // **The caret of the keyboard blinks without the app** (0.92.0): the block of the box the keys go to is turned here,
+  // between turns, and the box is painted with a `du`; an app that only waits still has a cursor (docs/30, docs/90).
+  luabind::caret_poll();
+
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).
   led::poll();

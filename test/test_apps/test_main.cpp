@@ -5129,6 +5129,52 @@ void test_a_keyboard_without_a_target_is_refused(void) {
   storage->remove("/apps/nowhere");
 }
 
+// **The block of the caret blinks without the app** (0.92.0): the kernel turns `box.caret` every six hundred milliseconds
+// while the keyboard is on the glass and paints the box; a page that only waits has a cursor, and a page that types does
+// not keep a clock for it. The test reads the field as the app would and sees the two halves of a blink (docs/30,
+// docs/90).
+void test_the_caret_blinks_without_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "blink",
+                           "{\"title\":\"Blink\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(200, 48)\n"
+                           "box:place(20, 60)\n"
+                           "box.scale = 2\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "kb:show('alpha')\n"
+                           "ui.present('gc16')\n"
+                           "console.print('caret start ' .. tostring(box.caret))\n"
+                           "local last = box.caret\n"
+                           "local changes = 0\n"
+                           "local waited = 0\n"
+                           "while changes < 2 and waited < 3000 do\n"
+                           "  sys.delay(100):await()\n"
+                           "  waited = waited + 100\n"
+                           "  if box.caret ~= last then\n"
+                           "    changes = changes + 1\n"
+                           "    last = box.caret\n"
+                           "    console.print('caret ' .. changes .. ' ' .. tostring(last))\n"
+                           "  end\n"
+                           "end\n"
+                           "console.print('caret changes ' .. changes)\n"));
+
+  pump_captured(2000, g_out, sizeof(g_out), "run blink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "caret start true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "caret 1 false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "caret 2 true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "caret changes 2"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its two halves");
+
+  storage->remove("/apps/blink/app.lua");
+  storage->remove("/apps/blink/manifest.json");
+  storage->remove("/apps/blink");
+}
+
 // **The dial does not stop on a text box** (0.91.0): a box is a target of the finger and the keyboard, not a stop of the
 // walk; a page of one button and one box keeps the button as the only stop and the centre still clicks it. The code now
 // says what docs/30 has said since 0.85.2 (docs/30, docs/90).
@@ -6772,6 +6818,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
   RUN_TEST(test_a_keyboard_without_a_target_is_refused);
+  RUN_TEST(test_the_caret_blinks_without_the_app);
   RUN_TEST(test_the_dial_does_not_stop_on_a_text_box);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);

@@ -7,9 +7,9 @@
 -- is handled here: every key arrives at the box and the box tells the app with `on_change(self, text)`, with the
 -- field already written (docs/30, docs/90).
 --
--- **The caret is the box's and the blink is the app's**: a control has no clock, and a control with a clock is a
--- control that keeps drawing when nobody is typing. Here the app flips `caret` on a slow turn: the block goes and
--- comes, and nothing else on the page moves (docs/90).
+-- **The caret is the box's and the blink is the system's** (0.92.0): the kernel turns the block of the box the
+-- keyboard types into every six hundred milliseconds and paints only that box. The app does not keep a clock, and a
+-- page that only waits still shows a cursor (docs/30, docs/90).
 --
 -- **The enter does not type a letter**: a box of one line tells the app with `on_enter(self)`, and this page says
 -- the word on the console with it.
@@ -77,12 +77,8 @@ function on_resize(width, height)
   ui.present('gld16')
 end
 
--- **The blink**: the caret goes and comes every six hundred milliseconds, and what it costs is the box and not
--- the page (docs/90).
-local on = true
+-- **The blink is the system's** (0.92.0): the app has nothing to turn; it waits while the kernel keeps the block of
+-- the box going and coming.
 while true do
-  sys.delay(600):await()
-  on = not on
-  box.caret = on
-  ui.present('du')
+  sys.delay(1000):await()
 end

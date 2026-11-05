@@ -3135,6 +3135,12 @@ int l_ui_pixel(lua_State* L) {
 // draw before composing (docs/90).
 int l_ui_root(lua_State* L);
 
+// **A present of the app is a present of the block** (0.92.0): a focus or a key sets the caret and marks this counter;
+// when the app presents before the kernel gets its turn, the box is already on the glass with the block on and the
+// system does not paint it again with a `du` that would leave the ghost of the text it has just cleaned (docs/30).
+uint32_t g_ui_present_count = 0;
+uint32_t g_caret_present_mark = 0;
+
 // ui.present([mode]): the system composes what the app drew onto the board's surface and asks for it to
 // be painted. **Without a mode each region is painted with the quality it was drawn with**; with one,
 // that quality is used for everything pending, which is what a page that must look uniform wants
@@ -3161,6 +3167,7 @@ int l_ui_present(lua_State* L) {
     lua_settop(L, height);
   }
   const char* mode = luaL_optstring(L, 1, nullptr);
+  ++g_ui_present_count;
   if (!g_ui_ops.present(mode)) {
     // **The reason the panel gave**, when it gave one: an app that only reads "it failed" has to guess
     // between five things, and guessing costs a flash (docs/50).
@@ -3307,6 +3314,14 @@ const int32_t kSwipeSlop = 12;
 // into a QWERTY (0.91.0).
 int g_keyboard_target_ref = LUA_NOREF;
 uint8_t g_keyboard_kind = 0;  // 0 is alpha, 1 is numeric, the two of `ui.keyboard()`
+
+// **The caret of the target blinks without the app** (0.92.0): the system owns the block of the box the keys go to,
+// toggles it every six hundred milliseconds in the kernel loop and asks for the box to be redrawn. `dirty` means the
+// block has just come back —a focus, a key— and the next turn has to show it before the clock starts again.
+bool g_caret_on = true;
+bool g_caret_dirty = false;
+int64_t g_caret_next_ms = 0;
+const int64_t kCaretBlinkMs = 600;
 
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
@@ -6361,6 +6376,42 @@ const char kKeyboardMeta[] = "lunokOS.UIKeyboard";
 struct LuaKeyboard {};
 static_assert(sizeof(LuaKeyboard) == 1, "the userdata of the keyboard is one byte and not zero");
 
+// The block of the box the keys go to: `caret` is the system's field now, and the app reads it but does not blink it
+// (0.92.0, docs/30, docs/90).
+void caret_set_field(lua_State* L, int object, bool on) {
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (lua_istable(L, -1)) {
+    lua_pushboolean(L, on ? 1 : 0);
+    lua_setfield(L, -2, "caret");
+  }
+  lua_pop(L, 1);
+}
+
+void caret_start(lua_State* L, int object) {
+  caret_set_field(L, object, true);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (canvas != nullptr && g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
+  g_caret_on = true;
+  g_caret_dirty = true;
+  g_caret_present_mark = g_ui_present_count;
+  g_caret_next_ms = now_ms() + kCaretBlinkMs;
+}
+
+void caret_stop(lua_State* L) {
+  g_caret_on = true;
+  g_caret_dirty = false;
+  g_caret_next_ms = 0;
+  if (g_keyboard_target_ref == LUA_NOREF) return;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+  if (canvas != nullptr) {
+    caret_set_field(L, -1, false);
+    if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
+  }
+  lua_pop(L, 1);
+}
+
 // **What a text box says about the keyboard** (0.91.0): a box of one line or of several, and the field `keyboard`
 // —`'alpha'` by default, `'numeric'`, or `false` for a box that takes no keys—. It is the one question the system
 // asks before a band comes up, and the one that lets a page read-only scroll without opening a keyboard (docs/30).
@@ -6388,6 +6439,7 @@ bool ui_box_keyboard(lua_State* L, int object, bool& wants, uint8_t& kind) {
 
 // The box the keys go to, kept alive by the registry; the same rule `kb.target` follows (docs/30, docs/75).
 void ui_keyboard_forget_target(lua_State* L) {
+  caret_stop(L);
   if (g_keyboard_target_ref != LUA_NOREF) {
     luaL_unref(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
     g_keyboard_target_ref = LUA_NOREF;
@@ -6398,6 +6450,7 @@ void ui_keyboard_target_set(lua_State* L, int object) {
   ui_keyboard_forget_target(L);
   lua_pushvalue(L, object);
   g_keyboard_target_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  caret_start(L, object);
 }
 
 void ui_keyboard_hide() {
@@ -6468,7 +6521,9 @@ int l_keyboard_show(lua_State* L) {
     }
   }
   // **The show is the app saying the box takes keys**: it writes the alphabet on the box, so the next focus that
-  // brings the band back brings the same one (0.91.0, docs/30).
+  // brings the band back brings the same one (0.91.0, docs/30). **And the block comes back with it** (0.92.0): a
+  // keyboard on the glass is an edition, and an edition has a caret.
+  caret_start(L, target);
   lua_getiuservalue(L, target, 1);
   lua_pushstring(L, (wanted == 1) ? "numeric" : "alpha");
   lua_setfield(L, -2, "keyboard");
@@ -6481,6 +6536,9 @@ int l_keyboard_show(lua_State* L) {
 }
 
 int l_keyboard_hide(lua_State* L) {
+  // **A band that goes takes the block with it**: the target stays for a later `kb:show()`, but the box is not being
+  // edited while the keyboard is away (0.92.0, docs/30).
+  caret_stop(L);
   ui_keyboard_hide();
   lua_pushboolean(L, 1);
   return 1;
@@ -8955,6 +9013,9 @@ void ui_keyboard_typed(int code) {
     return;
   }
   const int object = lua_gettop(g_state);
+  // **A key puts the block back and restarts the clock** (0.92.0): a person who is typing sees the caret while the
+  // letter goes in, and the six hundred milliseconds are counted from the key and not from the blink before it.
+  caret_start(g_state, object);
   lua_getiuservalue(g_state, object, 1);
   if (!lua_istable(g_state, -1)) {
     lua_settop(g_state, top);
@@ -9111,7 +9172,40 @@ void ui_draw_and_present(const char* mode) {
     }
   }
   lua_settop(g_state, top);
+  ++g_ui_present_count;
   g_ui_ops.present(mode);
+}
+
+// **The block blinks between turns** (0.92.0): the kernel calls this every turn, and when six hundred milliseconds have
+// gone it turns the `caret` of the box the keyboard types into, redraws that box and presents it. It is the system's
+// clock and not the app's: a page that only waits still has a cursor, and a page that types does not have to keep a
+// second loop for it. A focus or a key marked the caret dirty, and that turn shows the block before the clock restarts
+// (docs/30, docs/90).
+void caret_poll() {
+  if (g_state == nullptr || g_keyboard_target_ref == LUA_NOREF) return;
+  if (g_ui_ops.keyboard_visible == nullptr || !g_ui_ops.keyboard_visible()) return;
+  const int64_t now = now_ms();
+  if (!g_caret_dirty && (g_caret_next_ms <= 0 || now < g_caret_next_ms)) return;
+  if (g_caret_dirty && g_ui_present_count != g_caret_present_mark) {
+    // The app painted the box after the focus or the key: the block is already there, and the clock starts from now.
+    g_caret_dirty = false;
+    g_caret_next_ms = now + kCaretBlinkMs;
+    return;
+  }
+  lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+  if (canvas == nullptr || !canvas_ready(g_state, lua_gettop(g_state))) {
+    lua_pop(g_state, 1);
+    ui_keyboard_forget_target(g_state);
+    return;
+  }
+  if (!g_caret_dirty) g_caret_on = !g_caret_on;
+  caret_set_field(g_state, -1, g_caret_on);
+  ui_invalidate(g_state, -1);
+  lua_pop(g_state, 1);
+  ui_draw_and_present("du");
+  g_caret_dirty = false;
+  g_caret_next_ms = now + kCaretBlinkMs;
 }
 
 // **A box of several lines that has registered the gesture** (0.88.0): the app says it wants to hear the swipes with an
@@ -9744,6 +9838,20 @@ bool poll() {
 int32_t until_next_ms() {
   if (g_state == nullptr) return -1;
 
+  // **The block of the caret is a deadline of the kernel too** (0.92.0): an app that waits for a promise does not keep
+  // the board awake, and a keyboard that blinks only when the app happens to wake is a keyboard whose cursor stops. The
+  // nearest blink cuts the wait, so `caret_poll` gets its turn even when the app is idle (docs/30, docs/90).
+  int32_t caret_wait = -1;
+  if (g_keyboard_target_ref != LUA_NOREF && g_ui_ops.keyboard_visible != nullptr &&
+      g_ui_ops.keyboard_visible()) {
+    if (g_caret_dirty) {
+      caret_wait = 0;
+    } else if (g_caret_next_ms > 0) {
+      const int64_t left = g_caret_next_ms - now_ms();
+      caret_wait = (left <= 0) ? 0 : static_cast<int32_t>(left);
+    }
+  }
+
   // **A task that is not waiting for a promise is runnable**: it yielded for the turn budget, and the
   // kernel has to resume it next turn, not after the idle timeout (docs/20, docs/75).
   if (g_waiting_ref == LUA_NOREF) return 0;
@@ -9774,6 +9882,7 @@ int32_t until_next_ms() {
     lua_pop(g_state, 1);
   }
   lua_settop(g_state, base);
+  if (caret_wait >= 0 && (best < 0 || caret_wait < best)) best = caret_wait;
   return best;
 }
 
