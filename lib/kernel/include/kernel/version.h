@@ -1284,7 +1284,12 @@ namespace kernel {
 // in the order the disk gives them, and the CI's file system put `txt` before `txts` where the bench put `txts` first,
 // so `1` started the other app and the assertion failed; the test now reads the number the selector printed for `txts`
 // and answers that. The kernel was right; the test was the one that depended on readdir (docs/40, docs/80).
-static const char kVersion[] = "0.89.6";
+// 0.89.7 (5/11): **the ESP32 platform is pinned to 6.5.0**. A fresh CI runner took the latest espressif32, whose
+// Arduino core is the split `framework-arduinoespressif32-esp32-libs` package: its deprecated `driver/adc.h` emits a
+// `#warning` and the project's `-Werror` turned it into a failed `hal_esp32/battery.cpp`, while the same tree built
+// here. The numbers of docs/75 and the README are measured with a toolchain, and the toolchain is now the one
+// `platformio.ini` names (docs/75, docs/80).
+static const char kVersion[] = "0.89.7";
 
 }  // namespace kernel
 
