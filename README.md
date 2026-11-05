@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **421 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **425 proves natives**
 > passen en 19 suites, totes verdes.
-> A l'ATOM: **2 196 573 B** de flash (83,8 % de la partició d'aplicació) i **120 672 B** de RAM estàtica (36,8 %); `hello` fa un
+> A l'ATOM: **2 197 541 B** de flash (83,8 % de la partició d'aplicació) i **120 672 B** de RAM estàtica (36,8 %); `hello` fa un
 > pic de **31 655 B** de 131 072 de sostre —el terra de l'intèrpret és 29 842 B des de la llibreria d'UI— i el port sèrie
 > **4,1 ms** d'anada i tornada.
 >
@@ -89,7 +89,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > lletra) i el retrocés i l'enter dibuixats. El dit i el dial el prenen abans que la pàgina, i des de 0.84.0
 > **la vista de l'app és el que queda sobre la banda**: `ui.caps().height` baixa amb el teclat obert i l'app
 > rep `on_resize`, o sigui que cap pàgina ha de restar res a mà. **Prémer una lletra no torna a pintar la
-> banda**: només ho fan el bloqueig i el canvi d'alfabet (0.85.0).
+> banda**: només ho fan el bloqueig i el canvi d'alfabet (0.85.0). **Des de 0.91.0 la banda segueix el focus**:
+> surt quan una caixa que pren tecles (`box.keyboard`) rep el dit o un `kb:show()`, i es tanca quan el dit cau en un
+> botó o a la pàgina; `box.keyboard = false` deixa una caixa de només lectura sense teclat.
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al

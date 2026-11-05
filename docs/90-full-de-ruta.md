@@ -392,6 +392,9 @@ el tàctil fa el mateix amb el dit a sobre. `focused`, `focusable`, `on_focus`, 
 són el contracte; el `pressed` el porta el sistema mentre dura el contacte, i qualsevol control amb
 `focusable = true` entra al mateix recorregut encara que no sigui un `ui.button` (docs/30).
 
+**I el teclat segueix aquest focus** (0.91.0): una caixa de text que pren tecles (`box.keyboard`) obre la banda i
+en rep les tecles; un botó o la pàgina buida la tanquen; les caixes són objectiu del dit i no del dial (docs/30).
+
 **I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
 0.39.0). La lletra de 5 × 7 del sistema passa a ser **una cara més del mateix camí**: `font::system_face()`
 i les cares d'un fitxer comparteixen `font::width` i `font::runs`, i el dibuix llegeix rectangles i no sap

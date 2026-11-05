@@ -3302,8 +3302,11 @@ const int32_t kSwipeSlop = 12;
 
 // **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
 // and not a slot, because the app holds the box in a local and the keyboard must not lose it when a page is made
-// again. It is one keyboard and one box, which is what a keyboard is.
+// again. It is one keyboard and one box, which is what a keyboard is. **The kind is remembered beside it**: the
+// alphabet of the last band a box asked for, so a focus that brings the keyboard back does not turn a numeric box
+// into a QWERTY (0.91.0).
 int g_keyboard_target_ref = LUA_NOREF;
+uint8_t g_keyboard_kind = 0;  // 0 is alpha, 1 is numeric, the two of `ui.keyboard()`
 
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
@@ -5837,6 +5840,9 @@ int l_ui_textbox_multiline(lua_State* L) {
   lua_setfield(L, -2, "focused");
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "focusable");
+  // The same field as a box of one line: `'alpha'`, `'numeric'` or `false` (0.91.0, docs/30, docs/90).
+  lua_pushstring(L, "alpha");
+  lua_setfield(L, -2, "keyboard");
   lua_pushcfunction(L, &l_textbox_multiline_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
@@ -6315,6 +6321,11 @@ int l_ui_textbox(lua_State* L) {
   lua_setfield(L, -2, "focused");
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "focusable");
+  // **A text box says what keyboard it wants** (0.91.0): `'alpha'` by default, `'numeric'` for digits, and `false`
+  // for a box that takes no keys at all —a page read-only, a sheet of text to scroll—. The keyboard follows this
+  // field when the box takes the focus (docs/30, docs/90).
+  lua_pushstring(L, "alpha");
+  lua_setfield(L, -2, "keyboard");
   lua_pushcfunction(L, &l_textbox_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
@@ -6350,21 +6361,127 @@ const char kKeyboardMeta[] = "lunokOS.UIKeyboard";
 struct LuaKeyboard {};
 static_assert(sizeof(LuaKeyboard) == 1, "the userdata of the keyboard is one byte and not zero");
 
+// **What a text box says about the keyboard** (0.91.0): a box of one line or of several, and the field `keyboard`
+// —`'alpha'` by default, `'numeric'`, or `false` for a box that takes no keys—. It is the one question the system
+// asks before a band comes up, and the one that lets a page read-only scroll without opening a keyboard (docs/30).
+bool ui_box_keyboard(lua_State* L, int object, bool& wants, uint8_t& kind) {
+  object = lua_absindex(L, object);
+  const bool line = ui_field_bool(L, object, "__textbox", false);
+  const bool lines = ui_field_bool(L, object, "__textbox_multiline", false);
+  if (!line && !lines) return false;
+  wants = true;
+  kind = 0;
+  lua_getiuservalue(L, object, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "keyboard");
+    if (lua_isboolean(L, -1)) {
+      wants = lua_toboolean(L, -1) != 0;
+    } else if (lua_isstring(L, -1)) {
+      const char* asked = lua_tostring(L, -1);
+      kind = (asked != nullptr && strcmp(asked, "numeric") == 0) ? 1 : 0;
+    }
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  return true;
+}
+
+// The box the keys go to, kept alive by the registry; the same rule `kb.target` follows (docs/30, docs/75).
+void ui_keyboard_forget_target(lua_State* L) {
+  if (g_keyboard_target_ref != LUA_NOREF) {
+    luaL_unref(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+    g_keyboard_target_ref = LUA_NOREF;
+  }
+}
+
+void ui_keyboard_target_set(lua_State* L, int object) {
+  ui_keyboard_forget_target(L);
+  lua_pushvalue(L, object);
+  g_keyboard_target_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+}
+
+void ui_keyboard_hide() {
+  if (g_ui_ops.keyboard_hide != nullptr) g_ui_ops.keyboard_hide();
+}
+
+// **The band follows the box the finger lands on** (0.91.0): a box that takes keys becomes the target and brings the
+// keyboard; a button, a card or the empty page takes both away. The target is the keyboard's focus and goes with it,
+// so a band with no box under the finger cannot be shown by a later `kb:show()` without a target that says otherwise
+// (docs/30, docs/90).
+void ui_keyboard_follow_object(lua_State* L, int object) {
+  object = lua_absindex(L, object);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  bool wants = false;
+  uint8_t kind = 0;
+  if (canvas == nullptr || !canvas_ready(L, object) || !ui_box_keyboard(L, object, wants, kind) || !wants) {
+    ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
+    return;
+  }
+  if (g_ui_ops.keyboard_show == nullptr) return;
+  ui_keyboard_target_set(L, object);
+  const bool visible = (g_ui_ops.keyboard_visible != nullptr) && g_ui_ops.keyboard_visible();
+  const uint8_t before = g_keyboard_kind;
+  g_keyboard_kind = kind;
+  // A new box of the same alphabet only moves the target: the band is already the one it wants.
+  if (!visible || before != kind) g_ui_ops.keyboard_show(kind);
+}
+
 int l_keyboard_show(lua_State* L) {
   if (g_ui_ops.keyboard_show == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no keys");
-  const char* kind = lua_isstring(L, 2) ? lua_tostring(L, 2) : "alpha";
-  uint8_t wanted = 0;
-  if (strcmp(kind, "numeric") == 0) {
-    wanted = 1;
-  } else if (strcmp(kind, "alpha") != 0) {
-    return push_nil_error(L, "E_INVAL", "a keyboard is alpha or numeric");
+  const int base = lua_gettop(L);
+  if (g_keyboard_target_ref == LUA_NOREF) {
+    ui_keyboard_hide();
+    return push_nil_error(L, "E_INVAL", "a keyboard needs a text box");
   }
-  lua_pushboolean(L, g_ui_ops.keyboard_show(wanted) ? 1 : 0);
+  lua_rawgeti(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+  const int target = lua_gettop(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, target, kCanvasMeta));
+  bool wants = false;
+  uint8_t box_kind = 0;
+  if (canvas == nullptr || !canvas_ready(L, target) || !ui_box_keyboard(L, target, wants, box_kind)) {
+    lua_settop(L, base);
+    ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
+    return push_nil_error(L, "E_INVAL", "a keyboard needs a text box");
+  }
+  if (!wants) {
+    // **A box that said it takes no keys is not overruled by a show** (0.91.0): the read-only page of the editor is
+    // scrollable and its finger is alive, and an app that calls `kb:show()` by mistake does not bring a keyboard over it.
+    lua_settop(L, base);
+    ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
+    return push_nil_error(L, "E_INVAL", "the box does not take a keyboard");
+  }
+  // The call names the alphabet or, with no argument, the one the box already asked for: a numeric field keeps its
+  // digits when the app shows the keyboard without saying it again (docs/30, docs/90).
+  uint8_t wanted = box_kind;
+  if (lua_isstring(L, 2)) {
+    const char* kind = lua_tostring(L, 2);
+    if (strcmp(kind, "numeric") == 0) {
+      wanted = 1;
+    } else if (strcmp(kind, "alpha") != 0) {
+      lua_settop(L, base);
+      return push_nil_error(L, "E_INVAL", "a keyboard is alpha or numeric");
+    } else {
+      wanted = 0;
+    }
+  }
+  // **The show is the app saying the box takes keys**: it writes the alphabet on the box, so the next focus that
+  // brings the band back brings the same one (0.91.0, docs/30).
+  lua_getiuservalue(L, target, 1);
+  lua_pushstring(L, (wanted == 1) ? "numeric" : "alpha");
+  lua_setfield(L, -2, "keyboard");
+  lua_pop(L, 1);
+  g_keyboard_kind = wanted;
+  const bool shown = g_ui_ops.keyboard_show(wanted);
+  lua_settop(L, base);
+  lua_pushboolean(L, shown ? 1 : 0);
   return 1;
 }
 
 int l_keyboard_hide(lua_State* L) {
-  if (g_ui_ops.keyboard_hide != nullptr) g_ui_ops.keyboard_hide();
+  ui_keyboard_hide();
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -7296,14 +7413,17 @@ bool ui_has_hook(lua_State* L, int object, const char* name) {
 }
 
 bool ui_target_is_focusable(lua_State* L, int object, bool with_boxes) {
+  // **A box of text is a target of the finger and not of the dial** (0.85.2, and the code now says it too): a finger
+  // on a line puts the caret where it landed, and a box the keyboard types into has nothing to say to the dial, so it
+  // is not a stop of the walk. It is a stop of the touch walk when `focusable` is on, which is what puts the caret
+  // and brings the keyboard (0.91.0, docs/30, docs/90).
+  const bool box = ui_field_bool(L, object, "__textbox", false) ||
+                   ui_field_bool(L, object, "__textbox_multiline", false);
+  if (box) return with_boxes && ui_field_bool(L, object, "focusable", true);
   const bool button = ui_field_bool(L, object, "__button", false);
   const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
   const bool slider = ui_field_bool(L, object, "__slider", false);
-  if (ui_field_bool(L, object, "focusable", button || checkbox || slider)) return true;
-  // **A box of text is a target of the finger and not of the dial** (0.85.2): a finger on a line puts the caret where it
-  // landed, and a box the keyboard types into has nothing to say to the dial, so it is not a stop of the walk
-  // (docs/30, docs/90).
-  return with_boxes && ui_field_bool(L, object, "__textbox_multiline", false);
+  return ui_field_bool(L, object, "focusable", button || checkbox || slider);
 }
 
 bool ui_control_alive(LuaCanvas* canvas) {
@@ -8956,14 +9076,16 @@ bool ui_button_event(const char* kind, uint32_t key) {
   return true;
 }
 
-// True while a page has at least one control a person can land on. The kernel asks it before it gives
-// the middle key to the three-tap exit: a page whose centre is enter cannot also close on the third
-// centre press (docs/30, docs/90).
+// True while a page has at least one control a person can land on, **the finger's boxes included**, or the keyboard
+// itself is on the glass. The kernel asks it before it gives the middle key to the three-tap exit: a page whose centre
+// is enter cannot also close on the third centre press, and a keyboard that took the centre is not a way out of the app
+// (0.91.0, docs/30, docs/90).
 bool ui_has_focusable() {
   if (g_state == nullptr) return false;
+  if (g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible()) return true;
   FocusTarget targets[kMaxFocusTargets];
   const int top = lua_gettop(g_state);
-  const int count = ui_collect_targets(g_state, targets);
+  const int count = ui_collect_targets(g_state, targets, true);
   lua_settop(g_state, top);
   return count > 0;
 }
@@ -9133,6 +9255,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     g_ui_touch_generation = targets[hit].generation;
     g_ui_touch_inside = true;
     lua_rawgeti(g_state, objects, hit + 1);
+    const int hit_object = lua_absindex(g_state, -1);
     // **A finger on a dialog picks the button it is on and not the one the dial was on**: the two boxes of a card
     // are its own, and a person who presses Cancel must get Cancel even if the ring was on the other one. **And a
     // finger on a calendar picks the day it is on** (docs/30, docs/90).
@@ -9269,6 +9392,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         g_ui_swipe_tap_armed = true;
         // The press a finger makes on a box is its own state and not a button's: nothing is held and nothing is painted
         // as held, so the page keeps the pixels it had until the finger says which of the two it is (docs/90).
+        // **The box has the focus and the keyboard follows it** (0.91.0): the gesture and the band are both its.
+        ui_keyboard_follow_object(g_state, hit_object);
         lua_settop(g_state, top);
         return;
       }
@@ -9346,7 +9471,17 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       }
     }
     if (ui_set_field_bool(g_state, -1, "pressed", true)) ui_invalidate(g_state, -1);
+    // **The box that took the finger is the one the keys go to** (0.91.0), and a button or a card that took it leaves
+    // the keyboard behind: the band is not a page of the app and does not stay over a control that cannot type.
+    ui_keyboard_follow_object(g_state, hit_object);
     lua_pop(g_state, 1);
+  } else {
+    // **A finger outside every control ends the edition** (0.91.0): the ring goes and the keyboard with it. The page
+    // under the band was never given this finger —the keyboard took it first— so this is the empty page or a label,
+    // and a person who taps there is not typing any more (docs/30, docs/90).
+    if (g_ui_focus_slot >= 0) ui_apply_focus(g_state, targets, count, objects, -1);
+    ui_keyboard_forget_target(g_state);
+    ui_keyboard_hide();
   }
   lua_settop(g_state, top);
 }

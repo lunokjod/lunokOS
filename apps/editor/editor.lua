@@ -379,6 +379,9 @@ end
 -- **The page the editor has when no card is up**: the keyboard types into the box of lines, unless the document is
 -- read-only —and then there is no keyboard, because a read-only page has nothing to type into— (docs/30, docs/90).
 function resume()
+  -- **The box says whether it takes keys** (0.91.0): a read-only page keeps its box scrollable and its finger alive,
+  -- but a finger on it must not bring a keyboard that has nothing to write.
+  box.keyboard = doc.readonly and false or 'alpha'
   if doc.readonly then
     kb:hide()
   else

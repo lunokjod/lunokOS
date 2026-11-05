@@ -814,15 +814,15 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable**: les fletxes canvien la triada i `on_change(self, index)` avisa (3/11, 0.70.0) |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la gran més gran. **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
-| `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (si el bloc es pinta; el parpelleig és de l'app), `mask` (puntets en lloc de lletres), `color`, `scale`. **És enfocable** (3/11, 0.72.0) |
-| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')`, `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`) (3/11, 0.72.0) |
+| `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (si el bloc es pinta; el parpelleig és de l'app), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0) |
+| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0) |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0) |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
-| `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border` i `scale`; **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0) |
+| `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret`, `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale` i **`keyboard`** (com el d'una línia); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
 | `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0) |
@@ -1464,15 +1464,20 @@ sobre, i un contorn seria una caixa dibuixada sobre una altra caixa—.
 - **`mask`** dibuixa un puntet per lletra: és el mateix requadre amb els punts al lloc de les lletres, i per tant el
   cursor cau on cauria i l'amplada del que s'ha escrit no es filtra.
 - **`cursor` és quants bytes hi ha abans del cursor**, no una lletra: una lletra pot fer dos bytes.
+- **`keyboard` és el que la caixa vol del teclat** (0.91.0): `'alpha'` per defecte, `'numeric'` per a dígits, i
+  `false` per a una caixa que no en vol —una pàgina de només lectura, un full que només es desplaça—. El sistema el
+  llegeix quan la caixa pren el focus, i `kb:show('numeric')` també l'escriu a la caixa.
 
-**El teclat no és un control, és del sistema.** És una **banda** que el nucli pinta a baix de la vista, sobre la
-pàgina ja composta, i que **pren el dit i el dial abans que els controls de la pàgina**:
+**El teclat no és un control, és del sistema, i des de 0.91.0 segueix el focus.** És una **banda** que el nucli
+pinta a baix de la vista, sobre la pàgina ja composta, i que **pren el dit i el dial abans que els controls de la
+pàgina**. **Quan una caixa de text que pren tecles rep el focus, la banda surt i la caixa passa a ser el target; quan
+el focus se'n va a un botó, a una targeta o a la pàgina buida, la banda es tanca** (docs/30, docs/90).
 
 | Crida | Què fa |
 |---|---|
-| `kb.target = box` | La caixa on escriu. És l'únic camp que té |
-| `kb:show('alpha')` · `kb:show('numeric')` | La banda surt, amb el joc de tecles que es demana |
-| `kb:hide()` | La banda marxa (i marxa sola quan l'app s'acaba) |
+| `kb.target = box` | La caixa on escriu. El sistema la mou a la caixa que pren el focus; l'app la pot escriure abans d'un `kb:show` |
+| `kb:show('alpha')` · `kb:show('numeric')` | La banda surt per al target, amb el joc que es demana. **Exigeix una caixa de text viva que prengui tecles**: sense target, amb un objecte que no és una caixa, o amb `keyboard = false`, torna `nil, E_INVAL` |
+| `kb:hide()` | La banda marxa (i marxa sola quan l'app s'acaba). **No esborra el target**: una caixa que encara pren tecles la torna a obrir quan el dit hi torna; perquè no ho faci, `box.keyboard = false` |
 | `kb:height()` | **La banda que pren** —176 al Paper—, que des de 0.84.0 ja no cal restar de res: és el que es pregunta per pintar una barra pròpia just a sobre |
 | `kb:visible()` | Si és al vidre |
 
@@ -1484,8 +1489,8 @@ píxels), i `ui.canvas().height` continua dient l'alçada del llenç per a qui n
 
 ```lua
 local kb = ui.keyboard()
-kb.target = box
-kb:show('alpha')            -- la banda primer
+kb.target = box             -- el sistema també ho fa quan el dit hi cau
+kb:show('alpha')            -- la banda primer (o el dit, des de 0.91.0)
 local view = ui.caps()      -- i la vista ja és el que queda: 736
 local page = ui.panel(view.width, view.height, 'vertical')
 
@@ -1498,6 +1503,14 @@ end
 - **L'app no mana cap tecla**: cada tecla arriba a la caixa que ha nomenat, la caixa escriu el camp i tot seguit
   avisa amb `on_change(self, text)`. El **13** no és cap lletra: és el `OK`, i la caixa diu `on_enter(self)` i no
   toca el text.
+- **El focus de la pàgina i el del teclat són el mateix quan hi ha un dit** (0.91.0): un dit sobre una caixa
+  l'enfoca (`focused`) i li dona el teclat; un dit sobre un botó enfoca el botó i tanca la banda; un dit fora de tot
+  control treu el focus, tanca la banda i oblida el target. **Les caixes de text són objectiu del dit i no del dial**:
+  el dial no les recorre, i la banda que ja és al vidre és la que pren les tecles. En una placa sense dit, l'app obre
+  la banda amb `kb:show()`.
+- **Una banda no s'obre sense caixa** (0.91.0): `kb:show` sense target, o amb una caixa que diu
+  `keyboard = false`, és `E_INVAL`; una caixa amb `keyboard = false` tampoc no obre la banda quan el dit hi cau. El
+  que sí que fa el dit sobre una caixa de només lectura és posar-hi el cursor i deixar-lo desplaçar si té `on_swipe`.
 - **Les fletxes del dial caminen les tecles** i el centre prem la que hi ha: una placa de tres tecles també pot
   escriure. El recorregut va **per les tecles que es veuen**, en l'ordre en què es pinten, i no per una graella de
   caselles buides (0.83.0).

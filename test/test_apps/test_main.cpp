@@ -4181,6 +4181,9 @@ void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void
       "box.scale = 2\n"
       "box.text = table.concat(lines, '\\n')\n"
       "box.cursor = 0\n"
+      // The page is a sheet to scroll and not a field to type into: since 0.91.0 a finger on a box that takes keys
+      // brings the keyboard, so a box that does not want one says it (docs/30, docs/90).
+      "box.keyboard = false\n"
       "console.print('lines ' .. box:lines() .. ' rows ' .. box:rows())\n"
       "box.on_swipe = function(self, rows)\n"
       "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top))\n"
@@ -4875,6 +4878,296 @@ void test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given(void) {
   storage->remove("/apps/resizer/app.lua");
   storage->remove("/apps/resizer/manifest.json");
   storage->remove("/apps/resizer");
+}
+
+
+// **The keyboard follows the box the finger lands on** (0.91.0): a box that takes keys brings the band and becomes its
+// target; a box of the same alphabet only moves the target; a button takes the band away, and a finger on the empty page
+// ends the edition. The box has the focus and the keyboard is its, which is the rule the app used to write by hand with
+// `kb:show()` (docs/30, docs/90).
+void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "focus",
+                           "{\"title\":\"Focus\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kb = ui.keyboard()\n"
+                           "local one = ui.textbox(200, 48)\n"
+                           "one:place(20, 60)\n"
+                           "one.scale = 2\n"
+                           "one.on_focus = function(self, on) console.print('one focus ' .. tostring(on)) end\n"
+                           "one.on_change = function(self, text) console.print('one ' .. text) end\n"
+                           "local two = ui.textbox(200, 48)\n"
+                           "two:place(20, 130)\n"
+                           "two.scale = 2\n"
+                           "two.on_focus = function(self, on) console.print('two focus ' .. tostring(on)) end\n"
+                           "two.on_change = function(self, text) console.print('two ' .. text) end\n"
+                           "local button = ui.button(200, 48)\n"
+                           "button:place(20, 210)\n"
+                           "button.on_focus = function(self, on) console.print('button focus ' .. tostring(on)) end\n"
+                           "button.on_click = function(self) console.print('click button') end\n"
+                           "function on_resize(w, h)\n"
+                           "  console.print('resize ' .. w .. 'x' .. h .. ' kb ' .. tostring(kb:visible()))\n"
+                           "end\n"
+                           "console.print('before ' .. tostring(kb:visible()))\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run focus");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "before false"), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // The first box takes the finger: the band comes and the view is the part over it.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
+                                      static_cast<uint16_t>(view.y + 80)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736 kb true"), g_out);
+
+  // The centre presses the key the keyboard is on: a `q` goes into the box that took the finger.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one q"), g_out);
+
+  // A second box of the same alphabet takes the target without taking the band down: the next key is a `w` because the
+  // down key of the dial walked the keyboard one key.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
+                                      static_cast<uint16_t>(view.y + 150)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(10);
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "resize 540x912"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "two focus true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "two w"), g_out);
+
+  // A button is not a box: the band goes and the view grows before the release clicks it.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
+                                      static_cast<uint16_t>(view.y + 230)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x912 kb false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button focus true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click button"), g_out);
+
+  // The first box again: a finger on it brings the keyboard back.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
+                                      static_cast<uint16_t>(view.y + 80)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736 kb true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one focus true"), g_out);
+
+  // And the empty page ends the edition: no ring and no keyboard.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 400),
+                                      static_cast<uint16_t>(view.y + 400)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x912 kb false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one focus false"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/focus/app.lua");
+  storage->remove("/apps/focus/manifest.json");
+  storage->remove("/apps/focus");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A box that takes no keys is a sheet to scroll** (0.91.0): the field `keyboard = false` keeps the finger and the
+// caret and leaves the band closed; a read-only page has somewhere to put the thumb and nothing to type.
+void test_a_box_that_takes_no_keys_does_not_open_the_keyboard(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "sheet",
+                           "{\"title\":\"Sheet\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kb = ui.keyboard()\n"
+                           "local box = ui.textbox(200, 48)\n"
+                           "box:place(20, 60)\n"
+                           "box.keyboard = false\n"
+                           "box.on_focus = function(self, on)\n"
+                           "  console.print('focus ' .. tostring(on) .. ' kb ' .. tostring(kb:visible()))\n"
+                           "end\n"
+                           "function on_resize(w, h)\n"
+                           "  console.print('resize kb ' .. tostring(kb:visible()))\n"
+                           "end\n"
+                           "kb.target = box\n"
+                           "local ok, err = kb:show('alpha')\n"
+                           "console.print('show ' .. tostring(ok) .. ' ' .. tostring(err and err.code) ..\n"
+                           "  ' kb ' .. tostring(kb:visible()))\n"
+                           "console.print('before ' .. tostring(kb:visible()))\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run sheet");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "show nil E_INVAL kb false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "before false"), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // The box is the first control and it has the focus from its birth; a finger outside ends it, and the page says so.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 400),
+                                      static_cast<uint16_t>(view.y + 400)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus false kb false"), g_out);
+
+  // A finger on the box takes the focus, and the box says it takes no keys: the band does not come.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
+                                      static_cast<uint16_t>(view.y + 80)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus true kb false"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "resize"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/sheet/app.lua");
+  storage->remove("/apps/sheet/manifest.json");
+  storage->remove("/apps/sheet");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A keyboard with no box is not a keyboard** (0.91.0): `kb:show()` refuses it with `E_INVAL` instead of painting a
+// band that writes nowhere. The target is the control that needs the keys, and an app that has none has no keyboard.
+void test_a_keyboard_without_a_target_is_refused(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nowhere",
+                           "{\"title\":\"Nowhere\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kb = ui.keyboard()\n"
+                           "local ok, err = kb:show('alpha')\n"
+                           "console.print('show ' .. tostring(ok) .. ' ' .. tostring(err and err.code) ..\n"
+                           "  ' kb ' .. tostring(kb:visible()))\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run nowhere");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "show nil E_INVAL kb false"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/nowhere/app.lua");
+  storage->remove("/apps/nowhere/manifest.json");
+  storage->remove("/apps/nowhere");
+}
+
+// **The dial does not stop on a text box** (0.91.0): a box is a target of the finger and the keyboard, not a stop of the
+// walk; a page of one button and one box keeps the button as the only stop and the centre still clicks it. The code now
+// says what docs/30 has said since 0.85.2 (docs/30, docs/90).
+void test_the_dial_does_not_stop_on_a_text_box(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "dialbox",
+                           "{\"title\":\"DialBox\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local button = ui.button(200, 60)\n"
+                           "button:place(20, 20)\n"
+                           "button.on_click = function(self) console.print('click button') end\n"
+                           "local box = ui.textbox(200, 48)\n"
+                           "box:place(20, 140)\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run dialbox");
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(10);
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click button"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/dialbox/app.lua");
+  storage->remove("/apps/dialbox/manifest.json");
+  storage->remove("/apps/dialbox");
 }
 
 // **A dialog has two doors and the dial picks one before it presses it**: the chosen door moves with the arrows and
@@ -6476,6 +6769,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
+  RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
+  RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
+  RUN_TEST(test_a_keyboard_without_a_target_is_refused);
+  RUN_TEST(test_the_dial_does_not_stop_on_a_text_box);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
   RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);

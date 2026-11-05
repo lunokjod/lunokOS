@@ -1297,7 +1297,15 @@ namespace kernel {
 // runs forever, but the board stays alive and `!!exit`/three ESC close it. The two warnings and `E_BUDGET` of
 // docs/75 are still the next step, as are the alarm window, the `lua` prompt and the coroutines an app creates
 // (docs/20, docs/75).
-static const char kVersion[] = "0.90.0";
+// 0.91.0 (5/11): **the keyboard follows the focus**. A text box says what keyboard it wants in `box.keyboard` —
+// `'alpha'`, `'numeric'`, or `false` for a page that only scrolls— and the system reads it when the box takes the
+// finger: the band comes, the box becomes the target, and a finger on a button, a card or the empty page takes the band
+// away and clears the focus. **The band no longer appears over a control that cannot type**: `kb:show()` without a live
+// text box answers `nil, E_INVAL` instead of painting a keyboard that writes nowhere; with one it shows the band and
+// writes the alphabet on the box. **Text boxes are stops of the finger and not of the dial**, as docs/30 said and the
+// code now says; the keyboard on the glass counts as a control for `ui_has_focusable`, so the centre is Enter and not
+// the three-tap exit. `run editor` keeps its read-only page scrollable with `box.keyboard = false` (docs/30, docs/90).
+static const char kVersion[] = "0.91.0";
 
 }  // namespace kernel
 
