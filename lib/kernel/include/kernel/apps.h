@@ -69,9 +69,6 @@ bool is_an_app(const char* disk, const char* name);
 // after that app. Returns how many apps loaded correctly.
 uint32_t for_each(const char* only_id, Visitor visitor, void* context);
 
-// How many apps load. Used by the boot log.
-uint32_t count();
-
 // Normalises an extension the way a manifest writes it: "TXT", ".txt" and "txt"
 // are the same thing. Writes at most cap bytes and returns false when there is
 // nothing usable.

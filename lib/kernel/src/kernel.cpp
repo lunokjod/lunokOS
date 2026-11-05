@@ -300,9 +300,8 @@ void boot(hal::IPlatform& platform) {
   // four operations and never depends on it (docs/70).
   install_fs_ops();
   net::boot(platform);
-  // Apps are not kept in any list: this only counts them for the log. Walking
-  // /apps is what the commands do, and only when they are asked.
-  log_printf(pal::kLogInfo, "APPS", "%u found", static_cast<unsigned>(apps::count()));
+  // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
+  // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).
 
   uint32_t present = 0;
   uint32_t total = 0;

@@ -151,6 +151,22 @@ pio test -e test           # proves natives
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
+## El CI
+
+`.github/workflows/ci.yml` passa a cada push i a cada pull request:
+
+- la **llei 10**: `tools/check_version.py` recorre els commits del push o de la pull request i refusa
+  el que canvia fitxers sense pujar `kernel::kVersion`; els dos commits de 0.88.2 que se'n van escapar
+  són el motiu (docs/80);
+- la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
+  l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
+  `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
+- les **420 proves natives** (`pio test -e test`);
+- les **cinc bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `atom`, `atom_matrix`,
+  `paper` i `esp32`.
+
+El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
+
 ## Què s'ha de posar a la placa (31/10)
 
 A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:

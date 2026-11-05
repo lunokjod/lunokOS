@@ -196,12 +196,6 @@ class WalkSink : public hal::ListSink {
   uint32_t visited_;
 };
 
-bool count_visitor(const Entry& entry, void* context) {
-  (void)entry;
-  (void)context;
-  return true;
-}
-
 }  // namespace
 
 bool compatible(const Entry& entry, const char* board_id, const char* family) {
@@ -254,8 +248,6 @@ bool is_an_app(const char* disk, const char* name) {
   if (disk == nullptr || name == nullptr || name[0] == '\0') return false;
   return has_manifest(disk, name);
 }
-
-uint32_t count() { return for_each(nullptr, &count_visitor, nullptr); }
 
 bool read(const char* id, Entry& out) {
   if (id == nullptr || id[0] == '\0') return false;

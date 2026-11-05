@@ -1,6 +1,17 @@
 // The serial shell: line editing, the command table, and the app console once
 // there is an app to run. It is the only user interface there is, because the
 // board has no screen (docs/10 and docs/50).
+//
+// **The sections of this file, in order**:
+//   - the console: output, colour, the prompt, the words of a line and the help;
+//   - what the system says about itself: version, caps, mem, apps and mounts;
+//   - the files: ls, cat, hexdump and open;
+//   - the apps: run, the source of an app and the choice of a handler;
+//   - the radio: wifi, ntp, http, provision, and the repo listing;
+//   - repo install: the plan, the download and apps remove;
+//   - the board: power, sleep, led, button and cfg;
+//   - the app lifecycle: the window of an alarm, the turn and the close;
+//   - the command table in `execute()`, and the console feed, the line editor and the Lua prompt.
 #include "kernel/shell.h"
 
 #include <stdio.h>

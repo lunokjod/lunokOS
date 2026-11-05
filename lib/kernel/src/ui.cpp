@@ -1,5 +1,16 @@
 // The canvas of the app, the damage it leaves on it and the copy that puts it on the glass
 // (docs/30): see `ui.h` for what the separation is for.
+//
+// **The sections of this file, in order**:
+//   - the canvases and what they owe: the state, attach, compose and present;
+//   - the primitives: pixel, box, frame, bevel, line, circle, disc and text;
+//   - where a control's pixels go, and drawing into a canvas that is not the root;
+//   - the interpreter's side: every `ui.*` call;
+//   - the controls: progress, slider, a row of a list, panel, tabs, list, text box, box of several
+//     lines, month, sparkline and pie, dialog, menu, grid, band of notifications, selector and menu bar;
+//   - the keyboard, the face of its keys and the three icons that are not letters;
+//   - the faces a text can be drawn with.
+// The `// ----` banners are the same index in place (docs/10, docs/90).
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/ui.h"

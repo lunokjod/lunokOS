@@ -1259,7 +1259,28 @@ namespace kernel {
 // —the mount row that is a disk and not an alias—. Measured on the bench: the suite is **420 cases and all of them
 // pass**, and with the manifest question taken out the test of the folder that is not an app goes red, and with the disk
 // asked twice instead of once the delete says the app is still there (docs/30, docs/40, docs/70).
-static const char kVersion[] = "0.89.0";
+// 0.89.1 (5/11): **the two metering scopes that sat after their `return`**. `power::mono_now` and `net::now_ms`
+// kept the `return` of the one-liner they were when the meter arrived (0.20.0), so the scope that follows it was dead
+// code the compiler threw away and `clock.mono` never counted the reads of the power policy and of the radio;
+// `button::now_ms` had the same shape and was fixed in 0.49.1. The three count the read now, which is what docs/30
+// and docs/50 promise (docs/30, docs/50, docs/75).
+// 0.89.2 (5/11): **the boot does not walk `/apps` any more**. The `[APPS] N found` line counted every app at every
+// boot —a manifest read, a JSON parse and a `stat` of the entry for each— and the boot was therefore a function of how
+// many apps the disk carried, which docs/10 and docs/40 say it is not: measured on the bench with the repository's
+// sixty apps, the boot went from **495.8 ms to about 176 ms**, the same boot of a disk with no app at all, and the
+// line of the log goes with the count. `apps::count()` had no other caller and went too; what a person asks for is
+// still answered by `apps`, `ls` and `run`, which walk the door when they are asked (docs/10, docs/40, docs/75, docs/85).
+// 0.89.3 (5/11): **the repository has CI**. `.github/workflows/ci.yml` runs, on every push and pull request, the clang
+// `-Wunreachable-code` pass, the 420 native tests and the five environments (`emulator` with SDL2, `atom`, `atom_matrix`,
+// `paper`, `esp32`); it builds and never flashes, and the field measurements stay manual (docs/80, docs/95).
+// 0.89.4 (5/11): **the README's numbers are the build's numbers again**. 420 cases in 19 suites (it said 394), and the
+// ATOM's 2 196 273 B of flash (83,8 %) and 120 664 B of RAM (36,8 %), measured on this tree; the old 2 183 081 B and
+// 117 192 B were from an older build. A number in a document is a measurement or it is not written (docs/75, docs/95).
+// 0.89.5 (5/11): **the version law has a guard**. `tools/check_version.py` walks the commits of a push or a pull
+// request and refuses one that changes a file without raising `kernel::kVersion`; the CI runs it before the builds.
+// The two commits of 0.88.2 that escaped —the reused number and the tool that did not touch the header— stay where
+// git put them; this is for the ones that come next (docs/80, law 10 of the README).
+static const char kVersion[] = "0.89.5";
 
 }  // namespace kernel
 

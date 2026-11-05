@@ -41,7 +41,7 @@ enum Phase : uint8_t {
 Phase g_phase = kIdle;
 int64_t g_deadline_ms = 0;
 
-int64_t now_ms() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
+int64_t now_ms() {
   // The RTC chip, read once a turn (docs/30, docs/50).
   meter::Scope scope(meter::kClockMono);
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;

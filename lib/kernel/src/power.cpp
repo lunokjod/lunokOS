@@ -67,7 +67,7 @@ int64_t g_last_activity_ms = 0;
 // (docs/60).
 int64_t g_coming_back_at = 0;
 
-int64_t mono_now() { return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0; 
+int64_t mono_now() {
   // The RTC chip, read once a turn (docs/30, docs/50).
   meter::Scope scope(meter::kClockMono);
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;

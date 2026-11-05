@@ -1,0 +1,108 @@
+# The safety net of docs/80: every push and every pull request runs the native suite, builds the
+# five environments and refuses code the C++ compiler can see is unreachable. **Nothing here flashes
+# a board**: docs/80 says a person does that, and the field measurements stay manual (docs/95).
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The full history is what lets the version step walk the commits of this push or pull request.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # **Law 10, checked and not remembered**: every commit raises `kernel::kVersion`, in the same
+      # commit, even the one that only touches a tool or a document (docs/80).
+      - name: version bump
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            # A new branch has no `before`: everything it added since the default branch is checked.
+            BASE="$(git merge-base HEAD origin/HEAD 2>/dev/null || echo HEAD^)"
+          fi
+          python3 tools/check_version.py "$BASE" HEAD
+
+      # One job and one cache: the four ESP32 environments share the same toolchain, so it is
+      # downloaded once and not four times.
+      - name: cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'boards/*.json') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: install PlatformIO, clang and SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libsdl2-dev
+          pip install 'platformio>=6.2,<7'
+
+      # **The warning GCC does not have**: `-Wunreachable-code` is a no-op there, and the dead
+      # scopes of 0.89.1 lived through `-Wall -Wextra -Werror`. Clang sees them (docs/80).
+      - name: no unreachable code
+        run: |
+          set -euo pipefail
+          INC="-Ilib/hal/include -Ilib/pal/include -Ilib/kernel/include -Ilib/luabind/include \
+               -Ilib/alarms/include -Ilib/json/include -Ilib/qr/include -Ilib/img/include \
+               -Ilib/ttf/include -Ilib/inflate/include -Ilib/hal_emulator/include \
+               -Ilib/pal_host/include -Ilib/lua/include"
+          for f in \
+            lib/kernel/src/*.cpp \
+            lib/luabind/src/*.cpp \
+            lib/alarms/src/*.cpp \
+            lib/json/src/*.cpp \
+            lib/qr/src/*.cpp \
+            lib/img/src/*.cpp \
+            lib/ttf/src/*.cpp \
+            lib/inflate/src/*.cpp \
+            lib/pal_host/src/*.cpp \
+            lib/hal_emulator/src/*.cpp; do
+            echo "clang: $f"
+            clang++ -std=c++11 -fsyntax-only $INC \
+              -Wunreachable-code -Wunreachable-code-aggressive \
+              -Werror=unreachable-code "$f"
+          done
+
+      - name: native tests
+        run: pio test -e test
+
+      # SDL2 is installed above on purpose: this compiles the window backend too, and not only
+      # the bench without a glass.
+      - name: build emulator
+        run: pio run -e emulator
+
+      - name: build atom
+        run: pio run -e atom
+
+      - name: build atom_matrix
+        run: pio run -e atom_matrix
+
+      - name: build paper
+        run: pio run -e paper
+
+      - name: build esp32
+        run: pio run -e esp32
