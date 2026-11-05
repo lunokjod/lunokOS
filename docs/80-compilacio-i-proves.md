@@ -146,6 +146,7 @@ pio run -e emulator        # binari per al PC
 pio run -e atom            # firmware; les proves de flashejar les fa l'amo
 pio run -e atom_matrix     # la placa del panell: 25 llums al mateix GPIO27
 pio run -e esp32           # el mínim: un ESP32 de DevKit, sense res a sobre
+pio run -e tkoala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
 pio test -e test           # proves natives
 ```
 
@@ -161,9 +162,9 @@ Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **428 proves natives** (`pio test -e test`);
-- les **cinc bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `atom`, `atom_matrix`,
-  `paper` i `esp32`.
+- les **429 proves natives** (`pio test -e test`);
+- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `atom`, `atom_matrix`,
+  `paper`, `esp32` i `tkoala`.
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 

@@ -7,7 +7,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > **Estat: M0 a M7 fets, amb les mesures de camp de M5, M6 i M7 pendents** (M4 inclou la targeta
 > SD, que al Paper ja munta i llegeix); de **M8** ja hi ha la identitat —el banc rep la placa que ha
 > de ser (`--board`) i `sys.board` en diu el nom— i el maquinari fals que surt del model, i hi queden
-> la forma de les tecles i poder-les prémer a mà. Les tres bandes compilen, l'emulador és
+> la forma de les tecles i poder-les prémer a mà. Les sis bandes compilen, l'emulador és
 > interactiu i **executa apps de Lua**: `run hello` arrenca una app de veritat i n'escriu la línia,
 > **també a la placa**. Les apps poden **esperar amb promeses** (`sys.delay(300):await()`) sense
 > aturar el nucli, **llegir línies** amb `console.read_line()`, **escriure amb colors** amb `term`,
@@ -15,7 +15,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **428 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **429 proves natives**
 > passen en 19 suites, totes verdes.
 > A l'ATOM: **2 200 421 B** de flash (83,9 % de la partició d'aplicació) i **120 760 B** de RAM estàtica (36,9 %); `hello` fa un
 > pic de **31 655 B** de 131 072 de sostre —el terra de l'intèrpret és 29 842 B des de la llibreria d'UI— i el port sèrie
@@ -148,12 +148,12 @@ botons, targeta, xarxa, bateria— darrere d'una taula de capacitats que cada pl
 
 | | Placa | PC |
 |---|---|---|
-| Plataforma | ESP32 (M5 ATOM, ATOM Matrix i Paper) | Linux |
-| Entorn de PlatformIO | `atom`, `atom_matrix` i `paper` | `emulator` (i `test` per a les proves) |
-| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` / `m5stack-paper` | el model que rep a `--board`, que és **obligatori**, mai `emulator` |
+| Plataforma | ESP32 (M5 ATOM, ATOM Matrix, Paper i LilyGO T-Koala) | Linux |
+| Entorn de PlatformIO | `atom`, `atom_matrix`, `paper`, `esp32` i `tkoala` | `emulator` (i `test` per a les proves) |
+| Es diu (`sys.board`) | `m5stack-atom` / `m5stack-atom-matrix` / `m5stack-paper` / `ttgo-t-koala` | el model que rep a `--board`, que és **obligatori**, mai `emulator` |
 | És de debò (`sys.emulator`) | `false` | `true` |
 | Consola | UART | stdin/stdout en mode cru |
-| Fitxers | LittleFS + NVS, i la targeta SD al Paper | un directori del disc, i `--sd` per a una targeta |
+| Fitxers | LittleFS + NVS, i la targeta SD al Paper i al T-Koala | un directori del disc, i `--sd` per a una targeta |
 | Rellotge | RTC del SoC | rellotge del PC o temps virtual |
 
 El nucli, l'intèrpret i les dependències de Lua són els mateixos a les dues bandes. Només canvien
@@ -217,12 +217,13 @@ les implementacions de placa. La regla que ho fa possible: **`#include <Arduino.
 pio run -e emulator      # binari per al PC
 ./.pio/build/emulator/program --board m5stack-atom
 # el banc es diu la placa que és: --board m5stack-atom (obligatori),
-# m5stack-atom-matrix o m5stack-paper. `sys.board` respon aquest nom
-# i `sys.emulator` continua cert
+# m5stack-atom-matrix, m5stack-paper o ttgo-t-koala. `sys.board` respon
+# aquest nom i `sys.emulator` continua cert
 pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
 pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
 pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
 pio run -e esp32         # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
+pio run -e tkoala        # la LilyGO T-Koala: WROVER-B, 4 MB de PSRAM mapejada, LED i SD
 pio test -e test         # proves natives
 ```
 

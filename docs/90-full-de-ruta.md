@@ -98,8 +98,8 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 
 ## M8 · El banc és una placa
 
-El banc és **una** placa des del 31/10: `--board m5stack-atom|m5stack-atom-matrix|m5stack-paper`
-diu quina i **és obligatori**; sense l'opció el binari es refusa i en llista les tres (el `default_model()`
+El banc és **una** placa des del 31/10: `--board m5stack-atom|m5stack-atom-matrix|m5stack-paper|ttgo-t-koala`
+diu quina i **és obligatori**; sense l'opció el binari es refusa i en llista les quatre (el `default_model()`
 de la identitat només és la resposta d'un banc construït a mà). `sys.board` respon **aquell nom** i no
 `emulator`, que no és cap placa; `sys.emulator` continua cert i
 és la pregunta que ha de fer canviar el comportament d'una app pel fet d'estar al banc. Com que
@@ -407,6 +407,16 @@ un fill més i una fila a la llista. L'estat és de l'objecte i no del fitxer, i
 parlen les funcions lliures: si la banda és a la vista, baixa i torna a pujar amb el mateix alfabet. **La tria és un
 ajust del sistema** i no d'una app: `cfg keyboard` en dona la llista, `cfg keyboard <id>` la desa a l'NVS
 (`cfg/keyboard`) i l'arrencada la llegeix, amb `qwerty` de reserva i una línia si el nom no existeix (docs/30, docs/70).
+
+**I la LilyGO T-Koala és una placa més** (0.94.0): l'ESP32-WROVER-B de 4 MB de flash i 8 MB de PSRAM
+—4 mapejats— entra com a entorn `tkoala`, amb una definició de placa pròpia perquè la plataforma no en
+porta cap amb `BOARD_HAS_PSRAM` i QSPI. El seu HAL només diu el que és seu: el **LED verd de GPIO5** és
+un LED normal i no un WS2812 (s'encén o s'apaga, el color no hi cap), no té cap tecla que el
+firmware llegeixi (l'únic botó és RST) i la **microSD** va al grup HSPI que la serigrafia del fabricant posa al
+costat de la ranura (CS 15, SCK 14, MOSI 13, MISO 12). El PSRAM és el del xip i `heap_limit_kb()` en
+contesta 4 096 només si el xip respon; una versió WROOM sense PSRAM no promet memòria que no té. La
+bateria no s'anuncia fins que el divisor no estigui mesurat (docs/50, docs/95). El banc té el mateix
+model, amb una targeta i sense vidre (docs/85).
 
 **I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
 0.39.0). La lletra de 5 × 7 del sistema passa a ser **una cara més del mateix camí**: `font::system_face()`

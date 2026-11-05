@@ -1,0 +1,6 @@
+{
+  "name": "board_tkoala",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: the LilyGO TTGO T-Koala (ESP32-WROVER-B). Headers only: board/identity.h says the name, one plain LED and no IMU; board/impl.h says what to link.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

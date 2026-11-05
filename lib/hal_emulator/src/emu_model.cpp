@@ -15,6 +15,7 @@ Model model_of(const char* name) {
   out.name = name;
   const bool paper = (name != nullptr) && strcmp(name, "m5stack-paper") == 0;
   const bool matrix = (name != nullptr) && strcmp(name, "m5stack-atom-matrix") == 0;
+  const bool tkoala = (name != nullptr) && strcmp(name, "ttgo-t-koala") == 0;
   if (paper) {
     // Three keys on the dial, no light, no sensor, and the extra memory the board really carries:
     // the gauge, the card slot, the FRAM and the clock chip with a coin cell behind it (docs/50).
@@ -48,6 +49,33 @@ Model model_of(const char* name) {
     out.app_limit_kb = 4096;  // what the board answers as the ceiling of an app
     out.disk_bytes = 0xBE0000;  // the littlefs partition of partitions_16mb.csv
     out.boot_image_bytes = 2182672;  // the image of the paper environment, 3/11 (docs/85)
+    return out;
+  }
+  if (tkoala) {
+    // The LilyGO TTGO T-Koala: one plain green LED, a card slot and the WROVER-B's 8 MB of PSRAM of which
+    // the ESP32 maps 4. No glass, no touch, no sensor, no gauge and no key: its only button is RST (docs/50).
+    out.lights = 1;
+    out.keys = 0;
+    out.imu = false;
+    out.env = false;
+    out.glass = false;
+    out.touch = false;
+    out.gauge = false;
+    out.slot = true;
+    out.fram = false;
+    out.keeps_the_hour = false;
+    out.powers_off = false;
+    out.heap_kb = 320;
+    out.psram_chip_kb = 8192;
+    out.psram_kb = 4096;
+    // **The ATOM's free heap and the Paper's mapped PSRAM**: the same chip and the same external window,
+    // but nobody has taken the T-Koala's own numbers on the board yet. docs/95 has the command and this
+    // pair is replaced the day they exist (docs/75, docs/85).
+    out.free_heap_bytes = 338864;
+    out.extra_free_bytes = 4095u * 1024u;
+    out.app_limit_kb = 4096;  // what the board answers as the ceiling of an app
+    out.disk_bytes = 0x160000;  // the littlefs partition of partitions.csv
+    out.boot_image_bytes = 2286000;  // the image of the tkoala environment, 5/11 (docs/85)
     return out;
   }
   if (matrix) {

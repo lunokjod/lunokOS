@@ -710,6 +710,32 @@ freqüència real del xip i si el maquinari fa el que diu el full (docs/85).
 
 ---
 
+## F · La LilyGO T-Koala (0.94.0)
+
+La placa nova encara no ha passat per cap mà. Les tres coses que el firmware ja dona per fetes i que
+s'han de veure al maquinari són la PSRAM, la targeta i el LED.
+
+```
+mem
+caps
+ls /sd
+led
+```
+
+| Què apuntar | On va |
+|---|---|
+| `mem` diu `extra memory 4 095 of 4 096 KB usable, of 8 192 KB on the chip`; si diu `0`, el `BOARD_HAS_PSRAM` o el QSPI del `boards/ttgo-t-koala.json` no és el d'aquesta placa | docs/50, docs/75 |
+| El **lliure real** del heap intern i de la PSRAM al prompt (els dos números de `mem`), que substitueixen els que el model hereta de l'ATOM i del Paper | docs/75, docs/85 (`Model::free_heap_bytes` i `Model::extra_free_bytes`) |
+| `caps` diu `sd yes` amb una targeta posada i `ls /sd` en llista el contingut; si no, el mapa HSPI (CS 15, SCK 14, MOSI 13, MISO 12) s'ha de comprovar amb el peu de la ranura | docs/50 |
+| `led` encén el verd de GPIO5 i el deixa apagar; el color no hi és i no és una avaria | docs/50 |
+| La bateria: si es vol anunciar, primer cal **trobar el divisor** (el pin 25 és el candidat que diu la xarxa, sense confirmar) i mesurar la tensió amb un polímetre; fins aleshores `power.battery()` ha de dir `nil` | docs/50, docs/75 |
+
+**La imatge d'aquest entorn és 2 286 000 B** (`firmware.bin`, 5/11) i la partició d'aplicació és la
+de 2,5 MB de `partitions.csv`: 86,7 % ocupada. El disc de 1 441 792 B porta les apps que diuen `esp32` o
+`ttgo-t-koala`.
+
+---
+
 ## Què **no** cal mesurar encara
 
 - **La velocitat de mostra del tàctil**: contar frames amb el dit (E-6). El marc ja està mesurat.

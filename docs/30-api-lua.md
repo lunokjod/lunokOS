@@ -137,6 +137,7 @@ cap nom és dir quin model fa el banc: `sys.board` respon aquest model (l'ATOM s
 | `m5stack-atom` | consola, LittleFS, NVS, ràdio Wi-Fi amb TLS, provisioning, son, un llum, un botó, un port Grove I2C | pantalla, bateria, teclat, targeta SD, sensor inercial |
 | `m5stack-atom-matrix` | el mateix, amb **vint-i-cinc llums** i un **sensor inercial** | el mateix que el Lite |
 | `m5stack-paper` | el mateix que el Lite pel que fa al xip (consola, disc, NVS, ràdio amb TLS, provisioning, son), amb **tres tecles**, **targeta SD** al slot (a `/sd`) i sense cap llum | pantalla, bateria, toc i sensor, encara (docs/90) |
+| `ttgo-t-koala` | el mateix que el Lite pel que fa al xip, amb **4 MB de PSRAM mapejada** (8 MB al xip), **targeta SD** a `/sd` i un **LED verd** a GPIO5 | pantalla, tàctil, sensor, tecles, indicador de bateria i apagar-se, encara (docs/50, docs/95) |
 
 Al PC la taula d'un model és la de la placa **amb les peces falses a sobre** (docs/85): el banc té el
 dial de tecles, el panell i el sensor alhora perquè el que no hi és no es pot provar. Aquí és on entra

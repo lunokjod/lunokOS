@@ -14,18 +14,18 @@ Si una cosa és «un aparell que es pot endollar», és HAL. Si és «una manera
 Totes són classes amb funcions virtuals pures, sense memòria dinàmica i sense excepcions. Una placa
 que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 
-| Interfície | Què abstrau | Lite | Matrix | Paper | Emulador |
-|---|---|---|---|---|---|
-| `IClock` | hora de paret, rellotge monòton, **un sol** despertador, i tornar a prendre l'hora al xip | ✓ | ✓ | ✓ (**amb la BM8563**: l'hora sobreviu al cable, el xip arma el despert i corregeix el comptador després de cada son) | ✓ |
-| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ |
-| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ |
-| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | **la ràdio és de mentida i la pàgina no**: `curl` la baixa de debò (docs/85) |
-| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada** | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
-| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | el del model: 1, 25 o cap |
-| `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | ✓ (les del model) |
-| `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | de mentida |
-| `ISensor` | l'aire: temperatura i humitat relatives | — | — | ✓ (**SHT30**, a la I2C interna; es mesura quan es demana i no té estat) | de mentida (el model del Paper) |
-| `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — |
+| Interfície | Què abstrau | Lite | Matrix | Paper | T-Koala | Emulador |
+|---|---|---|---|---|---|---|
+| `IClock` | hora de paret, rellotge monòton, **un sol** despertador, i tornar a prendre l'hora al xip | ✓ | ✓ | ✓ (**amb la BM8563**: l'hora sobreviu al cable, el xip arma el despert i corregeix el comptador després de cada son) | ✓ | ✓ |
+| `IStorage` | un volum muntat: stat, list, open, read, write, seek, close, remove, mkdir, rename, space | ✓ | ✓ | ✓ | ✓ (LittleFS i targeta) | ✓ |
+| `IKeyValue` | claus i valors, exposats com a fitxers a `/nvs` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `INet` | la ràdio: connectar, escanejar, provisioning, NTP i una pàgina | ✓ | ✓ | ✓ (provat a la placa) | ✓ (el mateix codi; pendent de provar a la placa) | **la ràdio és de mentida i la pàgina no**: `curl` la baixa de debò (docs/85) |
+| `IPower` | bateria, son, **apagar** (tallar el corrent de debò), velocitat del processador, i si el son profund és una **apagada** | ✓ (son i velocitat; **no es pot apagar**, no té el seu corrent) | ✓ (el mateix) | ✓ (bateria i son; el son profund apaga; `power_off` fa **la seqüència del fabricant**: desarma el xip del rellotge, espera 600 ms, baixa la **GPIO23** (panell), la **GPIO5** (ports), la **GPIO2** (corrent principal) i posa el xip a dormir profund, o sigui que només el botó la torna a encendre) | ✓ (son i velocitat; **no hi ha indicador de bateria** i no es pot apagar) | de mentida (el model del Paper acaba el procés; l'ATOM diu que no) |
+| `ILed` | un llum o una tira: quants n'hi ha, el sostre del canal, pintar | 1 | 25 | — (no en té) | 1 (LED verd a GPIO5, només encès/apagat) | el del model: 1, 25, 0 o 1 |
+| `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | — (cap tecla; el botó és RST) | ✓ (les del model) |
+| `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | — | de mentida |
+| `ISensor` | l'aire: temperatura i humitat relatives | — | — | ✓ (**SHT30**, a la I2C interna; es mesura quan es demana i no té estat) | — | de mentida (el model del Paper) |
+| `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — | — |
 
 El contracte sencer, amb totes les funcions i els comentaris que les expliquen, és a
 `lib/hal/include/hal/hal.h`. **Quan aquest document i el capçalari no diguin el mateix, mana el
@@ -102,15 +102,15 @@ amb dues capçaleres de nom fix:
 
 | `board/identity.h` | Què diu |
 |---|---|
-| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper`; al banc, el model que se li ha dit que és |
-| `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]`, i val per a les quatre bandes |
+| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`; al banc, el model que se li ha dit que és |
+| `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]`, i val per a les cinc bandes |
 | `emulator()` | cert només al PC, i és el que diu que la placa de sota `id()` és de mentida |
-| `led_count()` | quants llums: 1 al Lite, 25 al Matrix i cap al Paper. **Al banc no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1, 25 o 0) |
-| `led_max()` | el sostre d'un canal: 255 al Lite, 20 al Matrix i al banc |
+| `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap al Paper i 1 al T-Koala. **Al banc no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1 al Lite i al T-Koala, 25 al Matrix i 0 al Paper) |
+| `led_max()` | el sostre d'un canal: 255 al Lite i al T-Koala, 20 al Matrix i al banc |
 | `has_imu()` | si la placa porta sensor inercial |
 
 El banc té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
-models que sap ser —`m5stack-atom`, `m5stack-atom-matrix` i `m5stack-paper`—. No els respon tots alhora:
+models que sap ser —`m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`—. No els respon tots alhora:
 la persona li diu quin és (`--board m5stack-paper`, i **cal dir-lo**: el banc no tria placa) i `id()` i
 `board_name()` responen **aquell**, de manera que una app s'accepta o es refusa al PC igual que a la
 placa (docs/40, docs/85). `sys.emulator` continua cert: el nom és el d'una placa que existeix i el
@@ -119,7 +119,7 @@ maquinari de sota és fals.
 El maquinari fals **segueix el model** que el banc ha rebut —capacitats, nombre de llums, nombre de
 tecles, sensor, indicador de bateria, ranura i FRAM surten tots de `emu::model()`—, perquè una app que
 demani més del que té la seva placa no ho trobi al banc i es cregui un número de mentida. L'únic que
-encara és comú als tres models és la **forma de les tecles** (el dial compost de la Paper: cara
+encara és comú als quatre models és la **forma de les tecles** (el dial compost de la Paper: cara
 esquerra, `centre`/`up`/`down`), i això és el que queda a M8 (docs/90).
 
 `board/impl.h` arrossega les capçaleres de debò (el HAL d'aquesta placa i la seva PAL), i només
@@ -142,6 +142,23 @@ l'inclou `src/board_link.cpp`.
 xip, la flash i la taula de particions són els mateixos, i aquest nom no les pot distingir. Per això la
 identitat del Matrix diu `m5stack-atom-matrix`, i una app que hagi de triar camí de maquinari té un nom
 per fer-ho (docs/40).
+
+**El T-Koala és una placa de PlatformIO pròpia**, `boards/ttgo-t-koala.json`, perquè el WROVER-B no és
+cap dels mòduls que la plataforma porta amb PSRAM: el fitxer diu la flash QIO de 40 MHz, la PSRAM QSPI,
+`BOARD_HAS_PSRAM` i el remei de la cache del xip. La identitat és `ttgo-t-koala` i el HAL és
+`lib/hal_tkoala/`, que només afegeix el que és seu: **LED verd a GPIO5** (un LED normal, no un WS2812:
+s'encén o s'apaga, i el color que l'app demana no hi cap), **cap tecla que el firmware pugui llegir** (l'únic botó és RST, que reinicia el xip) i **targeta microSD als pins HSPI** —CS 15, SCK 14, MOSI 13, MISO 12—,
+que és el grup que la serigrafia del fabricant posa al costat de la ranura. El PSRAM és el del
+WROVER-B: el xip en té 8 MB i l'ESP32 n'hi mapeja 4, i `heap_limit_kb()` contesta 4 096 només si el xip
+respon que en té; una versió WROOM-32 sense PSRAM cau a zero i no promet memòria que no hi és.
+**La bateria no s'anuncia**: la placa té carregador i connector, però el divisor no està documentat
+pels fabricants i cap lectura s'ha pres al maquinari; el full de camp de docs/95 és on es tancarà.
+
+**I els muntatges són els que són**: el `/rtc` del xip, la flash a `/littlefs` i la targeta a `/sd`, i res
+més. Aquesta placa **no té FRAM**, i el camí que el Paper fa servir —«si no és la flash, prova la targeta»—
+li donava a `/fram` la targeta sencera: una memòria crua que no hi existeix, amb els fitxers d'algú sota un
+nom que promet 256 bytes. `storage()` respon cada muntatge pel seu nom i torna `nullptr` per a la resta, o
+sigui que `ls /` i `mounts` no ensenyen ni `fram` ni res que la placa no tingui (docs/70).
 
 ## El llum
 
@@ -1051,7 +1068,7 @@ tecla i veure quin GPIO es tanca.
 
 | | |
 |---|---|
-| Nom (`sys.board`) | El model que se li ha dit que sigui: `m5stack-atom` (per defecte), `m5stack-atom-matrix` o `m5stack-paper`. Mai `emulator`, que no és cap placa (docs/85) |
+| Nom (`sys.board`) | El model que se li ha dit que sigui: `m5stack-atom` (per defecte), `m5stack-atom-matrix`, `m5stack-paper` o `ttgo-t-koala`. Mai `emulator`, que no és cap placa (docs/85) |
 | Plataforma | POSIX (Linux) |
 | RAM | La del PC, però **limitada al mateix sostre que la placa** |
 | Fitxers | Un directori del disc (`emulator/`) amb `littlefs/` i `nvs/`, i una targeta amb `--sd` |

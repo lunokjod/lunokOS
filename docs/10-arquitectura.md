@@ -127,7 +127,7 @@ si li toca. No hi ha dues apps carregades mai.
 ## Mapa del repositori
 
 ```
-platformio.ini          cinc entorns: atom, atom_matrix, paper, emulator, test
+platformio.ini          set entorns: atom, atom_matrix, paper, esp32, tkoala, emulator i test
 partitions.csv          particions pròpies (app + littlefs + nvs + coredump)
 src/main.cpp            setup()/loop() d'Arduino: crida al nucli, res més
 lib/
@@ -144,7 +144,7 @@ lib/
   hal/                  capçaleres de les interfícies (no té codi)
   hal_esp32/            el que és del xip i no de cap placa: LittleFS, NVS,
                         rellotge, son, tecles en un GPIO, tira de WS2812, ràdio i
-                        targeta SD (el fan servir les dues plaques d'ESP32, docs/50)
+                        targeta SD (el fan servir les tres plaques d'ESP32, docs/50)
   pal/                  capçaleres de la capa de plataforma (no té codi)
   hal_atom/             el que és de la família M5 ATOM: la seva identitat, el pin
                         del llum i del botó i el MPU6886 del Matrix
@@ -158,6 +158,10 @@ lib/
                         tres tecles, la targeta al slot i el bus de la I2C
                         intern, amb el panell (IT8951) i el tàctil (GT911)
                         damunt del que és del xip, a hal_esp32 (docs/50)
+  board_tkoala/         la identitat del LilyGO T-Koala: "ttgo-t-koala", un LED
+                        i cap sensor (docs/50)
+  hal_tkoala/           el que és del T-Koala: el LED de GPIO5, la targeta
+                        als pins HSPI i el PSRAM del WROVER-B
   hal_emulator/         implementació per al PC (inclou main() de l'emulador);
                         mateixes capçaleres, i la identitat respon el model que
                         se li ha dit (`--board`, docs/85)
@@ -166,7 +170,7 @@ lib/
   json/                 analitzador JSON de tracció, per a manifests i cfg
   qr/                   qualsevol QR que aquest build pugui dibuixar
 boards/                 definicions de placa que PlatformIO no porta: la del Paper
-                        (boards_dir a platformio.ini, docs/80)
+                        i la del T-Koala (boards_dir a platformio.ini, docs/80)
 apps/                   les apps del projecte, una carpeta per id (`apps/<id>/`),
                         amb el seu `manifest.json` i, si en té, els seus `res/`
 data/                   el que és del sistema a la imatge de la LittleFS: `res/` i

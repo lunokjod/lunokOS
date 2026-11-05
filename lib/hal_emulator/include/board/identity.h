@@ -47,18 +47,19 @@ inline constexpr bool has_imu() { return true; }
 // The models this bench knows how to be. It is the list `--board` accepts, and the
 // reason the default can be named: one of them is always the answer, so `sys.board` is
 // never a name that does not exist (docs/85). The hardware it fakes is the union of the
-// three, which is why an app that asks for more than its model has will find it here and
+// four, which is why an app that asks for more than its model has will find it here and
 // must trust `sys.emulator` before believing the numbers.
-inline constexpr uint32_t models_count() { return 3; }
+inline constexpr uint32_t models_count() { return 4; }
 inline const char* model(uint32_t index) {
   if (index == 0) return "m5stack-atom";
   if (index == 1) return "m5stack-atom-matrix";
   if (index == 2) return "m5stack-paper";
+  if (index == 3) return "ttgo-t-koala";
   return nullptr;
 }
 
 // The model the bench is when nobody says otherwise: the ATOM, which is the family this
-// band imitates and the smallest of the three.
+// band imitates and the smallest of the four.
 inline const char* default_model() { return model(0); }
 
 }  // namespace board

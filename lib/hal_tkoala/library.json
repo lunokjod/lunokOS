@@ -1,0 +1,7 @@
+{
+  "name": "hal_tkoala",
+  "version": "0.1.0",
+  "description": "Board support for the LilyGO TTGO T-Koala: ESP32-WROVER-B, 4 MB of flash, 8 MB of PSRAM (4 mapped), a green LED on GPIO5, the BOOT key on GPIO0 and a microSD slot on the HSPI pins. The drivers for the chip and the card are in hal_esp32.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] },
+  "dependencies": { "hal_esp32": "*" }
+}

@@ -1318,7 +1318,17 @@ namespace kernel {
 // keyboard` lists them, `cfg keyboard qwerty|azerty` selects and saves the id in the NVS under `cfg/keyboard`, and the
 // boot asks the UI for it; a name this build does not carry falls back to qwerty with a line. The free functions of
 // `ui` keep the same signatures for the apps and Lua (docs/30, docs/70, docs/90).
-static const char kVersion[] = "0.93.0";
+// 0.94.0 (5/11): **the LilyGO TTGO T-Koala is a board of its own**. The environment `tkoala` builds for an
+// ESP32-WROVER-B with 4 MB of flash and the 4 MB of PSRAM the chip maps: the board definition carries the QIO
+// flash and the QSPI PSRAM, the partition table is the 4 MB one and the disk is the one of the other 4 MB
+// boards. Its HAL says the three things only the board knows: the green LED is a plain GPIO5, there is no key
+// the firmware can read, and the microSD is the HSPI slot (CS 15, SCK 14, MOSI 13, MISO 12). **I cada muntatge és el
+// que es diu i cap altre**: la targeta contesta `/sd` i prou, perquè la placa **no té FRAM** i el camí que el Paper fa
+// servir —«si no és la flash, prova la targeta»— donava a `/fram` la targeta sencera, una memòria crua que no hi és
+// amb els fitxers d'algú sota un nom que promet 256 bytes (trobat en revisar la placa, 5/11). `sys.board` answers
+// `ttgo-t-koala`, the bench has the same model so an app of this board can be tried on the PC, and the CI
+// builds it with the other five bands (docs/50, docs/70, docs/80, docs/85).
+static const char kVersion[] = "0.94.0";
 
 }  // namespace kernel
 

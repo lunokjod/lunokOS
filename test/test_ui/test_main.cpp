@@ -1126,6 +1126,24 @@ static void test_only_the_board_that_has_a_glass_announces_one() {
   emu::set_options(before);
 }
 
+// **The T-Koala is one light, no key, a card slot and the mapped PSRAM**: the bench asks its model list
+// for the board by the name the firmware answers, and the board has no screen to fake (docs/50, docs/85).
+static void test_the_t_koala_model_is_one_light_a_slot_and_four_megabytes_of_psram() {
+  const emu::Model koala = emu::model_of("ttgo-t-koala");
+  TEST_ASSERT_EQUAL_STRING("ttgo-t-koala", koala.name);
+  TEST_ASSERT_EQUAL_UINT32(1, koala.lights);
+  TEST_ASSERT_EQUAL_UINT32(0, koala.keys);
+  TEST_ASSERT_FALSE_MESSAGE(koala.glass, "the T-Koala has a glass");
+  TEST_ASSERT_FALSE_MESSAGE(koala.touch, "the T-Koala has a touch panel");
+  TEST_ASSERT_FALSE_MESSAGE(koala.imu, "the T-Koala has an inertial sensor");
+  TEST_ASSERT_FALSE_MESSAGE(koala.gauge, "the T-Koala has a battery gauge");
+  TEST_ASSERT_TRUE_MESSAGE(koala.slot, "the T-Koala has no card slot");
+  TEST_ASSERT_EQUAL_UINT32(8192, koala.psram_chip_kb);
+  TEST_ASSERT_EQUAL_UINT32(4096, koala.psram_kb);
+  TEST_ASSERT_EQUAL_UINT32(4096, koala.app_limit_kb);
+  TEST_ASSERT_EQUAL_UINT32(0x160000, koala.disk_bytes);
+}
+
 // **A pixel of the window is a block of the page**, and the finger of the mouse lands in the middle of it:
 // the window draws one pixel for every `scale` of the glass, and the way back is what makes a click a tap
 // on the pixel a person is pointing at. A point outside the page is pinned to its edge instead of being a
@@ -2924,6 +2942,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_gc16_blinks_before_the_image_arrives);
   RUN_TEST(test_the_glass_is_walked_while_the_paint_waits);
   RUN_TEST(test_only_the_board_that_has_a_glass_announces_one);
+  RUN_TEST(test_the_t_koala_model_is_one_light_a_slot_and_four_megabytes_of_psram);
   RUN_TEST(test_a_pixel_of_the_window_lands_in_the_middle_of_its_block);
   RUN_TEST(test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for);
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
