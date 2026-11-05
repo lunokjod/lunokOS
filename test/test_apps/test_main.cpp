@@ -2092,10 +2092,21 @@ void test_a_path_with_spaces_reaches_the_app_in_quotes(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a path with spaces goes in quotes"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "which one?"), g_out);
 
-  // Quoted: one path, the extension finds the app, and it receives it whole.
+  // Quoted: one path, the extension finds the app, and it receives it whole. **The selector lists
+  // the handlers in the order the disk gives them**, and two file systems do not give the same one:
+  // the test reads the number it printed for `txts` instead of assuming that `txt` is second.
   TEST_ASSERT_TRUE(run_captured("open \"/res/el meu fitxer.txt\"", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "which one?"), g_out);
-  TEST_ASSERT_TRUE(run_captured("1", g_out, sizeof(g_out)));
+  const char* listed = strstr(g_out, ") txts");
+  TEST_ASSERT_NOT_NULL_MESSAGE(listed, g_out);
+  const char* number = listed;
+  while (number > g_out && number[-1] >= '0' && number[-1] <= '9') --number;
+  char answer[8];
+  const size_t digits = static_cast<size_t>(listed - number);
+  TEST_ASSERT_TRUE(digits > 0 && digits < sizeof(answer));
+  memcpy(answer, number, digits);
+  answer[digits] = '\0';
+  TEST_ASSERT_TRUE(run_captured(answer, g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "spaced handler, file /res/el meu fitxer.txt"),
                                 g_out);
 

@@ -1280,7 +1280,11 @@ namespace kernel {
 // request and refuses one that changes a file without raising `kernel::kVersion`; the CI runs it before the builds.
 // The two commits of 0.88.2 that escaped —the reused number and the tool that did not touch the header— stay where
 // git put them; this is for the ones that come next (docs/80, law 10 of the README).
-static const char kVersion[] = "0.89.5";
+// 0.89.6 (5/11): **the test of the quoted path does not assume the directory order**. The selector lists the handlers
+// in the order the disk gives them, and the CI's file system put `txt` before `txts` where the bench put `txts` first,
+// so `1` started the other app and the assertion failed; the test now reads the number the selector printed for `txts`
+// and answers that. The kernel was right; the test was the one that depended on readdir (docs/40, docs/80).
+static const char kVersion[] = "0.89.6";
 
 }  // namespace kernel
 
