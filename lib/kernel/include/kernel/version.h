@@ -1289,7 +1289,15 @@ namespace kernel {
 // `#warning` and the project's `-Werror` turned it into a failed `hal_esp32/battery.cpp`, while the same tree built
 // here. The numbers of docs/75 and the README are measured with a toolchain, and the toolchain is now the one
 // `platformio.ini` names (docs/75, docs/80).
-static const char kVersion[] = "0.89.7";
+// 0.90.0 (5/11): **an app that never yields no longer takes the board with it**. The interpreter installs the count
+// hook on every band —not only where the bench prices instructions— and a turn is 100 000 instructions; when it
+// reaches them the hook yields the coroutine (`lua_yield` from a hook is supported by 5.4, and `lua_isyieldable`
+// keeps it out of a C call) and `poll` sees a turn and not a promise, so the kernel reads the console, delivers the
+// alarms and asks the button and the radio before the app goes on. **The app is not killed**: a `while true do end`
+// runs forever, but the board stays alive and `!!exit`/three ESC close it. The two warnings and `E_BUDGET` of
+// docs/75 are still the next step, as are the alarm window, the `lua` prompt and the coroutines an app creates
+// (docs/20, docs/75).
+static const char kVersion[] = "0.90.0";
 
 }  // namespace kernel
 

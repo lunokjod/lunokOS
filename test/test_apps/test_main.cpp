@@ -2116,6 +2116,37 @@ void test_a_path_with_spaces_reaches_the_app_in_quotes(void) {
   storage->remove("/apps/txts");
 }
 
+// **A turn budget and not a kill** (0.90.0): a loop long enough to pass the 100 000 instructions of a
+// turn gives the kernel its turn, so the console is read and the app can be closed. The infinite version
+// (`while true do end`) was checked on the bench; this one is finite so a regression fails the test instead
+// of hanging the suite (docs/20, docs/75).
+void test_a_long_loop_gives_the_turn_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "spinner",
+                            "{\"title\":\"Spinner\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "console.print(\"spin\")\n"
+                            "local n = 0\n"
+                            "while n < 5000000 do n = n + 1 end\n"
+                            "console.print(\"done\")\n"));
+
+  // `pump_captured` turns the kernel: before the budget the first poll ran the whole loop.
+  pump_captured(4, g_out, sizeof(g_out), "run spinner");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "spin"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "done"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+
+  // The kernel has had turns to read the console: three ESC close the app that no longer yields.
+  pump_captured(4, g_out, sizeof(g_out), nullptr, "\x1b\x1b\x1b");
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/spinner/app.lua");
+  storage->remove("/apps/spinner/manifest.json");
+  storage->remove("/apps/spinner");
+}
+
 // Provisioning, end to end on the fake of this band: the access point comes up,
 // the board gets a network, and the promise means **on the network**, not merely
 // holding a password (docs/50). Then `forget` takes it away, and with it the
@@ -6335,6 +6366,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_question_is_the_only_prompt);
   RUN_TEST(test_a_long_path_reaches_the_app);
   RUN_TEST(test_a_path_with_spaces_reaches_the_app_in_quotes);
+  RUN_TEST(test_a_long_loop_gives_the_turn_back);
   RUN_TEST(test_an_app_asks_what_is_mounted_and_how_much_room_is_left);
   RUN_TEST(test_an_app_connects_without_stopping_the_kernel);
   RUN_TEST(test_net_connect_gives_up_at_the_deadline);

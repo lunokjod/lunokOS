@@ -21,7 +21,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | **Terra de l'intèrpret** | Mesurat a l'ATOM de l'emulador, 4/11, amb `sys.heap()` en arrencar una app | **29 842 B** abans que l'app corri una línia: 13 021 de Lua i les seves llibreries, 13 200 de la llibreria d'UI (canvas, teclat, cares) i 3 600 dels altres globals. És el que una app **no** pot fer servir del seu sostre |
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
 | Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
-| Pressupost d'instruccions | **No existeix encara** | Avui una app que no cedeix penja la placa (docs/20, docs/90) |
+| Pressupost d'instruccions | **100 000 per torn** (0.90.0) | En esgotar-se, l'app fa `lua_yield` i el nucli recupera el torn; **no es mata** (docs/20, docs/75) |
 | Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb `run burst` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i el mateix `run burst` dona `limit 4 194 304 B` |
 
 Nota sobre els 338 864: és més gran que els 320 KB del full de dades del xip perquè el heap de
@@ -399,7 +399,8 @@ sense flashejar.
 Cent promeses seguides costen **11 353 B** a l'ESP32 i **18 236 B** al PC per sobre del punt de
 partida, i el bucle triga **199 ms a la placa contra 115 ms al PC**: això és **1 ms de sobrecost per
 torn** a l'ESP32 (100 esperes d'1 ms → 199 ms) contra 0,15 ms al PC. És el primer número que tenim
-del cost d'un torn del nucli, i el que caldrà vigilar quan existeixi el pressupost d'instruccions.
+del cost d'un torn del nucli, i el que el pressupost d'instruccions (100 000 per torn) ha de deixar
+passar entre torns.
 
 **Des de la 0.58.0 el banc el paga** (`kTurnOverheadUs` = 850 µs, la diferència mesurada, després de
 cada torn i fora de `--no-delay`), i des de la 0.60.0 **el venciment també es despatxa al torn
@@ -539,13 +540,20 @@ dinàmic: tot és estat fix a `lib/kernel/src/led.cpp`.
 
 ## Pressupost d'instruccions
 
-`lua_sethook` amb comptador. Cada **torn** d'una tasca té un màxim d'instruccions; quan s'esgota, la
-tasca torna a la cua i el nucli fa la seva feina (esdeveniments, alarmes, col·lector).
+**Implementat en la seva primera meitat a la 0.90.0.** `lua_sethook` amb comptador cada 2 000
+instruccions; cada **torn** de l'app té un màxim de **100 000 instruccions** (50 blocs). Quan
+s'esgota, el hook fa `lua_yield` i la tasca torna a la cua; el nucli atén la consola, les alarmes, el
+botó i la ràdio abans de reprendre-la.
 
 - Un torn no és un càstig: una app que fa un bucle llarg simplement es reparteix en torns.
-- **Dos avisos seguits** vol dir que l'app no cedeix mai ni quan el nucli ho demana: es mata amb
-  `E_BUDGET`.
-- Dins d'una finestra d'alarma el pressupost és més curt que en primer pla.
+- **No es mata l'app**: un `while true do end` corre per sempre, però la placa no es penja, i
+  `!!exit`/3 ESC el tanquen.
+- El yield només es fa si `lua_isyieldable` (fora d'una crida C); si no, s'espera el proper punt
+  segur. El comptador tampoc veu el que passa dins d'una funció C, ni pot cedir dins d'un ganxo que
+  el nucli crida amb `lua_pcall` (`on_click`, `on_alarm`, `on_draw`…).
+- **Pendent**: els **dos avisos seguits** i el matar amb `E_BUDGET`, el pressupost més curt de la
+  finestra d'alarma, el prompt `lua` (que fa `lua_pcall` i no és una coroutine) i les coroutines que
+  crea l'app (un yield allà torna a `coroutine.resume`, no al nucli).
 
 ## Col·lector
 

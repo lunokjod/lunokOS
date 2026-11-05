@@ -62,9 +62,9 @@ Del bucle se'n dedueixen quatre coses:
 - **L'app té l'últim torn.** Quan li toca, la consola ja s'ha llegit i les alarmes ja s'han entregat,
   o sigui que un byte que acaba d'arribar ja és a la cua quan l'app desperta.
 
-**El que no hi ha és un pressupost d'instruccions**: una app que no cedeix no torna el torn i penja
-la placa. Una app ha de cedir amb una promesa, i això és l'única cosa que protegeix el sistema
-(docs/20, docs/90).
+**El que hi ha és un pressupost d'instruccions per torn**: 100 000, i en esgotar-se la tasca fa
+`lua_yield` i el nucli recupera el torn. Una app que no cedeix no penja la placa: corre a trossos, i
+`!!exit`/3 ESC la tanquen. El matar amb `E_BUDGET` després de dos avisos encara no hi és (docs/20, docs/75).
 
 ## Esdeveniments
 

@@ -21,8 +21,9 @@ tancat en una carpeta.
    provar-ho.
 
 3. **Res no penja el sistema.** Tot el que pot trigar passa per una promesa: cap crida de C feta des
-   de Lua bloqueja el nucli. El comptador d'instruccions que ha de tallar un bucle infinit **encara
-   no hi és**, i es diu: avui una app que no cedeix penja la placa (docs/20, docs/90).
+   de Lua bloqueja el nucli. I el comptador d'instruccions **hi és des de la 0.90.0**: cada torn té
+   100 000 instruccions i, en esgotar-se, la tasca fa `lua_yield` i el nucli recupera el torn; una app
+   que no cedeix no penja la placa, corre a trossos (docs/20, docs/75).
 
 4. **La memòria és el bé escàs.** L'únic que alloca dinàmicament és Lua, i amb un sostre. La resta
    són taules i buffers fixos. Cap fitxer es carrega sencer.

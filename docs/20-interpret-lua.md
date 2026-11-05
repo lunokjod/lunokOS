@@ -95,12 +95,14 @@ Cada app s'executa amb un `_ENV` propi:
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
 | **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: 65 536 B al sostre per defecte i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
-| **Instruccions** | **No hi és** (docs/90) | Avui una app amb un `while true do end` **penja la placa**: el nucli no torna a tenir el torn. És el forat més gran del sistema i està fitat |
-| **Temps de torn** | El nucli no deixa córrer una tasca més d'un torn seguit: una app que cedeix torna al nucli a cada espera | Es torna a la cua de tasques |
+| **Instruccions** | `lua_sethook` amb comptador: **100 000 per torn**, en blocs de 2 000 | En esgotar-se, la tasca fa `lua_yield` i torna al nucli; **no es mata**. Un `while true do end` corre a trossos i la placa no es penja; `!!exit`/3 ESC la tanquen (docs/75) |
+| **Temps de torn** | El comptador talla el torn: una app que cedeix torna al nucli a cada espera, i una que no cedeix hi torna igualment quan el comptador s'esgota | Es torna a la cua de tasques |
 
-El comptador d'instruccions, quan hi sigui, no distingirà una app que pinta un joc d'una que s'ha
-penjat; per això el que es talla és el **torn** i no l'execució: una app pot viure hores si cedeix.
-Mentrestant, l'única cosa que protegeix el sistema és que les apps cedeixin.
+El comptador no distingeix una app que pinta un joc d'una que s'ha penjat; per això el que es talla és el
+**torn** i no l'execució: una app pot viure hores. El yield només es fa si `lua_isyieldable` (fora d'una
+crida C); si no, s'espera el proper punt segur. **Encara no hi ha** el matar amb `E_BUDGET` després de dos
+avisos, ni el pressupost propi de la finestra d'alarma, ni el del prompt `lua`, ni el de les coroutines
+que crea l'app, ni el dels ganxos que el nucli crida amb `lua_pcall` (docs/75, docs/90).
 
 ## El prompt com a intèrpret (`lua`)
 

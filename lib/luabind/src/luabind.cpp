@@ -624,21 +624,54 @@ const uint32_t kHookInstructions = 2000;
 const uint32_t kPayThresholdUs = 500;
 uint32_t g_pending_us = 0;
 
+// **The turn budget** (0.90.0): when a turn reaches `kTurnBudgetInstructions`, the count hook yields the
+// coroutine back to the kernel. It is a slice and not a kill: an app that never yields keeps running, but
+// the console, the alarms, the button and the radio get a turn between slices (docs/20, docs/75).
+const uint32_t kTurnBudgetInstructions = 100000;  // 50 blocks of kHookInstructions, ~0.6 ms at 160 MHz
+uint32_t g_turn_instructions = 0;
+bool g_budget_pending = false;
+bool g_budget_yielded = false;
+bool g_call_split = false;
+
 void pay_the_instructions(uint32_t pending) {
   if (g_meter_ops.spend_us != nullptr && pending > 0) g_meter_ops.spend_us(pending);
 }
 
 void meter_hook(lua_State* L, lua_Debug* ar) {
-  (void)L;
   if (ar == nullptr) return;
   if (ar->event == LUA_HOOKCOUNT) {
-    if (g_meter_ops.instruction_ns == nullptr) return;
-    const uint32_t ns = g_meter_ops.instruction_ns();
-    if (ns == 0) return;
-    g_pending_us += (kHookInstructions * ns) / 1000u;
-    if (g_pending_us >= kPayThresholdUs) {
-      pay_the_instructions(g_pending_us);
-      g_pending_us = 0;
+    // **The block is priced first**, so the yield of the budget pays the instructions that led to it and
+    // a turn boundary does not lose the last two thousand of them (docs/85).
+    uint32_t ns = 0;
+    if (g_meter_ops.instruction_ns != nullptr) ns = g_meter_ops.instruction_ns();
+    if (ns > 0) {
+      g_pending_us += (kHookInstructions * ns) / 1000u;
+      if (g_pending_us >= kPayThresholdUs) {
+        pay_the_instructions(g_pending_us);
+        g_pending_us = 0;
+      }
+    }
+
+    // **The turn budget is counted on the app's own task**, and not in the one-turn window of an alarm: a
+    // yield from a nested coroutine would return to `coroutine.resume` and not to the kernel, and a window
+    // has no next turn (docs/20, docs/75).
+    if (L == g_task && !g_boot.window) {
+      g_turn_instructions += kHookInstructions;
+      if (g_turn_instructions >= kTurnBudgetInstructions) g_budget_pending = true;
+      if (g_budget_pending && lua_isyieldable(L)) {
+        // A call in progress is split: what it cost up to the yield is paid now, and `poll` restarts the
+        // clock at the resume, so the wait between turns is not charged to the call (docs/30).
+        if (g_timing_call && g_meter_ops.now_us != nullptr && g_meter_ops.add_call != nullptr) {
+          g_meter_ops.add_call(g_meter_ops.now_us() - g_call_start);
+          g_call_split = true;
+        }
+        g_budget_pending = false;
+        g_budget_yielded = true;
+        pay_the_instructions(g_pending_us);
+        g_pending_us = 0;
+        lua_yield(L, 0);  // 5.4 allows a hook to yield, with no values and no continuation
+        return;           // not reached: lua_yield unwinds
+      }
     }
     return;
   }
@@ -8170,6 +8203,10 @@ void finish_task() {
     lua_setfield(g_state, LUA_REGISTRYINDEX, kTaskKey);
   }
   g_task = nullptr;
+  g_turn_instructions = 0;
+  g_budget_pending = false;
+  g_budget_yielded = false;
+  g_call_split = false;
 }
 
 // Everything a fresh state needs before an app can run. It is called through
@@ -8227,16 +8264,14 @@ bool start(const Boot& boot, size_t limit_bytes) {
   // The meter of a call into the system, from the first line the app runs (docs/30).
   g_call_depth = 0;
   g_timing_call = false;
-  // **The count hook is installed only where instructions are priced**: on a board they are not, and a
-  // hook that runs every two thousand instructions to do nothing is a tax on the thing being measured
-  // (docs/85). A band that answers with a price is a bench that is simulating a slower processor.
-  const uint32_t instruction_ns =
-      (g_meter_ops.instruction_ns != nullptr) ? g_meter_ops.instruction_ns() : 0;
-  if (instruction_ns > 0) {
-    lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, kHookInstructions);
-  } else {
-    lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET, 0);
-  }
+  g_turn_instructions = 0;
+  g_budget_pending = false;
+  g_budget_yielded = false;
+  g_call_split = false;
+  // **The count hook is installed on every band**: the same hook prices the instructions on the bench and
+  // enforces the turn budget on the board, where an instruction costs what it costs and there is nothing to
+  // simulate (docs/20, docs/85). The call/return hooks are the meter of the API.
+  lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, kHookInstructions);
 
   lua_pushcfunction(g_state, &open_everything);
   if (lua_pcall(g_state, 0, 0, 0) != LUA_OK) {
@@ -8285,6 +8320,10 @@ void stop() {
   lua_pushnil(g_state);
   lua_setfield(g_state, LUA_REGISTRYINDEX, kNetKey);
   g_task = nullptr;
+  g_turn_instructions = 0;
+  g_budget_pending = false;
+  g_budget_yielded = false;
+  g_call_split = false;
   g_waiting_ref = LUA_NOREF;
   g_read_ref = LUA_NOREF;
   g_byte_ref = LUA_NOREF;
@@ -9520,6 +9559,15 @@ bool poll() {
   // calls, and the difference is the app's own (docs/30).
   const uint32_t turn_start = (g_meter_ops.now_us != nullptr) ? g_meter_ops.now_us() : 0;
   const uint64_t calls_before = (g_meter_ops.call_us != nullptr) ? g_meter_ops.call_us() : 0;
+  // **The budget is per turn**, and a call split by the previous budget yield starts its clock again
+  // here, so the wait between turns is not charged to the call (docs/20, docs/30).
+  g_turn_instructions = 0;
+  g_budget_pending = false;
+  g_budget_yielded = false;
+  if (g_call_split && g_timing_call && g_meter_ops.now_us != nullptr) {
+    g_call_start = g_meter_ops.now_us();
+  }
+  g_call_split = false;
   const int status = lua_resume(g_task, nullptr, 0, &results);
   // **What the turn still owes is paid when it ends**: a loop of three thousand instructions never
   // reaches the block the hook pays in, and an app that leaves would leave its time behind (docs/85).
@@ -9536,6 +9584,9 @@ bool poll() {
     }
   }
   if (status == LUA_YIELD) {
+    // **A turn yielded by the budget is not an app that forgot its promise**: it is alive, and the kernel
+    // resumes it next turn (docs/20, docs/75).
+    if (g_budget_yielded) return true;
     // It has to be waiting for something, or nothing would ever wake it up.
     if (g_waiting_ref != LUA_NOREF) return true;
     con_text("lua: the app yielded without a promise\r\n");
@@ -9557,6 +9608,10 @@ bool poll() {
 
 int32_t until_next_ms() {
   if (g_state == nullptr) return -1;
+
+  // **A task that is not waiting for a promise is runnable**: it yielded for the turn budget, and the
+  // kernel has to resume it next turn, not after the idle timeout (docs/20, docs/75).
+  if (g_waiting_ref == LUA_NOREF) return 0;
 
   // A task that could go on right now must not be made to wait: next turn.
   if (g_waiting_ref != LUA_NOREF) {

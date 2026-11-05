@@ -60,7 +60,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_BUSY` | Ja hi ha una operació en curs en aquest recurs, o el **llum és ocupat** amb un moment del sistema (docs/30) |
 | `E_NOTASK` | S'ha cridat `await` fora d'una tasca |
 | `E_NOTFOREGROUND` | **Reservat**: cap crida el torna avui. Dins d'una finestra d'alarma el que passa és que `console.is_foreground()` diu `false` i el que s'escriu a la consola queda al log (docs/60) |
-| `E_BUDGET` | **Reservat**: el pressupost d'instruccions encara no existeix (docs/20, docs/90) |
+| `E_BUDGET` | **Reservat**: el pressupost per torn ja existeix i fa cedir l'app (0.90.0), però el matar amb aquest codi després de dos avisos encara no (docs/20, docs/75) |
 
 ## Capacitats
 
