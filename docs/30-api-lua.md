@@ -1475,6 +1475,13 @@ pinta a baix de la vista, sobre la pàgina ja composta, i que **pren el dit i el
 pàgina**. **Quan una caixa de text que pren tecles rep el focus, la banda surt i la caixa passa a ser el target; quan
 el focus se'n va a un botó, a una targeta o a la pàgina buida, la banda es tanca** (docs/30, docs/90).
 
+**Des de 0.93.0 el teclat és una classe amb un pare comú.** `Keyboard` té la banda, el dit, el dial, el bloc de la
+tecla triada i la cara; cada fill (`QwertyKeyboard`, `AzertyKeyboard`) només diu el seu id i les seves files.
+L'app no canvia res: `ui.keyboard()` i les mateixes crides parlen amb el fill que el sistema tingui triat. Es tria a
+la consola amb **`cfg keyboard qwerty`** o **`cfg keyboard azerty`** —`cfg keyboard` en dona la llista—, la tria es desa
+a l'NVS i l'arrencada la torna a posar. Un teclat nou és un fill més i una fila a la llista, no una altra banda
+(docs/70, docs/90).
+
 | Crida | Què fa |
 |---|---|
 | `kb.target = box` | La caixa on escriu. El sistema la mou a la caixa que pren el focus; l'app la pot escriure abans d'un `kb:show` |

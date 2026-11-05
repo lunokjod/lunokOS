@@ -394,7 +394,7 @@ void print_help(const char* only) {
   help_line("  apps              the apps of the flash and of the card", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
-  help_line("  cfg [auto|sd|littlefs]  where the apps' settings are kept", only);
+  help_line("  cfg [auto|sd|littlefs|keyboard [<id>]]  settings: where the apps' cfg lives, and the keyboard", only);
   help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -3203,31 +3203,76 @@ void start() {
   }
 }
 
-// cfg: where the settings of the apps are kept. `/cfg` is a door and not a disk, so the
-// person has to be able to see which unit is behind it and to move it; the choice is
-// saved in the key-value store and survives a reboot (docs/70).
+// cfg: the settings of the system and where the settings of the apps are kept. `/cfg` is a door and not a disk, so the
+// person has to be able to see which unit is behind it and to move it; the choice is saved in the key-value store and
+// survives a reboot. **The keyboard is the other setting** (0.93.0): the id of one of the children of the UI, chosen
+// here and read at boot (docs/30, docs/70).
+void say_keyboards() {
+  out("cfg: keyboards are");
+  for (uint8_t i = 0; i < ui::keyboard_count(); ++i) {
+    out(" ");
+    out(ui::keyboard_at(i));
+  }
+  newline();
+}
+
 bool command_cfg(const char* argument) {
-  char words[1][kWordCap];
+  char words[2][kWordCap];
   size_t count = 0;
-  if (!read_words(argument, words, 1, count)) return false;
-  if (count > 1) {
-    usage_out("usage: cfg [auto|sd|littlefs]\r\n");
+  if (!read_words(argument, words, 2, count)) return false;
+  if (count > 2) {
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]]\r\n");
     return false;
   }
-  if (count == 1 && !cfg::set_unit(words[0])) {
-    // The reason is named: a person who asked for the card needs to know whether the
-    // word was wrong or the card is missing.
-    if (strcmp(words[0], "sd") == 0) {
-      out("cfg: there is no card\r\n");
-    } else if (strcmp(words[0], "littlefs") == 0) {
-      out("cfg: the flash is not mounted\r\n");
-    } else {
-      out("cfg: auto, sd or littlefs\r\n");
+
+  if (count == 2) {
+    if (strcmp(words[0], "keyboard") != 0) {
+      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]]\r\n");
+      return false;
     }
-    return false;
+    if (!ui::keyboard_select(words[1])) {
+      out("cfg: no keyboard '");
+      out(words[1]);
+      out("'\r\n");
+      say_keyboards();
+      return false;
+    }
+    const bool saved = cfg::set_keyboard(ui::keyboard_current());
+    out("settings: keyboard ");
+    out(ui::keyboard_current());
+    newline();
+    if (!saved) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+    return true;
   }
+
+  if (count == 1) {
+    if (strcmp(words[0], "keyboard") == 0) {
+      out("settings: keyboard ");
+      out(ui::keyboard_current());
+      newline();
+      say_keyboards();
+      return true;
+    }
+    if (!cfg::set_unit(words[0])) {
+      // The reason is named: a person who asked for the card needs to know whether the
+      // word was wrong or the card is missing.
+      if (strcmp(words[0], "sd") == 0) {
+        out("cfg: there is no card\r\n");
+      } else if (strcmp(words[0], "littlefs") == 0) {
+        out("cfg: the flash is not mounted\r\n");
+      } else {
+        out("cfg: auto, sd or littlefs\r\n");
+        say_keyboards();
+      }
+      return false;
+    }
+  }
+
   if (cfg::unit()[0] == '\0') {
     out("settings: nowhere (neither the flash nor a card)\r\n");
+    out("  keyboard: ");
+    out(ui::keyboard_current());
+    newline();
     return true;
   }
   out("settings: ");
@@ -3235,6 +3280,9 @@ bool command_cfg(const char* argument) {
   out(" (asked for ");
   out(cfg::preference());
   out(")\r\n");
+  out("  keyboard: ");
+  out(ui::keyboard_current());
+  newline();
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {
     out("  an app's: ");

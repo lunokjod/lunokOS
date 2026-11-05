@@ -15,6 +15,10 @@ namespace {
 
 const char kNamespace[] = "cfg";
 const char kKey[] = "unit";
+// **The keyboard is a setting of the system and not of an app** (0.93.0): it is chosen with `cfg keyboard <id>` and it
+// survives a reboot like the unit does. The name is the id of one of the children of `ui`, and `cfg` keeps only the
+// string: which keyboards exist is the UI's to say (docs/30, docs/70).
+const char kKeyboardKey[] = "keyboard";
 const size_t kNameCap = 12;
 
 hal::IStorage* g_card = nullptr;
@@ -24,6 +28,8 @@ hal::IKeyValue* g_nvs = nullptr;
 char g_preference[kNameCap] = "auto";
 // What is really behind `/cfg` after looking at what is mounted.
 const char* g_unit = "";
+// The keyboard the person chose, the id of one of the children of `ui`.
+char g_keyboard[kNameCap] = "qwerty";
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -33,6 +39,12 @@ void remember() {
   // (docs/70, docs/75).
   meter::Scope scope(meter::kKvSet);
   g_nvs->set(kNamespace, kKey, g_preference, strlen(g_preference));
+}
+
+bool remember_keyboard() {
+  if (g_nvs == nullptr) return false;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kKeyboardKey, g_keyboard, strlen(g_keyboard));
 }
 
 // Picks the unit and tells the VFS where `/cfg` points. The fallback is said out loud:
@@ -79,14 +91,33 @@ void boot(hal::IPlatform& platform) {
       snprintf(g_preference, sizeof(g_preference), "%s", raw);
     }
   }
+
+  char raw_keyboard[kNameCap] = {0};
+  size_t keyboard_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kKeyboardKey, raw_keyboard, sizeof(raw_keyboard) - 1, keyboard_len) &&
+        keyboard_len > 0 && keyboard_len < sizeof(g_keyboard)) {
+      raw_keyboard[keyboard_len] = '\0';
+      snprintf(g_keyboard, sizeof(g_keyboard), "%s", raw_keyboard);
+    }
+  }
   apply();
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s)", (g_unit[0] != '\0') ? g_unit : "nowhere",
-             g_preference);
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s",
+             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard);
 }
 
 const char* unit() { return g_unit; }
 
 const char* preference() { return g_preference; }
+
+const char* keyboard() { return g_keyboard; }
+
+bool set_keyboard(const char* id) {
+  if (id == nullptr || id[0] == '\0' || strlen(id) >= sizeof(g_keyboard)) return false;
+  snprintf(g_keyboard, sizeof(g_keyboard), "%s", id);
+  return remember_keyboard();
+}
 
 bool set_unit(const char* name) {
   if (name == nullptr) return false;

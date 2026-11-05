@@ -118,6 +118,10 @@ void tearDown(void) {
   // where nobody had pressed the middle (31/10).
   for (int key = 0; key < 3; ++key) emu::press_key(key, false);
   close_any_app();
+  // **The keyboard is a setting of the run**: a test that chose AZERTY leaves QWERTY for the next one, in the object
+  // and in the key-value store, so a later boot cannot bring the other one back (0.93.0, docs/30, docs/70).
+  kernel::ui::keyboard_select("qwerty");
+  kernel::cfg::set_keyboard("qwerty");
   // And the bench goes back to the ATOM: one binary is one bench, and a test that was
   // the Matrix would make the next one refuse an app for no reason (docs/85).
   const bool had_card = emu::options().sd_dir != nullptr;
@@ -5129,6 +5133,70 @@ void test_a_keyboard_without_a_target_is_refused(void) {
   storage->remove("/apps/nowhere");
 }
 
+// **The keyboard is chosen in the settings and the choice writes the letters of that keyboard** (0.93.0): `cfg keyboard
+// azerty` selects the child, persists its id and a boot reads it back; the other child is qwerty, and a name that is not
+// one of them is refused with the list instead of silently keeping the old one (docs/30, docs/70, docs/90).
+void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  pump_captured(20, g_out, sizeof(g_out), "cfg keyboard azerty");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: keyboard azerty"), g_out);
+  TEST_ASSERT_EQUAL_STRING("azerty", kernel::cfg::keyboard());
+
+  // A boot reads the setting: the Paper is a boot, and the UI selects what the door saved.
+  use_board("m5stack-paper");
+  TEST_ASSERT_EQUAL_STRING("azerty", kernel::ui::keyboard_current());
+  TEST_ASSERT_EQUAL_STRING("azerty", kernel::cfg::keyboard());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "aztype",
+                           "{\"title\":\"Az type\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(300, 48)\n"
+                           "box:place(20, 60)\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "kb:show('alpha')\n"
+                           "local done = false\n"
+                           "box.on_change = function(self, text)\n"
+                           "  console.print('typed ' .. text)\n"
+                           "  done = true\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "while not done do sys.delay(50):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run aztype");
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  // The first key of the first row of AZERTY is an `a`; a QWERTY would have typed a `q` here.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed a"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its key");
+
+  storage->remove("/apps/aztype/app.lua");
+  storage->remove("/apps/aztype/manifest.json");
+  storage->remove("/apps/aztype");
+
+  // The prompt says the keyboard and the list; a name outside the list is refused and the old one stays.
+  pump_captured(20, g_out, sizeof(g_out), "cfg");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keyboard: azerty"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "cfg keyboard dvorak");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cfg: no keyboard 'dvorak'"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cfg: keyboards are qwerty azerty"), g_out);
+  TEST_ASSERT_EQUAL_STRING("azerty", kernel::ui::keyboard_current());
+  TEST_ASSERT_EQUAL_STRING("azerty", kernel::cfg::keyboard());
+
+  // The settings go back to the default, because they are a setting of the run.
+  pump_captured(20, g_out, sizeof(g_out), "cfg keyboard qwerty");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: keyboard qwerty"), g_out);
+  TEST_ASSERT_EQUAL_STRING("qwerty", kernel::ui::keyboard_current());
+  TEST_ASSERT_EQUAL_STRING("qwerty", kernel::cfg::keyboard());
+}
+
 // **The block of the caret blinks without the app** (0.92.0): the kernel turns `box.caret` every six hundred milliseconds
 // while the keyboard is on the glass and paints the box; a page that only waits has a cursor, and a page that types does
 // not keep a clock for it. The test reads the field as the app would and sees the two halves of a blink (docs/30,
@@ -6818,6 +6886,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
   RUN_TEST(test_a_keyboard_without_a_target_is_refused);
+  RUN_TEST(test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters);
   RUN_TEST(test_the_caret_blinks_without_the_app);
   RUN_TEST(test_the_dial_does_not_stop_on_a_text_box);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);

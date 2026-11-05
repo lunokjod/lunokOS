@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **426 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **428 proves natives**
 > passen en 19 suites, totes verdes.
-> A l'ATOM: **2 198 373 B** de flash (83,9 % de la partició d'aplicació) i **120 704 B** de RAM estàtica (36,8 %); `hello` fa un
+> A l'ATOM: **2 200 421 B** de flash (83,9 % de la partició d'aplicació) i **120 760 B** de RAM estàtica (36,9 %); `hello` fa un
 > pic de **31 655 B** de 131 072 de sostre —el terra de l'intèrpret és 29 842 B des de la llibreria d'UI— i el port sèrie
 > **4,1 ms** d'anada i tornada.
 >
@@ -93,7 +93,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > surt quan una caixa que pren tecles (`box.keyboard`) rep el dit o un `kb:show()`, i es tanca quan el dit cau en un
 > botó o a la pàgina; `box.keyboard = false` deixa una caixa de només lectura sense teclat. **El cursor és un bloc de
 > l'amplada de la lletra i parpelleja sol** (0.92.0): el sistema el gira cada 600 ms i torna a pintar la caixa, i
-> l'app no hi ha de portar cap rellotge.
+> l'app no hi ha de portar cap rellotge. **El teclat és una classe amb un pare comú** (0.93.0): `QwertyKeyboard` i
+> `AzertyKeyboard` comparteixen la banda, el dit, el dial i la cara, i només canvien les files; es tria amb
+> `cfg keyboard qwerty` o `cfg keyboard azerty` i la tria sobreviu a l'arrencada.
 >
 > **La placa sap dormir.** `sleep [light|deep] <ms>` a la shell i `power.sleep({mode, in_ms})` des
 > de Lua: el son lleuger torna i el profund reinicia la placa, i en tornar l'app que hi havia al

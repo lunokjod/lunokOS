@@ -345,6 +345,13 @@ void boot(hal::IPlatform& platform) {
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
+  // **The keyboard the settings chose** (0.93.0): the UI says which children it carries, and a name that is not one of
+  // them falls back to qwerty with a line, the same way a unit that is not there does; the boot does not stop for a
+  // setting (docs/30, docs/70).
+  if (!ui::keyboard_select(cfg::keyboard())) {
+    log_printf(pal::kLogWarn, "CFG", "no keyboard '%s' in this build; qwerty stays", cfg::keyboard());
+    ui::keyboard_select("qwerty");
+  }
   // **The prompt is the last thing the boot writes**, and it is not a detail: the lines of the hardware
   // say what this board is, and one of them after the prompt is a line that looks like an answer to
   // something the person has not typed (measured on the board and on the bench, 1/11: `ui: view ...`

@@ -1311,7 +1311,14 @@ namespace kernel {
 // a cursor. A key puts the block back and restarts the clock. **And the block is the size of a letter**: under a letter
 // it is that letter, and at the end of the text it is an `M` instead of the three-pixel hairline the first boxes drew;
 // an empty box had a cursor nobody could see (docs/30, docs/90). `run typing` no longer keeps a blink loop of its own.
-static const char kVersion[] = "0.92.0";
+// 0.93.0 (5/11): **the keyboard is a class with a common parent**. `Keyboard` owns the band, the finger, the dial, the
+// chosen block, the face and the geometry; each child says its id and its two layouts, and a new keyboard is one more
+// child and no change in the parent. `QwertyKeyboard` is the old layout and `AzertyKeyboard` is the second, with `a`
+// and `q` at the head of their rows and `MAJ` on the capitals key. **The person chooses in the settings**: `cfg
+// keyboard` lists them, `cfg keyboard qwerty|azerty` selects and saves the id in the NVS under `cfg/keyboard`, and the
+// boot asks the UI for it; a name this build does not carry falls back to qwerty with a line. The free functions of
+// `ui` keep the same signatures for the apps and Lua (docs/30, docs/70, docs/90).
+static const char kVersion[] = "0.93.0";
 
 }  // namespace kernel
 

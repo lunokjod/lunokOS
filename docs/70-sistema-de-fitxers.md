@@ -326,6 +326,12 @@ unitat, i quina unitat és ho tria el sistema, no l'app:
 | On es desa la tria | a l'NVS, `cfg/unit`, així que sobreviu una arrencada |
 | Què més hi va | **les apps que s'instal·len** (0.86.0): `repo install <app>` les baixa a `apps/` de la unitat triada, i `cfg` ho diu (`apps install into: /sd/apps`) |
 
+**El teclat és una altra configuració del sistema i viu a la mateixa porta** (0.93.0): `cfg keyboard` diu quin
+hi ha i quins n'hi ha, i `cfg keyboard qwerty` o `cfg keyboard azerty` en tria un. La tria va a l'NVS
+(`cfg/keyboard`) i l'arrencada la llegeix; un nom que aquest build no té es refusa amb la llista i no canvia
+el que hi havia. No és la cfg d'una app: és del sistema sencer, com la unitat, i per això el `cfg` de la
+consola la mostra amb la resta d'ajustos (docs/30, docs/90).
+
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
 que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen

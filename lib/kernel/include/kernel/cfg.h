@@ -26,6 +26,11 @@ const char* unit();
 // What the person asked for: "auto", "sd" or "littlefs".
 const char* preference();
 
+// **The keyboard chosen in the settings** (0.93.0): the id of a child of `ui`, `"qwerty"` by default. The UI says
+// which ids exist; this door only keeps the name alive across a reboot (docs/30, docs/70).
+const char* keyboard();
+bool set_keyboard(const char* id);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

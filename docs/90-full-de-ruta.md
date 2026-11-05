@@ -395,6 +395,19 @@ són el contracte; el `pressed` el porta el sistema mentre dura el contacte, i q
 **I el teclat segueix aquest focus** (0.91.0): una caixa de text que pren tecles (`box.keyboard`) obre la banda i
 en rep les tecles; un botó o la pàgina buida la tanquen; les caixes són objectiu del dit i no del dial (docs/30).
 
+**I el cursor és un bloc de la mida de la lletra que parpelleja sol** (0.92.0): el sistema el gira cada 600 ms i
+marca la caixa perquè es torni a pintar; l'app no hi ha de portar cap rellotge. El bloc és l'amplada del caràcter
+que hi ha sota el cursor i, al final del text, la d'una `M`; una caixa buida també el té, i el cursor no surt mai
+del marc de la caixa (docs/30).
+
+**I el teclat és una classe amb un pare comú** (0.93.0): `Keyboard` té la banda, el dit, el dial, el bloc triat, la
+cara i la geometria, i els fills només diuen el seu id i les seves files. `QwertyKeyboard` és el teclat de sempre i
+`AzertyKeyboard` el segon, amb la `a` i la `q` al cap de les files i `MAJ` a la tecla de majúscules; un teclat nou és
+un fill més i una fila a la llista. L'estat és de l'objecte i no del fitxer, i triar-ne un és canviar l'objecte amb qui
+parlen les funcions lliures: si la banda és a la vista, baixa i torna a pujar amb el mateix alfabet. **La tria és un
+ajust del sistema** i no d'una app: `cfg keyboard` en dona la llista, `cfg keyboard <id>` la desa a l'NVS
+(`cfg/keyboard`) i l'arrencada la llegeix, amb `qwerty` de reserva i una línia si el nom no existeix (docs/30, docs/70).
+
 **I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
 0.39.0). La lletra de 5 × 7 del sistema passa a ser **una cara més del mateix camí**: `font::system_face()`
 i les cares d'un fitxer comparteixen `font::width` i `font::runs`, i el dibuix llegeix rectangles i no sap

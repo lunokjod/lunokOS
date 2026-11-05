@@ -41,8 +41,8 @@ Canvas g_canvases[kMaxControls];
 bool g_attached = false;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
-// not. It lives up here because `clear` is the one that wipes it (docs/50, docs/90).
-bool g_kbd_needs_paint = true;
+// not. The flag is the band's, and `clear` asks it through this door (docs/50, docs/90).
+void keyboard_page_cleared();
 // The number the next canvas takes, so an object of an app that points at a slot that was given back
 // never matches the one that took its place (docs/90).
 uint16_t g_generation = 0;
@@ -1367,7 +1367,7 @@ bool clear(uint8_t level, const char* mode) {
   draw_clear(root(), level, chosen);
   // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
   // present has to put it back (docs/50, docs/90).
-  g_kbd_needs_paint = true;
+  keyboard_page_cleared();
   return true;
 }
 
@@ -4627,24 +4627,47 @@ struct LayoutDef {
   uint8_t count;
 };
 
-const KeyDef kAlphaRow0[] = {
+const KeyDef kQwertyRow0[] = {
     {"q", KeyAction::kChar, 2}, {"w", KeyAction::kChar, 2}, {"e", KeyAction::kChar, 2},
     {"r", KeyAction::kChar, 2}, {"t", KeyAction::kChar, 2}, {"y", KeyAction::kChar, 2},
     {"u", KeyAction::kChar, 2}, {"i", KeyAction::kChar, 2}, {"o", KeyAction::kChar, 2},
     {"p", KeyAction::kChar, 2},
 };
-const KeyDef kAlphaRow1[] = {
+const KeyDef kQwertyRow1[] = {
     {"a", KeyAction::kChar, 2}, {"s", KeyAction::kChar, 2}, {"d", KeyAction::kChar, 2},
     {"f", KeyAction::kChar, 2}, {"g", KeyAction::kChar, 2}, {"h", KeyAction::kChar, 2},
     {"j", KeyAction::kChar, 2}, {"k", KeyAction::kChar, 2}, {"l", KeyAction::kChar, 2},
-};const KeyDef kAlphaRow2[] = {
+};
+const KeyDef kQwertyRow2[] = {
     {"MAY", KeyAction::kCaps, 3}, {"z", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
     {"c", KeyAction::kChar, 2}, {"v", KeyAction::kChar, 2}, {"b", KeyAction::kChar, 2},
     {"n", KeyAction::kChar, 2}, {"m", KeyAction::kChar, 2}, {"", KeyAction::kBack, 3},
 };
-const KeyDef kAlphaRow3[] = {
+const KeyDef kQwertyRow3[] = {
     {"123", KeyAction::kMode, 3}, {" ", KeyAction::kSpace, 12}, {".", KeyAction::kChar, 2},
     {"", KeyAction::kEnter, 3},
+};
+
+// **AZERTY is the second keyboard**, and the one the class was built for: the letters are not where a QWERTY
+// puts them —the `a` and the `q` are the first of their rows, the `z` and the `w` are the other way round— and the
+// capitals key says `MAJ` instead of `MAY`. Everything else, the digits, the space, the enter and the dial, is the
+// common behaviour of the parent (0.93.0, docs/30, docs/90).
+const KeyDef kAzertyRow0[] = {
+    {"a", KeyAction::kChar, 2}, {"z", KeyAction::kChar, 2}, {"e", KeyAction::kChar, 2},
+    {"r", KeyAction::kChar, 2}, {"t", KeyAction::kChar, 2}, {"y", KeyAction::kChar, 2},
+    {"u", KeyAction::kChar, 2}, {"i", KeyAction::kChar, 2}, {"o", KeyAction::kChar, 2},
+    {"p", KeyAction::kChar, 2},
+};
+const KeyDef kAzertyRow1[] = {
+    {"q", KeyAction::kChar, 2}, {"s", KeyAction::kChar, 2}, {"d", KeyAction::kChar, 2},
+    {"f", KeyAction::kChar, 2}, {"g", KeyAction::kChar, 2}, {"h", KeyAction::kChar, 2},
+    {"j", KeyAction::kChar, 2}, {"k", KeyAction::kChar, 2}, {"l", KeyAction::kChar, 2},
+    {"m", KeyAction::kChar, 2},
+};
+const KeyDef kAzertyRow2[] = {
+    {"MAJ", KeyAction::kCaps, 3}, {"w", KeyAction::kChar, 2}, {"x", KeyAction::kChar, 2},
+    {"c", KeyAction::kChar, 2}, {"v", KeyAction::kChar, 2}, {"b", KeyAction::kChar, 2},
+    {"n", KeyAction::kChar, 2}, {"", KeyAction::kBack, 4},
 };
 
 const KeyDef kNumericRow0[] = {
@@ -4670,14 +4693,16 @@ const KeyDef kNumericRow3[] = {
     {"", KeyAction::kEnter, 3},
 };
 
-const RowDef kAlphaRows[] = {{kAlphaRow0, 10, 0}, {kAlphaRow1, 9, 1}, {kAlphaRow2, 9, 0}, {kAlphaRow3, 4, 0}};
+const RowDef kQwertyRows[] = {{kQwertyRow0, 10, 0}, {kQwertyRow1, 9, 1}, {kQwertyRow2, 9, 0}, {kQwertyRow3, 4, 0}};
+const RowDef kAzertyRows[] = {{kAzertyRow0, 10, 0}, {kAzertyRow1, 10, 0}, {kAzertyRow2, 8, 1}, {kQwertyRow3, 4, 0}};
 // **Four rows in both alphabets**: the band of the keyboard is a piece of the page an app lays itself out around, so
 // one that changes height when the digits come would move everything above it —and the strip it left behind would be
 // the old row nobody painted over— (found on the bench, 4/11, docs/90).
 const RowDef kNumericRows[] = {
     {kNumericRow0, 10, 0}, {kNumericRow1, 10, 0}, {kNumericRow2, 10, 0}, {kNumericRow3, 4, 0}};
 
-const LayoutDef kAlphaLayout = {kAlphaRows, 4};
+const LayoutDef kQwertyLayout = {kQwertyRows, 4};
+const LayoutDef kAzertyLayout = {kAzertyRows, 4};
 const LayoutDef kNumericLayout = {kNumericRows, 4};
 
 // **The whole of a row is twenty twentieths, which is the width of the page**: a row that adds up to more runs past the
@@ -4686,17 +4711,87 @@ const LayoutDef kNumericLayout = {kNumericRows, 4};
 // keyboard's and presses nothing, which is what `keyboard_touch` answers (0.88.16, docs/90).
 const uint8_t kRowUnits = 20;
 
-bool g_kbd_shown = false;
-uint8_t g_kbd_kind = kKeyboardAlpha;
-// **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put them
-// back (docs/90).
-bool g_kbd_shift = false;
-int8_t g_kbd_row = 0;
-int8_t g_kbd_key = 0;
-bool g_kbd_held = false;
-uint16_t g_kbd_key_h = 0;
+// **The parent of every keyboard** (0.93.0): the band, its four rows, the finger, the dial, the block of the chosen
+// key and the face are the same for all of them; what changes from one keyboard to another is the **layout** —which
+// letter sits in each cell and what the capitals key is called— and that is the one question the parent asks its
+// children. The state is a member and not a file-wide variable, so two keyboards cannot share a row by accident and
+// changing the selected one is changing the object the free functions talk to (docs/30, docs/90).
+class Keyboard {
+ public:
+  virtual ~Keyboard() {}
+  virtual const char* id() const = 0;
+  virtual const LayoutDef& layout(uint8_t kind) const = 0;
 
-const LayoutDef& layout_of(uint8_t kind) { return (kind == kKeyboardNumeric) ? kNumericLayout : kAlphaLayout; }
+  bool show(uint8_t kind);
+  bool hide();
+  bool visible() const { return shown_; }
+  uint8_t kind() const { return kind_; }
+  uint16_t height() const;
+  bool touch(uint16_t x, uint16_t y, bool down);
+  bool key(const char* kind, uint32_t key_id);
+  void paint();
+  void page_cleared() { needs_paint_ = true; }
+  void band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+
+ private:
+  const LayoutDef& current_layout() const { return layout(kind_); }
+  void measure();
+  int32_t band_top() const;
+  void note_band(int32_t x, int32_t y, int32_t w, int32_t h);
+  void note_the_whole_band();
+  void note_cell(int8_t row, int8_t key);
+  const char* label_of(const KeyDef& key, char* buffer, size_t cap) const;
+  void press_key(const KeyDef& key);
+  bool key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) const;
+
+  bool shown_ = false;
+  uint8_t kind_ = kKeyboardAlpha;
+  // **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put
+  // them back (docs/90).
+  bool shift_ = false;
+  int8_t row_ = 0;
+  int8_t key_ = 0;
+  bool held_ = false;
+  uint16_t key_h_ = 0;
+  bool needs_paint_ = true;
+  int32_t dx_ = 0;
+  int32_t dy_ = 0;
+  int32_t dw_ = 0;
+  int32_t dh_ = 0;
+};
+
+// **The one thing a child says**: its name and the rows of its two alphabets. A future keyboard with another set of
+// keys is another child and nothing of the parent changes (docs/30, docs/90).
+class QwertyKeyboard final : public Keyboard {
+ public:
+  const char* id() const override { return "qwerty"; }
+  const LayoutDef& layout(uint8_t kind) const override {
+    return (kind == kKeyboardNumeric) ? kNumericLayout : kQwertyLayout;
+  }
+};
+
+class AzertyKeyboard final : public Keyboard {
+ public:
+  const char* id() const override { return "azerty"; }
+  const LayoutDef& layout(uint8_t kind) const override {
+    return (kind == kKeyboardNumeric) ? kNumericLayout : kAzertyLayout;
+  }
+};
+
+QwertyKeyboard g_qwerty;
+AzertyKeyboard g_azerty;
+Keyboard* const g_keyboards[] = {&g_qwerty, &g_azerty};
+const uint8_t kKeyboardCount = static_cast<uint8_t>(sizeof(g_keyboards) / sizeof(g_keyboards[0]));
+Keyboard* g_keyboard = &g_qwerty;
+
+void keyboard_page_cleared() { g_keyboard->page_cleared(); }
+
+// **What an app paints can land on the band** (0.84.4): a `ui.rect` over it, a pixel, or the whole page in one level,
+// which is the common one —a page that starts again paints its background where the keyboard was—. The band is the top
+// layer and it is drawn again at the next present, and this is the one thing that has to be noticed (docs/50, docs/90).
+void the_band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  g_keyboard->band_may_be_gone(x, y, w, h);
+}
 
 // **Where a key is, in pixels**: the one function the paint and the finger share, because a key drawn
 // where it cannot be pressed is a key that does not exist (docs/90).
@@ -4708,42 +4803,6 @@ void cell_place(const RowDef& row, uint8_t index, int32_t& x, int32_t& w) {
   const int32_t right = static_cast<int32_t>((static_cast<int64_t>(before + row.keys[index].span) * width) / kRowUnits);
   x = left;
   w = right - left;
-}
-
-// **The band of the keyboard**: four rows of a key a finger can hit, and never more than two fifths of the
-// view, or the page it is typing into is what disappears (docs/90).
-void measure() {
-  const Canvas& view = root();
-  if (view.width == 0 || view.height == 0) return;
-  const int32_t rows = layout_of(g_kbd_kind).count;
-  int32_t key_h = 44;
-  const int32_t room = (static_cast<int32_t>(view.height) * 2) / 5;
-  if (key_h * rows > room) key_h = room / rows;
-  if (key_h < 24) key_h = 24;
-  g_kbd_key_h = static_cast<uint16_t>(key_h);
-}
-
-int32_t band_top() {
-  if (!g_kbd_shown || g_kbd_key_h == 0) return 0;
-  return static_cast<int32_t>(root().height) - layout_of(g_kbd_kind).count * static_cast<int32_t>(g_kbd_key_h);
-}
-
-// **What a key says**: a letter, and the letter is in the case the keyboard is in; the two of the mode say
-// what they would switch to and not what is on (docs/90).
-const char* label_of(const KeyDef& key, char* buffer, size_t cap) {
-  if (key.action == KeyAction::kMode) {
-    snprintf(buffer, cap, "%s", (g_kbd_kind == kKeyboardNumeric) ? "ABC" : "123");
-    return buffer;
-  }
-  if (key.action == KeyAction::kCaps) {
-    snprintf(buffer, cap, "%s", (key.label != nullptr) ? key.label : "");
-    return buffer;
-  }
-  char letter = (key.label != nullptr) ? key.label[0] : '\0';
-  if (g_kbd_shift && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
-  buffer[0] = letter;
-  buffer[1] = '\0';
-  return buffer;
 }
 
 // ---- the face of the band: a typeface and not the table of the bar (docs/30, docs/90) ----
@@ -4943,33 +5002,6 @@ void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, 
   }
 }
 
-// **What of the band changed, and nothing else** (0.83.1): a letter typed does not change a pixel of the band, and
-// marking the whole band on every `present` is a keyboard that **flashes on every blink of the caret** of the box it is
-// typing into —the app presents every six hundred milliseconds and did not touch a key— (found on the bench, 4/11,
-// docs/90). The rect is in the view's coordinates and empty when the band has not changed since it was painted.
-int32_t g_kbd_dx = 0;
-int32_t g_kbd_dy = 0;
-int32_t g_kbd_dw = 0;
-int32_t g_kbd_dh = 0;
-
-void note_band(int32_t x, int32_t y, int32_t w, int32_t h) {
-  if (w <= 0 || h <= 0) return;
-  g_kbd_needs_paint = true;
-  if (g_kbd_dw <= 0 || g_kbd_dh <= 0) {
-    g_kbd_dx = x;
-    g_kbd_dy = y;
-    g_kbd_dw = w;
-    g_kbd_dh = h;
-    return;
-  }
-  const int32_t x1 = ((x + w) > (g_kbd_dx + g_kbd_dw)) ? (x + w) : (g_kbd_dx + g_kbd_dw);
-  const int32_t y1 = ((y + h) > (g_kbd_dy + g_kbd_dh)) ? (y + h) : (g_kbd_dy + g_kbd_dh);
-  if (x < g_kbd_dx) g_kbd_dx = x;
-  if (y < g_kbd_dy) g_kbd_dy = y;
-  g_kbd_dw = x1 - g_kbd_dx;
-  g_kbd_dh = y1 - g_kbd_dy;
-}
-
 // **What is pending on the glass before the band touches it, kept aside and given back**: the band is painted on the
 // canvas at every present —it is the top layer and has to be there— and none of that paint is a reason to refresh the
 // glass. Only the union of what truly changed goes out, and it is `note_band`'s (docs/50, docs/90).
@@ -4989,36 +5021,52 @@ struct DamageKeep {
   }
 };
 
-void note_the_whole_band() {
+// **What of the band changed, and nothing else** (0.83.1): a letter typed does not change a pixel of the band.
+void Keyboard::note_band(int32_t x, int32_t y, int32_t w, int32_t h) {
+  if (w <= 0 || h <= 0) return;
+  needs_paint_ = true;
+  if (dw_ <= 0 || dh_ <= 0) {
+    dx_ = x;
+    dy_ = y;
+    dw_ = w;
+    dh_ = h;
+    return;
+  }
+  const int32_t x1 = ((x + w) > (dx_ + dw_)) ? (x + w) : (dx_ + dw_);
+  const int32_t y1 = ((y + h) > (dy_ + dh_)) ? (y + h) : (dy_ + dh_);
+  if (x < dx_) dx_ = x;
+  if (y < dy_) dy_ = y;
+  dw_ = x1 - dx_;
+  dh_ = y1 - dy_;
+}
+
+void Keyboard::note_the_whole_band() {
   const int32_t top = band_top();
   if (top < 0) return;
   note_band(0, top, static_cast<int32_t>(root().width), static_cast<int32_t>(root().height) - top);
 }
 
 // The cell of a key of the layout that is on the glass now, which is the rect a chosen key moves between.
-void note_cell(int8_t row, int8_t key) {
-  if (!g_kbd_shown || g_kbd_key_h == 0) return;
-  const LayoutDef& layout = layout_of(g_kbd_kind);
-  if (row < 0 || row >= static_cast<int8_t>(layout.count)) return;
-  const RowDef& def = layout.rows[row];
+void Keyboard::note_cell(int8_t row, int8_t key) {
+  if (!shown_ || key_h_ == 0) return;
+  const LayoutDef& current = current_layout();
+  if (row < 0 || row >= static_cast<int8_t>(current.count)) return;
+  const RowDef& def = current.rows[row];
   if (key < 0 || key >= static_cast<int8_t>(def.count)) return;
   int32_t x = 0;
   int32_t w = 0;
-  cell_place(def, key, x, w);
-  note_band(x, band_top() + row * static_cast<int32_t>(g_kbd_key_h), w, g_kbd_key_h);
+  cell_place(def, static_cast<uint8_t>(key), x, w);
+  note_band(x, band_top() + row * static_cast<int32_t>(key_h_), w, key_h_);
 }
 
-// **What an app paints can land on the band** (0.84.4): a `ui.rect` over it, a pixel, or the whole page in one level,
-// which is the common one —a page that starts again paints its background where the keyboard was—. The band is the top
-// layer and it is drawn again at the next present, and this is the one thing that has to be noticed (docs/50, docs/90).
-void the_band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
-  if (!g_kbd_shown || g_kbd_key_h == 0) return;
+void Keyboard::band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+  if (!shown_ || key_h_ == 0) return;
   const int32_t top = band_top();
   if (top < 0) return;
   if (static_cast<int32_t>(y) + static_cast<int32_t>(h) <= top) return;
   if (static_cast<int32_t>(y) >= static_cast<int32_t>(root().height)) return;
   if (w == 0 || static_cast<int32_t>(x) >= static_cast<int32_t>(root().width)) return;
-  g_kbd_needs_paint = true;
+  needs_paint_ = true;
 }
 
 // The flat order of the keys of a layout, which is what the dial walks: row by row, left to right.
@@ -5059,19 +5107,119 @@ void tell_the_app(uint16_t before) {
   luabind::call_resize(width(), after);
 }
 
-}  // namespace
+void Keyboard::measure() {
+  const Canvas& view = root();
+  if (view.width == 0 || view.height == 0) return;
+  const int32_t rows = current_layout().count;
+  if (rows <= 0) {
+    key_h_ = 0;
+    return;
+  }
+  int32_t key_h = 44;
+  const int32_t room = (static_cast<int32_t>(view.height) * 2) / 5;
+  if (key_h * rows > room) key_h = room / rows;
+  if (key_h < 24) key_h = 24;
+  key_h_ = static_cast<uint16_t>(key_h);
+}
 
-bool keyboard_show(uint8_t kind) {
+int32_t Keyboard::band_top() const {
+  if (!shown_ || key_h_ == 0) return 0;
+  return static_cast<int32_t>(root().height) - current_layout().count * static_cast<int32_t>(key_h_);
+}
+
+// **What a key says**: a letter, and the letter is in the case the keyboard is in; the two of the mode say
+// what they would switch to and not what is on (docs/90).
+const char* Keyboard::label_of(const KeyDef& key, char* buffer, size_t cap) const {
+  if (key.action == KeyAction::kMode) {
+    snprintf(buffer, cap, "%s", (kind_ == kKeyboardNumeric) ? "ABC" : "123");
+    return buffer;
+  }
+  if (key.action == KeyAction::kCaps) {
+    snprintf(buffer, cap, "%s", (key.label != nullptr) ? key.label : "");
+    return buffer;
+  }
+  char letter = (key.label != nullptr) ? key.label[0] : '\0';
+  if (shift_ && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
+  buffer[0] = letter;
+  buffer[1] = '\0';
+  return buffer;
+}
+
+// **What a key does**: a letter goes to the box as one number —in the case the keyboard is in— and the
+// three that are not letters are the numbers a box understands. The shift is one capital and it lets go,
+// and the mode redraws the band with the other alphabet (docs/90).
+void Keyboard::press_key(const KeyDef& key) {
+  switch (key.action) {
+    case KeyAction::kChar: {
+      char letter = (key.label != nullptr) ? key.label[0] : '\0';
+      if (shift_ && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
+      luabind::ui_keyboard_typed(static_cast<int>(letter));
+      break;
+    }
+    case KeyAction::kCaps:
+      // **A lock and not a shift**: the key turns the alphabet to capitals and leaves it there, and the next press of
+      // it takes them back. A shift of one letter is a keyboard of a phone; a page typed into with a dial wants the
+      // mode to stay where a person put it (docs/90).
+      shift_ = !shift_;
+      break;
+    case KeyAction::kBack:
+      luabind::ui_keyboard_typed(8);
+      break;
+    case KeyAction::kSpace:
+      luabind::ui_keyboard_typed(32);
+      break;
+    case KeyAction::kEnter:
+      luabind::ui_keyboard_typed(13);
+      break;
+    case KeyAction::kMode: {
+      kind_ = (kind_ == kKeyboardNumeric) ? kKeyboardAlpha : kKeyboardNumeric;
+      shift_ = false;
+      measure();
+      const LayoutDef& current = current_layout();
+      if (row_ >= static_cast<int8_t>(current.count)) row_ = 0;
+      if (key_ >= static_cast<int8_t>(current.rows[row_].count)) key_ = 0;
+      break;
+    }
+  }
+  // **A letter, a space, a backspace or the enter do not change the picture of the band**: the app hears the key and
+  // the box changes, and the band is the same band. The two that change it are the case and the alphabet (docs/90).
+  if (key.action == KeyAction::kCaps || key.action == KeyAction::kMode) note_the_whole_band();
+}
+
+// **The key under a point of the view**, which is the cell the paint used: the finger and the glass see the
+// same twenty lines (docs/90).
+bool Keyboard::key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) const {
+  if (!shown_ || key_h_ == 0) return false;
+  const int32_t top = band_top();
+  if (top < 0 || static_cast<int32_t>(y) < top) return false;
+  const LayoutDef& current = current_layout();
+  const int32_t at_row = (static_cast<int32_t>(y) - top) / static_cast<int32_t>(key_h_);
+  if (at_row < 0 || at_row >= static_cast<int32_t>(current.count)) return false;
+  const RowDef& def = current.rows[at_row];
+  for (uint8_t i = 0; i < def.count; ++i) {
+    int32_t cell_x = 0;
+    int32_t cell_w = 0;
+    cell_place(def, i, cell_x, cell_w);
+    if (static_cast<int32_t>(x) >= cell_x && static_cast<int32_t>(x) < cell_x + cell_w) {
+      row = static_cast<int8_t>(at_row);
+      index = static_cast<int8_t>(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Keyboard::show(uint8_t kind) {
   if (!g_attached || root().bits == nullptr) return false;
   const uint16_t before = height();
-  g_kbd_kind = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
-  g_kbd_shift = false;
+  kind_ = (kind == kKeyboardNumeric) ? kKeyboardNumeric : kKeyboardAlpha;
+  shift_ = false;
   measure();
-  if (g_kbd_key_h == 0) return false;
-  g_kbd_shown = true;
-  g_kbd_row = 0;
-  g_kbd_key = 0;
-  g_kbd_held = false;
+  if (key_h_ == 0) return false;
+  shown_ = true;
+  row_ = 0;
+  key_ = 0;
+  held_ = false;
   // **The face of the band is read once per time it comes up**: the file is nine kilobytes and it is kept while the
   // keyboard is on the glass (docs/30, docs/75).
   keyboard_face();
@@ -5081,40 +5229,40 @@ bool keyboard_show(uint8_t kind) {
   return true;
 }
 
-bool keyboard_hide() {
+bool Keyboard::hide() {
   const uint16_t before = height();
-  const bool was = g_kbd_shown;
-  g_kbd_shown = false;
-  g_kbd_held = false;
+  const bool was = shown_;
+  shown_ = false;
+  held_ = false;
   release_keyboard_face();
   if (was) {
-    g_kbd_needs_paint = true;
+    needs_paint_ = true;
     invalidate(0);
     tell_the_app(before);
   }
   return true;
 }
 
-bool keyboard_visible() { return g_kbd_shown; }
-
-uint16_t keyboard_height() {
-  if (!g_kbd_shown) return 0;
-  return static_cast<uint16_t>(layout_of(g_kbd_kind).count * static_cast<int32_t>(g_kbd_key_h));
+uint16_t Keyboard::height() const {
+  if (!shown_) return 0;
+  return static_cast<uint16_t>(current_layout().count * static_cast<int32_t>(key_h_));
 }
 
 // **The keyboard is painted over the page and not in it**: the tree is composed first, and the band goes on
 // the glass after it, so a control of the page under the band is covered and does not have to know that the
 // keyboard is there (docs/90).
-void keyboard_paint() {
-  if (!g_kbd_shown || g_kbd_key_h == 0) return;
+void Keyboard::paint() {
+  if (!shown_ || key_h_ == 0) return;
   Canvas& view = root();
   if (view.bits == nullptr || view.width == 0) return;
   // **A band is a picture that changes when it changes and not on every present** (0.84.4): a letter typed does not
   // touch it —the box is the one that changes—, and redrawing forty glyphs of a face of outlines on the turn of a
   // blinking caret is the page paying for the keyboard. It is drawn when it comes up, when the case or the alphabet
-  // changes, and when the page under it is wiped, which is what `g_kbd_needs_paint` says (docs/50, docs/90).
-  if (!g_kbd_needs_paint) return;
-  g_kbd_needs_paint = false;
+  // changes, and when the page under it is wiped, which is what `needs_paint_` says (docs/50, docs/90).
+  if (!needs_paint_) return;
+  const int32_t top = band_top();
+  if (top < 0) return;
+  needs_paint_ = false;
   // **The band is painted with the wash of the levels and not with the quick one**: a key that changes the number
   // or the case of the letters puts new ink where the old letters were, and a `du` leaves the old ones showing
   // through —two keyboards on one band, which is what the bench showed when the mode was switched— (docs/50,
@@ -5124,19 +5272,17 @@ void keyboard_paint() {
   // `gld16` does it without one. It is the rule of this project: nothing that flickers reaches the glass (docs/92).
   const hal::UpdateMode mode = hal::UpdateMode::kGld16;
   const font::Face& face = keyboard_face();
-  const LayoutDef& layout = layout_of(g_kbd_kind);
-  const int32_t key_h = static_cast<int32_t>(g_kbd_key_h);
+  const LayoutDef& current = current_layout();
+  const int32_t key_h = static_cast<int32_t>(key_h_);
   DamageKeep keep;
   keep.take(view);
-  const int32_t top = band_top();
-  const int32_t band = layout.count * key_h;
-  if (top < 0) return;
+  const int32_t band = current.count * key_h;
   draw_fill_rect(view, 0, static_cast<uint16_t>(top), view.width, static_cast<uint16_t>(band), 15, mode);
   // A line of ink over the band: the page ends here.
   put_rect(view, 0, top, view.width, 1, 0);
   const int32_t body = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight);
-  for (uint8_t row = 0; row < layout.count; ++row) {
-    const RowDef& def = layout.rows[row];
+  for (uint8_t row = 0; row < current.count; ++row) {
+    const RowDef& def = current.rows[row];
     const int32_t y = top + row * key_h;
     for (uint8_t i = 0; i < def.count; ++i) {
       int32_t x = 0;
@@ -5145,8 +5291,8 @@ void keyboard_paint() {
       const KeyDef& key = def.keys[i];
       // **The key the dial is on is a block of ink and the letter on it is paper**: on this glass there is
       // nothing else to say "this is the one", and the same block says the capitals are on (docs/90).
-      const bool chosen = (g_kbd_row == row && g_kbd_key == i);
-      const bool lit = chosen || (key.action == KeyAction::kCaps && g_kbd_shift);
+      const bool chosen = (row_ == row && key_ == i);
+      const bool lit = chosen || (key.action == KeyAction::kCaps && shift_);
       const int32_t inset = 3;
       const int32_t box_w = w - 2 * inset;
       const int32_t box_h = key_h - 2 * inset;
@@ -5186,92 +5332,24 @@ void keyboard_paint() {
   keep.give_back(view);
   // **Only what changed of it goes to the glass**, and with the levels' wash: the band is a picture of nine thousand
   // pixels and the three keys a finger moves are a tenth of it (docs/50, docs/90).
-  if (g_kbd_dw > 0 && g_kbd_dh > 0) {
-    mark_box(view, g_kbd_dx, g_kbd_dy, g_kbd_dw, g_kbd_dh, mode);
-    g_kbd_dw = 0;
-    g_kbd_dh = 0;
+  if (dw_ > 0 && dh_ > 0) {
+    mark_box(view, dx_, dy_, dw_, dh_, mode);
+    dw_ = 0;
+    dh_ = 0;
   }
 }
 
-// **What a key does**: a letter goes to the box as one number —in the case the keyboard is in— and the
-// three that are not letters are the numbers a box understands. The shift is one capital and it lets go,
-// and the mode redraws the band with the other alphabet (docs/90).
-namespace {
-
-void press_key(const KeyDef& key) {
-  switch (key.action) {
-    case KeyAction::kChar: {
-      char letter = (key.label != nullptr) ? key.label[0] : '\0';
-      if (g_kbd_shift && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
-      luabind::ui_keyboard_typed(static_cast<int>(letter));
-      break;
-    }
-    case KeyAction::kCaps:
-      // **A lock and not a shift**: the key turns the alphabet to capitals and leaves it there, and the next press of
-      // it takes them back. A shift of one letter is a keyboard of a phone; a page typed into with a dial wants the
-      // mode to stay where a person put it (docs/90).
-      g_kbd_shift = !g_kbd_shift;
-      break;
-    case KeyAction::kBack:
-      luabind::ui_keyboard_typed(8);
-      break;
-    case KeyAction::kSpace:
-      luabind::ui_keyboard_typed(32);
-      break;
-    case KeyAction::kEnter:
-      luabind::ui_keyboard_typed(13);
-      break;
-    case KeyAction::kMode: {
-      g_kbd_kind = (g_kbd_kind == kKeyboardNumeric) ? kKeyboardAlpha : kKeyboardNumeric;
-      g_kbd_shift = false;
-      measure();
-      const LayoutDef& layout = layout_of(g_kbd_kind);
-      if (g_kbd_row >= static_cast<int8_t>(layout.count)) g_kbd_row = 0;
-      if (g_kbd_key >= static_cast<int8_t>(layout.rows[g_kbd_row].count)) g_kbd_key = 0;
-      break;
-    }
-  }
-  // **A letter, a space, a backspace or the enter do not change the picture of the band**: the app hears the key and
-  // the box changes, and the band is the same band. The two that change it are the case and the alphabet (docs/90).
-  if (key.action == KeyAction::kCaps || key.action == KeyAction::kMode) note_the_whole_band();
-}
-
-// **The key under a point of the view**, which is the cell the paint used: the finger and the glass see the
-// same twenty lines (docs/90).
-bool key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) {
-  if (!g_kbd_shown || g_kbd_key_h == 0) return false;
-  const int32_t top = band_top();
-  if (top < 0 || static_cast<int32_t>(y) < top) return false;
-  const LayoutDef& layout = layout_of(g_kbd_kind);
-  const int32_t at_row = (static_cast<int32_t>(y) - top) / static_cast<int32_t>(g_kbd_key_h);
-  if (at_row < 0 || at_row >= static_cast<int32_t>(layout.count)) return false;
-  const RowDef& def = layout.rows[at_row];
-  for (uint8_t i = 0; i < def.count; ++i) {
-    int32_t cell_x = 0;
-    int32_t cell_w = 0;
-    cell_place(def, i, cell_x, cell_w);
-    if (static_cast<int32_t>(x) >= cell_x && static_cast<int32_t>(x) < cell_x + cell_w) {
-      row = static_cast<int8_t>(at_row);
-      index = static_cast<int8_t>(i);
-      return true;
-    }
-  }
-  return false;
-}
-
-}  // namespace
-
-bool keyboard_touch(uint16_t x, uint16_t y, bool down) {
-  if (!g_kbd_shown) return false;
+bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
+  if (!shown_) return false;
   if (!down) {
-    const bool was = g_kbd_held;
-    g_kbd_held = false;
+    const bool was = held_;
+    held_ = false;
     return was;
   }
   // **One press is one key**: the glass hands a frame over once per scan while the finger is there, and a
   // keyboard that typed on every one of them would type a letter per scan of a held finger (docs/50,
   // docs/90). The finger of the bench is the same: a click is a frame and a held button is a run of them.
-  if (g_kbd_held) return true;
+  if (held_) return true;
   int8_t row = 0;
   int8_t index = 0;
   if (!key_at(x, y, row, index)) {
@@ -5279,39 +5357,81 @@ bool keyboard_touch(uint16_t x, uint16_t y, bool down) {
     // not be pressed through it (docs/90).
     return static_cast<int32_t>(y) >= band_top();
   }
-  g_kbd_held = true;
-  note_cell(g_kbd_row, g_kbd_key);
-  g_kbd_row = row;
-  g_kbd_key = index;
+  held_ = true;
+  note_cell(row_, key_);
+  row_ = row;
+  key_ = index;
   note_cell(row, index);
-  press_key(layout_of(g_kbd_kind).rows[row].keys[index]);
+  press_key(current_layout().rows[row].keys[index]);
   return true;
 }
 
-bool keyboard_key(const char* kind, uint32_t key_id) {
-  if (!g_kbd_shown || kind == nullptr || g_kbd_held) return false;
+bool Keyboard::key(const char* kind, uint32_t key_id) {
+  if (!shown_ || kind == nullptr || held_) return false;
   if (strcmp(kind, "press") != 0) return false;
-  const LayoutDef& layout = layout_of(g_kbd_kind);
-  if (g_kbd_row >= static_cast<int8_t>(layout.count)) g_kbd_row = 0;
-  if (g_kbd_key >= static_cast<int8_t>(layout.rows[g_kbd_row].count)) g_kbd_key = 0;
+  const LayoutDef& current = current_layout();
+  if (row_ >= static_cast<int8_t>(current.count)) row_ = 0;
+  if (key_ >= static_cast<int8_t>(current.rows[row_].count)) key_ = 0;
   // **The three keys of the dial in the shape every page has**: key 0 is the centre, 1 is up and 2 is down
   // —the Paper's dial and the ATOM's single key both arrive here— and the walk goes round the keyboard in
   // the order it is drawn, so a row that is not the width of the last one costs nothing (docs/50, docs/90).
   if (key_id == 0) {
-    press_key(layout.rows[g_kbd_row].keys[g_kbd_key]);
+    press_key(current.rows[row_].keys[key_]);
     return true;
   }
-  const int32_t total = flat_count(layout);
+  const int32_t total = flat_count(current);
   if (total <= 0) return true;
   const int32_t step = (key_id == 1) ? -1 : 1;
-  int32_t next = (flat_index(layout, g_kbd_row, g_kbd_key) + step) % total;
+  int32_t next = (flat_index(current, row_, key_) + step) % total;
   if (next < 0) next += total;
-  note_cell(g_kbd_row, g_kbd_key);
-  flat_place(layout, next, g_kbd_row, g_kbd_key);
-  note_cell(g_kbd_row, g_kbd_key);
+  note_cell(row_, key_);
+  flat_place(current, next, row_, key_);
+  note_cell(row_, key_);
   return true;
 }
 
+}  // namespace
+
+bool keyboard_show(uint8_t kind) { return g_keyboard->show(kind); }
+
+bool keyboard_hide() { return g_keyboard->hide(); }
+
+bool keyboard_visible() { return g_keyboard->visible(); }
+
+uint16_t keyboard_height() { return g_keyboard->height(); }
+
+void keyboard_paint() { g_keyboard->paint(); }
+
+bool keyboard_touch(uint16_t x, uint16_t y, bool down) { return g_keyboard->touch(x, y, down); }
+
+bool keyboard_key(const char* kind, uint32_t key_id) { return g_keyboard->key(kind, key_id); }
+
+uint8_t keyboard_count() { return kKeyboardCount; }
+
+const char* keyboard_at(uint8_t index) {
+  return (index < kKeyboardCount) ? g_keyboards[index]->id() : nullptr;
+}
+
+const char* keyboard_current() { return g_keyboard->id(); }
+
+// **Selecting a keyboard is selecting the object the band talks to** (0.93.0): the state of the one that goes is its
+// own and does not leak into the next, and a band that is on the glass is taken down and put up again with the same
+// alphabet so the page above it does not lose its height for a frame. The list is the children themselves, so a new
+// keyboard is one more row and no other code learns its name (docs/30, docs/90).
+bool keyboard_select(const char* id) {
+  if (id == nullptr) return false;
+  for (uint8_t i = 0; i < kKeyboardCount; ++i) {
+    if (strcmp(g_keyboards[i]->id(), id) != 0) continue;
+    if (g_keyboards[i] == g_keyboard) return true;
+    const bool was = g_keyboard->visible();
+    const uint8_t kind = g_keyboard->kind();
+    if (was) g_keyboard->hide();
+    g_keyboard = g_keyboards[i];
+    if (was) g_keyboard->show(kind);
+    return true;
+  }
+  return false;
+}
 
 //
 // **A strip of dots with the one you are on bigger**, and nothing at all when there is one page: a single dot

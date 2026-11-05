@@ -638,6 +638,14 @@ bool keyboard_touch(uint16_t x, uint16_t y, bool down);
 // key (docs/90).
 bool keyboard_key(const char* kind, uint32_t key);
 
+// **The keyboards the system carries** (0.93.0): the band's common behaviour is one parent class and each keyboard is
+// one child that says its name and its rows. The settings choose one by name; `keyboard_count` and `keyboard_at` are
+// what a `cfg keyboard` listing reads (docs/30, docs/70, docs/90).
+uint8_t keyboard_count();
+const char* keyboard_at(uint8_t index);
+const char* keyboard_current();
+bool keyboard_select(const char* id);
+
 // ---- the dots of a page: where this page is among the others (docs/30, docs/90) ----
 //
 // **`pages` dots and `current` bigger**: the dots are a strip that says "there is more, and you are here", it

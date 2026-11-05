@@ -161,7 +161,7 @@ Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **426 proves natives** (`pio test -e test`);
+- les **428 proves natives** (`pio test -e test`);
 - les **cinc bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `atom`, `atom_matrix`,
   `paper` i `esp32`.
 

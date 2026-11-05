@@ -2035,6 +2035,23 @@ void test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away(void) {
   TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
 }
 
+// **The keyboards are children of one parent and are chosen by name** (0.93.0): the parent has the band, the finger, the
+// dial and the face; each child says its id and its rows. The list is what `cfg keyboard` prints, and a name that is not
+// one of the children is refused instead of silently selecting another (docs/30, docs/70, docs/90).
+void test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name() {
+  TEST_ASSERT_EQUAL_UINT8(2, ui::keyboard_count());
+  TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_at(0));
+  TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_at(1));
+  TEST_ASSERT_NULL(ui::keyboard_at(2));
+  TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_current());
+  TEST_ASSERT_TRUE(ui::keyboard_select("azerty"));
+  TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_current());
+  TEST_ASSERT_FALSE(ui::keyboard_select("dvorak"));
+  TEST_ASSERT_EQUAL_STRING("azerty", ui::keyboard_current());
+  TEST_ASSERT_TRUE(ui::keyboard_select("qwerty"));
+  TEST_ASSERT_EQUAL_STRING("qwerty", ui::keyboard_current());
+}
+
 // **The caret is a block on the glass and never outside it**: an empty box has the bar at the left of the inside,
 // without the caret the box is paper again, and a text longer than the frame is a **window** that keeps the caret
 // where the next letter goes (docs/30, docs/90).
@@ -2923,6 +2940,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
+  RUN_TEST(test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name);
   RUN_TEST(test_a_textbox_keeps_the_caret_on_the_glass);
   RUN_TEST(test_the_window_of_a_textbox_carries_the_width_of_the_tail);
   RUN_TEST(test_a_dialog_wraps_its_message_and_has_two_doors);
