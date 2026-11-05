@@ -1242,27 +1242,34 @@ static void test_a_label_places_its_line_by_alignment() {
 // **A button is a rounded frame with a border and a body**, and while it is held the bevel swaps: the child
 // does not move and the frame does not grow. The fill and the border are two levels of the same canvas, and a
 // level outside the sixteen is refused (docs/30, docs/90).
-static void test_a_button_paints_a_frame_and_a_second_border_when_pressed() {
+// **The drawing of a button is PaperOS's** (0.97.0): a box in the colour of the shadow, the face on top of it, and the
+// four pixels of box left at the bottom are the shadow. Held, the face goes down those four pixels and the shadow goes
+// away, which is a button pushed into the page (docs/92).
+static void test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed() {
   fresh_view();
   int8_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, false));
-  // **Six pixels of corner on a button twenty tall**: the corner of the frame is the page, the top edge is
-  // ink, and the body is inside the two pixels of border.
+  // Six pixels of corner on a button twenty tall: the corner of the box is the page, the middle of the top edge is the
+  // ink of the frame, and the body is paper inside it.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 10));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(16, 10));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 10));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 20));
-  // **The bevel of a white button is ink and paper and not a shade of grey** (0.85.4): the shadow along its bottom is
-  // ink —a white body has no lighter edge— and held it is the body, because the mouth of the hole goes to the top.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 27));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 25));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));
+  // **The shadow is four pixels of the box under the face**: the face is sixteen tall and its frame is one pixel.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 24));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 25));  // the frame of the face
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 26));  // the shadow
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 29));  // to the bottom edge of the box
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));   // and nothing outside the box
+  // **Held, the face is ink and it has gone down four pixels**: paper on top, ink to the bottom edge.
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, true));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 12));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 27));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 11));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(29, 13));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 14));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(29, 29));
   TEST_ASSERT_FALSE(ui::button_draw(slot, 16, 0, false));
   ui::release(slot);
 }
@@ -1440,6 +1447,11 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
   TEST_ASSERT_EQUAL_UINT16(364, ui::height());
   TEST_ASSERT_TRUE(ui::present());
+  // **The keys keep the margin of the glass** (0.97.0, docs/92): the twelve pixels at the left of the band are the
+  // paper of the band and not a key, and the first key of the row starts there with its one pixel of line.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, top + 10));   // the margin of the glass, at the left
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(11, top + 10));  // eleven pixels of it
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, top + 10));   // and the key of the row starts here, in ink
 
   // **The page above the band is the page's**: a finger there is not the keyboard's.
   TEST_ASSERT_FALSE(ui::keyboard_touch(48, top - 1, true));
@@ -1458,15 +1470,16 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::keyboard_touch(20, top + 44 + 22, true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(96 + 10, top + 10), "the dial left the key it was on");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(10, top + 10), "a key of the first row is still the chosen one");
-  // A finger on the `a` itself puts the dial there, which is the cell the paint put down: forty-eight pixels of
-  // indent, a hundred and forty-four of key, and the block of the chosen one is ink inside its three pixels of air.
-  TEST_ASSERT_TRUE(ui::keyboard_touch(48 + 48, top + 44 + 22, true));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(150, top + 10), "the dial left the key it was on");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(40, top + 10), "a key of the first row is still the chosen one");
+  // A finger on the `a` itself puts the dial there, which is the cell the paint put down: the keys keep the twelve
+  // pixels of margin of the glass, so the row of `a` starts at thirty-seven, and **the chosen key is its whole cell in
+  // ink** and not a block inside three pixels of air (0.97.0, docs/92).
+  TEST_ASSERT_TRUE(ui::keyboard_touch(100, top + 41 + 22, true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(48 + 10, top + 44 + 10));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(96 + 10, top + 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(70, top + 41 + 4));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(150, top + 10));
 
   // **The capitals are a lock and not a shift**: what a capital costs is more ink in the cell of the letter and the
   // same cell, the key of the case is lit while it is on, and **a letter does not put it out** —the picture of the
@@ -1484,13 +1497,13 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   const int lower = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN(0, lower);
   // The case is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
-  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 82 + 20, true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
   const int capital = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the case did not change the letters");
   // The key is lit while it is on, and the band is painted once for it.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, top + 88 + 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, top + 82 + 10));
   // **A letter of the row of `q` does not put it out**, and it does not paint the band either: the capitals stay and
   // the key stays lit —what a lock is for— (0.84.4).
   // The dial walks off the case key and onto a letter —the `z` of its row—, which is a move and paints the band once.
@@ -1502,7 +1515,7 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::keyboard_key("press", 0));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_INT_MESSAGE(capital, ink_in(192, top + 4), "a letter put the capitals out");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(10, top + 88 + 10), "the key of the case went out with a letter");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(20, top + 82 + 10), "the key of the case went out with a letter");
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(before_the_letter, glass().paint_count(), "a letter painted the band");
   // And the key again takes the capitals back.
   TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
@@ -1539,7 +1552,7 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_EQUAL_UINT16(364, foot);
   TEST_ASSERT_EQUAL_UINT8(0, view_level(0, foot));
   // The dial is on the `1` of the first row, and the chosen key is a block of ink with the digit in paper.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, foot + 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, foot + 10));
   TEST_ASSERT_TRUE(ui::keyboard_hide());
   TEST_ASSERT_EQUAL_UINT16(0, ui::keyboard_height());
   // **And the page is the whole glass again** when the band goes.
@@ -1568,121 +1581,53 @@ static void test_the_cleaner_between_apps_follows_the_page() {
   TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
 }
 
-// **A button comes out of the page**: twelve pixels of round corner, a frame of three and a bevel of two, a
-// shadow on the bottom and the right that swaps to the top and the left while it is held, and a focus that is
-// a white gap and a black band of seven inside the frame —a double frame no one can take for the border—. It
-// is a test of pixels and not of counts, because what changed is what a person sees (docs/30, docs/90).
-void test_a_button_has_a_round_corner_a_bevel_and_a_ring() {
-  fresh_view();
-  int8_t button = -1;
-  TEST_ASSERT_TRUE(ui::create(200, 100, -1, false, button));
-  TEST_ASSERT_TRUE(button >= 0);
-  TEST_ASSERT_TRUE(ui::place(button, 40, 40));
-
-  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
-  // **The corner of the frame is not the border**: the box is rounded, so the pixel of the corner is the view
-  // behind it and not ink. The middle of the same top edge is ink, three pixels of it.
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(40, 40));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(44, 40));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(52, 40));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 40));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 41));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the frame is three pixels now
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));  // the body, white
-  // **The volume of a light button is its shadow, and the shadow is ink** (0.85.4): two pixels of ink along the bottom,
-  // inside the frame, because a white body has no lighter edge to draw. A bevel of greys was eleven and seven, which is a
-  // control that needs the wash of sixteen levels and leaves a grey ghost (docs/50, docs/92).
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 136));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 135));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 134));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 137));  // and the frame below it
-  // **And the dark one's is the highlight**, which is the same idea the other way round: paper on a body of ink.
-  TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));
-  // **Held, the two swap**: the light goes to the bottom and the shadow to the top, which is a button pushed in.
-  TEST_ASSERT_TRUE(ui::button_draw(button, 0, 15, true, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 42));  // the border is still the border
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 136));
-  // **And on a white button the hole has a mouth**: the shadow is as many pixels of ink as the frame is thick and not
-  // one line of the grey that was there when it was out, which is what a person reads as pressed (docs/90).
-  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, true, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 43));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 44));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 45));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 46));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 42));  // the border is still the border, and it is black here
-  // **The ring of the focus**: a white gap of two after the border and seven black pixels after it, and the
-  // body again inside them. It is the double frame a person reads as "this is the one" (docs/30, docs/90).
-  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, true));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 44));  // the pause, which is the light edge of the bevel
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 45));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 47));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 48));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 49));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 50));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(140, 51));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 52));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 70));  // and the middle of the button is untouched
-  // Without the focus those seven pixels are the body, which is what makes the ring the focus and not a border.
-  TEST_ASSERT_TRUE(ui::button_draw(button, 15, 0, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 46));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(140, 51));
-}
-
-// **A checkbox is a row with a square box at its left, and the tick is the only thing that changes when it is
-// checked** (docs/30, docs/90). The row is the control's background —a control without a buffer paints the
-// pixels it covers—, the box is a border and a body at the weight the button taught, and the tick is two
-// strokes of a brush in a colour of its own. The side of the box is the kernel's number, and it is what an app
-// needs to put the words beside it: `label:place(cb:box() + 8, 0)`.
 void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
   fresh_view();
   int8_t box = -1;
   TEST_ASSERT_TRUE(ui::create(60, 20, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 10, 10));
-  // **Four pixels of row above and below**: a row of twenty holds a box of twelve, which is the room the ring
-  // of the focus needs outside it.
+  // **Twelve pixels of box in a row of twenty**: the square on the left is the control and the rest of the row is the
+  // room the child that names the setting needs.
   TEST_ASSERT_EQUAL_INT16(12, ui::checkbox_side(box));
 
-  // **Out: a border, a body and the row around them.** The background here is 12 so the row is told apart
-  // from the paper, and the box's border is ink.
+  // **Out: a ring of two pixels and paper inside it** (the paper project's `Checkbox::paintBox()`, docs/92). The row
+  // here is 12 so the row is told apart from the paper of the page, and the ring is ink.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
   TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));  // the row, right of the box: the room for the words
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the left border of the box
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 23));  // its body, with nothing drawn in it
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the ring, two pixels of it
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(11, 20));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(12, 20));  // and the body, which is the row's own tone and has nothing in it
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 23));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));    // and the page outside the row
 
-  // **Checked, the body has a tick in it and the row does not move**: the knee of the V lands on that same
-  // pixel, and the frame outside the box is still the row.
+  // **Checked, the body has a tick in it and the row does not move**: the knee of the V lands on that same pixel, and
+  // the row outside the box is still the row.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 23));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 23));
   TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));
 
-  // **The tick has a colour of its own**: a black box with a white tick is a checkbox that can be read with
-  // the rest of the page black (docs/30, docs/90).
+  // **The tick has a colour of its own**: a black box with a white tick is a checkbox that can be read with the rest of
+  // the page black (docs/30, docs/90).
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 0, 15, 15, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(15, 23));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the border is the other colour and it did not move
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 23));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the ring is the other colour and it did not move
 
-  // **Held, the bevel swaps and the body stays the two levels it had** (0.85.4): the mouth of the hole is ink on the
-  // top and the body on the bottom, which is the hole the button teaches at a quarter of the size —and no step darker,
-  // because a darker body is a grey and a grey is the wash of sixteen levels for a tick— (docs/92).
+  // **A checkbox has no pressed state** (the paper project says it in as many words): the picture of a box under a
+  // finger is the picture of a box, because what the finger does is change the state and the state is the mark.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 15));   // the top of the body, which is the mouth now
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 24));  // and the bottom, which is the body again
-  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 15));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 24));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
 
-  // **The focus is a ring outside the box**: two pixels of band, one of pause and then the border, so a person
-  // reads two frames and not a thicker one. Without the focus that pixel is the row.
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 11));
+  // **The chosen box goes inverted** —ring of row, body of ink, and the tick of row—, which is the same signal a button
+  // gives and the one thing a person can see on this glass. **The word is a child of the app and this system does not
+  // recolour it** (docs/92).
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the ring of a box that is not chosen is ink
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, true));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 11));   // the band
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 12));   // two pixels of it
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(20, 13));  // the pause
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 14));   // and the border of the box
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(10, 20));  // the ring is the row now
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 20));   // and the body is ink
+  TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, true));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(14, 23));  // the tick, in the tone of the ring
 
   // A level outside the sixteen is a colour this panel does not have, and the box is asked for three of them.
   TEST_ASSERT_FALSE(ui::checkbox_draw(box, 16, 0, 0, false, false, false));
@@ -1733,16 +1678,19 @@ void test_a_slider_puts_the_knob_where_the_value_says() {
   TEST_ASSERT_TRUE(ui::create(200, 40, 0, false, slider));
   TEST_ASSERT_TRUE(ui::place(slider, 10, 10));
 
-  // At the minimum the knob is at the left: its ring is the border colour, and nothing is filled past it.
-  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 12, 8, 0, 0, 0, 100, "%", 2, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 30));   // the ring of the knob, on the left
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(100, 30));  // and the track, still to come
+  // **At the minimum the knob is a circle at the left** —paper inside and one pixel of ink round it, which is the paper
+  // project's `Slider`— and the tube of the track carries on to the right, empty.
+  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 15, 0, 0, 0, 0, 100, "%", 2, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 30));    // the outline of the knob, on its left edge
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 30));   // and the paper inside the knob
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 26));  // the empty track is paper, with its outline above and below
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 30));
 
   // At the maximum the knob has gone to the right and the track it left behind is filled: where the knob was, the paper of
   // the control is, because the track starts at the middle of the knob at the minimum.
-  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 12, 8, 0, 100, 0, 100, "%", 2, false, false));
-  TEST_ASSERT_EQUAL_UINT8(8, view_level(100, 30));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 30));
+  TEST_ASSERT_TRUE(ui::slider_draw(slider, 15, 0, 15, 0, 0, 100, 0, 100, "%", 2, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 30));   // what the value has taken is the ink of the outline
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 30));   // and where the knob was, the paper of the control is
 
   // **The number is drawn by the control and not by the app**: there is ink in the right column, and the
   // column is walked instead of pointed at, because a letter of a face is not a pixel a test should know.
@@ -1939,6 +1887,51 @@ void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
   ui::release(strip);
 }
 
+// **A button is the drawing of the paper project, number by number** (0.97.0): a box in the colour of its shadow with
+// the face lifted **four pixels** off the bottom —the strip of box in sight under it is what makes it a key and not a
+// rectangle—, a corner of fourteen, and **the chosen one inverted**: ink face, because the focus and the finger are one
+// signal. With the finger on it the face slides down those four pixels and the strip under it is gone, so what is in
+// sight at the top is paper: that half of "pressed" is what a bevel cannot say. A primary button wears a frame of three
+// pixels on the face, and the frame walks with the face and does not stay on the box (docs/30, docs/90, docs/92).
+void test_a_button_is_the_drawing_of_the_paper_project(void) {
+  fresh_view();
+  int8_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 64, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+
+  // Up and not chosen: the face is paper and the four pixels of box under it are the shadow, of ink.
+  TEST_ASSERT_TRUE(ui::button_draw(box, 15, 0, false, false));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 0));    // the frame of one pixel, on the top edge of the face
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 1));   // the face, paper
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 30));  // and paper all the way down the face
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 59));   // the frame of the bottom edge of the face
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 61));   // the strip of the shadow, the box under the face
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 63));   // to the bottom edge of the box
+
+  // **With the finger on it the face has gone down four pixels and it is ink**: paper above it and ink below, which is
+  // the button pushed into the page.
+  TEST_ASSERT_TRUE(ui::button_draw(box, 15, 0, true, false));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 2));   // paper where the frame was
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 3));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 4));    // the ink face, four pixels down
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 63));   // and ink to the bottom edge: there is no shadow while it is down
+
+  // **The chosen one is inverted and has no strip**: the box and the face are both ink, so the whole button is ink.
+  TEST_ASSERT_TRUE(ui::button_draw(box, 15, 0, false, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 30));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 63));
+
+  // **A primary button is the one with a frame of three pixels**, on the face and not on the box.
+  TEST_ASSERT_TRUE(ui::button_draw(box, 15, 0, false, false, true));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, 3));   // the face starts here
+
+  ui::release(box);
+}
+
 // **The dots of a page are a strip with the one you are on bigger**, and **a page with one page draws none**:
 // one dot says nothing and it would cost a paint of the panel to say it (docs/30, docs/90).
 void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
@@ -1963,6 +1956,61 @@ void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
   TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 10));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 5));   // the big one reaches higher than the others
   TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 10));  // and the strip is not painted from edge to edge
+  ui::release(strip);
+}
+
+// **The strip is two tones and a rod, and the open page is the solid ball** (0.94.1): the balls are rings with paper
+// inside and the one being read is a solid disc and bigger, so the counter says "which one" without a grey —and a strip
+// of two tones is one the panel erases with the binary waveform (docs/50, docs/90).
+void test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid(void) {
+  fresh_view();
+  int8_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+
+  // Three pages and the second one in a box of 100 by 24: balls of 8 and 12 pixels, a gap of 8 and a rod of 2. The
+  // strip is 52 wide and starts at column 24, so the centres are at 30, 50 and 70 and the row of the centres is 12.
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 3, 2, 0, 15));
+
+  // The page that is open: a solid disc, ink from its top row to its bottom one.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 7));   // the top of the big ball, six pixels above the centre
+  // The others: ink at the edge and paper in the middle, which is the whole difference between a ring and a ball.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(30, 8));   // the top edge of the small ball
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));  // paper inside the ring
+  // And the rod: ink in the air between two balls, on the row of their centres.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(40, 12));
+  // Nothing is painted outside the strip.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(97, 12));
+  ui::release(strip);
+}
+
+// **More pages than fit are a window and not a strip running off the edge** (0.94.1): forty pages in a strip of 100 px
+// used to be drawn from outside the box, so the counter left the glass on both sides. It shows the five balls that fit
+// and the window of them that holds the open page, and the open one is still the solid ball of the strip.
+void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
+  fresh_view();
+  int8_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+  // Forty pages and the thirty-seventh: five balls fit, the window is 35..39 and the open one is the middle one of it.
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 37, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 12));   // the open page, solid, in the middle of the strip
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));  // its neighbour, a ring
+  // The two ends of the window are inside the box: a ball of 8 pixels at column 10 keeps paper outside its edge.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 8));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(90, 8));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(99, 12));
+
+  // **The first page is the first ball of the window and the last one the last**: the window moves to the ends instead of
+  // hanging out of them.
+  ui::clear(15, nullptr);
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 1, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 12));   // the first page, solid, in the first slot
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(90, 12));  // and the fifth sees the fifth dot of a ring
   ui::release(strip);
 }
 
@@ -2248,8 +2296,16 @@ void test_a_dialog_wraps_its_message_and_has_two_doors() {
   TEST_ASSERT_GREATER_THAN_UINT16(200, door_top);
   // The middle of the door and not its first row, which is the frame of it.
   const uint16_t door_y = static_cast<uint16_t>((door_top + door_bottom) / 2);
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, door_y));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(300, door_y));
+  // **The two doors are buttons** (0.97.0, docs/92): paper inside both of them, and **the door the app emphasised wears
+  // the frame of three of a primary button** —which is the paper project's `setPrimary(true)`— while the other wears one
+  // pixel and the shadow under its face.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, door_y));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, door_top));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, door_top + 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(100, door_top + 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(100, door_top + 3));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(220, door_top));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(220, door_top + 1));
   // And the geometry a finger asks is the one that was painted.
   TEST_ASSERT_EQUAL_UINT8(1, ui::dialog_hit(card, 100, door_y));
   TEST_ASSERT_EQUAL_UINT8(2, ui::dialog_hit(card, 300, door_y));
@@ -2318,14 +2374,23 @@ void test_a_menu_hides_the_options_the_app_cannot_do() {
   // The card: three pixels of ink round it and paper inside.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 100));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 100));
-  // A row of paper with a frame of ink, and the option of the moment is inverted.
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 30));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 138));
-  // **The ring is on the second row**, in the tone of the words, and the first row wears no ring where the second has
-  // one.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 94));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(22, 94));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(19, 30));
+  // **Every option of a menu is a button** (0.97.0, docs/92): paper inside with a frame of ink, **the option the dial
+  // is on inverted** —ink face and paper word—, and the one the app calls primary wearing the frame of three.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 30));   // the first row, paper inside its frame
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(30, 100));   // the second row, which is the row the dial is on
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 138));  // the third, which is primary and not the one the dial is on
+  // **And the frame of a primary button is three pixels**, in the face and not on the box: three rows of ink and the
+  // fourth the paper of the inside.
+  // **A primary button wears a heavier frame than the others**, counted over the first rows of each option.
+  int thin_frame = 0;
+  int thick_frame = 0;
+  for (uint16_t y = 15; y < 30; ++y) {
+    if (view_level(30, y) == 0) ++thin_frame;
+  }
+  for (uint16_t y = 127; y < 142; ++y) {
+    if (view_level(30, y) == 0) ++thick_frame;
+  }
+  TEST_ASSERT_GREATER_THAN(thin_frame, thick_frame);
   // **The boxes the finger asks**: one per row, the padding round the card is no option at all.
   TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", three, 3, 2, 150, 47));
   TEST_ASSERT_EQUAL_UINT8(2, ui::menu_hit(card, "", three, 3, 2, 150, 101));
@@ -2341,9 +2406,10 @@ void test_a_menu_hides_the_options_the_app_cannot_do() {
   TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", two, 3, 2, 150, 60));
   TEST_ASSERT_EQUAL_UINT8(3, ui::menu_hit(card, "", two, 3, 2, 150, 155));
   TEST_ASSERT_EQUAL_UINT8(0, ui::menu_hit(card, "", two, 3, 2, 150, 190));
-  // The ring went with the third option, which is the second row.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 122));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(22, 122));
+  // **The dial went with the third option, which is the second row**: that one is inverted —ink face— and the row of
+  // the one above it is paper (0.97.0, docs/92).
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(22, 122));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(22, 66));
 
   // **Four options fill a column before the next one**: two columns of two with a gap between them, and the gap is no
   // option.
@@ -2382,13 +2448,16 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   TEST_ASSERT_EQUAL_UINT8(15, view_level(200, 51));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(200, 52));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(200, 53));
-  // **The menu**: a frame of ink at 0,54 and paper inside.
+  // **The menu is a card of the system** (0.97.0, docs/92): three rings of ink from 0 and 54, and paper inside them.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 80));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 56));
-  // **The box of the tick of the first entry**: a frame of ink, its middle filled, and paper between the two.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, 80));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(17, 80));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 80));
+  // **And the rings are three and paper comes after them**: the left edge of a card in its straight part.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 80));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(3, 80));
+  // **The box of the tick of the first entry**, which is the row the dial is on: the row is ink and the box flips to
+  // paper, tick of paper, and between them the ink of the row (docs/92).
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 80));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(17, 80));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(26, 80));
   // **An entry that cannot be used is the dim tone**: there is a level eight in the row of "Quit" and none in the row of
   // "Open", which is the row of a word that works.
   int dim_row = 0;
@@ -2896,7 +2965,6 @@ int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(test_without_an_app_there_is_no_view);
   RUN_TEST(test_the_canvas_is_the_glass_and_starts_white);
-  RUN_TEST(test_a_button_has_a_round_corner_a_bevel_and_a_ring);
   RUN_TEST(test_drawing_stays_on_the_canvas_and_leaves_damage);
   RUN_TEST(test_present_sends_the_damage_with_its_quality);
   RUN_TEST(test_two_qualities_are_two_paints);
@@ -2947,7 +3015,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_window_is_the_page_at_the_scale_that_fits_or_the_one_asked_for);
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
   RUN_TEST(test_a_label_places_its_line_by_alignment);
-  RUN_TEST(test_a_button_paints_a_frame_and_a_second_border_when_pressed);
+  RUN_TEST(test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed);
   RUN_TEST(test_a_checkbox_is_a_box_with_a_tick_and_a_ring);
   RUN_TEST(test_a_checkbox_that_redraws_asks_its_child_to_draw_again);
   RUN_TEST(test_a_progress_bar_fills_a_prefix_of_its_track);
@@ -2956,7 +3024,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_panel_stacks_its_children_in_a_column);
   RUN_TEST(test_a_row_panel_splits_the_width_and_stretches_the_height);
   RUN_TEST(test_a_strip_of_tabs_has_no_line_under_the_chosen_one);
+  RUN_TEST(test_a_button_is_the_drawing_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
+  RUN_TEST(test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid);
+  RUN_TEST(test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
   RUN_TEST(test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name);

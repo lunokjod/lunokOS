@@ -245,11 +245,18 @@ uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale
 bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
                 uint8_t valign, uint8_t scale);
 
-// **Draws a button into its frame**: a background and a border, a second inner border while it is pressed
-// and another one two pixels in while it has the focus. A button is a control without a buffer, so what it
-// paints is the frame it covers and nothing else; its children —a label, for instance— are composed after
-// it and clipped to the same frame (docs/30, docs/90).
-bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false);
+// **Draws a button into its frame, with the drawing of the paper project** (0.97.0): a box in the colour of its shadow
+// with the face lifted four pixels off the bottom of it —**the strip that is left in sight under the face is what makes it
+// a key and not a rectangle**—, a rounded corner of fourteen, and the face **inverted** while the button is the one that
+// will answer: black face and paper text, because the focus and the finger have to say the same thing. A primary button
+// wears a frame of three pixels and the rest one, and the frame goes on the **face** and not on the box, or it would stay
+// where it was while the button goes down. `title` is the word inside —drawn by the control, so an inverted button has an
+// inverted word— and `tag` is a small word in an outlined box at its left that says what kind of thing the row is. A
+// child added with `add` is still composed after the box and cut at the frame, and it is **not** inverted: a control the
+// app paints keeps the colours the app gave it (docs/30, docs/90, docs/92).
+bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false,
+                 bool primary = false, const char* title = nullptr, const char* tag = nullptr,
+                 uint8_t color = 0, uint8_t scale = 1);
 
 // ---- a checkbox: a square with a tick, and the state the click changes (docs/30, docs/90) ----
 //
@@ -648,9 +655,14 @@ bool keyboard_select(const char* id);
 
 // ---- the dots of a page: where this page is among the others (docs/30, docs/90) ----
 //
-// **`pages` dots and `current` bigger**: the dots are a strip that says "there is more, and you are here", it
-// takes no focus and it draws nothing at all when there is only one page —one dot says nothing, and it costs a
-// pass of the panel to say it— (docs/90).
+// **`pages` balls in a row and `current` the bigger one**, threaded on a rod: the ball of the page that is open is a
+// solid disc and the others are **rings with paper inside**, so the strip is two tones and no more —it is drawn and
+// erased with the binary waveform, and a grey one smeared on this glass—. It takes no focus and it draws nothing at all
+// when there is only one page: one dot says nothing, and it costs a pass of the panel to say it (0.94.1, docs/90).
+//
+// **When the pages do not fit**, the strip shows as many balls as its box holds and the window of them that contains the
+// open page, so the counter is inside the box and the page a person is on is always one of the balls. The whole strip
+// owes **one** damaged region and not one per ball (docs/30, docs/90).
 bool dots_draw(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
 
 // ---- the faces a text can be drawn with (docs/30) ----

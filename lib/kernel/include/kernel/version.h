@@ -1328,7 +1328,102 @@ namespace kernel {
 // amb els fitxers d'algú sota un nom que promet 256 bytes (trobat en revisar la placa, 5/11). `sys.board` answers
 // `ttgo-t-koala`, the bench has the same model so an app of this board can be tried on the PC, and the CI
 // builds it with the other five bands (docs/50, docs/70, docs/80, docs/85).
-static const char kVersion[] = "0.94.0";
+// 0.94.1 (5/11): **the dots of a page are the counter the old project settled on, and they stay inside their box.** The
+// strip was a row of solid discs —all of them in the same tone, the open one only bigger— and with more pages than fit it
+// was drawn from outside the box, so the counter left the glass on both sides. It is now **two tones and a rod**: the
+// ball of the page that is open is a solid disc and the biggest one, the others are **rings of ink with paper inside**,
+// and a bar threads them all which is only seen in the air between two balls —drawn first, so a rod does not cross the
+// middle of every ball—. There is no intermediate tone anywhere, so the strip is carried by the binary waveform and
+// nothing in it fights the clean of the next pass (the old project's grey strip smeared for exactly that reason,
+// docs/92). **And what does not fit is a window**: as many balls as the box holds, the ones around the page a person is
+// on, so the strip never leaves its frame and the open page is always one of the balls. The whole strip owes **one**
+// damaged region and not one per ball: with a ball made of two discs the marks would pass the eight a canvas holds and
+// the page would be served the wash of the panel for a page turn (docs/30, docs/90).
+// Measured on the bench: 431 native cases green, and each half of it falls when it is taken away —without the paper
+// inside a ring the two new tests of `test_ui` go red, without the window the one of the narrow strip goes red, and
+// without the rod the one of the three balls goes red—.
+// 0.95.0 (5/11): **the system ships `gallery`, the page that shows every control it has.** Twenty of them in eight pages
+// —label, row, button, checkbox, progress, slider, sparkline, pie, list, notification bar, text box, multi-line box,
+// selector, dialog, menu bar, menu, month, icon grid and the dots of a page—, built as a declaration and not as a list of
+// coordinates: a `ui.panel` stacks them and gives the room that is left to the one with a `weight`. The strip of tabs
+// chooses the page and the dots say which one it is, so the two controls that are about "where am I" are the navigation;
+// a page that is left is given back whole and built again on the same glass, and the word of `run` is the number of the
+// page (`run gallery 5`), which is also how the suite builds all eight of them without a finger (docs/30, docs/90).
+// **And it found one number**: `ui.dots` refuses more than **32** pages (`dots_field_valid`), which is a ceiling of the
+// bridge and not of the drawing —the strip of 0.94.1 already shows a window of what fits— so a book with forty pages
+// cannot say so on its strip. It is written down here because the day it matters it is a line, and because the app that
+// exists to show what the system has is the one that says what the system cannot do.
+// Measured on the bench: 432 native cases green, the app builds on the Paper with no field refused and each of its eight
+// pages says its own name; the suite runs one `run gallery <n>` per page and asserts that name, so a page that dies says
+// so instead of looking like a page nobody looked at.
+// 0.95.1 (5/11): **`run gallery` with no word at all is the way a person opens an app, and it was the one that broke.**
+// `app.args` is a table that exists when `run` carries an argument and not before, and the gallery read `app.args.path` on
+// the first line it runs: the board answered `attempt to index a nil value (field 'args')` on the page that says what the
+// system has. The guard is the one every app that reads the word already used (`app ~= nil and app.args ~= nil and
+// app.args.path ~= nil`), and **the test that was missing is the one that would have caught it**: the suite only ever ran
+// `run gallery <n>`, so the path was always there. It now runs it with no argument first and asserts the first page —with
+// the guard taken out the test says the same line the board said— (docs/30, docs/40).
+// 0.96.0 (5/11): **the whole glass is the typeface of the paper project, and it is read from the disk.** The face of the
+// system was a five by seven table of the flash, so a label at `scale` 2 drew a **14 px line** —1,5 mm on a 235 ppi
+// glass— and no control could be made to look like the paper project by drawing it differently: the letter itself was
+// the problem (the owner, with the board in his hand: *«tot el UI actual de lunokOS és massa petit… vull la mateixa
+// estètica i tipus de lletra»*). `font::set_system_face` lets the kernel point the face of the system at another one, and
+// `ui::boot` loads `/fonts/dejavusans-bold.ttf` —the subset the disk already carries, eight and a half kilobytes— into a
+// slot no app can release and makes it the face of everything: the bar, every control, and every text of an app that does
+// not say a face of its own. **A board whose disk carries no font keeps the table of the flash and says which of the two
+// it is in the log.** The step of a face of outlines is eight pixels of body and the table's is seven, so the bar asks the
+// face for the height of a line instead of counting seven: its text is 32 px now and not 28, inside the same 48 rows
+// (docs/30, docs/50, docs/92).
+// Measured on the bench: `[I][UI] face /fonts/dejavusans-bold.ttf, 8 px of body at scale 1`, 433 native cases green, and
+// the test falls when the path does not exist (docs/85).
+// **What this does NOT do, and is the next block**: the numbers. A step is still 8 px, so an app that says `scale` 2 draws
+// 16 px of body and the paper project's text is 32 px —the 43 px line—. Changing that is the theme of the controls
+// (`ui.cpp`: radius 10, pads 6/12/18, gap 10, heights out of the line) and the sweep of the catalogue: **61 apps, 72
+// `scale =` lines and 8 control-draw sites**, plus the bar (48 rows with a line of 33). It is written down here because a
+// face without its sizes is half of the look.
+// 0.97.0 (5/11): **the button is the drawing of the paper project, line by line.** It was a frame of three pixels with a
+// bevel of two greys and a ring of focus; it is now the port of the original control: a box in the colour of the shadow,
+// the face **lifted four pixels** off the bottom so the strip of box in sight under it is what makes it a key, a corner of
+// fourteen, a frame of one pixel **on the face** and of three when the button is primary, and **the chosen one inverted** —
+// ink face— because the focus and the finger are one signal. With the finger on it the face slides down those four pixels
+// and the strip goes away, which is the half of "pressed" a bevel cannot say. `button_draw` takes the seven words the
+// original control takes (`primary`, `title`, `tag`, `color`, `scale`), and the bridge of Lua passes them, so an app can
+// draw the button of the system and not an imitation of it.
+//
+// **And with it, the rest of the controls that were named on the same day** (docs/92):
+//   - the **keyboard** is the original's grid: the keys keep **twelve pixels of margin** from the left, the right and the
+//     bottom of the strip, a key that is not lit is **one pixel of ink on its left edge** and not a box, the chosen one is
+//     its **whole cell in ink**, the rows are divided by a line as wide as the keys and the band wears **two pixels** of
+//     ink on top;
+//   - the **space** says its word, as it did there, instead of a bar of pixels nobody could see;
+//   - **`ui.menu`** is the original's card: paper with **three rings** of one pixel, **fifteen** of padding, **ten**
+//     between the title and the options, and **every option is the button above** —so the option the dial is on inverts
+//     and the one the app calls primary wears the frame of three;
+//   - **`ui.menu_bar`** has the same card unfolded under its word and the entry the dial is on inverted; **`ui.dialog`**
+//     is the same card with its two doors as buttons;
+//   - **`ui.checkbox`** is a **ring of two pixels** and paper inside with a tick of an eighth of the box, inverted whole
+//     when it has the focus, and **no bevel anywhere**: the volume of a key is its shadow, and that is the whole of the
+//     drawing of this system now.
+// **What this does NOT do**: the face is still 8 px of body at `scale` 1, so the words are smaller than the original's
+// until the theme of the numbers lands; the row, the list, the tabs, the slider, the text boxes, the selector, the
+// notification bar, the icon grid, the month, the sparkline and the pie keep their old drawing and are the next blocks.
+// **And the same day the amber of the owner made the bench able to SHOW the page**: `--dump <file>` writes the glass to
+// a PGM after every paint (docs/85), so what the system draws is looked at instead of guessed. Looking at it found five
+// things that no test was saying and that the owner had been saying with words: the strip of tabs cut every word to
+// "T... N..." because eight columns of a page of five hundred and forty pixels are sixty-seven each —**the bookmarks of
+// the paper project went in** (two pixels on the left, the top and the right of the tab you are on and not on the bottom,
+// so the line it sits on is not painted under it) and the catalogue of the gallery is **five pages of five words**; the
+// slider was a **chip with a square knob** and it is now the paper project's: a tube of paper with an outline of ink, the
+// part the value has taken filled with that ink, and a **circle of the height of the control** that is ink with a dot of
+// paper while it has the focus —and it paints its whole rectangle, or a knob that moves leaves the one before on the
+// glass—; the **progress** was a black bar because its fill was the ink of the text and now it is **level ten**, the light
+// tone of the theme, with the ring of ink the paper project draws on it, and the track is the paper of the page; and the
+// **captions of the catalogue** were at half the size of the text, which is the "it is all too small" the owner had said
+// twice (docs/92).
+// Measured on the bench: **433 native cases green** (90 of them in `test_ui`), the tests of the button and of the keyboard
+// fall when their drawing is broken on purpose (`drop = 0` and the margin taken away), and the emulator, `paper` and
+// `atom_matrix` build with no warning.
+static const char kVersion[] = "0.97.0";
 
 }  // namespace kernel
 

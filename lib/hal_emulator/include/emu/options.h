@@ -76,6 +76,11 @@ struct Options {
   // screen, which is what a window nobody sized wants, and 1 to 4 is the size the run asked for even when
   // the page would fit bigger — 2 is the page at half (docs/85).
   uint8_t gui_scale;
+  // **A picture of the glass on this machine's disk** (`--dump <file>`, a PGM of eight bits per pixel): every
+  // paint writes the whole page over the file, so the last one is the screen the run ended with. It is how the
+  // look of this system is looked at from a session that has no window, and it changes nothing of what the
+  // bench simulates (docs/85).
+  const char* dump;
   // **Whether the glass moves ink or switches pixels.** On —one— a paint takes what the mode takes, a
   // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
   // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.

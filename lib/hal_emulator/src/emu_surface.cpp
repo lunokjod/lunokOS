@@ -38,6 +38,26 @@ const char* mode_name(hal::UpdateMode mode) {
   return "?";
 }
 
+// **A picture of the glass on the disk of this machine** (`--dump <file>`): the whole page as a PGM of eight bits
+// per pixel, which is the one level of the panel in each byte and the way a session with no window looks at what the
+// system draws. It is written after every paint, so the file left behind is the last screen of the run, and it does
+// not change one thing of what the bench simulates (docs/85).
+void write_pgm(const char* path, const uint8_t* bits, uint16_t width, uint16_t height, uint16_t stride) {
+  if (path == nullptr || bits == nullptr || width == 0 || height == 0) return;
+  FILE* out = fopen(path, "wb");
+  if (out == nullptr) return;
+  fprintf(out, "P5\n%u %u\n255\n", static_cast<unsigned>(width), static_cast<unsigned>(height));
+  for (uint16_t y = 0; y < height; ++y) {
+    const uint8_t* line = bits + static_cast<size_t>(y) * stride;
+    for (uint16_t x = 0; x < width; ++x) {
+      const uint8_t pair = line[x / 2];
+      const uint8_t level = ((x & 1) == 0) ? static_cast<uint8_t>(pair >> 4) : static_cast<uint8_t>(pair & 0x0F);
+      fputc(static_cast<int>(level) * 17, out);
+    }
+  }
+  fclose(out);
+}
+
 }  // namespace
 
 MemorySurface::MemorySurface(uint16_t width, uint16_t height)
@@ -327,6 +347,9 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
       }
     }
   }
+  // **And the page goes to a file when the run asked for it**: after the ink, so what is written is what the glass
+  // shows and not what it was asked for (docs/85).
+  if (options().dump != nullptr) write_pgm(options().dump, bits_, width_, height_, stride_);
   return true;
 }
 

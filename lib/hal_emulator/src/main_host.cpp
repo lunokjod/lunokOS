@@ -201,6 +201,9 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   bool no_touch = false;
   bool ask_display = false;
   bool ask_touch = false;
+  // **No picture of the page unless the run asks for one**, which is what the rest of these start as well: a
+  // binary that writes files nobody asked for is a bench that surprises whoever runs it (docs/85).
+  opts.dump = nullptr;
   for (int i = 1; i < argc; ++i) {
     const char* arg = argv[i];
     const char* value = nullptr;
@@ -260,6 +263,14 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       // the kernel with nothing every other turn, which is the case worth trying (docs/85).
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
       opts.touch_scan_ms = static_cast<int32_t>(number);
+      continue;
+    }
+    if (strcmp(arg, "--dump") == 0) {
+      // **The page written to a file after every paint**: a PGM of eight bits per pixel, one level of the
+      // panel per value, which is what a session with no window can look at (docs/85).
+      if (!next_value(i, argc, argv, value)) return false;
+      opts.dump = value;
+      opts.display = true;
       continue;
     }
     if (strcmp(arg, "--gui") == 0) {

@@ -907,3 +907,11 @@ es mesura a la placa (docs/95).
 - **No fer les proves gràfiques al `DISPLAY` de l'usuari.** La finestra de l'emulador s'obre en un X
   virtual (`xvfb-run -a`) o en un `DISPLAY` propi, i es tanca en acabar; el ratolí, el focus i les
   finestres de qui treballa no es toquen.
+
+## Mirar la pàgina: `--dump`
+
+`--dump <fitxer>` escriu **el vidre sencer** a un PGM de vuit bits per píxel després de cada pintada, o sigui que el
+fitxer que queda és l'última pantalla de la tirada. És la manera de mirar què dibuixa el sistema des d'una sessió que
+no té finestra: `run gallery 3` amb `--dump /tmp/p3.pgm` i el PGM es converteix amb qualsevol eina (amb Python,
+`PIL.Image.open('/tmp/p3.pgm').save('/tmp/p3.png')`). No canvia res del que el banc simula; encén el vidre com ho fa
+`--gui` i prou.

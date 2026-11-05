@@ -430,7 +430,8 @@ struct UIOps {
   // **The frame of a button** (docs/30, docs/90): background, border, a second inner border while it is
   // pressed and another one two pixels in while it has the focus. The child of the button is drawn by the
   // tree after this control, not here.
-  bool (*button_draw)(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused);
+  bool (*button_draw)(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
+                      bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale);
   // **A checkbox** (docs/30, docs/90): the side of the square it draws —which is where the child that names
   // the setting goes— and the row itself: background, border, the tick's level, whether it is checked, held
   // and focused.

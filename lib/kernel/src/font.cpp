@@ -161,12 +161,23 @@ uint8_t file_code(uint8_t c) { return c; }
 
 }  // namespace
 
+namespace {
+// **The face of the whole system**, once the kernel has loaded one from the disk: null means the table of the flash
+// (docs/30, docs/92).
+const Face* g_system_face = nullptr;
+}  // namespace
+
 const Face& system_face() {
   static const Face face = {kGlyphWidth, kGlyphHeight, 1u, static_cast<uint8_t>(kFirst),
                             static_cast<uint8_t>(kCount), reinterpret_cast<const uint8_t*>(kGlyphs),
                             &builtin_lit, &builtin_code, nullptr};
+  // **The table of the flash is the floor and not the roof** (0.96.0): a face the kernel loaded from the disk is what the
+  // whole system is drawn with, and this one is kept for the board whose disk carries no font (docs/30, docs/70).
+  if (g_system_face != nullptr) return *g_system_face;
   return face;
 }
+
+void set_system_face(const Face* face) { g_system_face = face; }
 
 uint16_t width(const Face& face, const char* text, uint8_t scale) {
   if (text == nullptr || text[0] == '\0' || scale == 0) return 0;

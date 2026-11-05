@@ -31,6 +31,7 @@
 #include "kernel/power.h"
 #include "kernel/shell.h"
 #include "kernel/touch.h"
+#include "kernel/font.h"
 #include "kernel/ui.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
@@ -3000,6 +3001,74 @@ void test_an_app_downloads_a_page(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "caps http true tls true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "status 201 bytes 5"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "body coses"), g_out);
+}
+
+// **The gallery runs, and its pages are built and given back on the same glass** (0.94.2): the app that shows every control
+// of the system is the page that says what the system has, and it is also the only one that walks a path nothing else
+// walks —a page of controls that is **released whole and built again** when the tabs choose another one, children before
+// their father—. If a slot leaked, the second page would build it on top of the first and `ui.create` would start
+// refusing; if the tabs did not take the finger, the page would never turn (docs/30, docs/90).
+void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  // **The glass and the panel are the model's and a test's `Options()` has them off** (docs/85): an app that draws a page
+  // says `this board has no glass` and stops, which is right on a headless band and is not what this test wants to read.
+  emu::Options opts = emu::options();
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  static char manifest[512];
+  static char source[16384];
+  TEST_ASSERT_GREATER_THAN(
+      0, read_host_file("apps/gallery/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0,
+                           read_host_file("apps/gallery/gallery.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "gallery", manifest, source, "gallery.lua"));
+
+  // **And with no word at all, which is how a person opens it**: `app.args` is a table that exists when `run` carries an
+  // argument and not before, so this is the line that says the app does not trust it. It is the one that was missing —
+  // the suite only ever ran `run gallery <n>`— and the one the board found (5/11, the owner: `attempt to index a nil
+  // value (field 'args')`).
+  pump_captured(60, g_out, sizeof(g_out), "run gallery");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 1 Text"), g_out);
+  close_any_app();
+  pump_turns(10);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  // **Every page of it, one run each**: the word of `run` is the number of the page, so the five are built without a
+  // finger and each one says which it is —a field the bridge does not carry, a control that refuses the room it is given
+  // or a value out of the range the page needs shows up as the line of an app that died instead of as a page nobody
+  // looked at— (docs/30, docs/90). What a page handed back is worth is `test_ui`'s business: `release` and its cascade
+  // to the children are measured there, and this app is the page that says the system has the controls it says.
+  // **Five pages and not eight**, because five is what a strip of tabs holds at the dense size of the paper project:
+  // eight columns of a page of five hundred and forty pixels are sixty-seven each and the strip said "T... N... R..."
+  // (5/11, the owner on the bench, docs/92).
+  static const char* const kPageNames[5] = {"Text", "Nums", "Rows", "Forms", "Menus"};
+  for (int page = 1; page <= 5; ++page) {
+    char line[32];
+    snprintf(line, sizeof(line), "run gallery %d", page);
+    pump_captured(60, g_out, sizeof(g_out), line);
+    TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+    TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
+    // **And the page it says it built is the one that was asked for**: the word of `run` is a path and the app reads it
+    // as the number of a page, which is what makes five runs five pages and not the first one five times.
+    char wanted[48];
+    snprintf(wanted, sizeof(wanted), "page %d %s", page, kPageNames[page - 1]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, wanted), g_out);
+    close_any_app();
+    pump_turns(10);
+    TEST_ASSERT_FALSE(kernel::app_running());
+  }
+
+
+  storage->remove("/apps/gallery/gallery.lua");
+  storage->remove("/apps/gallery/manifest.json");
+  storage->remove("/apps/gallery");
 }
 
 // The demo app that downloads a page is a file in the repository, so it is run
@@ -6761,6 +6830,34 @@ void test_a_call_that_returns_a_promise_is_timed_until_it_settles(void) {
   TEST_ASSERT_LESS_THAN_UINT32(2000000, static_cast<uint32_t>(spent));
 }
 
+// **The face of the whole system comes from the disk** (0.96.0): the bar, every control and every text that says no face
+// of its own are the bold face the kernel loads at boot from `/fonts/dejavusans-bold.ttf` —the same typeface the paper
+// project settled on— and a board whose disk carries no font keeps the five by seven of the flash, which is 14 px of
+// line at `scale` 2: 1,5 mm on this glass, a stamp. The step of a face of outlines is eight pixels of body and the step of
+// the table is seven, which is why a caller that measured the old one would draw its text past the box it cleaned
+// (docs/30, docs/92).
+void test_the_face_of_the_system_comes_from_the_disk(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The bench's disk carries no font, so what the glass has is the table of the flash: a face of bits, seven pixels of
+  // body for every step of `scale`.
+  TEST_ASSERT_NULL(kernel::font::system_face().outline);
+  TEST_ASSERT_EQUAL_UINT8(7, kernel::font::system_face().height);
+
+  // With the bold face on the disk the next boot takes it, and it is a face of outlines: eight pixels of body per step.
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(kernel::font::system_face().outline);
+  TEST_ASSERT_EQUAL_UINT8(8, kernel::font::system_face().height);
+
+  // **And the bench is left as it was**: the face is one global of the whole glass, and a test that changed it for the
+  // ones after it would be a test that decides what the others measure.
+  kernel::font::set_system_face(nullptr);
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -6844,6 +6941,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
   RUN_TEST(test_the_page_demo_app_from_the_disk_runs);
+  RUN_TEST(test_the_gallery_app_shows_every_control_and_turns_its_pages);
   RUN_TEST(test_the_http_command_writes_where_it_is_told);
   RUN_TEST(test_the_http_command_refuses_a_place_that_is_not_there);
   RUN_TEST(test_an_app_downloads_a_page_to_a_file);
@@ -6906,6 +7004,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_failing_app_says_its_error_once);
   RUN_TEST(test_an_app_provisions_and_then_forgets);
   RUN_TEST(test_provisioning_gives_up_when_nobody_arrives);
+  RUN_TEST(test_the_face_of_the_system_comes_from_the_disk);
   UNITY_END();
   return 0;
 }

@@ -128,7 +128,10 @@ struct Layout {
 };
 
 Layout layout_of(uint16_t panel_w) {
-  const uint16_t glyph_h = static_cast<uint16_t>(font::kGlyphHeight * kScale);
+  // **The height of a line is the height of the face** (0.96.0): a face of outlines says eight pixels of body for every
+  // step of `scale` and the table of the flash says seven, so a bar that counted seven would draw its text four pixels
+  // past the box it just cleaned (docs/30, docs/50).
+  const uint16_t glyph_h = static_cast<uint16_t>(font::system_face().height * kScale);
   const uint16_t time_w = font::width("00:00", kScale);
   const uint16_t charge_w = font::width("100%", kScale);
   Layout out = {};

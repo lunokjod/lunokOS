@@ -813,7 +813,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
 | `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El lloc de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)` i la part de lloc lliure que vol cada un amb `child.weight` (3/11, 0.70.0) |
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable**: les fletxes canvien la triada i `on_change(self, index)` avisa (3/11, 0.70.0) |
-| `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la gran més gran. **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
+| `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0) |
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0) |
@@ -1414,9 +1414,14 @@ ui.present('gc16')
   cap**. Les columnes són iguals, i **la triada és la que no té la línia a sota**: a dos tons no hi ha negreta ni
   color, i treure la línia és el que diu «ets aquí» (el que el vell va aprendre a `tab_strip.h:44`). Les fletxes del
   dial la mouen mentre té el focus i l'app ho sap per `on_change(self, index)`.
-- **`ui.dots`**: `pages` i `current`, i la del `current` més gran. **Amb una sola pàgina no dibuixa res** —un punt sol
-  no diu res i costaria un repintat del panel per dir-ho— i el lloc de cada punt és el del més gran, o la tira es
-  mouria de costat quan la gran canvia de punta.
+- **`ui.dots`**: `pages` i `current`, i el de la pàgina on ets **és una bola plena i més gran**, mentre que els altres
+  són **anelles amb paper a dins**, tots enfilats en un **pal** que només es veu a l'aire entre dues boles (0.94.1). Són
+  dos tons i prou —negre i paper—, i per això la tira es pot pintar i esborrar amb la forma d'ona binària; una tira de
+  grisos s'hi va quedar esborronada al projecte vell. **Amb una sola pàgina no dibuixa res** —un punt sol no diu res i
+  costaria un repintat del panell per dir-ho— i el lloc de cada bola és el de la més gran, o la tira es mouria de costat
+  quan la gran canvia de punta. **Si les pàgines no hi caben**, la tira en dibuixa tantes com hi caben i la finestra
+  d'elles que conté la pàgina on ets: el comptador no surt mai de la seva caixa i la pàgina que llegeixes és sempre una
+  de les boles.
 - Cap dels dos no és un dibuix de l'app: són controls del nucli, com la resta (docs/92 §10).
 
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)

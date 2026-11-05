@@ -84,6 +84,15 @@ struct Face {
 // The face of the system, which is what the bar and every text without a font of its own are drawn with.
 const Face& system_face();
 
+// **The face the whole system draws with** (0.96.0): the bar, every control, the prompt and any text an app does not give
+// a face of its own. It starts as the five by seven table of the flash —5 px wide, 7 tall, and **14 px of line at
+// `scale` 2, which is 1,5 mm on this 235 ppi glass**: a stamp and not a text— and the kernel points it at the bold face of
+// the disk at boot, so the glass is one typeface at the sizes of the paper project (43 px of line for the text) instead
+// of a table of pixels multiplied by a number (docs/30, docs/92).
+//
+// A null puts the table of the flash back, which is what a board with no font on its disk keeps (docs/70).
+void set_system_face(const Face* face);
+
 // Whether a face carries that code: `false` is a gap and not an error, because a face may be partial.
 inline bool has(const Face& face, uint8_t code) {
   return code >= face.first && static_cast<uint8_t>(code - face.first) < face.count;

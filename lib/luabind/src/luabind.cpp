@@ -3385,7 +3385,9 @@ bool label_field_valid(lua_State* L, const char* key, int value) {
 bool is_button_field(const char* key) {
   return strcmp(key, "background") == 0 || strcmp(key, "border") == 0 ||
          strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
-         strcmp(key, "focusable") == 0;
+         strcmp(key, "focusable") == 0 || strcmp(key, "primary") == 0 ||
+         strcmp(key, "title") == 0 || strcmp(key, "tag") == 0 ||
+         strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
 }
 
 // **The fields a checkbox adds to the ones of a frame**: whether it is checked —the state the click changes
@@ -3404,11 +3406,15 @@ bool checkbox_field_valid(lua_State* L, const char* key, int value) {
 
 bool button_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "pressed") == 0 || strcmp(key, "focused") == 0 ||
-      strcmp(key, "focusable") == 0) {
+      strcmp(key, "focusable") == 0 || strcmp(key, "primary") == 0) {
     return lua_type(L, value) == LUA_TBOOLEAN;
+  }
+  if (strcmp(key, "title") == 0 || strcmp(key, "tag") == 0) {
+    return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
   }
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer level = lua_tointeger(L, value);
+  if (strcmp(key, "scale") == 0) return level >= 1 && level <= 16;
   return level >= 0 && level <= 15;
 }
 
@@ -4260,10 +4266,45 @@ int l_button_draw(lua_State* L) {
   lua_getfield(L, -1, "focused");
   const bool focused = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
+  // **The word, the tag, a primary button, the ink of the word and its size** (0.97.0): the control draws the text it
+  // shows, so an inverted button has an inverted word —a label the app added is a control of the app and keeps the
+  // colours the app gave it— (docs/30, docs/92).
+  lua_getfield(L, -1, "primary");
+  const bool primary = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "color");
+  const int color = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "scale");
+  const int scale = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  // **The two words are copied and not pointed at**: the string a `lua_tostring` hands over lives in the interpreter and
+  // the drawing happens with the value already popped (docs/75).
+  static char title[128];
+  static char tag[32];
+  title[0] = '\0';
+  tag[0] = '\0';
+  lua_getfield(L, -1, "title");
+  if (lua_isstring(L, -1)) {
+    const char* said = lua_tostring(L, -1);
+    size_t used = 0;
+    for (; said != nullptr && said[used] != '\0' && used + 1 < sizeof(title); ++used) title[used] = said[used];
+    title[used] = '\0';
+  }
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "tag");
+  if (lua_isstring(L, -1)) {
+    const char* said = lua_tostring(L, -1);
+    size_t used = 0;
+    for (; said != nullptr && said[used] != '\0' && used + 1 < sizeof(tag); ++used) tag[used] = said[used];
+    tag[used] = '\0';
+  }
+  lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.button_draw != nullptr) {
-    g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background),
-                         static_cast<uint8_t>(border), pressed, focused);
+    g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border), pressed,
+                         focused, primary, title, tag, static_cast<uint8_t>((color >= 0 && color <= 15) ? color : 0),
+                         static_cast<uint8_t>((scale >= 1 && scale <= 16) ? scale : 1));
   }
   return 0;
 }
@@ -4287,6 +4328,18 @@ int l_ui_button(lua_State* L) {
   lua_setfield(L, -2, "focused");
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "focusable");
+  // **The word, the tag and the size**: empty by default, because a button whose word the app draws as a child is a page
+  // of before 0.97.0 and still has to work (docs/30, docs/92).
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "primary");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "color");
+  lua_pushinteger(L, 1);
+  lua_setfield(L, -2, "scale");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "title");
+  lua_pushstring(L, "");
+  lua_setfield(L, -2, "tag");
   lua_pushcfunction(L, &l_button_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
@@ -4634,11 +4687,14 @@ int l_ui_progress(lua_State* L) {
   lua_setfield(L, -2, "__progress");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 15);
-  lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 12);
-  lua_setfield(L, -2, "track");
   lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "track");
+  // **The fill is the light tone of the paper project** and not the ink: a bar filled with ink is a hundred thousand
+  // pixels of black to say one number, and level ten is one of the four the cheapest wash of this panel reproduces
+  // exactly (docs/50, docs/92). The ink that says where the bar has got to is the ring the drawing puts on it.
+  lua_pushinteger(L, 10);
   lua_setfield(L, -2, "fill");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "value");
@@ -4720,7 +4776,9 @@ int l_ui_slider(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 12);
+  // **The track is the paper of the page**, as in the paper project: a tube of paper with an outline of ink, and what
+  // the value has taken is filled with that ink (docs/92).
+  lua_pushinteger(L, 15);
   lua_setfield(L, -2, "track");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "fill");

@@ -297,3 +297,37 @@ fil: `title_bar` (zones de toc i `bandOf`), `power_screen` (la pantalla d'apagad
 pàgines per a fills que no són files de dades; el paginat de dades ja és dins d'`ui.list`).
 
 
+### El **dibuix**, control per control
+
+**Tenir el control no és tenir-ne el dibuix**, i això és el que va fer aturar l'amo el 5/11 amb la placa a la mà:
+*«cap control s'assembla, ni s'acosten… VULL UNA CÒPIA EXACTA DELS BOTONS, EL TECLAT, EL MENU CONTEXTUAL AMB LA
+MATEIXA LLETRA I TOT IGUAL, VULL QUE NO INVENTIS, MIRA EL CODI DELS CONTROLS ORIGINALS UN PER UN I ELS ADAPTES UN
+PER UN»*. La taula de sota és aquesta feina, i cada fila és una lectura del codi del vell i el seu dibuix adaptat.
+
+| Control | Estat | Números que s'han portat |
+|---|---|---|
+| **`ui.button`** | **portat** (0.97.0) | caixa del color de l'ombra + cara aixecada **4 px** del fons (mai més d'un terç de l'altçada), això que queda a la vista a sota és l'ombra; radi **14** (el 10 del tema més 4) amb el sostre d'un terç del costat petit; **sense bisell**; el triat va **invertit** (cara en tinta, paraula en paper) perquè el focus i el dit són el mateix senyal; el marc va **a la cara i no a la caixa**, d'1 px i de **3** al primari, i només quan el botó no és triat; `padX` **16**, etiqueta amb radi 4, `padX` 6, `padY` 2, buit 8 i la paraula centrada al que queda a la dreta |
+| **el teclat** | **portat** (0.97.0) | els marges de la graella: **12 px** a l'esquerra, a la dreta i a baix; una tecla que no és la triada és **un píxel de tinta a la seva vora esquerra** i no una caixa; la triada és **la cel·la sencera en tinta**; les files, separades per una línia tan ampla com les tecles; **2 px** de tinta a dalt de la banda; la barra d'espai diu la seva paraula |
+| **`ui.menu`** | **portat** (0.97.0) | la targeta del vell: paper amb **tres anells** d'1 px, **15** de marge interior, **10** entre el títol i les opcions, i **cada opció és el botó** de dalt (la del dial invertida, la primària amb el marc de tres) |
+| **`ui.menu_bar`** | **portat** (0.97.0) | el desplegat és la mateixa targeta de tres anells i l'entrada del dial va invertida (fila sencera en tinta, paraula en paper) |
+| **`ui.row`** | pendent | |
+| **`ui.list`** | pendent | |
+| **`ui.tabs`** | **portat** (0.97.0) | la tab on ets és un **punt de llibre**: 2 px a l'esquerra, a dalt i a la dreta i **no a baix**, i les altres porten la ratlla a sota; res de subratllat |
+| **`ui.checkbox`** | **portat** (0.97.0) | anell de **2 px** i paper a dins, radi **5** (la meitat del tema), el tick dos traços d'**1/8** de la caixa, i el control triat **invertit**; sense bisell |
+| **`ui.slider`** | **portat** (0.97.0) | el tub és paper amb vora d'1 px, el tros fet és **tinta**, i la nansa és un **cercle de l'altçada del control** (tinta amb un punt de paper quan té el focus); sense marc al voltant |
+| **`ui.progress`** | **portat** (0.97.0) | el tros fet porta un **anell de tinta** a sobre del to clar, que és el que diu on ha arribat la barra |
+| **`ui.textbox`**, **`ui.textbox_multiline`** | pendent | |
+| **`ui.dialog`** | **portat** (0.97.0) | la targeta de tres anells i **les dues portes són botons** (la del dial invertida, l'èmfasi amb el marc de tres) |
+| **`ui.selector`** | pendent | |
+| **`ui.notification_bar`** | pendent | |
+| **`ui.icon_grid`** | pendent | |
+| **`ui.month`**, **`ui.sparkline`**, **`ui.pie`** | pendent | |
+| **el tema** (radi 10, farciments 6/12/18, buit 10 i les altçades sortides de la línia de 43 px) | pendent | |
+| **la barra** | pendent | la línia és de 33 px al vell; aquí en fa 32 dins de 48 files |
+
+**I dues coses que no són cap control i van amb això**: la **lletra** ja és la del vell des de 0.96.0
+(`/fonts/dejavusans-bold.ttf`), i el que falta és la **mida**: el pas d'una cara d'outlines és de 8 px de cos i el
+vell escriu amb una línia de 43 px, que és 32 px de cos. Fins que el tema dels números no hi sigui, un botó portat
+té la forma exacta i la lletra més petita que l'original.
+
+
