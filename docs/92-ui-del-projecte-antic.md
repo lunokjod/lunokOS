@@ -372,3 +372,30 @@ compta.
 costat de les captures del vell. Les dotze apps de dalt s'han corregut així, i les que tenien un botó o una llista amb
 la mida vella s'han arreglat mirant-les: el botó del diàleg, que deia «Delete e…», i les files de `controls`, que es
 trepitjaven.
+
+## 12. El cercle i la pulsació els pinta el sistema (0.98.0)
+
+**La volta del dial és del sistema i el seu dibuix també.** `ui_button_event` es queda la tecla abans que l'app en
+sàpiga res: mou el cercle d'un control a un altre, o baixa el botó que toca, i ho fa a l'arbre de controls, que és
+una cosa que el vidre no veu fins que algú demana un `ui.present`. Una app que espera dins d'un `sys.delay` no en
+demana cap, i el resultat amb la placa a la mà és *«l'app Showcase no respon a l'usuari»*.
+
+**El que estava mesurat abans de tocar res** (banc, `use_board("m5stack-paper")`, `run showcase 1` i sis tecles
+seguides): la volta **sí que hi era** —`count 3` a la pàgina, el cercle anava de la tira al botó i al quadre de
+marcar, i el centre arribava a `ui_activate`— i **no es pintava ni un píxel**, perquè el present de la pàgina feia
+temps que havia passat. Tres intents abans d'encertar-lo, i tots tres són la mateixa lliçó: `present` sol no dibuixa
+els controls que deuen un dibuix (ho fa el `draw` de l'arbre, que és el que `ui.present` crida abans), i la guarda
+que vaig inventar amb `damage()` era buida perquè el dany es compta dins del present i no abans.
+
+**El que es fa ara**, al mateix camí que l'app:
+
+| Moment | Què es pinta |
+|---|---|
+| el dial es mou (`ui_button_event`, la volta) | el control que deixa el cercle i el que el pren |
+| `ui.focus(control)` | el cercle, sense esperar el present de la pàgina |
+| el centre prem (`ui_activate`) | el botó baixat, i el botó pujat quan el callback torna |
+
+**I el que no és del sistema**: què *fa* la pulsació. Un control sense `on_click` es prem i no di res, i això és una
+app muda. L'app de mostra dona un `on_click` a cada control que posa al dial i escriu a la línia de baix què s'ha
+premut; les dues proves noves ho mesuren (el vidre es mou quan el dial es mou, i el centre arriba a l'`on_click`), i
+les dues es posen vermelles quan se'ls treu la línia que proven.

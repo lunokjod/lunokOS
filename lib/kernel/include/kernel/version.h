@@ -1483,7 +1483,19 @@ namespace kernel {
 // and the directories of the old ones are gone from `build/` (docs/80).
 // Measured: `m5-atom`, `m5-atom-matrix`, `m5-paper`, `esp32-devkit` and `ttgo-t-koala` build (five SUCCESS, from a clean
 // build directory each, 78 to 88 s), 434 native cases green, and `pio project config` reads the seven environments.
-static const char kVersion[] = "0.97.5";
+//
+// 0.98.0 (8/11): **a key paints its own answer on the glass.** `ui_button_event` takes the press before the app hears
+// anything, so the ring moving to the next control and a button going down were changes in the tree that nobody put
+// on the glass: the app only paints when it asks for a present, and an app waiting in `sys.delay` asks for nothing.
+// The owner pressed the dial on the board and read it as *«l'app Showcase no respon a l'usuari»* — the walk was
+// working (three stops and the centre delivered, measured on the bench) and the glass said nothing. This is the
+// paper project's `feedback()` (`src/ui/button.cpp`: *"the pressed state is immediate feedback: it is what the user
+// is waiting for"*), and it goes the same way in as the app's own present —draw what owes a draw, then compose and
+// paint— so a ring costs its control's box and not the page. The showcase app also answers now: every control it
+// gives the dial has an `on_click` that writes the line at the bottom, because what a press *does* is the app's.
+// Measured: 436 native cases green (two new: the glass moves when the dial moves, and the centre reaches the
+// control's `on_click`), and both go red when their line is taken out (docs/30, docs/92).
+static const char kVersion[] = "0.98.0";
 
 }  // namespace kernel
 

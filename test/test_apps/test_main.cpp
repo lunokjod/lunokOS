@@ -3016,12 +3016,17 @@ void test_ui_focus_puts_the_dial_where_the_app_says(void) {
   TEST_ASSERT_TRUE(add_app(storage, "focuser",
                            "{\"title\":\"Focuser\",\"version\":\"0.1.0\","
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "local a = ui.button(200, 68)\n"
-                           "a:place(20, 100)\n"
+                           "local root = ui.panel(540, 900, 'vertical')\n"
+                           "root:place(0, 0)\n"
+                           "local column = ui.panel(500, 600, 'vertical')\n"
+                           "column.weight = 1\n"
+                           "root:add(column)\n"
+                           "local a = ui.button(400, 68)\n"
                            "a.on_click = function(self) console.print('pressed a') end\n"
-                           "local b = ui.button(200, 68)\n"
-                           "b:place(20, 200)\n"
+                           "column:add(a)\n"
+                           "local b = ui.button(400, 68)\n"
                            "b.on_click = function(self) console.print('pressed b') end\n"
+                           "column:add(b)\n"
                            "ui.focus(b)\n"
                            "ui.present('gc16')\n"
                            "sys.delay(3000):await()\n"));
@@ -3105,6 +3110,114 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase/showcase.lua");
   storage->remove("/apps/showcase/manifest.json");
   storage->remove("/apps/showcase");
+}
+
+// **A key paints its own answer on the glass** (0.98.0). The ring of the focus and the button going down are the
+// system's doing —the app never sees the key, `ui_button_event` takes it— so the paint that shows them is the
+// system's too. A page that the app presented once and then went to sleep has to show where the dial went; without
+// that paint the controls move in the tree and the glass says nothing, which is what the owner read on the board as
+// *«l'app Showcase no respon a l'usuari»* (docs/30, docs/50, docs/92).
+void test_a_key_paints_the_ring_the_app_cannot_see(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "ring",
+                           "{\"title\":\"Ring\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local column = ui.panel(500, 400, 'vertical')\n"
+                           "column:place(20, 20)\n"
+                           "local a = ui.button(400, 68)\n"
+                           "column:add(a)\n"
+                           "local b = ui.button(400, 68)\n"
+                           "column:add(b)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('ring up')\n"
+                           "while true do sys.delay(50):await() end\n"));
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  pump_captured(40, g_out, sizeof(g_out), "run ring");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ring up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  const uint32_t paints_before = glass->paint_count();
+
+  // The dial goes to the second button of a page that will not present again: the app is in its wait and has no
+  // hook on the focus, so the only thing that can put the ring on the glass is the system.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(glass->paint_count() > paints_before, g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/ring/app.lua");
+  storage->remove("/apps/ring/manifest.json");
+  storage->remove("/apps/ring");
+
+  // The next test gets the default bench back: the display was this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **And the centre is answered by the page the app wrote** (0.98.0): the ring lands on the first control the app
+// gave the dial, the centre presses it, and the app hears `on_click` and says so. It is the whole way a person
+// uses the showcase —dial, press, answer— and the one the board had to make before this test existed (docs/30,
+// docs/92).
+void test_the_centre_presses_the_control_the_dial_is_on(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  char manifest[512];
+  char source[16384];
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/showcase/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/showcase/showcase.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run showcase 1");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  capture_begin();
+  pump_turns(20);
+  emu::press_key(0, true);
+  pump_turns(20);
+  emu::press_key(0, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // **The word is the one the app wrote in `on_click`**, and it is read from the capture that holds the press:
+  // the page answered the key on its own and nobody asked the app to present again.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pressed button"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/showcase/showcase.lua");
+  storage->remove("/apps/showcase/manifest.json");
+  storage->remove("/apps/showcase");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
 }
 
 // The demo app that downloads a page is a file in the repository, so it is run
@@ -7017,6 +7130,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);
+  RUN_TEST(test_the_centre_presses_the_control_the_dial_is_on);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);

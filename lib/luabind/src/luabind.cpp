@@ -7844,6 +7844,36 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   lua_pop(L, 1);
 }
 
+// **The page answers the key on its own** (0.98.0). The dial moving and a control going down are the system's
+// doing —the app never sees the key, `ui_button_event` takes it— so the paint that shows them is the system's
+// too. The paper project paints the ring the moment the focus moves and the button the moment it is pressed
+// (`feedback()`, `src/ui/button.cpp`, *"the pressed state is immediate feedback: it is what the user is waiting
+// for"*), and a page that only repaints when its app says so is a page whose controls look dead: the owner
+// pressed left and right on the board and the showcase did not answer, because the ring moved in the tree and
+// nothing was ever put on the glass (docs/30, docs/50, docs/90).
+//
+// **The paint is the app's page and it is only the regions that changed**: a present composes the controls that
+// owe a draw and sends their rectangles, and a page where nothing moved owes nothing — the call costs nothing and
+// paints nothing — so a button going down costs its own box and not the glass (docs/30, docs/50).
+void ui_feedback() {
+  if (g_state == nullptr || g_ui_ops.present == nullptr) return;
+  // **The same way in as the app**: what changed is drawn first —the view asks its children, and a control with
+  // nothing changed is not asked at all— and then the tree is composed and the glass asked for the paint. Asking
+  // the glass without drawing first paints what was there before, which is exactly the nothing this call exists to
+  // fix (found by its own test, 8/11).
+  const int top = lua_gettop(g_state);
+  // **Protected, like every other hook**: a draw of the app that throws must say so on the console and leave the
+  // page as it was, and an error that long-jumps out of a key handler takes the app down with it.
+  lua_pushcfunction(g_state, l_ui_present);
+  if (lua_pcall(g_state, 0, 0, 0) != LUA_OK) {
+    con_text("present: ");
+    const char* message = lua_tostring(g_state, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+  }
+  lua_settop(g_state, top);
+}
+
 // **`ui.focus(control)`: the app says where the dial is.** A page that is built again —the pages of a catalogue under
 // a strip of tabs are given back and built at every tab— loses the control the dial was on, and the walk starts again
 // at the first one of the tree, which is the strip: the arrows then change the tab for ever and nothing the page has
@@ -7864,6 +7894,9 @@ int l_ui_focus(lua_State* L) {
   for (int i = 0; i < count; ++i) {
     if (targets[i].slot == canvas->slot) {
       ui_apply_focus(L, targets, count, objects, i);
+      // The ring the app asked for is on the glass without waiting for the page to be presented again: this call
+      // is made right after a page is built, before its first present, and a ring nobody sees is not an answer.
+      ui_feedback();
       break;
     }
   }
@@ -7875,7 +7908,13 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
   if (index < 0 || index >= count) return false;
   lua_rawgeti(L, objects, index + 1);
   const int object = lua_gettop(L);
-  if (ui_set_field_bool(L, object, "pressed", true)) ui_invalidate(L, object);
+  // The button is **painted down** before the app is told, and painted up when the callback returns: the two
+  // moments are the two `feedback()` calls of the paper project, and without the first one a press on a button
+  // that changes nothing of its own is a press nobody sees (docs/30, docs/90).
+  if (ui_set_field_bool(L, object, "pressed", true)) {
+    ui_invalidate(L, object);
+    ui_feedback();
+  }
   // **A checkbox's click means one thing and the system does it**: the box is checked or it is not, and the
   // press writes it before the app is told. An app that had to flip it in a callback would be an app that can
   // forget to, and a checkbox that does not mark the page is a checkbox that lied. The new state arrives at
@@ -7948,7 +7987,10 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
   // released the control has no frame left to paint, and the object says so by its slot.
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (ui_control_alive(canvas)) {
-    if (ui_set_field_bool(L, object, "pressed", false)) ui_invalidate(L, object);
+    if (ui_set_field_bool(L, object, "pressed", false)) {
+      ui_invalidate(L, object);
+      ui_feedback();
+    }
   }
   lua_pop(L, 1);
   return true;
@@ -9250,6 +9292,8 @@ bool ui_button_event(const char* kind, uint32_t key) {
     }
     target = (current >= 0) ? (current + direction + count) % count : (direction > 0 ? 0 : count - 1);
     ui_apply_focus(g_state, targets, count, objects, target);
+    // The ring the app cannot see: the key was taken here, so the paint of where the dial went is here too.
+    ui_feedback();
   }
   lua_settop(g_state, top);
   return true;

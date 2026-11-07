@@ -77,7 +77,7 @@ root:add(dots)
 
 local hint = ui.label(10, 36)
 hint.scale = small_scale
-hint.text = 'the arrows move the tabs'
+hint.text = 'the arrows move the dial, the centre presses'
 root:add(hint)
 
 -- Every control of the page that is on the glass, in the order it was made: children are given back before
@@ -85,13 +85,23 @@ root:add(hint)
 local built = {}
 local first_stop = nil
 
-local function keep(control)
+local function keep(control, name)
   if control == nil then return nil end
   built[#built + 1] = control
   body:add(control)
   -- **The first control of the page a person can land on**, which is where the dial goes when the page is a new one:
   -- a label is not a place the dial stops, a button is (docs/30, docs/90).
   if first_stop == nil and control.focusable == true then first_stop = control end
+  -- **A control that is pressed says so on the line at the bottom** (8/11): the ring and the press itself are
+  -- painted by the system, but what a press *does* is the app's, and a page whose button answers nothing is a page
+  -- a person presses twice and then calls dead (the owner on the board: *«no respon a l'usuari»*, docs/92). The
+  -- hooks the app wrote for itself (`on_change`, `on_pick`, `on_open`) keep their own answer.
+  if name ~= nil and control.on_click == nil then
+    control.on_click = function(self)
+      hint.text = 'pressed ' .. name
+      console.print('pressed ' .. name)
+    end
+  end
   return control
 end
 
@@ -123,14 +133,14 @@ local pages = {}
 
 pages[1] = function()
   label('label: text, cut with three dots', 40)
-  local row = keep(ui.row(10, 88))
+  local row = keep(ui.row(10, 88), 'row')
   row.title = 'row'
   row.detail = '124 B'
   row.subtitle = 'title, detail and the line of the separator'
   row.separator = true
   row.marked = true
   row.scale = body_scale
-  local button = keep(ui.button(10, kButton))
+  local button = keep(ui.button(10, kButton), 'button')
   button.background = 15
   button.border = 0
   -- **A child is not stretched by the panel**: a label inside a button keeps the width it was made with, and one of ten
@@ -140,7 +150,7 @@ pages[1] = function()
   words.scale = body_scale
   button:add(words)
   built[#built + 1] = words
-  local box = keep(ui.checkbox(10, 56))
+  local box = keep(ui.checkbox(10, 56), 'checkbox')
   box.checked = true
   box.scale = body_scale
   local tick = ui.label(10, kBodyLine)
@@ -152,9 +162,9 @@ end
 
 pages[2] = function()
   label('progress: 40 of 100, and unknown', 40)
-  local bar = keep(ui.progress(10, 32))
+  local bar = keep(ui.progress(10, 32), 'progress')
   bar.value = 40
-  local unknown = keep(ui.progress(10, 32))
+  local unknown = keep(ui.progress(10, 32), 'unknown')
   unknown.value = -1
   local slider = keep(ui.slider(10, 76))
   slider.value = 45
@@ -164,9 +174,9 @@ pages[2] = function()
   slider.suffix = '%'
   slider.scale = title_scale
   slider.on_change = function(self, value) console.print('slider ' .. value) end
-  local spark = keep(ui.sparkline(10, 72))
+  local spark = keep(ui.sparkline(10, 72), 'sparkline')
   spark.samples = { 12, 18, 9, 24, 20, 31, 28, 33 }
-  local pie = keep(ui.pie(10, 132))
+  local pie = keep(ui.pie(10, 132), 'pie')
   pie.slices = { 5, 3, 2 }
 end
 
@@ -201,12 +211,12 @@ end
 
 pages[4] = function()
   label('textbox: one line and a caret', 40)
-  local line = keep(ui.textbox(10, 56))
+  local line = keep(ui.textbox(10, 56), 'textbox')
   line.text = 'tap me and the keyboard comes'
   line.cursor = 3
   line.scale = body_scale
   label('textbox_multiline: it wraps', 40)
-  local field = keep(ui.textbox_multiline(10, 96))
+  local field = keep(ui.textbox_multiline(10, 96), 'box of lines')
   field.weight = 1
   field.text = 'A box of several lines: the text wraps, the finger puts the caret where it touches.'
   field.wrap = true

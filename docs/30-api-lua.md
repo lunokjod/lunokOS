@@ -1450,6 +1450,27 @@ if first ~= nil then ui.focus(first) end
 rectangle i no més, o sigui que una pàgina de tres controls darrere d'una de sis deixa els
 tres de la d'abans al vidre.
 
+### La tecla es pinta sola: el sistema és qui la rep (0.98.0)
+
+**`ui_button_event` pren la tecla abans que l'app en sàpiga res.** La volta del dial i la
+baixada d'un botó són canvis de l'arbre, i l'app només pinta quan demana un `ui.present`: una
+app que espera dins d'un `sys.delay` no en demana cap, o sigui que el cercle es movia i el
+vidre no deia res. Amb la placa a la mà, l'amo ho va llegir com el que és: *«l'app Showcase no
+respon a l'usuari»*. Mesurat al banc, la volta ja hi era —tres parades a la pàgina i el centre
+rebut— i el vidre no es movia ni un píxel.
+
+Per això **el sistema pinta el que ell ha canviat**, i ho fa pel mateix camí que l'app: dibuixa
+el que deu un dibuix, compon l'arbre i demana el pintat. Com que només viatgen les regions que
+han canviat, un cercle que es mou costa la caixa del seu control i no la pàgina. És el
+`feedback()` del projecte del paper (`src/ui/button.cpp`: *«the pressed state is immediate
+feedback: it is what the user is waiting for»*), i passa a tres llocs: quan el dial es mou,
+quan `ui.focus` col·loca el cercle, i a la baixada i a la pujada d'un botó.
+
+**Què fa una pulsació, en canvi, és de l'app**: el sistema només ensenya que el control ha
+rebut la tecla. Una pàgina els controls de la qual no tenen cap `on_click` respon al dial i no
+di res quan es prem, i això és una app muda i no un sistema que no respon. L'app de mostra ho
+ensenya: cada control que dona al dial escriu què s'ha premut a la línia de baix.
+
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)
 **A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una
 llista **pagina**, i el peu diu en quina pàgina ets.
