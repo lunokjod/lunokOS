@@ -2262,7 +2262,42 @@ namespace kernel {
 // pieces, the middle key opening the first and going back— so 479 -> 480 cases. The three rules a port of that
 // project follows are written in docs/40, because nineteen apps of it are still to come.
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.122.0";
+// 0.123.0 (7/11): **the port of an app brings its drawing and its numbers, and the procedure is written down**.
+// Four things, and the fifth is the document.
+//
+// **The icons of the two ported apps come from the paper project**. Its drawings live apart from the apps, in
+// `tools/icons/<App>.png` —448 x 448, greys, the file a person edits— and its icons ship as a 94 x 94 `.icn` of
+// four bits, which is a format of *its* panel and that nothing here reads. So the master travels with the app
+// (`res/icon-source.png`, to be edited) and `tools/make_icon.py` does the same three things the paper's
+// `icongen.py` does to it —compose the transparency over paper, take the greys, resize with LANCZOS— and writes
+// `res/icon.png`, which is what `"icon"` names: **94 x 94 and 1 730 B** for the calculator (the master is 6 770)
+// and **2 774 B** for About (its master 17 894). `apps info` shows the name; nothing paints it yet, because the
+// page that would list the apps on the glass does not exist (docs/40).
+//
+// **`about` is now the original's page and not an approximation of it** (docs/45): the padding of 20 and the gaps
+// of 12 for the list and 14 for the detail, the rows in the font of the body —43 px of line, which the port had
+// at 33—, the height of a button of the paper project (the line of the body plus twice its vertical padding:
+// 63 px there, 64 here), the text centred inside them, and the four lines of the detail in the order the
+// original wrote them, the third one empty because a piece of a board has no address to give.
+//
+// **And an app raises its own version when it changes**, as the system raises its: `calculator` and `about` go
+// from 0.1.0 to 0.2.0 in this commit, and docs/45 says so as a rule of the port.
+//
+// The fifth thing is **`docs/45-portar-una-app-del-paper.md`**: what is read from the original (manifest, entry,
+// `res/`, the icon master, `fonts.h`, the defaults of its controls), how the resources travel, the four sizes in
+// pixels of line with the table of the faces, the equivalence table from `paperos.*` to this system's calls —
+// including the four things that have no equivalent: `launch`, `serial`, `zip` and `epub`— and the seven traps
+// that bit here (no `visible`, no wrapping label, printable ascii only, the merged taps, the page that is the
+// app's, the focus that is born set, and the hooks that exist and the ones that do not).
+//
+// Measured on the bench (m5stack-paper, `--flash build/disk/emulator` and the tree as the card): `apps info
+// calculator` and `apps info about` print `icon        res/icon.png`; `run about` paints 540x912 once for the
+// cover and, with the two screens exercised by hand, three paints for three pages; `run calculator keys` still
+// prints `Calculator sizes 33 44 55 77` and its nineteen keys. The About case now also asserts that the reader
+// keeps `res/icon.png` for the app on the disk and for the one of the repository, so 480 cases stand as they
+// were.
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.123.0";
 
 }  // namespace kernel
 

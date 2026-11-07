@@ -14,9 +14,16 @@
 -- round. It is the same two screens of the original, said the way this system has them —and `release()`
 -- takes the fills of a control with it, so giving back the panel gives back the whole screen—.
 --
--- **The sizes are the paper project's, in pixels of line** —`small` 33 and `big` 82—, asked through
--- `ui.line_height` as the calculator does, and a text that does not fit a label ends in "..." here: so the
--- sentences are broken in this file, with the same measurement the label draws with (docs/30, docs/90).
+-- **The sizes are the paper project's, in pixels of line** —`small` 33, `body` 43 and `big` 82—, asked
+-- through `ui.line_height` as the calculator does, and a text that does not fit a label ends in "..." here: so
+-- the sentences are broken in this file, with the same measurement the label draws with (docs/30, docs/90).
+--
+-- **The rest of the page is the original's numbers too** (docs/45): the padding of 20 and the gaps of 12 and
+-- 14 of its two panels, the buttons with the body font and the height of a button of the paper project —the
+-- line of the body plus twice its vertical padding, `lineHeight() + 2 * padY`—, the text centred inside them,
+-- and the four lines of the detail in the order the original wrote them. The icon the manifest names is the
+-- drawing of the paper project: `res/icon-source.png` is the master a person edits and `res/icon.png` is what
+-- `tools/make_icon.py` makes of it.
 
 local caps = sys.caps()
 if not caps.display then
@@ -41,11 +48,19 @@ local function scale_for(line_px)
 end
 
 local kSmall = scale_for(33)
+local kBody = scale_for(43)
 local kBig = scale_for(82)
 
+-- **The padding and the gaps of the original**, one for the list and one for the detail: `list:set_padding(20)`
+-- and `list:set_gap(12)`, `detail:set_padding(20)` and `detail:set_gap(14)` (docs/45).
 local kMargin = 20
-local kGap = 10
-local kRow = 64
+local kListGap = 12
+local kDetailGap = 14
+
+-- **The height of a button is the paper project's arithmetic**: the line of the body font plus twice the
+-- vertical padding of its button (`f.lineHeight() + 2 * padY`, with `padY_ = 10`), which is 63 px there and 64
+-- here, where a step of this face is eleven pixels and the body is forty-four (docs/45).
+local kRow = kBody * ui.line_height(1) + 20
 
 -- What a label of this size takes for one line of this scale, plus the air above and below it.
 local function line_height(scale)
@@ -98,6 +113,10 @@ end
 local function add_lines(parent, width, text, scale, align)
   local made = 0
   local lines = broken(text, width, scale)
+
+  -- **An empty sentence is still a line of the page**: the original's third label of the detail is empty when a
+  -- library has no address, and the page keeps its room so that the shape is the same (docs/45).
+  if #lines == 0 then lines = {''} end
 
   for i = 1, #lines do
     local label = make_label(width, lines[i], scale, align)
@@ -272,7 +291,7 @@ build_cover = function()
 
   local page = ui.panel(view.width, view.height, 'vertical')
   page.padding = kMargin
-  page.gap = kGap
+  page.gap = kListGap
   page:place(0, 0)
 
   -- One big line: the name of the system and its version, which is what a person wants to read first on a
@@ -291,7 +310,7 @@ build_cover = function()
     if row ~= nil then
       row.background = 15
       row.border = 0
-      local text = make_label(view.width - 2 * kMargin - 24, pieces[i].name .. '   ' .. pieces[i].value, kSmall,
+      local text = make_label(view.width - 2 * kMargin - 24, pieces[i].name .. '   ' .. pieces[i].value, kBody,
         'center', 'middle')
       if text ~= nil then
         -- **The label is set in and not on the frame**: the ring of the focus is a pause and a band inside
@@ -321,11 +340,14 @@ show = function(index)
 
   local page = ui.panel(view.width, view.height, 'vertical')
   page.padding = kMargin
-  page.gap = kGap
+  page.gap = kDetailGap
   page:place(0, 0)
 
   add_lines(page, view.width - 2 * kMargin, piece.name .. '   ' .. piece.value, kSmall)
   add_lines(page, view.width - 2 * kMargin, piece.what, kSmall)
+  -- The third line of the original is where a library says its address; a piece of a board has none, and the
+  -- cell is kept empty so that the page has the shape of the one it comes from (docs/45).
+  add_lines(page, view.width - 2 * kMargin, '', kSmall)
   add_lines(page, view.width - 2 * kMargin, piece.numbers, kSmall)
 
   -- A cell that takes what is left, which is what pushes the button to the bottom of the page.
@@ -339,7 +361,7 @@ show = function(index)
   if row ~= nil then
     row.background = 15
     row.border = 0
-    local text = make_label(view.width - 2 * kMargin - 24, 'Back', kSmall, 'center', 'middle')
+    local text = make_label(view.width - 2 * kMargin - 24, 'Back', kBody, 'center', 'middle')
     if text ~= nil then
       text:place(12, 12)
       row:add(text)

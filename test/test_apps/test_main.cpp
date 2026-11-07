@@ -9584,6 +9584,21 @@ void test_the_about_app_says_what_the_board_is_made_of(void) {
   TEST_ASSERT_FALSE(kernel::app_running());
   kernel::log_echo(false);
 
+  // **The icon of the paper project travels with the two ported apps** (docs/45): the manifest names it and the
+  // reader keeps the name, and the drawing is in `res/` beside the master it was made from. The icon is not
+  // painted by anything yet —the page that would list the apps on the glass does not exist— so what is asserted
+  // here is what the system knows of it (docs/40).
+  kernel::apps::Entry ported = {};
+  TEST_ASSERT_TRUE(kernel::apps::read("about", ported));
+  TEST_ASSERT_EQUAL_STRING("res/icon.png", ported.icon);
+  // The calculator's manifest is read where it lives: this suite's disk holds the app only while its own case
+  // runs, and the icon of the manifest is a fact of the repository and not of the disk of a test.
+  static char text[1024];
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/calculator/manifest.json", text, sizeof(text)));
+  char icon[48] = {0};
+  TEST_ASSERT_TRUE(lunok::json::get_string(text, strlen(text), "icon", icon, sizeof(icon)));
+  TEST_ASSERT_EQUAL_STRING("res/icon.png", icon);
+
   storage->remove("/apps/about/about.lua");
   storage->remove("/apps/about/manifest.json");
   storage->remove("/apps/about");

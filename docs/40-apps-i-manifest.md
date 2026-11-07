@@ -344,9 +344,11 @@ mateixa. Fer-ho tot alhora fa que no se sàpiga qui es queda la línia.
 
 ## Les apps portades del projecte del paper (0.121.0)
 
-Les apps que s'escriuen aquí poden venir del projecte germà, `~/code/PaperOS/data/app/`, i quan en ve
-una es porta **la pantalla i el comportament sencers**, no una versió reduïda. Tres regles que han
-costat una mesura i que valen per a les que vinguin:
+Les apps que venen del projecte germà —`calculator` (0.121.0) i `about` (0.122.0) fins avui— es porten
+amb **la pantalla i el comportament sencers** i amb els números de l'original, i el procediment sencer
+—què es llegeix, com es porten les icones i el splash, la taula d'equivalències i les trampes— és a
+[`45 · Portar una app del paper`](45-portar-una-app-del-paper.md). Les tres coses que més han costat, i
+que val la pena tenir aquí a mà:
 
 - **Les mides de la lletra es demanen en píxels de línia, no en passos.** El paper fa servir quatre
   mides de la seva tipografia —`small` **33 px**, `body` **43**, `title` **57** i `big` **82** de
@@ -361,10 +363,9 @@ costat una mesura i que valen per a les que vinguin:
   a sota (docs/30, docs/90).
 - **Un `ui.label` no parteix les línies**: un text que no hi cap s'acaba amb `...`. Una app que ve
   amb paràgrafs els parteix ella mateixa amb `ui.text_width`, que és la mateixa mesura amb què el
-  label dibuixa.
-- **I la pàgina és de l'app sencera**: els controls pinten dins del seu marc, o sigui que l'aire del
-  voltant es queda amb el que hi havia al vidre —el dibuix de l'arrencada— si l'app no fa un
-  `ui.clear(15)` abans de construir la pàgina.
+  label dibuixa. **I la pàgina és de l'app sencera**: els controls pinten dins del seu marc, o sigui
+  que l'aire del voltant es queda amb el que hi havia al vidre —el dibuix de l'arrencada— si l'app no
+  fa un `ui.clear(15)` abans de construir la pàgina.
 
 ## L'app que surt sola en arrencar (l'app «de casa», 0.119.0)
 
