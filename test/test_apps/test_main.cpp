@@ -9385,6 +9385,24 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   // The first page is the whole view and it is one paint: 540x912 is the page under the bar of the system.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "540x912"), g_out);
 
+  // **The four sizes are the paper project's, measured in pixels of line** (0.121.0): `small` 33, `body` 43,
+  // `title` 57 and `big` 82 (`lib/gfx/fonts/fonts.h` of PaperOS). The port was written in steps of the face
+  // first and the page came out noticeably smaller than the original; the sizes are asked in pixels now, and
+  // what a step of this bench's face gives is within one step (six pixels here, where a step is seven) of the
+  // four numbers. A page that lost one step is a page that fails this line (docs/30, docs/92).
+  const int wanted[4] = {33, 43, 57, 82};
+  int got[4] = {0, 0, 0, 0};
+  const char* sizes = strstr(g_out, "Calculator sizes ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(sizes, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(sizes, "Calculator sizes %d %d %d %d", &got[0], &got[1], &got[2],
+                                          &got[3]),
+                                g_out);
+  for (int i = 0; i < 4; ++i) {
+    const int step = kernel::font::system_face().height;
+    const int off = (got[i] > wanted[i]) ? (got[i] - wanted[i]) : (wanted[i] - got[i]);
+    TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(step - 1, off, sizes);
+  }
+
   struct Spot {
     char label[8];
     int x;

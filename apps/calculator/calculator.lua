@@ -43,10 +43,33 @@ local kKeyMode = 'a2'
 -- and past a dozen nobody is reading them any more.
 local MaxDigits = 12
 
--- The size of the glyphs, in steps of the face of the system: the number goes down this ladder until it
--- fits its box, and the keys are the third one —what the original called `title`— (docs/30).
-local kBigScale = 4
-local kKeyScale = 3
+-- **The four sizes of the paper project, in pixels of line** (`lib/gfx/fonts/fonts.h` of PaperOS: `small`
+-- 33, `body` 43, `title` 57 and `big` 82). They are asked **in pixels and not in steps** because a step of
+-- this system's face is eleven pixels with the bold face of the disk and seven with the table of the flash:
+-- asking for the size keeps the page the same size on both, and it is what `ui.line_height` is for
+-- (0.121.0, docs/30). The port was written in steps first and the text came out **noticeably smaller**
+-- than the original —the keys at 33 px of line instead of 57, the number at 44 instead of 82—.
+local kSmallLine, kBodyLine, kTitleLine, kBigLine = 33, 43, 57, 82
+
+local function scale_for(line_px)
+  local step = ui.line_height(1)
+  if step <= 0 then step = 1 end
+
+  local scale = math.floor(line_px / step + 0.5)
+  if scale < 1 then scale = 1 end
+  if scale > 16 then scale = 16 end
+
+  return scale
+end
+
+local kSmall = scale_for(kSmallLine)
+local kBody = scale_for(kBodyLine)
+local kTitle = scale_for(kTitleLine)
+local kBig = scale_for(kBigLine)
+
+-- The ladder of the number, from the biggest to the smallest, which is the order the original stepped down
+-- in: `big`, `title`, `body`, `small`.
+local Ladder = {kBig, kTitle, kBody, kSmall}
 
 -- What the machine is doing: the left number, the operation waiting for its second operand, the digits
 -- being typed, and whether the next digit opens a new number (after an operation, or after equals).
@@ -311,16 +334,19 @@ local function draw_display()
 
   local hint = waiting()
   if hint ~= '' then
-    ui.text(disp.x + 12, disp.y + 10, hint, 1, 8)
+    ui.text(disp.x + 12, disp.y + 10, hint, kSmall, 8)
   end
 
   local text = shown()
-  local scale = kBigScale
+  local step = 1
 
-  -- **A number that runs out of its box is a number nobody reads**: the size steps down until it fits.
-  while scale > 1 and ui.text_width(text, scale) > disp.w - 24 do
-    scale = scale - 1
+  -- **A number that runs out of its box is a number nobody reads**: the size steps down the ladder of the
+  -- original —big, title, body, small— until it fits.
+  while step < #Ladder and ui.text_width(text, Ladder[step]) > disp.w - 24 do
+    step = step + 1
   end
+
+  local scale = Ladder[step]
 
   -- **The height of the line is asked and not guessed** (0.121.0): the face of outlines of the disk is
   -- eleven pixels of line per step and the five by seven of the flash is seven, so the box would be off
@@ -346,10 +372,10 @@ local function draw_page()
 
     ui.frame(k.x, k.y, k.w, k.h)
 
-    local lw = ui.text_width(k.label, kKeyScale)
-    local lh = ui.line_height(kKeyScale)
+    local lw = ui.text_width(k.label, kTitle)
+    local lh = ui.line_height(kTitle)
 
-    ui.text(math.floor(k.x + (k.w - lw) / 2), math.floor(k.y + (k.h - lh) / 2), k.label, kKeyScale, 0)
+    ui.text(math.floor(k.x + (k.w - lw) / 2), math.floor(k.y + (k.h - lh) / 2), k.label, kTitle, 0)
   end
 end
 
@@ -365,6 +391,12 @@ build_layout()
 -- and a change of layout cannot move the test's finger onto another key without the numbers saying so.
 if app.args ~= nil and app.args.path == 'keys' then
   console.print(string.format('Calculator display %d %d %d %d', disp.x, disp.y, disp.w, disp.h))
+
+  -- **The four sizes, in pixels of line**, which is the whole of what "the same look" means: the paper
+  -- project's 33, 43, 57 and 82 and what this face really gives with its steps. A test reads this line so
+  -- that the page cannot come out smaller without a number saying so (docs/30, docs/92).
+  console.print(string.format('Calculator sizes %d %d %d %d', kSmall * ui.line_height(1),
+    kBody * ui.line_height(1), kTitle * ui.line_height(1), kBig * ui.line_height(1)))
 
   for i = 1, #keys do
     local k = keys[i]

@@ -2218,7 +2218,23 @@ namespace kernel {
 // display box and not the page is asserted with the region the log prints** —under 508x200, and never the
 // 540x912 of the page— (docs/50).
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.121.0";
+// 0.121.1 (7/11): **the calculator's page was noticeably smaller than the original, and the reason was the
+// unit**. The port asked for its glyphs in steps of the face —3 for the keys, 4 for the number— and the paper
+// project's calculator asks for the four sizes of its own typography, which are **pixels of line**: `small`
+// 33, `body` 43, `title` 57 and `big` 82 (`lib/gfx/fonts/fonts.h`). A step of this system's face is 11 px of
+// line with the bold face of the disk, so the keys came out at 33 px where the original had 57 and the number
+// at 44 where it had 82: the page was half the size, and its owner saw it on the glass.
+//
+// The app asks for the size in pixels now and turns it into steps with the call of 0.121.0 —`scale_for()` is
+// `pixels / ui.line_height(1)`, rounded— so the page is the same physical size on a board with the face of
+// outlines (a step of 11) and on one with the table of the flash (a step of 7), and the ladder of the number
+// is the original's: big, title, body, small. Measured on the bench with the font of the disk (m5stack-paper,
+// `--flash build/disk/emulator --sd` the tree): `Calculator sizes 33 44 55 77` against the 33/43/57/82 of the
+// original —the exact number of the hint, the keys at 55 instead of 57 and the number at 77 instead of 82,
+// which is the closest whole step of eleven to eighty-two—. `run calculator keys` prints that line, so a page
+// that loses a step fails a test instead of looking wrong to one person (docs/30, docs/92).
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.121.1";
 
 }  // namespace kernel
 
