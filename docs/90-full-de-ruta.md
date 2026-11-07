@@ -500,9 +500,11 @@ tres de les peces del motor ja hi són —el **ZIP** (7/11, 0.126.0: `lib/zip`),
 casos, que treu una pàgina com un pla: paraules amb el seu lloc, regles i caixes de foto)—, la **tinta de
 línia** hi és des de la 0.129.0 (negreta, cursiva i `sup`/`sub` al `lib/kernel/src/font.cpp`), el rellotge i
 el disc també hi són, i les **cares amb accents** hi són per a la cara del llibre (0.127.0: `à è é ç · « »`
-es pinten; les tres cares del sistema segueixen sent ASCII). El que no hi és i el lector demana és **el
-llibre obert** (A5: inflar un capítol a la memòria gran i resoldre un `href`), la **porta de Lua** (B2–B7),
-la **pantalla sencera** i la mida de l'app (131 161 B contra un sostre de 49 152).
+es pinten; les tres cares del sistema segueixen sent ASCII). I el **llibre obert** ja hi és (7/11, 0.131.0:
+`kernel/book.h` i `book.cpp`, 88 + 390 línies i 4 casos, amb un `.epub` de debò escrit al disc del test i un
+capítol inflat de 512 KB a la memòria extra). El que no hi és i el lector demana és **pintar la pàgina** en un
+canvas i la **porta de Lua** (B2–B7), la foto en cau del llibre, la imatge en un canvas (D4), la **pantalla
+sencera** i la mida de l'app (131 161 B contra un sostre de 49 152).
 
 ## Fora de la v1
 

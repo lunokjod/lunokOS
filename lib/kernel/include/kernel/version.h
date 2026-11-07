@@ -2580,7 +2580,41 @@ namespace kernel {
 // looked at**, because a page is a plan and nothing paints it yet —the painter is the kernel's and comes with the
 // open book (docs/46, A5 and B3)—; and the next piece is that book: a chapter inflated into the big memory, an
 // `href` resolved against the chapter, and the page the reader shows.
-static const char kVersion[] = "0.130.0";
+//
+// 0.131.0 (7/11): **the book open, and a chapter of a real file in the memory of the board**.
+//
+// The reader is three pieces that already existed —the zip of `lib/zip`, the tokenizer and the paginator of
+// `lib/epub`— and this is the one that gives them a file. `kernel/book.h` opens a `.epub` of a mount through an
+// adapter of six lines (the zip asks for a size and for bytes at an offset, and a file asks to be seeked and read),
+// reads its central directory, **inflates a chapter into the extra memory** and lays out a page of it from the byte
+// the reader was at. One book at a time, as with the zip, and for the same reason: the blocks are the board's.
+//
+// **The blocks are counted and given back**: a chapter of up to **512 KB** and its compressed stream beside it, the
+// table of **128** entries and the sheet of a page, all of them from `pal::extra_memory()` —the PSRAM of the
+// Paper— and released when the book closes, which is what a failed `open` does too: a file that is not a book
+// leaves the extra memory exactly as it found it, and the case of the test proves it by opening a real one after
+// four refusals.
+//
+// **The three faces of a page are the caller's** (`Fonts{body, title, small}`, a null being the system's), because
+// which typeface a book is read with is the app's decision and not the kernel's (docs/46, C13), and the two numbers
+// a page asks of each one —the width of a word and the height of a line— are `font::width` and the height of the
+// face times the step, which is what the whole system already means by a line (docs/30).
+//
+// Measured on the bench of the computer: **88 lines of header and 390 of C++**, with `-Wall -Wextra -Werror`, and
+// `test/test_book` has **4 cases**, and they are the whole road: **a `.epub` written byte by byte by the test on the
+// disk of the test** (a `mimetype` and two chapters, all stored, with the checksums of `inflate::crc32`), opened by
+// the path of a person, with its three entries, its `find` by name and its first chapter found by looking like one;
+// a chapter that comes out **whole and equal to the one that went in**; **a page laid out with the real face of a
+// book** read from the repository —thirteen items of the chapter, the first word in the body step four— and a page
+// of a box of sixty by sixty that ends at the word `same`, with the page after it **starting at that same byte**;
+// and the four refusals (a relative path, a file that is not there, a unit that is not mounted, a sentence that is
+// not a zip) after which a real book still opens. `pio test -e test --without-testing` builds the **23 suites and
+// 520 cases** with 0 warnings, and `pio run -e emulator` says SUCCESS with 0 warnings.
+// **Pending**: the 520 cases are **not executed** (that wants the owner's word for it); **the pictures of a book are
+// not measured yet** —a page of a chapter with figures places the words and leaves the picture out—; the glass is
+// **still not looked at**, and the next piece is the one that changes that: paint a page of items in a canvas and
+// open the door from Lua, which is what a person needs to see a book on the screen (docs/46, B2 and B3).
+static const char kVersion[] = "0.131.0";
 
 }  // namespace kernel
 
