@@ -96,15 +96,20 @@ def container():
     )
 
 
-def opf(title, author, names, ncx_href=None):
+def opf(title, author, names, ncx_href=None, cover_href=None):
     items = "\n".join(
         '    <item id="c%d" href="%s" media-type="application/xhtml+xml"/>' % (i + 1, one)
         for i, one in enumerate(names)
     )
     if ncx_href is not None:
         items += '\n    <item id="ncx" href="%s" media-type="application/x-dtbncx+xml"/>' % ncx_href
+    if cover_href is not None:
+        items += '\n    <item id="cover" href="%s" media-type="image/png"/>' % cover_href
     spine = "\n".join('    <itemref idref="c%d"/>' % (i + 1) for i in range(len(names)))
     toc = ' toc="ncx"' if ncx_href is not None else ''
+    # **The cover of EPUB 2 is named by the metadata**: `<meta name="cover" content="id">` and the item of that id
+    # (docs/46, C7).
+    meta = '    <meta name="cover" content="cover"/>\n' if cover_href is not None else ''
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book">\n'
@@ -113,11 +118,12 @@ def opf(title, author, names, ncx_href=None):
         '    <dc:creator>%s</dc:creator>\n'
         '    <dc:language>ca</dc:language>\n'
         '    <dc:identifier id="book">lunok-book-%s</dc:identifier>\n'
+        "%s"
         "  </metadata>\n"
         "  <manifest>\n%s\n  </manifest>\n"
         "  <spine%s>\n%s\n  </spine>\n"
         "</package>\n"
-        % (escape(title), escape(author), re.sub(r"[^a-z0-9]+", "-", title.lower()), items, toc, spine)
+        % (escape(title), escape(author), re.sub(r"[^a-z0-9]+", "-", title.lower()), meta, items, toc, spine)
     )
 
 
@@ -165,6 +171,27 @@ def figure():
     return plate
 
 
+def cover():
+    """**The cover of the sample**, drawn here in the shape of a book.
+
+    It is a drawing of this repository, like the plate, and for the same reason: a repository can carry a book of its
+    own without carrying somebody's cover. Nothing is written on it — the tool has no face to write with — and the
+    reader puts the title of the book in the bar, which is where a person looks for it (docs/46, C7).
+    """
+    from PIL import Image, ImageDraw
+
+    page = Image.new("L", (300, 400), 255)
+    pen = ImageDraw.Draw(page)
+    pen.rectangle((0, 0, 299, 399), outline=0)
+    pen.rectangle((12, 12, 287, 387), outline=0, width=2)
+    pen.ellipse((110, 60, 190, 140), outline=0, width=3)
+    pen.line((150, 140, 150, 230), fill=0, width=3)
+    pen.line((30, 280, 270, 280), fill=0, width=2)
+    pen.line((60, 296, 240, 296), fill=0, width=1)
+    pen.line((60, 308, 240, 308), fill=0, width=1)
+    return page
+
+
 def main():
     parser = argparse.ArgumentParser(description="An EPUB out of a text file")
     parser.add_argument("--source", required=True, help="the text, with `## ` opening a chapter")
@@ -190,9 +217,14 @@ def main():
         # The `mimetype` is the first entry and it is **stored**: a reader looks for it without ungzipping.
         book.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", zipfile.ZIP_STORED)
         book.writestr("META-INF/container.xml", container())
-        book.writestr("OEBPS/content.opf", opf(args.title, args.author, names, ncx_href="toc.ncx"))
+        book.writestr("OEBPS/content.opf", opf(args.title, args.author, names, ncx_href="toc.ncx",
+                                                cover_href="img/cover.png"))
         # **And its index**, which is what the reader shows as Contents (docs/46, C14).
         book.writestr("OEBPS/toc.ncx", ncx(args.title, names, [one[0] for one in chapters]))
+        # **And its cover**, named by the OPF and shown before the first page (docs/46, C7).
+        drawn = io.BytesIO()
+        cover().save(drawn, format="PNG")
+        book.writestr("OEBPS/img/cover.png", drawn.getvalue())
         # **The picture of the sample is drawn here**, and the chapter that holds it says so with an `<img>`,
         # which is the only thing the reader of this house takes from a picture (docs/46, A2).
         if args.figure:

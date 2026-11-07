@@ -705,6 +705,9 @@ struct BookOps {
   int32_t (*books)();
   const char* (*book_at)(int32_t index);
   bool (*page)(int16_t slot, int32_t from, BookStyle& style);
+  // **A picture of the book on a canvas** (0.144.0, docs/46 C7): the cover, by its whole name inside the book, in the
+  // middle of the canvas and with its own paper.
+  bool (*picture)(int16_t slot, const char* name);
 };
 
 void set_book_ops(const BookOps& ops);

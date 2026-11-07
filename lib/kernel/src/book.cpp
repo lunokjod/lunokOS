@@ -230,16 +230,15 @@ void fit_row(void* ctx, uint16_t y, const uint8_t* packed) {
   }
 }
 
-// **One picture, in the cache**: the bytes of the entry, its size from the header, and the pixels in the box the
-// page will leave for it. A page asks for a picture once and looks at it twice —to reserve the room and to paint
-// it— and the second time it is here, which is what the cache is for.
-bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
+// **One picture, in the cache** (0.144.0): the entry is already resolved —against the OPF for the cover of a book,
+// against the chapter that is open for a plate of a page— and this is the half the two callers share. The bytes of the
+// entry, its size from the header, and the pixels in the box the page will leave for it: a page asks for a picture once
+// and looks at it twice —to reserve the room and to paint it— and the second time it is here, which is what the cache is
+// for (docs/46, A5).
+bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
   out_w = 0;
   out_h = 0;
-  if (!g.open || href == nullptr) return false;
-
-  char name[160];
-  if (!resolve_href(href, name, sizeof(name))) return false;
+  if (!g.open || name == nullptr || name[0] == 0) return false;
 
   if (g.picture_ready && strcmp(name, g.picture_name) == 0) {
     out_w = g.picture_width;
@@ -315,6 +314,18 @@ bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w
   out_h = height;
 
   return true;
+}
+
+// **A picture of a page**, whose name is relative to the chapter that is open (`img/x.png`, `../img/x.png`).
+bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
+  out_w = 0;
+  out_h = 0;
+  if (!g.open || href == nullptr) return false;
+
+  char name[160];
+  if (!resolve_href(href, name, sizeof(name))) return false;
+
+  return load_picture_named(name, max_w, max_h, out_w, out_h);
 }
 
 // **The shelf of the machine**: what a mount carries in its `/epub`, with the names of the books and nothing else.
@@ -669,6 +680,26 @@ bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
   return true;
 }
 
+// **A picture of the book on a canvas of an app, by its whole name** (0.144.0, docs/46 C7): the cover of a book is an
+// entry of the zip whose name is already resolved against the OPF, and it goes in the middle of the canvas with the
+// paper of the book around it. **A picture keeps its paper**: it is not inverted on a dark page, because a negative
+// cover is not a cover (docs/46, C9).
+bool picture_into(int16_t slot, const char* name) {
+  const ui::Canvas* canvas = ui::at(slot);
+  if (canvas == nullptr) return false;
+
+  int32_t width = 0;
+  int32_t height = 0;
+  if (!load_picture_named(name, canvas->width, canvas->height, width, height)) return false;
+
+  const int32_t x = (static_cast<int32_t>(canvas->width) - width) / 2;
+  const int32_t y = (static_cast<int32_t>(canvas->height) - height) / 2;
+
+  return ui::canvas_bitmap(slot, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<uint16_t>(width),
+                           static_cast<uint16_t>(height), g.picture_pixels,
+                           static_cast<uint16_t>((width + 1) / 2), "gl16");
+}
+
 }  // namespace
 
 void bind() {
@@ -683,6 +714,7 @@ void bind() {
   ops.books = books;
   ops.book_at = book_at;
   ops.page = page_into;
+  ops.picture = picture_into;
 
   luabind::set_book_ops(ops);
 }

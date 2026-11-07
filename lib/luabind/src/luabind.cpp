@@ -9269,6 +9269,27 @@ int l_epub_page(lua_State* L) {
   return 4;
 }
 
+// **A picture of the book, whole, on a canvas of the app** (0.144.0, docs/46 C7): the cover. The name is the one inside
+// the book (`OEBPS/img/cover.png`) and not one relative to a chapter, because the cover is not in a chapter.
+int l_epub_picture(lua_State* L) {
+  if (g_book_ops.picture == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  int16_t slot = 0;
+  if (lua_isnumber(L, 1)) {
+    slot = static_cast<int16_t>(lua_tointeger(L, 1));
+  } else if (canvas_ready(L, 1)) {
+    slot = canvas_slot_of(L);
+  } else {
+    return push_nil_error(L, "E_INVAL", "a picture needs a canvas");
+  }
+  const char* name = luaL_checkstring(L, 2);
+  if (!g_book_ops.picture(slot, name)) {
+    return push_nil_error(L, "E_INVAL", "the book carries no such picture, or there is no memory for it");
+  }
+
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9329,7 +9350,7 @@ void seal_globals(lua_State* L) {
 
   // epub: a book of the disk, a chapter of it and a page of the chapter painted in
   // a canvas of the app (docs/46, A5 and B3).
-  lua_createtable(L, 0, 8);
+  lua_createtable(L, 0, 9);
   set_function(L, "open", l_epub_open);
   set_function(L, "books", l_epub_books);
   set_function(L, "close", l_epub_close);
@@ -9338,6 +9359,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "first_chapter", l_epub_first_chapter);
   set_function(L, "chapter", l_epub_chapter);
   set_function(L, "read", l_epub_read);
+  set_function(L, "picture", l_epub_picture);
   set_function(L, "page", l_epub_page);
   lua_setglobal(L, "epub");
 

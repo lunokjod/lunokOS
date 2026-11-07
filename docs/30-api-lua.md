@@ -425,6 +425,7 @@ porta del lector: el motor —el zip, el tokenitzador i el paginador— és del 
 | `epub.first_chapter()` | el nom del primer fitxer que sembla un capítol |
 | `epub.chapter(name)` | **infla** aquest capítol i en diu quants bytes té |
 | `epub.read(name)` | **una fitxa petita del llibre sencera** (`META-INF/container.xml`, l'OPF, l'índex, un full d'estil): els bytes, o `nil` i el motiu (0.142.0). El bloc és del llibre —es demana la primera vegada i fa 64 KB— i la porta en fa una còpia a una cadena de Lua |
+| `epub.picture(canvas, name)` | **una foto del llibre al canvas, pel seu nom sencer dins del llibre** (`OEBPS/img/cover.png`) i **centrada**: `true`, o `nil` i el motiu (0.144.0). És la portada: el nom ja ve resolt de l'OPF i no d'un capítol, i **la foto conserva el seu paper** (no s'inverteix a la pàgina fosca; docs/46, C7 i C9) |
 | `epub.page(canvas, from, opts)` | maqueta una pàgina des del byte `from` i **la pinta en aquell canvas**; torna `next, ended, used, has_picture` |
 | `epub.close()` | tanca el llibre i torna la memòria |
 

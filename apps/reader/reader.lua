@@ -88,20 +88,22 @@ local function positions()
   if not ok or type(data) ~= 'string' then return out end
 
   for line in data:gmatch('[^\n]+') do
-    local path, chapter, byte = line:match('^(.-)\t(.-)\t(%d+)$')
-    if path ~= nil then out[path] = {chapter = chapter, byte = tonumber(byte) or 0} end
+    local path, chapter, byte, on_cover = line:match('^(.-)\t(.-)\t(%d+)\t?(%d*)$')
+    if path ~= nil then
+      out[path] = {chapter = chapter, byte = tonumber(byte) or 0, cover = (on_cover == '1')}
+    end
   end
 
   return out
 end
 
-local function remember(path, chapter, byte)
+local function remember(path, chapter, byte, on_cover)
   local kept = positions()
-  kept[path] = {chapter = chapter, byte = byte}
+  kept[path] = {chapter = chapter, byte = byte, cover = (on_cover == true)}
 
   local lines = {}
   for one, where in pairs(kept) do
-    lines[#lines + 1] = string.format('%s\t%s\t%d', one, where.chapter, where.byte)
+    lines[#lines + 1] = string.format('%s\t%s\t%d\t%d', one, where.chapter, where.byte, where.cover and 1 or 0)
   end
   table.sort(lines)
 
@@ -176,6 +178,7 @@ local function chapters_of_book()
   local title = nil
   local toc = {}
   local toc_from = 'none'
+  local cover_href = nil
 
   local container = epub.read('META-INF/container.xml')
   local opf_path = container and (container:match('full%-path%s*=%s*"([^"]+)"') or
@@ -202,6 +205,38 @@ local function chapters_of_book()
           if known[href] then spine[#spine + 1] = href end
         end
       end
+
+      -- **The cover of the book** (0.144.0, docs/46 C7): EPUB 2 names it with `<meta name="cover" content="id">`,
+      -- EPUB 3 marks the item with `properties="cover-image"`, and a book that has neither usually carries "cover" in
+      -- the id or in the file name. It is only a cover if the entry is really in the book.
+      if cover_href == nil then
+        local meta = opf:match('<meta[^>]*name%s*=%s*"cover"[^>]*>')
+        if meta ~= nil then
+          local id = attributes(meta).content
+          local it = (id ~= nil) and items[id] or nil
+          if it ~= nil and it.href ~= nil then cover_href = join_path(base, it.href) end
+        end
+      end
+      if cover_href == nil then
+        for _, item in pairs(items) do
+          if item.href ~= nil and item.properties ~= nil and item.properties:find('cover%-image') then
+            cover_href = join_path(base, item.href)
+            break
+          end
+        end
+      end
+      if cover_href == nil then
+        for _, item in pairs(items) do
+          local id = (item.id or ''):lower()
+          local href = (item.href or ''):lower()
+          local kind = (item['media-type'] or ''):lower()
+          if kind:sub(1, 6) == 'image/' and (id:find('cover', 1, true) or href:find('cover', 1, true)) then
+            cover_href = join_path(base, item.href)
+            break
+          end
+        end
+      end
+      if cover_href ~= nil and not known[cover_href] then cover_href = nil end
 
       -- **The index the book declares** (0.143.0, docs/46 C14): EPUB 3 leaves a `nav` in an XHTML file of its own and
       -- EPUB 2 a `toc.ncx` with a `navPoint` per entry. The two end in a label and an href that is turned into a
@@ -283,7 +318,7 @@ local function chapters_of_book()
     toc_from = 'spine'
   end
 
-  return spine, title, toc, toc_from
+  return spine, title, toc, toc_from, cover_href
 end
 
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
@@ -311,6 +346,10 @@ local strip = nil
 -- and one is not made up for it.
 local chapter_list = {}
 local toc = {}
+-- **The cover of the book and the fact of being on it** (0.144.0, docs/46 C7): the first page of the first chapter
+-- starts at byte zero, so «I am on the cover» is a state and not a byte, and it is saved with the position.
+local cover = nil
+local cover_mode = false
 -- **The index on the glass**: the list of its rows while it is up and the title above it. It is a screen of its own,
 -- so the page is given back while it is there and built again when it goes (docs/30, docs/90).
 local index_list = nil
@@ -425,6 +464,8 @@ local kTrail = { 8, 6, 4 }
 
 local function draw_strip()
   if strip == nil then return end
+  -- **The cover has no strip of pages**: it is a picture of the book and not one of its pages (docs/46, C7).
+  if cover_mode then return end
   strip:clear(paper_level(), 'du')
   local total = walked
   local here = page_index(from)
@@ -603,13 +644,18 @@ local function give_back()
   -- **The page that says what the glass has on it goes with the page** (docs/46, C10): the next page is composed over
   -- whatever the shelf left, and a `du` asked from a flag of a book that is gone is a ghost.
   two_tone = false
-  -- **And the keys are nobody's until the centre says so again** (docs/46, C3).
+  -- **And the keys are nobody's until the centre says so again** (docs/46, C3), and the cover is the book's (C7).
   page_mode = false
+  cover = nil
+  cover_mode = false
   release_notice()
 end
 
-local function present_page(wash)
+local function present_page(wash, silent)
   if screen == nil or book == nil then return end
+
+  -- **A page on the glass is not the cover any more** (docs/46, C7).
+  cover_mode = false
 
   -- **The paper of the page goes down first and the quality is decided later**: what is drawn below is written before the
   -- page says whether it carries a plate, and the present at the end is the one that chooses the pass (docs/46, C10).
@@ -643,19 +689,42 @@ local function present_page(wash)
   local two = not picture
   local quality = (two and two_tone and not wash) and 'du' or 'gc16'
   two_tone = two
-  ui.present(quality)
+  if not silent then ui.present(quality) end
 
   return true
 end
 
+-- **The cover** (0.144.0, docs/46 C7): it is a picture of the book and a state of the reader, it sits before the first
+-- page of the first chapter and nowhere else, and it goes with the position. **A picture keeps its paper** — it is not
+-- inverted on the dark page, because a negative cover is not a cover (C9) — and the foot says the one thing a person
+-- has to know there: the page is to the right.
+local function show_cover()
+  if screen == nil or book == nil or cover == nil then return end
+
+  cover_mode = true
+  screen:clear(15, 'gc16')
+  if not epub.picture(screen, cover) then console.print('reader: the cover cannot be read') end
+
+  foot.color = 0
+  foot.background = 15
+  foot.text = 'Cover - right to read'
+  if endmark ~= nil then endmark.text = '' end
+  if strip ~= nil then strip:clear(15, 'du') end
+
+  -- **A picture is not two tones**: the page that comes after it takes the wash (docs/46, C10).
+  two_tone = false
+  forget_page()
+  ui.present('gc16')
+end
+
 local function forget_page()
-  if chapter ~= nil and book ~= nil then remember(book.path, chapter, from) end
+  if chapter ~= nil and book ~= nil then remember(book.path, chapter, from, cover_mode) end
 end
 
 -- **The page of the book, built again when the view changes size** (0.136.0, docs/46 D1): a canvas of the new size, the
 -- foot under it, and the page drawn in it. The system makes a new view and the objects of before point at a canvas
 -- nobody has any more, so this is a build and not a move (docs/30, docs/90).
-local function build_page(restart)
+local function build_page(restart, silent)
   release_page()
   if book == nil then return false end
 
@@ -701,12 +770,32 @@ local function build_page(restart)
   -- made (docs/46, C5). A chapter the index opens is counted from zero even when the box is the same (docs/46, C14).
   start_count(restart == true)
 
-  return present_page(true)
+  return present_page(true, silent)
+end
+
+-- **The glass the book is on**: its page at the byte it is at, or the cover when the cover is where the reader is
+-- (0.144.0, docs/46 C7). Every path that gives the glass back to the book comes through here, so a menu closed over a
+-- cover leaves a cover and not the first page of the chapter.
+local function build_the_book()
+  local was_cover = cover_mode and cover ~= nil
+  build_page(false, was_cover)
+  if was_cover then show_cover() end
 end
 
 -- **The page after this one** is the byte the page said, and there is nothing to compute (docs/46, §1).
 local function turn_forward()
-  if ended or screen == nil or book == nil then return end
+  if screen == nil or book == nil then return end
+
+  -- **From the cover the next page is the first of the book** (docs/46, C7), and the cover was a picture: the page takes
+  -- the wash (C10).
+  if cover_mode then
+    cover_mode = false
+    forget_page()
+    present_page(true)
+    return
+  end
+
+  if ended then return end
 
   from = next_at
   forget_page()
@@ -717,7 +806,16 @@ end
 -- has not reached the page we are on it is the last page that started before this byte, found by walking the chapter with
 -- `measure`: the same arithmetic and not a pixel (docs/46, B4).
 local function turn_back()
-  if screen == nil or book == nil or from == 0 then return end
+  if screen == nil or book == nil then return end
+
+  -- **The cover sits before the first page of the first chapter and only there** (0.144.0, docs/46 C7): from the first
+  -- byte of the first chapter, back is the cover.
+  if not cover_mode and from == 0 and chapter_at <= 1 and cover ~= nil then
+    show_cover()
+    return
+  end
+
+  if cover_mode or from == 0 then return end
 
   local which = page_index(from)
   if which > 0 then
@@ -753,7 +851,7 @@ local function open_book(one)
     return false
   end
 
-  local chapters, book_title, book_toc, toc_from = chapters_of_book()
+  local chapters, book_title, book_toc, toc_from, book_cover = chapters_of_book()
   local where = positions()[one.path]
   local which = (where ~= nil) and where.chapter or chapters[1]
   local n = (which ~= nil) and epub.chapter(which) or nil
@@ -786,22 +884,31 @@ local function open_book(one)
 
   chapter_list = chapters
   toc = book_toc
+  cover = book_cover
 
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end
-  remember(one.path, chapter, from)
+  -- **The cover is a state that is saved with the position** (docs/46, C7): a book opened where it was left on its
+  -- cover is on its cover again.
+  local on_cover = (where ~= nil) and where.cover == true
+  remember(one.path, chapter, from, on_cover)
 
-  -- **What the book is, said in the log** (docs/46, C2 and C14): the title of its OPF, how many chapters the spine
-  -- says and where its index came from, which is the one thing a reader that had to fall back to the names cannot say.
-  console.print(string.format('reader: %s, %d chapter(s), index %d (%s)', book_title or one.title, chapter_total,
-                              #toc, toc_from))
+  -- **What the book is, said in the log** (docs/46, C2, C7 and C14): the title of its OPF, how many chapters the spine
+  -- says, where its index came from and whether it has a cover — the three things a reader that had to fall back to the
+  -- names cannot say.
+  console.print(string.format('reader: %s, %d chapter(s), index %d (%s), cover %s', book_title or one.title,
+                              chapter_total, #toc, toc_from, cover and 'yes' or 'no'))
 
-  if not build_page() then
+  if not build_page(false, on_cover) then
     epub.close()
     book = nil
     show_shelf('there is no memory for a page of this book')
     return false
   end
+
+  -- **And it opens where it was left**: a book saved on its cover is on its cover, and one page of it is drawn first
+  -- without a present, so the glass goes from the shelf to the cover and not through the first page (docs/46, C7).
+  if on_cover then show_cover() end
 
   return true
 end
@@ -889,6 +996,7 @@ local function open_chapter(href, byte)
   chapter = href
   bytes = n
   from = (byte ~= nil and byte > 0 and byte < n) and byte or 0
+  cover_mode = false
   chapter_at = 1
   for i = 1, #chapter_list do
     if chapter_list[i] == href then chapter_at = i end
@@ -924,9 +1032,9 @@ local function open_index()
   page_mode = false
 
   if #toc == 0 then
-    -- **A book of one chapter has no index and none is invented** (docs/46, C14): the page comes back and a notice says
-    -- why nothing happened.
-    build_page()
+    -- **A book of one chapter has no index and none is invented** (docs/46, C14): the glass goes back to the book and a
+    -- notice says why nothing happened.
+    build_the_book()
     put_a_notice('This book has no index', 'it has one chapter, so there is nothing to choose')
     return
   end
@@ -943,7 +1051,7 @@ local function open_index()
   local height = view.h - kIndexHead - 24
   index_list = ui.list(view.w - 40, height)
   if index_list == nil then
-    build_page()
+    build_the_book()
     return
   end
 
@@ -996,13 +1104,21 @@ local function close_index()
   if index_list == nil then return end
 
   release_index()
-  build_page()
+  build_the_book()
 end
 
 -- **The beginning of the chapter**, which is what a finger going up asks for: the first byte, and the position is
 -- written down as any page (docs/46, C3).
 local function first_page()
-  if screen == nil or book == nil or from == 0 then return end
+  if screen == nil or book == nil then return end
+
+  -- **From the cover, the beginning of the chapter is the first page**: the cover is already behind (docs/46, C7).
+  if cover_mode then
+    turn_forward()
+    return
+  end
+
+  if from == 0 then return end
 
   from = 0
   forget_page()
@@ -1045,7 +1161,7 @@ local function close_menu()
   -- **The page under the card is drawn again**: the card covered a part of it and a present paints only what changed
   -- (docs/30).
   if book ~= nil then
-    build_page()
+    build_the_book()
   else
     show_shelf()
   end
@@ -1069,7 +1185,7 @@ local function on_menu_pick(title, entry)
     ui.full_screen(not ui.full_screen())
   else
     dark = not dark
-    build_page()
+    build_the_book()
   end
 end
 
@@ -1077,9 +1193,9 @@ local function open_menu()
   if menu ~= nil or book == nil then return end
 
   -- **A menu takes the dial, so the page gives it back** (docs/30, docs/46 C3): a control the dial leaves is not entered
-  -- any more, and a person who comes back to the page says «enter» again.
+  -- any more, and a person who comes back to the page says «enter» again. The foot of the cover is not a page's.
   page_mode = false
-  say_foot()
+  if not cover_mode then say_foot() end
 
   local bar = ui.menu_bar(kPageW, kPageH)
   if bar == nil then return end
@@ -1198,7 +1314,9 @@ function on_resize(width, height)
     -- and the book opens in the turn that comes, which is where it was going anyway.
     ask_for(pending)
   elseif book ~= nil then
-    build_page()
+    -- **A resize is not a page and not a cover** (docs/46, D1 and C7): the byte does not move, and the glass that held
+    -- a cover holds it again in the new box.
+    build_the_book()
   else
     show_shelf()
   end
@@ -1214,7 +1332,8 @@ function on_button(kind, held_ms, key)
 
   if key == 0 then
     page_mode = not page_mode
-    say_foot()
+    -- **The foot of the cover is not a page's**: the mode has no `keys` to say there (docs/46, C7).
+    if not cover_mode then say_foot() end
     return
   end
 

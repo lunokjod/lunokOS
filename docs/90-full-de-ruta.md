@@ -510,11 +510,10 @@ enrere), **la pantalla de càrrega** (C8), **la passada de la pàgina** (C10: `d
 tons), **l'error com a avís** (C12) i les **dues cares del llibre** (C13: un serif pel cos i un sans pels títols, les
 dues amb Latin-1) ja hi són. I el 0.142.0 **l'OPF llegit de debò** (C2: `META-INF/container.xml` → OPF → `dc:title` i
 l'`spine`, amb `epub.read` i la porta del ZIP, B6), que és el que diu el títol del llibre i **l'ordre dels seus
-capítols**. El que no hi és i el lector demana, amb la seva fitxa a docs/46: la **portada com a estat** (C7) i anar a
-una pàgina pel número (C15); el **cau de la fotografia i la miniatura del prestatge** (C11, que vol desar una
-superfície, B9); **el peu del prestatge**; i **la mida de l'app** (131 161 B contra un sostre de font de 49 152, D6)
-amb els seus **ajustos** (D7). **L'índex (C14) hi és des del 0.143.0**: el `nav` o el `toc.ncx` del llibre, un
-de generat si no en declara cap, i la pantalla de `Book → Contents`.
+capítols**. El que no hi és i el lector demana, amb la seva fitxa a docs/46: anar a una pàgina pel número (C15); el
+**cau de la fotografia i la miniatura del prestatge** (C11, que vol desar una superfície, B9); **el peu del prestatge**;
+i **la mida de l'app** (131 161 B contra un sostre de font de 49 152, D6) amb els seus **ajustos** (D7). **L'índex (C14)
+hi és des del 0.143.0** i **la portada com a estat (C7) des del 0.144.0**.
 
 ## Fora de la v1
 

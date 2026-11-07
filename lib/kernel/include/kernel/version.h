@@ -3061,7 +3061,39 @@ namespace kernel {
 // its marked row and the `Contents` entry are proven by the code and by the line of the log, not by a photograph of the
 // panel. Of the book, what is still missing with its fitxa in docs/46: **C7** (the cover as a state), **C15** (a page by
 // number), **C11** (the cache of thumbnails, which wants B9) and the foot of the shelf.
-static const char kVersion[] = "0.143.0";
+// 0.144.0 (8/11): **the cover of the book, as a state of the reader** (docs/46, C7).
+//
+// The first page of the first chapter starts at **byte zero**, so «I am on the cover» cannot be read from the byte: it is
+// the page before that one and a state of the reader, which is what the paper had (`book.cover`) and what this turn adds.
+//
+//   - **the door**: `book::picture_into(slot, name)` —and `epub.picture(canvas, name)` in Lua— paints a picture of the
+//     book on a canvas by its **whole name inside the book** (`OEBPS/img/cover.png`), centred, with the paper of the
+//     book around it. The name is whole because a cover is not inside a chapter: the plate of a page is resolved
+//     against the chapter and this one comes resolved from the OPF. The two share the cache and the decoder of
+//     `load_picture`, which was split in two (`load_picture_named` and the resolver). **A picture keeps its paper**: it
+//     is not inverted on the dark page, because a negative cover is not a cover (C9);
+//   - **which picture**: the item the OPF names —`<meta name="cover" content="id">` of EPUB 2, `properties` with
+//     `cover-image` of EPUB 3, or an image whose id or file name says `cover`— and only if the entry is really in the
+//     book. A book without one has no cover screen and the first page is where it opens;
+//   - **the state**: the cover sits **before the first page of the first chapter and only there**; back from that page
+//     is the cover, forward from the cover is the page, and it is **saved with the position** —the fourth field of
+//     `reading.txt`, `path TAB chapter TAB byte TAB cover`— so a book left on its cover opens on its cover, drawn
+//     without a present of the first page under it. A resize, a menu closed over it, the dark page and the index all
+//     come back to the cover because they come back through `build_the_book`;
+//   - **what it says**: the foot says `Cover - right to read` (the hyphen of this face, as in C5), the strip of the
+//     balls is cleared and does not come back while the cover is up, and the page after the cover takes the **wash**,
+//     because a cover is a picture and not two tones (C10).
+//
+// The sample book of `data/epub/` carries a cover since this version (`tools/make_epub.py` draws it and names it in the
+// OPF; the book is 4 845 B), and the app test reads the line —`La vaca cega, 2 chapter(s), index 2 (ncx), cover yes`—
+// and walks the state: from the first page a tap on the left half leaves the file saying `cover 1` **with the byte still
+// zero**, and a tap on the right half says `cover 0` on the same zero. The suites are still **533 cases**, and
+// `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn: the cover drawn in the
+// middle of the page, the foot of the cover and the pass that leaves it are proven by the code and by the test, not by a
+// photograph of the panel. Of the book, what is still missing with its fitxa in docs/46: **C15** (a page by number),
+// **C11** (the cache of thumbnails, which wants B9) and the foot of the shelf.
+static const char kVersion[] = "0.144.0";
 
 }  // namespace kernel
 

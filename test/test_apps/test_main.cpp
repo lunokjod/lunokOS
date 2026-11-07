@@ -9837,12 +9837,26 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: no serif face"), g_out);
   // **The title and the spine are the book's, from its OPF** (docs/46, C2): the sample says its own title and the two
   // chapters the spine orders, which is not the same thing as the names of its files. **And its index** (C14) comes from
-  // the `toc.ncx` of the book: two entries into two chapters of the spine.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "reader: La vaca cega, 2 chapter(s), index 2 (ncx)"), g_out);
+  // the `toc.ncx` of the book, and **its cover** (C7) from the item the metadata names.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "reader: La vaca cega, 2 chapter(s), index 2 (ncx), cover yes"), g_out);
+  // **And the cover decodes**: a picture that cannot be read leaves its page in paper and says so in the log.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: the cover cannot be read"), g_out);
 
   const char* path = "/data/reader/reading.txt";
   char where[256] = {0};
+  // **The line of a position is `path TAB chapter TAB byte TAB cover`** (docs/46, C6 and C7): the byte is the third
+  // field and the cover flag the fourth, so the last tab of the line is the cover and not the byte.
   auto byte_of = [&]() {
+    if (!read_text(storage, path, where, sizeof(where))) return -1;
+    const char* last = strrchr(where, '\t');
+    if (last == nullptr) return -1;
+    const char* before = nullptr;
+    for (const char* at = where; at < last; ++at) {
+      if (*at == '\t') before = at;
+    }
+    return (before == nullptr) ? -1 : atoi(before + 1);
+  };
+  auto cover_of = [&]() {
     if (!read_text(storage, path, where, sizeof(where))) return -1;
     const char* last = strrchr(where, '\t');
     return (last == nullptr) ? -1 : atoi(last + 1);
@@ -9878,6 +9892,17 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   TEST_ASSERT_TRUE(tap(100, 400));
   TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
   TEST_ASSERT_TRUE(tap(100, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  // **The cover is a state and not a byte** (docs/46, C7): from the first page of the first chapter, a tap on the left
+  // half is the cover; it is saved with the position, and a tap on the right half is the first page again. The byte is
+  // zero in both, which is the whole reason the state exists.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, cover_of(), where);
+  TEST_ASSERT_TRUE(tap(100, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, cover_of(), where);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+  TEST_ASSERT_TRUE(tap(400, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, cover_of(), where);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
 
   // **The keys of the board are the page's only after the centre enters it** (0.141.0, docs/46 C3): the gate the slider
