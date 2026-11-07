@@ -691,6 +691,7 @@ struct Boot {
         args_path(nullptr),
         args_ext(nullptr),
         args_source(nullptr),
+        args_flags(""),
         args_restore(false) {}
 
   const char* board;       // the board name from platformio.ini, or "emulator"
@@ -702,10 +703,14 @@ struct Boot {
   const char* app_id;      // the directory name of the app (app.id)
   const char* app_title;   // its title, for app.info()
   const char* app_version; // its version
-  const char* app_opens;   // the extension it handles, or ""
+  const char* app_opens;   // the extensions it handles, as the manifest writes them, or ""
   const char* args_path;   // the file it was asked to open, or null
   const char* args_ext;    // that file's extension, normalised, or null
   const char* args_source; // "open" when it came from a file, else null
+  // **The app's own switches** (0.120.0): `opensArgs` of its manifest —`-ro` in PaperOS's Editor—, which the
+  // system hands over as `app.args.flags` and never reads itself. Empty when the manifest says none, because
+  // a switch nobody wrote is not a switch (docs/30, docs/40).
+  const char* args_flags;
   // True when the system is bringing the app back from a sleep, so the app knows
   // to read what it saved before going down (docs/30, docs/90).
   bool args_restore;

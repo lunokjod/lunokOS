@@ -2147,7 +2147,50 @@ namespace kernel {
 // two new cases are `test_the_home_app_comes_up_with_the_board` and
 // `test_a_home_app_that_is_not_there_leaves_the_prompt` (471 -> 473, compiled).
 // **Pending**: the same line of the ATOM, the tests of the turn (none executed) and the commit.
-static const char kVersion[] = "0.119.0";
+// 0.120.0 (9/11): **the manifest reads the five keys the apps of PaperOS wrote and this system ignored**. Its
+// twenty-four apps under `data/app/` all carry `author` and `description`, twenty-three carry `icon`, four carry
+// `opens` as a *list* of extensions and one carries `opensArgs`; in this tree sixty-one apps carried `author` and
+// forty-nine `description` in their manifests and the reader touched neither, `opens` held one extension in a
+// sixteen-byte field, and `opensArgs` did not exist at all.
+//
+// Five things and nothing else. `author` (31 B) and `description` (159 B, `\n` kept, because the descriptions of
+// PaperOS are two lines) are read and shown, and nothing is refused when they are missing: they are decoration.
+// `opens` is now **a list of up to eight names of eleven bytes**, written in one string the way PaperOS writes it
+// —`"txt md lua json"`—, and every name is a handler: `find_for_extension`, the question the shell asks and the
+// jump `open` does all walk the list through the same `apps::handles`, so a second name is worth as much as the
+// first. A name that is not an extension is dropped with a line that says it; a list longer than eight keeps the
+// first eight and says both numbers —unlike `boards`, which refuses the whole list, an app that opens eight of
+// fifteen extensions is more use than one that opens none— (docs/40). `opensArgs` reaches the app as
+// `app.args.flags` and the system does not read it: only the app knows what its own switches mean, and a value
+// that does not begin with `-` is dropped with a line instead of being handed over as a flag. `icon` is checked
+// as the splash is checked —inside the app, no `..`, no absolute path— and **nothing paints it yet**, because the
+// page that would list the apps on the glass does not exist; `apps info` says it (docs/40, docs/90).
+//
+// And the command that makes them visible: **`apps info <id>`** reads the manifest of an app of this disk and
+// shows the card `repo info` already showed for one of the repository —one card, two callers, `label` and `where`
+// are the only difference—, with a line per key, a long dash for what the manifest does not say, `icon` and
+// `opensArgs` added to the rows, and `no such app` for a name the door does not have instead of an empty card.
+//
+// The sixty-one manifests of `apps/` gain `author` and `description` (61 of 61 each, up from 48 and 49, the twelve
+// apps that lacked a description being described from their own code, one line each), and `editor` —the app that
+// hands a person somebody else's file— is the first that uses the two new keys for something: `"opens"` with eight
+// extensions and `"opensArgs": "-ro"`, so `open` of a `.md`, a `.json` or a `.lua` finds it and the page starts read
+// only until View turns it off. Measured on the bench (m5stack-paper, `--flash` the tree): `apps info editor` shows
+// the nine rows, and `open editor data/res/hola.txt` prints `editor: -ro, the page is read only` and paints.
+//
+// **Two kilobytes moved from the stack to the RAM** (a decision taken here, and it is reversible): the buffer that
+// reads a manifest and the one `apps info` prints were locals, and the chain that starts an app —`execute`,
+// `run_app`, `load_source`, `for_each`, `on_entry`, `load`— came out at 6,7 KB of the eight the task has. Neither
+// function can be re-entered (one walk at a time, one command at a time, on the same task), so both buffers are
+// static now and the chain is ~5,6 KB, less than before this version. The price is measured: the ATOM Matrix's
+// internal RAM goes from 119 096 B (36,3 %) to 121 144 B (37,0 %) and the flash from 2 218 733 to 2 218 681 B
+// (`tools/check_stack.py --all --budget 4096`, every frame under 4 096; docs/75).
+//
+// The four new cases are `test_an_app_opens_a_list_of_extensions`, `test_the_switches_of_a_manifest_reach_the_app`,
+// `test_apps_info_shows_the_keys_a_manifest_carries` and
+// `test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so` (473 -> 477, compiled).
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.120.0";
 
 }  // namespace kernel
 

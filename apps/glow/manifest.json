@@ -1,6 +1,8 @@
 {
   "title": "Glow",
+  "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "glow.lua",
-  "boards": ["esp32"]
+  "boards": ["esp32"],
+  "description": "The four effects of the light, one after the other, and a fade on the way out."
 }

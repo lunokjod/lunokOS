@@ -514,6 +514,19 @@ else
     doc.note = 'the sample page, copied in the ground of the app'
   end
 end
+
+-- **The switches the manifest asks for when it hands this app a file** (0.120.0): `opensArgs` is `-ro`, so a page the
+-- system opens for somebody is a page to read —no keyboard, and Save says so— until View turns it off. The system
+-- hands the line over and reads nothing of it: which switches exist is this app's business (docs/30, docs/40).
+local flags = (app.args ~= nil and app.args.flags) or ''
+for word in flags:gmatch('%S+') do
+  if word == '-ro' then
+    doc.readonly = true
+    doc.note = 'opened to read: View turns read only off'
+    console.print('editor: -ro, the page is read only')
+  end
+end
+
 layout()
 resume()
 console.print('editor: File opens, saves and closes; View is read only and wrapping')

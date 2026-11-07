@@ -751,3 +751,28 @@ n'hi ha lliure en arrencar** (`stack 7320 B free`) i el GIF en demanava el doble
   dona el mapa de tot el firmware i les llibreries que necessiten les capçaleres de la placa es **diuen saltades** i
   no es mesuren (docs/80). El pitjor marc de tot el projecte avui és `kernel::shell::execute`, 2 272 B, a la tasca de
   la consola.
+
+## El manifest, la fitxa i el kilobyte que va canviar de lloc (0.120.0)
+
+Llegir cinc claus més d'un manifest no costa RAM de dades —són camps d'una `apps::Entry` que ja existia— però sí
+**pila**: el lector hi porta el manifest sencer en un buffer local i l'`Entry` que omple viu al marc del visitant.
+Mesurat amb `-fstack-usage` (`python3 tools/check_stack.py --all --budget 4096`, abans i després):
+
+| Funció | 0.119.0 | 0.120.0 |
+|---|---|---|
+| `kernel::apps::load` | 1 488 B | **1 568 B**, i després **~520 B** amb el buffer estàtic (vegeu avall) |
+| `WalkSink::on_entry` | (dins del visitant) | **1 104 B** |
+| `kernel::shell::run_app` | 944 B | **1 056 B** |
+| `kernel::shell::print_manifest` | (dins de `radio_done`, 1 664 B) | **1 376 B** en marc propi |
+| `kernel::shell::execute` | 2 272 B | **2 640 B** |
+
+- **El pitjor marc continua essent `shell::execute`**, ara 2 640 B (era 2 272 B): el que hi va créixer és
+  `apps info`, que hi cap a dins amb el camí de l'app i el del manifest.
+- **El kilobyte del manifest i el de la fitxa són estàtics i no de la pila**: `load` era el punt més fondo de la
+  cadena que arrenca una app (`execute` → `run_app` → `load_source` → `for_each` → `on_entry` → `load`, **6,7 KB
+  dels vuit de la tasca** amb els dos kilobyte a la pila). Cap de les dues funcions no es pot tornar a cridar dins
+  seu —`read` i el recorregut es fan d'un en un, a la mateixa tasca, i cap visitant no carrega un altre manifest— o
+  sigui que els dos buffers són un de sol i **2 048 B de `.bss`** en lloc de pila.
+- **El preu, amb números**: la RAM interna de l'ATOM Matrix passa de **119 096 B (36,3 %)** a **121 144 B (37,0 %)**
+  i la flash de 2 218 733 B a 2 218 681 B. La cadena més fonda baixa a **~5,6 KB**, que és menys del que era abans
+  d'aquest canvi tot i haver-hi tres marcs més.

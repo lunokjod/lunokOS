@@ -169,8 +169,8 @@ Dues regles:
 | Crida | Torna | Notes |
 |---|---|---|
 | `app.id` | cadena | El nom del directori de l'app |
-| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run txt res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app |
-| `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer |
+| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run txt res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
+| `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
 | `app.raise()` | — | Demana passar a primer pla (només té sentit dins d'una finestra d'alarma) |

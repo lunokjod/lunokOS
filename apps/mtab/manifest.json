@@ -1,6 +1,8 @@
 {
   "title": "Mounts",
+  "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "mtab.lua",
-  "boards": ["esp32"]
+  "boards": ["esp32"],
+  "description": "The mounts of the disk and the room each one has, asked mount by mount."
 }

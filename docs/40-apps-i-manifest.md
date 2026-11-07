@@ -84,6 +84,30 @@ lunok> apps remove squares
 apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes
 ```
 
+**`apps info <id>` llegeix el manifest d'una app que ja hi és** (0.120.0), clau per clau, amb la
+mateixa fitxa que `repo info` treu per a una del repositori:
+
+```
+lunok> apps info editor
+app: Editor (/apps/editor)
+  title       Editor
+  version     0.1.0
+  author      @lunokjod
+  entry       editor.lua
+  opens       txt md lua json csv ini cfg log
+  opensArgs   -ro
+  boards      esp32
+  icon        --
+  description A graphical text editor on the glass, with the menu bar of the
+              system: File opens, saves and closes a page, and View turns it
+              read-only and turns word wrap on and off, the two of them with a
+              tick in the menu. `run edit` is the modal editor of the serial
+              terminal.
+```
+
+El que el manifest no diu surt amb un guió llarg i no s'amaga, i un nom que la porta no té és
+`no such app: <id>` i no una fitxa buida.
+
 ## El manifest
 
 ```json
@@ -94,7 +118,9 @@ apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes
   "entry": "clock.lua",
   "boards": ["esp32"],
   "description": "The hour, kept by an alarm.",
-  "opens": "txt",
+  "opens": "txt md lua json",
+  "opensArgs": "-ro",
+  "icon": "res/clock.png",
   "splash": "res/clock.png"
 }
 ```
@@ -107,13 +133,22 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `entry` | cadena | **Sí** | 47 B | Fitxer Lua d'entrada, relatiu al directori de l'app |
 | `boards` | taula de cadenes | **Sí** | 8 noms de 23 B | Les plaques on l'app funciona: el nom d'una placa o el d'una família (`esp32`) |
 | `version` | cadena | No | 15 B | Versió de l'app, text lliure |
-| `opens` | cadena | No | 15 B | L'extensió que aquesta app sap obrir |
+| `author` | cadena | No | 31 B | Qui l'ha escrita (0.120.0) |
+| `description` | cadena | No | 159 B | Què és l'app; dues línies amb `\n` si cal (0.120.0) |
+| `opens` | cadena | No | 8 extensions d'11 B | Les extensions que aquesta app sap obrir, separades per espais (0.120.0) |
+| `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
+| `icon` | cadena | No | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0) |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
-| `author`, `description` | cadena | No | — | **No es llegeixen**: hi són al disc i el sistema no les fa servir enlloc encara |
 
-Els camps que aquest document preveia i que **no existeixen al codi** —`icon`, `permissions`, `mem_kb`—
-`s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara
-no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriuran en aquesta taula.
+Els camps que aquest document preveia i que **no existeixen al codi** —`permissions`, `mem_kb`—
+s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara
+no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriviran en aquesta taula.
+
+**Els cinc camps de la 0.120.0 venen de les apps de PaperOS** (`data/app/*/manifest.json` del projecte
+germà, vint-i-quatre apps): totes hi escriuen `author` i `description`, vint-i-tres hi escriuen `icon`,
+quatre hi escriuen `opens` amb una **llista** d'extensions i una hi escriu `opensArgs`. Aquest sistema
+en llegia un i mig —un `opens` d'un sol nom— i la resta era text al disc que no arribava enlloc. Ara es
+llegeixen tots cinc, i els que l'app pot veure els rep a `app.info()` i a `app.args` (docs/30).
 
 Regles de validació, totes amb error clar i el nom del camp:
 
@@ -145,8 +180,32 @@ Regles de validació, totes amb error clar i el nom del camp:
   PC exactament com a la placa: una app del model corre i una d'un altre model es refusa, dient les
   plaques que vol i quina és aquesta. Cap manifest ha de dir `emulator`, que no és cap placa; si algú
   l'hi posa, no el troba enlloc i la prova que repassa el repositori ho vigila.
-- `opens` s'accepta amb punt o sense (`"epub"` i `".epub"` són el mateix) i es compara **sense
-  distingir majúscules**.
+- `opens` **és una llista d'extensions en una cadena** (0.120.0): `"txt"` i `"txt md lua json"` són el
+  mateix camp amb un nom o amb vuit, separats per espais. Cada nom s'accepta amb punt o sense (`"epub"` i
+  `".epub"` són el mateix) i es compara **sense distingir majúscules**. Una paraula que no és cap extensió
+  es descarta amb una línia que la nomena (`apps: <id> declares an opens that is not an extension (nope/xx)`),
+  i una llista de més de **vuit** noms conserva els vuit primers i diu els dos números
+  (`apps: <id> names 9 extensions and this system carries 8`): a diferència de `boards`, una llista
+  d'extensions que no hi cap **no es refusa sencera**, perquè una app que obre vuit extensions de quinze
+  és més útil que una app que no n'obre cap, i el que no passa és que el registre calli. **Un nom de més
+  d'onze bytes no es talla**: es descarta amb els dos números
+  (`apps: <id> names an extension of 14 bytes and this system carries 11`), perquè una extensió amb
+  l'última lletra perduda seria un gestor per a un fitxer que ningú no té.
+- **`opensArgs` són els commutadors de l'app, i el sistema no els llegeix** (0.120.0): el valor ha de
+  començar per `-` (`"-ro"`), i arriba a l'app tal com està escrit a `app.args.flags`, on només l'app sap
+  què vol dir. Un valor que no comença per `-` es descarta amb una línia
+  (`apps: <id> has an opensArgs that is not a switch (ro)`), perquè donar a una app una paraula qualsevol
+  com si fos un commutador seu és pitjor que no donar-n'hi cap. Al repositori només el fa servir
+  `editor`, que obre la pàgina en només lectura quan el sistema li passa un fitxer.
+- **`icon` és la imatge de l'app per a un llistat, i es comprova com el `splash`** (0.120.0): el nom s'ha
+  de quedar dins del directori de l'app —un camí absolut o amb `..` es descarta amb una línia— i res no el
+  pinta encara, perquè la pàgina que llistaria les apps a la pantalla no existeix; `apps info <id>` és on
+  es veu. Quan arribi aquesta pàgina, la imatge és allà i el manifest no s'ha de tocar (docs/90).
+- `author` i `description` són decoració (0.120.0): no es refusa res si falten, i un text més llarg que
+  la seva mida es talla —31 B i 159 B—, que és el que la taula promet. `description` conserva els `\n`,
+  perquè les descripcions de les apps de PaperOS són de dues línies i `apps info` les treu tal com són.
+- **`apps info <id>`** (0.120.0) és la fitxa d'una app que ja és al disc: la mateixa que `repo info`
+  ensenya per a una del repositori, amb una línia per clau i un guió llarg al que el manifest no diu.
 - **`splash` és una imatge de dins l'app i res més** (0.114.0): el nom s'ha de quedar dins del
   directori de l'app —un camí absolut o amb `..` es descarta amb una línia al registre— perquè un
   manifest que apunta fora del que porta és un manifest que menteix. Un nom que hi és però no és
@@ -191,9 +250,11 @@ El banc i les proves no són cap placa i en porten totes (docs/70, docs/80).
 
 ## Handlers d'extensió
 
-Un manifest pot declarar `opens`: l'extensió que l'app sap obrir. `"epub"`, `".epub"` i `"EPUB"` són la
-mateixa cosa (el sistema ho normalitza a minúscules i sense punt); qualsevol altra cosa es rebutja al
-log i l'app queda sense handler.
+Un manifest pot declarar `opens`: les extensions que l'app sap obrir, escrites en una sola cadena i
+separades per espais (0.120.0). `"epub"`, `".epub"` i `"EPUB"` són la mateixa cosa (el sistema ho
+normalitza a minúscules i sense punt); una paraula que no és cap extensió es rebutja al log i les altres
+de la mateixa llista es queden. L'app obre un fitxer quan la seva extensió és **qualsevol** dels noms de la
+llista, i amb quin nom l'ha oberta ho sap a `app.args.ext`.
 
 ```
 open <path>          → l'extensió del fitxer tria l'app
@@ -227,7 +288,9 @@ open <app> <path>    → l'app és la que diu l'ordre
   - El número és **la posició a la llista que s'acaba de veure**, no un identificador estable. La
     llista surt en **ordre de directori**, no alfabètic: si s'hi afegeix una app, els números poden
     canviar. Per això el que mana sempre és `open <app> <path>`, que no depèn de cap ordre.
-- L'app rep el fitxer a `app.args` (`path`, `ext`, `source`) i sap qui és amb `app.id`.
+- L'app rep el fitxer a `app.args` (`path`, `ext`, `source`) i sap qui és amb `app.id`. Si el manifest
+declara `opensArgs`, la línia d'aquells commutadors arriba a `app.args.flags`, i el sistema no la llegeix
+(0.120.0, docs/30).
 - L'escaneig no es fa en arrencar sinó quan es demana, i per això una app nova amb el seu `opens` ja
   funciona sense reiniciar.
 
@@ -315,18 +378,29 @@ end
 Manifest:
 
 ```json
-{ "title": "Hola", "version": "0.1.0", "entry": "hello.lua", "boards": ["esp32"] }
+{
+  "title": "Hola",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "hello.lua",
+  "boards": ["esp32"],
+  "description": "One line out, and that is the whole app."
+}
 ```
 
 ## Assets
 
-| Fitxer | Format | Estat |
+| Camp | Format | Qui el pinta |
 |---|---|---|
-| `splash` | PNG o, més endavant, el que decideixi la placa | El format `.icn` d'M5 **no està documentat** fins a tenir un fitxer de mostra: mentrestant es dibuixa un substitut |
-| `icon` | El que la placa sàpiga pintar | Igual |
+| `splash` | El que llegeixi `img`: avui **PNG**, BMP, GIF, ICO i PNM | El sistema, abans d'arrencar l'app (0.114.0) |
+| `icon` | El mateix que el `splash` | **Ningú encara**: la pàgina que llistaria les apps a la pantalla no existeix. El nom es llegeix, es comprova que quedi dins de l'app i `apps info <id>` el diu (0.120.0) |
 
-Com que a la v1 no hi ha pantalla, els assets no es fan servir: es validen (que el fitxer hi sigui) i
-res més.
+El format `.icn` d'M5 —el que porten les apps de PaperOS, `icon.icn`— **no està documentat** fins a
+tenir un fitxer de mostra i, per tant, no es llegeix: un manifest que l'anomeni queda amb un `icon`
+que no dibuixa res, i no passa res més, perquè el dibuix és decoració (docs/30).
+
+Cap de les 61 apps de `apps/` declara `icon` avui, i cap porta una imatge: el camp existeix perquè el
+manifest el pugui dir el dia que la pàgina de les apps es dibuixi.
 
 ## Instal·lació
 

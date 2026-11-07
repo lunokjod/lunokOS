@@ -460,7 +460,9 @@ void test_the_extension_finder_counts_every_app_that_opens_it(void) {
   uint32_t matches = 0;
   TEST_ASSERT_TRUE(kernel::apps::find_for_extension("lunok", found, matches));
   TEST_ASSERT_EQUAL_UINT32(2, matches);
-  TEST_ASSERT_EQUAL_STRING("lunok", found.opens);
+  // The extension of a manifest arrives as a list of one since 0.120.0, and `.LUNOK` is `lunok` (docs/40).
+  TEST_ASSERT_EQUAL_UINT32(1, found.opens_count);
+  TEST_ASSERT_EQUAL_STRING("lunok", found.opens[0]);
 
   // An extension nobody declares is not found, and says zero.
   TEST_ASSERT_FALSE(kernel::apps::find_for_extension("nadie", found, matches));

@@ -17,12 +17,31 @@ struct Entry {
   char title[48];
   char version[16];
   char entry_file[48];
-  char opens[16];  // the extension this app handles, lowercase and without the dot
+  // **The extensions this app handles** (0.120.0): one name or several, lowercase and without the dot. The
+  // manifests of the apps of PaperOS wrote a list from the first day —`"opens": "txt md lua json"`, fifteen of
+  // them in its Editor— and this system read a single one; now a manifest may say a list and every one of them
+  // goes to the same handler (docs/40). An app that handles none is the same as before: it opens nothing.
+  static const uint32_t kMaxOpens = 8;
+  char opens[kMaxOpens][12];
+  uint32_t opens_count;
+  // **The switches the app wants when it is handed a file** (0.120.0): `opensArgs`, which PaperOS's Editor
+  // writes as `-ro`. The system does not read them: it hands them to the app in `app.args.flags`, because only
+  // the app knows what its own switches mean (docs/30, docs/40).
+  char opens_arg[32];
   // **The picture the app wants on the glass before it starts** (0.114.0): a file inside the app, written in
   // the manifest as `"splash": "res/logo.png"`, which the system paints washed whole and in the middle with
   // the same call the moments use and takes away with the first page the app presents. It is decoration and
   // not a requirement: an app without one, or with a name that is not a picture, runs all the same (docs/40).
   char splash[48];
+  // **The badge of the app** (0.120.0): `icon`, the picture a listing would paint next to the name —the app
+  // folders of PaperOS carry an `icon.icn`—. There is no launcher on the glass yet, so this system reads it,
+  // checks it as it checks the splash and says it in `apps info`; it paints nothing with it (docs/40).
+  char icon[48];
+  // **Who wrote the app and what it is** (0.120.0): forty-eight and forty-nine of the sixty-one apps of
+  // `apps/` write these two and the system read neither. They are decoration —a manifest without them is still
+  // an app— and `apps info` is where they are said (docs/40).
+  char author[32];
+  char description[160];
 
   // The boards this app says it runs on, as the manifest writes them. A name is a
   // board (`m5stack-atom-matrix`) or a chip family (`esp32`), and every board of
@@ -79,6 +98,16 @@ uint32_t for_each(const char* only_id, Visitor visitor, void* context);
 // nothing usable.
 bool normalise_extension(const char* text, char* out, size_t cap);
 
+// True when the app says it opens that extension (already normalised). An app
+// that declares none opens nothing, which is not the same as opening everything
+// (docs/40).
+bool handles(const Entry& entry, const char* ext);
+
+// The whole list of an app, written the way a manifest writes it —`"txt md lua"`—, which is what
+// `app.info().opens` answers and what `apps info` shows. 96 B is the most it can be: eight names of
+// eleven bytes and the seven spaces between them. Returns how many bytes it wrote.
+size_t opens_text(const Entry& entry, char* out, size_t cap);
+
 // The extension of a path, normalised. False when the name has none.
 bool extension_of(const char* path, char* out, size_t cap);
 
@@ -91,7 +120,6 @@ bool read(const char* id, Entry& out);
 // The first app (in directory order) that declares "opens" for ext. When more
 // than one does, matches says how many; the caller decides what to say.
 bool find_for_extension(const char* ext, Entry& out, uint32_t& matches);
-
 }  // namespace apps
 }  // namespace kernel
 

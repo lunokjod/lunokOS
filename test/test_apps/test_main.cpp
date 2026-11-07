@@ -1566,7 +1566,7 @@ void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
   TEST_ASSERT_TRUE(run_captured("apps remove nadie", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie"), g_out);
   TEST_ASSERT_TRUE(run_captured("apps remove", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "usage: apps [remove <id>]"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "usage: apps [info <id> | remove <id>]"), g_out);
 
   // **And the copy of the card goes by the name it has now**, which is the one without the suffix.
   TEST_ASSERT_TRUE(run_captured("apps remove gone", g_out, sizeof(g_out)));
@@ -9163,6 +9163,187 @@ void test_the_face_of_the_system_comes_from_the_disk(void) {
   storage->remove("/res/fonts/dejavusans-bold.ttf");
 }
 
+// **An app says which extensions it opens, and it may name several** (0.120.0): the manifests of PaperOS wrote
+// `"opens": "txt md lua json"` from the first day —fifteen names in its Editor— and this system read a single extension,
+// so a list was either refused or cut. Now every word of the string is a handler, whatever case and dot it carries, and
+// the file whose extension is the second name of the list is opened by the app (docs/40).
+void test_an_app_opens_a_list_of_extensions(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "multi",
+                           "{\"title\":\"Multi\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"opens\":\"lunok2 .WORD2\"}",
+                           "console.print('ext ' .. tostring(app.args.ext))\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/res/a.word2", "x\n"));
+
+  // The list is read as a list, in the order the manifest writes it and with each name normalised (docs/40).
+  kernel::apps::Entry found;
+  uint32_t matches = 0;
+  TEST_ASSERT_TRUE(kernel::apps::read("multi", found));
+  TEST_ASSERT_EQUAL_UINT32(2, found.opens_count);
+  TEST_ASSERT_EQUAL_STRING("lunok2", found.opens[0]);
+  TEST_ASSERT_EQUAL_STRING("word2", found.opens[1]);
+  char whole[32];
+  kernel::apps::opens_text(found, whole, sizeof(whole));
+  TEST_ASSERT_EQUAL_STRING("lunok2 word2", whole);
+
+  // **The second name of the list is a handler too**, which is the whole point of the change: the search and the
+  // question the shell asks see the same list.
+  TEST_ASSERT_TRUE(kernel::apps::find_for_extension("word2", found, matches));
+  TEST_ASSERT_EQUAL_STRING("multi", found.id);
+  TEST_ASSERT_TRUE(kernel::apps::find_for_extension("LUNOK2", found, matches));
+
+  // And `open` takes the app through that name, with the extension of the file it was handed.
+  TEST_ASSERT_TRUE(run_captured("open res/a.word2", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ext word2"), g_out);
+
+  storage->remove("/apps/multi/app.lua");
+  storage->remove("/apps/multi/manifest.json");
+  storage->remove("/apps/multi");
+  storage->remove("/res/a.word2");
+}
+
+// **The switches a manifest asks for reach the app and nobody else** (0.120.0): `opensArgs` is `-ro` in PaperOS's
+// Editor, and the system does not read it —only the app knows what its own switches mean— so it goes to the app at
+// `app.args.flags` as it was written. A value that does not look like a switch is dropped with a line, because handing
+// an app a stray word as one of its own flags is worse than handing it nothing (docs/30, docs/40).
+void test_the_switches_of_a_manifest_reach_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "roflag",
+                           "{\"title\":\"Ro flag\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"opens\":\"roflag\",\"opensArgs\":\"-ro\"}",
+                           "if app.args ~= nil and app.args.flags ~= nil then\n"
+                           "  console.print('flags ' .. app.args.flags)\n"
+                           "else\n"
+                           "  console.print('no flags')\n"
+                           "end\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/res/x.roflag", "x\n"));
+
+  TEST_ASSERT_TRUE(run_captured("open res/x.roflag", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "flags -ro"), g_out);
+
+  // **An `opensArgs` that is not a switch is not a switch**: the app is told nothing and the log says what was in the
+  // file, so a person can see why their flag never arrived.
+  TEST_ASSERT_TRUE(add_app(storage, "badsw",
+                           "{\"title\":\"Bad switch\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"opens\":\"badsw\",\"opensArgs\":\"ro\"}",
+                           "if app.args ~= nil and app.args.flags ~= nil then\n"
+                           "  console.print('flags ' .. app.args.flags)\n"
+                           "else\n"
+                           "  console.print('no flags')\n"
+                           "end\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/res/x.badsw", "x\n"));
+  kernel::log_echo(true);
+  TEST_ASSERT_TRUE(run_captured("open res/x.badsw", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no flags"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "has an opensArgs that is not a switch (ro)"), g_out);
+
+  storage->remove("/apps/roflag/app.lua");
+  storage->remove("/apps/roflag/manifest.json");
+  storage->remove("/apps/roflag");
+  storage->remove("/apps/badsw/app.lua");
+  storage->remove("/apps/badsw/manifest.json");
+  storage->remove("/apps/badsw");
+  storage->remove("/res/x.roflag");
+  storage->remove("/res/x.badsw");
+}
+
+// **`apps info <id>` shows the manifest of an app of the disk, key by key** (0.120.0): the same card `repo info` shows
+// for an app of the repository, with the keys the manifests of PaperOS carry —author, description, icon, opensArgs— and
+// a name the door does not have is said as a missing app and not as an empty card (docs/30, docs/40).
+void test_apps_info_shows_the_keys_a_manifest_carries(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "card",
+                           "{\"title\":\"Card\",\"author\":\"@someone\",\"version\":\"2.0.1\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"],\"opens\":\"txt md\",\"opensArgs\":\"-ro\","
+                           "\"icon\":\"res/badge.png\",\"description\":\"First line.\\nSecond line.\"}",
+                           "console.print('card')\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/card/res/badge.png", "not really a picture\n"));
+
+  TEST_ASSERT_TRUE(run_captured("apps info card", g_out, sizeof(g_out)));
+  // The first line says what it is and where it read it from, and every key follows with its own line (docs/30).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "app: Card (/apps/card)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "author      @someone"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "version     2.0.1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opens       txt md"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opensArgs   -ro"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "icon        res/badge.png"), g_out);
+  // **A description of two lines stays two lines**: that is how the manifests of PaperOS write theirs.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "First line.\nSecond line."), g_out);
+
+  // **The badge is a picture of the app and nothing else** (0.120.0): a name that climbs out of the folder is dropped
+  // with a line, as a splash that does, because a manifest that points outside what it carries lies about it.
+  TEST_ASSERT_TRUE(add_app(storage, "outside",
+                           "{\"title\":\"Outside\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"icon\":\"../badge.png\"}",
+                           "console.print('outside')\n"));
+  kernel::log_echo(true);
+  pump_captured(2, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "outside names an icon outside the app"), g_out);
+  kernel::apps::Entry read_out;
+  TEST_ASSERT_TRUE(kernel::apps::read("outside", read_out));
+  TEST_ASSERT_EQUAL_STRING("", read_out.icon);
+
+  // A name that is not there is a missing app, not an empty card.
+  TEST_ASSERT_TRUE(run_captured("apps info nowhere", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nowhere"), g_out);
+
+  storage->remove("/apps/card/res/badge.png");
+  storage->remove("/apps/card/res");
+  storage->remove("/apps/card/app.lua");
+  storage->remove("/apps/card/manifest.json");
+  storage->remove("/apps/card");
+  storage->remove("/apps/outside/app.lua");
+  storage->remove("/apps/outside/manifest.json");
+  storage->remove("/apps/outside");
+}
+
+// **A list of extensions longer than the system carries says so, and a word that is not an extension is named**
+// (0.120.0): the ceiling is eight names —what `kernel::apps::Entry` holds— and the line says both numbers, as the list of boards
+// does, because "it declares more than this system carries" and "it declares nothing" are two different files (docs/40).
+void test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "manyopens",
+                           "{\"title\":\"Many opens\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"opens\":\"a1 b2 c3 d4 e5 f6 g7 h8 i9\"}",
+                           "console.print('many')\n"));
+
+  kernel::log_echo(true);
+  pump_captured(4, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "names 9 extensions and this system carries 8"), g_out);
+  // The eight that fit are kept and the app is still an app: a handler that declares one extension too many still opens
+  // the eight it named first, which is more use than refusing the whole list (docs/40).
+  kernel::apps::Entry found;
+  TEST_ASSERT_TRUE(kernel::apps::read("manyopens", found));
+  TEST_ASSERT_EQUAL_UINT32(8, found.opens_count);
+  TEST_ASSERT_EQUAL_STRING("h8", found.opens[7]);
+
+  // A word that is not an extension is dropped and named: `/` is not a character an extension has.
+  TEST_ASSERT_TRUE(add_app(storage, "onebad",
+                           "{\"title\":\"One bad\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"opens\":\"ok1 nope/xx ok2\"}",
+                           "console.print('onebad')\n"));
+  pump_captured(4, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "declares an opens that is not an extension (nope/xx)"), g_out);
+  TEST_ASSERT_TRUE(kernel::apps::read("onebad", found));
+  TEST_ASSERT_EQUAL_UINT32(2, found.opens_count);
+  TEST_ASSERT_EQUAL_STRING("ok2", found.opens[1]);
+
+  storage->remove("/apps/manyopens/app.lua");
+  storage->remove("/apps/manyopens/manifest.json");
+  storage->remove("/apps/manyopens");
+  storage->remove("/apps/onebad/app.lua");
+  storage->remove("/apps/onebad/manifest.json");
+  storage->remove("/apps/onebad");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -9344,6 +9525,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_provisions_and_then_forgets);
   RUN_TEST(test_provisioning_gives_up_when_nobody_arrives);
   RUN_TEST(test_the_face_of_the_system_comes_from_the_disk);
+  RUN_TEST(test_an_app_opens_a_list_of_extensions);
+  RUN_TEST(test_the_switches_of_a_manifest_reach_the_app);
+  RUN_TEST(test_apps_info_shows_the_keys_a_manifest_carries);
+  RUN_TEST(test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so);
   UNITY_END();
   return 0;
 }

@@ -9209,7 +9209,7 @@ void seal_globals(lua_State* L) {
   lua_pushstring(L, g_boot.app_id);
   lua_setfield(L, -2, "id");
   if (g_boot.args_path != nullptr || g_boot.args_restore) {
-    lua_createtable(L, 0, 4);
+    lua_createtable(L, 0, 5);
     if (g_boot.args_path != nullptr) {
       lua_pushstring(L, g_boot.args_path);
       lua_setfield(L, -2, "path");
@@ -9217,6 +9217,13 @@ void seal_globals(lua_State* L) {
       lua_setfield(L, -2, "ext");
       lua_pushstring(L, (g_boot.args_source != nullptr) ? g_boot.args_source : "");
       lua_setfield(L, -2, "source");
+    }
+    // **The app's own switches, when it has any** (0.120.0): `opensArgs` of the manifest goes to the app as it was
+    // written —`-ro`—, and the system does not split it, read it or act on it. A manifest that names none leaves the
+    // field out instead of saying an empty string, because an empty switch is not a switch (docs/30, docs/40).
+    if (g_boot.args_flags != nullptr && g_boot.args_flags[0] != '\0') {
+      lua_pushstring(L, g_boot.args_flags);
+      lua_setfield(L, -2, "flags");
     }
     // True when the system is bringing this app back from a sleep: the app reads
     // what it saved instead of starting from nothing (docs/30, docs/90).

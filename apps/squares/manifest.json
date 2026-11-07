@@ -1,6 +1,8 @@
 {
   "title": "Squares",
+  "author": "@lunokjod",
   "version": "0.2.0",
   "entry": "squares.lua",
-  "boards": ["esp32"]
+  "boards": ["esp32"],
+  "description": "A filled square at a random place, painted and wiped over and over: the smallest app that shows what the damage is for."
 }

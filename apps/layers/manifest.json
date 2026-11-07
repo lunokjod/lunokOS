@@ -1,6 +1,8 @@
 {
   "title": "Layers",
+  "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "layers.lua",
-  "boards": ["esp32"]
+  "boards": ["esp32"],
+  "description": "Controls inside controls, and a view that redraws only what changed."
 }

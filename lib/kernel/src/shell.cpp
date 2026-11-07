@@ -393,6 +393,7 @@ void print_help(const char* only) {
   help_line("  caps              what this board has", only);
   help_line("  mem               free memory and buffers", only);
   help_line("  apps              the apps of the flash and of the card", only);
+  help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot, boot-alt,", only);
@@ -1074,7 +1075,13 @@ struct RunTarget {
   char path[96];
   char title[48];
   char version[16];
-  char opens[16];
+  // **The extensions of the app, joined the way a manifest writes them** (0.120.0): `"txt md lua"` is what the app
+  // reads at `app.info().opens`, and it is the same text whatever way the manifest wrote it. 96 B is the most a list
+  // of eight names can take, which is what `apps::Entry` carries (docs/30, docs/40).
+  char opens[96];
+  // **The switches the app wants when it is handed a file** (0.120.0): `opensArgs` of the manifest, which the app
+  // reads at `app.args.flags` and the system never reads itself (docs/30, docs/40).
+  char opens_arg[32];
   // **The picture of the app, if its manifest names one** (0.114.0): a path inside the app, said with the whole
   // door in front —`/apps/<id>/res/logo.png`— when it is painted, so the card's copy of an app shows its own
   // picture and not the flash's (docs/40).
@@ -1097,7 +1104,8 @@ bool find_entry(const apps::Entry& entry, void* context) {
   if (written <= 0 || static_cast<size_t>(written) >= sizeof(target->path)) return true;
   memcpy(target->title, entry.title, sizeof(target->title));
   memcpy(target->version, entry.version, sizeof(target->version));
-  memcpy(target->opens, entry.opens, sizeof(target->opens));
+  apps::opens_text(entry, target->opens, sizeof(target->opens));
+  memcpy(target->opens_arg, entry.opens_arg, sizeof(target->opens_arg));
   memcpy(target->splash, entry.splash, sizeof(target->splash));
   memcpy(target->boards, entry.boards, sizeof(target->boards));
   target->board_count = entry.board_count;
@@ -1176,6 +1184,9 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   boot.app_title = target.title;
   boot.app_version = target.version;
   boot.app_opens = target.opens;
+  // **The app's own switches, never the system's** (0.120.0): `opensArgs` of the manifest goes to the app as
+  // `app.args.flags` and nowhere else —the system does not read it, does not split it and does not act on it— (docs/30).
+  boot.args_flags = target.opens_arg;
   // True when the app is being brought back from a sleep: it is how an app knows
   // to read what it saved instead of starting from nothing (docs/90).
   boot.args_restore = restore;
@@ -1281,8 +1292,8 @@ void copy_text(char* dst, size_t cap, const char* src) {
 
 bool collect_choice(const apps::Entry& entry, void* context) {
   (void)context;
-  if (entry.opens[0] == '\0') return true;
-  if (strcmp(entry.opens, g_choice_ext) != 0) return true;
+  if (entry.opens_count == 0) return true;
+  if (!apps::handles(entry, g_choice_ext)) return true;
   if (g_choice_count >= static_cast<uint32_t>(kMaxChoices)) return false;
   copy_text(g_choice_ids[g_choice_count], sizeof(g_choice_ids[0]), entry.id);
   ++g_choice_count;
@@ -1543,7 +1554,7 @@ const uint32_t kManifestBytes = 2048;
 // **The listing is painted when the radio has finished**, and this function is further down because it is long: what
 // `radio_done` needs is the name (docs/30).
 void print_listing(const char* path, const char* repo, uint32_t bytes);
-void print_manifest(const char* text, size_t len, const char* app, const char* repo);
+void print_manifest(const char* text, size_t len, const char* app, const char* label, const char* where);
 // **The install, started by the command and carried on in `radio_done`**: it returns true while steps are left, and
 // then the prompt does not come back (docs/30, docs/70).
 bool install_step();
@@ -1675,7 +1686,11 @@ void radio_done(bool ok, const char* code, uint32_t count) {
       if (body == nullptr || len == 0) {
         error_out("repo: the manifest came empty\r\n");
       } else {
-        print_manifest(body, len, g_repo_app, g_repo_name);
+        // **Where the manifest came from, in one string**: the card says it in parentheses and the two callers
+        // —the repository and the disk— differ only in that (0.120.0, docs/30).
+        char where[128];
+        snprintf(where, sizeof(where), "%s/apps/%s", g_repo_name, g_repo_app);
+        print_manifest(body, len, g_repo_app, "repo: ", where);
       }
     } else if (ok && status == 200) {
       hal::Stat info;
@@ -1971,12 +1986,20 @@ bool command_http(const char* argument) {
 // **The manifest of an app, read from the body that arrived**: the seven keys a manifest has and what each of them
 // means. The JSON reader of the system is the same one that reads the manifests of the disk —pull, no tree— so what
 // comes out here is what the system would see if the app were on the board (docs/40, docs/75).
-void print_manifest(const char* text, size_t len, const char* app, const char* repo) {
+//
+// **The same card answers for an app of this disk** (0.120.0): `label` and `where` are what the first line says it is
+// looking at —`repo: <title> (<repo>/apps/<id>)` for one of the repository and `app: <title> (<door>)` for one that is
+// already here—, and nothing else changes, because the manifest is the same kind of file in both places.
+void print_manifest(const char* text, size_t len, const char* app, const char* label, const char* where) {
   char title[64] = {0};
   char version[24] = {0};
   char author[48] = {0};
   char entry[48] = {0};
-  char opens[24] = {0};
+  // **A list of extensions and not a name** (0.120.0): the card shows `opens` as the manifest writes it —the fifteen
+  // names of PaperOS's Editor are fifty-five bytes— so the room is what a whole list of the system takes (docs/40).
+  char opens[96] = {0};
+  char opens_arg[32] = {0};
+  char icon[48] = {0};
   char description[256] = {0};
   char boards[8][lunok::json::kStringItemCap];
   uint32_t board_count = 0;
@@ -1991,14 +2014,16 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
   lunok::json::get_string(text, len, "version", version, sizeof(version));
   lunok::json::get_string(text, len, "author", author, sizeof(author));
   lunok::json::get_string(text, len, "opens", opens, sizeof(opens));
+  // **The two keys of 0.120.0**: the switches the app wants when it is handed a file and the badge a listing would
+  // paint. Both are optional and the card says so with a dash instead of hiding them (docs/30, docs/40).
+  lunok::json::get_string(text, len, "opensArgs", opens_arg, sizeof(opens_arg));
+  lunok::json::get_string(text, len, "icon", icon, sizeof(icon));
   lunok::json::get_string(text, len, "description", description, sizeof(description));
 
-  good_out("repo: ");
+  good_out(label);
   out((has_title) ? title : app);
   out(" (");
-  out(repo);
-  out("/apps/");
-  out(app);
+  out(where);
   out(")");
   newline();
 
@@ -2015,7 +2040,9 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
       {"author", author, author[0] != '\0'},
       {"entry", entry, has_entry},
       {"opens", opens, opens[0] != '\0'},
+      {"opensArgs", opens_arg, opens_arg[0] != '\0'},
       {"boards", nullptr, board_count > 0 || boards_read == lunok::json::Strings::kTooMany},
+      {"icon", icon, icon[0] != '\0'},
       {"description", description, description[0] != '\0'},
   };
   for (const Field& field : fields) {
@@ -2077,6 +2104,41 @@ void print_manifest(const char* text, size_t len, const char* app, const char* r
     out(!has_title ? "no title" : "no entry");
     newline();
   }
+}
+
+// **`apps info <id>`** (0.120.0): the manifest of an app that is already on the disk, read and shown with the card of
+// the repository —one card for the two, because a manifest is the same kind of file wherever it is—. A name the door
+// does not have is said as a missing app and not as an empty card, since a card of a file that is not there would be
+// the one answer that is a lie (docs/30, docs/40).
+bool apps_info(const char* id) {
+  char root[96];
+  if (id == nullptr || id[0] == '\0' || !apps::root_of(id, root, sizeof(root))) {
+    usage_out("usage: apps info <id>\r\n");
+    return false;
+  }
+  char path[128];
+  const int made = snprintf(path, sizeof(path), "%s/manifest.json", root);
+  if (made <= 0 || static_cast<size_t>(made) >= sizeof(path)) {
+    error_out("apps: that name is too long to read a manifest from\r\n");
+    return false;
+  }
+  // **The ceiling of the scan, not one of its own**: 1 024 B is what the reader of the disk keeps, and a card that
+  // could show more than the system reads would be showing something the board would not see (docs/40, docs/75).
+  // **The buffer is the command's and not the stack's** (0.120.0): a whole manifest is a kilobyte, `apps info` is
+  // inlined into `execute` —measured with `-fstack-usage`: 2 272 B became 2 640 B—, and one command runs at a time on
+  // the task of the console, so a static here is a kilobyte of RAM instead of a kilobyte of the stack that an app
+  // shares with everything else (docs/75).
+  static char text[1024];
+  size_t len = 0;
+  if (!vfs::read_file(path, text, sizeof(text) - 1, len)) {
+    error_out("no such app: ");
+    out(id);
+    newline();
+    return false;
+  }
+  text[len] = '\0';
+  print_manifest(text, len, id, "app: ", root);
+  return true;
 }
 
 // **The listing, in columns and without holding it whole**: one walk of the file to count the folders and know the
@@ -3199,6 +3261,7 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   boot.app_title = target.title;
   boot.app_version = target.version;
   boot.app_opens = target.opens;
+  boot.args_flags = target.opens_arg;
 
   const uint32_t limit_kb = platform().heap_limit_kb();
   const size_t limit = (limit_kb > 0) ? (static_cast<size_t>(limit_kb) * 1024) : kDefaultHeapBytes;
@@ -3574,11 +3637,14 @@ bool execute(char* line) {
       print_apps();
       return true;
     }
+    // **`info` is the manifest of an app of this disk** (0.120.0): the same card `repo info` shows for one of the
+    // repository, with the keys the manifests of PaperOS carry —author, description, icon, opensArgs— (docs/30, docs/40).
+    if (strcmp(words[0], "info") == 0 && count == 2) return apps_info(words[1]);
     // **`remove` is a whole word and not a beginning** (0.89.0): `apps remove <id>` deletes the app of that name —the
     // name the listing shows, so `squares` or `squares-SD`— and anything else after `apps` is the usage line instead of a
     // listing that quietly ignored what a person typed (docs/30, docs/40).
     if (strcmp(words[0], "remove") != 0 || count < 2) {
-      usage_out("usage: apps [remove <id>]\r\n");
+      usage_out("usage: apps [info <id> | remove <id>]\r\n");
       return false;
     }
     return apps_remove(words[1]);

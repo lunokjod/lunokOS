@@ -1,5 +1,6 @@
 {
   "title": "Tick",
+  "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "tick.lua",
   "boards": ["esp32"],

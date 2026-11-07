@@ -67,6 +67,52 @@ bool answers_here(const Entry& entry, hal::IPlatform& band) {
   return false;
 }
 
+// **A manifest's `opens` is a list written in one string** (0.120.0): `"txt"` and `"txt md lua json"` are the same
+// field with one name or with fifteen, which is how the apps of PaperOS write it. Every word goes through the same
+// normalisation a single extension used to (`"TXT"`, `".txt"` and `"txt"` are one thing), and a word that is not an
+// extension is dropped with a line that names it: an app that says `my file` handles nothing, and saying nothing about
+// it would leave a person wondering why their app never opens anything (docs/40).
+void add_opens(Entry& out, const char* raw, const char* id) {
+  const char* word = raw;
+  uint32_t named = 0;
+  while (*word != '\0') {
+    while (*word == ' ') ++word;
+    if (*word == '\0') break;
+    const char* end = word;
+    while (*end != '\0' && *end != ' ') ++end;
+    const size_t word_len = static_cast<size_t>(end - word);
+    ++named;
+    if (named > Entry::kMaxOpens) {
+      // Counted and thrown away, as `boards` does it: how many there are is the difference between "it declares more
+      // than this system carries" and "it declares nothing" (docs/40).
+      word = end;
+      continue;
+    }
+    // **A name that does not fit is not cut**: eleven bytes is what a row of the entry holds, and an extension with its
+    // last letter missing would be a handler for a file nobody has, so it is dropped with the two numbers instead
+    // (docs/40, docs/75).
+    if (word_len + 1 > sizeof(out.opens[0])) {
+      log_printf(pal::kLogWarn, "APPS", "%s names an extension of %u bytes and this system carries %u", id,
+                 static_cast<unsigned>(word_len), static_cast<unsigned>(sizeof(out.opens[0]) - 1));
+      word = end;
+      continue;
+    }
+    char one[sizeof(out.opens[0])];
+    memcpy(one, word, word_len);
+    one[word_len] = '\0';
+    if (!normalise_extension(one, out.opens[out.opens_count], sizeof(out.opens[0]))) {
+      log_printf(pal::kLogWarn, "APPS", "%s declares an opens that is not an extension (%s)", id, one);
+    } else {
+      ++out.opens_count;
+    }
+    word = end;
+  }
+  if (named > Entry::kMaxOpens) {
+    log_printf(pal::kLogWarn, "APPS", "%s names %u extensions and this system carries %u", id, static_cast<unsigned>(named),
+               static_cast<unsigned>(Entry::kMaxOpens));
+  }
+}
+
 // Reads one app into out, which lives on the caller's stack. Returns false and
 // says why when the manifest is not usable; the walk then carries on.
 // **The manifest is asked for by the id the door presents** (0.88.20): `/apps/<id>/manifest.json`, which the filesystem
@@ -81,7 +127,12 @@ bool load(const char* id, Entry& out) {
     return false;
   }
 
-  char text[kManifestCap];
+  // **The manifest is read into the one buffer of the walk** (0.120.0): a kilobyte on the stack of the task that runs
+  // an app, on top of the entry it is filling in (`on_entry` measured 1 104 B) and of the shell that asked for it
+  // (`execute`, 2 640 B), was the deepest chain of the project —6,7 KB of the eight the task has—. `load` is never
+  // re-entered: `read` and the walk are called one at a time, from the same task, and no visitor of `for_each` loads
+  // another manifest (docs/40, docs/75).
+  static char text[kManifestCap];
   size_t len = 0;
   if (!vfs::read_file(path, text, sizeof(text) - 1, len)) {
     log_printf(pal::kLogWarn, "APPS", "%s has no readable manifest", id);
@@ -157,11 +208,40 @@ bool load(const char* id, Entry& out) {
   // more useful than hiding it (docs/40, docs/85).
   hal::IPlatform& band = hal::platform();
   out.works_here = answers_here(out, band);
-  // opens is optional too: most apps do not open a file another app gives them.
-  char raw_opens[16];
+  // opens is optional too: most apps do not open a file another app gives them. A list of names is the same field
+  // written with the spaces of the manifests of PaperOS, and an app that names none opens nothing (docs/40).
+  char raw_opens[96];
   if (lunok::json::get_string(text, len, "opens", raw_opens, sizeof(raw_opens))) {
-    if (!normalise_extension(raw_opens, out.opens, sizeof(out.opens))) {
-      log_printf(pal::kLogWarn, "APPS", "%s declares an opens that is not an extension", id);
+    add_opens(out, raw_opens, id);
+  }
+  // **The switches the app wants when it is handed a file** (0.120.0): `opensArgs`, `-ro` in PaperOS's Editor. The
+  // system does not interpret them —only the app knows what its own switches mean—, so the only thing checked here is
+  // that they look like switches: a value that does not begin with `-` is dropped with a line, because handing an app a
+  // stray word as one of its own flags is worse than handing it nothing (docs/30, docs/40). It is read straight into
+  // the entry and the bad one is cleared there: 32 bytes less on the stack of a frame that already holds a whole
+  // manifest, which is the frame `apps` walks one app at a time (docs/75).
+  if (lunok::json::get_string(text, len, "opensArgs", out.opens_arg, sizeof(out.opens_arg))) {
+    char* start = out.opens_arg;
+    while (*start == ' ') ++start;
+    if (*start != '-') {
+      log_printf(pal::kLogWarn, "APPS", "%s has an opensArgs that is not a switch (%s)", id, start);
+      out.opens_arg[0] = '\0';
+    } else if (start != out.opens_arg) {
+      memmove(out.opens_arg, start, strlen(start) + 1);
+    }
+  }
+  // **Who wrote the app and what it is** (0.120.0): decoration, so nothing is refused here —a manifest without them is
+  // still an app— and a text longer than its room is cut, which is what docs/40 promises. `\n` is kept, because the
+  // descriptions of PaperOS are two lines and `apps info` prints them as two.
+  lunok::json::get_string(text, len, "author", out.author, sizeof(out.author));
+  lunok::json::get_string(text, len, "description", out.description, sizeof(out.description));
+  // **The badge of the app** (0.120.0): a picture inside the app, checked exactly as the splash is checked, for the
+  // same reason —a manifest that points out of its own folder is a manifest that lies about what it carries—. There is
+  // no launcher on the glass yet, so nothing paints it; `apps info` is where it is said (docs/40).
+  if (lunok::json::get_string(text, len, "icon", out.icon, sizeof(out.icon))) {
+    if (out.icon[0] == '/' || strstr(out.icon, "..") != nullptr) {
+      log_printf(pal::kLogWarn, "APPS", "%s names an icon outside the app", id);
+      out.icon[0] = '\0';
     }
   }
   // **The picture of the app, if it says one** (0.114.0): the name of a file inside the app —`res/logo.png`—
@@ -298,6 +378,31 @@ bool extension_of(const char* path, char* out, size_t cap) {
   return normalise_extension(dot, out, cap);
 }
 
+// **An app handles a list and not a name** (0.120.0): the two things that read a handler —the search `open` does and
+// the question the shell asks when there is more than one— go through here, so what a manifest declares means the same
+// thing in both (docs/40).
+bool handles(const Entry& entry, const char* ext) {
+  if (ext == nullptr || ext[0] == '\0') return false;
+  for (uint32_t i = 0; i < entry.opens_count && i < Entry::kMaxOpens; ++i) {
+    if (strcmp(entry.opens[i], ext) == 0) return true;
+  }
+  return false;
+}
+
+size_t opens_text(const Entry& entry, char* out, size_t cap) {
+  if (out == nullptr || cap == 0) return 0;
+  size_t used = 0;
+  out[0] = '\0';
+  for (uint32_t i = 0; i < entry.opens_count && i < Entry::kMaxOpens; ++i) {
+    const size_t need = strlen(entry.opens[i]) + ((used > 0) ? 1 : 0);
+    if (used + need + 1 > cap) break;  // what does not fit is not said, and the cap is what docs/40 promises
+    if (used > 0) out[used++] = ' ';
+    for (const char* p = entry.opens[i]; *p != '\0'; ++p) out[used++] = *p;
+  }
+  out[used] = '\0';
+  return used;
+}
+
 namespace {
 
 struct HandlerSearch {
@@ -308,11 +413,11 @@ struct HandlerSearch {
 
 bool handler_visitor(const Entry& entry, void* context) {
   HandlerSearch* search = static_cast<HandlerSearch*>(context);
-  if (entry.opens[0] == '\0') return true;
+  if (entry.opens_count == 0) return true;
   // A handler this board cannot run is not a handler: it is listed in `apps` with
   // what it needs, and it would fail the moment somebody opened the file (docs/40).
   if (!entry.works_here) return true;
-  if (strcmp(entry.opens, search->ext) != 0) return true;
+  if (!handles(entry, search->ext)) return true;
   ++search->matches;
   if (search->found->id[0] == '\0') *search->found = entry;  // the first one wins
   return true;  // keep walking: how many there are is part of the answer
