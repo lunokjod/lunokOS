@@ -1,0 +1,8 @@
+{
+  "title": "About",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "about.lua",
+  "boards": ["esp32"],
+  "description": "Who is behind this and what this board is made of: the system, the interpreter, the glass, the finger, the disk, the radio and the cell, each one with the numbers it answers. Tap a piece to see its own page, and Back to come home."
+}

@@ -2234,7 +2234,35 @@ namespace kernel {
 // which is the closest whole step of eleven to eighty-two—. `run calculator keys` prints that line, so a page
 // that loses a step fails a test instead of looking wrong to one person (docs/30, docs/92).
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.121.1";
+// 0.122.0 (7/11): **the second app of the paper project, `about`, and the paper goes into the image of the
+// Paper**: `custom_apps = editor,calculator,about`. Two screens, as the original —a cover with one big line and
+// the list of the pieces, and the detail of one piece, which opens with a finger and comes back with Back—.
+//
+// **The list is this board's and not a table of libraries.** The original read a `libs.lua` that its build wrote
+// from the working tree; this disk does not carry the source tree, so what can be told without lying is what the
+// board **is**: the system and its version, the interpreter and its memory, the glass, the finger, the disk, the
+// radio and the cell —**seven pieces**, and every number comes from a call of docs/30 and none is written in the
+// app—. The motto of the cover is the name and the version of the system: the original's "hack the planet" is
+// not this project's line and a motto is not mine to write.
+//
+// **The two screens cost the app nothing at rest**, and the port is where two rules of this system bit:
+// **there is no `visible`** (docs/30, docs/90), so a screen is built and given back with `release()` —which
+// takes its fills with it and is not composed again, so no ghost stays under the new one—; and **a label does
+// not wrap** —a text that does not fit ends in "..."— so the sentences are broken in the app with `ui.text_width`.
+// The sizes are the paper project's in pixels of line, through `ui.line_height`, as 0.121.1 taught.
+//
+// Measured on the bench with the font of the disk (m5stack-paper, `--flash build/disk/emulator` and the tree as
+// the card): `run about` prints `about: 7 pieces, lunokOS 0.122.0 on m5stack-paper` and one `about: piece …` line
+// per row —`Lua 5.4.7`, `The glass 540 x 912`, `The finger 2 points`, `The disk 10 mounts`,
+// `The radio wifi, http, tls, provisioning`, `The cell 99 %`— and paints the page once (540x912); the middle key
+// of the board opens the first piece (`about: open lunokOS …`) and the same key on the detail goes home
+// (`about: cover`), one whole paint each. Three paints for the three pages, and no error.
+//
+// The new case is `test_the_about_app_says_what_the_board_is_made_of` —the app from the disk, the cover's seven
+// pieces, the middle key opening the first and going back— so 479 -> 480 cases. The three rules a port of that
+// project follows are written in docs/40, because nineteen apps of it are still to come.
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.122.0";
 
 }  // namespace kernel
 

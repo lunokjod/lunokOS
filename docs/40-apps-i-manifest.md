@@ -342,6 +342,30 @@ entre dos torns del nucli, amb la coroutine de l'app suspesa.
 mateixa app**: o l'app és dirigida per esdeveniments, o rep els trossos amb `on_data`, o llegeix ella
 mateixa. Fer-ho tot alhora fa que no se sàpiga qui es queda la línia.
 
+## Les apps portades del projecte del paper (0.121.0)
+
+Les apps que s'escriuen aquí poden venir del projecte germà, `~/code/PaperOS/data/app/`, i quan en ve
+una es porta **la pantalla i el comportament sencers**, no una versió reduïda. Tres regles que han
+costat una mesura i que valen per a les que vinguin:
+
+- **Les mides de la lletra es demanen en píxels de línia, no en passos.** El paper fa servir quatre
+  mides de la seva tipografia —`small` **33 px**, `body` **43**, `title` **57** i `big` **82** de
+  línia, a `lib/gfx/fonts/fonts.h` d'allà— i aquí un pas de la cara val **onze** píxels de línia amb
+  la negreta del disc i **set** amb la taula del flash. Escriure el pas directament deixa la pàgina a
+  la meitat de mida a la placa (el cas de la calculadora, 0.121.1): el que es fa és
+  `scale_for(px)` → `math.floor(px / ui.line_height(1) + 0.5)`, i així la pàgina fa la mateixa mida
+  física a les dues bandes (docs/30).
+- **No hi ha `visible`: una pantalla es construeix i es torna, no s'amaga.** Una app de dues pantalles
+  —una portada i un detall— dona el control de la que marxa amb `release()` i construeix l'altra; els
+  fills se'n van amb el pare i `release()` no compon el que marxa, o sigui que no queda cap fantasma
+  a sota (docs/30, docs/90).
+- **Un `ui.label` no parteix les línies**: un text que no hi cap s'acaba amb `...`. Una app que ve
+  amb paràgrafs els parteix ella mateixa amb `ui.text_width`, que és la mateixa mesura amb què el
+  label dibuixa.
+- **I la pàgina és de l'app sencera**: els controls pinten dins del seu marc, o sigui que l'aire del
+  voltant es queda amb el que hi havia al vidre —el dibuix de l'arrencada— si l'app no fa un
+  `ui.clear(15)` abans de construir la pàgina.
+
 ## L'app que surt sola en arrencar (l'app «de casa», 0.119.0)
 
 Una placa pot arrencar **dins d'una app** en lloc de deixar el prompt: és el que fa un launcher, un

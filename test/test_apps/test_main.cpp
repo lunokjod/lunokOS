@@ -9524,6 +9524,71 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   storage->remove("/apps/calculator");
 }
 
+// **About, the port of the paper project's page** (0.122.0): two screens —a cover with the big line and the
+// pieces of this board, and the detail of one of them— read with the middle key of the board, because the app
+// is a tree of controls and the centre of the dial presses the one that has the ring (docs/30, docs/90).
+//
+// **Every number on the page is one the system answered**: the pieces are the system and its version, the
+// interpreter, the glass, the finger, the disk, the radio and the cell, and the app says them on the console
+// as it builds the cover, which is what this case reads.
+void test_the_about_app_says_what_the_board_is_made_of(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  // The page needs a glass and nothing else: the rows are buttons, and a button answers the dial and the finger.
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/about"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/about/about.lua", "/apps/about/about.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/about/manifest.json", "/apps/about/manifest.json"));
+
+  kernel::log_echo(true);
+  pump_captured(60, g_out, sizeof(g_out), "run about");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: 7 pieces, lunokOS"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: piece Lua 5"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: piece The glass 540 x"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: piece The disk"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: piece The radio"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+  // **The page is washed whole and once**: 540x912 is the view of this board under the bar of the system, and a
+  // cover that painted only the box of its panel would leave the drawing of the boot around it (docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "540x912"), g_out);
+
+  // **The centre of the dial opens the first piece**: the first row is the control that is born with the ring,
+  // so a press of the middle key is a click on it.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(60);
+  emu::press_button(false);
+  pump_turns(120);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: open lunokOS"), g_out);
+
+  // **And the Back of the detail is the only control of that page**, so it is the one with the ring and the same
+  // press goes home.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(60);
+  emu::press_button(false);
+  pump_turns(120);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: cover"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+
+  storage->remove("/apps/about/about.lua");
+  storage->remove("/apps/about/manifest.json");
+  storage->remove("/apps/about");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -9710,6 +9775,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_apps_info_shows_the_keys_a_manifest_carries);
   RUN_TEST(test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so);
   RUN_TEST(test_the_calculator_of_the_paper_project_adds_with_the_finger);
+  RUN_TEST(test_the_about_app_says_what_the_board_is_made_of);
   UNITY_END();
   return 0;
 }
