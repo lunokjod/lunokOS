@@ -2297,7 +2297,52 @@ namespace kernel {
 // keeps `res/icon.png` for the app on the disk and for the one of the repository, so 480 cases stand as they
 // were.
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.123.0";
+// 0.124.0 (7/11): **the About page lists the libraries of the project, and its title can be read**.
+//
+// **The title was cut because it was one label** ("lunokOS 0..."). A label of this system does not wrap, and the
+// name and the version of the system at the size of the original —82 pixels of line, seven steps— do not fit the
+// 500 pixels of the page. It now goes through the same breaker the sentences go through, centred, and takes the
+// two lines it needs: measured on the glass, the ink of "lunokOS" sits in the rows 78-126 and the one of
+// "0.123.0" in 174-221, so the title is read whole and the page keeps no "..." at the top.
+//
+// **And what an About says is what the system is made of, which is its libraries and not its hardware.** The
+// page listed seven pieces of the board —the system, Lua, the glass, the finger, the disk, the radio and the
+// cell—, which is a page of the datasheet: a person who opens About wants to know what has been built and with
+// what. It now lists the twenty-three libraries of `lib/`, each with its version, its folder, the licence when
+// the library declares one (today only `lua` does, MIT) and the sentence the library says about itself, six to a
+// page with a More row for the rest (`23 libraries, lunokOS 0.124.0 on m5stack-paper, 6 rows a page`, four
+// pages).
+//
+// **The list is generated, not typed**: `tools/gen_about.py` reads the `library.json` of every folder of `lib/` —
+// the same file the build reads, so the page cannot disagree with the binary it is running on— and writes
+// `apps/about/res/libs.txt`; `--check` says whether the file is up to date, and a folder of `lib/` with no
+// `library.json` stops the tool with its name. Three libraries had none and got one in this commit —
+// `board_esp32`, `board_paper` and `qr`, with their description and their own flags— and `lua` got its licence:
+// twenty-three of twenty-three now say who they are, which is what a list of libraries needs.
+//
+// **The file is data and not a chunk**: `dofile`, `loadfile` and `load` are removed from an app's state on
+// purpose (docs/20), so the generator writes one library a line with a tab between fields and the app parses it.
+// The first attempt wrote Lua and died on `attempt to call a nil value (global 'load')` — which is the system
+// working as designed, and the reason docs/45 now says a resource of the paper project that is code does not
+// travel as code.
+//
+// The detail of a library is the four lines of the original in its order: the name and the version, the folder
+// and the licence, an empty line, and what the library says about itself. The summary lost its "tap a piece" and
+// says the page it is on, and the paging row says which libraries it holds (`More   7 to 12 of 23`).
+//
+// Measured on the bench (m5stack-paper, the font of the disk, the tree as the card): `run about` prints the
+// headline, six `about: row <name> <version>` lines and `about: cover page 1 of 4`, and paints 540x912 once;
+// with the middle key on the cover it prints `about: open alarms 0.1.0` and paints, and again for `about: back`
+// and `about: page 2`, four whole paints and no `lua:` error. `python3 tools/gen_about.py --check` says the file
+// is up to date at 23 libraries and 4 368 bytes.
+//
+// **`about` goes from 0.2.0 to 0.3.0** (an app raises its own version with its change, docs/45) and its manifest
+// says what it now lists. The case is `test_the_about_app_lists_the_libraries_of_the_project`: it counts the
+// `library.json` of `lib/` on the host, asserts that the page prints **that** number —so a stale list is a red
+// case— and the version of `alarms` as the tree has it, then the middle key opening the first row and Back, so
+// 480 cases stand where they were.
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.124.0";
 
 }  // namespace kernel
 

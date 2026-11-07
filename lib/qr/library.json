@@ -1,0 +1,6 @@
+{
+  "name": "qr",
+  "version": "0.1.0",
+  "description": "A QR code that can be any QR: every version of the standard, every level of error correction and the three modes that carry text. Written here so it can be read, with the tables the standard publishes.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

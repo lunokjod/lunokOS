@@ -344,9 +344,10 @@ mateixa. Fer-ho tot alhora fa que no se sàpiga qui es queda la línia.
 
 ## Les apps portades del projecte del paper (0.121.0)
 
-Les apps que venen del projecte germà —`calculator` (0.121.0) i `about` (0.122.0) fins avui— es porten
-amb **la pantalla i el comportament sencers** i amb els números de l'original, i el procediment sencer
-—què es llegeix, com es porten les icones i el splash, la taula d'equivalències i les trampes— és a
+Les apps que venen del projecte germà —`calculator` (0.121.0) i `about` (0.122.0, amb la llista de
+biblioteques a 0.124.0) fins avui— es porten amb **la pantalla i el comportament sencers** i amb els
+números de l'original, i el procediment sencer —què es llegeix, com es porten les icones i el splash,
+la taula d'equivalències i les trampes— és a
 [`45 · Portar una app del paper`](45-portar-una-app-del-paper.md). Les tres coses que més han costat, i
 que val la pena tenir aquí a mà:
 

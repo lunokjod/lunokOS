@@ -1,0 +1,6 @@
+{
+  "name": "board_esp32",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: a plain ESP32 and nothing else, the smallest band the system has to fit in. Headers only: board/identity.h says the name and what it has not got, board/impl.h says what to link.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

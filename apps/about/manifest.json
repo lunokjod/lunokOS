@@ -1,9 +1,9 @@
 {
   "title": "About",
   "author": "@lunokjod",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "entry": "about.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",
-  "description": "Who is behind this and what this board is made of: the system, the interpreter, the glass, the finger, the disk, the radio and the cell, each one with the numbers it answers. Tap a piece to see its own page, and Back to come home."
+  "description": "Who is behind this, and what this system is made of: the libraries of `lib/`, each one with its version, its folder, its licence and the sentence it says about itself. Tap one to see its own page, More for the next ones, and Back to come home."
 }

@@ -5,8 +5,8 @@ viure aquí, amb la mateixa cara. No és una traducció línia per línia: les d
 d'interfície diferents i el que es porta és **la pantalla i el comportament sencers**, amb els
 números de l'original.
 
-Les dues primeres que s'han fet així són `calculator` (0.121.0) i `about` (0.122.0), i tot el que hi
-ha aquí surt d'haver-les fet.
+Les dues primeres que s'han fet així són `calculator` (0.121.0) i `about` (0.122.0, amb la llista de
+biblioteques a 0.124.0), i tot el que hi ha aquí surt d'haver-les fet.
 
 ## 1 · Què es llegeix de l'original, abans d'escriure res
 
@@ -37,9 +37,13 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
   només l'EPUB en té un.
 - **La resta de `res/`** es copia sencera quan l'app la fa servir: imatges (`ui.image` en llegeix
   els mateixos formats), dades i fitxers de text.
-- **`libs.lua` no es porta mai**: és un fitxer que el build del paper genera llegint l'arbre de codi,
-  i aquí el disc no porta l'arbre. L'app que el vol dirà la veritat que sí que pot dir (vegeu
-  `about`).
+- **Un recurs que és codi no viatja com a codi** (0.124.0): `libs.lua`, allà, és un fitxer que el build
+del paper genera llegint l'arbre de codi, i aquí no es pot executar —**`dofile`, `loadfile` i `load`
+són `nil` a l'estat d'una app** (docs/20)—. El que es porta és **el generador**, i el que llegeix l'app
+és **dades**: `tools/gen_about.py` llegeix el `library.json` de cada carpeta de `lib/` i escriu
+`apps/about/res/libs.txt`, una biblioteca per línia i un tabulador entre camps, que és el que la pàgina
+parteix. `--check` diu si el fitxer és vell, i una carpeta de `lib/` sense `library.json` atura l'eina
+amb el seu nom.
 
 ## 3 · Les mides i els controls: el mateix lloc, les mateixes propietats
 
@@ -85,7 +89,7 @@ De la resta de propietats, el que s'ha de copiar tal com és:
 | `paperos.tick` | `sys.delay(ms):await()` | El nucli no es bloqueja |
 | `paperos.millis` | `sys.time_ms()` | Monòton |
 | `paperos.storage.*` | `fs.*` | `list`, `stat`, `read`, `write`, `mkdir`, `remove`, `rename`, `size`, `free`, `units` |
-| `paperos.files.load/read` | `dofile` / `fs.read` | `files.load` era un chunk de dades |
+| `paperos.files.load/read` | `fs.read` **i res més** | `load` és `nil` aquí: un recurs que és codi s'ha de portar com a dades (vegeu la trampa 8) |
 | `paperos.storage.preferred/locate` | `fs.cfg()` / `fs.data()` | El terreny de l'app és `/data/<id>` |
 | `paperos.prefs.get/set` | `fs.cfg()` escrivint un fitxer | No hi ha `store` encara (docs/90) |
 | `paperos.ui.*` | `ui.*` | Els controls són els mateixos noms; el que canvia és `set_x` → camp `x` |
@@ -126,6 +130,9 @@ De la resta de propietats, el que s'ha de copiar tal com és:
 7. **Els ganxos són els que hi ha**: `on_open`, `on_resize`, `on_alarm`, `on_button`, `on_light`,
    `on_pause`, `on_save`, `on_close`. Un `on_back`, un `on_event` o un `on_draw` global d'allà no
    existeixen aquí (docs/40).
+8. **Una app no pot executar un fitxer**: `dofile`, `loadfile` i `load` són `nil` (docs/20). Si
+   l'original llegeix un módul de dades amb `files.load`, aquí el que es porta és el **format**: el
+   generador escriu dades i l'app les parteix (`about` i el seu `libs.txt`, 0.124.0).
 
 ## 6 · Les proves, i la versió de l'app
 
@@ -134,8 +141,8 @@ De la resta de propietats, el que s'ha de copiar tal com és:
   del banc, i es llegeix el que l'app diu per consola. Una app que no s'ha arrencat mai no està
   portada.
 - **L'app puja la seva pròpia versió** (`version` del manifest) cada cop que canvia, com el sistema
-  puja la seva: la calculadora va néixer en 0.1.0 i és a 0.2.0, i `about` igual. Una app que canvia
-  i es queda amb el mateix número està mentint sobre el que porta.
+  puja la seva: la calculadora va néixer en 0.1.0 i és a 0.2.0, i `about` va d'0.1.0 a 0.3.0. Una app
+  que canvia i es queda amb el mateix número està mentint sobre el que porta.
 - **I la versió del sistema** puja també en el mateix commit (llei 10 del README).
 
 ## 7 · La llista, en ordre

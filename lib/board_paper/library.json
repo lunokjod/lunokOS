@@ -1,0 +1,6 @@
+{
+  "name": "board_paper",
+  "version": "0.1.0",
+  "description": "Who this firmware is for: the M5 Paper v1.0 and v1.1 (K049 and K049-B), 16 MB of flash, 8 MB of PSRAM and the pin map of the e-ink band. Headers only: board/identity.h says the name, board/impl.h says what to link.",
+  "build": { "flags": ["-Wall", "-Wextra", "-Werror"] }
+}

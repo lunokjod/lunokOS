@@ -194,8 +194,9 @@ bool mode_carries(Mode mode, const char* text, uint32_t len) {
   return true;
 }
 
-// Bits the text takes in a mode, without the header.
-uint32_t data_bits(Mode mode, const char* text, uint32_t len) {
+// Bits the text takes in a mode, without the header. Only the length is asked for —the mode decides how many bits
+// a character costs— and the text itself is not read: it is passed so that the call says what it is measuring.
+uint32_t data_bits(Mode mode, const char* /*text*/, uint32_t len) {
   if (mode == Mode::kNumeric) {
     const uint32_t groups = len / 3;
     const uint32_t rest = len % 3;
