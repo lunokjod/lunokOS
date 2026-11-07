@@ -9210,6 +9210,23 @@ int l_epub_chapter(lua_State* L) {
   return 1;
 }
 
+// **A small file of the book, whole** (0.142.0, docs/46 B6): `META-INF/container.xml`, the OPF, the index and a
+// stylesheet are kilobytes and an app reads them to know the title of the book, the order of its spine and its cover.
+// The door copies the bytes into a Lua string **once**, so the block of the book is free for the next read (docs/30).
+int l_epub_read(lua_State* L) {
+  if (g_book_ops.read == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const char* name = luaL_checkstring(L, 1);
+  uint32_t size = 0;
+  const char* data = g_book_ops.read(name, size);
+  if (data == nullptr) {
+    return push_nil_error(L, "E_INVAL",
+                          "the book carries no such file, or it is bigger than the table of the book");
+  }
+
+  lua_pushlstring(L, data, static_cast<size_t>(size));
+  return 1;
+}
+
 // epub.page(canvas, from, opts): a page of the chapter that is open, painted in that canvas.
 //
 // `opts` is `{face, title_face, small_face, scale, title_scale, small_scale, indent}`, and every one of them has a
@@ -9312,7 +9329,7 @@ void seal_globals(lua_State* L) {
 
   // epub: a book of the disk, a chapter of it and a page of the chapter painted in
   // a canvas of the app (docs/46, A5 and B3).
-  lua_createtable(L, 0, 7);
+  lua_createtable(L, 0, 8);
   set_function(L, "open", l_epub_open);
   set_function(L, "books", l_epub_books);
   set_function(L, "close", l_epub_close);
@@ -9320,6 +9337,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "name", l_epub_name);
   set_function(L, "first_chapter", l_epub_first_chapter);
   set_function(L, "chapter", l_epub_chapter);
+  set_function(L, "read", l_epub_read);
   set_function(L, "page", l_epub_page);
   lua_setglobal(L, "epub");
 

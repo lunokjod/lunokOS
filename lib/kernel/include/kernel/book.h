@@ -87,6 +87,14 @@ int32_t first_chapter();
 const char* chapter(const char* name, int32_t& bytes);
 const char* chapter_at(int32_t index, int32_t& bytes);
 
+// **A small file of the book as it comes out of the zip** (0.142.0, docs/46 B6): the container that names the OPF,
+// the OPF itself, the index and a stylesheet are kilobytes, and an app reads them whole to know the title of the
+// book, the order of the spine and the cover. `data` is a block of the book and stays valid until the next read or
+// the close, which is what the door of Lua wants to copy it once. False is a name the book does not carry or a
+// file too big for the block.
+const uint32_t kMetaBytes = 64u * 1024u;
+bool read(const char* name, const char** data, uint32_t& size);
+
 // **One page of the chapter that is open**, laid out from a byte into a box of that size. A page is a plan (see
 // `epub/page.h`) and it is not painted here: whoever composes it walks the items.
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out);

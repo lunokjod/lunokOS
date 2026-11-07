@@ -697,6 +697,10 @@ struct BookOps {
   const char* (*name)(int32_t index);
   int32_t (*first_chapter)();
   int32_t (*chapter)(const char* name);
+  // **A small file of the book** (0.142.0, docs/46 B6): the container, the OPF, the index and a stylesheet, which is
+  // what an app needs to know the title of the book and the order of its spine. nullptr is a name the book does not
+  // carry; `size` is how many bytes came out.
+  const char* (*read)(const char* name, uint32_t& size);
   // The shelf: how many books the machine carries and the path of one of them (docs/46, C1).
   int32_t (*books)();
   const char* (*book_at)(int32_t index);

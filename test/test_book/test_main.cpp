@@ -433,6 +433,48 @@ static void test_a_picture_of_the_book_is_placed() {
   kernel::book::close();
 }
 
+// **A small file of the book comes out whole, and the chapter stays where it was** (0.142.0, docs/46 B6): the container
+// that names the OPF, the OPF, the index and a stylesheet are what an app reads to know the title of a book and the
+// order of its spine, and the read has a block of its own because a page is laid out from the chapter.
+static void test_a_small_file_of_the_book_comes_out_whole() {
+  TEST_ASSERT_TRUE(boot());
+  TEST_ASSERT_NOT_NULL(tiny_book());
+  TEST_ASSERT_NULL_MESSAGE(kernel::book::open("/littlefs/epub/tiny.epub"), "the book of the test did not open");
+
+  int32_t bytes = 0;
+  const char* chapter = kernel::book::chapter("OEBPS/ch1.xhtml", bytes);
+  TEST_ASSERT_NOT_NULL(chapter);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(sizeof(kChapterOne) - 1), bytes);
+
+  // **The same bytes by the two doors**, the block of the chapter and the block of the table.
+  const char* data = nullptr;
+  uint32_t size = 0;
+  TEST_ASSERT_TRUE(kernel::book::read("OEBPS/ch1.xhtml", &data, size));
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(bytes), size);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(chapter, data, size));
+
+  // **The chapter is still the one that was open**: another read lands beside it and a page of it is laid out after.
+  TEST_ASSERT_TRUE(kernel::book::read("OEBPS/ch2.xhtml", &data, size));
+  TEST_ASSERT_EQUAL_UINT32(sizeof(kChapterTwo) - 1, size);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(kChapterTwo, data, size));
+
+  kernel::book::Fonts fonts;
+  kernel::book::Page page;
+  TEST_ASSERT_TRUE(kernel::book::page(0, 400, 700, epub::Style(), fonts, page));
+  TEST_ASSERT_GREATER_THAN(0, page.count);
+  TEST_ASSERT_EQUAL_STRING("The", page.words + page.items[0].text);
+
+  // A name the book does not carry says so and leaves the two numbers at zero.
+  TEST_ASSERT_FALSE(kernel::book::read("OEBPS/nothing.xhtml", &data, size));
+  TEST_ASSERT_NULL(data);
+  TEST_ASSERT_EQUAL_UINT32(0, size);
+
+  kernel::book::close();
+  // **A closed book reads nothing**, not even a file it carries.
+  TEST_ASSERT_FALSE(kernel::book::read("OEBPS/ch1.xhtml", &data, size));
+  TEST_ASSERT_NULL(data);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -442,5 +484,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_page_of_the_book_is_laid_out);
   RUN_TEST(test_a_picture_of_the_book_is_placed);
   RUN_TEST(test_a_file_that_is_not_a_book_says_why);
+  RUN_TEST(test_a_small_file_of_the_book_comes_out_whole);
   return UNITY_END();
 }

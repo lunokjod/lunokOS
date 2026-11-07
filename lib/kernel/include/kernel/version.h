@@ -3002,7 +3002,36 @@ namespace kernel {
 // `pio test -e test --without-testing` builds the 23 with **0 warnings**.
 // **Pending**: the cases are **not executed** and **the glass has not been looked at** — the `keys` mark of the foot and
 // the mode itself are proven by the code and the test, not by a photograph of the panel.
-static const char kVersion[] = "0.141.0";
+// 0.142.0 (8/11): **the book says what it is** — the OPF of the book, read from Lua (docs/46, C2).
+//
+// Until today the reader opened the first file whose name looked like a chapter and counted the chapters by their
+// names: a book whose `ch02.xhtml` is the first of the spine opened in the wrong place, and its title was the name of
+// the file. The two halves of the fix are the door and the reading:
+//
+//   - **the door** (B6): `book::read(name)` takes an entry of the book out of the zip into **a block of its own, 64 KB
+//     asked for the first time an app reads one**, because the chapter is a block of its own and a page is laid out
+//     from it —a read that landed there would leave the reader with a page of the OPF—. The compressed bytes go through
+//     the block of the stream, which is scratch between two chapters. `epub.read(name)` copies what came out into a Lua
+//     string once, so the block is free for the next read;
+//   - **the reading** (C2, in the app): `META-INF/container.xml` names the OPF, the OPF gives `dc:title` and the
+//     manifest, and the **spine** gives the order —which is the order of the book and not the order of the names—. The
+//     `href`s are resolved against the folder of the OPF with `..` and `.` taken out, an `href` the book does not carry
+//     is dropped, and a book whose OPF says nothing this reader can use falls back to the `.xhtml`/`.html`/`.htm`
+//     outside `META-INF` sorted by name, which is what it did before. A saved position that names a chapter the book no
+//     longer has opens at the first one instead of failing;
+//   - **what a person sees**: the bar carries the title of the book and the foot's `Chapter i/n` counts the spine of the
+//     book and not its file names. The log says one line when a book opens —`reader: <title>, <n> chapter(s)`—, which is
+//     how a test proves that the OPF was read and not guessed.
+//
+// Tests: `test_book` has a new case (**the two doors give the same bytes**, the chapter is still the one that was open
+// after a read and a page of it is laid out, a name the book does not carry and a closed book say so), and
+// `test/test_apps` reads the line of the sample book (`La vaca cega, 2 chapters`). The suites are **533 cases**, and
+// `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn; what is missing of
+// the book, with its fitxa in docs/46: **C14** (the index, `nav`/NCX, which the OPF now makes reachable), **C7** (the
+// cover as a state; the OPF already carries the `cover` item for it), **C15** (a page by number), **C11** (the cache of
+// thumbnails, which wants B9) and the foot of the shelf.
+static const char kVersion[] = "0.142.0";
 
 }  // namespace kernel
 

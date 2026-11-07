@@ -424,6 +424,7 @@ porta del lector: el motor —el zip, el tokenitzador i el paginador— és del 
 | `epub.name(i)` | el nom de l'entrada `i` (comptant des d'u) |
 | `epub.first_chapter()` | el nom del primer fitxer que sembla un capítol |
 | `epub.chapter(name)` | **infla** aquest capítol i en diu quants bytes té |
+| `epub.read(name)` | **una fitxa petita del llibre sencera** (`META-INF/container.xml`, l'OPF, l'índex, un full d'estil): els bytes, o `nil` i el motiu (0.142.0). El bloc és del llibre —es demana la primera vegada i fa 64 KB— i la porta en fa una còpia a una cadena de Lua |
 | `epub.page(canvas, from, opts)` | maqueta una pàgina des del byte `from` i **la pinta en aquell canvas**; torna `next, ended, used, has_picture` |
 | `epub.close()` | tanca el llibre i torna la memòria |
 
@@ -441,8 +442,9 @@ s'ha acabat.
 Hi ha **un sol llibre obert** al sistema: el capítol és mig megabyte de memòria extra i el lector és un. Per
 això el mòdul fa de llibre i no cal cap objecte amb metataula ni `__gc`: `open` tanca el que hi hagués.
 
-El que el lector **no** fa encara: ni una imatge (la caixa de la foto es reserva i no es descodifica), ni el
-CSS, ni columnes, ni partició de paraules (docs/46).
+El que el lector **no** fa: ni el CSS, ni columnes, ni partició de paraules, ni text vertical (docs/46, A2). Les
+imatges **sí** que es descodifiquen des de la 0.133.0 i es pinten a la pàgina. **L'OPF no el llegeix el sistema**: el
+llegeix l'app amb `epub.entries`, `epub.name` i `epub.read`, i **l'ordre dels capítols és el del `spine` del llibre**, no el dels noms dels fitxers (0.142.0, docs/46 C2).
 
 ## `qr`
 | Crida | Torna | Notes |

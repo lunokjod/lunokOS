@@ -508,11 +508,12 @@ tecles el 0.135.0), la **pantalla sencera** (0.136.0), **els menús amb la pàgi
 comptatge de pàgines** (0.138.0) i, el 0.140.0, **el toc que passa pàgina** (la meitat dreta endavant i l'esquerra
 enrere), **la pantalla de càrrega** (C8), **la passada de la pàgina** (C10: `du` quan les dues pàgines són de dos
 tons), **l'error com a avís** (C12) i les **dues cares del llibre** (C13: un serif pel cos i un sans pels títols, les
-dues amb Latin-1) ja hi són. El que no hi és i el lector demana, amb la seva fitxa a docs/46: **l'OPF
-llegit des de Lua** (C2, que vol la porta del ZIP, B6–B7) i, amb ell, l'**índex** (C14); la **portada com a estat**
-(C7) i anar a una pàgina pel número (C15); el **cau de la fotografia i la miniatura del prestatge** (C11, que vol
-desar una superfície, B9); **el peu del prestatge**; i **la mida de l'app** (131 161 B contra un sostre de font de
-49 152, D6) amb els seus **ajustos** (D7).
+dues amb Latin-1) ja hi són. I el 0.142.0 **l'OPF llegit de debò** (C2: `META-INF/container.xml` → OPF → `dc:title` i
+l'`spine`, amb `epub.read` i la porta del ZIP, B6), que és el que diu el títol del llibre i **l'ordre dels seus
+capítols**. El que no hi és i el lector demana, amb la seva fitxa a docs/46: l'**índex** (C14, que ja té l'OPF); la
+**portada com a estat** (C7) i anar a una pàgina pel número (C15); el **cau de la fotografia i la miniatura del
+prestatge** (C11, que vol desar una superfície, B9); **el peu del prestatge**; i **la mida de l'app** (131 161 B
+contra un sostre de font de 49 152, D6) amb els seus **ajustos** (D7).
 
 ## Fora de la v1
 

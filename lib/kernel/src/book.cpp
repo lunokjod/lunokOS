@@ -27,6 +27,10 @@ struct State {
   zip::Entry* table = nullptr;
   uint8_t* packed = nullptr;
   uint8_t* chapter = nullptr;
+  // **The small files of the book** (0.142.0, docs/46 B6): the container, the OPF, the index and a stylesheet. It is
+  // asked for the first time an app reads one, like the blocks of a picture, and it is not the block of the chapter:
+  // a page is laid out from the chapter and reading the OPF must not take it away (docs/46, A5).
+  uint8_t* meta = nullptr;
   epub::Item* items = nullptr;
   char* words = nullptr;
   uint32_t bytes = 0;  // the size of the file, which is what the zip asks for first
@@ -124,10 +128,12 @@ void release_blocks() {
   if (g.picture_file != nullptr) pal::extra_memory().release(g.picture_file);
   if (g.words != nullptr) pal::extra_memory().release(g.words);
   if (g.items != nullptr) pal::extra_memory().release(g.items);
+  if (g.meta != nullptr) pal::extra_memory().release(g.meta);
   if (g.chapter != nullptr) pal::extra_memory().release(g.chapter);
   if (g.packed != nullptr) pal::extra_memory().release(g.packed);
   if (g.table != nullptr) pal::extra_memory().release(g.table);
 
+  g.meta = nullptr;
   g.words = nullptr;
   g.items = nullptr;
   g.chapter = nullptr;
@@ -505,6 +511,33 @@ const char* chapter(const char* name, int32_t& bytes) {
   return chapter_at(g.archive.find(name), bytes);
 }
 
+// **A small file of the book, out of the zip and into its own block** (0.142.0, docs/46 B6): the compressed bytes go
+// into the block of the compressed stream, which is scratch and belongs to nobody between two chapters, and what comes
+// out is the `meta` block. The chapter that is open is not touched —that is the whole reason this block exists—.
+bool read(const char* name, const char** data, uint32_t& size) {
+  size = 0;
+  if (data != nullptr) *data = nullptr;
+  if (!g.open || name == nullptr || g.packed == nullptr || data == nullptr) return false;
+
+  const int32_t index = g.archive.find(name);
+  if (index < 0) return false;
+
+  if (g.meta == nullptr) {
+    g.meta = static_cast<uint8_t*>(pal::extra_memory().allocate(kMetaBytes, true));
+    if (g.meta == nullptr) return false;
+  }
+
+  uint32_t written = 0;
+  if (g.archive.extract(static_cast<uint16_t>(index), g.meta, kMetaBytes, written, g.packed,
+                        kChapterBytes) != zip::kOk) {
+    return false;
+  }
+
+  size = written;
+  *data = reinterpret_cast<const char*>(g.meta);
+  return true;
+}
+
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out) {
   out.count = 0;
   out.ended = false;
@@ -561,6 +594,14 @@ int32_t chapter_bytes_of(const char* name) {
   if (chapter(name, bytes) == nullptr) return -1;
 
   return bytes;
+}
+
+// A small file of the book, said to the interpreter: the bytes and their length, or nullptr (docs/46, B6).
+const char* read_of(const char* name, uint32_t& size) {
+  const char* data = nullptr;
+  if (!read(name, &data, size)) return nullptr;
+
+  return data;
 }
 
 // **A page laid out and painted in a canvas of an app**: the plan is the paginator's and the pixels are the UI's,
@@ -638,6 +679,7 @@ void bind() {
   ops.name = name_of;
   ops.first_chapter = first_chapter;
   ops.chapter = chapter_bytes_of;
+  ops.read = read_of;
   ops.books = books;
   ops.book_at = book_at;
   ops.page = page_into;

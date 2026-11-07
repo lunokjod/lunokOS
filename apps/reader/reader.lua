@@ -124,6 +124,83 @@ local function shelf_of()
   return out
 end
 
+-- **The attributes of one tag of an XML file**: `id="c1" href="ch01.xhtml"` in a table. The OPF of a book is a
+-- list of tags with attributes and nothing else this reader needs, so a pattern over a tag is the reader of the OPF
+-- (docs/46, C2).
+local function attributes(tag)
+  local out = {}
+  for key, value in tag:gmatch('([%w:%-]+)%s*=%s*"([^"]*)"') do out[key] = value end
+  for key, value in tag:gmatch("([%w:%-]+)%s*=%s*'([^']*)'") do out[key] = value end
+  return out
+end
+
+-- **A file of the book named inside another one**, with `..` and `.` taken out: the OPF lives in `OEBPS/` and its
+-- `href`s are relative to that folder, while the zip knows nothing but the whole name (docs/46, C2).
+local function join_path(folder, href)
+  local parts = {}
+  for piece in (folder .. href):gmatch('[^/]+') do
+    if piece == '..' then
+      if #parts > 0 then table.remove(parts) end
+    elseif piece ~= '.' then
+      parts[#parts + 1] = piece
+    end
+  end
+  return table.concat(parts, '/')
+end
+
+-- **The chapters of the book, in the order they are read** (0.142.0, docs/46 C2): `META-INF/container.xml` names the
+-- OPF, the OPF names every file of the book and its spine says the order — which is the order of the book and not the
+-- order of the names. When the OPF cannot be read, the `.xhtml`, `.html` and `.htm` outside `META-INF`, sorted by name,
+-- which is what the reader has done since the first day. It also says the title of the book, which the bar shows.
+local function chapters_of_book()
+  local known = {}
+  for i = 1, epub.entries() do
+    local name = epub.name(i)
+    if name ~= nil then known[name] = true end
+  end
+
+  local spine = {}
+  local title = nil
+
+  local container = epub.read('META-INF/container.xml')
+  local opf_path = container and (container:match('full%-path%s*=%s*"([^"]+)"') or
+                                  container:match("full%-path%s*=%s*'([^']+)'"))
+  if opf_path ~= nil then
+    opf_path = opf_path:gsub('^/', '')
+    local opf = epub.read(opf_path)
+    if opf ~= nil then
+      local said = opf:match('<dc:title[^>]*>([^<]*)</dc:title>') or opf:match('<title[^>]*>([^<]*)</title>')
+      if said ~= nil and said ~= '' then title = said end
+
+      local items = {}
+      for tag in opf:gmatch('<item%s[^>]*>') do
+        local a = attributes(tag)
+        if a.id ~= nil and a.href ~= nil then items[a.id] = a end
+      end
+
+      local base = opf_path:match('^(.*/)') or ''
+      for tag in opf:gmatch('<itemref%s[^>]*>') do
+        local a = attributes(tag)
+        local it = (a.idref ~= nil) and items[a.idref] or nil
+        if it ~= nil then
+          local href = join_path(base, it.href)
+          if known[href] then spine[#spine + 1] = href end
+        end
+      end
+    end
+  end
+
+  if #spine > 0 then return spine, title end
+
+  local out = {}
+  for name in pairs(known) do
+    if not name:find('^META%-INF/') and name:match('%.x?html?$') then out[#out + 1] = name end
+  end
+  table.sort(out)
+
+  return out, title
+end
+
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
 -- never hidden (docs/30, docs/90).
 local screen = nil
@@ -569,9 +646,16 @@ local function open_book(one)
     return false
   end
 
+  local chapters, book_title = chapters_of_book()
   local where = positions()[one.path]
-  local which = (where ~= nil) and where.chapter or epub.first_chapter()
+  local which = (where ~= nil) and where.chapter or chapters[1]
   local n = (which ~= nil) and epub.chapter(which) or nil
+  if n == nil and chapters[1] ~= nil and which ~= chapters[1] then
+    -- **A chapter the book does not carry any more** —the file was replaced under a saved position—: the book opens
+    -- at its first chapter and the position of this one starts again (docs/46, C6).
+    which = chapters[1]
+    n = epub.chapter(which)
+  end
   if n == nil then
     epub.close()
     book = nil
@@ -580,29 +664,26 @@ local function open_book(one)
   end
 
   book = one
-  ui.title(one.title)
+  ui.title(book_title or one.title)
 
   chapter = which
   bytes = n
   title = chapter:match('([^/]+)%.%w+$') or chapter
-  -- **Which chapter of the book this one is, and how many the book has** (0.138.0, docs/46 C5): the foot says
-  -- `Chapter 3/12` and the percentage is a share of the book, so both numbers are of the chapters the reader can see —
-  -- the `.xhtml`, `.html` and `.htm` of the book that are not inside `META-INF`, in the order of the names, which is the
-  -- list `epub.first_chapter` walks until the OPF is read (docs/46, C2).
+  -- **Which chapter of the book is open, and how many the book has** (0.142.0, docs/46 C2 and C5): the spine of the
+  -- OPF is the order of the book, and the names sorted are what a book without an OPF falls back to.
   chapter_at = 1
-  chapter_total = 0
-  for i = 1, epub.entries() do
-    local name = epub.name(i)
-    if name ~= nil and not name:find('^META%-INF/') and name:match('%.x?html?$') then
-      chapter_total = chapter_total + 1
-      if name == chapter then chapter_at = chapter_total end
-    end
+  for i = 1, #chapters do
+    if chapters[i] == which then chapter_at = i end
   end
-  if chapter_total < 1 then chapter_total = 1 end
+  chapter_total = (#chapters > 0) and #chapters or 1
 
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end
   remember(one.path, chapter, from)
+
+  -- **What the book is, said in the log** (docs/46, C2): the title of its OPF and how many chapters the spine says,
+  -- which is the one thing a reader that had to fall back to the names cannot say.
+  console.print(string.format('reader: %s, %d chapter(s)', book_title or one.title, chapter_total))
 
   if not build_page() then
     epub.close()
