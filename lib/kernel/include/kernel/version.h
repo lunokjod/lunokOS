@@ -1931,7 +1931,30 @@ namespace kernel {
 // format under it (the dump of `run images`); the test suite compiles with 467 cases. **Pending**: the whole suite
 // (this turn's two tests and the ones of 0.113.0 to 0.117.0, which have not run), which is what the owner has to
 // allow, and a page of nine pictures in the hand on the board.
-static const char kVersion[] = "0.118.0";
+//
+// 0.118.1 (8/11): **the suite ran for the first time after this work and found five red tests, one of them a bug of the
+// system.** The owner: *«fes tots els test i trencades»*.
+// **The bug was the order of two lines**: the picture a manifest names was painted **before** `ui::attach()`, and the
+// attach washes the glass whole when the page before it had painted something (`g_levels`), so the splash of an app
+// could be washed away before the app ran a single line. The paint is after the attach now, and the break proves it:
+// with the picture first the middle of the glass reads **15** (paper) and with the picture after it reads **0** and
+// **0** —the two pixels of the picture— and `test_an_app_that_names_a_picture_has_it_painted_before_it_starts` is red
+// in the first order and green in the second (docs/30, docs/40, docs/92 §33).
+// **The images app had two bugs that its test found on first run**: `grid.on_pick` called a `draw` that was written as a
+// `local function` **below** it, so the closure held a nil global and picking a cell drew nothing; and the page left the
+// focus on the paragraph —the first focusable control it builds— instead of the grid, so the first arrow key walked the
+// rows of the text. It forward-declares `draw` and asks `ui.focus(grid)` after the three places, and the test presses
+// one key, picks the second family and reads `2 of 9` and `BMP` in the console.
+// **Three tests could not have passed and had never run**: two read pixels of a panel that was off —the bench is born
+// with everything off, so a test that reads the glass has to turn it on with `emu::Options.display`— and the third, of
+// 0.116.0, expected the centre to *leave* a box that has the band up, where the three keys belong to the keyboard: it
+// now types a letter, the app hides the band, the centre leaves the field and the up key walks to the button.
+// **Measured**: `pio test -e test` gives **467 cases, 467 green in 1 min 30 s**; the emulator builds with zero warnings;
+// the Paper is **2 300 561 B of flash (54,8 %) and 117 148 B of RAM (2,6 %)**, and its disk is **416 065 B in 146 files
+// and 58 apps**. **The breaks, each with its own red**: the focus guard of the swipe (2 red), the orphan contact (1), a
+// read-only box asking for the band (3), the slider gate (2), the block a decoder is given (1 red and the run dying of
+// the overrun), the pick of the grid (1) and the picture before the attach (1).
+static const char kVersion[] = "0.118.1";
 
 }  // namespace kernel
 

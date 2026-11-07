@@ -5365,16 +5365,14 @@ void test_the_page_of_pictures_walks_its_nine_families(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: 9 pictures, 1 drawn, 0 failed"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: JPEG 96x72 (1988 bytes)"), g_out);
 
-  // **Three presses of the dial and the second family is on the glass**: the first puts the ring on the box that is read,
-  // the second on the grid, and the third walks the grid one cell —the bench has the Paper's dial, where key 2 is down—.
-  // The centre then picks the cell the dial is on, and the app draws the picture of that family.
+  // **One press of the dial and the second family is on the glass**: the page starts with the ring on the grid of cells
+  // (the app asks for it with `ui.focus`), so a down key walks the cells from the first one to the second —the bench has
+  // the Paper's dial, where key 2 is down— and the centre picks the cell the dial is on.
   capture_begin();
-  for (int stop = 0; stop < 3; ++stop) {
-    emu::press_key(2, true);
-    pump_turns(20);
-    emu::press_key(2, false);
-    pump_turns(20);
-  }
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
   emu::press_button(true);
   pump_turns(20);
   emu::press_button(false);
@@ -6325,7 +6323,15 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
 // break (docs/30, docs/40).
 void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
+  // **The glass is the model's and a test that reads pixels has to turn it on**: the bench is born with everything off
+  // because that is what a measure of the board's work wants, and `use_board` renames the model without lighting it
+  // (docs/85). Found by running this test for the first time: `hal::platform().display()` was null and nothing was
+  // painted (0.118.0).
+  emu::Options glass_opts = emu::options();
+  glass_opts.board = "m5stack-paper";
+  glass_opts.display = true;
+  emu::set_options(glass_opts);
+  kernel::boot(hal::platform());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
@@ -6344,7 +6350,11 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
                            "{\"title\":\"Splashy\",\"version\":\"0.1.0\","
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
                            "\"splash\":\"res/start.bmp\"}",
-                           "console.print('splashy started')\n"));
+                           // **The app stays alive**, because what this test reads is the glass while the app is on it:
+                           // an app that ends takes its page with it and the shell washes the panel back to paper
+                           // (0.37.0, `ui::attach`), so the pixels of the splash would be gone before they are read.
+                           "console.print('splashy started')\n"
+                           "while true do sys.delay(20):await() end\n"));
   // **The field is read by the same walk that reads the rest of the manifest**, and it is kept as the app wrote it:
   // relative to the app, which is what lets a copy of the card show its own picture (docs/40, docs/70).
   kernel::apps::Entry entry;
@@ -6372,6 +6382,12 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(11, 11));
 
+  // **The app is put away before the next one**, and the wash that leaves the glass clean is the system's: that is what
+  // makes the next half of this test mean something (docs/30, docs/90).
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
   // **An app that names no picture leaves the glass as it found it**: the ink of the corner survives the run, which is
   // the other half of the rule.
   panel->fill_rect(0, 0, 12, 12, 0);
@@ -6379,11 +6395,15 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   TEST_ASSERT_TRUE(add_app(storage, "plain",
                            "{\"title\":\"Plain\",\"version\":\"0.1.0\","
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "console.print('plain started')\n"));
+                           "console.print('plain started')\n"
+                           "while true do sys.delay(20):await() end\n"));
   pump_captured(40, g_out, sizeof(g_out), "run plain");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "plain started"), g_out);
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(0, 0));
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(11, 11));
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
 
   // **A name that points out of the app is dropped and the app is still an app**: the picture is decoration, and a
   // manifest that reaches the rest of the disk is a manifest that says something untrue about itself (docs/40).
@@ -6422,7 +6442,13 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
 // settings are there, which is before the alarms and the radio— (docs/30, docs/50, docs/70).
 void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
+  // **The glass on**, the same as the test before this one: a boot that paints pixels needs a panel to paint them on
+  // (docs/85).
+  emu::Options glass_opts = emu::options();
+  glass_opts.board = "m5stack-paper";
+  glass_opts.display = true;
+  emu::set_options(glass_opts);
+  kernel::boot(hal::platform());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   storage->mkdir("/res");
@@ -6675,7 +6701,13 @@ void test_the_keys_walk_the_letters_of_a_line(void) {
 // page has nothing to be framed by, which is what the owner asked for with the editor in his hand (docs/30, docs/92).
 void test_a_box_without_a_frame_leaves_its_edge_in_paper(void) {
   TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
+  // **The glass on**: the four edges are read from the panel and a bench born with the panel off paints nothing
+  // (0.118.0, found by running it, docs/85).
+  emu::Options glass_opts = emu::options();
+  glass_opts.board = "m5stack-paper";
+  glass_opts.display = true;
+  emu::set_options(glass_opts);
+  kernel::boot(hal::platform());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(add_app(storage, "frames",
@@ -7214,8 +7246,16 @@ void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
                            "  console.print('focus box ' .. tostring(on) .. ' band ' .. tostring(kb:visible()))\n"
                            "end\n"
                            "box.on_activate = function(self)\n"
-                           "  console.print('enter box band ' .. tostring(kb:visible()))\n"
+                           "  console.print('enter box band ' .. tostring(kb:visible()) .. ' editing ' .. tostring(self.editing))\n"
                            "end\n"
+                           // **The band is the keyboard's while it is up**: a letter typed into the box is what gives the
+                           // keys back, and hiding the band from the app is the way a page says it has finished typing
+                           // (0.83.0, 0.91.0, docs/30).
+                           "box.on_change = function(self, text)\n"
+                           "  console.print('typed ' .. text)\n"
+                           "  kb:hide()\n"
+                           "end\n"
+                           "button.on_focus = function(self, on) console.print('focus button ' .. tostring(on)) end\n"
                            "ui.present('gc16')\n"
                            "while true do sys.delay(20):await() end\n"));
 
@@ -7236,18 +7276,30 @@ void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "enter box band true"), g_out);
-  // And the button is still reachable: the same down key walks back to it and the centre clicks it, which is what says
-  // the field did not eat the walk (docs/30).
+  // And the button is still reachable: **the band is the keyboard's while it is up**, so the centre of this window types
+  // a letter into the field —the same key that entered it— and the app hides the band when it is typed. **The centre is
+  // what leaves the field** (`editing` off), and only then do the arrows belong to the walk again: the up key walks the
+  // dial to the button and its centre clicks it, which is what says the field did not eat the walk (docs/30, docs/92).
   capture_begin();
-  emu::press_key(2, true);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
+  emu::press_key(1, true);
   pump_turns(10);
-  emu::press_key(2, false);
-  pump_turns(10);
+  emu::press_key(1, false);
+  pump_turns(20);
   emu::press_button(true);
   pump_turns(10);
   emu::press_button(false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "editing false"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click button"), g_out);
 
   kernel::shell::close_app();

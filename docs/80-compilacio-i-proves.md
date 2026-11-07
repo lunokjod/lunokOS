@@ -353,3 +353,19 @@ python3 tools/check_stack.py --all --budget 4096    # el mapa de tot el firmware
 - Un `await` fora d'una tasca dona `E_NOTASK`.
 - Una alarma d'una app no carregada s'executa a la finestra d'alarma i el primer pla continua.
 - Un error dins d'una finestra d'alarma no tomba el primer pla.
+
+## Una prova que llegeix píxels encén el vidre (0.118.1)
+
+**El banc neix amb tot apagat** —sense vidre, sense tàctil, sense targeta— perquè això és el que vol una mesura del treball de la placa, i `use_board("m5stack-paper")` canvia el model **sense encendre res**. Una prova que llegeix píxels ha de demanar-ho abans de fer el boot:
+
+```cpp
+emu::Options opts = emu::options();
+opts.board = "m5stack-paper";
+opts.display = true;
+emu::set_options(opts);
+kernel::boot(hal::platform());          // `hal::platform().display()` is null until this line
+```
+
+Sense això, `hal::platform().display()` és `nullptr` i `emu::memory_surface()` dona una pàgina que no s'ha pintat mai: la prova llegeix paper a tot arreu i la imatge que diu comprovar no hi és. Dues proves del torn 0.118.0 fallaven així i no pel codi que provaven (docs/85, docs/92 §33).
+
+**I una app que la prova ha de veure a la pantalla s'ha de quedar viva** (`while true do sys.delay(20):await() end`), perquè quan una app s'acaba el sistema neteja el vidre (`ui::attach`, 0.37.0) i el que la prova vol llegir ja no hi és (docs/30).

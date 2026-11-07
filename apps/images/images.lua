@@ -97,6 +97,11 @@ local cells = {
   { label = 'ppm', mark = 'c' },
   { label = 'pbm', mark = 'b' },
 }
+-- **`draw` is declared here and given its body below**, because the grid's hook is written before the function it calls
+-- and a `local function draw()` further down is not in scope up here: the hook would keep a nil global called `draw` and
+-- the picture would not change when a cell is picked (found by the test that presses the dial, 0.118.0).
+local draw
+
 local grid_h = 250
 local grid = ui.icon_grid(view.width - 2 * 12, grid_h)
 grid.columns = 5
@@ -143,6 +148,13 @@ notes:place(12, picture_y + picture_h + gap)
 grid:place(12, picture_y + picture_h + gap + notes_h + gap)
 quit:place(12, view.height - button_h - 12)
 
+-- **The dial starts on the pictures and not on the paragraph**: the page is a menu of nine, so the ring of the first cell
+-- is on the glass from the first wash and one press of a key walks the families. Without this the focus would be the
+-- first control that was made —the strip of dots is not a stop, so the paragraph— and the arrows there would walk its
+-- rows, which is a page that answers the wrong question. It is asked **after the three places**, because `ui.focus`
+-- walks the controls of the page and a control that is not on it yet is not one of them (0.118.0, docs/30).
+ui.focus(grid)
+
 local function bytes_of(path)
   local stat = fs.stat(path)
   return (stat ~= nil and stat.size) or 0
@@ -150,7 +162,7 @@ end
 
 -- **The picture into its box with its proportion**: the scale is the smaller of the two and the size it is drawn at
 -- is the one of the file times that scale (docs/30).
-local function draw()
+function draw()
   local picture = pictures[index]
   ui.clear(15)
   -- **The controls come back to the page**: `ui.clear` wipes the view and every control is its own canvas, so what has

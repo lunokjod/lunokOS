@@ -1205,3 +1205,26 @@ un nom de format tallat amb tres punts no és el nom d'un format.
 `test_the_page_of_pictures_walks_its_nine_families` (l'app del disc, arrencada de debò: `9 pictures, 1 drawn, 0
 failed`, tres premses de dial fins a la graella i el centre que canvia la imatge a la segona família). La suite
 sencera continua pendent del permís de l'amo.
+
+**I la suite, per primera vegada** (0.118.1, amb permís de l'amo: *«fes tots els test i trencades»*): **467 casos, 467
+verds en 1 min 30 s**. Al primer intent, cinc vermelles a `test_apps`, i no eren de la prova:
+
+- **una era un error del sistema** (i el va trobar una prova que havia escrit el torn anterior i no s'havia corregut
+  mai): la imatge del manifest es pintava **abans** de `ui::attach()`, i l'attach neteja el vidre sencer quan la pàgina
+  anterior hi havia pintat alguna cosa (`g_levels`). O sigui que la splash d'una app podia ser esborrada abans que l'app
+  comencés. Mesurat: amb la imatge abans de l'attach el mig del vidre llegeix **15** (paper) i amb la imatge després
+  llegeix **0** i **0**, els dos píxels del dibuix. La imatge va **després de l'attach** i abans del títol de la barra;
+- **dues eren de l'app d'imatges**, i les va trobar la prova que la fa anar: `grid.on_pick` cridava un `draw` que era
+  un `local function` **de més avall**, o sigui que la clausura tenia un global buit i triar una cel·la no dibuixava
+  res; i la pàgina deixava el focus al paràgraf (el primer control enfocable que es fa) en lloc de la graella, de manera
+  que la primera fletxa caminava les files del text. Ara `draw` es declara abans i la pàgina demana `ui.focus(grid)`
+  després de col·locar els tres controls, i la prova prem una tecla, tria la segona família i llegeix `2 of 9` i `BMP`;
+- **dues més no haurien pogut passar mai** i també eren de les proves: dues llegien píxels d'un panell que era apagat
+  (el banc neix amb tot apagat i una prova que llegeix el vidre l'ha d'encendre amb `emu::Options.display`), i la de la
+  caixa de text del 0.116.0 esperava que el centre **sortís** d'una caixa amb la banda a dalt, on les tres tecles són
+  del teclat: ara escriu una lletra, l'app baixa la banda, el centre surt del camp i la fletxa amunt camina fins al botó.
+
+**Les trencades, una a una i cadascuna amb la seva vermella**: el guard de focus del swipe (2 vermelles), la marca del
+contacte orfe (1), una caixa de només lectura demanant la banda (3), la porta del slider (2), el bloc que rep un
+descodificador (1 vermella i la tanda morint-se per l'escriptura fora del bloc), la tria de la graella d'imatges (1) i
+la imatge abans de l'attach (1).

@@ -1167,24 +1167,6 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   size_t len = 0;
   if (!load_source(id, target, len)) return false;
 
-  // **The app's own picture, before the app** (0.114.0): a manifest that names one gets the whole glass washed
-  // and the image in the middle —the system's `splash` and not a paint of the app's, because an app cannot paint
-  // before it runs— and the first page it presents takes it away. It is skipped for an app that comes back from
-  // a sleep: a resume is not a start. A picture that is not there is a line of the log and nothing else; the app
-  // runs all the same (docs/30, docs/40).
-  if (target.splash[0] != '\0' && !restore) {
-    char root[96];
-    char picture[160];
-    const int made = apps::root_of(id, root, sizeof(root))
-                         ? snprintf(picture, sizeof(picture), "%s/%s", root, target.splash)
-                         : -1;
-    if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
-      if (!splash::show(picture)) {
-        log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
-      }
-    }
-  }
-
   luabind::Boot boot;
   boot.board = platform().id();
   boot.version = kVersion;
@@ -1225,6 +1207,26 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // The app gets a view of its own, white and with nothing pending; the glass is not touched until it
   // presents (docs/30).
   ui::attach();
+  // **The app's own picture, after the page is attached and before the app runs a line** (0.114.0, moved here by
+  // 0.118.0): a manifest that names one gets the whole glass washed and the image in the middle —the system's `splash`
+  // and not a paint of the app's, because an app cannot paint before it runs— and the first page it presents takes it
+  // away. **It goes after `ui::attach()` and not before**, because the attach washes the glass whole when the page
+  // before it had painted something, and a wash after the picture is a picture nobody ever sees: that is exactly what
+  // the test of this found on the bench, where the page of the test before had left its ink counted (docs/30, docs/40).
+  // It is skipped for an app that comes back from a sleep: a resume is not a start. A picture that is not there is a
+  // line of the log and nothing else; the app runs all the same.
+  if (target.splash[0] != '\0' && !restore) {
+    char root[96];
+    char picture[160];
+    const int made = apps::root_of(id, root, sizeof(root))
+                         ? snprintf(picture, sizeof(picture), "%s/%s", root, target.splash)
+                         : -1;
+    if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
+      if (!splash::show(picture)) {
+        log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
+      }
+    }
+  }
   // And its title goes to the middle of the bar, which is the system's and not the app's (docs/30).
   bar::title(target.title);
 

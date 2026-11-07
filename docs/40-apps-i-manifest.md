@@ -153,8 +153,10 @@ Regles de validació, totes amb error clar i el nom del camp:
   cap imatge **no es refuseix aquí**: l'app arrenca igualment i el registre diu per què no s'ha
   pintat, perquè el dibuix és decoració i una app que no arrenca per una imatge és pitjor que una
   app sense imatge. La imatge es pinta amb `splash` —la mateixa crida dels moments del sistema,
-  neteja de tot el panell i al mig— just abans que arrenqui l'intèrpret, i la primera pàgina que
-  l'app presenta se l'emporta (docs/30, docs/50).
+  neteja de tot el panell i al mig— **just abans que arrenqui l'intèrpret i després que la pàgina
+  de l'app estigui preparada** (0.118.1: l'`attach` de la vista neteja el vidre quan la pàgina
+  anterior hi havia pintat, i pintar abans volia dir una imatge que ningú no arribava a veure), i
+  la primera pàgina que l'app presenta se l'emporta (docs/30, docs/50, docs/92 §33).
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
 - Si hi ha un camp `id`, **s'ignora**: l'identificador d'una app és sempre el nom del seu directori,
   i un `id` que digui una altra cosa no es comprova ni es fa servir.
