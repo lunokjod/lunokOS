@@ -670,6 +670,9 @@ struct BookStyle {
   uint8_t title_scale = 5;
   uint8_t small_scale = 3;
   int16_t indent = 24;
+  // **Measure and do not paint** (0.134.0): the page is laid out and nothing is drawn, which is what counting the
+  // pages of a chapter is (docs/46, B4).
+  bool measure = false;
   // What comes back.
   int32_t next = 0;
   bool ended = false;
@@ -685,6 +688,9 @@ struct BookOps {
   const char* (*name)(int32_t index);
   int32_t (*first_chapter)();
   int32_t (*chapter)(const char* name);
+  // The shelf: how many books the machine carries and the path of one of them (docs/46, C1).
+  int32_t (*books)();
+  const char* (*book_at)(int32_t index);
   bool (*page)(int16_t slot, int32_t from, BookStyle& style);
 };
 

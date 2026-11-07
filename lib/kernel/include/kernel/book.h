@@ -72,6 +72,12 @@ int32_t entries();
 const zip::Entry* entry(int32_t index);
 int32_t find(const char* name);
 
+// **The books of the machine**, which are the `.epub` of `/epub` on the flash and on the card —the folders this
+// system keeps a book in— (docs/46, C1). The reader asks its own door and not the file system of the app: the folder
+// is the system's, and an app that could list the flash would be an app with a key to every room.
+int32_t books();
+const char* book_at(int32_t index);
+
 // **The first entry that looks like a chapter**, by the order of `epub::Tokens` of docs/46 C2 —an `.xhtml`,
 // `.html` or `.htm` that is not inside `META-INF`—, or -1. It is what a reader opens when it cannot read the OPF.
 int32_t first_chapter();

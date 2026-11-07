@@ -2676,10 +2676,47 @@ namespace kernel {
 // `pio test -e test --without-testing` builds the **23 suites and 521 cases** with 0 warnings, and `pio run -e
 // emulator` says SUCCESS with 0 warnings.
 // **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); a plate **bigger** than the
-// block of a page is refused and not shrunk before it is decoded (a photo of a camera is 750 KB at four bits and the
-// block is 259 200); and the app of the reader —the shelf, the menus, the foot and the position of each book, C1 to
-// C13— is the piece that is left for a book to be read by a person and not by a probe.
-static const char kVersion[] = "0.133.0";
+// block of a page is refused and not shrunk before it is decoded; and the app has no full screen, no dark page, no
+// cover and no thumbnails (docs/46, C9, C11 and D1).
+//
+// 0.134.0 (7/11): **the app of the reader, and the shelf that was missing from the system**.
+//
+// A book is read by a person now: `apps/reader` is the shelf of every `.epub` of the flash and the card, the page
+// composed by the engine with the serif face of the book, the foot with the chapter and the percentage, two buttons
+// for the pages and the position of each book kept as the chapter and the byte. **The app does not lay out
+// anything**: what it does is what a hand does —which book, which page, and how far in— and the rest is the engine's,
+// which is what docs/46 has been building towards since 0.126.0.
+//
+// **Three things of the system came out of writing it**, and none of them were planned:
+//
+//   - **the shelf belongs to the system and not to the app**: an app of this system does not list the flash —it has
+//     its own folder and it reads the rest through the doors— and the folder of the books is the system's, so
+//     `epub.books()` answers the paths of the `.epub` of `/littlefs/epub` and `/sd/epub` and the app makes the
+//     titles out of the names (`book.cpp`, a `ListSink` of twenty-four names);
+//   - **going back a page needs a page that is not painted** (docs/46, B4): the position is a byte and the page
+//     before it is the last one that started before it, so `epub.page` learned a `measure` that lays the pages out
+//     and touches no pixel, and the app walks the chapter with it;
+//   - **the positions live in the app's own data** and not beside the book, because an app writes in its own folder
+//     and reads the rest of the machine (docs/30, docs/70): the day the system gives an app a writable shelf, that
+//     is one line of the app that changes.
+//
+// The door also learned that a canvas is **the object an app holds** and not only its number, and that a page of a
+// book can be asked for a canvas of any size —which is what lets the app keep a foot and a bar of buttons under the
+// page it paints—.
+//
+// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **316 lines** of Lua and
+// its manifest declares `opens: epub`. Run with `run reader /littlefs/epub/la-vaca-cega.epub` the app opens the book,
+// composes page one with the statue of the poem under the title and writes `ch01 0%` in the foot, with the two
+// buttons under it; with the position of the book set to byte **586** the app opens **at that byte**, the page starts
+// at `Topa de morro en l'esmolada` and the foot says **51 %**. The file of positions is
+// `data/reader/reading.txt`, one line, `path TAB chapter TAB byte`. `pio run -e emulator` says SUCCESS with 0
+// warnings and `pio test -e test --without-testing` still builds the 23 suites and 521 cases with 0 warnings.
+// **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); the app has no case of its
+// own —it was looked at, which is said here as it is—; and the two pieces the reader of the paper had and this one
+// does not are the full screen (D1) and the dark page (C9), which want the bar of the system to be able to go away.
+// **And one thing for the owner**: `apps/reader` has to be named in `custom_apps` of `platformio.ini` for a built
+// disk to carry it —that file is his—, and until then the app of the bench runs from the card.
+static const char kVersion[] = "0.134.0";
 
 }  // namespace kernel
 

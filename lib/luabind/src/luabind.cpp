@@ -9123,6 +9123,24 @@ int l_epub_close(lua_State* L) {
   return 0;
 }
 
+// epub.books(): the `.epub` of the flash and the card, as paths, which is what the shelf of a reader is.
+int l_epub_books(lua_State* L) {
+  if (g_book_ops.books == nullptr || g_book_ops.book_at == nullptr) {
+    return push_nil_error(L, "E_STATE", "this build carries no reader");
+  }
+
+  const int32_t count = g_book_ops.books();
+  lua_createtable(L, count, 0);
+  for (int32_t i = 0; i < count; ++i) {
+    const char* path = g_book_ops.book_at(i);
+    if (path == nullptr) continue;
+    lua_pushstring(L, path);
+    lua_rawseti(L, -2, i + 1);
+  }
+
+  return 1;
+}
+
 int l_epub_entries(lua_State* L) {
   if (g_book_ops.entries == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
   lua_pushinteger(L, g_book_ops.entries());
@@ -9167,7 +9185,16 @@ int l_epub_chapter(lua_State* L) {
 // default: the face of the system and the steps of a page of a book.
 int l_epub_page(lua_State* L) {
   if (g_book_ops.page == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
-  const int16_t slot = static_cast<int16_t>(luaL_checkinteger(L, 1));
+  // **The canvas can be the object an app holds or its number** (0.134.0): an app has the object, and a probe that
+  // paints on the view of the app has the zero.
+  int16_t slot = 0;
+  if (lua_isnumber(L, 1)) {
+    slot = static_cast<int16_t>(lua_tointeger(L, 1));
+  } else if (canvas_ready(L, 1)) {
+    slot = canvas_slot_of(L);
+  } else {
+    return push_nil_error(L, "E_INVAL", "a page needs a canvas");
+  }
   const int32_t from = static_cast<int32_t>(luaL_optinteger(L, 2, 0));
 
   BookStyle style;
@@ -9178,6 +9205,7 @@ int l_epub_page(lua_State* L) {
   style.title_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "title_scale", style.title_scale));
   style.small_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "small_scale", style.small_scale));
   style.indent = static_cast<int16_t>(epub_opt_number(L, 3, "indent", style.indent));
+  style.measure = epub_opt_number(L, 3, "measure", 0) != 0;
 
   if (!g_book_ops.page(slot, from, style)) {
     return push_nil_error(L, "E_INVAL", "that page cannot be composed: no book, no chapter, or no canvas");
@@ -9252,6 +9280,7 @@ void seal_globals(lua_State* L) {
   // a canvas of the app (docs/46, A5 and B3).
   lua_createtable(L, 0, 7);
   set_function(L, "open", l_epub_open);
+  set_function(L, "books", l_epub_books);
   set_function(L, "close", l_epub_close);
   set_function(L, "entries", l_epub_entries);
   set_function(L, "name", l_epub_name);

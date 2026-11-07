@@ -125,7 +125,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 | **B1** | `epub.open(unit, path)` → objecte llibre, amb el motiu quan no és un llibre — **fet el 7/11 (0.132.0)**, i **com a mòdul i no com a objecte**: hi ha **un sol llibre obert** al sistema (el capítol és mig megabyte de memòria extra) | `lEpubOpen` | **No hi era** | `epub.open(path)`, `close()`, `entries()`, `name(i)`, `first_chapter()` (docs/30) |
 | **B2** | `book:chapter(href)` → bytes del capítol, i `close()` — **fet el 7/11 (0.132.0)**: `epub.chapter(name)` infla el capítol i en diu **quants bytes** (l'app no l'ha de tenir a la mà per llegir-lo) | `lEpubChapter` | **No hi era** | el mateix |
 | **B3** | `book:page(from, w, h, opts)` → la pàgina composta — **fet el 7/11 (0.132.0)**: `epub.page(canvas, from, opts)` **pinta dins del canvas de l'app** i torna `next, ended, used, has_picture` | `lEpubPage` | **No hi era** | Resolt amb la decisió **D2**: cap superfície nova |
-| **B4** | `book:measure(from, w, h, opts)` → on acaba la pàgina, sense pintar | `lEpubMeasure` | **No hi és** | el mateix, sense canvas |
+| **B4** | `book:measure(from, w, h, opts)` → on acaba la pàgina, sense pintar — **fet el 7/11 (0.134.0)**: `epub.page(canvas, from, {measure = true})`, que maqueta i no pinta (és com l'app va enrere) | `lEpubMeasure` | **No hi era** | el mateix, sense canvas |
 | **B5** | Les opcions d'una pàgina: `face`, `title_face`, `small_face`, `dark` | `epubStyleFrom` | Les cares es donen per **número** (`ui.load_font`) i no per nom | `{face = <número>, title_face = …, dark = true}`, i `paper`/`ink` segons `dark` |
 | **B6** | `zip.entries(unit, path)` → la llista d'entrades | `lZipEntries` | **No hi és** | surt de l'A1; l'app en llegeix el `container.xml` i l'OPF |
 | **B7** | `zip.open(unit, path, name)` → entrada amb `size()/name()/read(from,len)/close()` | `lZipOpen` + l'objecte | **No hi és** | el mateix |
@@ -137,12 +137,12 @@ definicions i el `Token` porta `inset` (0.130.0).
 
 | # | Funcionalitat | Al paper | Què cal aquí |
 |---|---|---|---|
-| **C1** | **El prestatge**: els `.epub` de `/epub` de cada unitat, en pàgines, amb la tira de boletes del sistema (16 com a molt, la finestra al voltant de l'actual) | `shelf*` de l'app | `fs.list`/`fs.mounts` i `ui.dots` ja hi són |
+| **C1** | **El prestatge** — **fet el 7/11 (0.134.0)**: `epub.books()` al sistema (les `.epub` de `/epub` del flaix i de la targeta) i una `ui.icon_grid` a l'app | `shelf*` de l'app | **L'app no pot llistar el flaix** (està en capsa), i el prestatge és del sistema: la porta `epub` en diu els camins |
 | **C2** | **Obrir un llibre**: `META-INF/container.xml` → OPF → `dc:title` + `manifest`/`spine`, i si l'OPF no es llegeix, les entrades `.xhtml`/`.html`/`.htm`/`.xml` fora de `META-INF/` per ordre de nom | `openBook()` | B6 (o B7 llegint-lo a trossos) |
-| **C3** | **Passar pàgina**: tecles, toc al costat, lliscament lateral; dos tocs al centre (dins de 1500 ms) demanen la pantalla sencera | `nextPage/prevPage`, `on_tap` | les tecles i el toc hi són; **la pantalla sencera no** (D1) |
+| **C3** | **Passar pàgina** — **fet el 7/11 (0.134.0)**: dos botons (`<` i `>`), que el dial i el dit premen | `nextPage/prevPage`, `on_tap` | Endavant és el byte que va dir la pàgina; **enrere** és caminar el capítol amb `measure` (B4). El toc al costat i la pantalla sencera (D1) no hi són |
 | **C4** | **Els menús** `Book` (Shelf, Contents) i `View` (Full screen, Dark page / Light page) | `paperos.ui.menubar` | `ui.menu_bar` hi és |
 | **C5** | **El peu**: capítol i percentatge, i les boletes de les pàgines del capítol (14 de finestra, tres de més petites als caps, sostre de 512) | `foot*` | B4 per comptar, `ui.dots` per pintar. El comptatge va **de fons**, unes quantes pàgines per volta del rellotge |
-| **C6** | **La llista de lectures**: `/epub/reading.txt`, una línia per llibre `unitat TAB camí TAB capítol TAB byte TAB portada`, 200 com a molt, i el més vell cau | `readingList*` | `fs.read`/`fs.write` sobre la unitat del llibre: res de sistema |
+| **C6** | **La llista de lectures** — **fet el 7/11 (0.134.0)**: una línia per llibre `camí TAB capítol TAB byte`, a **la carpeta de dades de l'app** (una app no escriu al costat del llibre) | `readingList*` | `fs.read`/`fs.write` sobre `fs.data()` |
 | **C7** | **La portada com a estat**: la primera pàgina del primer capítol comença al byte zero, o sigui que «sóc a la portada» no es pot deduir del byte | `book.cover` | res |
 | **C8** | **La pantalla de càrrega**: «Opening the book…» i el nom del fitxer, i el llibre s'obre **al torn següent** (el panell només viatja quan el callback s'ha acabat) | `openOnNextTurn` | el bucle de l'app: res |
 | **C9** | **El paper fosc i el clar**: només per a les pàgines del llibre, no per al prestatge ni per a la portada, i **no es desa** | `dark` | B5 (`dark = true`) |

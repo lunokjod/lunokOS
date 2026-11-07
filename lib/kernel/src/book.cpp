@@ -1,6 +1,7 @@
 // **A book open** (docs/46, A5) — the file, the table of its entries, the chapter in memory and the page.
 #include "kernel/book.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "hal/hal.h"
@@ -310,6 +311,34 @@ bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w
   return true;
 }
 
+// **The shelf of the machine**: what a mount carries in its `/epub`, with the names of the books and nothing else.
+// A sink of the listing and not a list of files: a folder of a book is a few dozen names and this is the block that
+// holds them (docs/46, C1).
+struct Shelf : hal::ListSink {
+  static const int32_t kMax = 24;
+
+  char names[kMax][64];
+  int32_t count = 0;
+  char folder[32];
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.type != hal::NodeType::kFile || entry.name == nullptr) return true;
+
+    const char* dot = strrchr(entry.name, '.');
+    if (dot == nullptr || strcmp(dot, ".epub") != 0) return true;
+    if (count >= kMax) return false;
+
+    const int32_t written = snprintf(names[count], sizeof(names[0]), "%s/%s", folder, entry.name);
+    if (written <= 0 || written >= static_cast<int32_t>(sizeof(names[0]))) return true;
+    ++count;
+
+    return true;
+  }
+};
+
+Shelf g_shelf;
+bool g_shelf_filled = false;
+
 // What the paginator asks about a picture: the box it takes inside a box (docs/46, A3).
 bool measure_picture(void* ctx, const char* href, int32_t max_w, int32_t max_h, int32_t& w, int32_t& h) {
   (void)ctx;
@@ -318,6 +347,36 @@ bool measure_picture(void* ctx, const char* href, int32_t max_w, int32_t max_h, 
 }
 
 }  // namespace
+
+int32_t books() {
+  // The two folders of a book, and a mount that is not there says nothing instead of failing the whole shelf: a
+  // board with no card still has the flash (docs/46, C1).
+  if (!g_shelf_filled) {
+    g_shelf_filled = true;
+    g_shelf.count = 0;
+
+    static const char* const kFolders[] = {"/littlefs", "/sd"};
+    for (int32_t i = 0; i < 2; ++i) {
+      hal::IStorage* storage = hal::platform().storage(kFolders[i]);
+      if (storage == nullptr) continue;
+
+      const size_t len = strlen(kFolders[i]);
+      if (len + 6 >= sizeof(g_shelf.folder)) continue;
+      memcpy(g_shelf.folder, kFolders[i], len);
+      memcpy(g_shelf.folder + len, "/epub", 6);
+
+      storage->list("/epub", g_shelf);
+    }
+  }
+
+  return g_shelf.count;
+}
+
+const char* book_at(int32_t index) {
+  if (index < 0 || index >= books()) return nullptr;
+
+  return g_shelf.names[index];
+}
 
 bool is_open() { return g.open; }
 
@@ -524,6 +583,15 @@ bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
   Page laid;
   if (!page(from, canvas->width, canvas->height, mine, faces, laid)) return false;
 
+  if (style.measure) {
+    style.count = laid.count;
+    style.next = laid.next;
+    style.ended = laid.ended;
+    style.used = laid.used;
+    style.has_picture = laid.has_picture;
+    return true;
+  }
+
   ui::PageFonts paint;
   paint.body = style.body;
   paint.title = style.title;
@@ -563,6 +631,8 @@ void bind() {
   ops.name = name_of;
   ops.first_chapter = first_chapter;
   ops.chapter = chapter_bytes_of;
+  ops.books = books;
+  ops.book_at = book_at;
   ops.page = page_into;
 
   luabind::set_book_ops(ops);
