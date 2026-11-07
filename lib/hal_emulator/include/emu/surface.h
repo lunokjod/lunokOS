@@ -29,6 +29,9 @@ class MemorySurface : public hal::ISurface {
             uint16_t stride) override;
   bool flush(hal::UpdateMode mode) override;
   bool idle() override;
+  // **Why a paint was refused**, in the words of the driver of the Paper (`--ink-refuse`), for the line the caller
+  // writes (0.118.2, docs/50, docs/85).
+  const char* last_error() const override { return why_; }
 
   // What a test asks: the pixels themselves, and how the panel was asked to work.
   const uint8_t* bits() const { return bits_; }
@@ -103,6 +106,8 @@ class MemorySurface : public hal::ISurface {
   uint8_t* dirt_ = nullptr;
   // When the ink of the last paint will have finished moving. `idle()` is the question for it.
   uint32_t busy_until_ms_ = 0;
+  // The sentence of the last refusal, as the driver of the board says it (docs/50).
+  const char* why_ = "";
   // **A flash that is running**: the region, the quality that asked for it, when it started and when it
   // is over. Zero in `flash_until_ms_` is no flash, and `flash_stage_` says which of the three moments
   // the glass is in (white, black, the image) (docs/85).

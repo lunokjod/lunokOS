@@ -1954,7 +1954,171 @@ namespace kernel {
 // and 58 apps**. **The breaks, each with its own red**: the focus guard of the swipe (2 red), the orphan contact (1), a
 // read-only box asking for the band (3), the slider gate (2), the block a decoder is given (1 red and the run dying of
 // the overrun), the pick of the grid (1) and the picture before the attach (1).
-static const char kVersion[] = "0.118.1";
+//
+// 0.118.2 (8/11): **the panel said no to the second picture and the splash had not waited for the ink of the first.**
+// The owner, with the firmware on the board: *«lunok> splash boot-alt / splash: the panel did not take the picture»*.
+// **It was not the picture, it was the paint before it**: `It8951::flush` waits up to three seconds for the ink of the
+// previous paint to be over (`wait_paint`) and the wash of the whole glass at boot moves it for longer than that, so a
+// `splash` typed two seconds after the boot was refused. Three things came out of it:
+// **the splash waits for the ink** (`settle` in `splash.cpp`: `idle()` every 20 ms up to 6 s) before asking for its
+// own paint — nobody is waiting on a page while a logo goes up, and losing the drawing to two seconds is the bad
+// trade—; **the message carries the HAL's reason** (`the panel did not take the picture: the previous paint did not
+// finish`), because a no without a reason is an afternoon finding out which of the five cases it was; and **the bench
+// can say no too** (`--ink-refuse`): while the ink moves, `flush` answers false with the driver's own reason, which is
+// what makes the waiting testable instead of lucky.
+// The test written is `test_the_splash_waits_for_the_ink_of_the_page_before`: the first drawing leaves the whole page
+// moving ink, the bench refuses a paint, and the second drawing lands anyway because the splash waited; taking `settle`
+// out answers false and the glass keeps the first drawing (docs/50, docs/85, docs/92 §33).
+// **And the second half of it was worse**: the owner, the same turn, with the board on: *«l'splash sembla que bloqueja
+// l'eink? les apps s'executen però no mostren res a pantalla»*. The splash blocks nothing — **the page the panel refused
+// was thrown away**: `paint_root` emptied the list of what was waiting whatever happened, so a `flush` refused was a
+// page lost for ever, and the wash of the boot moves ink for longer than the three seconds the driver waits, so the
+// first page of an app fell into it. An app that presents **once** and then waits —`run images`, half the disk— kept
+// the logo of the boot on the glass: it runs and nothing is seen.
+// **What did not go up is now owed**: `paint_root` puts the refused regions back in the list (`kept`, a copy in its own
+// order) and raises a flag; **the turn of the kernel** asks `ui::owes_paint()` and only then pays an `ui::idle()`, which
+// is where the page is asked for again with nobody doing anything; `ui.idle()` of an app does it too, so a page that
+// waits for the ink sees its own page arrive; and the paint is only asked for **when the panel says the ink is over**,
+// which is what keeps a turn from spending three seconds inside `wait_paint`.
+// The second test is `test_a_page_the_panel_refused_is_painted_when_it_can`: the bench says no while the boot's picture
+// moves the ink, an app presents once and stays, the console says `present nil the previous paint did not finish`, the
+// glass is still paper where the square goes… and after a few turns **the square is there**, with the app presenting
+// nothing else. Emptying the list again leaves it without the square for ever (docs/30, docs/50, docs/92 §33).
+// **Pending**: running the suite of this turn, and the board with the two repairs.
+//
+// 0.118.3 (8/11): **no board carries apps in its littlefs image.** The owner: *«Cap placa ha de contenir apps al
+// littlefs al flashejar (fes les imatges littlefs sense apps)»*, after `pio run -e m5-atom -t buildfs` stopped with
+// `make_disk: **this disk does not fit**: the tool leaves 2 of the 148 files out of 1441792 B`.
+// **The board environments say `custom_apps_in_disk = no` now** and their image is the system alone: **13 files and
+// 79 288 B**, measured on the ATOM, the Matrix, the bare ESP32 and the T-Koala. **The Paper names three** —the owner
+// wrote `custom_apps = editor,controls,images` himself— and its image is **29 files and 181 618 B**; a list wins over
+// the filter and every name that does not name the board stays out **and says so**, which was not true of the option
+// before: `custom_apps` was documented as "exactly those, whatever the manifests say" and the board filter applied to
+// it all the same (found by asking the file what it really does, 8/11). `test` keeps
+// carrying every app as copies (its own tests write to the disk they mount) and the bench carries none, as it has since
+// 0.88.2. The two ways of asking for apps are still there, and are documented now instead of being the default:
+// `custom_apps = id1,id2` for an exact list, and `custom_apps_in_disk = yes` for the ones that name the board by id or
+// by family — measured at **29 files and 90 182 B with eight apps** against the 1 441 792 B partition of a 4 MB board
+// (docs/70 «Com afegir apps a la imatge del disc», docs/80).
+// **Why that is the right default**: the 148 files of `apps/` (418 720 B on the host) need more than the whole
+// 1 441 792 B partition of a 4 MB board —the tool left two of them out and PlatformIO still said SUCCESS— and an image
+// that carries apps is an image that is stale the day an app is touched, which is every day. A board with the clean
+// image is not a board without apps: `repo install <id>` puts them in `/apps` of the disk and a card is read at
+// `/sd/apps`. The line `make_disk` prints for such a disk says which empty disk it is: `no apps: the system alone`.
+// **Pending**: the suite of this turn (the two tests of 0.118.2 and the ones of this change go with it) and the board.
+//
+// 0.118.4 (8/11): **the glass stopped painting for ever because a flag of the controller was read and never cleared.**
+// The owner, with the firmware on the board: *«l'splash continua "segrestant" el canvas del sistema ??? … (no es veu res
+// a pantalla) … el splash no marxa del eink»*, with `run editor` and `run images` printing their lines and nothing on
+// the screen.
+// **The splash was not stealing anything and it was not the canvas**: `It8951::engine_over()` reads `LUTAFSR` (0x1224)
+// to know whether the LUT engine is still moving ink, and the maker's own code **clears that bit with a write of 1**
+// once it has waited long enough. This driver only read it —docs/50 said "the maker's driver waits (`CheckAFSR`)" and
+// never "and clears it"—, so one bit that stayed up left `idle()` saying "not over" for ever, `wait_paint` refusing
+// every paint after its three seconds, and the system with a glass that could not be painted again: **the logo of the
+// boot goes up because it is the first paint of a boot, and nothing else ever does** — the app runs, its lines come out
+// on the console, and the screen keeps the logo. That is the report, word for word.
+// **The engine is given `kStuckMs` = 6 s** —more than the longest paint this panel does, a whole page in `gc16` moves
+// its ink for three or four— and then the flag is cleared and the log says it:
+// `[W][PANEL] the ink engine kept its flag up for N ms; cleared (LUTAFSR)`. `wait_paint` does the same when its own
+// three seconds run out on a paint older than that, because a page over fresh ink is a faded page and a glass that
+// never paints is a dead board (docs/50, docs/92 §33).
+// **And the UI says it out loud now**: `[W][UI] the glass refused a page (x,y wxh, du/gc16): <the panel's reason>` for
+// every paint that does not go up, and `[I][UI] the page the glass refused is up` when the retry of 0.118.2 finally
+// lands it. A page that does not go up is the difference between an app that works and an app that runs with a dead
+// glass, and until now only the return of the app's own `ui.present` said it, which every app in the disk ignores.
+// **Pending**: the tests of this turn (the two of 0.118.2 and the ones of 0.118.3 go with them), the commit, and the
+// board with 0.118.4 in the hand —the `[W][PANEL]` line is what tells whether that flag was the one.
+//
+// 0.118.5 (8/11): **the flag of the ink engine is a latch and the driver answers it; the wait is a number.** The log the
+// owner sent with 0.118.4 on the board decided it, and it is worth writing down as it came:
+//   [W][PANEL] the ink engine kept its flag up for 9560 ms; cleared (LUTAFSR)
+//   [W][UI] the glass refused a page (12,486 516x120, du): the previous paint did not finish
+//   [W][PANEL] the ink engine kept its flag up for 6001 ms; cleared (LUTAFSR)
+//   [I][UI] the page the glass refused is up
+// Three things it says and one it does not: the glass **paints again** (the page came up, so the system of 0.118.2 was
+// right and the driver was the fault), the flag **stays up after every single paint** —six seconds later it is up
+// again, so it is a latch that the hardware never takes down—, and with the healing of 0.118.4 **every page costs a six
+// second stall**, which is no way to use a board.
+// **What the maker's own code does is acknowledge it**: a write of 1 to `LUTAFSR` before the paint, not a read after
+// it. The driver does that now, at the head of `flush`, and what it waits on is the two things that do not lie: the
+// **BUSY line** of the panel, which it holds low while it works, and **the ink time of the mode**, which is the maker's
+// own table (docs/95): 120 ms for `du` and `du4`, 290 for `a2`, 350 for `gl16` and `glr16`, 450 for `gc16` and
+// `gld16`. The wait can only be longer than the datasheet, never shorter, and it costs a pin read and a counter.
+// `the ink engine kept its flag up` is gone with the healing that needed it; if `[W][PANEL] the previous paint did not
+// finish in N ms` ever appears, a paint is still moving ink after three seconds and no mode of this panel takes that
+// long, and the line says so instead of guessing.
+// **Pending**: the tests of this turn (0.118.2, 0.118.3 and this), the commit, and the board with 0.118.5: the page of
+// `run images` should come up **without** a refusal line and without six-second waits.
+//
+// 0.118.6 (8/11): **the driver writes down every paint it sends, because the two paths are the same call.** With 0.118.5 on
+// the board the owner sent the log of `run editor` and of `run images` and there were **no refusals at all** — not one
+// `[W][PC]` line, not one `[W][UI]` line — and the glass still kept the logo of the boot (*«CONTINUA SENSE FUNCIONAR.
+// QUE OSTIES FA L'SPLASH DE DIFERENT ? l'splash arrenca, neteja la pantalla, posa la imatge i es mor»*). The splash and
+// the page of an app reach the controller through **the same `flush`**: the same `LISAR`, the same `LoadImageArea`, the
+// same `DPY_AREA`. If one goes up and the other does not, the difference is in the numbers, and the numbers were not
+// written down anywhere.
+// **Now they are**: every paint logs its rectangle and its mode —
+// `[I][PANEL] paint 48,0 912x540 mode 2 at 0x001236e0 (page 0,48 540x912, 540 rows of 456 B)`—, a paint that finds
+// nothing marked says so at debug (`a paint was asked with nothing marked`), and every `blit` the UI makes says what it
+// put down and where (`blit 0,48 540x912 of a line of 270 B`). The line costs one log call per paint and it is the
+// measurement that turns "the page does not appear" into "the page is sent with these five words and the controller does
+// not paint it".
+// **Pending**: the two lines of the splash and of the page in one run, the tests of this turn, the commit.
+//
+// 0.118.7 (8/11): **the panel only paints a rectangle that starts at the left edge of its own memory.** The log of 0.118.6
+// decided it, and the pattern is exact — every paint of one night, on the board:
+//   paint 0,0 960x540 mode 2   (the splash)           → on the glass
+//   paint 0,0 48x540  mode 2   (the bar at boot)      → on the glass
+//   paint 48,0 912x540 mode 2  (the page of `images`) → nothing
+//   paint 56,12 40x516 mode 1, 484,12, 616,12, 876,12 (its four controls) → nothing
+//   paint 4,104 36x330 mode 5, 4,440 36x88 (the bar's clock) → nothing
+// The numbers inside each rectangle were right (`page 0,48 540x912`, 540 rows of 456 B) and the controller **accepted
+// the command**: what it loaded is not what it showed, and the glass kept the page before —the logo—. A rectangle whose
+// `x` is not 0 does not cover the whole row of the image it belongs to, and this controller does not walk it: **the load
+// and the paint start at native column 0** now, and the pixels between the edge and the change are paid with the change.
+// The bar's own pixels are in the driver's image, so repainting them is repainting the truth.
+// **And a paint that cleans cleans the whole glass**: a `gc16` of a region leaves the ghost of everything outside it,
+// which is what a change of page is; it is done for the paints that already cover half the glass or more —the splash and
+// the first page of an app— and not for the ones that move a number, which ask for `du` (docs/50, docs/92 §33).
+// **Pending**: the page of `run images` on the board with this, the tests of this turn, the commit.
+//
+// 0.118.8 (8/11): **the engine says what it thinks, three times per paint.** The owner, with 0.118.7 on the board and the
+// page of `run images` still not on the glass: *«m'estás prenent el pel o algo?»*, and the question that names the whole
+// problem: *«que fa l'Splash que no faci qualsevol altra app?»*. With 0.118.7 the page sends **the same command as the
+// splash** —`0,0 960x540 mode 2`— and does not appear, so the rectangle was not it: either no paint after the first one
+// of a boot reaches the controller at all, or the pixels of the page never reached the driver's image.
+// **The one number that tells them apart** is the flag of the LUT engine, read three times: before the driver clears it,
+// after clearing it, and after the `DPY_AREA` is sent —
+// `[I][PANEL] engine flag 0001 -> 0001 -> 0001`—. A `0001` that survives our write is a controller that ignores every
+// display command after the first, which is what the board looks like; a `0001 -> 0000 -> 0001` is a flag that works and
+// a page whose pixels are not in the image. The experiment that costs no flash is `splash boot-alt`: the clipart is a
+// different drawing, so a glass that changes says the paints arrive and a glass that does not says they do not
+// (docs/50, docs/92 §33).
+// 0.118.9 (8/11): **the panel was never selected again after the splash, and the CS was this board's
+// own file that took it away.** The line of 0.118.8 answered itself on the board: the logo of the boot
+// paints with `engine flag 0000 -> 0000 -> 0000` and **every** paint after it reads `ffff -> ffff ->
+// ffff`, which is a MISO nobody drives —the controller is not listening, the glass keeps the last page
+// because e-ink does—, and no rectangle, no mode and no `splash hide` changes anything.
+//
+// **Why the splash and nothing else.** `PaperPlatform::caps()` parks the CS of the panel before the bus
+// is used (`deselect_panel()`: GPIO15 as a plain output held high, because that pin is a strapping one
+// and the panel comes up *selected*, which made the card unreliable — measured on the board, 31/10).
+// That call was written when this board had no display driver. Since 0.115.0 the boot paints the splash
+// **before** anything asks for the capabilities, so the panel is already an SPI device with CS 15 when
+// `count_caps()` runs, and parking the pin takes the pad away from the peripheral: from that moment the
+// controller is never selected again, its reads come back `ffff` and every `DPY_AREA` is accepted and
+// shown nowhere. The order was the whole of it: first paint before the caps, everything after them.
+//
+// **The fix**: the park happens **only while the panel is not a device of the bus yet** (`panel_joined_`,
+// set by `display()`), so the card still gets a bus without a second listener and the panel keeps its CS
+// for the session. And under it, a net that was not there: `It8951::flush` reads the engine flag before
+// every paint anyway, and a `ffff` now brings the controller back (`revive()`: the rail down and up, the
+// handshake again, the whole image sent to a memory that came up empty, at most three times and then the
+// driver says it out loud) instead of painting into nothing for ever (docs/50, docs/95).
+// **Pending**: the reading of the two lines on the board (the splash, and the page of `images` after it),
+// the tests of the turn and the commit.
+static const char kVersion[] = "0.118.9";
 
 }  // namespace kernel
 

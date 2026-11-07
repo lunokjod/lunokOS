@@ -1228,3 +1228,125 @@ verds en 1 min 30 s**. Al primer intent, cinc vermelles a `test_apps`, i no eren
 contacte orfe (1), una caixa de només lectura demanant la banda (3), la porta del slider (2), el bloc que rep un
 descodificador (1 vermella i la tanda morint-se per l'escriptura fora del bloc), la tria de la graella d'imatges (1) i
 la imatge abans de l'attach (1).
+
+**I la placa va dir que no** (0.118.2): amb el firmware pujat, `splash boot-alt` des del prompt va contestar
+
+```
+splash: the panel did not take the picture
+```
+
+No era la imatge: era **el pintat d'abans**. El `flush` del controlador espera tres segons que la tinta del
+pintat anterior s'hagi acabat (`wait_paint`, docs/50) i la neteja sencera de l'arrencada en mou més; un
+`splash` dos segons després del boot arriba a mitges d'aquella tinta i rep un no. Tres coses, doncs:
+
+- **la splash espera la tinta** (`settle`: `idle()` cada 20 ms, fins a 6 s) abans de demanar el seu pintat —ningú
+  està esperant una pàgina mentre puja un logotip, i perdre el dibuix per dos segons sí que costa—;
+- **el missatge porta el motiu del HAL** (`the panel did not take the picture: the previous paint did not
+  finish`), perquè un no sense motiu és una tarda buscant quin dels cinc casos era;
+- **el banc també diu que no** (`--ink-refuse` a l'emulador): mentre la tinta es mou, `flush` contesta fals amb el
+  motiu del driver. Sense això el banc sempre espera i una prova no pot distingir el codi que espera del que té
+  sort. La prova és `test_the_splash_waits_for_the_ink_of_the_page_before`: el primer dibuix deixa la pàgina
+  sencera movent tinta, el banc refusa un pintat, i el segon dibuix **arriba igualment** perquè la splash ha
+  esperat; traient `settle`, la crida contesta fals i el vidre es queda amb el primer dibuix.
+
+**I la segona mitat va ser pitjor** (0.118.2, el mateix torn, amb la placa a la mà): l'amo va dir *«l'splash sembla que
+bloqueja l'eink? les apps s'executen però no mostren res a pantalla»*, i tenia raó a mitges — la splash no bloqueja res,
+però **la pàgina que el panell refusava es llençava**. `paint_root` buidava la llista del que esperava un pintat passés
+el que passés: un `flush` refusat era una pàgina perduda per sempre, i com que la neteja de l'arrencada mou tinta més
+estona que els tres segons que el driver espera, la primera pàgina de cada app hi queia. Una app que presenta **una
+vegada i espera** —`run images`, mitja dotzena del disc— es quedava amb el logotip de l'arrencada al vidre: s'executa i
+no es veu.
+
+Ara **el que no ha pujat es queda a deure**:
+
+- `paint_root` torna les regions refusades a la llista (`kept`, una còpia en el mateix ordre) i aixeca una bandera;
+- **el torn del nucli** pregunta `ui::owes_paint()` —i només llavors paga un `ui::idle()`—, que és on es torna a demanar
+  sense que l'app hagi de fer res;
+- **`ui.idle()`** de l'app també ho fa, o sigui que una app que ja espera la tinta (`while not ui.idle() do`) veu la seva
+  pàgina arribar sense saber res de tot això;
+- i el pintat només es torna a demanar **quan el panell diu que la tinta s'ha acabat**, que és el que evita que cada torn
+  es passi tres segons esperant dins de `wait_paint`.
+
+La prova és `test_a_page_the_panel_refused_is_painted_when_it_can`: el vidre del banc diu que no (`--ink-refuse`) mentre
+la imatge de l'arrencada mou la tinta, una app fa **un sol `present`** i s'hi queda, la consola diu
+`present nil the previous paint did not finish`, el vidre encara és paper on hi ha d'haver el quadre… i després d'uns
+torns **el quadre hi és**, sense que l'app torni a presentar. Trencant-la (tornar a buidar la llista) la prova es queda
+sense el quadre per sempre.
+
+**I la tercera va ser la bona, i no era ni la splash ni el canvas** (0.118.4). L'amo, amb el firmware a la placa:
+
+```
+lunok> run editor
+[I][APPS] editor, stack 6960 B free
+editor: File opens, saves and closes; View is read only and wrapping
+(no es veu res a pantalla)
+lunok> run images
+images: 9 pictures, 1 drawn, 0 failed
+(tampoc no es veu res a pantalla)
+```
+
+«el splash no marxa del eink», va dir, i tenia tota la raó: el que passava és que **després del logotip el vidre no
+tornava a pintar mai més**. El controlador té un motor de LUT per pintat i una bandera (`LUTAFSR`, 0x1224) que diu si
+encara mou tinta; el codi del fabricant **l'espera i la neteja** (una escriptura d'1), i nosaltres **només la
+llegíem**. Una bandera que es va quedar aixecada deixava `idle()` dient «encara no» per sempre, `wait_paint` refusant
+cada pintat al cap de tres segons, i el sistema amb un vidre que ja no es podia pintar: **el primer pintat d'un
+arrencada (la splash) puja, i cap més**. Ni el canvas ni la splash segrestaven res — el panell s'havia quedat amb la
+bandera a dalt.
+
+Ara el motor té **6 segons** (`kStuckMs`, més del que dura el pintat més llarg d'aquest panell) i, passats, la bandera
+es neteja i el log ho diu:
+
+```
+[W][PANEL] the ink engine kept its flag up for 6120 ms; cleared (LUTAFSR)
+```
+
+I com que una pàgina que no puja és la diferència entre una app que funciona i una app que s'executa amb el vidre
+mort, **la UI també ho diu**:
+
+```
+[W][UI] the glass refused a page (0,48 540x912, gc16): the previous paint did not finish
+[I][UI] the page the glass refused is up
+```
+
+Les dues línies són la mesura que faltava: si la primera surt i la segona també, el vidre s'ha curat sol i la pàgina hi
+és; si la primera surt i la segona no, el panell no torna mai a dir que està lliure i el problema és del driver i no
+del sistema.
+
+**La quarta l'ha acabada de decidir el log** (0.118.5). Amb la 0.118.4 a la placa, `run images` va contestar això:
+
+```
+[W][PANEL] the ink engine kept its flag up for 9560 ms; cleared (LUTAFSR)
+[W][UI] the glass refused a page (12,486 516x120, du): the previous paint did not finish
+[W][PANEL] the ink engine kept its flag up for 6001 ms; cleared (LUTAFSR)
+[W][UI] the glass refused a page (12,876 516x72, du): the previous paint did notfinish
+images: JPEG 96x72 (1988 bytes) at 492x369, 1 of 9
+[W][PANEL] the ink engine kept its flag up for 6003 ms; cleared (LUTAFSR)
+[I][UI] the page the glass refused is up
+images: 9 pictures, 1 drawn, 0 failed
+```
+
+Tres coses i una que no diu: **el vidre torna a pintar** (la pàgina puja, o sigui que el sistema de la 0.118.2 era
+correcte i el culpable era el driver), **la bandera torna a estar a dalt després de cada pintat** (és un latch que el
+maquinari no baixa), i **amb el pedaç de la 0.118.4 cada pàgina costa sis segons d'espera**, que no és manera de fer
+servir una placa. El que fa el codi del fabricant és **contestar la bandera** (escriptura d'1) **abans** de pintar, i no
+llegir-la després: això fa el driver ara, i el que espera són les dues coses que no menteixen —la **línia BUSY** del
+panell i **el temps de tinta del mode** de la taula del fabricant (120/290/350/450 ms, docs/95)—. La línia
+`the ink engine kept its flag up` desapareix amb el pedaç que la necessitava.
+
+**I la cinquena va ser la del log** (0.118.7). Amb la 0.118.6 a la placa, cada pintat va dir què enviava, i el patró era
+exacte: **començava a la columna 0 del vidre i pujava; començava a qualsevol altra columna i no pujava res**, amb els
+números de dins del rectangle correctes i el controlador acceptant la comanda.
+
+| Pinta | Cantonada nativa | Al vidre |
+|---|---|---|
+| la splash | `0,0 960x540` | sí |
+| la barra a l'arrencada | `0,0 48x540` | sí |
+| la pàgina d'`images` | `48,0 912x540` | **res** |
+| els quatre controls d'`images` | `56,12`, `484,12`, `616,12`, `876,12` | **res** |
+| el rellotge de la barra | `4,104`, `4,440` | **res** |
+
+Un rectangle amb `x ≠ 0` no cobreix la fila sencera de la imatge del controlador, i aquest no la camina: carrega una
+imatge que no és la que ensenya i al vidre hi torna la pàgina d'abans —la splash, i per això «el splash no marxa del
+eink»—. El driver **carrega i pinta des de la columna 0** i, si el pintat neteja (`gc16` i família) i ja cobria mig
+panell o més, neteja **tot el vidre**, que és el que una pàgina nova necessita i el que la splash feia des del primer dia
+sense saber-ho.

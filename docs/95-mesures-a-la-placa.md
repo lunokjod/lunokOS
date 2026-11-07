@@ -710,6 +710,55 @@ freqüència real del xip i si el maquinari fa el que diu el full (docs/85).
 
 ---
 
+### E-10 · El panell que deixa de contestar (el CS i la re-armada, 0.118.9)
+
+**El símptoma, amb 0.118.8 a la placa el 7/11**: el logo de l'arrencada surt bé i **cap pàgina més**
+no apareix mai —ni la d'una app, ni `splash boot-alt`, ni `splash hide` amb `0,0 960x540`—, i l'app
+diu que ha presentat la pàgina. El log el delata en una sola línia, perquè el flag del motor es llegeix
+tres cops per pintat:
+
+```
+[I][PANEL] engine flag 0000 -> 0000 -> 0000   (la splash)
+[I][PANEL] paint 0,0 960x540 mode 7
+[I][PANEL] engine flag ffff -> ffff -> ffff   (tot el que ve després)
+```
+
+`ffff` no és «ocupat»: és un **MISO que ningú condueix**. El controlador no està escoltant, per això
+accepta el `DPY_AREA` i no pinta res, i per això el vidre es queda amb l'última imatge: la tinta
+electrònica és biestable i no necessita alimentació per conservar-la. Un `0000` seria el mateix amb la
+línia tirada avall. Cap rectangle no ho arregla, i per això les versions 0.118.6, 0.118.7 i 0.118.8
+—que provaven àrees diferents— no van canviar res.
+
+**La causa, i és al codi d'aquest repositori**: `PaperPlatform::caps()` crida `deselect_panel()` abans
+de muntar la targeta —posa GPIO15 (el CS del panell) com a sortida normal i l'aguanta alt, perquè és un
+pin d'estrap i el panell arrenca **seleccionat**, i això feia fallar la targeta (mesurat el 31/10)—.
+Aquella crida es va escriure quan aquesta placa encara no tenia driver de pantalla. Des de la 0.115.0
+l'arrencada pinta la splash **abans** que ningú demani les capacitats, o sigui que quan
+`count_caps()` corre el panell **ja és un dispositiu del bus amb CS 15**, i `deselect_panel()` li
+**pren el pin al perifèric**. Des d'aquell instant el controlador no torna a estar seleccionat: totes
+les lectures tornen `ffff` i tots els `DPY_AREA` es queden en no res. L'ordre era tot el problema.
+
+**El que canvia la 0.118.9**:
+
+1. El parc del pin només es fa **mentre el panell no és un dispositiu del bus** (`panel_joined_`, que
+   posa `display()`). La targeta continua tenint un bus sense un segon oient, i el panell conserva el
+   seu CS tota la sessió.
+2. I una xarxa a sota: `It8951::flush()` ja llegeix el flag abans de cada pintat, i un `ffff` ara
+   **re-arma el controlador** (`revive()`: el rail avall i amunt, el handshake sencer i la imatge
+   sencera enviada a una memòria que ha arrencat buida), fins a tres intents; si no torna, ho diu i no
+   pinta més en comptes de pintar al buit. El log ho canta amb
+   `[W][PANEL] the panel had stopped answering; the rail was cycled and it is back: …`.
+
+**Què apuntar en tornar a la placa**:
+
+| Què apuntar | On va |
+|---|---|
+| La línia `engine flag` del **primer pintat d'una app** ha de dir un número i no `ffff` (el `0000` de la splash és sa: el flag del motor és baix quan no hi ha res en marxa) | docs/50 |
+| **Cap** `[W][PANEL] … the rail was cycled` durant una sessió normal: si en surt cap, alguna cosa torna a deixar el controlador sense CS o sense alimentació, i el que cal mirar és qui escriu GPIO15 o GPIO23 després de `display::boot` | docs/50 |
+| El temps d'un pintat de pàgina sencera després de la re-armada (**el rail espera 1000 ms**, el número del fabricant): si la re-armada surt sovint, el que cal arreglar és la causa i no el número | docs/50, docs/75 |
+
+---
+
 ## F · La LilyGO T-Koala (0.94.0)
 
 La placa nova encara no ha passat per cap mà. Les tres coses que el firmware ja dona per fetes i que

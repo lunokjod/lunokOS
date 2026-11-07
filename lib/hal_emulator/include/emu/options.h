@@ -99,6 +99,12 @@ struct Options {
   // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
   // only the clock is skipped, which is what a test that is not about time wants (docs/85).
   bool delays;
+  // **A glass that says no like the panel of the Paper** (`--ink-refuse`, 0.118.2): the driver of the board refuses a
+  // paint that arrives while another one is still moving ink (`wait_paint`, three seconds), and a bench that always
+  // waits cannot tell a caller that waits for the ink from one that gets lucky. On, `flush` answers false with the
+  // driver's own reason while the ink of the paint before is running; the callers that are right wait and ask again
+  // (docs/50, docs/85).
+  bool ink_refuse;
   // **A board that was never unplugged** (`--persist`): the run starts where the run before it left
   // the board. The key-value store is flash and is kept either way, the FRAM is not volatile and is
   // kept too, but the **RTC RAM** dies with the power —so a model without a coin cell starts it at

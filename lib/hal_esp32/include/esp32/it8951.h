@@ -103,7 +103,23 @@ class It8951 : public ISurface {
   // Whether the engine of the controller has nothing in flight **and the last paint has had the time to
   // start**: the one question `idle()` and `wait_paint` both ask (docs/50).
   bool engine_over();
+  // **The flag of the LUT engine, cleared the way the maker's code clears it** (0.118.4): a write of 1 to `LUTAFSR`.
+  // Read only and never written, a flag that stayed up left the glass without a single paint for ever (docs/50,
+  // docs/92 §33).
+  void clear_engine_flag();
   void power_on();
+  // **Joining the bus and arming the controller are two steps and not one** (0.118.9): the first one
+  // happens once in the life of the driver, and the second one is what a panel that has stopped
+  // answering needs again, over the same device and without being added to the bus twice (docs/50).
+  bool join_bus();
+  bool arm();
+  // **The one way back for a controller that answers `ffff`**: the rail down and up, the handshake
+  // again, and the whole image sent to a memory that came up empty. It keeps the page an app drew,
+  // because the image belongs to the app and not to the controller (0.118.9, docs/95).
+  bool revive();
+  // How many times in a row it has been tried and failed, and whether the driver has given up on it.
+  uint8_t revive_fails_ = 0;
+  bool dead_ = false;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
   void logical_to_native(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t& nx0,
                          uint16_t& nx1, uint16_t& ny0, uint16_t& ny1) const;
@@ -138,6 +154,10 @@ class It8951 : public ISurface {
   // When the last paint was asked for, in the board's milliseconds: it is what says that a paint cannot
   // be over yet, because the engine has not had the time to mark itself busy (docs/50).
   uint32_t painted_ms_ = 0;
+  // **How long the ink of the last paint takes**, from the mode it asked for and the maker's own table (0.118.5): the
+  // flag of the controller does not come down by itself on this panel, so the wait is this number and the BUSY line
+  // (docs/50, docs/95).
+  uint32_t ink_ms_ = 0;
   // Why the last step that failed did fail. The handshake already reported four different faults
   // under one sentence and each one cost a flash to tell apart (measured on the board, 1/11).
   const char* why_ = "";

@@ -785,11 +785,47 @@ driver del panell**, escriu els dos extrems nibble a nibble: pintar el byte senc
 text de la barra —que és una tirada de rectangles de cada caràcter— engreixava una columna de píxels a
 cada lletra (trobat per la suite nativa l'1/11: un rectangle a `x = 101` pintava el píxel 100).
 
+**I el controlador només pinta un rectangle que comenci a la columna 0 de la seua memòria** (0.118.7, mesurat a la
+placa amb el log de la 0.118.6): la splash (`0,0 960x540`) i la barra a l'arrencada (`0,0 48x540`) pujaven al vidre, i
+**totes** les altres —la pàgina d'`images` a `48,0 912x540`, els seus quatre controls a `56,12`, `484,12`, `616,12` i
+`876,12`, el rellotge de la barra a `4,104`— el controlador les **acceptava i no pintava res**: carregava una imatge que
+no era la que ensenyava i al vidre hi tornava la pàgina d'abans. Un rectangle amb `x ≠ 0` no cobreix la fila sencera de
+la imatge, i aquest controlador no la camina. Des d'aquesta versió **la càrrega i el pintat comencen sempre a la columna
+0** del vidre —els píxels entre la vora i el canvi es paguen amb el canvi, i els de la barra són a la imatge del driver,
+o sigui que repintar-los és repintar la veritat—, i **un pintat que neteja neteja tot el vidre** quan ja cobria mig
+panell o més (la splash i la primera pàgina d'una app); els que només mouen un número demanen `du` i no canvien.
+
 I una cosa que la placa mana i que el codi no pot saltar-se: **el controlador pinta d'una en una**. Cada
 `DPY_AREA` arrenca un motor de LUT, i el driver del fabricant espera (`CheckAFSR`) que l'anterior
-s'hagi acabat. Per això `It8951::flush` espera —amb un sostre de tres segons— si encara hi ha una
+s'hagi acabat —**i en surt netejant la bandera**, que és un **escriptura d'1** a `LUTAFSR` (0x1224), i no
+només llegint-la. Això es va aprendre a la placa (0.118.4): el nostre driver la llegia i no la netejava mai, i
+una bandera que es va quedar aixecada va deixar el vidre **sense cap pintat més** —el logotip de l'arrencada
+puja perquè és el primer pintat d'un arrencada, i després ja no puja res: l'app s'executa i no es veu—. I **la bandera no baixa mai sola** (0.118.5, mesurat a la placa amb el log de la 0.118.4 a la mà): després de
+**cada** pintat torna a estar a dalt sis segons més tard, o sigui que és un **latch** que el maquinari no neteja.
+El que fa el codi del fabricant és **contestat-la** —una escriptura d'1 a `LUTAFSR`— **abans** del pintat, i no
+llegir-la després; això fa ara el driver, al començament de `flush`. I el que espera són les dues coses que no
+menteixen: la **línia BUSY** del panell, que té a zero mentre treballa, i **el temps de tinta del mode**, que és la
+taula del fabricant (docs/95): **120 ms** per a `du` i `du4`, **290** per a `a2`, **350** per a `gl16` i `glr16`,
+**450** per a `gc16` i `gld16`. L'espera només pot ser més llarga que el full de dades, mai més curta, i costa una
+lectura de pin i un comptador. Guanyar-hi: la pàgina puja **sense cap sis segons d'espera** (docs/92 §33). Per això `It8951::flush` espera —amb un sostre de tres segons— si encara hi ha una
 pintada en curs: **el primer pintat d'un `present` no espera mai, el segon sí**. L'alternativa era
 enviar el segon damunt del primer i que el controlador l'ignorés, que al vidre es veu com mitja pàgina.
+
+**I tres segons de sostre volen dir que el pintat gros pot no haver acabat** (0.118.2): una pàgina sencera
+en `gc16` mou la tinta dos o tres segons, o sigui que un `flush` que arriba just després en rep un **no**,
+amb el motiu del driver (`the previous paint did not finish`, `last_error()`). El que pinta una pàgina
+sencera i no té ningú esperant —la **splash** d'un moment del sistema— **espera la tinta i torna a
+demanar** (`splash.cpp`, `settle`: pregunta `idle()` cada 20 ms fins a 6 s) i, si tot i així el panell no
+l'agafa, el missatge porta el motiu del HAL i no només «el panell no ha pres la imatge». Va sortir a la
+placa: `splash boot-alt` dos segons després d'arrencar contestava `the panel did not take the picture`
+perquè la neteja sencera de l'arrencada encara s'estava movent (docs/92 §33).
+
+**I una pàgina refusada no es llença** (0.118.2): el camí del `ui.present` es queda amb el dany que el
+panell no ha pres (`paint_root` el torna a la llista) i el torna a demanar quan el vidre el pot prendre —
+`ui::owes_paint()` ho diu, i el torn del nucli pregunta `ui::idle()` quan hi ha alguna cosa a deure, i
+`ui.idle()` de l'app també—. Abans d'això la llista s'esborrava passés el que passés, i una app que fa
+**un sol `present` i es queda esperant** es quedava amb la pàgina de l'arrencada al vidre: **l'app s'executa
+i no mostra res**, que és el que l'amo va veure a la placa (docs/92 §33).
 
 
 ### La barra del sistema: l'hora, el títol i la càrrega (1/11)

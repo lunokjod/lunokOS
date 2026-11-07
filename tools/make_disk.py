@@ -18,14 +18,20 @@
 # environment asks for copies (`custom_apps_copied = yes`).
 #
 # **What a build carries**, in order of precedence:
-#   - `custom_apps = id1,id2`     exactly those, whatever the manifests say;
+#   - `custom_apps = id1,id2`     those of the list, and **only the ones that name
+#                                 this board**: the filter below is the same for
+#                                 both options, because carrying an app the kernel
+#                                 would refuse at `run` is an image that lies;
 #   - `custom_apps_in_disk = yes` **the apps that name this board**: the ones whose
 #                                 `manifest.json` lists the board's id or its chip
 #                                 family ("esp32"), which is the same rule the
 #                                 kernel uses to refuse an app at `run` (docs/40).
 #                                 The bench and the tests have no board, so they
 #                                 carry every app of `apps/`;
-#   - neither                     none, and the disk is the system alone.
+#   - neither                     none, and the disk is the system alone, which is
+#                                 what every board does since 0.118.3 (docs/70).
+# A name that is asked for and does not end up in the disk says why, once a line:
+# an option obeyed in silence is an image short of an app nobody notices.
 import glob
 import json
 import os
@@ -93,6 +99,9 @@ def apps_of_board(boards, board_id, family):
 
 def wanted_apps():
     listed = option("custom_apps")
+    # **A name that was asked for and is not carried says why**: `custom_apps` obeyed in silence is an image short of
+    # an app that nobody notices until the board says `no such app` (0.118.3, docs/70).
+    asked = bool(listed)
     if listed:
         ids = [item.strip() for item in listed.split(",") if item.strip()]
     elif option("custom_apps_in_disk", "no").lower() in ("yes", "true", "on", "1"):
@@ -104,6 +113,8 @@ def wanted_apps():
     for app in ids:
         folder = os.path.join(APPS_DIR, app)
         if not os.path.isdir(folder):
+            if asked:
+                print("make_disk: there is no app called %s, so it stays out" % app)
             continue
         if not board_id:
             keep.append(app)  # no board: the bench and the tests carry them all
@@ -116,6 +127,9 @@ def wanted_apps():
             continue
         if apps_of_board(boards, board_id, family):
             keep.append(app)
+        elif asked:
+            print("make_disk: %s names %s and not this board (%s), so it stays out"
+                  % (app, ", ".join(boards) if boards else "no board", board_id))
     return keep
 
 
@@ -178,7 +192,10 @@ def rebuild():
             files += 1
             payload += os.path.getsize(os.path.join(root, name))
     if not apps:
-        how = "no apps: this board carries none"
+        # **A disk of the system alone is the normal one since 0.118.3**: no board carries apps in its image, and the
+        # line says which of the two empty disks it is —a board that carries none by rule, or the bench, which has no
+        # board and receives its apps with `repo install` or a card (docs/70, docs/85).
+        how = "no apps: the system alone"
     elif COPY_APPS:
         how = "%d apps, copied" % len(apps)
     else:

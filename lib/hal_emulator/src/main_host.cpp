@@ -233,6 +233,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       opts.ink = -1;  // asked for: a glass that switches pixels
       continue;
     }
+    if (strcmp(arg, "--ink-refuse") == 0) {
+      // **The panel that says no** (0.118.2): a paint that arrives while the ink of the one before is still moving is
+      // refused, which is what the driver of the Paper does, and the caller that waits for `idle()` is the one that
+      // keeps its page (docs/50, docs/85).
+      opts.ink_refuse = true;
+      continue;
+    }
     if (strcmp(arg, "--lua-cpu") == 0) {
       // What one instruction of an app costs, in nanoseconds at 160 MHz: zero is a bench that does not
       // price the app's own code at all (docs/85).

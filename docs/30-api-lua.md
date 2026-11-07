@@ -797,11 +797,11 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell |
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
-| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta |
+| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema** |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
-| `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present` |
+| `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |

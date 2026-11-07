@@ -271,6 +271,16 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // asks for the previous one to be over before sending the next (`wait_paint`, docs/50). A present of
   // two qualities is two paints, so the second waits here for the first —and a flash still running is
   // finished before the glass is asked for another page (docs/85).
+  // **A bench that says no like the panel does** (`--ink-refuse`, 0.118.2): the driver of the Paper refuses a paint
+  // that arrives while another one is moving ink (`wait_paint`, three seconds) and says why. Without it, a caller that
+  // forgets to wait for `idle()` gets the same answer as one that waits, which is a test that cannot fail (docs/50,
+  // docs/85).
+  why_ = "";
+  if (shown_ != nullptr && options().ink_refuse &&
+      static_cast<uint32_t>(pal::system().millis()) < busy_until_ms_) {
+    why_ = "the previous paint did not finish";
+    return false;
+  }
   if (shown_ != nullptr && options().delays) {
     // **Waiting for the paint before is not a stop**: the ink of the page that is still moving is walked
     // while the bus is asked for the next one, which is where the blinks of a `gc16` were being lost

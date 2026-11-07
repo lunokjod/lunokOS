@@ -6511,6 +6511,180 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   kernel::boot(hal::platform());
 }
 
+// **The splash waits for the ink of the page before** (0.118.2): the panel of the Paper refuses a paint that arrives
+// while another one is still moving ink (`wait_paint`, three seconds) and that refusal reached the person as `the panel
+// did not take the picture` — seen on the board with `splash boot-alt` typed two seconds after the boot, where the wash
+// of the whole glass was still running. **The glass of the bench says that no too** (`--ink-refuse`), which is what
+// makes this a test and not a hope: with the waiting in `splash::show` the second picture lands, and without it the
+// call answers false and the glass keeps the first one (docs/50, docs/85, docs/92 §33).
+void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  // **The ink costs what it costs and the panel says no while it moves it**: without the first there is nothing to wait
+  // for and without the second the waiting cannot be seen.
+  opts.delays = true;
+  opts.ink_refuse = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
+  const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+
+  // The first picture leaves the whole page moving ink, which is the state the person's second command found.
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBoot));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+
+  // **The bench refuses a paint while the ink runs and says why**, which is the panel of the Paper.
+  glass->fill_rect(0, 0, 8, 8, 0);
+  TEST_ASSERT_FALSE(glass->flush(hal::UpdateMode::kDu));
+  TEST_ASSERT_EQUAL_STRING("the previous paint did not finish", glass->last_error());
+
+  // And the other drawing lands anyway: the splash waited for the ink and asked again, which is the whole fix.
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBootAlt));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
+
+  // The bench goes back as it was for the tests that come after this one.
+  storage->remove("/res/splash/boot.bmp");
+  storage->remove("/res/splash/boot-alt.bmp");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.delays = false;
+  opts.ink_refuse = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A page the panel refused is painted anyway** (0.118.2): the glass of the Paper says no to a paint that arrives while
+// another one is moving its ink, and until now the page was dropped together with the no —the list of what was waiting
+// was emptied whatever happened—, so an app that presents once and then waits ran with the screen of the boot still on
+// the glass. That is what the owner saw on the board with the firmware of 0.118.1: *«les apps s'executen però no
+// mostren res a pantalla»*. What did not go up is kept now, and the turn of the kernel asks for it again as soon as the
+// panel can take it (`ui::owes_paint()` and `ui::idle()`, docs/30, docs/50, docs/92 §33).
+void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  // **The ink costs time and the panel says no while it moves it**: without the first there is nothing to refuse and
+  // without the second the retry cannot be seen.
+  opts.delays = true;
+  opts.ink_refuse = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+
+  // **The glass is left with the ink of the boot moving**, which is the state the app found on the board.
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBoot));
+
+  // **One page, one present, and then it waits**: the shape of `run images` and of half the disk, which is the one that
+  // stayed with the boot on the glass.
+  TEST_ASSERT_TRUE(add_app(storage, "once",
+                           "{\"title\":\"Once\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "ui.clear(15)\n"
+                           "ui.rect(20, 20, 200, 200, 0)\n"
+                           "local ok, err = ui.present('gc16')\n"
+                           "console.print('present ' .. tostring(ok) .. ' ' .. tostring(err and err.reason))\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run once");
+  // **The panel said no and it said why**: the page did not go up, and the glass still has the picture of the boot.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "present nil the previous paint did not finish"), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const auto at = [glass, &view](uint16_t x, uint16_t y) {
+    return glass->level_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y));
+  };
+  TEST_ASSERT_EQUAL_UINT8(15, at(60, 60));
+
+  // **The system paints what it owes**: the ink of the boot ends, a turn asks the glass, and the square is there —with
+  // nobody presenting again, which is the whole point (0.118.2).
+  pump_turns(4000);
+  TEST_ASSERT_EQUAL_UINT8(0, at(60, 60));
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/once/app.lua");
+  storage->remove("/apps/once/manifest.json");
+  storage->remove("/apps/once");
+  storage->remove("/res/splash/boot.bmp");
+
+  // The next test gets the bench it expects: no waiting, no refusals, no glass.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.delays = false;
+  opts.ink_refuse = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The glass is one surface however many times it is asked** (0.118.9): `platform().display()` is the one
+// door to the panel, and a board that built a new one per ask would power the rail and shake hands with the
+// controller again in the middle of a page. On the Paper that same mistake has a second face, and it is the
+// one that cost a night on the board: the CS of the panel belongs to the SPI driver from the moment the
+// device is added, and the boot's own "park the pin" call (`deselect_panel`) ran **after** it —the boot asks
+// for the capabilities right after the splash—, so the controller was never selected again: every read came
+// back `ffff` and the glass kept the logo of the boot for ever while the apps ran and showed nothing
+// (docs/50, docs/95). The bench can measure the first half of that, and it is the half a board cannot say
+// out loud: two asks, one surface.
+void test_the_glass_is_one_surface_however_often_it_is_asked(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::ISurface* once = hal::platform().display();
+  TEST_ASSERT_NOT_NULL_MESSAGE(once, "the Paper has no glass at all");
+  // **The same pointer**: a second surface is a second panel on a board, with its rail and its handshake.
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(once, hal::platform().display(),
+                                "a second ask built the glass again");
+  // And the size is still the one the controller answered, which is what a rebuilt surface would lose.
+  TEST_ASSERT_EQUAL_UINT16(540, once->width());
+  TEST_ASSERT_EQUAL_UINT16(960, once->height());
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A box that is read and not written keeps the caret and never brings a band** (0.116.0): `readonly` is the field of
 // the control the system asks before it puts the keyboard up, and the block is the focus's —a page nobody types into is
 // still a place a person is at—. Both kinds of box carry it, and entering one with the centre is the caret without the
@@ -9046,6 +9220,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);
+  RUN_TEST(test_the_splash_waits_for_the_ink_of_the_page_before);
+  RUN_TEST(test_a_page_the_panel_refused_is_painted_when_it_can);
+  RUN_TEST(test_the_glass_is_one_surface_however_often_it_is_asked);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);

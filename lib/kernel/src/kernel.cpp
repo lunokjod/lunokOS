@@ -507,6 +507,12 @@ void poll() {
   // (docs/30).
   bar::poll();
 
+  // **A page the panel refused is painted as soon as it can take it** (0.118.2): the glass of the Paper says no to a
+  // paint that arrives while another one is moving its ink, and an app that presents once —`run images` does— would
+  // otherwise leave the screen of the boot on the glass for ever: it runs and shows nothing. The question is only paid
+  // for when something is owed, so a turn that owes nothing costs nothing (docs/50, docs/92 §33).
+  if (ui::owes_paint()) ui::idle();
+
   // A moment of the system that ended gave the app its light back, and the app may have changed
   // its mind while the light was not its own: `on_light()` is the one turn it gets to redraw
   // (docs/30). It runs between turns, with the app's coroutine suspended, like every hook.

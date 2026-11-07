@@ -638,26 +638,69 @@ entrada) i la capa d'epub a sobre. El deflate era la peça que no existia; el zi
 ## La imatge de la flash: noms de 32 caràcters com a molt
 
 La imatge de `/littlefs` la fa `tool-mklittlefs` **1.203.210628** (el que instal·la PlatformIO per a
-l'ESP32). **Les apps no són a `data/`**: viuen a `apps/`, a l'arrel del projecte, una carpeta per id, i
-el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** i el fa servir la imatge
-d'aquell entorn: `PROJECT_DATA_DIR` és un sol valor per a tot el projecte, i amb un sol `build/disk` el build
-de l'ATOM canviava el disc del Paper i el del banc sense que ningú ho hagués demanat. **Cada build té el seu**,
-i dins seu la carpeta `apps/` són **enllaços** a `apps/` de l'arrel (una carpeta per app, no un sol enllaç),
-o sigui que un entorn pot portar un subconjunt sense copiar res (`custom_apps`). **Les proves són l'excepció
-i ho diuen**: creen i esborren apps al disc que munten, i escriure a través d'un enllaç escriuria al
-repositori, així que l'entorn `test` demana còpies (`custom_apps_copied = yes`).
-Motiu, **mesurat el 3/11** amb la mateixa eina i un bloc de 4 KB: els **113 fitxers** d'`apps/`
-necessiten **entre 1 179 648 i 1 310 720 B** de LittleFS, i la partició de l'ATOM, del Matrix i de
-l'ESP32 pelat és de **917 504 B**, on l'eina **deixa fora 14 fitxers i tot i així acaba amb exit 0**:
-la imatge de tota placa de 4 MB anava curta d'apps i ningú ho deia. El `data/` del sistema (`res/` i
-`data/`) hi cap amb lloc de sobres. O sigui que el disc es munta **per placa**: `data/` sola a les de
-4 MB —que no tenen apps, i això és aritmètica i no una configuració—, i `data/` més **un enllaç viu** a
-`apps/` al Paper (11,9 MB) i al banc, que és el que fa `custom_apps_in_disk = yes`.
+l'ESP32). **Les apps no són a `data/`** i, **des de la 0.118.3, cap placa no en porta a la imatge**: viuen a `apps/`, a
+l'arrel del projecte, una carpeta per id, i el disc de cada entorn el munta `tools/make_disk.py` a
+**`build/disk/<entorn>`** i el fa servir la imatge d'aquell entorn: `PROJECT_DATA_DIR` és un sol valor per a tot el
+projecte, i amb un sol `build/disk` el build de l'ATOM canviava el disc del Paper i el del banc sense que ningú ho
+hagués demanat. **Cada build té el seu**, i **la imatge d'una placa és el sistema sol**: `res/`, `http/` i `data/`,
+**13 fitxers i 79 288 B** (mesurat el 8/11 a les quatre plaques, vegeu «Com afegir apps a la imatge del disc»). **Les
+proves són l'excepció i ho diuen**: creen i esborren apps al disc que munten, i escriure a través d'un enllaç escriuria
+al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom_apps_copied = yes`); el banc tampoc no
+en porta cap i les rep amb `repo install` o amb una targeta (`--sd`, docs/85).
+
+**Per què cap placa no en porta** (mesurat el 8/11 amb la mateixa eina i un bloc de 4 KB): els **148 fitxers**
+d'`apps/` (418 720 B al disc del PC) necessiten **més de 1 441 792 B** de LittleFS, que és tota la partició de l'ATOM,
+del Matrix, de l'ESP32 pelat i del T-Koala: l'eina **deixava fora 2 fitxers i tot i així acabava amb exit 0**, o
+sigui que la imatge d'una placa de 4 MB anava curta d'apps i ningú ho deia. I una imatge que porta apps és una imatge
+que es queda vella el dia que es toca una app, que és tots els dies.
 
 **L'enllaç i no una còpia** (mesurat el mateix dia): `mklittlefs` **segueix** un enllaç simbòlic a un
 directori i la imatge acaba amb `/apps/hello/hello.lua` a dins, i el banc també (`emu_storage` fa
 `stat()` i `S_ISDIR()`, que van al darrere de l'enllaç). Així hi ha un sol lloc on s'edita una app i no
 hi ha cap còpia que es quedi vella (docs/85 n'ha estat mossegat dues vegades).
+
+## Com afegir apps a la imatge del disc
+
+**La imatge d'una placa no porta apps** (0.118.3): qui la munta només hi posa el sistema, i l'única excepció
+del repositori és la Paper, que en nomena tres (`custom_apps = editor,controls,images`). Un build que ha de portar
+apps les demana, i res no es fa sol, perquè una imatge amb les apps de dins és una imatge que es queda vella el dia
+que es toca una app:
+
+| Al `platformio.ini` de l'entorn | Què hi va |
+|---|---|
+| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: 13 fitxers, 79 288 B. És el que fan les quatre plaques |
+| `custom_apps = hello,clock,keys` | **Aquestes**, i només les que nomenen la placa: el filtre de sota s'aplica a les dues opcions, perquè portar una app que el nucli refusaria al `run` és una imatge que menteix. Un nom que es queda fora **ho diu** (`make_disk: light names m5stack-atom, m5stack-atom-matrix and not this board (m5stack-paper), so it stays out`) |
+| `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). Al banc i a les proves, que no tenen placa, són totes les d'`apps/` |
+
+```ini
+[env:m5-paper]
+; una placa que es queda sense targeta i ha de portar quatre coses de sèrie
+custom_apps = hello,clock,keys,images
+```
+
+```sh
+pio run -e m5-paper -t buildfs     # fa la imatge amb aquestes apps a dins
+pio run -e m5-paper -t uploadfs    # i la puja
+```
+
+- **El que hi entra són enllaços i no còpies**: cada app del disc és un enllaç a `apps/<id>` del repositori, o sigui
+  que `-t buildfs` s'ha de tornar a fer **després de tocar una app**; el que es puja és el que hi havia quan es va
+  fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
+  disc que munta.
+- **Mesurat el 8/11 a les sis imatges**: l'ATOM, el Matrix, l'ESP32 pelat i el T-Koala són **13 fitxers i 79 288 B
+  sense cap app**; la Paper, amb les tres apps nomenades, és de **29 fitxers i 181 618 B**; el banc també és el
+  sistema sol (14 fitxers, 79 294 B, i les apps li arriben per `--sd` o `repo install`); i el disc de les proves
+  porta les **61 carpetes d'`apps/` copiades**.
+- **Quantes hi caben, mesurat el 8/11** amb l'eina i un bloc de 4 KB: la partició de les quatre plaques de 4 MB
+  (`partitions.csv`) és de **1 441 792 B** i la imatge amb **vuit apps** (`hello,clock,demo,keys,light,txt,wc,echo`)
+  són **29 fitxers i 90 182 B**. La de la Paper (`partitions_16mb.csv`) és de **12 451 840 B**.
+- **Si no hi cap, el build s'atura i ho diu**: `make_disk: **this disk does not fit**: the tool leaves N of the M files
+  out of X B, so the image would be short and PlatformIO would say SUCCESS` (era el cas de l'ATOM amb les 148 fitxers
+  d'`apps/`: en deixava 2 fora). Les dues sortides són portar-ne menys (`custom_apps`) o una partició `littlefs` més
+  gran.
+- **Una placa que no en porta cap no es queda sense apps**: `repo install <id>` les baixa a `/apps` del disc i una
+  targeta al `slot` es llegeix de `/sd/apps` (docs/40). O sigui que la imatge neta és el punt de partida i no una
+  limitació: l'app es posa a la placa quan es vol, no quan es compila el sistema.
 
 **Mesurat el 30/10** provant l'eina directament sobre directoris de prova a `/tmp`:
 

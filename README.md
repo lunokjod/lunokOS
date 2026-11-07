@@ -242,9 +242,9 @@ idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
 no, ho diu). `cat` sempre necessita un camí; `hexdump` sense camí mira `/rtc`, que és la memòria que es vol veure quan no se'n diu cap.
 
-El disc de l'emulador és el del seu build, **`build/disk/emulator`** —`data/` més les apps d'`apps/`, i
-el que hi ha a `apps/` és el que el banc executa, sense copiar res—, i `--flash <dir>` en
-tria una altra; la tasca
+El disc de l'emulador és el del seu build, **`build/disk/emulator`** —el `data/` del sistema i **cap app**, com
+el de qualsevol placa des de la 0.118.3: les apps hi arriben amb `repo install <id>` o amb una targeta (`--sd`)—,
+i `--flash <dir>` en tria una altra; la tasca
 **lunokOS: seed emulator disk** de VS Code copia les apps de `apps/` a `emulator/littlefs`, que és
 el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`). Per córrer un
 guio sense seure al davant: `./.pio/build/emulator/program --board m5stack-atom --script <fitxer>`.

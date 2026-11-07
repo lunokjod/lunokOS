@@ -289,8 +289,14 @@ class PaperPlatform : public IPlatform {
       built_ = true;
       hold_power();
       // The panel is on the same three wires as the card and comes up selected (see
-      // above): out of the way before anything touches the bus (docs/50).
-      deselect_panel();
+      // above): out of the way before anything touches the bus (docs/50). **And only while it is not
+      // a device of that bus yet** (0.118.9): this writes GPIO15 as a plain output, and doing it once
+      // the driver has added the panel as an SPI device (its CS is 15) takes the pad away from the
+      // controller —from that moment the panel is never selected again, its reads come back `ffff`
+      // and every paint is accepted and shown nowhere. The boot asks `caps()` right after the splash,
+      // which is why the logo of the boot was the last page this board ever drew (*«les apps
+      // s'executen però no mostren res»*, measured on the board, 7/11) (docs/50, docs/95).
+      if (!panel_joined_) deselect_panel();
       // Everything the chip gives —the radio with its provisioning and a page
       // included— and then only what this board has of its own (docs/50).
       caps_ = esp32_caps();
@@ -386,13 +392,21 @@ class PaperPlatform : public IPlatform {
   // says what it answered; **nothing paints yet**, because a paint needs something to paint and the
   // drawing surface is the next step (docs/90).
   ISurface* display() override {
-    return esp32_it8951(It8951Pins{kPanelCsPin, kPanelSckPin, kPanelMosiPin, kPanelMisoPin,
-                                   kPanelBusyPin, kPanelPowerPin});
+    ISurface* glass = esp32_it8951(It8951Pins{kPanelCsPin, kPanelSckPin, kPanelMosiPin, kPanelMisoPin,
+                                               kPanelBusyPin, kPanelPowerPin});
+    // **From the moment it is a device of the bus, GPIO15 belongs to the driver** (0.118.9): the
+    // deselect of the boot (`capabilities`) must not take it back, or the panel stops being selected
+    // for the rest of the session (see there).
+    panel_joined_ = glass != nullptr;
+    return glass;
   }
 
  private:
   mutable Caps caps_;
   mutable bool built_ = false;
+  // Whether the panel is already a device of the SPI bus it shares with the card, which is what says
+  // if GPIO15 is still this file's to park or already the driver's (0.118.9).
+  mutable bool panel_joined_ = false;
   // No key of this board wakes the chip: they switch the main power off instead of
   // waking it, so the timer is the only way back (docs/50).
   PaperPower power_;

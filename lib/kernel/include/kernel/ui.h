@@ -766,7 +766,13 @@ bool present();
 // to look the same, or when it is about to leave a page behind (docs/30).
 bool present_all(hal::UpdateMode mode);
 
+// Whether the paint that was asked for has finished moving ink. **And the moment a paint the panel refused is asked
+// for again** (0.118.2): the glass says no to a page that arrives while another one is moving its ink, and that page is
+// kept and painted here, when the panel can take it (docs/30, docs/50).
 bool idle();
+// **Whether the glass is owed a page** (0.118.2): the kernel asks this every turn and only pays for `idle()` when it is
+// true, so a turn that owes nothing costs nothing (docs/50, docs/92 §33).
+bool owes_paint();
 
 // The title of this app in the bar of the system. The bar is the system's and the title on it is the
 // app's: that is the one thing about the chrome an app may say (docs/30).

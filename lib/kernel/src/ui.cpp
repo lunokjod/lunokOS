@@ -382,6 +382,13 @@ bool make_root(uint16_t width, uint16_t height) {
 bool paint(const Damage& region) {
   hal::ISurface* surface = display::surface();
   if (surface == nullptr) return false;
+  // **The region goes to the driver with its name** (0.118.6): a page-sized one at info and a blink at debug, and the two
+  // lines together —this one and the `paint` of the panel— say whether what the page asked for is what the glass was
+  // told (docs/50).
+  const bool big = static_cast<uint32_t>(region.w) * region.h >= 10000u;
+  log_printf(big ? pal::kLogInfo : pal::kLogDebug, "UI", "paint %u,%u %ux%u mode %u",
+             static_cast<unsigned>(region.x), static_cast<unsigned>(region.y), static_cast<unsigned>(region.w),
+             static_cast<unsigned>(region.h), static_cast<unsigned>(region.mode));
   const Canvas& view = root();
   int32_t x = static_cast<int32_t>(view.x) + region.x;
   int32_t y = static_cast<int32_t>(view.y) + region.y;
@@ -393,7 +400,15 @@ bool paint(const Damage& region) {
   const int32_t panel_h = static_cast<int32_t>(surface->height());
   if (x + w > panel_w) w = panel_w - x;
   if (y + h > panel_h) h = panel_h - y;
-  if (w <= 0 || h <= 0) return true;  // the whole region is off the glass
+  if (w <= 0 || h <= 0) {
+    // **A region that falls outside the panel is dropped, and it says so** (0.118.6): a page nobody sees is a page that
+    // has to say which rectangle it was, or the driver looks innocent while the rectangle was never sent (docs/50).
+    log_printf(pal::kLogWarn, "UI", "a region is off the glass: %u,%u %ux%u in a view of %u,%u %ux%u",
+               static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<unsigned>(region.w),
+               static_cast<unsigned>(region.h), static_cast<unsigned>(view.x), static_cast<unsigned>(view.y),
+               static_cast<unsigned>(surface->width()), static_cast<unsigned>(surface->height()));
+    return true;
+  }
   surface->blit(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
                 static_cast<uint16_t>(h),
                 view.bits + static_cast<uint32_t>(region.y) * view.stride + region.x / 2,
@@ -489,16 +504,49 @@ void settle_root() {
 }
 
 // What is waiting in the view, painted with the quality each region was drawn with.
+//
+// **A paint the panel refused is still owed** (0.118.2): the glass of the Paper says no to a page that arrives while
+// another one is moving its ink (`wait_paint`, three seconds) and the splash of the boot moves it for longer than that.
+// The region used to be forgotten with the rest —the list was emptied whatever happened—, so an app that presents once
+// and then waits ran with the screen of the boot still on it: the owner saw exactly that on the board, *«les apps
+// s'executen però no mostren res a pantalla»*. What did not go up goes back to the list, and the next `present` —or the
+// turn of the kernel, through `idle()`— asks again (docs/50, docs/92 §33).
+bool g_owed_paint = false;
+// **And a paint is never asked for from inside a paint** (0.118.2): the wait for the ink turns the kernel on the bench
+// —`wait_and_pump`, docs/85— and the turn asks whether something is owed, so without this flag a refused page would be
+// asked for again in the middle of the paint that is asking for it.
+bool g_painting = false;
+
 bool paint_root() {
+  if (g_painting) return false;
+  g_painting = true;
   bool ok = true;
   // Each region with its own quality, in the order the app drew them: the first paint of a page and the
   // last one after it are not the same kind of thing (docs/30).
   const uint8_t count = root().damage_count;
+  uint8_t kept = 0;
   for (uint8_t i = 0; i < count; ++i) {
-    if (!paint(root().damage[i])) ok = false;
+    const Damage region = root().damage[i];
+    if (paint(region)) continue;
+    ok = false;
+    // **And it is said out loud** (0.118.4): a page that does not go up is the difference between an app that works and
+    // an app that runs with a dead glass, and the sentence of the panel is the only thing that tells the four reasons
+    // apart. One line per paint, not per turn, because the retry would otherwise fill the console (docs/50, docs/92).
+    log_printf(pal::kLogWarn, "UI", "the glass refused a page (%u,%u %ux%u, %s): %s",
+               static_cast<unsigned>(root().x + region.x), static_cast<unsigned>(root().y + region.y),
+               static_cast<unsigned>(region.w), static_cast<unsigned>(region.h),
+               (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4) ? "du" : "gc16",
+               display::last_error());
+    // The refused one stays, and it stays in its own order: `kept` never passes `i`, so this is a copy in place.
+    root().damage[kept++] = region;
   }
-  root().damage_count = 0;
+  root().damage_count = kept;
+  if (kept == 0 && g_owed_paint) {
+    log_printf(pal::kLogInfo, "UI", "the page the glass refused is up");
+  }
+  g_owed_paint = (kept > 0);
   settle_root();
+  g_painting = false;
   return ok;
 }
 
@@ -5953,7 +6001,12 @@ bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint
 }
 
 bool present() {
-  if (!g_attached || root().bits == nullptr) return false;
+  if (!g_attached || root().bits == nullptr) {
+    // **A present with no page behind it** (0.118.6): the app drew into a canvas the system has already given back, and
+    // the paint is not asked for at all — which on the glass is the same as a paint nobody accepted (docs/30).
+    log_printf(pal::kLogWarn, "UI", "a present arrived with no page attached");
+    return false;
+  }
   compose_tree(0, -1, 0, 0);
   // **The keyboard goes over the page and not in it**: the tree is composed first and the band last, so a
   // control of the page under it is covered and does not have to know that the keyboard is there (docs/90).
@@ -5975,7 +6028,18 @@ bool present_all(hal::UpdateMode mode) {
   return ok;
 }
 
-bool idle() { return display::idle(); }
+bool idle() {
+  // **And a page the panel refused is asked for again here** (0.118.2): `idle()` is the question "is the ink over?"
+  // that an app in a loop already asks, so it is where the system paints what it owes without anybody inventing another
+  // call. The paint is only asked for when the panel says its ink is over, which is what keeps this from blocking on
+  // `wait_paint` every turn (docs/30, docs/50).
+  if (g_owed_paint && !g_painting && !root().in_draw && display::idle()) paint_root();
+  return display::idle();
+}
+
+// **Whether the glass is owed a page** (0.118.2): the kernel asks it every turn and only then pays for `idle()`, so a
+// turn that owes nothing costs nothing (docs/30, docs/50).
+bool owes_paint() { return g_owed_paint; }
 
 bool title(const char* text) {
   bar::title(text);

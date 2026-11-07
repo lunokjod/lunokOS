@@ -50,6 +50,43 @@ const uint32_t kMostBytes = 2u * 1024u * 1024u;
 
 Kind g_showing = kNone;
 const char* g_error = "";
+// **The words of a failure that is the panel's**, kept here because `g_error` points at them (docs/50).
+char g_failure[192];
+
+// **A failure says what the panel said** (0.118.2): `the panel did not take the picture` alone is a flash to find out
+// which of the five reasons of the driver it was —the panel not up, a paint that arrived while another was moving ink,
+// a command that the controller refused— and the HAL already keeps that sentence (docs/50).
+void note_failure(const char* what, const char* why) {
+  if (why == nullptr || why[0] == '\0') {
+    snprintf(g_failure, sizeof(g_failure), "%s", what);
+  } else {
+    snprintf(g_failure, sizeof(g_failure), "%s: %s", what, why);
+  }
+  g_error = g_failure;
+}
+
+// **How long the ink of the paint before is given, in turns of twenty milliseconds** (0.118.2): a page of this glass
+// moves its ink for one to three seconds —the rows are what costs— and a picture goes up once, so waiting for it is
+// free and dropping it is not. Scanned on the board: `splash boot-alt` answered `the panel did not take the picture`
+// when it arrived in the middle of the wash of the boot (docs/50, docs/92).
+const int32_t kSettleTurnMs = 20;
+const int32_t kSettleMostMs = 6000;
+
+// **The ink that was moving is waited for and not argued with**: `idle()` is the HAL's question, and the driver refuses
+// a paint that arrives while another one is moving ink (the maker's own driver asks for the previous one to be over
+// before sending the next). Nobody is waiting on a page while a logo goes up, so this is the one place where the glass
+// may be waited on (docs/50).
+void settle(hal::ISurface* glass) {
+  const int64_t deadline = pal::system().millis() + kSettleMostMs;
+  for (;;) {
+    if (glass->idle()) return;
+    const int64_t left = deadline - pal::system().millis();
+    if (left <= 0) return;
+    // Sleeping through the queue keeps the CPU idle instead of spinning, the same wait the console settle uses.
+    pal::Event event;
+    pal::system().queue()->pop(event, static_cast<int32_t>((left < kSettleTurnMs) ? left : kSettleTurnMs));
+  }
+}
 
 // **One nibble of a packed row**, which is the packing of the glass and of the decoder: one byte per two
 // pixels and the left one in the high nibble (docs/50).
@@ -240,10 +277,13 @@ bool show(const char* path) {
   const uint16_t at_y = static_cast<uint16_t>((glass_h - height) / 2u);
   glass->clear(15);
   glass->blit(at_x, at_y, width, height, sink.pixels, stride);
+  // **The wash before is over before this one is asked for** (0.118.2): the panel refuses a paint that arrives while
+  // it is moving ink, and the boot's own wash of the whole page is still running when a person types quickly.
+  settle(glass);
   const bool painted = glass->flush(hal::UpdateMode::kGc16);
   release(sink.pixels);
   if (!painted) {
-    g_error = "the panel did not take the picture";
+    note_failure("the panel did not take the picture", glass->last_error());
     return false;
   }
   log_printf(pal::kLogInfo, "SPLASH", "%s, %ux%u at %u,%u", path, static_cast<unsigned>(width),
