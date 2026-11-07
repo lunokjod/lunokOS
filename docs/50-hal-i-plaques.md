@@ -868,6 +868,29 @@ línia per toc no és una consola d'un sistema que es pugui fer servir. Si algun
 sospita un mirall, es torna a posar allà mateix: és una línia.
 
 
+### La imatge d'un moment: la splash (0.111.0)
+
+**Hi ha una sola cosa del sistema que pinti el panell fora d'una pàgina**, i és la imatge d'un moment: a
+l'arrencada, quan la placa marxa, quan està al cable. Es fa així perquè són justament els moments en què no hi ha
+cap app al davant —una placa que s'aixeca encara no té ni prompt, i una que baixa acaba de tancar la seva app—.
+
+- **La neteja és de tot el panell**: `clear(15)` i un sol `flush(gc16)`, que és el mode que s'emporta el fantasma del
+  que hi havia i no només el rectangle de la imatge. Una imatge centrada sobre un tros de la pàgina de abans és una
+  imatge amb un fantasma a sota.
+- **La imatge va al mig i no s'escala mai**: una imatge més gran que el vidre es talla pel seu centre i una que hi
+  cap es deixa tal com és. Escalar quatre bits és un blur, i el que fa la splash és ensenyar el que hi ha al fitxer.
+- **Els moments són paraules**, i la paraula és el nom del fitxer: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i,
+  si el moment no en té, `/res/splash.png` per a tots. Un moment sense imatge **no pinta res i diu per què**: una
+  splash que dibuixa una endevinalla és una placa que amaga un fitxer trencat.
+- **El que hi ha al disc**: `boot.png`, `shutdown.png` i `charging.png` a `data/res/splash/`, **460 × 200** cada una,
+  dibuixades amb la tipografia del sistema. `sleep` no en té i és el cas que la prova fa servir per comprovar que un
+  moment sense imatge ho diu.
+
+Des de la consola: **`splash`** (la llista de moments i la imatge que hi ha), **`splash boot|shutdown|charging|sleep`**
+(la del moment), **`splash /ruta/al/fitxer.png`** (una imatge qualsevol) i **`splash hide`** (el vidre torna a paper).
+L'ordre en què s'encenen és el del sistema: a `kernel::boot`, just després de `display::boot`; i a `power::sleep`,
+abans que el xip parin els rellotges i només en un **son profund** —un son lleuger és una becaina i no pinta res.
+
 ### La pàgina es gira en software, i és vertical per defecte (1/11)
 
 El panell viu en **960 × 540** (el marc del controlador) i **una app dibuixa en una pàgina de 540 × 960**:

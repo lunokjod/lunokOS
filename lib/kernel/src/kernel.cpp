@@ -19,6 +19,7 @@
 #include "kernel/net.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
+#include "kernel/splash.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
@@ -339,6 +340,13 @@ void boot(hal::IPlatform& platform) {
   // The panel, when the board has one. It is booted and **not polled**: nothing of the system paints,
   // so there is no turn of this loop that has anything to say to the glass (docs/30, docs/50).
   display::boot(platform);
+  // **The picture of the moment** (0.111.0): the panel has just come up and this is the one moment the system can
+  // wash it whole and put a picture in the middle of it — nothing else is on the glass yet, and the first page an app
+  // paints comes after this and over it. A build whose disk carries no picture for the boot paints nothing and says
+  // nothing: a splash of a guess is worse than the panel of before (docs/30, docs/50).
+  if (!splash::show(splash::kBoot)) {
+    log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
+  }
   // The bar of the system, which owns the top rows of the glass: the hour, the title of the app in front
   // and the charge (docs/30).
   bar::boot(platform);

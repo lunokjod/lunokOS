@@ -13,6 +13,7 @@
 //   - the app lifecycle: the window of an alarm, the turn and the close;
 //   - the command table in `execute()`, and the console feed, the line editor and the Lua prompt.
 #include "kernel/shell.h"
+#include "kernel/splash.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -394,6 +395,7 @@ void print_help(const char* only) {
   help_line("  apps              the apps of the flash and of the card", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
+  help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]]  settings: where the apps' cfg lives, and the keyboard", only);
   help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
   help_line("  wifi              the stored network and the radio", only);
@@ -574,6 +576,58 @@ void print_apps() {
   if (apps::for_each(nullptr, &print_app, nullptr) == 0) {
     out("  no apps\r\n");
   }
+}
+
+// **`splash`**: the picture of a moment on the glass, washed whole, or the glass given back to paper. With no
+// word it says which moments this build carries a picture for, which is the question a person asks before
+// writing a picture of their own (0.111.0, docs/30, docs/92).
+bool command_splash(const char* rest) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(rest, words, 1, count)) return false;
+  if (count == 0) {
+    const uint8_t moments = splash::count();
+    for (uint8_t i = 0; i < moments; ++i) {
+      const splash::Kind kind = splash::at(i);
+      const char* name = splash::word(kind);
+      char path[96];
+      out("  ");
+      out(name);
+      spaces(strlen(name) < 10 ? 10 - strlen(name) : 1);
+      if (splash::path_of(kind, path, sizeof(path))) {
+        out(path);
+      } else {
+        out("no picture");
+      }
+      out("\r\n");
+    }
+    out("splash [<moment>|hide|<path>]\r\n");
+    return true;
+  }
+  if (strcmp(words[0], "hide") == 0) {
+    if (!splash::hide()) {
+      out("splash: ");
+      out(splash::last_error());
+      out("\r\n");
+      return false;
+    }
+    out("splash: the glass is paper\r\n");
+    return true;
+  }
+  // **A word of a moment or a path**: a picture the caller names is what an app or a person tries before it is
+  // put where the system looks for it.
+  const splash::Kind kind = splash::kind_of(words[0]);
+  const bool painted = (kind != splash::kNone) ? splash::show(kind) : splash::show(words[0]);
+  if (!painted) {
+    out("splash: ");
+    out(splash::last_error());
+    out("\r\n");
+    return false;
+  }
+  out("splash: ");
+  out((kind != splash::kNone) ? splash::word(kind) : words[0]);
+  out("\r\n");
+  return true;
 }
 
 // One line per mount: what it is, whether it can be written and how much room is
@@ -3415,6 +3469,9 @@ bool execute(char* line) {
   if (strcmp(line, "mounts") == 0) {
     print_mounts();
     return true;
+  }
+  if (strncmp(line, "splash", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
+    return command_splash(line + 6);
   }
   if (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     // A second word is the file the app is pointed at: `run txt res/notes.txt` is the app and what

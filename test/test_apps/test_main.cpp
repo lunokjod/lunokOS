@@ -27,6 +27,7 @@
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/splash.h"
 #include "luabind/luabind.h"
 #include "kernel/power.h"
 #include "kernel/shell.h"
@@ -5779,6 +5780,100 @@ void test_a_list_turns_its_page_with_the_dial(void) {
   storage->remove("/apps/pager");
 }
 
+// **The splash paints a picture in the middle of the glass, washed whole** (0.111.0): the one thing of the
+// system that paints the panel outside a page. The picture here is two by two —the top row black and the bottom
+// one white— so the pixels say where it landed and that nothing around it was touched, and a moment whose picture
+// the disk does not carry says so instead of painting a guess (docs/30, docs/50, docs/92).
+void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // A BMP of two by two pixels, twenty-four bits, the rows the other way up: 70 bytes and the top row black.
+  const uint8_t bmp[] = {
+      66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
+      40, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0,
+      24, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255,
+      255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  };
+  // **The bench writes its own pictures**: the disk of the tests is its own copy and what a build carries is not
+  // what this volume has, so the folder is made here and the file is this test's (docs/85).
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  TEST_ASSERT_TRUE(write_picture("/res/splash/probe.bmp", bmp, sizeof(bmp)));
+
+  // **Something of somebody else on the glass, in a corner**: the wash of the splash is the whole panel and not the
+  // rectangle of the picture, so this square of ink is gone when the moment has been painted (docs/50).
+  hal::ISurface* panel = hal::platform().display();
+  TEST_ASSERT_NOT_NULL(panel);
+  panel->fill_rect(0, 0, 12, 12, 0);
+  TEST_ASSERT_TRUE(panel->flush(hal::UpdateMode::kDu));
+
+  // **The middle of the glass**: two pixels of a picture in five hundred and forty by nine hundred and sixty are
+  // at two hundred and sixty-nine and four hundred and seventy-nine, and the number is the glass and not the page
+  // under the bar — a splash is the whole panel (docs/50).
+  TEST_ASSERT_TRUE(kernel::splash::show("/res/splash/probe.bmp"));
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
+  const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(static_cast<uint16_t>(at_x + 1), at_y));
+  // **Two pixels and no more**: the next column and the row under it are the paper of the wash, and so are the four
+  // corners of the glass.
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, static_cast<uint16_t>(at_y + 2)));
+  // **And the ink of the corner is gone**, which is what washing the panel whole means.
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(11, 11));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(glass->width() - 1),
+                                              static_cast<uint16_t>(glass->height() - 1)));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kNone, kernel::splash::showing());
+
+  TEST_ASSERT_TRUE(kernel::splash::hide());
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kNone, kernel::splash::showing());
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
+
+  // **A moment is a file with the word of the moment as its name**: the same picture under the word `boot` is the
+  // picture of the boot, and the word is what a person uses to put one of their own on the disk.
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", bmp, sizeof(bmp)));
+  char path[96];
+  TEST_ASSERT_TRUE(kernel::splash::path_of(kernel::splash::kBoot, path, sizeof(path)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(path, "boot."), path);
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBoot));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::splash::showing());
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::splash::kind_of("boot"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kNone, kernel::splash::kind_of("nothing"));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+
+  // **A picture that is not there says so**, and a moment that is not one says which: neither paints a guess.
+  TEST_ASSERT_FALSE(kernel::splash::show("/res/splash/nothing.bmp"));
+  TEST_ASSERT_EQUAL_STRING("the picture is not there", kernel::splash::last_error());
+  TEST_ASSERT_FALSE(kernel::splash::show(kernel::splash::kNone));
+  TEST_ASSERT_EQUAL_STRING("no such moment", kernel::splash::last_error());
+
+  storage->remove("/res/splash/probe.bmp");
+  storage->remove("/res/splash/boot.bmp");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The keyboard is the system's and types into the box it was given**: the app says the box, shows the band and
 // is told what the box holds after every key —the field is already written, the rule a checkbox and a slider
 // follow— and **the dial walks the keys** so a board with three keys can type too (docs/30, docs/90).
@@ -7932,6 +8027,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_centre_presses_the_control_the_dial_is_on);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
+  RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);

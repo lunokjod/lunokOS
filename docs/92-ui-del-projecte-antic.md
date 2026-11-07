@@ -840,3 +840,41 @@ queda cru**, mesurat amb un pty: `IT_WAS_RAW` i `TERMINAL_LEFT_RAW` contra `TERM
 
 **El que queda llest per pujar**: `pio run -e m5-paper -t upload` (firmware) i `pio run -e m5-paper -t uploadfs` (el
 littlefs), que és el que fa l'amo i no l'assistent.
+
+## 26. Una imatge als moments del sistema: la splash (0.111.0)
+
+**El que va demanar l'amo**: *«Crea una app nativa C++ de sistema que faci una splash screen, se li passa una imatge
+que l'app mostra al centre de la pantalla rera haver fet una neteja completa del panell. Aquesta app s'executarà en
+diferents moments durant l'execució del sistema (boot, shutdown, charging...)»*.
+
+**És un mòdul del nucli i no una app**, i el perquè és el dels moments: una placa que s'aixeca no té cap app al
+davant i una que baixa acaba de tancar-ne la seva, i l'únic que hi ha en tots dos casos és el sistema. O sigui que
+`kernel/splash.h` és germà de `kernel/display.h` i no de `apps/`: pinta **la superfície** (`hal::ISurface`) i no el
+llenç d'una pàgina.
+
+**Dues coses i una regla.** La neteja és **de tot el panell** (`clear(15)` i un `flush(gc16)`, el mode que
+s'emporta el fantasma) i la imatge va **al mig, a la seva mida i sense escalar** —més gran que el vidre, es talla pel
+centre; si hi cap, es deixa com és—. L'`img` del sistema dona les files a quatre bits i cada fila es copia a un bloc
+de la memòria extra de la mida del que hi cap; el fitxer sencer i el bloc de descodificar també van a la memòria
+extra i es tornen quan la imatge és al vidre.
+
+**Els moments són paraules i la paraula és el nom del fitxer**: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i
+`/res/splash.png` per a tots. `boot`, `shutdown`, `charging` i `sleep` són els quatre moments del sistema, i el banc
+porta **tres imatges de 460 × 200** fetes amb la tipografia del sistema (`boot.png`, `shutdown.png`, `charging.png`);
+`sleep` no en té, i això és el que la prova fa servir per veure que un moment sense imatge **no pinta res i diu per
+què**.
+
+**On s'encén**: a `kernel::boot`, just després de `display::boot` (el panell acaba d'arrencar i no hi ha res més al
+vidre); i a `power::sleep`, abans que el xip parin els rellotges, **només en un son profund** —un son lleuger és una
+becaina: la placa té el que tenia i torna de seguida—. L'encès de `charging` **queda per cablejar** a la política
+d'energia: el moment i la seva imatge existeixen i `splash charging` la pinta, però el sistema encara no té un moment
+que sigui «al cable, esperant».
+
+**I una comanda per provar-ho sense reiniciar**: `splash` (la llista), `splash <moment>`, `splash /ruta/imatge.png`
+i `splash hide`.
+
+**Mesurat aquest torn**: **453 casos natius, 453 verds** (un de nou, `test_the_splash_paints_a_picture_in_the_middle_of_the_glass`,
+a `test_apps` perquè és on hi ha el disc i el vidre); el bolcat de l'emulador ensenya `[I][SPLASH] /res/splash/boot.png,
+460x200 at 40,380` i la imatge al mig del vidre de 540 × 960 amb la barra a sobre. Les trencades, provades: **treure la
+neteja** deixa la taca de tinta de la cantonada a la prova (Expected 15 Was 0) i **pintar la imatge a la cantonada**
+deixa el mig buit (Expected 0 Was 15).

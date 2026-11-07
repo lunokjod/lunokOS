@@ -1708,7 +1708,31 @@ namespace kernel {
 // red (the cross reaches the side), a bar that stops short turns it red on the other half, and not installing the signal
 // handlers leaves the terminal raw —measured with a pty: `IT_WAS_RAW` and `TERMINAL_LEFT_RAW` against
 // `TERMINAL_BACK`— (docs/80, docs/90, docs/92 §25).
-static const char kVersion[] = "0.110.0";
+//
+// 0.111.0 (8/11): **a picture at the moments of the system.** The owner: *«Crea una app nativa C++ de sistema que
+// faci una splash screen, se li passa una imatge que l'app mostra al centre de la pantalla rera haver fet una neteja
+// completa del panell. Aquesta app s'executarà en diferents moments durant l'execució del sistema (boot, shutdown,
+// charging...)»*. It is a module of the kernel and not an app, because the moments it exists for are the ones where
+// no app is in front: **`splash` paints the surface of the board** (`hal::ISurface`) and not the canvas of a page.
+// Two things and one rule: the wash is the **whole panel** (`clear(15)` and one `flush(gc16)`, the mode that takes
+// the ghost with it) and the picture sits **in the middle, at its own size and never scaled** —bigger than the glass
+// it is cut at its centre, and one that fits is left as it came—. The rows come from `img` four bits a pixel and go
+// into one block of the extra memory the size of what fits; the file and the block the decoder asks for live there
+// too and go back when the picture is on the glass.
+// **The moments are words and the word is the name of the file**: `/res/splash/<moment>.png` (and `.bmp`, `.jpg`)
+// and `/res/splash.png` for every one. `boot`, `shutdown`, `charging` and `sleep`; the bench carries three pictures of
+// 460 x 200 drawn with the system's face, and `sleep` has none, which is what the test uses to see that a moment
+// without a picture paints nothing and says why. It is turned on at `kernel::boot` right after `display::boot`, and
+// at `power::sleep` before the chip stops its clocks —only on a deep sleep, because a light one is a nap—. The
+// moment of the charge is there and painted by the command, but **the energy policy has no "on the cable, waiting"
+// moment yet**: that is the piece left. And the shell has `splash [<moment>|hide|<path>]` to try all of it without a
+// restart.
+// Measured: **453 native cases, 453 green** (one new, and it is in test_apps because that is where the disk and the
+// glass are); the emulator's dump says `[I][SPLASH] /res/splash/boot.png, 460x200 at 40,380` and shows the picture in
+// the middle of the 540 x 960 glass with the bar over it. The breaks: taking the wash out leaves the mark of ink of
+// the corner in the test (15 expected, 0 found), and painting the picture at the corner leaves the middle empty
+// (docs/50, docs/92 §26).
+static const char kVersion[] = "0.111.0";
 
 }  // namespace kernel
 

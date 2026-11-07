@@ -2,6 +2,7 @@
 // says when, what is said to the app first and what is read afterwards (docs/90).
 #include "kernel/meter.h"
 #include "kernel/power.h"
+#include "kernel/splash.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -360,6 +361,11 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) console->flush();
 
+  // **The picture of the way down** (0.111.0): a board that is going to stop its clocks says so on the glass
+  // first —after the app is closed and before the chip stops— so a person finds the reason it went dark instead of
+  // the last page of an app that is no longer there. A light sleep is a nap and paints nothing: the board keeps what
+  // it has and is back in a moment (docs/30, docs/50, docs/92).
+  if (mode == hal::SleepMode::kDeep) splash::show(splash::kShutdown);
   const bool back = g_power->sleep(mode, until);
   if (!back) return false;
   // A board that answers slept lightly (or is the emulator): what it was told is
