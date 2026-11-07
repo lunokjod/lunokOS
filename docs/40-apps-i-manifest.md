@@ -279,6 +279,27 @@ entre dos torns del nucli, amb la coroutine de l'app suspesa.
 mateixa app**: o l'app és dirigida per esdeveniments, o rep els trossos amb `on_data`, o llegeix ella
 mateixa. Fer-ho tot alhora fa que no se sàpiga qui es queda la línia.
 
+## L'app que surt sola en arrencar (l'app «de casa», 0.119.0)
+
+Una placa pot arrencar **dins d'una app** en lloc de deixar el prompt: és el que fa un launcher, un
+rellotge o la pàgina que una persona vol veure en encendre la placa. El nom surt de tres llocs, en
+aquest ordre:
+
+1. **L'store de la placa**, que és el que escriu `cfg home <id>` (i `cfg home none` per tornar al
+   prompt). És el que mana.
+2. **El build**, `-D LUNOK_HOME_APP="<id>"` a `platformio.ini`: el valor per defecte de cada placa.
+   Buit a tots els entorns d'aquest arbre, o sigui que una placa sense res dit arrenca al prompt.
+3. Res: el prompt.
+
+La comprovació és **on s'escriu el nom**: `cfg home` passa el nom per la porta de les apps, i un nom
+que no es presenta —o que és d'una altra placa— es refusa amb el motiu. A l'arrencada, si el disc ha
+perdut l'app (una targeta que no hi és, una app esborrada), el log diu `no app '<id>' on this disk`
+amb `[W][HOME]` i la placa es queda al prompt: **no hi ha bucle d'arrencada**.
+
+**No trepitja el registre de sessió**: una placa que se'n va anar a dormir dins d'una app torna a
+*aquella* app, i l'app de casa només s'engega quan no ha tornat res (docs/30, docs/60, docs/90). I no
+arriba cap `app.args.restore`: no ve de cap son, ve d'un arrencada.
+
 ## Una app mínima
 
 ```lua

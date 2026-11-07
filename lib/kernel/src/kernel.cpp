@@ -370,6 +370,21 @@ void boot(hal::IPlatform& platform) {
   // sleep is a board that boots, and the session record is what makes the app come back where it was
   // (docs/90).
   power::boot(platform);
+
+  // **The app the settings call home** (0.119.0): a board that has one comes up showing that page instead of the
+  // prompt —a launcher, a clock, the page a person wants to see—. It goes last and only when nothing came back,
+  // because the session record is the more precise answer (a board that went to sleep inside an app returns to that
+  // app and not to the launcher) and a home app never starts on top of anything. A name that is not on the disk is a
+  // line in the log and the prompt: a boot that insists on an app that is not there is a boot loop nobody asked for
+  // (docs/30, docs/40, docs/90).
+  const char* home = cfg::home_app();
+  if (home[0] != '\0' && !app_running()) {
+    if (shell::start_app(home)) {
+      log_printf(pal::kLogInfo, "HOME", "%s", home);
+    } else {
+      log_printf(pal::kLogWarn, "HOME", "no app '%s' on this disk; the prompt is yours", home);
+    }
+  }
 }
 
 void alarms_restore() {

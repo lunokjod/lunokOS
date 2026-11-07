@@ -2130,7 +2130,24 @@ namespace kernel {
 // The bench can reproduce it (`Options::refuse_why`) and the new case is
 // `test_a_radio_that_refuses_says_why`.
 // **Pending**: the ATOM's line, the tests of the turn and the commit.
-static const char kVersion[] = "0.118.10";
+// 0.119.0 (8/11): **the home app**: the board can come up inside a Lua app instead of at the prompt. That is what
+// a launcher, a clock or the page a person wants to see is, and until now the only way to have one was to type `run`
+// every time —or to leave an app open and go to sleep, which is the session record and not the same thing—.
+//
+// Three pieces and no more. `LUNOK_HOME_APP` in `platformio.ini` is the **default of each board** (the id of an app
+// of the disk, or empty for the prompt, and it is empty in every environment of this tree so nothing changes for
+// anybody who does not ask); `cfg::home_app()` keeps the name in the board's own store, so `cfg home <id>` overrides
+// the default without a flash and `cfg home none` puts the prompt back; and the boot starts it **last and only when
+// nothing came back**, because the session record is the more precise answer —a board that went to sleep inside an
+// app returns to that app— and a home app never starts on top of anything. The name is checked against the door of
+// the apps where it is typed (`cfg home ghost` is refused with the reason), and a name that the disk has lost is a
+// line in the log and the prompt: a board that insisted would be a boot loop nobody asked for (docs/30, docs/40,
+// docs/90).
+// The `home` key is in `cfg` with the same shape as `keyboard` and `boot`, `cfg` prints it in its listing, and the
+// two new cases are `test_the_home_app_comes_up_with_the_board` and
+// `test_a_home_app_that_is_not_there_leaves_the_prompt` (471 -> 473, compiled).
+// **Pending**: the same line of the ATOM, the tests of the turn (none executed) and the commit.
+static const char kVersion[] = "0.119.0";
 
 }  // namespace kernel
 

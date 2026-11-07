@@ -340,11 +340,18 @@ triar mirant-lo. És una **paraula** i no un camí —el que es desa és un mot 
 deixaria que un ajust fes obrir qualsevol fitxer al primer alè de la placa—, i un mot que aquest build no
 té es refusa allà on s'escriu, amb la llista, sense tocar el que hi havia (docs/30, docs/50).
 
+**I l'app que surt sola en arrencar és el quart ajust del sistema** (0.119.0): `cfg home` diu quina és (i quin és
+el valor per defecte de la placa), `cfg home <id>` en tria una i `cfg home none` torna a deixar el prompt. La clau
+és `cfg/home` a l'NVS i el valor per defecte **ve del build**, no de l'store: `platformio.ini` dona a cada placa el
+seu amb `-D LUNOK_HOME_APP="<id>"` (buit a tots els entorns d'aquest arbre, o sigui que res no canvia per a qui no
+ho demani). Un nom que la porta de les apps no presenta es refusa allà on s'escriu, i un nom que el disc ha perdut
+—una targeta que no hi és, una app esborrada— és una línia al log i el prompt: la placa no s'hi queda engegant una
+app que no hi és (docs/30, docs/40, docs/90).
+
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
 que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen
 quan l'install acaba, i també quan falla a la meitat.
-
 **I l'app no té nom fins que és sencera** (0.88.14): tot el que baixa va a `apps/.<id>.install` i només
 al final el directori sencer es renombra a `apps/<id>`; si la cadena mor al cinquè fitxer de nou, el
 directori de treball s'esborra sencer i l'app que hi havia —si n'hi havia una— queda intacta, perquè

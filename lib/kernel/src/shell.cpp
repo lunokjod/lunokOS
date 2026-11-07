@@ -397,8 +397,9 @@ void print_help(const char* only) {
   help_line("  mounts            the mounted file systems and their room", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot, boot-alt,", only);
   help_line("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
-  help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]  settings: where the apps' cfg lives,", only);
-  help_line("                    the keyboard, and the picture of the boot (boot or boot-alt)", only);
+  help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
+  help_line("                    lives, the keyboard, the picture of the boot and the app that comes up with the board",
+            only);
   help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -3173,6 +3174,8 @@ void close_app() {
 
 bool restore_app(const char* id, const char* path) { return run_app(id, path, true); }
 
+bool start_app(const char* id) { return run_app(id, nullptr, false); }
+
 bool raise_app(const char* id) {
   close_app();
   return run_app(id, nullptr);
@@ -3325,11 +3328,37 @@ bool command_cfg(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]\r\n");
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]]\r\n");
     return false;
   }
 
   if (count == 2) {
+    // **The app that comes up with the board** (0.119.0): it is checked against the door of the apps, which is what
+    // knows whether there is such an app on this board, so a typo is refused here and not discovered at the next
+    // restart. `none` is the word that puts the prompt back (docs/30, docs/40).
+    if (strcmp(words[0], "home") == 0) {
+      if (strcmp(words[1], "none") == 0) {
+        const bool kept = cfg::set_home_app(nullptr);
+        out("settings: home none (the prompt)\r\n");
+        if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+        return true;
+      }
+      apps::Entry entry;
+      if (!apps::read(words[1], entry)) {
+        out("cfg: no app '");
+        out(words[1]);
+        out("' that runs on this board; `apps` lists what is there\r\n");
+        return false;
+      }
+      // **The name the door gave back**, which carries the `-SD` suffix when the app is the card's copy: the boot has
+      // to start the one the person chose and both halves of the door have the same folder name (docs/40).
+      const bool kept = cfg::set_home_app(entry.id);
+      out("settings: home ");
+      out(cfg::home_app());
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     // **The drawing of the logo that comes up with the board** (0.115.0): the word is checked against the moments
     // the splash carries, so a typo is refused here and not discovered at the next restart (docs/30, docs/50).
     if (strcmp(words[0], "boot") == 0) {
@@ -3348,7 +3377,7 @@ bool command_cfg(const char* argument) {
       return true;
     }
     if (strcmp(words[0], "keyboard") != 0) {
-      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]\r\n");
+      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]]\r\n");
       return false;
     }
     if (!ui::keyboard_select(words[1])) {
@@ -3369,6 +3398,17 @@ bool command_cfg(const char* argument) {
   if (count == 1) {
     if (strcmp(words[0], "boot") == 0) {
       say_boot_pictures();
+      return true;
+    }
+    // **The app that comes up with the board, and what this board's build says** (0.119.0): the two numbers are the
+    // setting and its default, because the person wants to know whether they are looking at what they chose or at
+    // what the board came with (docs/30, docs/40).
+    if (strcmp(words[0], "home") == 0) {
+      out("settings: home ");
+      out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
+      out(" (this board's default is ");
+      out((cfg::home_default()[0] != '\0') ? cfg::home_default() : "none");
+      out(")\r\n");
       return true;
     }
     if (strcmp(words[0], "keyboard") == 0) {
@@ -3398,6 +3438,9 @@ bool command_cfg(const char* argument) {
     out("  keyboard: ");
     out(ui::keyboard_current());
     newline();
+    out("  home: ");
+    out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
+    newline();
     return true;
   }
   out("settings: ");
@@ -3410,6 +3453,9 @@ bool command_cfg(const char* argument) {
   newline();
   out("  boot: ");
   out(cfg::boot_splash());
+  newline();
+  out("  home: ");
+  out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
   newline();
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {

@@ -41,6 +41,20 @@ bool set_boot_splash(const char* word);
 // and the boot ask and neither answers on its own (docs/30, docs/50).
 bool is_a_boot_word(const char* word);
 
+// **The app the board starts by itself when it comes up** (0.119.0): the "home" app —a launcher, a clock, the
+// page a person wants to see when the board has just been switched on—. The empty name means **no home app**, and
+// that is what every board did until now: the board comes up at the prompt and the person says what to run.
+//
+// The name **comes from the build**: `platformio.ini` gives each board its own with `-D LUNOK_HOME_APP="<id>"`,
+// and `cfg home <id>` overrides it on that board's own store, the same way the keyboard and the picture of the boot
+// are overridden. It is a name and not a path for the same reason the picture is a word: a path in the settings is a
+// way to make a board open any file at its first breath (docs/30, docs/40, docs/70).
+const char* home_app();
+// What this build says, so `cfg home` can tell the person what the default of their board is.
+const char* home_default();
+// Keeps the name (`nullptr` or "none" clears it) and saves it. False when it could not be written.
+bool set_home_app(const char* id);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

@@ -61,6 +61,11 @@ bool raise_app(const char* id);
 // `app.args.restore` in its args so it knows to read what it saved (docs/90).
 bool restore_app(const char* id, const char* path);
 
+// **The app the system starts by itself** (0.119.0): the home app of the settings, started the way `run` starts
+// one but without a prompt in between —no restore flag, because it is not coming back from anything— and only when
+// nothing is in front (docs/30, docs/40).
+bool start_app(const char* id);
+
 // The window of an alarm: the app is loaded, turned once and its on_alarm is
 // called, and then the VM goes away. Never runs on top of another app.
 bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms);

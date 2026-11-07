@@ -7371,6 +7371,73 @@ void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
   TEST_ASSERT_EQUAL_STRING("qwerty", kernel::cfg::keyboard());
 }
 
+// **The app the settings call home comes up with the board** (0.119.0): `cfg home <id>` keeps the name in the board's
+// own store, a boot reads it and starts that app instead of leaving a person at the prompt —which is what every board
+// did until now— and `cfg home none` puts the prompt back. The default of a board comes from the build
+// (`LUNOK_HOME_APP` in `platformio.ini`, empty in every environment of this tree), so what this measures is the
+// setting and the boot that honours it (docs/30, docs/40).
+void test_the_home_app_comes_up_with_the_board(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "comer",
+                           "{\"title\":\"Comer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('home here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  // The setting says what it kept, and it says the default of the build next to it: a person has to know whether
+  // they are looking at their choice or at the board's.
+  pump_captured(20, g_out, sizeof(g_out), "cfg home comer");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: home comer"), g_out);
+  TEST_ASSERT_EQUAL_STRING("comer", kernel::cfg::home_app());
+  pump_captured(20, g_out, sizeof(g_out), "cfg home");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: home comer"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board's default is none"), g_out);
+
+  // **The boot starts it**: nothing is in front, so the home app is the one that comes up, and the prompt is not a
+  // place the board stopped at.
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the home app did not come up with the board");
+  TEST_ASSERT_EQUAL_STRING("comer", kernel::shell::app_id());
+  capture_begin();
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home here"), g_out);
+
+  // And `none` is the prompt again, on the next boot.
+  close_any_app();
+  pump_captured(20, g_out, sizeof(g_out), "cfg home none");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: home none"), g_out);
+  TEST_ASSERT_EQUAL_STRING("", kernel::cfg::home_app());
+  kernel::boot(hal::platform());
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the board came up inside an app after `cfg home none`");
+
+  storage->remove("/apps/comer/app.lua");
+  storage->remove("/apps/comer/manifest.json");
+  storage->remove("/apps/comer");
+}
+
+// **A name the door does not present is refused where it is typed** (0.119.0), and a name that is on the store but not
+// on the disk is a line in the log and the prompt: a board that insisted would be a boot loop nobody asked for —the
+// same rule the session record follows (docs/30, docs/40, docs/90).
+void test_a_home_app_that_is_not_there_leaves_the_prompt(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  pump_captured(20, g_out, sizeof(g_out), "cfg home ghost");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cfg: no app 'ghost'"), g_out);
+  TEST_ASSERT_EQUAL_STRING("", kernel::cfg::home_app());
+
+  // Written straight into the setting —which is what a disk that lost the app looks like on the next boot— and the
+  // board still comes up: with the prompt, and able to answer.
+  kernel::cfg::set_home_app("ghost");
+  kernel::boot(hal::platform());
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the board came up inside an app that is not there");
+  pump_captured(20, g_out, sizeof(g_out), "cfg home");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: home ghost"), g_out);
+  kernel::cfg::set_home_app(nullptr);
+}
+
 // **The block of the caret blinks without the app** (0.92.0): the kernel turns `box.caret` every six hundred milliseconds
 // while the keyboard is on the glass and paints the box; a page that only waits has a cursor, and a page that types does
 // not keep a clock for it. The test reads the field as the app would and sees the two halves of a blink (docs/30,
@@ -9250,6 +9317,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
   RUN_TEST(test_a_keyboard_without_a_target_is_refused);
   RUN_TEST(test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters);
+  RUN_TEST(test_the_home_app_comes_up_with_the_board);
+  RUN_TEST(test_a_home_app_that_is_not_there_leaves_the_prompt);
   RUN_TEST(test_the_caret_blinks_without_the_app);
   RUN_TEST(test_the_dial_stops_on_a_text_box_and_the_centre_enters_it);
   RUN_TEST(test_a_read_only_box_has_a_caret_and_never_a_band);
