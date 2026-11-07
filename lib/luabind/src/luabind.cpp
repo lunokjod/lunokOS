@@ -5551,7 +5551,10 @@ int l_list_draw(lua_State* L) {
 // ui.list_entry(width, height): **a row of a list that the app builds** (0.104.0). The fields are the paper of the
 // row, its ink, the separator, the mark and the focus, and the words are a control added inside it: a list of entries
 // is a list of controls, which is what a list of things that are not a title and a detail needs (docs/30, docs/90).
-int l_ui_list_entry(lua_State* L) {
+// **The entry and the cell of a grid are the same control** (0.105.0): the paper of a row —or its ink when it is the
+// marked one or the one with the ring— and, in a list, the line of the separator. What changes is the `separator` it
+// is born with, which is what a row wants and a cell of a grid does not.
+int l_ui_entry(lua_State* L, bool separator) {
   const int results = create_control(L, false);
   if (results != 1 || !lua_isuserdata(L, -1)) return results;
   lua_getiuservalue(L, -1, 1);
@@ -5561,7 +5564,7 @@ int l_ui_list_entry(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushboolean(L, 1);
+  lua_pushboolean(L, separator ? 1 : 0);
   lua_setfield(L, -2, "separator");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "marked");
@@ -5576,6 +5579,12 @@ int l_ui_list_entry(lua_State* L) {
   lua_pop(L, 1);
   return 1;
 }
+
+int l_ui_list_entry(lua_State* L) { return l_ui_entry(L, true); }
+
+// ui.grid_entry(width, height): **a cell of a grid that the app builds** (0.105.0). The same control without the line of
+// the separator, and the app puts inside it what a cell is: an icon with its name, a box of two cells, a picture.
+int l_ui_grid_entry(lua_State* L) { return l_ui_entry(L, false); }
 
 // ui.list(width, height): **rows on pages and never a scroll**. The fields are `items`, `row_height`, `page` —the
 // page it is on, from 1—, `marked` —the chosen row of the whole list, from 1, or 0—, the three colours of a row
@@ -6642,11 +6651,53 @@ int l_icon_grid_draw(lua_State* L) {
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
   const bool focused = ui_field_bool(L, 1, "focused", false);
+  // **A grid of entries is a grid of controls** (0.105.0): the cells are the app's and this only puts each one where the
+  // kernel says the cell is —the same geometry the paint and the finger use— and the ones of another page past the
+  // frame, where the clip does not compose them and the walk does not reach them (docs/30, docs/90).
+  lua_getiuservalue(L, 1, 1);
+  lua_getfield(L, -1, "children");
+  const lua_Integer entries = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
+  bool cells_of_the_kernel = true;
+  if (entries > 0 && g_ui_ops.icon_grid_cell != nullptr && g_ui_ops.canvas_resize != nullptr &&
+      g_ui_ops.canvas_place != nullptr) {
+    cells_of_the_kernel = false;
+    uint16_t frame_h = 0;
+    uint16_t frame_w = 0;
+    uint16_t frame_x = 0;
+    uint16_t frame_y = 0;
+    const uint8_t total = static_cast<uint8_t>((entries > 255) ? 255 : entries);
+    for (lua_Integer i = 1; i <= entries; ++i) {
+      lua_rawgeti(L, -1, i);
+      LuaCanvas* kid = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+      if (kid != nullptr && kid->slot >= 0 && g_ui_ops.canvas_caps != nullptr &&
+          g_ui_ops.canvas_caps(canvas->slot, frame_w, frame_h, frame_x, frame_y)) {
+        uint16_t cell_x = 0;
+        uint16_t cell_y = 0;
+        uint16_t cell_w = 0;
+        uint16_t cell_h = 0;
+        const bool on_page = g_ui_ops.icon_grid_cell(
+            canvas->slot, total, static_cast<uint8_t>((index < 0) ? 0 : index),
+            static_cast<uint8_t>((columns < 0) ? 0 : columns),
+            static_cast<uint8_t>((scale < 1) ? 1 : scale), static_cast<uint16_t>(i), cell_x, cell_y,
+            cell_w, cell_h);
+        if (on_page) {
+          g_ui_ops.canvas_resize(kid->slot, cell_w, cell_h);
+          g_ui_ops.canvas_place(kid->slot, cell_x, cell_y);
+        } else {
+          g_ui_ops.canvas_resize(kid->slot, 40, 40);
+          g_ui_ops.canvas_place(kid->slot, 0, static_cast<uint16_t>(frame_h + 40));
+        }
+      }
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 2);  // the children and the fields table
   g_ui_ops.icon_grid_draw(canvas->slot, cells, count, static_cast<uint8_t>((index < 0) ? 0 : index),
                           static_cast<uint8_t>((marked < 0) ? 0 : marked),
                           static_cast<uint8_t>((columns < 0) ? 0 : columns), ink_or_dim(off, color),
                           static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                          static_cast<uint8_t>((scale < 1) ? 1 : scale), focused && !off.on);
+                          static_cast<uint8_t>((scale < 1) ? 1 : scale), focused && !off.on,
+                          cells_of_the_kernel);
   lua_settop(L, base);
   return 0;
 }
@@ -8849,6 +8900,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "dots", l_ui_dots);
   set_function(L, "list", l_ui_list);
   set_function(L, "list_entry", l_ui_list_entry);
+  set_function(L, "grid_entry", l_ui_grid_entry);
   set_function(L, "textbox", l_ui_textbox);
   set_function(L, "dialog", l_ui_dialog);
   set_function(L, "menu", l_ui_menu);
@@ -9564,6 +9616,14 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
       lua_getfield(L, -1, "items");
       if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
       lua_pop(L, 1);
+      // **A grid of entries counts its cells, which are the controls it holds** (0.105.0): the same rule the list
+      // follows, so an app that builds the cells of its grid out of labels and pictures does not also have to write the
+      // list of their names (docs/30, docs/90).
+      if (total == 0) {
+        lua_getfield(L, -1, "children");
+        if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+        lua_pop(L, 1);
+      }
     }
     lua_pop(L, 1);
     if (total > static_cast<lua_Integer>(kMaxGridCells)) total = static_cast<lua_Integer>(kMaxGridCells);

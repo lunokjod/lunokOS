@@ -646,8 +646,17 @@ struct GridItem {
   const char* mark;
 };
 
+// **`cells_of_the_kernel` false is a grid whose cells are controls the app built** (0.105.0): this control paints the
+// paper of its page and the footer that says which page it is, and the cells paint themselves (docs/30, docs/90).
 bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
-                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
+                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
+                    bool focused, bool cells_of_the_kernel);
+
+// **Where a cell is**, in the frame of the grid, or false when that cell is not on the page the grid is on: the bridge
+// asks this to put the control of the app where the kernel would have drawn the cell, and the answer is the one the
+// paint and the finger use (0.105.0, docs/90).
+bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                    uint16_t which, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
 
 // **Which cell a point of the frame is on**, from 1, or 0 for the gaps, the footer and a place where there is no cell. The
 // same geometry the paint uses, page included (docs/90).

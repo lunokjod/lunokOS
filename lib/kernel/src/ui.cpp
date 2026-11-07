@@ -1245,10 +1245,16 @@ bool icon_grid_build(const luabind::UIOps::UIGridItem* items, uint8_t count, Gri
 
 bool icon_grid_draw_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
                             uint8_t marked, uint8_t columns, uint8_t color, uint8_t dim, uint8_t background,
-                            uint8_t scale, bool focused) {
+                            uint8_t scale, bool focused, bool cells_of_the_kernel) {
   GridItem mine[kMaxGridItems];
   if (!icon_grid_build(items, count, mine)) return false;
-  return icon_grid_draw(slot, mine, count, index, marked, columns, color, dim, background, scale, focused);
+  return icon_grid_draw(slot, mine, count, index, marked, columns, color, dim, background, scale, focused,
+                        cells_of_the_kernel);
+}
+
+bool icon_grid_cell_for_lua(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                            uint16_t which, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h) {
+  return icon_grid_cell(slot, count, index, columns, scale, which, x, y, w, h);
 }
 
 uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
@@ -1365,7 +1371,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      notification_bar_card_at,
                                      notification_bar_close_at,
                                      icon_grid_draw_for_lua,
-                                     icon_grid_hit_for_lua});
+                                     icon_grid_hit_for_lua,
+                                     icon_grid_cell_for_lua});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -4138,7 +4145,8 @@ GridBox icon_grid_box(const GridCells& cells, int32_t which) {
 }  // namespace
 
 bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
-                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
+                    uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
+                    bool focused, bool cells_of_the_kernel) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
   const Canvas& grid = g_canvases[slot];
   const int32_t width = grid.width;
@@ -4146,6 +4154,15 @@ bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t 
   if (width == 0 || height == 0) return true;
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
+  // **The cells of a grid of entries are counted in its own tree** (0.105.0): the app wrote no list of names, so the
+  // pages the footer says and the cell the dial is on are counted here, and the app does not have to say it twice.
+  if (!cells_of_the_kernel) {
+    uint8_t kids = 0;
+    for (int16_t kid = grid.first_child; kid != kNoSlot && kids < 255; kid = g_canvases[kid].next_sibling) {
+      ++kids;
+    }
+    count = kids;
+  }
   if (count > kMaxGridItems) count = kMaxGridItems;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
@@ -4159,7 +4176,10 @@ bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t 
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
   const int32_t per_page = cells.columns * cells.rows;
   static char shown[64];
-  for (int32_t which = cells.first; which < cells.first + per_page && which < static_cast<int32_t>(count); ++which) {
+  // **A grid of entries paints no cell**: the cells are controls the app built and they paint themselves; what this
+  // control owes is the paper of its page and the footer that says which page it is (0.105.0, docs/90).
+  for (int32_t which = cells_of_the_kernel ? cells.first : cells.first + per_page;
+       which < cells.first + per_page && which < static_cast<int32_t>(count); ++which) {
     const GridBox box = icon_grid_box(cells, which - cells.first);
     const int32_t x = target.x + box.x;
     const int32_t y = target.y + box.y;
@@ -4207,6 +4227,28 @@ bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t 
   }
   close_draw(target);
   return true;
+}
+
+// **Where a cell is**, in the frame of the grid, so a cell can be a control of the app (0.105.0). It is the same
+// geometry the paint and the finger use —`icon_grid_cells` and `icon_grid_box`— and zero for a cell that is not on the
+// page the grid is on, which is how the bridge knows to put it out of sight (docs/30, docs/90).
+bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                    uint16_t which, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h) {
+  if (!live(slot) || count == 0 || which == 0) return false;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxGridItems) count = kMaxGridItems;
+  const Canvas& grid = g_canvases[slot];
+  const GridCells cells = icon_grid_cells(grid, count, index, columns, scale);
+  if (cells.columns <= 0 || cells.rows <= 0) return false;
+  const int32_t at = static_cast<int32_t>(which) - 1 - cells.first;
+  if (at < 0 || at >= cells.columns * cells.rows) return false;
+  const GridBox box = icon_grid_box(cells, at);
+  x = static_cast<uint16_t>((box.x > 0) ? box.x : 0);
+  y = static_cast<uint16_t>((box.y > 0) ? box.y : 0);
+  w = static_cast<uint16_t>((box.w > 0) ? box.w : 0);
+  h = static_cast<uint16_t>((box.h > 0) ? box.h : 0);
+  return w > 0 && h > 0;
 }
 
 uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,

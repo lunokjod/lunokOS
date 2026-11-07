@@ -816,6 +816,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
+| `ui.grid_entry(w, h)` | **un objecte** o `nil, error` | **Una cel·la d'una graella que l'app construeix** (0.105.0): el mateix control que `ui.list_entry` sense la línia del separador, i el contingut és un fill (una icona amb el seu nom, un box de dues cel·les, una imatge) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0) |
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0) |
@@ -1627,6 +1628,51 @@ list:add(entry)                          -- i la llista la col·loca
   entrades.
 - **Cada entrada és una parada del dial** (és un fill, i el recorregut baixa per l'arbre), o sigui que una llista de
   sis files té sis parades a més de la pròpia llista (que és la que gira les pàgines).
+
+### `ui.icon_grid` amb entrades: cel·les que són controls (0.105.0)
+
+**La graella és una pàgina amb una reixa, i les cel·les eren dades.** Fins a 0
+.104.0 una cel·la només podia ser una
+paraula curta (`mark`) i una de llarga (`label`); ara la cel·la pot ser **un co
+ntrol de l'app**, i és el que demana un
+launcher de debò: una imatge amb el seu nom, una caixa de dues cel·les, una min
+iatura:
+
+```lua
+local grid = ui.icon_grid(500, 400)
+grid.columns = 4
+grid.scale = 2
+local cell = ui.grid_entry(100, 100)      -- la cel·la: paper i focus
+local box = ui.label(80, 40)              -- el que hi hagi dins és de l'app
+box.text = 'A'
+box:place(10, 10)
+cell:add(box)
+grid:add(cell)                            -- i la graella la col·loca
+```
+
+- **`ui.grid_entry(w, h)`** és la cel·la: el mateix control que `ui.list_entry`
+ —paper, tinta, `marked` i el cercle— i
+  **sense la línia del separador**, perquè una reixa no té files separades. **No
+ pinta cap paraula**: el contingut és
+  el que l'app hi posa.
+- **Qui diu on va cada cel·la és el nucli**, amb la mateixa aritmètica que el pi
+ntat i el dit: la graella en dona la
+  caixa a l'app (`icon_grid_cell`, per dins del pont) i el pont hi posa el cont
+rol amb `canvas_resize` i
+  `canvas_place`. Una cel·la d'una pàgina on la graella no és **no té caixa**,
+   i el pont la posa fora del marc, allà
+  on el retall no la compon i el dial no hi arriba.
+- **`items` i les entrades conviuen**, com a la llista: si la graella té fills,
+ la cel·la és el fill i el control
+  només pinta **el paper de la pàgina i el peu**; si no en té, es pinten les cel
+·les de dades com sempre. **El nombre de
+  cel·les d'una graella d'entrades és el de fills**, i amb ell es compten les pà
+gines que diu el peu.
+- **Les fletxes caminen les cel·les i la pàgina segueix el cursor**, igual que
+amb dades: no hi ha res a fer a l'app
+  a part de posar `index` i de sentir-ho a `on_page(self, page)` si li convé.
+- **Cada cel·la és una parada del dial** pel fet de ser un fill, com les entrad
+es de la llista.
 
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)
 **A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una

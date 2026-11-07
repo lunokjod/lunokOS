@@ -1580,7 +1580,27 @@ namespace kernel {
 // Measured: 445 native cases green (one new: six entries of 56 px in a 400x180 list —two fit and the third lands at
 // 236— and the arrows carry it to page 2), and placing every entry inside the frame turns it red.
 // The grid is what is left of the owner's request and it is not in this commit (docs/30, docs/92 §19).
-static const char kVersion[] = "0.104.0";
+//
+// 0.105.0 (8/11): **a grid of cells and not of data.** The owner: *«El control Grid també te una llista dinàmica de
+// controls GridEntry (normalment un HBox de 2 elements, amb una imatge i un label)»*. A cell was two words (`mark`
+// inside the box of the icon and `label` under it) and nothing else. `ui.grid_entry(w, h)` is the control of a cell —
+// **the same control as `ui.list_entry`, born with the separator off**, one function in the bridge with two names—
+// and its content is a child the app builds. A grid that holds children paints no cell: it paints the paper of its
+// page and the footer, and each child goes where the kernel says its cell is.
+// Two pieces in the kernel's contract, so that the geometry is never copied: `icon_grid_draw` takes
+// `cells_of_the_kernel`, and with it false the cell loop starts past the top of the page and no cell is painted; and
+// `icon_grid_cell` answers the box of one cell in the frame's coordinates, or false when that cell is on another
+// page —the same arithmetic the paint and the finger use (`icon_grid_cells` and `icon_grid_box`), so the finger, the
+// brush and the app's control cannot disagree—. The count of the cells of a grid of entries is counted in its own
+// tree, so the pages of the footer and the page of the cursor are the same number the app never has to say twice;
+// `items` stays, and the cells of another page are placed at `frame_h + 40`, past the frame, where the clip does not
+// compose them and the walk does not reach them. The arrows walk the cells and the page follows the cursor.
+// Measured: `sizeof(Canvas)` is still 160 B and the table of canvases 3 276 slots (read at the emulator's boot); a
+// 500x400 grid of four columns and eight cells is dumped as four cells per row and two rows, each with its child
+// inside. **The suite was not run in this turn** (the owner said not to run anything): the two new tests —
+// `test_a_grid_of_entries_places_cells_of_controls` in test_apps and the box of a cell in test_ui— are written and
+// compile, and the break that has to turn them red is placing every cell inside the frame (docs/30, docs/92 §20).
+static const char kVersion[] = "0.105.0";
 
 }  // namespace kernel
 

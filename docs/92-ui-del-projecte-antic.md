@@ -602,5 +602,45 @@ una llista de 400 × 180 amb sis entrades de 56 px: el peu en pren vint, queden 
 tercera es col·loca a **236** (el marc més una fila), i les fletxes porten de la pàgina 1 a la 2 amb `on_page`. Si es
 col·loquen totes les entrades dins del marc (la trencada), la prova es posa vermella.
 
-**El que falta**: la **graella** (`icon_grid`) segueix amb cel·les de dades (`cells`, `marked`, `index`). Li toca el
-mateix tractament —un `grid_entry` amb un fill— i no s'ha fet en aquest torn.
+**El que faltava** llavors: la **graella** (`icon_grid`), que seguia amb cel·les de dades. Li va tocar el mateix
+tractament al torn següent (§20).
+
+## 20. Una graella de controls i no de dades (0.105.0)
+
+**El que hi havia**: la graella tenia una cel·la feta de dues paraules (`mark` dins la caixa de la icona i `label` a
+sota), i prou. Un launcher que vol una imatge amb el seu nom, o una cel·la de dues meitats, no hi cap.
+
+**El que hi ha ara**: `ui.grid_entry(w, h)`, que és **el mateix control que `ui.list_entry` naixent amb el separador
+apagat** —una sola funció al pont, dos noms— i el contingut és un fill. La graella, quan té fills, no pinta cap cel·la:
+pinta **el paper de la seva pàgina i el peu** i posa cada fill on el nucli diu que és la seva cel·la.
+
+**Dues peces noves al contracte del nucli**, perquè la geometria no es copiï mai:
+
+- `icon_grid_draw(…, bool cells_of_the_kernel)`: amb `false` no entra al bucle de les cel·les (comença a
+  `first + per_page`, que és fora del sostre del bucle) i només fa el fons i el peu.
+- `icon_grid_cell(slot, count, index, columns, scale, which, x, y, w, h)`: la caixa d'una cel·la **en les
+  coordenades del marc**, o `false` si aquesta cel·la és d'una altra pàgina. És la mateixa aritmètica que el pintat
+  (`icon_grid_cells` i `icon_grid_box`), o sigui que el dit, el pinzell i el control de l'app no poden divergir.
+
+**Tres decisions**, dites perquè són meves: (1) **`items` es queda**, com a la llista, i una graella amb fills i una
+graella amb dades conviuen; (2) **el nombre de cel·les el compta el nucli** en el seu propi arbre de fills quan la
+graella és d'entrades, perquè l'app no hagi de dir dues vegades quantes cel·les té (les pàgines del peu i el cursor
+surten d'aquest número); (3) una cel·la fora de la pàgina es col·loca a `frame_h + 40`, **fora del marc**, que és el
+mateix parany que la llista fa servir: el retall no la compon i el recorregut del dial no hi arriba.
+
+**Mesurat aquest torn**: `sizeof(Canvas)` continua sent **160 B** i la taula de llenços **3 276 llocs** —llegit a
+l'arrencada de l'emulador, `the table of canvases: 3276 slots of 160 bytes`; la cel·la no és cap camp del llenç, la
+geometria es calcula i no s'hi desa—. El bolcat de l'emulador amb una graella de 500 × 400, quatre columnes i vuit
+cel·les de 100 px dona **quatre cel·les per fila i dues files**, cada una amb el seu fill col·locat dins (mirat amb
+`--dump`).
+
+**Pendent de mesurar**: la suite no s'ha executat en aquest torn (l'amo ho va dir així). El que la prova nova
+`test_a_grid_of_entries_places_cells_of_controls` ha de dir, quan es corri, és: graella de 400 × 200 amb quatre
+columnes, la primera cel·la a **`0 0`** i **100** d'amplada, la segona a **`100 0`** —una columna a la dreta—, la
+cinquena de sis a **`240`** (el marc de 200 més quaranta, o sigui fora), i quan les fletxes portin el cursor a la
+cinquena, aquesta a **`0 0`**. La prova de nucli ha de donar cel·la de **100** d'amplada i **102** d'alçada en una
+graella de 300 amb tres columnes. La trencada és col·locar totes les cel·les dins del marc, que ha de posar les dues
+proves vermelles.
+
+**El que falta**: res de la llista ni de la graella. El que queda de la UI del projecte antic és el que diu
+`docs/90-full-de-ruta.md`.

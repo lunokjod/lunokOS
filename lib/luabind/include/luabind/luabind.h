@@ -610,11 +610,15 @@ struct UIOps {
     const char* label;
     const char* mark;
   };
+  // **`cells_of_the_kernel` false is a grid of entries** (0.105.0): the control paints its paper and its footer and the
+  // cells are controls the app built, placed by `icon_grid_cell`.
   bool (*icon_grid_draw)(int16_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t marked,
                          uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
-                         bool focused);
+                         bool focused, bool cells_of_the_kernel);
   uint8_t (*icon_grid_hit)(int16_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t columns,
                            uint8_t scale, uint16_t x, uint16_t y);
+  bool (*icon_grid_cell)(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                         uint16_t which, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
 };
 
 void set_ui_ops(const UIOps& ops);

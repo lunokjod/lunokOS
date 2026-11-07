@@ -2941,7 +2941,7 @@ void test_a_grid_puts_the_page_where_the_cursor_is() {
                                  {"Music", "M"}, {"Radio", "R"}, {"Codes", "S"}, {"Maps", "G"}};
   // Three columns of a hundred pixels: the box of the mark is seventy-two, so a cell is a hundred and two pixels high and two
   // rows fit above the footer. The seventh cell is on the second page.
-  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 0, 8, 15, 2, true));
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 0, 8, 15, 2, true, true));
   // **The cell that is chosen is inverted**: its box is ink from edge to edge and the mark is paper.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 40));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(40, 40));
@@ -2985,7 +2985,29 @@ void test_a_grid_puts_the_page_where_the_cursor_is() {
   TEST_ASSERT_EQUAL_UINT8(1, ui::icon_grid_hit(grid, cells, 8, 0, 3, 2, 50, 20));
 
   // A colour that is not a level of this panel is refused.
-  TEST_ASSERT_FALSE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 16, 8, 15, 2, true));
+  TEST_ASSERT_FALSE(ui::icon_grid_draw(grid, cells, 8, 7, 7, 3, 16, 8, 15, 2, true, true));
+
+  // **Where a cell is, so an app can put a control of its own there** (0.105.0): the geometry of the paint and of the
+  // finger, asked one cell at a time. Three columns of a hundred make a cell a hundred wide, and the two rows of the
+  // page are a hundred and two high, so the seventh cell —the first of the second page— is the corner of the frame.
+  uint16_t cx = 99;
+  uint16_t cy = 99;
+  uint16_t cw = 0;
+  uint16_t ch = 0;
+  TEST_ASSERT_TRUE(ui::icon_grid_cell(grid, 8, 7, 3, 2, 7, cx, cy, cw, ch));
+  TEST_ASSERT_EQUAL_UINT16(0, cx);
+  TEST_ASSERT_EQUAL_UINT16(0, cy);
+  TEST_ASSERT_EQUAL_UINT16(100, cw);
+  TEST_ASSERT_EQUAL_UINT16(102, ch);
+  TEST_ASSERT_TRUE(ui::icon_grid_cell(grid, 8, 7, 3, 2, 8, cx, cy, cw, ch));
+  TEST_ASSERT_EQUAL_UINT16(100, cx);
+  TEST_ASSERT_EQUAL_UINT16(0, cy);
+  // **A cell of a page the grid is not on has no place**: the app keeps its control out of the frame instead of
+  // drawing it somewhere the frame says nothing about.
+  TEST_ASSERT_FALSE(ui::icon_grid_cell(grid, 8, 7, 3, 2, 1, cx, cy, cw, ch));
+  // And a place that is not a cell of the grid is not answered.
+  TEST_ASSERT_FALSE(ui::icon_grid_cell(grid, 8, 7, 3, 2, 9, cx, cy, cw, ch));
+  TEST_ASSERT_FALSE(ui::icon_grid_cell(grid, 8, 7, 3, 2, 0, cx, cy, cw, ch));
   ui::release(grid);
 }
 

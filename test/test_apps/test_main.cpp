@@ -3184,6 +3184,74 @@ void test_a_list_of_entries_places_a_page_of_controls(void) {
 // **A cell of a box says how much of it it wants** (0.103.0): `cell.share = 30` is thirty per cent of the inside of
 // the panel, and 0 (the normal case) is "lay me out by my weight" or by the size I was made with. The field is the
 // app's, and the arithmetic is the kernel's (docs/30, docs/90).
+// **A grid of entries is a grid of controls** (0.105.0): the app builds one cell for each thing it wants to show —an
+// icon and its name, a box of two, a picture— and the control says where each cell is, the same geometry the paint and
+// the finger use, and pushes the ones of another page past the frame, where nothing composes them (docs/30, docs/90).
+void test_a_grid_of_entries_places_cells_of_controls(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "cells",
+                           "{\"title\":\"Cells\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local grid = ui.icon_grid(400, 200)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 4\n"
+                           "grid.scale = 2\n"
+                           "grid.on_page = function(self, page)\n"
+                           "  console.print('page ' .. page)\n"
+                           "end\n"
+                           // **A cell is a control the app builds**: here a mark, nothing else, which is enough to
+                           // have a box of its own in the grid.
+                           "local cells = {}\n"
+                           "for i = 1, 6 do\n"
+                           "  local cell = ui.grid_entry(100, 100)\n"
+                           "  local words = ui.label(80, 24)\n"
+                           "  words.text = 'cell ' .. i\n"
+                           "  words:place(8, 8)\n"
+                           "  cell:add(words)\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('cells up')\n"
+                           "sys.delay(30):await()\n"
+                           // **Where the cells ended up**: the first of the page in the corner of the grid, the second
+                           // one column to the right, and the fifth past the frame —four fit, and a page is one row
+                           // of four—.
+                           "local a = cells[1]:caps()\n"
+                           "local b = cells[2]:caps()\n"
+                           "console.print('at ' .. a.x .. ' ' .. a.y .. ' ' .. a.w)\n"
+                           "console.print('next ' .. b.x .. ' ' .. b.y)\n"
+                           "console.print('off ' .. cells[5]:caps().y)\n"
+                           // **The arrows walk the cells and the page follows the cursor**: the fifth comes onto the
+                           // page, in the corner the first one had.
+                           "while grid.index < 5 do sys.delay(10):await() end\n"
+                           "sys.delay(30):await()\n"
+                           "local e = cells[5]:caps()\n"
+                           "console.print('back ' .. e.x .. ' ' .. e.y)\n"
+                           "sys.delay(500):await()\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run cells");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cells up"), g_out);
+  // **The cell of the corner of the grid**: the frame is a hundred wide per column, so the first cell is at nought and
+  // nought and the second one at a hundred.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 0 0 100"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "next 100 0"), g_out);
+  // **The fifth cell of six in a page of four is past the frame**: the frame is two hundred and the bridge puts what
+  // is off the page a frame plus a cell lower, where the clip does not compose it and the walk does not reach it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "off 240"), g_out);
+  // And when the page turns, that same cell is the one in the corner.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back 0 0"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/cells/app.lua");
+  storage->remove("/apps/cells/manifest.json");
+}
+
 void test_a_cell_of_a_box_claims_a_share_of_it(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -7670,6 +7738,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
   RUN_TEST(test_a_list_of_entries_places_a_page_of_controls);
+  RUN_TEST(test_a_grid_of_entries_places_cells_of_controls);
   RUN_TEST(test_a_cell_of_a_box_claims_a_share_of_it);
   RUN_TEST(test_the_dial_walks_more_stops_than_the_old_list_held);
   RUN_TEST(test_a_label_and_the_dots_take_no_children);
