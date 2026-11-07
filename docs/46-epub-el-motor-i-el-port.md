@@ -59,12 +59,37 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 | # | Funcionalitat | Al paper | Avui aquí | Què cal |
 |---|---|---|---|---|
 | **A1** | **El contenidor ZIP**: llegir el final del fitxer, el directori central i les capçaleres locals; una entrada `stored` i una de `deflate`; buscar per nom; treure una entrada a un bloc del qui crida; refusar ZIP64, xifrat, mètodes estranys, noms llargs i bombes, cada un amb la seva frase | `zip_archive.cpp` 508 + `storage_zip_source.h` 84 | **Res.** `lib/inflate` té el deflate i el `crc32`, que és mitja feina; `docs/70` diu que el contenidor no hi és | `lib/zip` (~500 línies) + l'adaptador sobre `hal::IStorage` (~80) + proves (~400) |
-| **A2** | **El tokenitzador XHTML**: paraules amb el seu byte, blocs (`p`, `h1..h3`, `li`, `blockquote`, `figure`, `figcaption`, `dl/dt/dd`, `pre`), entitats (les de l'XML i les de la Latin-1), `script`/`style`/`head`/comentaris sencers fora, `<br>`/`<hr>`, imatges amb `float`/`align`/`class`, `b`/`strong`, `i`/`em`, `sup`/`sub` amb comptador, i els quatre marcadors de taula | `epub_html.cpp` 773 | **Res**: aquí només hi ha `lib/json`; no hi ha cap lector d'XML ni d'HTML | `lib/epub` part 1 (~800 línies) + proves |
+| **A2** | **El tokenitzador XHTML** — **fet el 7/11 (0.128.0)**: `lib/epub` (**186 + 805 línies**) i **12 casos** a `test/test_epub` | `epub_html.cpp` 773 | **No hi havia res**: aquí només hi ha `lib/json`, i cap lector d'XML ni d'HTML | Fet: paraules amb el byte, blocs, entitats, `script`/`style`/`head`/comentaris sencers fora, `br`/`hr`, imatges amb costat, `b`/`i`/`sup`/`sub` amb comptador, `<pre>` i els quatre marcadors de taula. **La sortida és d'un byte per codi** (Latin-1), que és el que la cara del llibre i `ttf::glyph_of` volen |
 | **A3** | **El paginador**: salt de línia amb l'avanç de cada glif, l'aire de cada bloc i la seva cara, sagnia de cita/figura/`dd`, peu de figura centrat, imatge flotada amb bandes (les paraules l'envolten), imatge sencera que obre pàgina, `<hr>`, la reixa d'una taula (columnes comptades amb una sonda, fila que no es parteix, capçalera subratllada), i el final de pàgina que diu **el byte** de la pàgina següent | `epub_layout.cpp` 836 | **Res**. El canvas i les mètriques sí que hi són: `ui::canvas_text`, `font_text_width`, `font_line_height` | `lib/epub` part 2 (~700 línies) + proves. **Es reescriu, no es copia**: aquí no hi ha `IFont`/`ICanvas` amb glifs i bitmaps |
 | **A4** | **Els senyals dins d'una línia**: negreta (segona passada un píxel a la dreta), cursiva (biaix fila a fila) i superíndex/subíndex (un terç de línia amunt, un cinquè avall) | `epub_layout.cpp` (`drawGlyph`, `drawRun`) | **No hi és**: `canvas_text` pinta una cadena sencera amb una cara i prou | Una primitiva nova: `ui::canvas_text_styled(slot, x, y, text, scale, level, mode, flags)` i el seu camí al `lib/kernel/src/font.cpp` (~80 línies) |
 | **A5** | **El llibre obert**: `open` (mida del fitxer), `chapter(entry)` que infla un capítol a la memòria gran, `member(href)` que resol un `href` relatiu al capítol i guarda **una** imatge en cau, i `layout` que compon o només mesura | `epub_book.cpp` 486 | **Res** | `lib/epub` part 3 + la memòria gran: `pal::extra_memory()` ja hi és i la fa servir el TLS (4 MB al Paper) |
 | **A6** | **El recompte de grisos d'una pàgina composta** (`levels`): es passeja pels píxels i compta quants nivells hi ha, que és el que decideix si la pàgina es pot girar amb `du` o necessita una passada que esborri | `levelsOf()` a `epub_book.cpp` | El concepte hi és (`hal::UpdateMode`, docs/50) però **cap app no pot preguntar-ho d'una pàgina** | Sortirà sol si la pàgina es compon dins d'un canvas de l'app: el nucli ja sap comptar els nivells (`ui::levels_shown`) |
 | **A7** | **La disciplina de límits i de pila**: sostres declarats (capítol 1 MB, imatge 2 MB, nom 127 B), deflate en un bloc del qui crida (no 32 KB de finestra pròpia), taules del descompressor fora de la pila (el `loopTask` fa 8 KB i el paper va reiniciar la placa dues vegades per això) | tot el `core/` | Aquí el `lib/inflate` ja treballa sobre un bloc del qui crida i sense al·locar | Es manté la regla: **cap funció del motor al·loca**, i els blocs grans van a `extra_memory` |
+
+### A2 · El que diu el tokenitzador, i les tres taules que són una decisió
+
+`epub::Tokens` camina el capítol des del byte que li donen i torna un `epub::Token` per crida: **una
+paraula** (amb el `block` que l'obre —només la primera del bloc, que és qui paga l'aire i la cara— i el
+byte `at`), **una imatge** (amb l'`href` dins del zip, `at`, `after` i el costat on flota, llegit de
+`style`, `align` o `class`), **un salt** (`<br>` o `<hr>`) o **una marca de taula** (obre cel·la, tanca
+cel·la, tanca fila, tanca taula, en una cua de quatre: `</td><td>` són dues marques seguides i amb un
+sol senyal se'n perdria una de cada fila).
+
+Tres taules del fitxer són una **decisió** i no una traducció del paper:
+
+1. **Les entitats**: les cinc de l'XML, les **60 de Latin-1** (`&eacute;` és `0xE9`, i això va ser un
+dia una pàgina amb `caf&eacute;` al vidre) i les de la puntuació. Un nom que no és real queda **tal com
+es va escriure**, que és el que vol veure qui llegeix un llibre vell.
+2. **Els substituts de la puntuació**: la cara del llibre és Latin-1 i la canonada és d'un byte per
+caràcter, o sigui que el guió llarg és `-`, les cometes `“ ”` són `"`, els punts suspensius són `.`, el
+bullet és el punt volat `·`, el guionet bla (`&shy;`) no pinta res i l'espai dur és un espai. Una
+ratlla llarga pintada com a `?` seria pitjor que una de curta.
+3. **El rang C1 és Windows-1252 i no Latin-1**: `&#146;` és un apòstrof i `&#150;` un guió, que és el
+que vol dir en un llibre dels noranta; els cinc bytes que cp1252 no fa servir són `?`.
+
+I el que **no** fa, dit aquí perquè ningú el busqui: no llegeix el CSS del llibre, no fa columnes ni
+dreta-a-esquerra, i **un byte que no és UTF-8 es tracta com a Latin-1** (n'hi ha de llibres etiquetats
+d'una manera i escrits d'una altra, i un `é` sol no ha de ser un `?`).
 
 ### B · La porta de Lua
 
@@ -131,7 +156,7 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 | Fase | Què es fa | Què queda provat |
 |---|---|---|
 | **1** | **`lib/zip`** (A1) i el seu adaptador | Un zip de joguina fet a mà, un `stored`, un `deflate` de debò, un nom llarg, una entrada xifrada i una de ZIP64 refusades amb la seva frase |
-| **2** | **`lib/epub`, el tokenitzador** (A2) | Paraules amb el byte, blocs, entitats (inclosa `&eacute;`), `script`/`style` fora, `br`/`hr`, `b`/`i`/`sup`, les quatre marques de taula |
+| **2** | **`lib/epub`, el tokenitzador** (A2) — **fet el 7/11 (0.128.0)** | Paraules amb el byte, blocs, entitats (inclosa `&eacute;` i el rang C1), `script`/`style`/`head` fora, `br`/`hr` (dos seguits), imatges amb els tres costats, `b`/`i`/`sup`/`sub` niats, `<pre>` i les quatre marques de taula: **12 casos** |
 | **3** | **Les cares amb Latin-1 (D3, feta el 7/11) i el text amb èmfasi (D5)** | `à` es pinta (fet: 54 px contra 75 px en una línia de prova, i la tinta de l'accent per sobre de la lletra); una negreta és més gruixuda; una cursiva biaixa |
 | **4** | **El paginador** (A3, A4) | Una pàgina de text amb el seu `next`, una imatge flotada amb bandes, una taula de tres columnes, una fila que no es parteix |
 | **5** | **El llibre** (A5, A6) i `canvas_bitmap` (D4) | Un llibre de joguina obert, un capítol inflat, una pàgina composta en un canvas, `levels` |

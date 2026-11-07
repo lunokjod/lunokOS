@@ -1,0 +1,14 @@
+{
+  "name": "epub",
+  "version": "0.1.0",
+  "description": "The XHTML of a chapter of a book, word by word with the byte of each word: the blocks, the entities as Latin-1, the pictures with their side, and the grid of a table. No allocation of its own.",
+  "license": "MIT",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include",
+    "flags": ["-Wall", "-Wextra", "-Werror"]
+  },
+  "dependencies": {},
+  "frameworks": "*",
+  "platforms": "*"
+}

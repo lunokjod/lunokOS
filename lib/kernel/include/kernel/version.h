@@ -2467,7 +2467,47 @@ namespace kernel {
 // **Pending**: the 489 cases are **not executed** (that wants the owner's word for it); the three faces of the
 // system are still ASCII and one command each would make them Latin-1; and the tokenizer of the next phase is the
 // one that turns UTF-8 into this one byte per character.
-static const char kVersion[] = "0.127.0";
+//
+// 0.128.0 (7/11): **the tokenizer, the second piece of the EPUB port**.
+//
+// A book is read a page at a time and a page has to start **exactly** where the one before it ended, because the
+// position of a reader is a byte inside a chapter and not a page number. So `lib/epub` walks the XHTML of one
+// chapter and hands one token at a time, each with the byte it starts at: a **word** (with the block that opens
+// it and the ink it is in), a **picture** (with the entry inside the zip and the side it floats to), a **line
+// end or a rule**, or **one of the four marks of the grid of a table** —because two cells one after the other
+// are the same block and a page cannot tell where one ends and the next begins without them—. A `<script>`, a
+// `<style>`, a `<head>` and a comment are skipped whole: a book carries a page of JavaScript in front of every
+// chapter and none of it is a paragraph.
+//
+// **The one decision that is not the paper's**: the text comes out as **one byte per code**. There, a word kept
+// the UTF-8 the book was written in and the layout turned it into glyphs when it painted; here the face of this
+// system is Latin-1 —`tools/ttf_latin1.py`, 0.127.0— and the whole pipeline of text is `ttf::glyph_of(face,
+// uint8_t code)`, so the turning happens once, where the chapter is already being walked byte by byte. It comes
+// with three tables that are decisions and not translations: the entities of the XML and the **60 letters of
+// Latin-1** (a Catalan book painted `caf&eacute;` on the glass the day `&eacute;` was not in the table); the
+// **stand-ins for the punctuation Latin-1 cannot carry** —`—` is `-`, `“ ”` are `"`, `…` is `.`, the bullet is
+// the middle dot, the soft hyphen paints nothing— because a long dash painted as a question mark is worse than a
+// short one; and the **C1 range read as Windows-1252**, so `&#146;` is an apostrophe and `&#150;` a dash, which
+// is what they mean in a book of the nineties. A byte that is not UTF-8 is taken as Latin-1 —some books are
+// labelled one way and written another, and a lone `e acute` must not be a question mark—.
+//
+// What it does not do, said here so nobody looks for it: the CSS of the book is ignored (only `style`, `align`
+// and `class` of the tag itself, and only for the side of a picture), there are no columns and no right-to-left,
+// and the words are not hyphenated.
+//
+// Measured on the bench of the computer: `lib/epub` is **186 lines of header and 805 of C++**, with `-Wall
+// -Wextra -Werror` from its own `library.json`, and `test/test_epub` has **12 cases**: the byte of every word and
+// the block that opens it, the entities in all three forms and the ones nobody knows, a chapter of raw UTF-8 and
+// a chapter already in Latin-1, a script and a style and a comment skipped whole (with the byte of the word that
+// comes after them), two `<br>` in a row and an `<hr>`, the three ways a book says the side of a picture, a
+// `<b>` nested in an `<i>` and the counters of `sup`/`sub`, a `<pre>` that keeps the line ends of the author, the
+// grid of a table in order, a word longer than the buffer cut and not lost, and a page that starts at a byte in
+// the middle of a word. `pio test -e test --without-testing` builds the **21 suites and 500 cases** with 0
+// warnings, and `pio run -e emulator` says SUCCESS with 0 warnings —the library is not linked into a firmware
+// yet, because nothing of the firmware calls it until the paginator exists—.
+// **Pending**: the 500 cases are **not executed** (that wants the owner's word for it), and the next piece is the
+// paginator (docs/46, A3 and A4: the lines, the air of every block, the pictures with bands and the styled text).
+static const char kVersion[] = "0.128.0";
 
 }  // namespace kernel
 
