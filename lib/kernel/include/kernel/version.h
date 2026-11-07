@@ -1684,7 +1684,31 @@ namespace kernel {
 // thirty-seven columns (470..506) with no gap. **The suite was not run** (the owner did not ask for it): the new test
 // `test_the_two_symbols_of_the_band_are_one_piece_each` measures both, and the break that turns it red is the stroke
 // pinned at its corner again (docs/30, docs/92 §24).
-static const char kVersion[] = "0.109.0";
+//
+// 0.110.0 (8/11): **the suite runs, and the bench gives the terminal back.** With the owner's leave the whole native suite
+// was run for the first time since 0.104.0, and it found three things that no reading had found:
+//   - **A page of more than a hundred and twenty-seven controls took the process down.** The two walks of `open_draw`
+//     held the slot in an `int8_t`: past the hundred and twenty-seventh the chain was a negative number, the table was
+//     read before its first slot and the bench died with a segmentation fault in `button_draw` —the same `int8_t` the
+//     slot of the dial had until 0.106.0—. It is an `int16_t` now, and the page of a hundred and forty buttons of the
+//     new test walks and takes its ring.
+//   - **A cell that is not in the list had a place.** `icon_grid_cell` answered for any cell of the page, so an app that
+//     asked for the ninth cell of a grid of eight was given a box nobody draws.
+//   - **A child the app turned off was given back by its father.** `ui_set_disabled_below` wrote its own mark over a
+//     `disabled` the app had set, so `panel.disabled = true` and `false` around it lost the app's decision; only the
+//     child the father is the one turning off is his now.
+// And `pal_host` **puts the terminal back when the process dies on a signal**: `atexit` is not reached by a fault, so a
+// suite that stopped on the segmentation fault above (or a bench killed with a `kill`) left the terminal of the person
+// with no echo and no line until a `reset`. The handler restores what was there with `ioctl` —the one of the two calls
+// a handler may make— and lets the signal kill the process as it would have.
+// Measured: **452 native cases, 452 green** in 1 min 28 s (test_ui 94, test_apps 159); the firmware of the Paper builds
+// with no warning (2 308 304 B) and its disk is 372 437 B in 141 files, 58 apps, and fits the 12 451 840 B partition.
+// The breaks: taking the trailing row of a text out of the walk turns `test_a_text_that_ends_in_a_break_has_a_row_for_the_caret`
+// red (3 rows against 2), pinning the stroke at its corner turns `test_the_two_symbols_of_the_band_are_one_piece_each`
+// red (the cross reaches the side), a bar that stops short turns it red on the other half, and not installing the signal
+// handlers leaves the terminal raw —measured with a pty: `IT_WAS_RAW` and `TERMINAL_LEFT_RAW` against
+// `TERMINAL_BACK`— (docs/80, docs/90, docs/92 §25).
+static const char kVersion[] = "0.110.0";
 
 }  // namespace kernel
 

@@ -847,9 +847,13 @@ DrawTarget open_draw(int16_t slot) {
   // The clip: the frame of the control, and of every control between it and the canvas that holds it,
   // **each one in the canvas' own pixels** —which is why the origin of each is the sum of all the places
   // above it, and not added one at a time (found by this suite, 1/11).
+  // **The walk is a slot of the table and the table is as long as the memory** (0.110.0): this was an `int8_t`, so a
+  // control past the hundred and twenty-seventh of a page walked its chain as a negative number, read the table before
+  // its first slot and **took the process down** —the whole bench stopped at the test of a page of a hundred and forty
+  // buttons, and it is the same fault the slot of the dial had until 0.106.0— (docs/90, docs/92).
   int32_t offset_x = 0;
   int32_t offset_y = 0;
-  for (int8_t walk = slot; walk != holder; walk = g_canvases[walk].parent) {
+  for (int16_t walk = slot; walk != holder && walk >= 0; walk = g_canvases[walk].parent) {
     offset_x += g_canvases[walk].x;
     offset_y += g_canvases[walk].y;
   }
@@ -861,7 +865,7 @@ DrawTarget open_draw(int16_t slot) {
   int32_t y1 = canvas.height;
   int32_t at_x = offset_x;
   int32_t at_y = offset_y;
-  for (int8_t walk = slot; walk != holder; walk = g_canvases[walk].parent) {
+  for (int16_t walk = slot; walk != holder && walk >= 0; walk = g_canvases[walk].parent) {
     const Canvas& control = g_canvases[walk];
     if (at_x > x0) x0 = at_x;
     if (at_y > y0) y0 = at_y;
@@ -4244,6 +4248,9 @@ bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns,
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
   if (count > kMaxGridItems) count = kMaxGridItems;
+  // **A cell that is not in the list has no place either** (0.109.1): the page it would be on is not enough, because a
+  // grid of eight cells has no ninth and an app that asked for its box would be given one that nobody draws.
+  if (which > count) return false;
   const Canvas& grid = g_canvases[slot];
   const GridCells cells = icon_grid_cells(grid, count, index, columns, scale);
   if (cells.columns <= 0 || cells.rows <= 0) return false;

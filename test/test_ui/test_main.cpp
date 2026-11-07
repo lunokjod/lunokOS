@@ -2839,18 +2839,31 @@ static void test_the_two_symbols_of_the_band_are_one_piece_each() {
 
   // **The enter**: the longest run of ink of the key is most of the width of the symbol, which is the bar joined to the
   // stroke that comes down.
+  // **The square the symbol is drawn in and nothing else**: the cell of a key has the line that separates it from the
+  // row above at its top, and a run of ink measured over the whole cell is that line (found by the break of this test,
+  // 8/11).
+  const int32_t icon_y = enter_row + (row_h - side) / 2;
   int32_t longest = 0;
-  for (int32_t y = enter_row; y < enter_row + row_h; ++y) {
+  int32_t longest_row = icon_y;
+  for (int32_t y = icon_y; y < icon_y + side; ++y) {
     int32_t run = 0;
-    for (int32_t x = icon_x - 2; x < icon_x + side + 2; ++x) {
+    for (int32_t x = icon_x; x < icon_x + side; ++x) {
       if (view_level(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) == 0) {
-        if (++run > longest) longest = run;
+        if (++run > longest) {
+          longest = run;
+          longest_row = y;
+        }
       } else {
         run = 0;
       }
     }
   }
-  TEST_ASSERT_GREATER_THAN_MESSAGE((side * 2) / 3, longest, "the bar of the enter does not reach its stroke");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(side / 2, longest, "the bar of the enter is not a bar");
+  // **And it reaches the stroke that comes down**: the column just inside the right side of the symbol is ink on the row
+  // of the bar, which is what makes the two one drawing instead of two segments with a gap between them.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(static_cast<uint16_t>(icon_x + side - 5),
+                                                static_cast<uint16_t>(longest_row)),
+                                  "the bar of the enter does not reach its stroke");
   TEST_ASSERT_TRUE(ui::keyboard_hide());
 }
 

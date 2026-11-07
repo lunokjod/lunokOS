@@ -3222,13 +3222,14 @@ void test_a_grid_of_entries_places_cells_of_controls(void) {
                            // of four—.
                            "local a = cells[1]:caps()\n"
                            "local b = cells[2]:caps()\n"
-                           "console.print('at ' .. a.x .. ' ' .. a.y .. ' ' .. a.w)\n"
+                           "console.print('at ' .. a.x .. ' ' .. a.y .. ' ' .. a.width)\n"
                            "console.print('next ' .. b.x .. ' ' .. b.y)\n"
                            "console.print('off ' .. cells[5]:caps().y)\n"
-                           // **The arrows walk the cells and the page follows the cursor**: the fifth comes onto the
-                           // page, in the corner the first one had.
-                           "while grid.index < 5 do sys.delay(10):await() end\n"
-                           "sys.delay(30):await()\n"
+                           // **The page follows the cursor**: with the fifth cell under the dial the grid is on the
+                           // second page and that cell is the corner of the frame, which is the same arithmetic the
+                           // paint uses —the arrows walk the cells, and a page is where the cell they are on is—.
+                           "grid.index = 5\n"
+                           "ui.present('gld16')\n"
                            "local e = cells[5]:caps()\n"
                            "console.print('back ' .. e.x .. ' ' .. e.y)\n"
                            "sys.delay(500):await()\n"));
@@ -5808,7 +5809,7 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   pump_captured(20, g_out, sizeof(g_out), "run typer");
   // **These lines are printed before the capture opens**, so they are read from the output of the run itself
   // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 176"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 256"), g_out);
   capture_begin();
   pump_turns(20);
   // The centre presses the key the dial is on —the first one of the first row, which is a `q`— twice, then the
@@ -5830,7 +5831,7 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   emu::press_button(false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  // Four rows of a key of forty-four pixels in a view of the Paper: the band is a hundred and seventy-six.
+  // Four rows of a key of sixty-four pixels in a view of the Paper: the band is two hundred and fifty-six.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed q at 1"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qq at 2"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qqw at 3"), g_out);

@@ -804,3 +804,39 @@ La prova nova `test_the_two_symbols_of_the_band_are_one_piece_each` mesura les d
 `icon_x + 3·side/4` (que és el píxel que la trencada posa en tinta) i la tirada d'ink més llarga de la tecla de
 l'enter, que ha de passar els dos terços de l'amplada del símbol. **La suite no s'ha executat** (l'amo no ho ha
 demanat).
+
+## 25. La suite sencera, i el terminal que es quedava cru (0.110.0)
+
+**L'amo va donar el permís per córrer les proves** —*«fes les proves i deixa-ho tot llest perquè pugi el firmware i el
+littlefs al paper»*— i després va dir el que li havia passat: *«per algun motiu els tests fan que el terminal perdi
+l'echo, només una comanda "reset" restableix el terminal rera el test»*.
+
+**La primera passada de la suite des de la 0.104.0** (452 casos) en va trobar tres que cap lectura havia trobat:
+
+1. **Una pàgina de més de cent vint-i-set controls matava el procés.** Els dos recorreguts de `open_draw` duien el lloc
+   en un **`int8_t`**: a partir del 128 la cadena era un número negatiu, es llegia la taula abans del primer lloc i el
+   banc moria amb un **SIGSEGV a `button_draw`**. És exactament la mateixa errada que el lloc del dial tenia fins a la
+   0.106.0, i la va trobar la prova nova de la pàgina de cent quaranta botons (que és el cas que l'amo va demanar:
+   *«per què hi ha un kMaxControls?»*). Ara és un `int16_t` i la pàgina passa.
+2. **Una cel·la que no és a la llista tenia lloc.** `icon_grid_cell` responia per a qualsevol cel·la de la pàgina: demanar
+   la novena d'una graella de vuit donava una caixa que ningú no pinta.
+3. **Un fill que l'app havia apagat, el pare el tornava a encendre.** `ui_set_disabled_below` escrivia la seva marca a
+   sobre d'un `disabled` que havia posat l'app, o sigui que `panel.disabled = true` i després `false` es menjava la
+   decisió de l'app. Ara només és del pare el fill que el pare apaga.
+
+**I el terminal es quedava cru perquè el `atexit` no arriba quan el procés mor d'un senyal**: la suite moria amb aquell
+SIGSEGV, el restabliment no corria mai, i la persona es trobava el terminal sense echo fins a un `reset`. Ara `pal_host`
+instal·la gestors per a `SIGSEGV`, `SIGBUS`, `SIGABRT`, `SIGTERM`, `SIGINT`, `SIGHUP` i `SIGQUIT` que posen el terminal
+com estava —amb `ioctl(TCSETS)`, que és de les poques crides que un gestor pot fer— i deixen que el senyal mati el
+procés com ho hauria fet.
+
+**Mesurat aquest torn**: **452 casos natius, 452 verds** en 1 min 28 s (test_ui 94, test_apps 159); el firmware del Paper
+compila **sense cap avís** (2 308 304 B) i el seu disc fa **372 437 B en 141 fitxers, 58 apps**, i cap a la partició de
+12 451 840 B. Les trencades, totes provades: treure la fila del salt final del recorregut posa vermella
+`test_a_text_that_ends_in_a_break_has_a_row_for_the_caret` (3 files contra 2); fixar el traç a la cantonada posa
+vermella `test_the_two_symbols_of_the_band_are_one_piece_each` (la creu toca el costat); una barra curta la posa
+vermella per l'altra banda (el píxel que ha de ser tinta és paper); i **sense els gestors de senyal el terminal es
+queda cru**, mesurat amb un pty: `IT_WAS_RAW` i `TERMINAL_LEFT_RAW` contra `TERMINAL_BACK`.
+
+**El que queda llest per pujar**: `pio run -e m5-paper -t upload` (firmware) i `pio run -e m5-paper -t uploadfs` (el
+littlefs), que és el que fa l'amo i no l'assistent.

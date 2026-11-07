@@ -4286,11 +4286,25 @@ void ui_set_disabled_below(lua_State* L, int object, bool off, int depth) {
         // state of what it holds, and a child that says `disabled` of its own came from the app and not from here —
         // `__off_father` is the difference between the two, and it is a field of the system that an app does not
         // write—. Turning a panel back on gives back the children it took, and leaves the ones the app turned off.
-        if (off || by_father || !already) {
-          lua_pushboolean(L, off ? 1 : 0);
+        // **Only the child the father is the one turning off is the father's** (0.110.0): a child that was already
+        // off was turned off by the app, and the father that comes back at it has to leave it where the app put it —
+        // the first version of this walk wrote its own mark over the app's, so `inside.disabled = true` was forgotten
+        // by `panel.disabled = true` followed by `panel.disabled = false` (found by the test of its own rule, 8/11).
+        bool touched = false;
+        if (off && !already) {
+          lua_pushboolean(L, 1);
           lua_setfield(L, -2, "disabled");
-          lua_pushboolean(L, off ? 1 : 0);
+          lua_pushboolean(L, 1);
           lua_setfield(L, -2, "__off_father");
+          touched = true;
+        } else if (!off && by_father) {
+          lua_pushboolean(L, 0);
+          lua_setfield(L, -2, "disabled");
+          lua_pushboolean(L, 0);
+          lua_setfield(L, -2, "__off_father");
+          touched = true;
+        }
+        if (touched) {
           if (off && g_ui_focus_slot == kid->slot && g_ui_focus_generation == kid->generation) {
             g_ui_focus_slot = -1;
             g_ui_focus_generation = 0;

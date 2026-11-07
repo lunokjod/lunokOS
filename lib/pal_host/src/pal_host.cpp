@@ -9,6 +9,9 @@
 #include <chrono>
 #include <thread>
 
+#include <csignal>
+
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
@@ -20,6 +23,29 @@ namespace {
 // How many times the console was flushed. It lives outside `pal` because the tests ask for
 // it by name (`pal_host::console_flushes`) and the object of the PAL is private (docs/85).
 uint32_t g_flushes = 0;
+
+// **What the terminal was, in a place a signal handler may read** (0.110.0): `atexit` is not reached by a process that
+// dies on a fault or on a signal, and the raw mode of this bench —a key at a time, no echo, no line— then stays in the
+// terminal of whoever ran the tests until a `reset`. The handler restores this and lets the signal kill the process as
+// it would have (docs/80, docs/85, docs/92).
+struct termios g_saved_terminal;
+volatile sig_atomic_t g_terminal_is_raw = 0;
+
+// **Putting the terminal back from a handler**: `ioctl` is on the list of the calls a signal handler may make, and
+// `tcsetattr` is not, which is why the restore of the way out is this one and not the class's (docs/85).
+void put_the_terminal_back_now() {
+  if (g_terminal_is_raw == 0) return;
+  g_terminal_is_raw = 0;
+  ioctl(STDIN_FILENO, TCSETS, &g_saved_terminal);
+}
+
+// The handler: the terminal goes back and the signal kills the process with the signal it was, so a suite that stops on
+// a fault still says how it stopped.
+void on_the_way_out(int number) {
+  put_the_terminal_back_now();
+  std::signal(number, SIG_DFL);
+  std::raise(number);
+}
 
 // The speed of the console, when it is a wire and not a file: zero is no wait at all, which is what
 // a test wants, and the emulator asks for 115200 (docs/85).
@@ -219,7 +245,11 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
       raw.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
       raw.c_cc[VMIN] = 0;
       raw.c_cc[VTIME] = 0;
-      if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) raw_active_ = true;
+      if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) {
+        raw_active_ = true;
+        g_saved_terminal = saved_;
+        g_terminal_is_raw = 1;
+      }
     }
     seed_ = static_cast<uint32_t>(now_ns()) ^ static_cast<uint32_t>(getpid() << 8);
     if (seed_ == 0) seed_ = 0x9e3779b9u;
@@ -230,6 +260,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     if (!raw_active_) return;
     tcsetattr(STDIN_FILENO, TCSANOW, &saved_);
     raw_active_ = false;
+    g_terminal_is_raw = 0;
   }
 
   // ISystem -----------------------------------------------------------------
@@ -705,6 +736,13 @@ bool init() {
   if (!hooked) {
     hooked = true;
     atexit(&the_terminal_back);
+    // **And a run that dies on a fault puts it back too**: a suite that stops on a segmentation fault, or a bench killed
+    // with a signal, ends without `atexit` and left the terminal of the person with no echo until a `reset`
+    // (docs/80, docs/85).
+    const int kFatal[] = {SIGSEGV, SIGBUS, SIGABRT, SIGTERM, SIGINT, SIGHUP, SIGQUIT};
+    for (size_t i = 0; i < sizeof(kFatal) / sizeof(kFatal[0]); ++i) {
+      std::signal(kFatal[i], &on_the_way_out);
+    }
   }
   return true;
 }
