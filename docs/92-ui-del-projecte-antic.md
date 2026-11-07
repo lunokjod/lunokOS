@@ -360,7 +360,7 @@ de la llista de `controls` a **68** (44 de línia i 12 d'aire) i l'estat i la no
 
 | App | Què diu | Motiu |
 |---|---|---|
-| `gallery` | `body_scale = 4`, `small_scale = 3`, `title_scale = 5` | **és el catàleg de les tres mides**: la seva feina és ensenyar-les |
+| `showcase` | `body_scale = 4`, `small_scale = 3`, `title_scale = 5` | **és el catàleg de les tres mides**: la seva feina és ensenyar-les |
 | `buttons` | `spec.scale` per botó | **és la pàgina dels botons de cada mida**, i el títol d'un botó gran va a 3 |
 | `label` | `spec.scale or 1` | **és la pàgina de les etiquetes de cada mida** |
 

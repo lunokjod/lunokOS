@@ -3003,12 +3003,48 @@ void test_an_app_downloads_a_page(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "body coses"), g_out);
 }
 
-// **The gallery runs, and its pages are built and given back on the same glass** (0.94.2): the app that shows every control
+// **`ui.focus` puts the dial where the app says** (0.97.4): a page that is built again —the pages of a catalogue under
+// a strip of tabs are given back and built at every tab— loses the control the dial was on and the walk starts at the
+// first one of the tree, which is the strip; the arrows then change the tab for ever and nothing of the page can be
+// pressed (the owner, 7/11: *«no puc pitjar res»*). The test is the centre key: without the call it presses the first
+// button of the page, and with it the one the app named.
+void test_ui_focus_puts_the_dial_where_the_app_says(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "focuser",
+                           "{\"title\":\"Focuser\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local a = ui.button(200, 68)\n"
+                           "a:place(20, 100)\n"
+                           "a.on_click = function(self) console.print('pressed a') end\n"
+                           "local b = ui.button(200, 68)\n"
+                           "b:place(20, 200)\n"
+                           "b.on_click = function(self) console.print('pressed b') end\n"
+                           "ui.focus(b)\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(3000):await()\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run focuser");
+  TEST_ASSERT_TRUE(kernel::app_running());
+  capture_begin();
+  luabind::ui_button_event("press", 0);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pressed b"), g_out);
+  close_any_app();
+  pump_turns(10);
+  storage->remove("/apps/focuser/app.lua");
+  storage->remove("/apps/focuser/manifest.json");
+  storage->remove("/apps/focuser");
+}
+
+// **The showcase runs, and its pages are built and given back on the same glass** (0.94.2): the app that shows every control
 // of the system is the page that says what the system has, and it is also the only one that walks a path nothing else
 // walks —a page of controls that is **released whole and built again** when the tabs choose another one, children before
 // their father—. If a slot leaked, the second page would build it on top of the first and `ui.create` would start
 // refusing; if the tabs did not take the finger, the page would never turn (docs/30, docs/90).
-void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
+void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   TEST_ASSERT_TRUE(boot_once());
   // **The glass and the panel are the model's and a test's `Options()` has them off** (docs/85): an app that draws a page
   // says `this board has no glass` and stops, which is right on a headless band and is not what this test wants to read.
@@ -3023,16 +3059,16 @@ void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
   static char manifest[512];
   static char source[16384];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/gallery/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("apps/showcase/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("apps/gallery/gallery.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "gallery", manifest, source, "gallery.lua"));
+                           read_host_file("apps/showcase/showcase.lua", source, sizeof(source)));
+  TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
 
   // **And with no word at all, which is how a person opens it**: `app.args` is a table that exists when `run` carries an
   // argument and not before, so this is the line that says the app does not trust it. It is the one that was missing —
-  // the suite only ever ran `run gallery <n>`— and the one the board found (5/11, the owner: `attempt to index a nil
+  // the suite only ever ran `run showcase <n>`— and the one the board found (5/11, the owner: `attempt to index a nil
   // value (field 'args')`).
-  pump_captured(60, g_out, sizeof(g_out), "run gallery");
+  pump_captured(60, g_out, sizeof(g_out), "run showcase");
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 1 Text"), g_out);
@@ -3051,7 +3087,7 @@ void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
   static const char* const kPageNames[5] = {"Text", "Nums", "Rows", "Form", "Menu"};
   for (int page = 1; page <= 5; ++page) {
     char line[32];
-    snprintf(line, sizeof(line), "run gallery %d", page);
+    snprintf(line, sizeof(line), "run showcase %d", page);
     pump_captured(60, g_out, sizeof(g_out), line);
     TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
     TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
@@ -3066,9 +3102,9 @@ void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
   }
 
 
-  storage->remove("/apps/gallery/gallery.lua");
-  storage->remove("/apps/gallery/manifest.json");
-  storage->remove("/apps/gallery");
+  storage->remove("/apps/showcase/showcase.lua");
+  storage->remove("/apps/showcase/manifest.json");
+  storage->remove("/apps/showcase");
 }
 
 // The demo app that downloads a page is a file in the repository, so it is run
@@ -6943,7 +6979,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
   RUN_TEST(test_the_page_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_gallery_app_shows_every_control_and_turns_its_pages);
+  RUN_TEST(test_the_showcase_app_shows_every_control_and_turns_its_pages);
+  RUN_TEST(test_ui_focus_puts_the_dial_where_the_app_says);
   RUN_TEST(test_the_http_command_writes_where_it_is_told);
   RUN_TEST(test_the_http_command_refuses_a_place_that_is_not_there);
   RUN_TEST(test_an_app_downloads_a_page_to_a_file);

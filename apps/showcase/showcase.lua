@@ -83,11 +83,15 @@ root:add(hint)
 -- Every control of the page that is on the glass, in the order it was made: children are given back before
 -- their father, because a control that is inside another one outlives it otherwise.
 local built = {}
+local first_stop = nil
 
 local function keep(control)
   if control == nil then return nil end
   built[#built + 1] = control
   body:add(control)
+  -- **The first control of the page a person can land on**, which is where the dial goes when the page is a new one:
+  -- a label is not a place the dial stops, a button is (docs/30, docs/90).
+  if first_stop == nil and control.focusable == true then first_stop = control end
   return control
 end
 
@@ -96,6 +100,11 @@ local function clear_page()
     built[i]:release()
   end
   built = {}
+  first_stop = nil
+  -- **And the whole page the app is given is paper before the new one is built**: a control paints its own rectangle and
+  -- no more, so a page of three controls after a page of six would leave the three of the one before on the glass —the
+  -- page was a mix of two pages after a tab—. The page is the app's and the bar is not in it (docs/30, docs/90).
+  ui.clear(15)
 end
 
 -- **The words that name a control are the dense text of the paper project** (scale 3 = 24 px of body, the 33 px line)
@@ -243,6 +252,10 @@ local function show(page)
   tabs.index = page
   dots.current = page
   pages[page]()
+  -- **And the dial goes into the page and not back to the strip**: the page was built again, so the control the dial was
+  -- on is gone and the walk would start at the first one of the tree —the tabs—, where the arrows change the tab for
+  -- ever and nothing of the page can be pressed (the owner, 7/11: *«no puc pitjar res»*) (docs/30).
+  if first_stop ~= nil then ui.focus(first_stop) end
   -- **The page that is on the glass is said out loud**, because a gallery whose pages do not turn is a page that looks
   -- right and is the first one for ever —and the console is where a test and a person read it— (docs/30).
   console.print('page ' .. page .. ' ' .. kNames[page])

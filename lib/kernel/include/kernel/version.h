@@ -1463,7 +1463,18 @@ namespace kernel {
 // secondary word stays, because it is the theme's own (docs/92).
 // Measured on the bench: 433 native cases green, the twelve apps run with no error of Lua, and two of them looked at with
 // `--dump` —which is how a button with a cut word and a list whose rows walked over each other were found (docs/85).
-static const char kVersion[] = "0.97.3";
+// 0.97.4 (7/11): **the page of a catalogue can be pressed, and it changes whole.** The owner opened the app that shows every
+// control on the board and said three things in one line: *«no puc pitjar res, i els botons físics només em mouen per les
+// pestanyes»*, *«refresca bé al canviar de pestanya?»* and *«em sembla un nom horrible»*. All three were true. **Nothing
+// could be pressed** because a page that is built again loses the control the dial was on and the walk starts at the first
+// one of the tree —the strip of tabs— where the arrows change the tab, which builds the page again: the dial never left the
+// strip. There is a call for it now, **`ui.focus(control)`**, and the app sends the dial to the first control of the page it
+// has just built (docs/30). **The change of page left a mix of two pages** because a control paints its own rectangle and
+// no more: the app wipes the page with `ui.clear(15)` before building the next one. And the app is called **`showcase`**,
+// which says what it is, and not `gallery`.
+// Measured on the bench: 434 native cases green —the one of `ui.focus` presses the centre key with and without the call and
+// sees which button answers—, the app runs in five pages with no error of Lua, and the Paper builds with no warning.
+static const char kVersion[] = "0.97.4";
 
 }  // namespace kernel
 

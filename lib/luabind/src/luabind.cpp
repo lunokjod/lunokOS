@@ -3134,6 +3134,7 @@ int l_ui_pixel(lua_State* L) {
 // The view as a control, defined further down with the rest of the canvas object: `present` asks it to
 // draw before composing (docs/90).
 int l_ui_root(lua_State* L);
+int l_ui_focus(lua_State* L);
 
 // **A present of the app is a present of the block** (0.92.0): a focus or a key sets the caret and marks this counter;
 // when the app presents before the kernel gets its turn, the box is already on the glass with the block on and the
@@ -7843,6 +7844,33 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   lua_pop(L, 1);
 }
 
+// **`ui.focus(control)`: the app says where the dial is.** A page that is built again —the pages of a catalogue under
+// a strip of tabs are given back and built at every tab— loses the control the dial was on, and the walk starts again
+// at the first one of the tree, which is the strip: the arrows then change the tab for ever and nothing the page has
+// can be pressed (found by the owner with the board in his hand, 7/11: *«no puc pitjar res»*). This is the call that
+// puts the dial back where the app wants it, and it does nothing when the control cannot be landed on (docs/30,
+// docs/90).
+int l_ui_focus(lua_State* L) {
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, 1, kCanvasMeta));
+  if (canvas == nullptr || !ui_control_alive(canvas)) return 0;
+  FocusTarget targets[kMaxFocusTargets];
+  const int top = lua_gettop(L);
+  const int objects = top + 1;
+  const int count = ui_collect_targets(L, targets, false);
+  if (count <= 0) {
+    lua_settop(L, top);
+    return 0;
+  }
+  for (int i = 0; i < count; ++i) {
+    if (targets[i].slot == canvas->slot) {
+      ui_apply_focus(L, targets, count, objects, i);
+      break;
+    }
+  }
+  lua_settop(L, top);
+  return 0;
+}
+
 bool ui_activate(lua_State* L, int count, int objects, int index) {
   if (index < 0 || index >= count) return false;
   lua_rawgeti(L, objects, index + 1);
@@ -8260,6 +8288,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "image", l_ui_image);
   set_function(L, "image_info", l_ui_image_info);
   set_function(L, "pixel", l_ui_pixel);
+  set_function(L, "focus", l_ui_focus);
   set_function(L, "present", l_ui_present);
   set_function(L, "idle", l_ui_idle);
   set_function(L, "resize", l_ui_resize);
@@ -9225,6 +9254,8 @@ bool ui_button_event(const char* kind, uint32_t key) {
   lua_settop(g_state, top);
   return true;
 }
+
+
 
 // True while a page has at least one control a person can land on, **the finger's boxes included**, or the keyboard
 // itself is on the glass. The kernel asks it before it gives the middle key to the three-tap exit: a page whose centre

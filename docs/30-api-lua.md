@@ -813,6 +813,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
 | `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El lloc de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)` i la part de lloc lliure que vol cada un amb `child.weight` (3/11, 0.70.0) |
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable**: les fletxes canvien la triada i `on_change(self, index)` avisa (3/11, 0.70.0) |
+| `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0) |
@@ -1423,6 +1424,31 @@ ui.present('gc16')
   d'elles que conté la pàgina on ets: el comptador no surt mai de la seva caixa i la pàgina que llegeixes és sempre una
   de les boles.
 - Cap dels dos no és un dibuix de l'app: són controls del nucli, com la resta (docs/92 §10).
+
+### `ui.focus`: on és el dial quan la pàgina es torna a construir (0.97.4)
+
+**Una pàgina que es construeix de nou perd el control on era el dial**, i la volta comença
+al primer control de l'arbre. En un app que té una tira de pestanyes a dalt, aquest primer
+control és **la tira**: les fletxes mouen la pestanya (que és la seva feina), la pàgina es
+torna a construir a cada moviment, i la volta torna a començar a la tira. El resultat, amb la
+placa a la mà, és el que va dir l'amo el 7/11: *«no puc pitjar res, i els botons físics només
+em mouen per les pestanyes»*.
+
+`ui.focus(control)` diu on ha d'anar el dial:
+
+```lua
+local first = nil
+local function keep(control)
+  if first == nil and control.focusable == true then first = control end
+  return control
+end
+-- ... es construeix la pàgina ...
+if first ~= nil then ui.focus(first) end
+```
+
+**I la pàgina s'esborra abans de construir-la** (`ui.clear(15)`): un control pinta el seu
+rectangle i no més, o sigui que una pàgina de tres controls darrere d'una de sis deixa els
+tres de la d'abans al vidre.
 
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)
 **A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una

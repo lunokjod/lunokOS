@@ -1,8 +1,0 @@
-{
-  "title": "Gallery",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "gallery.lua",
-  "boards": ["esp32"],
-  "description": "Every control the system draws, eight pages of them: label, row, button, checkbox, progress, slider, sparkline, pie, list, notification bar, text box, multi-line box, selector, dialog, menu bar, menu, month, icon grid and the dots of a page. The tabs choose the page and the dots say which one it is."
-}
