@@ -1581,7 +1581,7 @@ static void test_the_cleaner_between_apps_follows_the_page() {
   TEST_ASSERT_TRUE(hal::UpdateMode::kDu == kernel::ui::cleaner_for(0, 0));
 }
 
-void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
+void test_a_checkbox_is_a_square_with_a_cross() {
   fresh_view();
   int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(60, 20, 0, false, box));
@@ -1590,44 +1590,50 @@ void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
   // room the child that names the setting needs.
   TEST_ASSERT_EQUAL_INT16(12, ui::checkbox_side(box));
 
-  // **Out: a ring of two pixels and paper inside it** (the paper project's `Checkbox::paintBox()`, docs/92). The row
-  // here is 12 so the row is told apart from the paper of the page, and the ring is ink.
+  // **Out: a square of two pixels of frame and paper inside** (0.102.1, the owner: *«un quadrat i una X dins si està
+  // activat o res si no ho està»*). The row is 12 so the row is told apart from the paper of the page, and the frame
+  // is ink. **The corners are corners**: the pixel of the angle is the frame and not paper, which is what says the
+  // box is a square and not a rounded chip.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
   TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));  // the row, right of the box: the room for the words
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the ring, two pixels of it
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the frame, two pixels of it
   TEST_ASSERT_EQUAL_UINT8(0, view_level(11, 20));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(12, 20));  // and the body, which is the row's own tone and has nothing in it
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 23));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));    // and the page outside the row
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(12, 20));  // and the body, which is the row's own tone
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 14));   // the corner of the square: a corner and not a curve
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(21, 25));   // and the other one
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 9));    // the page outside the row
+  // **And nothing inside when it is not checked**: the middle of the box is the body.
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));
 
-  // **Checked, the body has a tick in it and the row does not move**: the knee of the V lands on that same pixel, and
-  // the row outside the box is still the row.
+  // **Checked, the two diagonals cross in the middle of the box** and the row does not move.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 23));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(16, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(14, 18));  // on the first diagonal
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(18, 18));  // and on the second one
   TEST_ASSERT_EQUAL_UINT8(12, view_level(40, 20));
 
-  // **The tick has a colour of its own**: a black box with a white tick is a checkbox that can be read with the rest of
-  // the page black (docs/30, docs/90).
+  // **The cross has a colour of its own**: a black box with a white cross is a checkbox that can be read with the rest
+  // of the page black (docs/30, docs/90).
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 0, 15, 15, true, false, false));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(14, 23));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the ring is the other colour and it did not move
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(16, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(10, 20));  // the frame is the other colour and it did not move
 
-  // **A checkbox has no pressed state** (the paper project says it in as many words): the picture of a box under a
-  // finger is the picture of a box, because what the finger does is change the state and the state is the mark.
+  // **A checkbox has no pressed state**: the picture of a box under a finger is the picture of a box, because what the
+  // finger does is change the state and the state is the cross.
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, true, false));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(15, 20));
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));
 
-  // **The chosen box goes inverted** —ring of row, body of ink, and the tick of row—, which is the same signal a button
-  // gives and the one thing a person can see on this glass. **The word is a child of the app and this system does not
-  // recolour it** (docs/92).
+  // **The chosen box goes inverted** —frame of row, body of ink and the cross of row—, which is the same signal a
+  // button gives and the one thing a person can see on this glass. **The word is a child of the app** and it swaps its
+  // own two tones itself when the box it is in is inverted (0.101.0, docs/92).
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, false));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the ring of a box that is not chosen is ink
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 20));   // the frame of a box that is not chosen is ink
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, false, false, true));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(10, 20));  // the ring is the row now
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(10, 20));  // the frame is the row now
   TEST_ASSERT_EQUAL_UINT8(0, view_level(15, 20));   // and the body is ink
   TEST_ASSERT_TRUE(ui::checkbox_draw(box, 12, 0, 0, true, false, true));
-  TEST_ASSERT_EQUAL_UINT8(12, view_level(14, 23));  // the tick, in the tone of the ring
+  TEST_ASSERT_EQUAL_UINT8(12, view_level(16, 20));  // the cross, in the tone of the frame
 
   // A level outside the sixteen is a colour this panel does not have, and the box is asked for three of them.
   TEST_ASSERT_FALSE(ui::checkbox_draw(box, 16, 0, 0, false, false, false));
@@ -3050,7 +3056,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_label_cuts_its_text_with_three_dots);
   RUN_TEST(test_a_label_places_its_line_by_alignment);
   RUN_TEST(test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed);
-  RUN_TEST(test_a_checkbox_is_a_box_with_a_tick_and_a_ring);
+  RUN_TEST(test_a_checkbox_is_a_square_with_a_cross);
   RUN_TEST(test_a_checkbox_that_redraws_asks_its_child_to_draw_again);
   RUN_TEST(test_a_progress_bar_fills_a_prefix_of_its_track);
   RUN_TEST(test_a_slider_puts_the_knob_where_the_value_says);

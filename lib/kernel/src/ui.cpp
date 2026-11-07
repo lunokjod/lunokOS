@@ -2180,48 +2180,41 @@ bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mar
     const int32_t inset = (static_cast<int32_t>(height) - side) / 2;
     const int32_t box_x = target.x;
     const int32_t box_y = target.y + inset;
-    // **The box is the paper project's `Checkbox::paintBox()`** (docs/92): **two pixels of ring** and paper inside,
-    // round corners of half the theme's radius —**five**—, and nothing else. There is **no bevel**: the volume of a
-    // button is its shadow, and a box of eighteen pixels with a bevel of greys is a blob on this panel.
-    const int32_t thickness = 2;
-    int32_t radius = 5;
-    const int32_t most = side / 3;
-    if (radius > most) radius = most;
-    // **A checkbox has no pressed state**: what the finger does is change the state and that is already the mark, so
-    // the picture of a held box is the picture of a box (the paper project says it in as many words). The parameter
-    // stays for the shape of the call, which the bridge of Lua fills.
+    // **A square and a cross** (0.102.1): the owner asked for the box to be more schematic —*«un quadrat i una X dins
+    // si està activat o res si no ho està»*—, so there are **no round corners and no tick**: four strokes of frame,
+    // paper inside, and when the box is checked two diagonals from one inside corner to the opposite one. It is read
+    // from a metre away, it is the same at every size, and it costs the ink of the frame and of the two lines (docs/92).
+    const int32_t frame = 2;
+    // **A checkbox has no pressed state**: what the finger does is change the state and that is already the cross, so
+    // the picture of a held box is the picture of a box. The parameter stays for the shape of the call, which the
+    // bridge of Lua fills.
     (void)pressed;
-    // **And the box with the focus goes inverted** —ring of paper, inside of ink, tick of paper—, which is the same
+    // **And the box with the focus goes inverted** —frame of paper, inside of ink, cross of paper—, which is the same
     // signal a button gives: it is the one thing a person can see on a glass of two and a half tones, and a ring of one
     // pixel round a box of eighteen could not be told from the border of the box beside it (docs/92). **The label is a
-    // child of the app and this system does not recolour it**, which is where a checkbox of this system and one of the
-    // paper project differ: there the control was one piece with its word and it inverted the two.
+    // child of the app and this system does not recolour it here**: when the button that holds it inverts, the label
+    // swaps its own two tones (0.101.0).
     const bool selected = focused;
     const uint8_t ring = selected ? background : border;
     const uint8_t body = selected ? border : background;
-    const uint8_t tick_level = selected ? background : mark;
-    draw_round_fill(*target.canvas, box_x, box_y, side, side, radius, ring, mode);
-    draw_round_fill(*target.canvas, box_x + thickness, box_y + thickness, side - 2 * thickness,
-                    side - 2 * thickness, (radius > thickness) ? radius - thickness : 0, body, mode);
-    // **The tick is two strokes of a brush and it is the state** (the paper project's `drawCheckMark()`): the stroke
-    // is a **eighth of the box** —five or six pixels on a box of thirty, three on the smallest— and the two strokes go
-    // from a fifth of the box down to its three quarters and up to four fifths, which is a V a person sees from a metre
-    // away. Only paper and ink in every state, so any pass of the glass can carry it (docs/50, docs/92).
-    if (checked && side > 8) {
-      int32_t brush = side / 8;
-      if (brush < 2) brush = 2;
-      if (brush > 6) brush = 6;
-      const int32_t x0 = box_x;
-      const int32_t y0 = box_y;
-      const int32_t down_x = x0 + side / 5;
-      const int32_t down_y = y0 + side / 2;
-      const int32_t knee_x = x0 + (side * 2) / 5;
-      const int32_t knee_y = y0 + (side * 3) / 4;
-      const int32_t up_x = x0 + (side * 4) / 5;
-      const int32_t up_y = y0 + side / 4;
-      for (int32_t i = 0; i < brush; ++i) {
-        draw_line(*target.canvas, down_x + i, down_y + i, knee_x + i, knee_y + i, tick_level, mode);
-        draw_line(*target.canvas, knee_x + i, knee_y + i, up_x + i, up_y + i, tick_level, mode);
+    const uint8_t cross_level = selected ? background : mark;
+    put_rect(*target.canvas, box_x, box_y, side, frame, ring);
+    put_rect(*target.canvas, box_x, box_y + side - frame, side, frame, ring);
+    put_rect(*target.canvas, box_x, box_y, frame, side, ring);
+    put_rect(*target.canvas, box_x + side - frame, box_y, frame, side, ring);
+    put_rect(*target.canvas, box_x + frame, box_y + frame, side - 2 * frame, side - 2 * frame, body);
+    // **The cross is two lines of two pixels**, from the inside corner to the opposite one and with a pixel of air so
+    // it does not touch the frame: a person reads a cross and not a blob, and only paper and ink are used, so any pass
+    // of the glass can carry it (docs/50, docs/92).
+    if (checked && side >= 10) {
+      const int32_t inset = frame + 1;
+      const int32_t left = box_x + inset;
+      const int32_t top = box_y + inset;
+      const int32_t right = box_x + side - 1 - inset;
+      const int32_t bottom = box_y + side - 1 - inset;
+      for (int32_t i = 0; i < 2; ++i) {
+        draw_line(*target.canvas, left, top + i, right, bottom + i, cross_level, mode);
+        draw_line(*target.canvas, right, top + i, left, bottom + i, cross_level, mode);
       }
     }
   }

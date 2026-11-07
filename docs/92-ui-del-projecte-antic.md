@@ -313,7 +313,7 @@ PER UN»*. La taula de sota és aquesta feina, i cada fila és una lectura del c
 | **`ui.row`** | pendent | |
 | **`ui.list`** | pendent | |
 | **`ui.tabs`** | **portat** (0.97.0) | la tab on ets és un **punt de llibre**: 2 px a l'esquerra, a dalt i a la dreta i **no a baix**, i les altres porten la ratlla a sota; res de subratllat |
-| **`ui.checkbox`** | **portat** (0.97.0) | anell de **2 px** i paper a dins, radi **5** (la meitat del tema), el tick dos traços d'**1/8** de la caixa, i el control triat **invertit**; sense bisell |
+| **`ui.checkbox`** | **portat** (0.97.0) i **simplificat** (0.102.1) | **un quadrat** de marc de **2 px** amb els cantons rectes i, quan està marcat, **una X de dues línies de 2 px**; res a dins quan no ho està. El control amb el focus s'inverteix. Abans era el del paper project (radi 5 i un tick en V) i l'amo va demanar la versió esquemàtica: *«un quadrat i una X dins si està activat o res si no ho està»* |
 | **`ui.slider`** | **portat** (0.97.0) | el tub és paper amb vora d'1 px, el tros fet és **tinta**, i la nansa és un **cercle de l'altçada del control** (tinta amb un punt de paper quan té el focus); sense marc al voltant |
 | **`ui.progress`** | **portat** (0.97.0) | el tros fet porta un **anell de tinta** a sobre del to clar, que és el que diu on ha arribat la barra |
 | **`ui.textbox`**, **`ui.textbox_multiline`** | pendent | |
@@ -534,3 +534,21 @@ infinit.
 té més de 32 slots, es fan **150 controls** i tots pengen de la vista) i
 `test_the_dial_walks_more_stops_than_the_old_list_held` (quaranta botons al vidre i el dial arriba al **trenta-sisè**,
 quan abans s'aturava al trenta-dos). Tornant la taula a 32 a propòsit, les dues es posen vermelles.
+
+## 17. Un checkbox esquemàtic (0.102.1)
+
+L'amo el va demanar així: *«fes el control UI Checkbox més esquemàtic, un quadrat i una X dins si està activat o res
+si no ho està»*, recordant que també pot estar deshabilitat i que llavors es dibuixa en un to més clar.
+
+**Què era**: el checkbox portat del paper project a 0.97.0 —`Checkbox::paintBox()` i `drawCheckMark()`—, o sigui **radi
+5** a les cantonades i un **tick en V** de dues pinzellades d'1/8 de la caixa.
+
+**Què és ara**: **quatre traços de marc de 2 px** amb els cantons rectes, paper a dins, i quan `checked` **dues
+diagonals de 2 px** d'un cantó de dins al de davant amb un píxel d'aire; si la caixa fa menys de deu píxels, es queda
+sola. El que **no** ha canviat: la mida de la caixa (`cb:box()`, la mateixa), el color de la X (`mark`, un camp propi),
+el focus que **inverteix** el quadrat, i el deshabilitat que passa pel to `dim` com tots els controls (0.100.0).
+
+**Mesurat**: la prova del nucli `test_a_checkbox_is_a_square_with_a_cross` llegeix el vidre punt per punt —el cantó
+`(10, 14)` és marc i no corba, el mig `(16, 20)` és el cos quan no està marcat i és tinta quan ho està, i les dues
+diagonals `(14, 18)` i `(18, 18)` hi són—; **442 casos natius verds**, i al bolcat es veuen els tres estats: apagat,
+encès amb la X, i encès i deshabilitat **en gris** (el marc, la X i la paraula del fill).

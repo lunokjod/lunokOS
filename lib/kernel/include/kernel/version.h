@@ -1546,7 +1546,18 @@ namespace kernel {
 // out as many children as it holds. `sizeof(Canvas)` went from 192 to 160 bytes.
 // Measured: 442 native cases green (two new: 150 controls on one page and forty stops walked to the thirty-sixth),
 // and putting the table back to 32 turns both red (docs/30, docs/75, docs/92).
-static const char kVersion[] = "0.102.0";
+//
+// 0.102.1 (8/11): **a schematic checkbox.** The owner asked for it: *«fes el control UI Checkbox més esquemàtic, un
+// quadrat i una X dins si està activat o res si no ho està»*, and a reminder that it can be disabled and is drawn in a
+// lighter tone. The box was the paper project's (`paintBox` + `drawCheckMark`: radius 5 and a tick of two strokes);
+// it is now four strokes of a 2-pixel frame with square corners, paper inside, and **two 2-pixel diagonals** when it
+// is checked —with a pixel of air so they do not touch the frame, and nothing at all when it is not—. The size
+// (`cb:box()`), the colour of the cross (`mark`), the focus that inverts the square and the disabled tone are what
+// they were.
+// Measured: 442 native cases green, and the checkbox test reads the glass pixel by pixel (the corner is the frame and
+// not a curve, the middle is the body and then the ink, and both diagonals are there). Three states looked at with
+// `--dump`: off, on with the cross, and on and disabled in the lighter tone (docs/30, docs/92).
+static const char kVersion[] = "0.102.1";
 
 }  // namespace kernel
 

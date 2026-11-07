@@ -807,7 +807,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.control(w, h)` | **un objecte** o `nil, error` | Un control **sense vista**: un marc amb fills que **no costa cap píxel** i que pinta al canvas que el conté, tallat al seu marc. Una graella, una caixa o un espaiador són això; amb `focusable = true` també entra al recorregut del dial i del tàctil, amb `on_activate` com a clic |
 | `ui.label(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una línia de text: fons, color, cara, alineació i retall amb `...` (vegeu a sota) |
 | `ui.button(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** amb fons i vora que pot tenir un fill; el fill es posa amb `button:add` i es talla al marc del botó. **És enfocable i clicable** amb el dial i amb el tàctil (vegeu a sota) |
-| `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: una **caixa quadrada amb un tick** i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
+| `ui.checkbox(w, h)` | **un objecte** o `nil, error` | Un control **sense vista** que és una fila: un **quadrat amb una X a dins quan està marcat** (res quan no) i el lloc de les paraules, que són un fill. **És enfocable i clicable**, i el clic **gira l'estat** i avisa amb `on_change` (vegeu a sota) |
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)` (3/11, 0.69.0) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
@@ -1253,7 +1253,7 @@ notes— a **tres tamanys** (16, 24 i 32 px) dins de **vuit botons blancs**. El 
 un `gc16` que neteja el forat, el focus es renta quan es mou, i els comptes de la consola mostren que un botó
 que canvia també torna a dibuixar el seu fill.
 
-### `UICheckbox`: una caixa, un tick i l'estat
+### `UICheckbox`: un quadrat, una X i l'estat
 
 **Un checkbox és una fila** (`ui.checkbox(w, h)`): una **caixa quadrada** a l'esquerra i, a la dreta, el lloc de
 les paraules que diuen què es marca. Les paraules són un `UILabel` fill que es posa amb `cb:add(etiqueta)`,
@@ -1265,10 +1265,10 @@ docs/90).
 |---|---|---|
 | `checkbox.background` | 0–15 (15 per defecte) | El nivell de la fila, que és **opaca**: les paraules s'hi posen a sobre |
 | `checkbox.border` | 0–15 (0 per defecte) | El nivell de la vora de la caixa |
-| `checkbox.mark` | 0–15 (0 per defecte) | El nivell del **tick**, que és un color propi perquè un tick negre en una caixa negra és un checkbox que no diu res |
+| `checkbox.mark` | 0–15 (0 per defecte) | El nivell de la **X**, que és un color propi perquè una X negra en un quadrat negre és un checkbox que no diu res |
 | `checkbox.checked` | `true` o `false` (fals per defecte) | **L'estat**: l'app el llegeix i l'escriu, i el clic del sistema el gira |
-| `checkbox.pressed` | `true` o `false` | Mentre és cert la caixa és un forat: **el relleu s'inverteix** i el cos es queda els dos nivells que tenia —el pas més fosc era un gris, i un gris demana el rentat de setze nivells (0.85.4)— |
-| `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: l'anell es pinta **fora de la caixa** |
+| `checkbox.pressed` | `true` o `false` | **No fa res**: el que fa el dit és girar l'estat, i l'estat ja és la X |
+| `checkbox.focused` | `true` o `false` | L'estat del focus, que porta el sistema: el quadrat s'**inverteix** (marc de paper, dins de tinta i la X de paper) |
 | `checkbox.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil s'hi aturen |
 
 | Callback | Què fa |
@@ -1281,19 +1281,22 @@ docs/90).
   això una app que només escolta no pot deixar el dibuix i l'estat dient coses diferents. Una app que havia de
   girar-la ella seria una app que se'n pot oblidar, i un checkbox que no marca la pàgina és un checkbox que ha
   mentit (docs/30, docs/90).
-- **La caixa és del nucli i es mesura amb `cb:box()`.** El marge de la fila és de quatre píxels a dalt i a baix
-  —el lloc que necessita l'anell del focus—, la vora té el pes que el botó ensenya (tres píxels en una caixa de
-  pàgina, dos en una de petita i un en un xip) i el tick és **dues pinzellades** d'un gruix que creix amb la
-  caixa. Una fila massa curta per a quatre píxels de marge en gasta dos, i una de menys de sis no té caixa.
-- **L'anell del focus va fora de la caixa**, dues píxels de banda i un de pausa abans de la vora: una caixa de
-  dotze píxels amb vora de dos no té lloc per al doble marc que el botó porta a dins, i un anell dibuixat a dins
-  s'empassaria el tick. La fila és de l'app, i una app que vulgui que les paraules diguin el focus les pot
-  pintar al seu `on_focus` (docs/30, docs/90).
+- **El quadrat és del nucli i es mesura amb `cb:box()`.** El marge de la fila és de quatre píxels a dalt i a baix,
+  el **marc és de dos píxels** a tot arreu i els **cantons són cantons** (no són arrodonits): és el que fa que es
+  llegeixi com un quadrat i no com un xip. Una fila massa curta en gasta menys de marge, i una de menys de sis no
+  té quadrat.
+- **La X és el que diu l'estat** (0.102.1, l'amo: *«un quadrat i una X dins si està activat o res si no ho està»*):
+  dues línies de dos píxels d'un cantó de dins al de davant, amb un píxel d'aire per no tocar el marc. Si el quadrat
+  és massa petit per dibuixar-la (menys de deu píxels) el quadrat es queda sol.
+- **El focus inverteix el quadrat** —marc de paper, dins de tinta i la X de paper—, que és el mateix senyal que dona
+  un botó i l'única cosa que es veu en un vidre de dos tons i mig. La fila és de l'app, i una app que vulgui que les
+  paraules diguin el focus les pot pintar al seu `on_focus`; si el quadrat va dins d'un botó amb el cercle, el fill
+  intercanvia els seus tons sol (0.101.0, docs/30, docs/90).
 - **La fila és opaca, com el marc d'un botó**: les paraules es componen després del checkbox i queden tapades
   pel fons nou, o sigui que un checkbox que es redibuixa **invalida els seus fills** i el present els torna a
   pintar (docs/30, docs/90).
-- **Es pinta amb `du`**, i el canvi el renta l'app amb un `gc16` al present següent: un tick és poca tinta, però
-  un anell que s'ha mogut deixa el fantasma de l'anell anterior (docs/50, docs/90).
+- **Es pinta amb `du`**, i el canvi el renta l'app amb un `gc16` al present següent: una X és poca tinta, però un
+  quadrat que s'ha mogut o invertit deixa el fantasma d'abans (docs/50, docs/90).
 - `checkbox.on_draw` és una funció del sistema; si una app la canvia, deixa de tenir un checkbox i té un control
   normal amb el seu propi dibuix.
 
@@ -1317,14 +1320,14 @@ ui.present('gc16')
 
 L'app `checkbox` (`run checkbox`) és una pàgina de cinc files: **les paraules dins de cada fila**, una fila que
 **neix marcada**, una que el dial **no pot tocar** (`focusable = false`, i el recorregut del sistema la salta),
-una de fosca amb el tick i la vora blancs, i una línia que compta quantes estan enceses. Cada canvi diu a la
+una de fosca amb la X i la vora blanques, i una línia que compta quantes estan enceses. Cada canvi diu a la
 consola el nom i l'estat nou, i la pàgina es renta amb `gc16` perquè l'anell que s'ha mogut no hi deixi el
 rastre.
 
 ### `ui.progress`, `ui.slider` i `ui.row`: el que dibuixa el sistema (0.69.0)
 
 **Cap control no es dibuixa en Lua.** Una app diu els camps, col·loca el control i decideix quan la pàgina va al
-vidre; cada píxel —la pista, el botó, el número, el tick, l'anell del focus— el posa
+vidre; cada píxel —la pista, el botó, el número, la X, el marc invertit del focus— el posa
 `lib/kernel/src/ui.cpp`. És el que fa que dos apps tinguin els mateixos controls, i el que permet que una pàgina
 de controls costi un repintat i no un per control (docs/30, docs/90).
 
@@ -1892,8 +1895,8 @@ pàgina amb feina a fer —un editor, un gestor de fitxers— on les accions no 
   torno a estar disponible. I **no respon ni al dit ni al dial**.
 - **Una ratlla (`'-'`) és una línia entre dues entrades**, amb el seu aire: no és una fila que el dit premi ni una parada
   del dial.
-- **Un tick és una caixa amb el mig ple** (`checked`): dos tons i cap gris, o sigui que «està encesa» és la caixa que té
-  alguna cosa a dins i «està apagada» la que està buida. **Perquè la caixa buida surti hi ha d'haver el camp**, encara
+- **Una X és una caixa amb el mig marcat** (`checked`): dos tons i cap gris, o sigui que «està encesa» és la caixa que té
+  la X a dins i «està apagada» la que està buida. **Perquè la caixa buida surti hi ha d'haver el camp**, encara
   que sigui `checked = false`: una entrada amb el camp és un interruptor i una entrada sense el camp és una ordre, i
   així es distingeixen sense cap paraula. **Qui sap l'estat és l'app**: ella escriu `checked` i torna a donar la taula
   d'`items`, que és sempre un repintat.
