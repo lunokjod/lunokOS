@@ -222,12 +222,23 @@ const uint16_t kOutlineRowBytes = kOutlineMaxWidth / 8;
 uint8_t g_outline_rows[kOutlineRowBytes * kOutlineMaxHeight];
 
 uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale,
-                      const Clip& clip, RunFn fn, void* user) {
+                      const Clip& clip, RunFn fn, void* user, const Ink& ink) {
   if (text == nullptr || scale == 0 || fn == nullptr) return 0;
   const ttf::Face& font = *face.outline;
   const uint16_t px = static_cast<uint16_t>(kOutlineBody * scale);
   const uint32_t body = (font.units_per_em == 0) ? 1 : font.units_per_em;
   const int32_t ascent = static_cast<int32_t>((static_cast<int32_t>(font.ascent) * px) / static_cast<int32_t>(body));
+  // **The step off the baseline and the pixel of a bold**, which are the same for every glyph of the text
+  // (0.129.0): a `sup` goes up a third of the line and a `sub` goes down a fifth, and a bold is the same run
+  // one pixel more to the right (docs/46 A4, docs/30).
+  const int32_t line = static_cast<int32_t>(face.height) * scale;
+  int32_t off_line = 0;
+  if (ink.rise < 0) {
+    off_line = -(line / 3);
+  } else if (ink.rise > 0) {
+    off_line = line / 5;
+  }
+  const int32_t wider = ink.bold ? 1 : 0;
   int32_t pen = x;
   for (const char* at = text; *at != '\0'; ++at) {
     // The same rule as the measurement (0.127.0): a byte is a code and the face decides. A face of the
@@ -243,8 +254,15 @@ uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, 
     if (drawn == ttf::kOk) {
       // **The box says where the ink lands**: `left` from the pen and `top` from the baseline, so the rows walk
       // down from there and every run of lit pixels is one rectangle of one row (docs/30).
+      //
+      // **The slant is the glyph's own**, a fifth of its height from the bottom row to the one above: a letter
+      // of a book leans by its own body and not by the line, and the pen does not move for it.
+      const int32_t span = (box.height > 1) ? static_cast<int32_t>(box.height) - 1 : 1;
       for (uint16_t row = 0; row < box.height; ++row) {
-        const int32_t top = y + ascent + box.top + static_cast<int32_t>(row);
+        const int32_t top = y + ascent + box.top + static_cast<int32_t>(row) + off_line;
+        const int32_t slant =
+            ink.italic ? ((span - static_cast<int32_t>(row)) * (static_cast<int32_t>(box.height) / 5)) / span
+                       : 0;
         uint16_t column = 0;
         while (column < box.width) {
           const uint8_t bits = g_outline_rows[row * kOutlineRowBytes + (column >> 3)];
@@ -257,8 +275,8 @@ uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, 
                  (g_outline_rows[row * kOutlineRowBytes + (run >> 3)] & (0x80u >> (run & 7))) != 0) {
             ++run;
           }
-          int32_t left = pen + box.left + static_cast<int32_t>(column);
-          int32_t right = pen + box.left + static_cast<int32_t>(run);
+          int32_t left = pen + box.left + static_cast<int32_t>(column) + slant;
+          int32_t right = pen + box.left + static_cast<int32_t>(run) + slant + wider;
           if (left < clip.x0) left = clip.x0;
           if (right > clip.x1) right = clip.x1;
           if (left < right && top >= clip.y0 && top + 1 <= clip.y1) fn(user, left, top, right - left, 1);
@@ -274,11 +292,24 @@ uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, 
 }  // namespace
 
 uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip,
-              RunFn fn, void* user) {
-  if (face.outline != nullptr) return outline_runs(face, text, x, y, scale, clip, fn, user);
+              RunFn fn, void* user, const Ink& ink) {
+  if (face.outline != nullptr) return outline_runs(face, text, x, y, scale, clip, fn, user, ink);
   if (text == nullptr || scale == 0 || fn == nullptr || face.bits == nullptr || face.lit == nullptr) {
     return 0;
   }
+  // **The marks of a line, on a face of bits** (0.129.0): the same three rules as the outlines above, and here
+  // the line is the height of the cell and the slant is a fifth of it in rows of the glyph, which is why it is
+  // multiplied by the step at the end (docs/46 A4).
+  const int32_t line = static_cast<int32_t>(face.height) * scale;
+  int32_t off_line = 0;
+  if (ink.rise < 0) {
+    off_line = -(line / 3);
+  } else if (ink.rise > 0) {
+    off_line = line / 5;
+  }
+  const int32_t wider = ink.bold ? 1 : 0;
+  const int32_t span = (face.height > 1) ? static_cast<int32_t>(face.height) - 1 : 1;
+  const int32_t lean = static_cast<int32_t>(face.height) / 5;
   const int32_t step = (face.width + face.gap) * scale;
   int32_t at_x = x;
   for (const char* at = text; *at != '\0'; ++at) {
@@ -288,6 +319,8 @@ uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t 
     if (has(face, code)) {
       const uint8_t index = static_cast<uint8_t>(code - face.first);
       for (uint8_t row = 0; row < face.height; ++row) {
+        const int32_t slant =
+            ink.italic ? (((span - static_cast<int32_t>(row)) * lean) / span) * scale : 0;
         uint8_t column = 0;
         while (column < face.width) {
           if (!face.lit(face.bits, index, column, row)) {
@@ -298,10 +331,11 @@ uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t 
           uint8_t run = column;
           while (run < face.width && face.lit(face.bits, index, run, row)) ++run;
           // **The run is cut against the border of the box**, column by column, so a letter that hangs out
-          // of a label loses the part that is outside and nothing else (docs/30).
-          int32_t left = at_x + static_cast<int32_t>(column) * scale;
-          int32_t right = at_x + static_cast<int32_t>(run) * scale;
-          const int32_t top = y + static_cast<int32_t>(row) * scale;
+          // of a label loses the part that is outside and nothing else (docs/30). The slant of the italic and
+          // the pixel of a bold are applied to the rectangle, which is the whole of what those marks are.
+          int32_t left = at_x + static_cast<int32_t>(column) * scale + slant;
+          int32_t right = at_x + static_cast<int32_t>(run) * scale + slant + wider;
+          const int32_t top = y + static_cast<int32_t>(row) * scale + off_line;
           const int32_t bottom = top + scale;
           if (left < clip.x0) left = clip.x0;
           if (right > clip.x1) right = clip.x1;
@@ -318,8 +352,8 @@ uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t 
 }
 
 uint16_t runs(const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip, RunFn fn,
-              void* user) {
-  return runs(system_face(), text, x, y, scale, clip, fn, user);
+              void* user, const Ink& ink) {
+  return runs(system_face(), text, x, y, scale, clip, fn, user, ink);
 }
 
 // ---- a face from a file (docs/30) ----

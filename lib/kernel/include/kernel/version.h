@@ -2507,7 +2507,40 @@ namespace kernel {
 // yet, because nothing of the firmware calls it until the paginator exists—.
 // **Pending**: the 500 cases are **not executed** (that wants the owner's word for it), and the next piece is the
 // paginator (docs/46, A3 and A4: the lines, the air of every block, the pictures with bands and the styled text).
-static const char kVersion[] = "0.128.0";
+//
+// 0.129.0 (7/11): **the ink of a line, which is the third piece of the EPUB port**.
+//
+// A book says more with a line than its letters: a bold word, an italic one, a note mark in the air. The faces of
+// this system cannot give any of the three —a face of one bit has no bold and no italic, and the faces of the disk
+// are one weight— so the three are made here, and they are made **to the rectangles a glyph is already made of**
+// and not to a bitmap of it: a styled text costs what a plain one costs and no more, and the retall, the damage
+// and the canvases that already exist do not learn anything new (docs/46, A4 and D5).
+//
+// The three rules are the paper project's, which its owner looked at on the glass word by word: **a bold is one
+// pixel more to the right** —a glyph painted twice with that offset is thicker and stays a glyph of the same face,
+// which is the only way to have a bold with a face that has one weight—, **an italic is a slant row by row**, a
+// fifth of the height of the glyph from its bottom row to the one above, and the pen does not move for it, and
+// **a `sup` goes up a third of the line and a `sub` down a fifth**, and the line does not grow, because a note
+// mark that pushes the lines apart is worse than one that touches the line above.
+//
+// It is `font::Ink` —three fields and no memory— through `font::runs`, which is the one place where a text becomes
+// rectangles, so both kinds of face get it: the outlines of the disk and the tables of bits of the flash, with the
+// line being the height of the face in both. `ui::canvas_text_styled` is the canvas' door, and it also grew the
+// **damage** of a text that is off the baseline: a `sup` paints above the box of its line, and a box that stopped
+// at the line would leave the mark of the note on the glass for ever. There is **no call of Lua** for it: what
+// needs a bold is the reader of books, which is the system's, and an app does not have to be able to ask a face
+// that has one weight for one it does not have (docs/30, docs/46).
+//
+// Measured on the bench of the computer: `test/test_font` has **four cases more** —a bold run is exactly one pixel
+// wider than the same run plain and the advance of the word does not change, an italic moves the first row of the
+// cell and not the last, a `sup` of a line of ten pixels goes up three and a `sub` down two, and the same three on
+// the face of a book at step four with a slant of a fifth of the glyph—, and `pio test -e test --without-testing`
+// builds the **21 suites and 504 cases** with 0 warnings. `pio run -e emulator` says SUCCESS with 0 warnings.
+// **Pending**: the 504 cases are **not executed** (that wants the owner's word for it); and this turn has **not
+// looked at the glass**, which is said out loud because it is the rule of this house: the ink has no door from Lua
+// and no page composes a text with it yet, so the first time it will be seen is with the paginator of the next
+// piece (docs/46, A3), and until then what is measured is rectangles in a test and not a word on the screen.
+static const char kVersion[] = "0.129.0";
 
 }  // namespace kernel
 

@@ -849,7 +849,7 @@ void canvas_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
 }
 
 void draw_text(Canvas& canvas, const font::Face& face, int32_t x, int32_t y, const char* text,
-               uint8_t scale, uint8_t level, hal::UpdateMode mode) {
+               uint8_t scale, uint8_t level, hal::UpdateMode mode, const font::Ink& ink = font::Ink()) {
   if (text == nullptr || scale == 0) return;
   font::Clip box;
   box.x0 = 0;
@@ -865,13 +865,24 @@ void draw_text(Canvas& canvas, const font::Face& face, int32_t x, int32_t y, con
     if (canvas.redraw_y + canvas.redraw_h < box.y1) box.y1 = canvas.redraw_y + canvas.redraw_h;
   }
   CanvasSink sink = {&canvas, level};
-  font::runs(face, text, x, y, scale, box, canvas_run, &sink);
+  font::runs(face, text, x, y, scale, box, canvas_run, &sink, ink);
   // What a text covers is its box, cut at the canvas: the runs are many and the damage is one. **The box
   // is measured with the face that was drawn**, which is not the system's when the canvas loaded one
   // (docs/30, docs/90).
   const int32_t text_w = font::width(face, text, scale);
   const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight);
-  mark_box(canvas, x, y, text_w, line_h * scale, mode);
+  // **The damage of a text that is off the baseline covers the step too** (0.129.0): a `sup` paints above the
+  // box of its line, and a box that stopped at the line would leave the mark of the note on the glass for ever
+  // (docs/30, docs/46 A4).
+  int32_t mark_at = y;
+  int32_t mark_height = line_h * scale;
+  if (ink.rise != 0) {
+    const int32_t step = line_h * scale / 3;
+    const int32_t down = line_h * scale / 5;
+    mark_at -= step;
+    mark_height += step + down;
+  }
+  mark_box(canvas, x, mark_at, text_w, mark_height, mode);
 }
 
 // ---- where a control's pixels go (docs/90) ----
@@ -2016,6 +2027,22 @@ bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t s
   if (target.canvas == nullptr) return true;
   draw_text(*target.canvas, face_of(target.canvas->face), target.x + x, target.y + y, text, scale,
             clamped(level), chosen);
+  close_draw(target);
+  return true;
+}
+
+// **The same text with the ink a line of a book has** (0.129.0): the bold, the italic and the step off the
+// baseline of a `sup`/`sub`, which the faces of this system cannot give and the rectangles of a glyph can
+// (docs/46 A4).
+bool canvas_text_styled(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
+                        const char* mode, const font::Ink& ink) {
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) return false;
+  if (!g_attached || text == nullptr || scale == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return true;
+  draw_text(*target.canvas, face_of(target.canvas->face), target.x + x, target.y + y, text, scale,
+            clamped(level), chosen, ink);
   close_draw(target);
   return true;
 }

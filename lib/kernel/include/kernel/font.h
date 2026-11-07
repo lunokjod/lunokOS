@@ -177,13 +177,36 @@ inline Clip no_clip() {
 // canvas of an app, a mask— and the walking of the glyphs is written once for all of them (docs/90).
 typedef void (*RunFn)(void* user, int32_t x, int32_t y, int32_t w, int32_t h);
 
+// **The ink a line of a book puts inside a word** (0.129.0, docs/46 A4): the three marks the faces of this
+// system cannot give, because a face of one bit has no bold and no italic of its own and the faces of the disk
+// are one weight.
+//
+// Each one is done to the rectangles a glyph is already made of and not to a bitmap of it, so a styled text
+// costs what a plain one costs and no more, and the two rules are the paper project's —which its owner looked
+// at on the glass, word by word—:
+//
+//   - **`bold` is one pixel more to the right**: a glyph painted twice with that offset is thicker and stays a
+//     glyph of the same face, which is the only way to have a bold with a face that has one weight;
+//   - **`italic` is a slant, row by row**: every row of a glyph is shifted a little more towards the top, a
+//     fifth of the height of the glyph from the bottom row to the one above. Only an italic word pays for it.
+//
+// `rise` is a step off the baseline: **-1** is a `sup` —up by a third of the line— and **+1** is a `sub` —down
+// by a fifth—, and the line does not grow for it, because a note mark that pushes the lines apart is worse
+// than one that touches the line above.
+struct Ink {
+  bool bold;
+  bool italic;
+  int8_t rise;
+};
+
 // Walks `text` from its top-left corner and calls `fn` once per run, **cut at `clip`**: a run that hangs
 // out of the box loses the part that is outside and nothing else (docs/30). Returns the width of the
-// text, clipped or not, because that is what centring it needs.
+// text, clipped or not, because that is what centring it needs. `ink` is what the words of a book need and
+// a control does not: no ink at all is the text as it has always been drawn.
 uint16_t runs(const Face& face, const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip,
-              RunFn fn, void* user);
+              RunFn fn, void* user, const Ink& ink = Ink());
 uint16_t runs(const char* text, int32_t x, int32_t y, uint8_t scale, const Clip& clip, RunFn fn,
-              void* user);  // with the face of the system
+              void* user, const Ink& ink = Ink());  // with the face of the system
 
 // Draws `text` on `surface` with its top-left corner at (x, y), each glyph pixel a `scale` square of
 // `level`, and **nothing outside `clip`** (docs/50).

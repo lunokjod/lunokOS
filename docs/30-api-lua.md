@@ -1046,6 +1046,12 @@ i el contracte.
   (`ui.load_font`), tres números que descriuen la cara (`font:size`) i una amplada (`font:text_width`). Una
   app no processa cap font, i si ho intentés no tindria amb què: l'objecte `font` no té cap camp de glifs ni
   cap crida que els torni.
+- **I la tinta d'una línia de llibre també és del nucli** (7/11, 0.129.0): `font::Ink` porta la **negreta**
+  (el mateix rectangle un píxel més a la dreta, que és el que fa una cara d'un sol pes), la **cursiva** (un
+  biaix fila a fila, un cinquè de l'altura del glif) i el **salt** del `sup`/`sub` (un terç de línia amunt,
+  un cinquè avall, sense fer créixer la línia). `ui::canvas_text_styled` és la crida que ho fa sobre un
+  canvas, i **no té porta a Lua**: qui la necessita és el lector de llibres, que és del sistema, i una app
+  no ha de poder demanar una negreta que la cara que ha carregat no té (docs/46, A4 i D5).
 - **La memòria és de l'app**: el bloc de glifs (`96 × 16 × 2 = 3 072` bytes) compta al pressupost
   (docs/75) i torna quan l'app crida `font:release()` o quan l'app s'acaba; un canvas que la feia servir
   torna a la font del sistema en comptes de llegir un bloc que ja no hi és.

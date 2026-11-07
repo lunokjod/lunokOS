@@ -22,6 +22,9 @@
 #include <stdint.h>
 
 #include "hal/hal.h"
+// **A canvas draws a text with an ink** (0.129.0): the bold, the italic and the step off the baseline live in
+// `kernel/font.h`, and this header names them instead of repeating the three fields (docs/46, A4).
+#include "kernel/font.h"
 
 namespace kernel {
 namespace ui {
@@ -233,6 +236,13 @@ bool image_info(const char* path, char* format, size_t format_cap, uint16_t& wid
 
 bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode);
+
+// **A text with the ink a book puts inside a line** (0.129.0, docs/46 A4): a bold is the same word one pixel more
+// to the right, an italic is a slant row by row, and a `sup`/`sub` is a step off the baseline. It is the primitive
+// the reader of a book composes its pages with, and it is here and not in a call of Lua because what needs it is
+// the system and not an app (docs/30, docs/46 D5).
+bool canvas_text_styled(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
+                        const char* mode, const font::Ink& ink);
 
 // ---- a label: one text in the frame of a control (docs/30, docs/90) ----
 //

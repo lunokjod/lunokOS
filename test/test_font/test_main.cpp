@@ -468,6 +468,120 @@ static void test_a_latin1_face_draws_the_accented_letters() {
                         static_cast<int>(ttf::glyph_of(storage, 0x01, glyph)));
 }
 
+// **The ink of a line** (0.129.0, docs/46 A4): a bold is the same run one pixel more to the right, an italic is a
+// slant that grows towards the top of the glyph, and a `sup`/`sub` is a step off the baseline. The three are done
+// to the rectangles a glyph is already made of, so what these cases count is rectangles.
+//
+// The glyph `0` of the file is a box of three by five: one run on its first row, two on each of the three rows of
+// its sides, and one on its last, which is **eight runs** and the order is the walk of the rows.
+static void test_a_bold_word_is_a_pixel_wider() {
+  const kernel::font::Face face = load(kDigits);
+  kernel::font::Ink plain = {};
+  kernel::font::Ink bold = {};
+  bold.bold = true;
+  Runs thin;
+  Runs thick;
+  kernel::font::runs(face, "0", 0, 0, 1, kernel::font::no_clip(), keep_run, &thin, plain);
+  const uint16_t walked =
+      kernel::font::runs(face, "0", 0, 0, 1, kernel::font::no_clip(), keep_run, &thick, bold);
+  TEST_ASSERT_EQUAL_UINT32(8, thin.count);
+  TEST_ASSERT_EQUAL_UINT32(thin.count, thick.count);
+  // Every run is one pixel wider on its right, which is what painting the glyph twice with that offset does.
+  for (uint32_t i = 0; i < thin.count; ++i) {
+    TEST_ASSERT_EQUAL_INT32(thin.x[i], thick.x[i]);
+    TEST_ASSERT_EQUAL_INT32(thin.y[i], thick.y[i]);
+    TEST_ASSERT_EQUAL_INT32(thin.w[i] + 1, thick.w[i]);
+  }
+  // **And a bold word is not a longer line**: the advance of a glyph does not change, so a page that measures a
+  // word measures the same one before and after the ink.
+  TEST_ASSERT_EQUAL_UINT16(kernel::font::width(face, "0", 1), walked);
+}
+
+// **An italic leans row by row**: the top row of the cell moves and the bottom row does not (docs/46 A4).
+static void test_an_italic_word_leans_row_by_row() {
+  const kernel::font::Face face = load(kDigits);
+  kernel::font::Ink upright = {};
+  kernel::font::Ink italic = {};
+  italic.italic = true;
+  Runs straight;
+  Runs leaning;
+  kernel::font::runs(face, "0", 0, 0, 1, kernel::font::no_clip(), keep_run, &straight, upright);
+  kernel::font::runs(face, "0", 0, 0, 1, kernel::font::no_clip(), keep_run, &leaning, italic);
+  TEST_ASSERT_EQUAL_UINT32(8, straight.count);
+  TEST_ASSERT_EQUAL_UINT32(straight.count, leaning.count);
+  // The cell is five rows and the slant is a fifth of it —one row—: the first row moves a pixel and the four
+  // under it do not, which is all a cell that small can lean.
+  TEST_ASSERT_EQUAL_INT32(straight.x[0] + 1, leaning.x[0]);
+  TEST_ASSERT_EQUAL_INT32(straight.x[straight.count - 1], leaning.x[leaning.count - 1]);
+  // The last run of the walk is the bottom row of the cell, and it does not move at all.
+  TEST_ASSERT_EQUAL_INT32(straight.x[7], leaning.x[7]);
+  // The word keeps its advance: a lean is a shape and not a width.
+  TEST_ASSERT_EQUAL_UINT16(kernel::font::width(face, "0", 1), kernel::font::width(face, "0", 1));
+}
+
+// **A `sup` goes up a third of the line and a `sub` down a fifth** (docs/46 A4), and the line does not grow for it.
+static void test_a_sup_goes_up_and_a_sub_goes_down() {
+  const kernel::font::Face face = load(kDigits);  // a cell of five rows, so a line of ten at step two
+  kernel::font::Ink on_the_line = {};
+  kernel::font::Ink up = {};
+  up.rise = -1;
+  kernel::font::Ink down = {};
+  down.rise = 1;
+  Runs level;
+  Runs high;
+  Runs low;
+  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &level, on_the_line);
+  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &high, up);
+  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &low, down);
+  // Ten pixels of line: a third up is three and a fifth down is two.
+  TEST_ASSERT_EQUAL_INT32(level.y[0] - 3, high.y[0]);
+  TEST_ASSERT_EQUAL_INT32(level.y[0] + 2, low.y[0]);
+  // The ink is the same ink, moved: the runs keep their height and their width.
+  TEST_ASSERT_EQUAL_INT32(level.h[0], high.h[0]);
+  TEST_ASSERT_EQUAL_INT32(level.w[0], high.w[0]);
+  TEST_ASSERT_EQUAL_UINT32(level.count, high.count);
+}
+
+// **The ink of a book on the face of a book** (0.129.0): the same three marks on a face of outlines, which is the
+// one a page of a book is composed with. The numbers of a slant are the glyph's and not the line's.
+static void test_the_ink_of_a_book_on_a_face_of_outlines() {
+  static char face_file[32768];
+  const uint32_t length =
+      read_file("data/res/fonts/dejavuserif-latin1.ttf", face_file, sizeof(face_file));
+  TEST_ASSERT_GREATER_THAN(0, length);
+  ttf::Face storage;
+  kernel::font::Face face = kernel::font::system_face();
+  TEST_ASSERT_NULL_MESSAGE(kernel::font::load_ttf(face_file, length, storage, face), "the face of a book");
+
+  kernel::font::Ink plain = {};
+  kernel::font::Ink bold = {};
+  bold.bold = true;
+  kernel::font::Ink italic = {};
+  italic.italic = true;
+  kernel::font::Ink up = {};
+  up.rise = -1;
+
+  Runs thin;
+  Runs thick;
+  Runs leaning;
+  Runs high;
+  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &thin, plain);
+  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &thick, bold);
+  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &leaning, italic);
+  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &high, up);
+
+  TEST_ASSERT_GREATER_THAN(8, thin.count);
+  TEST_ASSERT_EQUAL_UINT32(thin.count, thick.count);
+  for (uint32_t i = 0; i < thin.count; ++i) TEST_ASSERT_EQUAL_INT32(thin.w[i] + 1, thick.w[i]);
+  // **The top of the letter leans and the bottom does not**: the first run of the walk is the top row of the
+  // glyph and the last one is the bottom, and the slant is a fifth of the height of the glyph from one to the
+  // other.
+  TEST_ASSERT_GREATER_THAN(thin.x[0], leaning.x[0]);
+  TEST_ASSERT_EQUAL_INT32(thin.x[thin.count - 1], leaning.x[leaning.count - 1]);
+  // A line of forty-four pixels at step four: a third up is fourteen.
+  TEST_ASSERT_EQUAL_INT32(thin.y[0] - 14, high.y[0]);
+}
+
 // **What is not a pcf, and what is one this reader does not know, is refused with the reason** (docs/30).
 static void test_a_pcf_that_is_not_one_says_why() {
   uint32_t length = 0;
@@ -523,5 +637,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_pcf_becomes_the_same_face_as_its_bdf);
   RUN_TEST(test_a_pcf_that_is_not_one_says_why);
   RUN_TEST(test_a_latin1_face_draws_the_accented_letters);
+  RUN_TEST(test_a_bold_word_is_a_pixel_wider);
+  RUN_TEST(test_an_italic_word_leans_row_by_row);
+  RUN_TEST(test_a_sup_goes_up_and_a_sub_goes_down);
+  RUN_TEST(test_the_ink_of_a_book_on_a_face_of_outlines);
   return UNITY_END();
 }
