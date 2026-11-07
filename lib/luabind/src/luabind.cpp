@@ -4302,11 +4302,20 @@ int l_label_draw(lua_State* L) {
   const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
   lua_pop(L, 1);
   lua_getfield(L, -1, "color");
-  const int color = static_cast<int>(lua_tointeger(L, -1));
+  int color = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "background");
-  const int background = static_cast<int>(lua_tointeger(L, -1));
+  int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **A label on an inverted face swaps its tones** (0.101.0): a word inside a button that has the ring or the
+  // finger is paper on ink and not a white hole in a black box, which is what a label with its own paper did
+  // (measured on the bench, 8/11: the button came out as a black bar under a white rectangle). Turning the page
+  // lists it is the same rule one level down (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = color;
+    color = background;
+    background = swap;
+  }
   lua_getfield(L, -1, "scale");
   const int scale = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
@@ -4639,14 +4648,23 @@ int l_checkbox_draw(lua_State* L) {
     return 0;
   }
   lua_getfield(L, -1, "background");
-  const int background = static_cast<int>(lua_tointeger(L, -1));
+  int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "border");
-  const int border = static_cast<int>(lua_tointeger(L, -1));
+  int border = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "mark");
-  const int mark = static_cast<int>(lua_tointeger(L, -1));
+  int mark = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **On an inverted face the two tones swap** (0.101.0): a checkbox inside a button with the ring is a paper box
+  // with an ink frame and an ink tick, which is what says "this is still a thing you can press" while the face
+  // behind it is black (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = background;
+    background = border;
+    border = swap;
+    mark = (swap == mark) ? background : swap;
+  }
   lua_getfield(L, -1, "checked");
   const bool checked = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
@@ -4985,14 +5003,21 @@ int l_row_draw(lua_State* L) {
   const char* subtitle = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
   lua_pop(L, 1);
   lua_getfield(L, -1, "text");
-  const int text = static_cast<int>(lua_tointeger(L, -1));
+  int text = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "dim");
   const int dim = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "background");
-  const int background = static_cast<int>(lua_tointeger(L, -1));
+  int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **On an inverted face the two tones swap** (0.101.0), so a row inside a button keeps saying what it says
+  // instead of painting a white strip over the black one (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = text;
+    text = background;
+    background = swap;
+  }
   lua_getfield(L, -1, "scale");
   const int scale = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
@@ -5638,11 +5663,18 @@ int l_sparkline_draw(lua_State* L) {
   }
   const int fields = lua_gettop(L);
   lua_getfield(L, fields, "color");
-  const int color = static_cast<int>(lua_tointeger(L, -1));
+  int color = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, fields, "background");
-  const int background = static_cast<int>(lua_tointeger(L, -1));
+  int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **On an inverted face the two tones swap** (0.101.0): a shape inside a button with the ring is drawn in the
+  // paper of the face it is on, or it would be a black drawing on a black box (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = color;
+    color = background;
+    background = swap;
+  }
   uint16_t samples[kMaxSparkSamples];
   uint16_t top[kMaxSparkSamples];
   uint8_t count = 0;
@@ -5697,11 +5729,18 @@ int l_pie_draw(lua_State* L) {
   }
   const int fields = lua_gettop(L);
   lua_getfield(L, fields, "color");
-  const int color = static_cast<int>(lua_tointeger(L, -1));
+  int color = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, fields, "background");
-  const int background = static_cast<int>(lua_tointeger(L, -1));
+  int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **On an inverted face the two tones swap** (0.101.0): a shape inside a button with the ring is drawn in the
+  // paper of the face it is on, or it would be a black drawing on a black box (docs/92).
+  if (lua_toboolean(L, 2)) {
+    const int swap = color;
+    color = background;
+    background = swap;
+  }
   uint16_t slices[kMaxPieSlices];
   uint8_t count = 0;
   lua_getfield(L, fields, "slices");
@@ -7293,6 +7332,14 @@ int l_canvas_add(lua_State* L) {
   if (!canvas_ready(L, 1) || !canvas_ready(L, 2)) return refuse_canvas(L);
   LuaCanvas* father = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   LuaCanvas* child = static_cast<LuaCanvas*>(luaL_checkudata(L, 2, kCanvasMeta));
+  // **A line of text and the dots of a page take no children** (0.101.0): they are their whole frame and their
+  // painter owns every pixel of it, so a child would sit on top of the word and be part of nothing. The rest of the
+  // controls that paint their own content —a list, a strip, a card of options, a calendar, a grid— have the same
+  // problem and it is a redesign of those controls and not a refusal, so they still take a child today and it is
+  // documented (docs/30, docs/92).
+  if (ui_field_bool(L, 1, "__label", false) || ui_field_bool(L, 1, "__dots", false)) {
+    return push_nil_error(L, "E_INVAL", "a label and the dots of a page take no children");
+  }
   if (g_ui_ops.canvas_reparent == nullptr || !g_ui_ops.canvas_reparent(child->slot, father->slot)) {
     return push_nil_error(L, "E_INVAL", "a canvas cannot go inside that one");
   }
@@ -7319,6 +7366,11 @@ int l_canvas_draw(lua_State* L) {
   const lua_Integer depth = luaL_optinteger(L, 2, 0);
   if (depth > 16) return push_nil_error(L, "E_INVAL", "a control is nested too deep");
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  // **Whether this control is drawn on an inverted face** (0.101.0): a button with the ring or the finger paints its
+  // face in ink, and what it holds is paper on ink so the words inside it read. It arrives **as an argument** and not
+  // as a state of the system because a draw that throws and long-jumps out of the interpreter would leave a flag
+  // behind, and the rest of the page would come out inverted (docs/90, docs/92).
+  const bool inverted = lua_toboolean(L, 3) != 0;
   const bool owed = (g_ui_ops.canvas_needs_draw != nullptr) && g_ui_ops.canvas_needs_draw(canvas->slot);
   if (owed) {
     // **The box opens here**: from this line to `end_draw`, every primitive of this canvas is cut at what
@@ -7330,7 +7382,8 @@ int l_canvas_draw(lua_State* L) {
       lua_getfield(L, -1, "on_draw");
       if (lua_isfunction(L, -1)) {
         lua_pushvalue(L, 1);
-        if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
+        lua_pushboolean(L, inverted ? 1 : 0);
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK) return lua_error(L);
       } else {
         lua_pop(L, 1);
       }
@@ -7343,6 +7396,15 @@ int l_canvas_draw(lua_State* L) {
   // paint even if its father did not. And the list is **rebuilt as it is walked**: a child that the system
   // no longer says is ours —one that went away, or one that changed father— is dropped there and then, so
   // the father's list does not keep a dead object alive and does not grow with ghosts (docs/90).
+  // **What the children are drawn on**: the face this control leaves behind. A button (and the box of a checkbox)
+  // turns its own face to ink while it has the ring or the finger, so what it holds is drawn on ink; a button that
+  // is itself on an ink face turns to paper, which is the same swap one level down (docs/92).
+  bool below = inverted;
+  if ((ui_field_bool(L, 1, "__button", false) || ui_field_bool(L, 1, "__checkbox", false)) &&
+      (ui_field_bool(L, 1, "focused", false) || ui_field_bool(L, 1, "pressed", false))) {
+    below = !inverted;
+  }
+
   bool drew = owed;
   const int base = lua_gettop(L);
   lua_getiuservalue(L, 1, 1);
@@ -7365,7 +7427,8 @@ int l_canvas_draw(lua_State* L) {
         if (lua_isfunction(L, base + 5)) {
           lua_pushvalue(L, base + 4);
           lua_pushinteger(L, depth + 1);
-          if (lua_pcall(L, 2, 1, 0) != LUA_OK) return lua_error(L);
+          lua_pushboolean(L, below ? 1 : 0);
+          if (lua_pcall(L, 3, 1, 0) != LUA_OK) return lua_error(L);
           if (lua_toboolean(L, -1)) drew = true;
           lua_pop(L, 1);
         } else {

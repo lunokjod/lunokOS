@@ -3112,6 +3112,105 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **A line of text and the dots of a page take no children** (0.101.0): they are their whole frame and their painter
+// owns every pixel of it. It is refused with the error an app can read, and not silently accepted like before, when a
+// child sat on top of the word and was part of nothing (docs/30, docs/92).
+void test_a_label_and_the_dots_take_no_children(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nonest",
+                           "{\"title\":\"No nest\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kid = ui.label(20, 20)\n"
+                           "local lab = ui.label(100, 40)\n"
+                           "local ok, err = lab:add(kid)\n"
+                           "console.print('label ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"
+                           "local dots = ui.dots(100, 20)\n"
+                           "local ok2, err2 = dots:add(kid)\n"
+                           "console.print('dots ' .. tostring(ok2) .. ' ' .. tostring(err2 and err2.code))\n"
+                           // **And the box that does hold it still does**: the refusal is of the control that is
+                           // its own frame and not of the tree.
+                           "local panel = ui.panel(200, 100, 'vertical')\n"
+                           "local ok3, err3 = panel:add(kid)\n"
+                           "console.print('panel ' .. tostring(ok3) .. ' ' .. tostring(err3))\n"));
+
+  pump_captured(30, g_out, sizeof(g_out), "run nonest");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "label nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "dots nil E_INVAL"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "panel true nil"), g_out);
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/nonest/app.lua");
+  storage->remove("/apps/nonest/manifest.json");
+  storage->remove("/apps/nonest");
+}
+
+// **A button that has the ring inverts what it holds** (0.101.0): its face goes to ink while it can be pressed, and
+// a label inside it is paper on ink and not a white hole in a black box. Measured before this: the button came out
+// as a black bar under a white rectangle, which is a button that a person cannot read (docs/30, docs/92).
+void test_a_button_that_has_the_ring_inverts_what_it_holds(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nest",
+                           "{\"title\":\"Nest\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // **The button is the first control that can take the dial**, so it has the ring
+                           // without a key: that is the state a person presses.
+                           "local b = ui.button(400, 80)\n"
+                           "b:place(40, 40)\n"
+                           "b.background = 15\n"
+                           "b.border = 0\n"
+                           "local w = ui.label(360, 44)\n"
+                           "w.text = 'inside'\n"
+                           "w.scale = 4\n"
+                           "b:add(w)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('nest up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run nest");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "nest up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // The label is where the button put it, at (0, 0) of the button, and the button is at (40, 40) of the view which
+  // starts under the bar of the system: its own paper is now ink, four pixels of it even below the label.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(390, 100), "the label's paper is the ink of the face");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(60, 150), "and the face itself is still ink");
+  // **And the word is the paper of that face**, which is the whole point: an inverted box with an invisible word is
+  // a box a person reads as empty.
+  int words = 0;
+  for (uint16_t y = 88; y < 132; ++y) {
+    for (uint16_t x = 40; x < 220; ++x) {
+      if (glass->level_at(x, y) == 15) ++words;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, words, "the word of the label is in paper");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/nest/app.lua");
+  storage->remove("/apps/nest/manifest.json");
+  storage->remove("/apps/nest");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A control can be disabled: it is drawn in the lighter tone of its theme and it answers nothing** (0.100.0).
 // It is still on the page —a person reads what is not available right now— but its ink falls to its `dim`, it
 // never wears the ring, and it is not a stop of the walk: the dial skips it, the finger does not reach it and the
@@ -7404,6 +7503,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_label_and_the_dots_take_no_children);
+  RUN_TEST(test_a_button_that_has_the_ring_inverts_what_it_holds);
   RUN_TEST(test_a_disabled_control_is_drawn_lighter_and_answers_nothing);
   RUN_TEST(test_each_tab_of_a_strip_is_a_stop_of_the_dial);
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);

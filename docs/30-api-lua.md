@@ -1480,6 +1480,39 @@ focusable»*)—, i el centre és qui tria la pestanya on és el cercle:
 llegida píxel a píxel de la superfície— i totes dues es posen vermelles quan se'ls treu la línia
 que proven.
 
+### Què pot contenir què: el control que anida (0.101.0)
+
+**Un control que conté un altre control és un canvas amb fills.** Tots els controls són el mateix objecte —una vista o
+una caixa amb un lloc dins del pare— i el dibuix fa el pare i **després** els fills, retallats al marc del pare. Per
+això `pare:add(fill)` existeix a tot arreu; el que canvia és **si el pare pinta el seu contingut ell mateix**.
+
+| Control | Fill | Per què |
+|---|---|---|
+| `ui.root()` / `ui.canvas()` | **sí** | la vista de l'app |
+| `panel` | **sí, i col·loca** | `flow` vertical/horitzontal/overlay, `padding`, `gap` i `weight`: és l'únic que reparteix l'espai |
+| `button` | **sí** | el fill es compon sobre la cara; **la cara invertida arriba al fill** (vegeu abaix) |
+| `checkbox` | **sí** | la caixa a l'esquerra; de `cb:box()` cap a la dreta el marc és de l'app |
+| `label` | **no** | és una línia de text i el pintor omple tot el marc → `E_INVAL` |
+| `dots` | **no** | són les boles de la pàgina i no hi ha cap lloc per a res més → `E_INVAL` |
+| `tabs`, `list`, `menu`, `menu_bar`, `month`, `icon_grid`, `notification_bar`, `selector`, `dialog` | **encara no** | els seus elements són **camps** (paraules i números): no hi ha ni un lloc per fill per element ni geometria per element, i el pintor dibuixa ell mateix el mot |
+| `row`, `progress`, `slider`, `sparkline`, `pie`, `textbox`, `textbox_multiline` | tècnicament sí | però el pare pinta tot el marc i el fill hi queda a sobre: no és un contenidor útil |
+
+**La cara invertida arriba als fills.** Un botó amb el cercle (o amb el dit a sobre) pinta la cara de tinta; el que
+porta a dins es dibuixa **sobre tinta** i intercanvia els seus dos tons, o sigui que una etiqueta dins d'un botó
+enfocat és **paper sobre tinta** i no un forat blanc dins d'una caixa negra. Ho fan `label`, `row`, `checkbox`,
+`sparkline` i `pie`; un `panel` no pinta res i només passa el testimoni. **No ho fa una imatge**, perquè una imatge
+no és un control sinó una crida (`ui.image`).
+
+```lua
+local b = ui.button(400, 80)
+local words = ui.label(360, 44)      -- el pintor del botó no el toca: el dibuixa l'etiqueta
+words.text = 'inside'
+b:add(words)
+```
+
+La inversió **no és un estat del sistema**: viatja com a argument del dibuix (`draw(self, depth, inverted)`), perquè
+un dibuix que falla i surt de l'intèrpret deixaria un flag encès i la resta de la pàgina sortiria girada (docs/92 §15).
+
 ### Els estats d'un control: seleccionat, premut i deshabilitat (0.100.0)
 
 Un control no és una foto: té estats, i cada estat es veu al vidre i diu què pot passar si el prems.

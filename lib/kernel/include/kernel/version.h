@@ -1519,7 +1519,22 @@ namespace kernel {
 // arrow skips the middle button, the centre presses the third and the finger never touches the second), and three
 // deliberate breaks turn it red: letting the walk land on it, not lightening the tones, and not telling the
 // children (docs/30, docs/92).
-static const char kVersion[] = "0.100.0";
+//
+// 0.101.0 (8/11): **a button inverts what it holds, and a label takes no children.** Nesting was already there —
+// every control is a canvas with children and `attach_to` never looked at the kind— and it was too permissive and
+// half blind: the father paints its content and the child composes over it, so a label inside a button with the ring
+// painted its own paper and covered the ink face (measured: the button came out as a black bar under a white
+// rectangle). The inversion now travels with the draw —`draw(self, depth, inverted)`, an argument and never a flag,
+// because a draw that throws long-jumps and a flag would stay on— and the painters that own a paper/ink pair swap
+// it: `label`, `row`, `checkbox`, `sparkline` and `pie`; a panel only passes it on. `label` and `dots` refuse a
+// child with `E_INVAL`, which is what the owner asked for the two controls that are their whole frame. The controls
+// whose items are fields (tabs, list, menu, menu_bar, month, icon_grid, notification_bar, selector, dialog) still
+// take a child that is not part of any item; that is a redesign and it says so in docs/92 §15, with the limit that
+// decides it: `kMaxControls = 32` canvases for the whole system.
+// Measured: 440 native cases green (two new: the label's paper inside a ringed button is level 0 and its word level
+// 15; and `label:add`/`dots:add` answer `nil, E_INVAL` while `panel:add` answers true), and taking the argument out
+// of the painter's call turns the first one red (docs/30, docs/92).
+static const char kVersion[] = "0.101.0";
 
 }  // namespace kernel
 

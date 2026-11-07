@@ -468,3 +468,37 @@ bloc de nivell **0** i la mateixa fila apagada un bloc de nivell **8**—, que u
 que el centre prem el tercer i **mai** el segon, i que el **dit** tampoc no el toca (el banc necessita `opts.touch` i
 `kernel::touch::boot`, que és el que faltava perquè el toc no fes res). Tres trencades a propòsit: fer que el dial hi
 caigui torna la prova vermella, no aclarir els tons també, i no baixar l'estat als fills també.
+
+## 15. Què pot contenir què, i la cara invertida (0.101.0)
+
+**L'anidament ja hi era i era massa permissiu.** Tots els controls són un canvas amb un `children[32]` i
+`attach_to()` no mira quin control és el pare: `button:add(label)` funciona des del primer dia, i `label:add(button)`
+també. El problema no era la mecànica sinó **el dibuix**: el pare pinta el seu contingut i el fill es compon a sobre.
+
+**El defecte mesurat** (app de prova al banc, un botó amb una etiqueta a dins i el cercle posat): el botó enfocat pinta
+la cara de tinta i l'etiqueta, que té el seu `background` de paper, **la tapa**. Al bolcat el botó sortia com una barra
+negra sota un rectangle blanc. És el que deia el comentari de `button_draw`: *«a child… is not inverted»*.
+
+**Què s'ha fet:**
+
+| Peça | Què fa |
+|---|---|
+| `l_canvas_draw` | la inversió **viatja com a argument** (`draw(self, depth, inverted)`) i el pare la passa als fills; un botó o la caixa d'un checkbox amb `focused` o `pressed` diuen «sota meu tot va sobre tinta» |
+| `label`, `row`, `checkbox`, `sparkline`, `pie` | intercanvien els seus dos tons quan (2) és cert; el `dim` no es toca |
+| `l_canvas_add` | `label` i `dots` refusen fills amb `E_INVAL`, que és el que l'amo va dir: no tenen fills |
+
+**Per què un argument i no un flag del sistema**: `lua_pcall` fa `longjmp` i un flag encès abans d'un error es
+quedaria encès; la pàgina sencera sortiria girada. Un argument no té estat que netejar.
+
+**Què **no** s'ha fet i per què**: els controls d'elements (`tabs`, `list`, `menu`, `menu_bar`, `month`,
+`icon_grid`, `notification_bar`, `selector`, `dialog`) segueixen sense fill per element. Caldria que **cada element
+fos un canvas propi** —creat i alliberat en canviar de pàgina—, que el pintor deixés de dibuixar el mot quan
+l'element té fill, i una consulta de geometria (`menu_hit`, `month_hit` i `icon_grid_hit` ja són la meitat). I topa
+amb **`kMaxControls = 32`** canvases per a tot el sistema: vuit files amb checkbox i etiqueta en gasten disset. Pujar
+la taula a 96 són uns 7 KB, i a la Paper queden 28,5 KB d'interna, o sigui que la taula hauria d'anar a PSRAM com la
+vista.
+
+**Mesurat**: **440 casos natius verds** (438 abans; dos de nous). El del botó llegeix el vidre: el paper de l'etiqueta
+és **nivell 0** i el mot és **nivell 15** dins de la cara de tinta; el del refús comprova que `label:add` i
+`dots:add` tornen `nil, E_INVAL` mentre `panel:add` torna `true`. Trencant el pas de l'argument al pintor, la prova del
+botó es posa vermella («Expected 0 Was 15»).
