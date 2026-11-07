@@ -445,6 +445,15 @@ bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track
 bool row_draw(int16_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
               uint8_t dim, uint8_t background, uint8_t scale, bool marked, bool separator);
 
+// ---- an entry of a list: a row the app builds (docs/30, docs/90) ----
+//
+// **A list of data is the shortcut and a list of entries is the full thing** (0.104.0). An entry is a control: it
+// draws the paper of its row —ink when it is the marked one or the one with the ring— and the line of the separator,
+// and **the app puts inside it whatever it wants** (a label, a row of two cells, a box with a picture and a name). It
+// is what makes a list of things that are not a title and a detail (docs/30, docs/90).
+bool entry_draw(int16_t slot, uint8_t background, uint8_t border, bool separator, bool marked,
+                bool focused);
+
 // ---- a panel: the room that arranges what it holds (docs/30, docs/90) ----
 //
 // **A page is a declaration and not a list of places**: a panel takes the controls added to it and gives each

@@ -3112,6 +3112,75 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **A list of entries is a list of controls** (0.104.0): the app builds the rows itself —a `ui.list_entry` with a
+// label, a row of two cells or a box inside— and the list places the ones of the page it is on. The entries of the
+// other pages are placed past the frame, where the clip hides them and the walk does not reach them, and the arrows
+// turn the pages of the list just as they do when the rows are data (docs/30, docs/90).
+void test_a_list_of_entries_places_a_page_of_controls(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "entries",
+                           "{\"title\":\"Entries\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local list = ui.list(400, 180)\n"
+                           "list:place(20, 20)\n"
+                           "list.row_height = 56\n"
+                           "local turns = 0\n"
+                           "list.on_page = function(self, page)\n"
+                           "  turns = turns + 1\n"
+                           "  console.print('page ' .. page)\n"
+                           "end\n"
+                           "local rows = {}\n"
+                           "for i = 1, 6 do\n"
+                           "  local entry = ui.list_entry(400, 56)\n"
+                           "  local words = ui.label(200, 44)\n"
+                           "  words.text = 'row ' .. i\n"
+                           "  words:place(12, 6)\n"
+                           "  entry:add(words)\n"
+                           "  list:add(entry)\n"
+                           "  rows[i] = entry\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('entries up')\n"
+                           "sys.delay(30):await()\n"
+                           // **Where the six entries ended up**: the two of this page at the top of the frame and the
+                           // other four past it.
+                           "local ys = {}\n"
+                           "for i = 1, 6 do\n"
+                           "  ys[i] = rows[i]:caps().y\n"
+                           "end\n"
+                           "console.print('at ' .. ys[1] .. ' ' .. ys[2] .. ' ' .. ys[3])\n"
+                           "while turns < 1 do sys.delay(10):await() end\n"
+                           "console.print('page now ' .. list.page)\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run entries");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "entries up"), g_out);
+  // **Two rows of fifty-six in a hundred and eighty**: the footer of the pages takes twenty, so a hundred and sixty
+  // are left and two rows fit. The first two are the page and the third is past the frame, which is the number the
+  // clip uses (the frame plus a row).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 0 56 236"), g_out);
+
+  // And the arrows turn the page of a list of entries.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page now 2"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/entries/app.lua");
+  storage->remove("/apps/entries/manifest.json");
+  storage->remove("/apps/entries");
+}
+
 // **A cell of a box says how much of it it wants** (0.103.0): `cell.share = 30` is thirty per cent of the inside of
 // the panel, and 0 (the normal case) is "lay me out by my weight" or by the size I was made with. The field is the
 // app's, and the arithmetic is the kernel's (docs/30, docs/90).
@@ -7600,6 +7669,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_list_of_entries_places_a_page_of_controls);
   RUN_TEST(test_a_cell_of_a_box_claims_a_share_of_it);
   RUN_TEST(test_the_dial_walks_more_stops_than_the_old_list_held);
   RUN_TEST(test_a_label_and_the_dots_take_no_children);

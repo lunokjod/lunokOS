@@ -453,6 +453,11 @@ struct UIOps {
   bool (*row_draw)(int16_t slot, const char* title, const char* detail, const char* subtitle,
                    uint8_t text, uint8_t dim, uint8_t background, uint8_t scale, bool marked,
                    bool separator);
+  // **A row of a list that the app builds** (0.104.0): the paper of the row —or its ink when it is the marked one or
+  // the one with the ring— and the line of the separator. **The words are not here**: they are the control the app adds
+  // inside the entry, which is what makes a list of things that are not a title and a detail.
+  bool (*entry_draw)(int16_t slot, uint8_t background, uint8_t border, bool separator, bool marked,
+                     bool focused);
   // **A panel arranges the controls it holds** (docs/30, docs/90): one child is a slot and the weight of its
   // share of the free room, and the flow is 0 for a column, 1 for a row and 2 for everything on top of
   // everything. The bridge says the weights it read from the app's fields and the kernel does the arithmetic,

@@ -4502,6 +4502,7 @@ int l_ui_button(lua_State* L) {
 // one of them here, before they are defined (docs/30).
 bool ui_field_bool(lua_State* L, int object, const char* key, bool fallback);
 lua_Integer ui_field_number(lua_State* L, int object, const char* key, lua_Integer fallback);
+bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer value);
 bool ui_call_hook(lua_State* L, int object, const char* name, bool with_flag, bool flag);
 bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* text);
 void ui_invalidate(lua_State* L, int object);
@@ -4980,6 +4981,43 @@ int l_ui_slider(lua_State* L) {
   return 1;
 }
 
+// **The `on_draw` of an entry of a list** (0.104.0): the paper of the row —its ink when it is the marked one or the
+// one with the ring— and the line of the separator. **It draws no words**, because the words are the control the app
+// put inside it, and that is the whole difference between a list of data and a list of entries (docs/30, docs/90).
+int l_entry_draw(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  const DisabledInk off = ui_disabled_ink(L, 1);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.entry_draw == nullptr) return 0;
+  lua_getiuservalue(L, 1, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "background");
+  const int background = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "border");
+  const int border = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "separator");
+  const bool separator = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "marked");
+  const bool marked = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "pressed");
+  const bool pressed = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_getfield(L, -1, "focused");
+  const bool focused = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  lua_pop(L, 1);  // the fields table
+  g_ui_ops.entry_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border),
+                      separator, marked, (pressed || focused) && !off.on);
+  return 0;
+}
+
 // **The `on_draw` of a row**: the title and the detail on one line, the subtitle under it, and the line of the
 // separator. It takes no focus: a row is the drawing of a list and the list is the app's page (docs/30,
 // docs/90).
@@ -5407,6 +5445,49 @@ int l_list_draw(lua_State* L) {
   lua_getfield(L, fields, "focused");
   const bool focused = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
+  // **A list of entries is a list of controls** (0.104.0): the rows are the app's —an entry is a control with whatever
+  // the app put inside it— and this only places the ones of the page it is on. **The entries of the other pages are
+  // placed past the frame**, where the clip does not compose them and the walk does not reach them, which is the same
+  // cut that keeps a child of a box inside its box (docs/30, docs/90).
+  lua_getfield(L, fields, "children");
+  const int kids = lua_gettop(L);
+  const lua_Integer entries = lua_istable(L, kids) ? static_cast<lua_Integer>(lua_rawlen(L, kids)) : 0;
+  if (entries > 0) {
+    uint8_t rows_of_entries = 0;
+    const uint8_t pages_of_entries = g_ui_ops.list_page_of(
+        frame_h, static_cast<uint16_t>(row_height), static_cast<uint16_t>(entries), rows_of_entries);
+    int page_of_entries = (page < 1) ? 1 : page;
+    if (page_of_entries > pages_of_entries) page_of_entries = pages_of_entries;
+    const lua_Integer first_entry =
+        static_cast<lua_Integer>(page_of_entries - 1) * static_cast<lua_Integer>(rows_of_entries);
+    if (g_ui_ops.canvas_resize != nullptr && g_ui_ops.canvas_place != nullptr) {
+      for (lua_Integer i = 1; i <= entries; ++i) {
+        lua_rawgeti(L, kids, i);
+        LuaCanvas* kid = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+        if (kid != nullptr && kid->slot >= 0) {
+          const lua_Integer at = (i - 1) - first_entry;
+          const bool shown = at >= 0 && at < static_cast<lua_Integer>(rows_of_entries);
+          const uint16_t y = shown
+                                 ? static_cast<uint16_t>(at * static_cast<lua_Integer>(row_height))
+                                 : static_cast<uint16_t>(frame_h + row_height);
+          g_ui_ops.canvas_resize(kid->slot, frame_w, static_cast<uint16_t>(row_height));
+          g_ui_ops.canvas_place(kid->slot, 0, y);
+        }
+        lua_pop(L, 1);
+      }
+    }
+    // **And the frame says which page it is**: no row is drawn by this control —the entries draw themselves— so the
+    // only thing it owes is the paper behind them and the footer of the pages (docs/90).
+    g_ui_ops.list_draw(canvas->slot, 0, static_cast<uint8_t>(page_of_entries), pages_of_entries, 0,
+                       nullptr, nullptr, nullptr, static_cast<uint16_t>(row_height),
+                       ink_or_dim(off, text), static_cast<uint8_t>(dim),
+                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale),
+                       separator, focused && !off.on);
+    if (page_of_entries != page) ui_set_field_number(L, 1, "page", page_of_entries);
+    lua_settop(L, fields - 1);
+    return 0;
+  }
+  lua_pop(L, 1);  // the children
   lua_getfield(L, fields, "items");
   const int items = lua_gettop(L);
   uint16_t total = 0;
@@ -5465,6 +5546,35 @@ int l_list_draw(lua_State* L) {
                      focused && !off.on);
   lua_settop(L, fields - 1);
   return 0;
+}
+
+// ui.list_entry(width, height): **a row of a list that the app builds** (0.104.0). The fields are the paper of the
+// row, its ink, the separator, the mark and the focus, and the words are a control added inside it: a list of entries
+// is a list of controls, which is what a list of things that are not a title and a detail needs (docs/30, docs/90).
+int l_ui_list_entry(lua_State* L) {
+  const int results = create_control(L, false);
+  if (results != 1 || !lua_isuserdata(L, -1)) return results;
+  lua_getiuservalue(L, -1, 1);
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__entry");
+  lua_pushinteger(L, 15);
+  lua_setfield(L, -2, "background");
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "border");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "separator");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "marked");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "pressed");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "focused");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "focusable");
+  lua_pushcfunction(L, &l_entry_draw);
+  lua_setfield(L, -2, "on_draw");
+  lua_pop(L, 1);
+  return 1;
 }
 
 // ui.list(width, height): **rows on pages and never a scroll**. The fields are `items`, `row_height`, `page` —the
@@ -8738,6 +8848,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "tabs", l_ui_tabs);
   set_function(L, "dots", l_ui_dots);
   set_function(L, "list", l_ui_list);
+  set_function(L, "list_entry", l_ui_list_entry);
   set_function(L, "textbox", l_ui_textbox);
   set_function(L, "dialog", l_ui_dialog);
   set_function(L, "menu", l_ui_menu);
@@ -9519,8 +9630,12 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
     const lua_Integer row_height = ui_field_number(L, object, "row_height", 56);
     lua_getiuservalue(L, object, 1);
     lua_getfield(L, -1, "items");
-    const lua_Integer total = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
-    lua_pop(L, 2);
+    lua_Integer total = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
+    // **A list of entries has as many rows as children** (0.104.0): `items` is the shortcut and the entries are the
+    // full thing, and the arrows turn the pages of whichever of the two the app filled (docs/30, docs/90).
+    lua_getfield(L, -2, "children");
+    if (total == 0 && lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    lua_pop(L, 3);
     uint8_t rows = 0;
     const uint8_t pages =
         g_ui_ops.list_page_of(frame_h, static_cast<uint16_t>(row_height), static_cast<uint16_t>(total), rows);

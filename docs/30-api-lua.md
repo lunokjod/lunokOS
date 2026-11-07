@@ -815,6 +815,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0) |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
+| `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0) |
 | `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0) |
@@ -1597,6 +1598,35 @@ quan `ui.focus` col·loca el cercle, i a la baixada i a la pujada d'un botó.
 rebut la tecla. Una pàgina els controls de la qual no tenen cap `on_click` respon al dial i no
 di res quan es prem, i això és una app muda i no un sistema que no respon. L'app de mostra ho
 ensenya: cada control que dona al dial escriu què s'ha premut a la línia de baix.
+
+### `ui.list` amb entrades: files que són controls (0.104.0)
+
+**Una llista de dades és el camí curt i una llista d'entrades és el complet.** Fins a 0.103.0 una llista només podia
+ensenyar el que cap en tres camps —`title`, `detail`, `subtitle`—; ara la fila pot ser **un control de l'app**:
+
+```lua
+local list = ui.list(420, 180)
+list.row_height = 56
+local entry = ui.list_entry(420, 56)     -- la fila: paper, separador, marca i focus
+local words = ui.label(300, 44)          -- el que hi hagi dins és de l'app
+words.text = 'row 1'
+words:place(12, 6)
+entry:add(words)
+list:add(entry)                          -- i la llista la col·loca
+```
+
+- **`ui.list_entry(w, h)`** és la fila: pinta el paper —o la tinta quan és la `marked` o la que té el cercle— i la
+  **línia del separador**, i **no pinta cap paraula**. El contingut és el que l'app hi posa: una etiqueta, una fila de
+  dues cel·les (`ui.panel(…, 'horizontal')`), una caixa amb una imatge i un nom.
+- **La llista col·loca les entrades de la pàgina on és**: `row_height` mana, i el peu de les pàgines es reserva sol. Les
+  entrades de les altres pàgines es posen **fora del marc**, on el retall no les compon i el dial no hi arriba.
+- **Les fletxes giren les pàgines** igual que amb dades, i l'app ho sent a `on_page(self, page)`. El nombre de files és
+  el de fills quan no hi ha `items`.
+- **`items` i les entrades conviuen**: si la llista té fills, es col·loquen ells i el control només pinta el fons i el
+  peu; si no en té, es pinten les files de dades com sempre. Una llista no s'ha de migrar per començar a fer servir
+  entrades.
+- **Cada entrada és una parada del dial** (és un fill, i el recorregut baixa per l'arbre), o sigui que una llista de
+  sis files té sis parades a més de la pròpia llista (que és la que gira les pàgines).
 
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)
 **A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una

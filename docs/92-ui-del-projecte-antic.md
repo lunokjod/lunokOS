@@ -577,3 +577,30 @@ de 100 → 50 i 50; un `share` de 25 amb un pes darrere → 25 i 75; i **vint fi
 vintè a y=190) i `test_a_cell_of_a_box_claims_a_share_of_it` (des de Lua: `share = 30` i `70` en un box de 100 donen
 30 i 70, i en un HBox de 300 `share = 25` i `75` donen 75 i 225). Ignorant el `share` al mesurament, la prova del
 nucli es posa vermella.
+
+## 19. Una llista de controls i no de dades (0.104.0)
+
+**L'amo ho va dir així**: *«El control List te una llista dinàmica de controls ListEntry amb un UIControl fill cada
+entry (la llista simple te un label, per coses més avançades un control Box per ficar-hi més controls)»*.
+
+**El que hi havia**: `items`, una taula de taules amb `title`, `detail` i `subtitle`, i el nucli pintant les files. Una
+fila no podia ser res més que tres paraules.
+
+**El que hi ha ara**: `ui.list_entry(w, h)`, un control que pinta el paper de la fila —o la tinta quan és la `marked`
+o la que té el cercle— i la línia del separador, **sense cap paraula dins**: el contingut és el que l'app hi posa (una
+etiqueta, un `panel` horitzontal de dues cel·les, una caixa amb una imatge i un nom). La llista col·loca les entrades
+de la **pàgina on és** a `row_height` de distància, reserva el peu, i les de les altres pàgines les posa **fora del
+marc** (`frame_h + row_height`), on el retall no les compon i el recorregut del dial no hi arriba.
+
+**Tres decisions**, dites perquè són meves: (1) `items` **es queda** i una llista amb fills i una llista amb dades
+conviuen, perquè migrar dotze apps no és el que s'ha demanat; (2) el nombre de files d'una llista d'entrades és el de
+**fills** quan `items` és buit, i és el que les fletxes munten i desmunten; (3) cada entrada és **una parada del dial**
+pel fet de ser un fill —el recorregut ja baixa per l'arbre— i la llista continua sent la parada que gira les pàgines.
+
+**Mesurat**: **444 + 1 casos natius verds**; la prova nova `test_a_list_of_entries_places_a_page_of_controls` munten
+una llista de 400 × 180 amb sis entrades de 56 px: el peu en pren vint, queden 160, hi caben **dues** files i la
+tercera es col·loca a **236** (el marc més una fila), i les fletxes porten de la pàgina 1 a la 2 amb `on_page`. Si es
+col·loquen totes les entrades dins del marc (la trencada), la prova es posa vermella.
+
+**El que falta**: la **graella** (`icon_grid`) segueix amb cel·les de dades (`cells`, `marked`, `index`). Li toca el
+mateix tractament —un `grid_entry` amb un fill— i no s'ha fet en aquest torn.

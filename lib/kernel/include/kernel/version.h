@@ -1569,7 +1569,18 @@ namespace kernel {
 // Measured: 444 native cases green (two new: 50/50, 25+weight, and twenty children with the twentieth at y=190 in the
 // kernel; `share = 30`/`70` and 25/75 in an HBox from Lua), and ignoring the share turns the kernel one red (docs/30,
 // docs/90, docs/92).
-static const char kVersion[] = "0.103.0";
+//
+// 0.104.0 (8/11): **a list of entries and not of data.** The owner: *«El control List te una llista dinàmica de
+// controls ListEntry amb un UIControl fill cada entry»*. Until now a row was three words (`title`, `detail`,
+// `subtitle`) painted by the kernel. `ui.list_entry(w, h)` is a control that paints the paper of its row —ink when it
+// is the marked one or has the ring— and the separator, **and no words**: the app puts inside it whatever it wants.
+// The list places the entries of the page it is on at `row_height`, keeps the footer, and puts the entries of the
+// other pages **past the frame**, where the clip does not compose them and the walk does not reach them; the arrows
+// page a list of entries as they page a list of data, and `items` stays for the twelve apps that use it.
+// Measured: 445 native cases green (one new: six entries of 56 px in a 400x180 list —two fit and the third lands at
+// 236— and the arrows carry it to page 2), and placing every entry inside the frame turns it red.
+// The grid is what is left of the owner's request and it is not in this commit (docs/30, docs/92 §19).
+static const char kVersion[] = "0.104.0";
 
 }  // namespace kernel
 

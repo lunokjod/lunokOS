@@ -1326,6 +1326,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      progress_draw,
                                      slider_draw,
                                      row_draw,
+                                     entry_draw,
                                      panel_layout_for_lua,
                                      canvas_resize,
                                      tabs_draw,
@@ -2464,6 +2465,41 @@ bool row_draw(int16_t slot, const char* title, const char* detail, const char* s
   if (target.canvas == nullptr) return false;
   paint_row(*target.canvas, target.x, target.y, row.width, row.height, row.face, title, detail, subtitle,
             text, dim, background, scale, marked, separator, hal::UpdateMode::kDu);
+  close_draw(target);
+  return true;
+}
+
+// **A row of a list that the app builds** (0.104.0): the paper of the row —or its ink when it is the marked one—, the
+// line of the separator under it, and the ring of the focus as the inversion every control of this system uses. **The
+// words are not here**: they are the control the app adds inside the entry, which is the whole point of an entry that
+// is a control and not a line of data (docs/30, docs/90).
+bool entry_draw(int16_t slot, uint8_t background, uint8_t border, bool separator, bool marked,
+                bool focused) {
+  if (!live(slot) || background > 15 || border > 15) return false;
+  const Canvas& entry = g_canvases[slot];
+  if (entry.width == 0 || entry.height == 0) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  // **Inverted and not greyed**, the same rule the rows of a data list follow: ink and paper are the two levels that
+  // can say "this one" at once, and the focus says it with the same signal a button gives (docs/90).
+  const bool lit = marked || focused;
+  const uint8_t paper = lit ? border : background;
+  const uint8_t ink = lit ? background : border;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 entry.width, entry.height, paper, mode);
+  if (separator && entry.height > 2) {
+    const int32_t pad = (entry.width > 24) ? 8 : 4;
+    put_rect(*target.canvas, target.x + pad, target.y + entry.height - 1,
+             static_cast<uint16_t>(static_cast<int32_t>(entry.width) - 2 * pad), 1, ink);
+    mark_box(*target.canvas, target.x + pad, target.y + entry.height - 1,
+             static_cast<uint16_t>(static_cast<int32_t>(entry.width) - 2 * pad), 1, mode);
+  }
+  // The row is opaque: the child that says what it is was drawn after it and this paint covers it, so an entry
+  // that redraws asks its children to draw again, as a button does (docs/30, docs/90).
+  for (int16_t child = entry.first_child; child != kNoSlot; child = g_canvases[child].next_sibling) {
+    invalidate(child);
+  }
   close_draw(target);
   return true;
 }
