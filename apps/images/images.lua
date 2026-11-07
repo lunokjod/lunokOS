@@ -120,8 +120,6 @@ local function make_button(x, width, text, action)
     console.print(string.format('images: no room for "%s": %s', text, tostring(err and err.message)))
     return nil
   end
-  button.background = 15
-  button.border = 0
   button:place(x, view.height - 84)
   local label, label_err = ui.label(width - 20, 52)
   if label == nil then
@@ -132,7 +130,6 @@ local function make_button(x, width, text, action)
   label.text = text
   label.align = 'center'
   label.valign = 'middle'
-  label.scale = 2
   label:place(10, 10)
   button:add(label)
   button.on_click = action

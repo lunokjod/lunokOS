@@ -32,8 +32,7 @@ ui.title('Checkboxes')
 
 -- The count of the settings that are on, in the biggest letters the system face has: the row is the box, the
 -- words are a child, and this line is what a person reads after the dial has walked the page.
-local summary = ui.label(view.width - 40, 32)
-summary.scale = 2
+local summary = ui.label(view.width - 40, 46)
 summary.valign = 'middle'
 summary:place(20, 16)
 
@@ -67,7 +66,6 @@ local function add_row(name, at_y, checked, focusable, dark)
   end
   local words = ui.label(view.width - 40 - row:box() - 16, 40)
   words.text = name
-  words.scale = 2
   words.valign = 'middle'
   words.background = row.background
   words.color = dark and 15 or 0
@@ -98,7 +96,6 @@ local quit = ui.button(200, 72)
 quit:place(20, 380)
 local quit_words = ui.label(180, 48)
 quit_words.text = 'Quit'
-quit_words.scale = 3
 quit_words.align = 'center'
 quit_words.valign = 'middle'
 quit_words:place(10, 12)

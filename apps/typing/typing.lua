@@ -24,7 +24,6 @@ ui.title('Typing')
 
 -- The box first, because the keyboard types into it.
 local box = ui.textbox(view.width - 32, 56)
-box.scale = 3
 box.cursor = 0
 box.mask = false
 box.on_change = function(self, text)
@@ -54,15 +53,13 @@ page:place(0, 0)
 page.padding = 16
 page.gap = 12
 
-local hint = ui.label(10, 22)
+local hint = ui.label(10, 46)
 hint.text = 'Type with the keys below'
-hint.scale = 2
 page:add(hint)
 page:add(box)
 
-local note = ui.label(10, 20)
+local note = ui.label(10, 46)
 note.text = 'The arrows walk the keys; the centre presses one'
-note.scale = 1
 note.color = 8
 page:add(note)
 

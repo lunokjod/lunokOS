@@ -24,9 +24,8 @@ local wrap = true
 
 ui.title('Menu bar')
 
-local status = ui.label(view.width - 48, 26)
+local status = ui.label(view.width - 48, 46)
 status.text = 'nothing chosen yet'
-status.scale = 2
 status.color = 8
 status:place(24, 110)
 

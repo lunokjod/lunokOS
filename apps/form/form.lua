@@ -24,9 +24,8 @@ local minutes = {'00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50
 
 ui.title('Form')
 
-local note = ui.label(view.width - 48, 24)
+local note = ui.label(view.width - 48, 46)
 note.text = 'an alarm, chosen and not typed'
-note.scale = 2
 note.color = 8
 note:place(24, 40)
 

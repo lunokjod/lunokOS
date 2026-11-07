@@ -22,19 +22,19 @@ local view = ui.caps()
 ui.title('Dialog')
 
 -- The door of the page that opens the card: a plain button of the system, so the card is not the only thing here.
-local open = ui.button(240, 56)
-open:place((view.width - 240) / 2, 60)
-local open_label = ui.label(220, 40)
-open_label.text = 'Delete everything'
-open_label.scale = 2
+-- **The button is as wide as its word at the size of the system**: a button whose label is cut is a button that says
+-- half of what it does, and the label is inside the frame with sixteen pixels of air on each side (docs/92).
+local open = ui.button(360, 68)
+open:place((view.width - 360) / 2, 60)
+local open_label = ui.label(328, 46)
+open_label.text = 'Delete all'
 open_label.valign = 'middle'
 open_label.align = 'center'
 open_label:place(10, 8)
 open:add(open_label)
 
-local answer = ui.label(view.width - 40, 24)
+local answer = ui.label(view.width - 40, 46)
 answer.text = 'nothing asked yet'
-answer.scale = 2
 answer.color = 8
 answer:place(20, 140)
 

@@ -5612,7 +5612,9 @@ void test_a_box_of_lines_types_and_the_enter_writes_a_break(void) {
   pump_captured(20, g_out, sizeof(g_out), "run writer");
   // **These lines are printed before the capture opens**, so they are read from the output of the run itself
   // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows 8"), g_out);
+  // **Six rows of a box of two hundred pixels with a line of the system**: a line is forty-four pixels at the size of
+  // every control now (0.97.2), so the box holds six and not the eight of a body of twenty-four (docs/92).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows 6"), g_out);
   capture_begin();
   pump_turns(20);
   // **The enter key of the keyboard is a break and not the end of the edition**: the key arrives as the number the
@@ -5622,7 +5624,6 @@ void test_a_box_of_lines_types_and_the_enter_writes_a_break(void) {
   luabind::ui_keyboard_typed('X');
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  // Eight rows of a box of two hundred pixels with the letter of the body.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "text ab/ at 3"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "text ab/X at 4"), g_out);
 

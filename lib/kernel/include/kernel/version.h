@@ -1451,7 +1451,19 @@ namespace kernel {
 // original puts in a title bar, inside the same 48 rows.
 // Measured on the bench: 433 native cases green, and the pages of the catalogue drawn with `--dump` compare with the
 // captures of the original at the same size (docs/85, docs/92).
-static const char kVersion[] = "0.97.2";
+// 0.97.3 (7/11): **el sistema té una sola aparença, i viu als valors per defecte dels controls.** The owner asked for it
+// in one line —*«vull que tot el sistema usi el mateix tipus de lletra i estètica dels controls… si una app decideix
+// canviar-ho ha de tenir un motiu»*— and the controls had **six different defaults** between them: a step for a label,
+// two for a row, three for a text box, and every app of the catalogue saying its own. The defaults of the bridge are the
+// system's now (docs/92 §11): **four steps** —a body of thirty-six pixels, the text of the paper project— for every
+// control whose words are read, and **three** for the two strips that are a bar of words (`tabs`, `menu_bar`). And the
+// apps were swept: **twelve files and twenty-seven lines** that only said again what the default says are gone, the
+// heights of their labels went to a line of the system, and the three apps that keep a size say why —`gallery` is the
+// catalogue of the three sizes, `buttons` and `label` are the pages of every size of their control—. The `dim` tone of a
+// secondary word stays, because it is the theme's own (docs/92).
+// Measured on the bench: 433 native cases green, the twelve apps run with no error of Lua, and two of them looked at with
+// `--dump` —which is how a button with a cut word and a list whose rows walked over each other were found (docs/85).
+static const char kVersion[] = "0.97.3";
 
 }  // namespace kernel
 

@@ -4234,7 +4234,10 @@ int l_ui_label(lua_State* L) {
   lua_setfield(L, -2, "align");
   lua_pushstring(L, "top");
   lua_setfield(L, -2, "valign");
-  lua_pushinteger(L, 1);
+  // **The size of the system and not the app's**: four steps is a body of thirty-six pixels, which is the text
+  // of the paper project (its `ui36b`), and a control an app does not configure looks like the rest of the glass
+  // (docs/92). Four for a strip of words, which is the dense size of three (its `fontSmall`).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushcfunction(L, &l_label_draw);
   lua_setfield(L, -2, "on_draw");
@@ -4334,7 +4337,9 @@ int l_ui_button(lua_State* L) {
   lua_setfield(L, -2, "primary");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "color");
-  lua_pushinteger(L, 1);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels, the text of the paper project (its `ui36b`), and a control an app does not configure
+  // looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushstring(L, "");
   lua_setfield(L, -2, "title");
@@ -4792,7 +4797,9 @@ int l_ui_slider(lua_State* L) {
   lua_setfield(L, -2, "max");
   lua_pushinteger(L, 5);
   lua_setfield(L, -2, "step");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushstring(L, "");
   lua_setfield(L, -2, "suffix");
@@ -4892,7 +4899,9 @@ int l_ui_row(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "marked");
@@ -5062,7 +5071,9 @@ int l_ui_tabs(lua_State* L) {
   lua_setfield(L, -2, "text");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 3 steps is the dense size of the paper project, which is what a strip of words is, and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 3);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -5280,7 +5291,9 @@ int l_ui_list(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "separator");
@@ -5384,7 +5397,9 @@ int l_ui_month(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -5633,7 +5648,9 @@ int l_ui_dialog(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -5722,7 +5739,9 @@ int l_ui_menu(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -5815,7 +5834,9 @@ int l_ui_menu_bar(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 3 steps is the dense size of the paper project, which is what a strip of words is, and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 3);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -5905,7 +5926,9 @@ int l_ui_textbox_multiline(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 3);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -6017,7 +6040,9 @@ int l_ui_selector(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 3);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -6159,7 +6184,9 @@ int l_ui_notification_bar(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -6285,7 +6312,9 @@ int l_ui_icon_grid(lua_State* L) {
   lua_setfield(L, -2, "dim");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
-  lua_pushinteger(L, 2);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");
@@ -6386,7 +6415,9 @@ int l_ui_textbox(lua_State* L) {
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "border");
-  lua_pushinteger(L, 3);
+  // **The size of the system and not the app's**: 4 steps is a body of thirty-six pixels (its `ui36b`), and a control an app does not
+  // configure looks like the rest of the glass (docs/92).
+  lua_pushinteger(L, 4);
   lua_setfield(L, -2, "scale");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "pressed");

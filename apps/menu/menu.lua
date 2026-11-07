@@ -54,9 +54,8 @@ for i = 1, #notes do
   marks[i] = row
 end
 
-local answer = ui.label(view.width - 48, 28)
+local answer = ui.label(view.width - 48, 46)
 answer.text = 'nothing chosen yet'
-answer.scale = 2
 answer.color = 8
 answer:place(24, view.height - 60)
 

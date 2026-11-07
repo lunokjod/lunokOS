@@ -25,24 +25,21 @@ page:place(0, 0)
 page.padding = 16
 page.gap = 10
 
-local heading = ui.label(10, 24)
+local heading = ui.label(10, 46)
 heading.text = 'Trend'
-heading.scale = 3
 page:add(heading)
 
 -- **A window of samples, the oldest on the left**: the peak is 41 and the chart scales to it.
-local caption = ui.label(10, 20)
+local caption = ui.label(10, 46)
 caption.text = 'Queue length, last twenty turns'
-caption.scale = 2
 page:add(caption)
 local spark = ui.sparkline(10, 70)
 spark.samples = { 3, 5, 4, 8, 6, 9, 7, 12, 10, 14, 11, 16, 13, 19, 15, 22, 18, 26, 23, 41 }
 page:add(spark)
 
 -- **The same chart with two series**: awake on the bottom and asleep on top, which is an interval split in two.
-local stacked_caption = ui.label(10, 20)
+local stacked_caption = ui.label(10, 46)
 stacked_caption.text = 'Awake (solid) and asleep (outline)'
-stacked_caption.scale = 2
 page:add(stacked_caption)
 local stacked = ui.sparkline(10, 70)
 stacked.samples = { 4, 6, 3, 8, 5, 9, 6, 7, 4, 8, 5, 6 }
@@ -50,9 +47,8 @@ stacked.top = { 2, 1, 4, 1, 3, 1, 2, 3, 4, 1, 3, 4 }
 page:add(stacked)
 
 -- **The pie takes the room that is left**, and its three tones are the darkest one and the two after it.
-local pie_caption = ui.label(10, 20)
+local pie_caption = ui.label(10, 46)
 pie_caption.text = 'Where the time went'
-pie_caption.scale = 2
 page:add(pie_caption)
 local pie = ui.pie(10, 10)
 pie.weight = 1

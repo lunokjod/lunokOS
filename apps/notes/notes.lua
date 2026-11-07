@@ -22,7 +22,6 @@ end
 ui.title('Notes')
 
 local box = ui.textbox_multiline(100, 50)
-box.scale = 2
 box.wrap = true
 box.text = 'Notes\n\nThe enter key of the keyboard writes a line break in this box, and a line longer than the box '
   .. 'is broken at the last space that fits while wrap is on.'

@@ -332,3 +332,43 @@ vell escriu amb una línia de 43 px, que és 32 px de cos. Fins que el tema dels
 té la forma exacta i la lletra més petita que l'original.
 
 
+
+## 11. L'aparença per defecte, i les apps que en surten amb un motiu
+
+**La regla de l'amo (7/11):** *«vull que tot el sistema usi el mateix tipus de lletra i estètica dels controls.
+Les apps han de seguir totes l'estètica del sistema, això s'aconsegueix amb els valors per defecte de font,
+tamany i colors. Si una app decideix canviar-ho ha de tenir un motiu.»* O sigui que **el pont de Lua és on viu
+l'aparença**: un control que una app no configura ha de sortir com tota la resta del vidre.
+
+**Els valors per defecte, control per control** (`lib/luabind/src/luabind.cpp`, 0.97.3):
+
+| Control | `scale` per defecte | Per què |
+|---|---|---|
+| `label`, `button`, `slider`, `row`, `list`, `month`, `dialog`, `menu`, `textbox`, `textbox_multiline`, `selector`, `notification_bar`, `icon_grid` | **4** | un cos de **36 px** i una línia de 44, que és el text del paper project (el seu `ui36b`) |
+| `tabs`, `menu_bar` | **3** | una tira de paraules, que és la mida densa del paper project (el seu `fontSmall`, línia de 33) |
+
+I els colors, els del tema: `background` **15**, `border`/`color`/`text`/`mark` **0**, `dim` **8** i `fill`/`track` del
+que diu el dibuix de cada control (el to clar **10** al tros fet d'una barra i paper a la pista del slider).
+
+**Què s'ha tret de les apps (12 fitxers, 27 línies):** totes les línies que només repetien el defecte —
+`.scale = 2` (vint-i-una), `.scale = 3` (cinc), `.scale = 1` (una) i els colors iguals al tema— de `checkbox`,
+`controls`, `dialog`, `editor`, `form`, `grid`, `images`, `menu`, `menubar`, `notes`, `trend` i `typing`. I les alçades
+de les seves etiquetes, que estaven fetes per a un text de la meitat: passen a **46** (una línia del sistema), la fila
+de la llista de `controls` a **68** (44 de línia i 12 d'aire) i l'estat i la nota de l'editor a **46** cadascun.
+
+**Les tres apps que sí que diuen una mida, i per què:**
+
+| App | Què diu | Motiu |
+|---|---|---|
+| `gallery` | `body_scale = 4`, `small_scale = 3`, `title_scale = 5` | **és el catàleg de les tres mides**: la seva feina és ensenyar-les |
+| `buttons` | `spec.scale` per botó | **és la pàgina dels botons de cada mida**, i el títol d'un botó gran va a 3 |
+| `label` | `spec.scale or 1` | **és la pàgina de les etiquetes de cada mida** |
+
+I el to `8` d'una paraula secundària (`answer.color = 8` a `dialog`, `menu`, `form`, `grid`, `menubar`, `typing`) **no
+és una excepció**: és el `dim` del tema, que és l'únic to que un color de text pot dir quan la paraula no és la que
+compta.
+
+**Com es comprova que continua sent cert**: `run` de cada app al banc i una imatge amb `--dump` (docs/85) mirada al
+costat de les captures del vell. Les dotze apps de dalt s'han corregut així, i les que tenien un botó o una llista amb
+la mida vella s'han arreglat mirant-les: el botó del diàleg, que deia «Delete e…», i les files de `controls`, que es
+trepitjaven.

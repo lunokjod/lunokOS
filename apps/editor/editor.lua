@@ -29,8 +29,8 @@ end
 -- system never makes a row smaller than forty-four and this one is a comfortable fifty-two (docs/30, docs/90).
 local kBarHeight = 52
 local kBarRow = 54
-local kStatusH = 26
-local kNoteH = 24
+local kStatusH = 46
+local kNoteH = 46
 local kCardH = 208
 -- **A file the person has to name** starts in the app's own ground, which is the one place it may write without the
 -- prompt having named a path (docs/70).
@@ -221,10 +221,9 @@ local function close_card()
   asking = nil
 end
 
-local function wrapped_label(parent, w, h, text, scale)
+local function wrapped_label(parent, w, h, text)
   local label = ui.label(w, h)
   label.text = text
-  label.scale = scale
   label.align = 'center'
   label.valign = 'middle'
   parent:add(label)
@@ -250,16 +249,14 @@ function ask_path(kind)
     self:rect(2, 2, w - 4, kCardH - 4, 15)
   end
 
-  card_title = ui.label(w - 32, 26)
+  card_title = ui.label(w - 32, 46)
   card_title.text = (kind == 'open') and 'Open a file' or 'Save the page as'
-  card_title.scale = 2
   card_title:place(16, 14)
   card:add(card_title)
 
   -- **The path is typed with the keyboard of the system**, which is the only keyboard there is: the card says where
   -- it will write and the person edits that line (docs/30, docs/70).
   card_field = ui.textbox(w - 32, 56)
-  card_field.scale = 2
   card_field.text = path_or_new()
   card_field.cursor = #card_field.text
   card_field:place(16, 50)
@@ -273,13 +270,13 @@ function ask_path(kind)
     close_card()
     resume()
   end
-  wrapped_label(card_cancel, half - 24, 30, 'Cancel', 2):place(12, 13)
+  wrapped_label(card_cancel, half - 24, 44, 'Cancel'):place(12, 13)
   card:add(card_cancel)
 
   card_ok = ui.button(half, 56)
   card_ok:place(32 + half, 124)
   card_ok.on_click = function(self) accept_card() end
-  wrapped_label(card_ok, half - 24, 30, (kind == 'open') and 'Open' or 'Save', 2):place(12, 13)
+  wrapped_label(card_ok, half - 24, 44, (kind == 'open') and 'Open' or 'Save'):place(12, 13)
   card:add(card_ok)
 
   -- **The keyboard types into the field and not into the page** while the card is up: one band, one target
@@ -316,7 +313,6 @@ end
 -- ---- the page ----
 
 box = ui.textbox_multiline(view.width - 24, view.height - kBarRow - kStatusH - 20)
-box.scale = 2
 box.wrap = doc.wrap
 box:place(12, kBarRow + 8)
 -- **The finger that walks the box moves the window and the bar on the right**: the app registers the gesture with
@@ -349,18 +345,15 @@ box.on_change = function(self, text)
 end
 
 note = ui.label(view.width - 24, kNoteH)
-note.scale = 2
 note.text = ''
 note:place(12, view.height - kStatusH - kNoteH - 12)
 
 status = ui.label(view.width - 24, kStatusH)
-status.scale = 2
 status.text = status_text()
 status:place(12, view.height - kStatusH - 6)
 
 bar = ui.menu_bar(view.width, kBarRow)
 bar.bar_height = kBarHeight
-bar.scale = 2
 bar:place(0, 0)
 bar.items = menus
 

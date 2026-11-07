@@ -32,9 +32,8 @@ page:place(0, 0)
 page.padding = 16
 page.gap = 10
 
-local heading = ui.label(10, 26)
+local heading = ui.label(10, 46)
 heading.text = 'Controls'
-heading.scale = 3
 page:add(heading)
 
 local tabs = ui.tabs(10, 40)
@@ -45,9 +44,8 @@ tabs.on_change = function(self, index)
 end
 page:add(tabs)
 
-local bar_label = ui.label(10, 20)
+local bar_label = ui.label(10, 46)
 bar_label.text = 'Progress: half of it'
-bar_label.scale = 2
 page:add(bar_label)
 
 local bar = ui.progress(10, 26)
@@ -61,7 +59,6 @@ slider.min = 0
 slider.max = 100
 slider.step = 5
 slider.suffix = '%'
-slider.scale = 3
 slider.on_change = function(self, value)
   console.print('slider ' .. value)
 end
@@ -78,7 +75,9 @@ page:add(dots)
 -- turn the page while the list has the focus.
 local list = ui.list(10, 60)
 list.weight = 1
-list.row_height = 56
+-- **A row of a list is a line of the system plus its air**: forty-four pixels of line and twelve of air, which is what
+-- the paper project gives a row (docs/92).
+list.row_height = 68
 list.marked = 3
 list.items = {
   { title = 'Res', detail = '1 033 B', subtitle = 'the sample files of the disk' },
