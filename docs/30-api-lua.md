@@ -1834,6 +1834,12 @@ end
   la tecla de **majúscules** (`MAY`) a l'esquerra de la `z` i la de **retrocés** a la dreta de la `m`. Les tecles
   que no són lletres es dibuixen amb el signe i no amb la paraula: el **pentàgon amb una creu a dins** per esborrar
   (0.107.0), ↵ per l'enter, i la paraula `space` per la barra.
+- **Els dos símbols dibuixats són una sola peça i estan centrats** (0.109.0): el traç d'una diagonal es dibuixa
+  **centrat a la seva línia** —abans cada pas posava el bloc del traç a la cantonada, i la creu del retrocés sortia mig
+  traç cap a la dreta i tocava el costat del pentàgon—, la creu es mesura des del **cos** del pentàgon i no des de la
+  caixa, i la barra de l'enter **arriba al traç que baixa**, amb la punta a l'extrem esquerre; abans la barra s'acabava
+  `head` píxels abans del traç i la tecla es veia com dos segments amb un forat. El símbol fa **tres cinquens de
+  l'alçada de la tecla** (38 píxels en una tecla de 64): amb dos cinquens, vint-i-cinc, el pentàgon i la creu es toquen.
 - **La tecla fa 64 píxels d'alt i la lletra ocupa l'alçada de la tecla** (0.107.0): abans eren 44 i la lletra es
   quedava en dos passos de cos —divuit píxels en una banda de cent setanta-sis—, i l'amo ho va dir tal com es veu al
   vidre: *«el teclat ha de ser més alt i amb tecles i lletres més grans, gairebé no es poden polsar»*. Aquest panell

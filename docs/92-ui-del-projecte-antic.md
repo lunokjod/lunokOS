@@ -771,3 +771,36 @@ final posa el bloc **a la tercera fila** (`--dump`, mirat); l'editor obre la pà
 i la caixa arriba a les dues vores del vidre. **La suite no s'ha executat** (l'amo no ho ha demanat): la prova nova
 `test_a_text_that_ends_in_a_break_has_a_row_for_the_caret` està escrita i compila, i la trencada que l'ha de posar
 vermella és tornar el recorregut a parar al `\0` sense comptar la fila del salt.
+
+## 24. Les dues icones del teclat, dibuixades de nou (0.109.0)
+
+**L'amo les va assenyalar una per una**: *«Al teclat hi han dos botons "malament" el boto <backspace> te la "X"
+desplaçada a la dreta. L' <enter> te la fletxa feta amb dos segments. Fes el dibuixos de nou d'aquests dos botons i
+fes-los bé.»*
+
+**Eren dos errors de dibuix i no de disseny**, i tots dos es veien a la mida real del símbol (vint-i-cinc píxels):
+
+1. **El traç d'una línia es dibuixava amb la cantonada del bloc al punt de la línia.** `ink_line` posava un bloc de
+   `t × t` a cada pas començant pel seu vèrtex de dalt a l'esquerra, o sigui que tota diagonal sortia **mig traç cap a
+   la dreta i mig cap avall**. En una creu, dues diagonals que es desplacen igual es desplacen juntes: la X quedava
+   centrada a `head + (w - head) / 2` (que comptava el punt del pentàgon com si la creu hi pogués anar) **i a més mig
+   traç a la dreta**, i amb uns braços d'un cinquè de l'alçada arribava a tocar el costat dret del pentàgon i es
+   llegia com una taca. Ara el traç va **centrat a la seva línia** (el bloc es posa mig traç enrere i mig amunt) i la
+   creu es mesura des del **cos** del pentàgon, amb un terç del que hi cap a dins.
+2. **La barra de l'enter s'acabava abans del traç que baixa.** Se li donava `2 * arm - head` d'amplada i el traç que
+   baixa és a `cx + arm - t`: un forat de píxels a la cantonada, i la tecla es veia com **dos segments** —una barra i
+   una punta— en lloc de la fletxa que gira. Ara la barra **arriba al traç** (es dibuixa fins a `right + t`), la
+   cantonada és una sola peça, i el cap és un triangle les columnes del qual porten el gruix de la barra.
+
+**I el símbol és més gran**: `side` passa de dos cinquens de la tecla a **tres cinquens** (38 píxels en una tecla de
+64). A vint-i-cinc el pentàgon amb un traç de tres píxels té un cos de catorze i una creu que hi toca; a trenta-vuit el
+cos és de vint-i-tres i la creu de disset, amb aire als costats.
+
+**Mesurat aquest torn**, llegint els píxels del bolcat de la banda amb el QWERTY: a la fila del mig del cos del
+retrocés la creu ocupa **cinc columnes centrades** (491..495) i el costat dret és a **504..506**, o sigui **vuit
+columnes de paper** entremig —abans la creu arribava fins al costat—; i a la tecla de l'enter la barra i el traç que
+baixa fan **una tirada de trenta-set columnes** (470..506) en una sola peça, sense el forat que hi havia a la cantonada.
+La prova nova `test_the_two_symbols_of_the_band_are_one_piece_each` mesura les dues coses: ink al creuament, **paper** a
+`icon_x + 3·side/4` (que és el píxel que la trencada posa en tinta) i la tirada d'ink més llarga de la tecla de
+l'enter, que ha de passar els dos terços de l'amplada del símbol. **La suite no s'ha executat** (l'amo no ho ha
+demanat).

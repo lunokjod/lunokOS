@@ -2804,6 +2804,56 @@ static void test_a_box_paints_its_text_and_not_the_one_before_it() {
   ui::release(box);
 }
 
+// **The two symbols of the band that are drawn and not typed are one piece each** (0.109.0): the cross of the
+// backspace sits in the middle of the body of its pentagon with paper between it and the side, and the bar of the enter
+// reaches the stroke that comes down, so the key is one drawing and not two segments. The stroke of a diagonal was
+// pinned at its corner —so both diagonals of the cross came out half a stroke to the right, which is what the owner saw
+// on the glass— and the bar along the bottom of the enter was given `2 * arm - head` of width, which stopped it short
+// of the stroke (docs/90, docs/92).
+static void test_the_two_symbols_of_the_band_are_one_piece_each() {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
+  TEST_ASSERT_TRUE(ui::present());
+  const int32_t band = ui::keyboard_height();
+  const int32_t top = static_cast<int32_t>(ui::canvas().height) - band;
+  // The keys keep the twelve pixels of the glass on three sides, and the band is four rows of what is left.
+  const int32_t area_w = static_cast<int32_t>(ui::canvas().width) - 2 * 12;
+  const int32_t row_h = (band - 12) / 4;
+  // The two keys are the last of their rows: three twentieths of the width, from the seventeenth.
+  const int32_t key_x = 12 + (17 * area_w) / 20;
+  const int32_t key_w = area_w - (17 * area_w) / 20;
+  // **The symbol is a square of three fifths of the key**, centred in the cell, which is what the paint gives it.
+  int32_t side = (row_h * 3) / 5;
+  if (side > key_w - 8) side = key_w - 8;
+  const int32_t icon_x = key_x + (key_w - side) / 2;
+  const int32_t back_row = top + 2 * row_h;
+  const int32_t enter_row = top + 3 * row_h;
+
+  // **The backspace**: on the row of the middle of the body there is the crossing of the cross, and after it paper
+  // until the side of the pentagon —a cross that reaches the side reads as a bar pushed to the right—.
+  const uint16_t mid_row = static_cast<uint16_t>(back_row + row_h / 2);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(static_cast<uint16_t>(icon_x + (side * 3) / 5), mid_row),
+                                  "the crossing of the cross of the backspace is not in the middle of the body");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(static_cast<uint16_t>(icon_x + (side * 3) / 4), mid_row),
+                                  "the cross of the backspace reaches the side of the pentagon");
+
+  // **The enter**: the longest run of ink of the key is most of the width of the symbol, which is the bar joined to the
+  // stroke that comes down.
+  int32_t longest = 0;
+  for (int32_t y = enter_row; y < enter_row + row_h; ++y) {
+    int32_t run = 0;
+    for (int32_t x = icon_x - 2; x < icon_x + side + 2; ++x) {
+      if (view_level(static_cast<uint16_t>(x), static_cast<uint16_t>(y)) == 0) {
+        if (++run > longest) longest = run;
+      } else {
+        run = 0;
+      }
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE((side * 2) / 3, longest, "the bar of the enter does not reach its stroke");
+  TEST_ASSERT_TRUE(ui::keyboard_hide());
+}
+
 // **A box of several lines keeps the caret on the glass**: eight lines in a box of six rows, so the window starts at the
 // third one, the caret is at the end of the last row it shows, and the finger that lands on a row asks for the byte of the
 // text that is there —which is the same arithmetic the paint used— (docs/30, docs/90).
@@ -3211,6 +3261,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);
   RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
   RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
+  RUN_TEST(test_the_two_symbols_of_the_band_are_one_piece_each);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);
   return UNITY_END();
 }

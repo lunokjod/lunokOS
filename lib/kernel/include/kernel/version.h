@@ -1667,7 +1667,24 @@ namespace kernel {
 // edges. **The suite was not run** (the owner did not ask for it): the new test
 // `test_a_text_that_ends_in_a_break_has_a_row_for_the_caret` is written and compiles, and the break that turns it red
 // is the walk stopping at the `\0` again (docs/30, docs/92 §23).
-static const char kVersion[] = "0.108.0";
+//
+// 0.109.0 (8/11): **the two symbols of the band, drawn again.** The owner, one by one: *«el boto <backspace> te la "X"
+// desplaçada a la dreta. L' <enter> te la fletxa feta amb dos segments. Fes el dibuixos de nou d'aquests dos botons i
+// fes-los bé.»* Two drawing faults and not two designs. `ink_line` put the block of each step with its corner on the
+// point of the line, so **every diagonal came out half a stroke to the right and half down**; in a cross both diagonals
+// move together and it came out pushed to the right on top of that, and its arms were a fifth of the height, so the two
+// strokes of the cross of the backspace reached the right side of the pentagon and read as a blob. The stroke is
+// centred on its line now, the cross is measured from the **body** of the pentagon —a third of what is inside it— and
+// the symbol takes **three fifths of the key** (38 pixels in a key of 64) instead of two, which is the room a pentagon
+// with a cross inside needs. And the bar of the enter was given `2 * arm - head` of width, which stopped it `head`
+// pixels short of the stroke that comes down: the key showed **two segments with a gap between them**. The bar reaches
+// the stroke now, the corner is one piece, and the head is a triangle whose columns carry the stroke of the bar.
+// Measured: reading the pixels of the band's dump, the cross of the backspace is five columns in the middle of the body
+// (491..495) with eight columns of paper to the side (504..506), and the bar and the stroke of the enter are one run of
+// thirty-seven columns (470..506) with no gap. **The suite was not run** (the owner did not ask for it): the new test
+// `test_the_two_symbols_of_the_band_are_one_piece_each` measures both, and the break that turns it red is the stroke
+// pinned at its corner again (docs/30, docs/92 §24).
+static const char kVersion[] = "0.109.0";
 
 }  // namespace kernel
 

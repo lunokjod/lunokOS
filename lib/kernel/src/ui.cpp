@@ -5156,62 +5156,81 @@ void draw_key_text(Canvas& view, const font::Face& face, int32_t x, int32_t y, c
 
 // ---- the three icons of the keys that are not letters (docs/90) ----
 
-// **A stroke between two points**, stepped one pixel at a time on the longer axis: the icons of this band are twenty
-// pixels and a line of them is a stair, which is what the glass can hold (docs/90).
+// **A stroke of `t` pixels between two points, centred on the line** (0.109.0): the block of each step goes half a
+// stroke back and half up, because a block pinned at its corner leaves the stroke half a stroke to the right and half
+// down —and a cross drawn that way is a cross that sits off the middle of its key, which is what the owner saw on the
+// glass— (docs/90, docs/92).
 void ink_line(Canvas& view, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t t, uint8_t level) {
+  const int32_t back = t / 2;
   const int32_t dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
   const int32_t dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
   const int32_t steps = (dx > dy) ? dx : dy;
   if (steps <= 0) {
-    put_rect(view, x0, y0, t, t, level);
+    put_rect(view, x0 - back, y0 - back, t, t, level);
     return;
   }
   for (int32_t i = 0; i <= steps; ++i) {
     const int32_t px = x0 + ((x1 - x0) * i) / steps;
     const int32_t py = y0 + ((y1 - y0) * i) / steps;
-    put_rect(view, px, py, t, t, level);
+    put_rect(view, px - back, py - back, t, t, level);
   }
 }
 
-// **The backspace is the shape of a backspace** (0.107.0): the pentagon of the box it deletes —two arms to a point on
-// the left and three straight sides— with a cross in the middle, which is the symbol every screen keyboard carries and
-// none of the other keys of this band uses. It was the arrow of a "back" gesture, and the owner asked for the icon
-// *«en icona, com l'<enter>»*: two keys of the same band that are two different things cannot wear the same drawing
-// (docs/90, docs/92).
+// **The backspace is the shape of a backspace**: the pentagon of the box it deletes —two arms to a point on the left
+// and three straight sides— with a cross in the middle, which is the symbol every screen keyboard carries and none of
+// the other keys of this band uses (0.107.0, docs/90, docs/92).
+//
+// **The cross is measured from the body and not from the box** (0.109.0): it was centred on `head + (w - head) / 2`,
+// which counts the point of the pentagon as if the cross could go there, and its arms were a fifth of the height, so
+// the two strokes reached the right side of the body and read as one blob pushed to the right. Now the body of the
+// pentagon is the region between its three straight sides, the cross takes a third of what is inside it, and the
+// stroke is centred on its line (docs/90).
 void icon_backspace(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 4 : ((h >= 18) ? 3 : 2);
+  const int32_t t = (h >= 18) ? 3 : 2;
+  // The point of the pentagon: a third of the box, and never a corner.
   int32_t head = w / 3;
-  if (head < t + 2) head = t + 2;  // the point has to be a point and not a corner
+  if (head < t * 3) head = t * 3;
   const int32_t mid = y + h / 2;
-  // The point and the three sides: a stroke from the middle of the left edge to each corner of it.
-  ink_line(view, x, mid, x + head, y, t, level);
-  ink_line(view, x, mid, x + head, y + h - t, t, level);
-  put_rect(view, x + head, y, w - head, t, level);
-  put_rect(view, x + head, y + h - t, w - head, t, level);
-  put_rect(view, x + w - t, y + t, t, h - 2 * t, level);
-  // **The cross**, which is what the key does to the line: the two diagonals of the body of the box.
-  const int32_t body_x = x + head + (w - head) / 2;
-  const int32_t arm = h / 5;
-  ink_line(view, body_x - arm, mid - arm, body_x + arm, mid + arm, t, level);
-  ink_line(view, body_x - arm, mid + arm, body_x + arm, mid - arm, t, level);
+  const int32_t left = x + head;      // where the body of the box starts
+  const int32_t right = x + w - t;    // the inside of its right side
+  const int32_t top = y + t;          // under its top side
+  const int32_t bottom = y + h - t;   // over its bottom side
+  // The two arms of the point, and the three sides of the body joined to them.
+  ink_line(view, x + t / 2, mid, left, top, t, level);
+  ink_line(view, x + t / 2, mid, left, y + h - t / 2, t, level);
+  put_rect(view, left - t / 2, y, right - left + t / 2, t, level);
+  put_rect(view, left - t / 2, y + h - t, right - left + t / 2, t, level);
+  put_rect(view, right, top - t, t, bottom - top + 2 * t, level);
+  // **The cross**, in the middle of the body and clear of its sides.
+  const int32_t cx = (left + right) / 2;
+  const int32_t cy = (top + bottom) / 2;
+  const int32_t inner = ((right - left) < (bottom - top)) ? (right - left) : (bottom - top);
+  int32_t arm = inner / 3;
+  if (arm < t) arm = t;
+  ink_line(view, cx - arm, cy - arm, cx + arm, cy + arm, t, level);
+  ink_line(view, cx - arm, cy + arm, cx + arm, cy - arm, t, level);
 }
 
-// **The enter is the arrow that turns**: down the right and along the bottom to the left, which is the
-// symbol of a key that ends a line and not the word for it (docs/90).
+// **The enter is the arrow that turns**: down the right side and along the bottom to the left, which is the symbol of
+// a key that ends a line and not the word for it (docs/90).
+//
+// **One drawing and not two segments** (0.109.0): the bar along the bottom stopped `head` pixels short of the stroke
+// that comes down —it was given `2 * arm - head` of width and the stroke is at `cx + arm - t`—, so the key showed a
+// corner with a gap in it and a small head beside it. The bar now reaches the stroke, the two meet in the corner of the
+// right side, and the head is a triangle whose columns carry the stroke of the bar so that the two are one piece
+// (docs/90, docs/92).
 void icon_enter(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 4 : 3;
-  int32_t arm = ((h < w) ? h : w) / 3 | 1;
-  const int32_t head = (arm / 2) | 1;
-  const int32_t cx = x + w / 2;
-  const int32_t cy = y + h / 2;
-  const int32_t bar = cy + arm - t;
-  put_rect(view, cx + arm - t, cy - arm, t, 2 * arm, level);  // the stroke that comes down
-  put_rect(view, cx - arm, bar, 2 * arm - head, t, level);    // the bar it turns into
-  // **The arrow of the end of a line**, centred on the bar and pointing left: the same triangle as the
-  // shift's, one quarter turn away (docs/90).
+  const int32_t t = (h >= 18) ? 3 : 2;
+  // How long the head is along the bar: a quarter of the box, which leaves the stroke that comes down the rest.
+  const int32_t head = ((h < w) ? h : w) / 4;
+  const int32_t right = x + w - t;
+  // The centre line of the bar, with the room its head needs under it: the head grows a pixel on each side per column.
+  const int32_t bar_mid = y + h - head - t / 2;
+  put_rect(view, right, y + t / 2, t, bar_mid - (y + t / 2) + t / 2, level);
+  put_rect(view, x + head, bar_mid - t / 2, (right + t) - (x + head), t, level);
   for (int32_t i = 0; i < head; ++i) {
-    const int32_t tall = t + (2 * i * arm) / head;
-    put_rect(view, cx - arm + i, bar + t / 2 - tall / 2, 1, tall, level);
+    const int32_t tall = t + 2 * i;
+    put_rect(view, x + i, bar_mid - tall / 2, 1, tall, level);
   }
 }
 
@@ -5626,7 +5645,10 @@ void Keyboard::paint() {
         // **A key with no word is a shape**: a square of two fifths of the height of the key, centred, and never wider
         // than the key less its air —which is what the three drawn keys are: the back, the enter and the space— (the
         // paper project's `iconBox`, docs/92).
-        int32_t side = (h * 2) / 5;
+        // **Three fifths of the key and not two** (0.109.0): a symbol of twenty-five pixels in a key of sixty-four is a
+        // pentagon and a cross that touch each other, and the two strokes of the cross need the room to be two strokes
+        // (docs/90).
+        int32_t side = (h * 3) / 5;
         const int32_t room_icon = w - 8;
         if (side > room_icon) side = room_icon;
         if (side < 5) side = 5;
