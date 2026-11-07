@@ -6148,8 +6148,27 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   // open page, so the strip is always inside its box and the page a person is on is always one of the balls
   // (docs/30, docs/90).
   const int32_t step = big + gap;
-  int32_t shown = (width + gap) / step;
-  if (shown < 1) shown = 1;
+  int32_t fits = (width + gap) / step;
+  if (fits < 1) fits = 1;
+  // **And the pages that do not fit say so with a line that closes** (0.139.0): the strip of the paper project ends
+  // the window it cannot fill with **three balls that get smaller**, and those marks are what tells a person "there
+  // are more pages than balls" —the owner, 7/11: *«quan hi han masses pàgines, el paginador original fa una línia amb
+  // marques de nivell»*—. The foot of the reader of the paper writes them beside a ball of 12 as **8, 6 and 4**
+  // (`FOOT_TRAIL`), with **4** of air between two and **8** from the strip, and that is 2/3, 1/2 and 1/3 of the ball,
+  // an air of a third and a separation of two thirds: at the ball of 25 of this strip they are **16, 12 and 8**, with
+  // **8** of air and **16** of separation, and the drawing closes with the same look (docs/30, docs/46).
+  const int32_t trail[3] = {(big * 2) / 3, big / 2, big / 3};
+  const int32_t trailAir = big / 3;
+  const int32_t trailSpace = (big * 2) / 3;
+  const int32_t trailW = trailSpace + trail[0] + trail[1] + trail[2] + trailAir * 2;
+  // **The window shrinks so the marks fit at both ends**, which is the widest case: a strip that asked for the marks
+  // on one side only would change its width while the page turns, and a strip that moves is worse than a small ball.
+  // A box too narrow for the three marks keeps the plain window of 0.94.1 —it says "many" with the page that is read
+  // and nothing else— (docs/30, docs/90).
+  int32_t shown = fits;
+  const int32_t with_trails = (width - 2 * trailW + gap) / step;
+  const bool many = (static_cast<int32_t>(pages) > fits) && (with_trails >= 3);
+  if (many) shown = with_trails;
   if (shown > static_cast<int32_t>(pages)) shown = static_cast<int32_t>(pages);
   int32_t first = 0;
   if (shown < static_cast<int32_t>(pages)) {
@@ -6181,11 +6200,34 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
     if (!here && radius > ring) put_disc(*target.canvas, x, middle, radius - ring, background);
     x += step;
   }
-  // **One region for the strip and not one per ball** (0.94.1): with a ball made of two discs and a rod the marks
-  // would pass the eight the canvas holds, and past them the whole page becomes one paint of the quality that cannot
-  // look wrong —a wash of the panel for a page turn—. The strip is one control and it owes one rectangle: the box of
-  // the balls, not the air under them (docs/30, docs/90).
-  mark_box(*target.canvas, from - big / 2, middle - big / 2, (to - from) + big, big, mode);
+  // **The marks of "there are more"**, at the ends the window does not reach: they are drawn in the air the window
+  // reserved for them, after the strip, and they are the same ball only smaller, so the drawing of the strip is one
+  // drawing and not two (docs/30).
+  int32_t markFrom = from - big / 2;
+  int32_t markTo = to + big / 2;
+  if (many && first > 0) {
+    int32_t tx = markFrom - trailSpace;
+    for (int32_t k = 0; k < 3; ++k) {
+      tx -= trail[k];
+      put_disc(*target.canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
+      if (k < 2) tx -= trailAir;
+      markFrom = tx;
+    }
+  }
+  if (many && first + shown < static_cast<int32_t>(pages)) {
+    int32_t tx = markTo + trailSpace;
+    for (int32_t k = 0; k < 3; ++k) {
+      put_disc(*target.canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
+      tx += trail[k];
+      if (k < 2) tx += trailAir;
+    }
+    markTo = tx;
+  }
+  // **One region for the strip and not one per ball** (0.94.1): with a ball made of two discs, a rod and up to six
+  // marks the regions would pass the eight the canvas holds, and past them the whole page becomes one paint of the
+  // quality that cannot look wrong —a wash of the panel for a page turn—. The strip is one control and it owes one
+  // rectangle: the box of the balls and their marks, not the air under them (docs/30, docs/90).
+  mark_box(*target.canvas, markFrom, middle - big / 2, markTo - markFrom + 1, big, mode);
   close_draw(target);
   return true;
 }

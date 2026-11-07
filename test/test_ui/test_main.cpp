@@ -2105,6 +2105,10 @@ void test_the_dots_of_a_page_are_the_strip_of_the_paper_project(void) {
 // **More pages than fit are a window and not a strip running off the edge** (0.94.1): forty pages in a strip used to be
 // drawn from outside the box, so the counter left the glass on both sides. It shows the balls that fit and the window of
 // them that holds the open page, and the open one is still the solid ball of the strip (docs/30, docs/90).
+//
+// **And a box too narrow for the level marks keeps this plain window** (0.139.0): the three balls of "there are more"
+// take sixty-eight pixels at each end, and two hundred do not hold them, so the strip says "many" with the window and
+// nothing else (docs/30).
 void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
   fresh_view();
   int16_t strip = -1;
@@ -2128,6 +2132,66 @@ void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
   TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 1, 0, 15));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 12));    // the first page, solid, in the first slot
   TEST_ASSERT_EQUAL_UINT8(15, view_level(51, 12));   // the second one, a ring
+  ui::release(strip);
+}
+
+// **A strip that cannot show every page closes its window with three balls that get smaller** (0.139.0): it is the
+// drawing of the paginator of the paper project —«una línia amb marques de nivell»—, and it is what says that there are
+// many more pages than balls. Beside the ball of 25 the marks are **16, 12 and 8** pixels (2/3, 1/2 and 1/3 of it),
+// separated by **8** (a third) and **16** from the strip (two thirds), which is the foot of the paper (`FOOT_TRAIL`,
+// 8, 6 and 4 beside a ball of 12) with the ball of this strip. Forty pages in five hundred and forty pixels: seventeen
+// balls would fit, so the window takes twelve and the marks of both ends, and it is 377 wide, centred, with the first
+// centre at 93 and the open page (the twentieth) at 285.
+void test_the_dots_of_a_page_say_that_there_are_more_with_marks(void) {
+  fresh_view();
+  int16_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(540, 37, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 20, 0, 15));
+
+  // The page that is read: the twelfth ball of the window is the seventh, solid, from its first row to its last one.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(285, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(285, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(285, 24));
+  // And its neighbour is a ring of 19 with paper inside it.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(253, 3));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(253, 12));
+
+  // **The marks of the left end**, big to small, each one a ball of the strip at 16, 12 and 8 pixels: the middle row of
+  // each one is ink, and the eight pixels of air between two of them are paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(57, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(35, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(17, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(45, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(25, 12));
+  // **And the three of the right end**, where the window does not reach the fortieth page either.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(481, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(503, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(521, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(493, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(513, 12));
+  // The whole drawing is inside its box.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(530, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(539, 12));
+
+  // **On the first page there is nothing before the window**, so the left end has no marks and the right one does.
+  ui::clear(15, nullptr);
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 1, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(17, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(57, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(521, 12));
+
+  // **And a strip that holds every page draws no marks at all**: seventeen balls of a step of 32 are 537 of the 540
+  // pixels, so the strip starts at 1 and its last ball ends at 537 —nothing is painted after it, and there is no mark
+  // before it either.
+  ui::clear(15, nullptr);
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 17, 17, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(525, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(537, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(538, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(539, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(3, 12));
   ui::release(strip);
 }
 
@@ -3463,6 +3527,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
   RUN_TEST(test_the_dots_of_a_page_are_the_strip_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip);
+  RUN_TEST(test_the_dots_of_a_page_say_that_there_are_more_with_marks);
   RUN_TEST(test_the_dots_of_a_page_count_the_pages_of_a_chapter);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);

@@ -758,8 +758,10 @@ bool keyboard_select(const char* id);
 // when there is only one page: one dot says nothing, and it costs a pass of the panel to say it (0.94.1, docs/90).
 //
 // **When the pages do not fit**, the strip shows as many balls as its box holds and the window of them that contains the
-// open page, so the counter is inside the box and the page a person is on is always one of the balls. The whole strip
-// owes **one** damaged region and not one per ball (docs/30, docs/90).
+// open page, so the counter is inside the box and the page a person is on is always one of the balls, **and at each end
+// the window does not reach it closes with three balls that get smaller** —16, 12 and 8 pixels beside the ball of 25—,
+// which is how it says that there are many more pages than balls (the owner, 7/11; 0.139.0). The whole strip owes
+// **one** damaged region and not one per ball (docs/30, docs/90).
 // **A strip of dots says where a page is among the pages of a chapter**, and **a chapter is up to 512 pages** (0.138.0,
 // docs/46 C5): it was a byte and a limit of thirty-two, and a chapter of a book is longer than both. The strip shows the
 // window of them that holds the page that is read and never more than the width of its box takes (docs/90).

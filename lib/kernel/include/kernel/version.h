@@ -2900,7 +2900,42 @@ namespace kernel {
 // with 0 warnings and `pio test -e test --without-testing` still builds the 23 suites and 530 cases with 0 warnings.
 // **Pending**: the 530 cases are **not executed**; the `·`; the `loading...`; and the foot of the shelf, which the paper
 // also has and this app does not draw (docs/46, C5).
-static const char kVersion[] = "0.138.1";
+// 0.139.0 (7/11): **the strip of dots says that there are more pages than balls, with the drawing of the paper**.
+//
+// The owner, with the glass in front of him: *«l'UIControl Dots (paginador) es molt mes sofisticat a PaperOS que a la
+// versio lunokOS ... quan hi han masses pàgines, el paginador original fa una línia amb marques de nivell per expressar
+// a l'usuari que son masses pàgines per mostrar-ho amb boletes»*. He was right about the drawing and about the reason:
+//
+//   - **the strip itself was already the paper's, pixel for pixel** —balls of 19 and 25, a ring of 2, an air of 7, a
+//     rod of 3 and 12 of air under it—, and that is what the test `test_the_dots_of_a_page_are_the_strip_of_the_paper_
+//     project` has held since 0.112.0;
+//   - **what was missing is the end of a window that cannot show every page**: this build slid the window of balls and
+//     said nothing else, so a chapter of three hundred pages and a chapter of seven looked the same; the paper closes
+//     the window with **three balls that get smaller** —its foot strip writes them beside a ball of 12 as 8, 6 and 4
+//     (`FOOT_TRAIL`), with 4 of air between two and 8 from the strip—, and that closing is the "there are many more and
+//     I cannot draw them" a person reads without counting;
+//   - **the numbers are the paper's ratios and not a copy of its sizes**: 2/3, 1/2 and 1/3 of the ball, an air of a
+//     third and a separation of two thirds, which beside the ball of 25 of this strip are **16, 12 and 8**, **8** of
+//     air and **16** of separation —68 pixels at each end—. Beside the ball of 12 of the paper's foot the same rule
+//     gives 8, 6 and 4 with 4 and 8, which is exactly what the app writes: one rule, two sizes (docs/30);
+//   - **the window shrinks so the marks fit at both ends**, which is the widest case and not the current one: the strip
+//     does not change its width while the page turns, so a book does not see the counter jump when a mark appears. In
+//     the 540 pixels of the paper's glass seventeen balls fit (537 px) and, with the marks, **twelve** —377 px of strip
+//     and 68 + 68 of marks, 513 of 540—; the marks are drawn only at the ends the window does not reach, so the first
+//     page of a book has three on the right and none on the left (docs/30, docs/90);
+//   - **a box too narrow for the three marks keeps the plain window of 0.94.1** —the 200-pixel strip of the tests is one
+//     of those—, because a mark squeezed into a box that does not hold it is worse than no mark at all;
+//   - **and the strip still owes one damaged region**: the balls, the rod and up to six marks are one `mark_box`, or
+//     the regions would pass the eight a canvas holds and the page turn would become a wash of the panel (docs/90).
+//
+// `pio test -e test --without-testing` builds the 23 suites and **531 cases** with 0 warnings, one of them new
+// (`test_ui`: forty pages in five hundred and forty pixels, the window of twelve, the marks at 57, 35, 17 and 481, 503,
+// 521, the first page with marks only on the right, and seventeen pages with none at all).
+// **Pending**: the 531 cases are **not executed** (that wants the owner's word for it); **the drawing has not been seen
+// on the glass** this turn —the bench was not run—, and what is proven is the arithmetic of the test; and the foot of the
+// reader of the paper still draws its own strip in Lua with balls of 12 (docs/46, C5), which is the same drawing at the
+// size of a foot and could be this control the day the foot is a control and not a canvas.
+static const char kVersion[] = "0.139.0";
 
 }  // namespace kernel
 
