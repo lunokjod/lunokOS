@@ -2935,7 +2935,48 @@ namespace kernel {
 // on the glass** this turn —the bench was not run—, and what is proven is the arithmetic of the test; and the foot of the
 // reader of the paper still draws its own strip in Lua with balls of 12 (docs/46, C5), which is the same drawing at the
 // size of a foot and could be this control the day the foot is a control and not a canvas.
-static const char kVersion[] = "0.139.0";
+// 0.140.0 (8/11): **the frame of the reader of the paper**, and five of its pending fitxes in one go.
+//
+// The reader was reading a book; what it did not have is what a person expects around the page. Each one is a fitxa of
+// docs/46, done with the app that needs it and not with new machinery where the system already had the piece:
+//
+//   - **C8, the loading page**: the panel only starts travelling when the callback that drew has finished, so a book
+//     that is opened from the shelf (or from `run <id> <path>`) first draws a page of the size of the glass that says
+//     `Opening the book...` and the name of the book, presents it in that turn, and is opened in the next one — one
+//     line at the top of the loop (`pending`) and the same road for both doors, which is the paper's `openOnNextTurn`;
+//   - **C10, the pass of a page**: the turn of a page asks the glass for `du` when **both pages are of two tones** and
+//     for the wash (`gc16`) when either is not. This engine paints words, rules and plates and nothing between them, so
+//     the levels of a page are exactly `has_picture` and no counter has to walk a canvas; the app keeps the answer for
+//     the page that is on the glass and decides with the two. A page of text over a page of text is the two-level pass
+//     the paper asks for, and a plate —or the page that comes after one— takes the full one (docs/50);
+//   - **C12, an error is a notice**: the book that will not open, the chapter with no words this reader can read and
+//     the page that cannot be composed are a `ui.notification_bar` over the shelf or over the page, and the card of the
+//     notice opens a `ui.dialog` with the whole sentence. The console line stays for whoever reads the log; the person
+//     looking at the glass has the sentence in front of them and a card that is not cut at the edge;
+//   - **C13, two faces of the book**: `/fonts/dejavusans-latin1.ttf` is new —**21 360 B, 232 glyphs, 55 of them made of
+//     pieces flattened, 77 points and 5 contours at the largest**, cut from the DejaVu Sans with `tools/ttf_latin1.py`
+//     exactly as the serif of 0.127.0— and the titles of a page wear it while the words keep the serif. A disk without
+//     the sans reads the titles in the serif and a disk with neither reads the book in the face of the system, so the
+//     two files are a choice of the disk and not a requirement;
+//   - **C3, a tap is a page**: the right half of the page is the one after this one and the left half the one before,
+//     which is the finger people who read on a phone already have. The foot is not the page, so a tap on it does
+//     nothing, a long press is still the menu, and the keys of the board keep turning the page because the page has no
+//     focusable control (docs/30).
+//
+// The app test is new and runs the app of the repository on a disk with the book and the two faces of the repository:
+// `test/test_apps` `test_the_reader_turns_its_page_with_a_finger` — the whole glass (`540x960`), the byte zero in
+// `reading.txt`, a tap on the right half that moves the byte forward, the third page painted with **mode 1** (`du`)
+// because two pages of words meet, and two taps on the left half that walk back to zero. The suites are **532 cases**
+// now, and `pio test -e test --without-testing` builds the 23 of them with **0 warnings** —the app suite with its object
+// thrown away first, so the new test was compiled and not read from a cache—.
+// **Pending, and said out loud**: the **532 cases are not executed** —that wants the owner's word for it— and **the
+// glass has not been looked at** this turn: the bench was not run, so the loading page, the band of the notice and the
+// titles in the sans are proven by the code and the test and not by a photograph of the panel. The page count the test
+// assumes (three pages in the first chapter of `la-vaca-cega.epub`) comes from the app's own count and is the first
+// thing to check on the first run. Still missing, with their fitxes in docs/46: C7 (the cover as a state), C15 (a page
+// by number), C2 with C14 (the OPF and the contents, which want the ZIP door B6–B7), C11 (the cache of thumbnails,
+// which wants B9) and the foot of the shelf.
+static const char kVersion[] = "0.140.0";
 
 }  // namespace kernel
 

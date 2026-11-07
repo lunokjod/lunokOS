@@ -10,6 +10,11 @@
 -- (docs/46, B4) — a chapter of a book is a few dozen pages and walking them is cheaper than keeping a table that
 -- the screen would have to be told about anyway.
 --
+-- **The frame of the page is the frame of the paper's reader** (0.140.0): a finger on the right half of the page is the
+-- one after this one and on the left half the one before (C3), the book says it is being opened in a turn of its own
+-- (C8), what the page will cost is decided from the tones the two pages have (C10), a book that will not open is a
+-- notice on the shelf and not a line of the console (C12), and the words and the titles have a face each (C13).
+--
 -- What it does not do, said here so nobody looks for it: no cover and no thumbnails (C11 needs a cache of images and a
 -- `save` of a surface), and the chapter is the first one that looks like a chapter until the OPF is read in Lua (C2).
 
@@ -54,13 +59,17 @@ do
   use_view(now.width, now.height)
 end
 
--- **The face of the book** (docs/46, C13): the serif of the disk with the letters of Latin-1, and the system's if
--- the disk does not carry it. The step is four, which is the thirty-six pixels of body of the paper project.
+-- **The two faces of the book** (0.140.0, docs/46 C13): the serif of the words and the sans of the titles, both on the
+-- disk and both with the letters of Latin-1. A disk without the sans reads the titles in the serif, and a disk with
+-- neither reads the book in the face of the system — the page is the same page with the letters this machine has. The
+-- step is four, which is the thirty-six pixels of body of the paper project.
 local kBody = 4
 local face = ui.load_font('/fonts/dejavuserif-latin1.ttf')
 if face == nil then
   console.print('reader: no serif face on the disk, the system face reads the book')
 end
+local title_face = ui.load_font('/fonts/dejavusans-latin1.ttf')
+if title_face == nil then title_face = face end
 
 -- **The position of each book**, kept by the app: one line per book with the path, the chapter and the byte
 -- (docs/46, C6). A file that cannot be written is a lost position and not a lost book.
@@ -152,6 +161,10 @@ local count_h = -1
 -- and not the cover—, it is not saved anywhere, and it says the same words in the same places with the two tones the
 -- other way round. The menu of the View has the switch that turns it (docs/46, C4).
 local dark = false
+-- **A page of text is two tones and a page with a plate is not** (0.140.0, docs/46 C10): the engine paints words, rules
+-- and plates and nothing between them, so this flag is the whole answer about the levels of a page, and the turn of a
+-- page reads it to choose between the two-level pass and the wash that leaves no ghost (docs/50).
+local two_tone = false
 
 -- The two tones of a page, which are the two tones of the menu over it: ink and paper, or paper and ink.
 local function ink_level() return dark and 15 or 0 end
@@ -188,6 +201,7 @@ local function count_some()
   for i = 1, kCountPerTurn do
     local nxt, done = epub.page(screen, count_at, {
       face = face,
+      title_face = title_face,
       scale = kBody,
       title_scale = kBody + 1,
       small_scale = kBody - 1,
@@ -297,6 +311,74 @@ local function say_foot()
   end
 end
 
+-- **What went wrong is a notice of the system** (0.140.0, docs/46 C12): a book that will not open, a chapter with no
+-- words this reader can read, a page that cannot be composed. The band says it on the glass and the card of the notice
+-- opens the whole sentence when it is touched, because a sentence cut at the edge of a card is a sentence nobody read.
+-- Nothing of this is saved: the band of an app lives in the app's memory and goes with the page (docs/30, docs/90).
+local notice = nil
+local notice_card = nil
+-- **A band whose last card went is released in the turn after** (docs/90): a band with no card is a control that still
+-- takes the dial, and a page that stops turning with the keys under a notice nobody can see is a bug of the notice.
+local notice_gone = false
+
+local function release_notice()
+  notice_gone = false
+  if notice_card ~= nil then
+    notice_card:release()
+    notice_card = nil
+  end
+  if notice ~= nil then
+    notice:release()
+    notice = nil
+  end
+end
+
+local function show_error(headline, text)
+  if notice_card ~= nil then notice_card:release() end
+  notice_card = ui.dialog(math.min(kPageW - 40, 500), math.min(320, view.h - 80))
+  if notice_card == nil then return end
+
+  notice_card.title = headline
+  notice_card.text = text
+  notice_card.accept = 'Close'
+  -- **The one door is the good one**: a card that says what happened has nothing to cancel, and an empty `cancel` is
+  -- how a card is left with a single door across its width (docs/30, docs/90).
+  notice_card.cancel = ''
+  notice_card.emphasis = 2
+  notice_card:place(20, 120)
+  notice_card.on_accept = function(self)
+    self:release()
+    notice_card = nil
+    ui.present('gc16')
+  end
+  notice_card.on_cancel = notice_card.on_accept
+  ui.present('gc16')
+end
+
+local function put_a_notice(headline, text)
+  release_notice()
+  local band = math.min(240, view.h - 40)
+  notice = ui.notification_bar(kPageW, band)
+  if notice == nil then return end
+
+  notice.items = { { title = headline, text = text } }
+  notice.scale = 3
+  notice:place(0, view.h - band)
+  -- **The cross dismisses and the card opens the whole sentence** (docs/30, docs/90): the list is the app's and the
+  -- control keeps none of it.
+  notice.on_close = function(self, item)
+    table.remove(self.items, item)
+    self.items = self.items
+    if #self.items == 0 then notice_gone = true end
+    ui.present('gc16')
+  end
+  notice.on_pick = function(self, item)
+    local one = self.items[item]
+    show_error(headline, (one ~= nil and one.text) or text)
+  end
+  ui.present('gc16')
+end
+
 local function give_back()
   if screen ~= nil then
     screen:release()
@@ -315,22 +397,30 @@ local function give_back()
   counting = false
   count_w = -1
   count_h = -1
+  -- **The page that says what the glass has on it goes with the page** (docs/46, C10): the next page is composed over
+  -- whatever the shelf left, and a `du` asked from a flag of a book that is gone is a ghost.
+  two_tone = false
+  release_notice()
 end
 
-local function present_page()
+local function present_page(wash)
   if screen == nil or book == nil then return end
 
-  screen:clear(paper_level(), 'gc16')
+  -- **The paper of the page goes down first and the quality is decided later**: what is drawn below is written before the
+  -- page says whether it carries a plate, and the present at the end is the one that chooses the pass (docs/46, C10).
+  screen:clear(paper_level(), 'du')
   local nxt, done, used, picture = epub.page(screen, from, {
     face = face,
+    title_face = title_face,
     scale = kBody,
     title_scale = kBody + 1,
     small_scale = kBody - 1,
     dark = dark,
   })
   if nxt == nil then
-    foot.text = 'this page cannot be composed'
-    ui.present('gc16')
+    -- **A page that cannot be composed is a notice and not a line of the console** (0.140.0, docs/46 C12): the person
+    -- is looking at the glass, and the card of the notice has the whole sentence when it is touched.
+    put_a_notice('This page cannot be composed', 'the book is open and this page is not: turn it or go to the shelf')
     return false
   end
 
@@ -340,7 +430,15 @@ local function present_page()
   foot.background = paper_level()
   say_foot()
   draw_strip()
-  ui.present('gc16')
+
+  -- **Two pages of two tones are a two-level pass, and anything else is a wash** (docs/46, C10): a page with a plate has
+  -- the grays of the picture, and the page that comes after one has the ghost of them, so either of the two takes the
+  -- full pass (docs/50). **A page that is built again** —a resize, the menu folding, the dark page— takes the wash
+  -- whatever it is made of: what was under it was a card, the bar or the same page in the other tones.
+  local two = not picture
+  local quality = (two and two_tone and not wash) and 'du' or 'gc16'
+  two_tone = two
+  ui.present(quality)
 
   return true
 end
@@ -407,7 +505,7 @@ local function build_page()
   -- made (docs/46, C5).
   start_count(false)
 
-  return present_page()
+  return present_page(true)
 end
 
 -- **The page after this one** is the byte the page said, and there is nothing to compute (docs/46, §1).
@@ -444,27 +542,35 @@ local function turn_back()
   present_page()
 end
 
+-- **The book of a shelf entry, opened** — and the ways it can refuse are a notice and not a line of the console
+-- (0.140.0, docs/46 C12): the person stays on the shelf, the band says what happened and the card has the whole sentence.
+local show_shelf
+
 local function open_book(one)
   give_back()
 
   local ok, why = epub.open(one.path)
   if not ok then
-    console.print('reader: ' .. tostring(why.message))
+    local said = tostring((why ~= nil and why.message) or 'the file is not a book this reader can open')
+    book = nil
+    show_shelf(said)
+    return false
+  end
+
+  local where = positions()[one.path]
+  local which = (where ~= nil) and where.chapter or epub.first_chapter()
+  local n = (which ~= nil) and epub.chapter(which) or nil
+  if n == nil then
+    epub.close()
+    book = nil
+    show_shelf('the book has no chapter this reader can read')
     return false
   end
 
   book = one
   ui.title(one.title)
 
-  local where = positions()[one.path]
-  chapter = (where ~= nil) and where.chapter or epub.first_chapter()
-  local n = (chapter ~= nil) and epub.chapter(chapter) or nil
-  if n == nil then
-    epub.close()
-    console.print('reader: this book has no chapter this reader can read')
-    return false
-  end
-
+  chapter = which
   bytes = n
   title = chapter:match('([^/]+)%.%w+$') or chapter
   -- **Which chapter of the book this one is, and how many the book has** (0.138.0, docs/46 C5): the foot says
@@ -488,13 +594,42 @@ local function open_book(one)
 
   if not build_page() then
     epub.close()
+    book = nil
+    show_shelf('there is no memory for a page of this book')
     return false
   end
 
   return true
 end
 
-local function show_shelf()
+-- **The book opens in the turn after the one that asks for it** (0.140.0, docs/46 C8): the panel only starts travelling
+-- when the callback that drew has finished, so the page that says which book is being opened has to be a turn of its own.
+-- The app draws it and presents it here, and the loop below opens the book in the turn that comes.
+local pending = nil
+
+local function ask_for(one)
+  give_back()
+  ui.title(one.title)
+
+  local page = ui.canvas(kPageW, kPageH)
+  if page == nil then
+    -- **A loading page is a courtesy and not the door**: a machine with no memory for it opens the book anyway.
+    pending = one
+    return
+  end
+
+  page:clear(15, 'gc16')
+  page:text(20, 60, 'Opening the book...', 4, 0, 'du')
+  page:text(20, 140, one.title, 3, 8, 'du')
+  page:place(0, 0)
+  screen = page
+  pending = one
+  ui.present('gc16')
+end
+
+-- **The shelf, and the sentence of what went wrong when there is one** (0.140.0, docs/46 C12): the notice is put after the
+-- shelf is on the glass, so it is the last thing the person sees and the first thing they can touch.
+function show_shelf(why)
   give_back()
   if book ~= nil then
     epub.close()
@@ -515,6 +650,7 @@ local function show_shelf()
     end
     screen = empty
     ui.present('gc16')
+    if why ~= nil then put_a_notice('The book would not open', why) end
     return
   end
 
@@ -529,11 +665,14 @@ local function show_shelf()
   grid.scale = 3
   grid:place(20, 20)
   grid.on_pick = function(self, index)
-    if books[index] ~= nil then open_book(books[index]) end
+    -- **A book is not opened from here** (docs/46, C8): the loading page goes up in this turn and the book opens in the
+    -- next one, which is when the callback of this pick has already finished.
+    if books[index] ~= nil then ask_for(books[index]) end
   end
 
   screen = grid
   ui.present('gc16')
+  if why ~= nil then put_a_notice('The book would not open', why) end
 end
 
 -- **The beginning of the chapter**, which is what a finger going up asks for: the first byte, and the position is
@@ -654,10 +793,29 @@ local function on_gesture()
     return
   end
 
+  -- **And with a notice up the finger is the notice's**: the band and its card are the last word on the glass, and a tap
+  -- that opens or dismisses them is not a page turn (0.140.0, docs/46 C12).
+  if notice ~= nil or notice_card ~= nil then return end
+
   -- **A long press is the menu**, which is the one gesture that does not fight a page turn: a drag is a page and a tap is
-  -- nothing (docs/46, C3 and C4).
+  -- a page too (docs/46, C3 and C4).
   if gesture.kind == 'long' then
     open_menu()
+    return
+  end
+
+  -- **A tap turns the page the way a phone does** (0.140.0, docs/46 C3): the right half of the page is the one after
+  -- this one and the left half the one before. **The foot is not the page**, so a tap on it is nothing —a person puts a
+  -- finger there to read the number and not to move—, and the middle line is the right half, which is the way forward.
+  if gesture.kind == 'tap' then
+    local y = gesture.y or 0
+    if y < kPageH then
+      if (gesture.x or 0) < kPageW // 2 then
+        turn_back()
+      else
+        turn_forward()
+      end
+    end
     return
   end
 
@@ -683,7 +841,11 @@ function on_resize(width, height)
   -- **A new view takes the controls with it** (docs/90): the menu of the page before is a canvas nobody has any more.
   release_menu()
   use_view(width, height)
-  if book ~= nil then
+  if pending ~= nil then
+    -- **A book that is still being opened keeps its page** (docs/46, C8): the loading page is drawn again in the new box
+    -- and the book opens in the turn that comes, which is where it was going anyway.
+    ask_for(pending)
+  elseif book ~= nil then
     build_page()
   else
     show_shelf()
@@ -695,8 +857,8 @@ end
 function on_button(kind, held_ms, key)
   if kind ~= 'press' or screen == nil or book == nil then return end
   -- **A key does not turn the page behind a menu**: while the card is up the dial is the system's, and a page that moved
-  -- under a menu would be a page nobody asked for (docs/46, C4).
-  if menu ~= nil then return end
+  -- under a menu would be a page nobody asked for (docs/46, C4). A notice is a page of its own in the same way (C12).
+  if menu ~= nil or notice ~= nil or notice_card ~= nil then return end
 
   if key == 1 then
     turn_back()
@@ -706,15 +868,30 @@ function on_button(kind, held_ms, key)
 end
 
 -- The book of the manifest, when the shell opened one with `open`: the app starts on its page and not on the shelf
--- (docs/46, B10).
+-- (docs/46, B10). It opens through the loading page like a book picked on the shelf (docs/46, C8).
 local opened = app.args and app.args.path
 if opened ~= nil and opened ~= '' then
-  if not open_book({ path = opened, title = opened:match('([^/]+)%.epub$') or opened }) then show_shelf() end
+  ask_for({ path = opened, title = opened:match('([^/]+)%.epub$') or opened })
 else
   show_shelf()
 end
 
 while true do
+  -- **The book asked for in the turn before opens in this one** (docs/46, C8): the loading page was presented on the
+  -- glass before the callback that asked ended, and this is the next turn.
+  if pending ~= nil then
+    local one = pending
+    pending = nil
+    open_book(one)
+  end
+
+  -- **And a notice whose last card was dismissed goes now**: the turn that heard the cross is not the one that takes
+  -- the control away (docs/90).
+  if notice_gone then
+    release_notice()
+    ui.present('gc16')
+  end
+
   on_gesture()
   -- **The count of the chapter takes a few pages of every turn** (docs/46, C5), and the strip is drawn again when it
   -- has landed: a foot painted every turn would be ink spent on a number that has not changed (docs/50).

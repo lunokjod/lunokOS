@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -9795,6 +9796,107 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   kernel::boot(hal::platform());
 }
 
+// **The reader turns its page with a finger** (0.140.0, docs/46 C3, C8, C10 and C13): the app of `apps/reader` on a real
+// disk with a book and the two faces of the book, the glass and the touch of the model, and the position the app keeps in
+// its own file as the proof of which page is on the glass. The pass that turns a text page over a text page is a `du`
+// —mode 1 of the panel— and a page that comes after one with a plate takes the wash (docs/50).
+void test_the_reader_turns_its_page_with_a_finger(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/reader"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/reader.lua", "/apps/reader/reader.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/manifest.json", "/apps/reader/manifest.json"));
+  // **The book and the two faces of the book are the ones of the repository** (docs/46, C13): a page that reads its
+  // words in the serif and its titles in the sans.
+  TEST_ASSERT_TRUE(storage->mkdir("/epub"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/epub/la-vaca-cega.epub", "/epub/la-vaca-cega.epub"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavuserif-latin1.ttf"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-latin1.ttf"));
+
+  // **The book opens through the loading page** (docs/46, C8): the turn that says which book is being opened and the one
+  // after it, which reads the chapter and paints the page.
+  kernel::log_echo(true);
+  pump_captured(300, g_out, sizeof(g_out), "run reader /littlefs/epub/la-vaca-cega.epub");
+  // The page takes the whole glass (docs/46, D1).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole glass: the view is 540x960"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+  // **And the serif was on the disk**: a book read in the face of the system says so, and this test wants the two faces.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: no serif face"), g_out);
+
+  const char* path = "/data/reader/reading.txt";
+  char where[256] = {0};
+  auto byte_of = [&]() {
+    if (!read_text(storage, path, where, sizeof(where))) return -1;
+    const char* last = strrchr(where, '\t');
+    return (last == nullptr) ? -1 : atoi(last + 1);
+  };
+  // **A tap is counted and only said once the window of the double has closed** (docs/30): the finger is down sixty
+  // milliseconds —well inside the four hundred of a tap— and the kernel and the app get half a second after it.
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(x), static_cast<uint16_t>(y))) return false;
+    pump_turns(60);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(500);
+    return true;
+  };
+
+  // **The first page of the book is the byte zero**, and the app says so in its own file (docs/46, C6).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  // **A tap on the right half is the page after this one** (docs/46, C3).
+  TEST_ASSERT_TRUE(tap(400, 400));
+  const int second = byte_of();
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, second, where);
+
+  // **And a page of text over a page of text is the two-level pass** (docs/46, C10): the first page of this chapter has
+  // the plate of the book, so the second takes the wash and the third —two pages of words— takes the `du`.
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(400, 400));
+  capture_end(g_out, sizeof(g_out));
+  const int third = byte_of();
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(second, third, where);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1"), g_out);
+
+  // **A tap on the left half is the page before this one**, twice back to the byte zero.
+  TEST_ASSERT_TRUE(tap(100, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
+  TEST_ASSERT_TRUE(tap(100, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+
+  storage->remove("/apps/reader/reader.lua");
+  storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader");
+  storage->remove("/epub/la-vaca-cega.epub");
+  storage->remove("/epub");
+  storage->remove("/data/reader/reading.txt");
+  storage->remove("/data/reader");
+
+  // The next test gets the default bench back: the glass and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -9983,6 +10085,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_calculator_of_the_paper_project_adds_with_the_finger);
   RUN_TEST(test_the_about_app_lists_the_libraries_of_the_project);
   RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
+  RUN_TEST(test_the_reader_turns_its_page_with_a_finger);
   UNITY_END();
   return 0;
 }
