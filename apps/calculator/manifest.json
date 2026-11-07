@@ -1,0 +1,8 @@
+{
+  "title": "Calculator",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "calculator.lua",
+  "boards": ["esp32"],
+  "description": "A pocket calculator on the glass: the four operations, the digits, the point and the answer, painted by hand so that a key is a box and not a control."
+}

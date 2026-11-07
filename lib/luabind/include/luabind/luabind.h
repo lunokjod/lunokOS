@@ -425,6 +425,10 @@ struct UIOps {
   bool (*app_set_font)(int8_t handle);
   // How wide a text is with that face and that scale, in pixels (docs/30).
   uint16_t (*font_text_width)(int8_t handle, const char* text, uint8_t scale);
+  // **How tall a line is with that face and that scale** (0.121.0): `ui.line_height` and the vertical
+  // centre of a text an app paints itself. A line is one height whatever it says, so no text is asked
+  // for (docs/30).
+  uint16_t (*font_line_height)(int8_t handle, uint8_t scale);
   // **The text of a label** (docs/30, docs/90): the background of its frame and the line, aligned and
   // shortened with "..." when it does not fit. The face is the one the control was given, so the app only
   // says the words, the colour, the alignment and the size.

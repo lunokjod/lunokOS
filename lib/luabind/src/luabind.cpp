@@ -7532,6 +7532,20 @@ int l_ui_text_width(lua_State* L) {
   return 1;
 }
 
+// `ui.line_height([scale])`: how tall a line is with the font of the system, which is the other half of
+// `ui.text_width` —`ui.text` puts the top of the line at `y`, so centring a glyph in a box is
+// `y + (box_h - ui.line_height(scale)) / 2`— (0.121.0, docs/30). It answers a number and never an error:
+// a face without a height is the five by seven, which is what the table of the flash is.
+int l_ui_line_height(lua_State* L) {
+  const lua_Integer scale = luaL_optinteger(L, 1, 1);
+  if (g_ui_ops.font_line_height == nullptr || scale <= 0 || scale > 16) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  lua_pushinteger(L, g_ui_ops.font_line_height(-1, static_cast<uint8_t>(scale)));
+  return 1;
+}
+
 int l_font_tostring(lua_State* L) {
   LuaFont* font = static_cast<LuaFont*>(luaL_checkudata(L, 1, kFontMeta));
   char text[64];
@@ -9127,6 +9141,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "disc", l_ui_disc);
   set_function(L, "text", l_ui_text);
   set_function(L, "text_width", l_ui_text_width);
+  set_function(L, "line_height", l_ui_line_height);
   set_function(L, "load_font", l_ui_load_font);
   set_function(L, "font", l_ui_font);
   lua_setglobal(L, "ui");

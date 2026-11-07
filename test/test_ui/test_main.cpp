@@ -19,6 +19,7 @@
 #include "emu/ink.h"
 #include "hal/hal.h"
 #include "kernel/display.h"
+#include "kernel/font.h"
 #include "kernel/meter.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -3272,6 +3273,28 @@ void test_a_pie_is_two_halves_when_the_slices_are_equal() {
   ui::release(pie);
 }
 
+// **How tall a line is, asked and not guessed** (0.121.0): `font_text_width` was the half of the measurement
+// an app had, and centring a glyph **vertically** needs the other one — `ui.text` puts the top of the line at
+// `y`, so a key of the calculator centres its label with `y + (h - line_height) / 2`. The answer is the height
+// of the face, and the two faces of this system do not agree: the five by seven of the flash is seven pixels
+// of line per step and the bold face of outlines that the disk carries is eleven, which is why the number
+// cannot be written in the app (docs/30, docs/92).
+void test_the_line_height_of_a_face_is_what_centres_a_text() {
+  boot_with_a_panel();
+  // This bench's disk carries no font, so the face is the table of the flash: seven pixels of line per step.
+  const kernel::font::Face& face = kernel::font::system_face();
+  TEST_ASSERT_EQUAL_UINT8(7, face.height);
+  TEST_ASSERT_EQUAL_UINT16(7, ui::font_line_height(-1, 1));
+  TEST_ASSERT_EQUAL_UINT16(21, ui::font_line_height(-1, 3));
+  // A line of no steps is no line, and a scale of zero is the one the caller wrote by mistake.
+  TEST_ASSERT_EQUAL_UINT16(0, ui::font_line_height(-1, 0));
+  // **And it is the space a text puts down**: a text at a scale draws and leaves its box, which is what an
+  // app centres against a key of the calculator (docs/30).
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::canvas_text(0, 2, 3, "A", 3, 0, nullptr));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -3351,6 +3374,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_dialog_wraps_its_message_and_has_two_doors);
   RUN_TEST(test_a_sparkline_scales_to_the_peak_of_its_window);
   RUN_TEST(test_a_pie_is_two_halves_when_the_slices_are_equal);
+  RUN_TEST(test_the_line_height_of_a_face_is_what_centres_a_text);
   RUN_TEST(test_a_calendar_puts_the_first_day_where_the_weekday_says);
   RUN_TEST(test_a_menu_hides_the_options_the_app_cannot_do);
   RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);

@@ -836,6 +836,8 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
 | `ui.disc(cx, cy, r, [level], [mode])` | `true` o `nil, error` | El cercle **ple** |
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
+| `ui.text_width(text, [scale])` | píxels | Quant fa de llarg el text amb la cara del sistema: el que centra un text en una caixa d'amplada fixa |
+| `ui.line_height([scale])` | píxels | **L'alçada d'una línia** amb la cara del sistema (0.121.0). `ui.text` posa **el cim** de la línia a `y`, o sigui que un text centrat en una caixa és `y + (alçada − ui.line_height(scale)) / 2`. És l'altra meitat de `ui.text_width` i **no se suposa**, perquè les dues cares del sistema no fan la mateixa línia: la d'outlines del disc en fa onze píxels de línia per pas i la taula de cinc per set del flash en fa set (docs/92) |
 | `ui.image(x, y, path, [w], [h], [mode])` | `true` o `nil, error` | **Una imatge d'un fitxer**: sense `w` ni `h` es dibuixa a la mida del fitxer; amb una mida, s'escala al més proper |
 | `ui.image_info(path)` | `{format, width, height}` o `nil, error` | El que diu la capçalera del fitxer, **sense dibuixar-lo** |
 | `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer**: del seu `res/` (`/res/x.lfont`, `.bdf`, `.pcf` o `.ttf`) o de la carpeta de cares del disc (`/fonts/dejavusans.ttf`, vegeu més avall, docs/70); el bloc de glifs és de l'app i compta al seu pressupost, i un `.ttf` és el fitxer sencer |

@@ -1377,6 +1377,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      canvas_set_font,
                                      app_set_font,
                                      font_text_width,
+                                     font_line_height,
                                      label_draw,
                                      button_draw,
                                      checkbox_side,
@@ -6297,6 +6298,17 @@ bool app_set_font(int8_t handle) {
 
 uint16_t font_text_width(int8_t handle, const char* text, uint8_t scale) {
   return font::width(face_of(handle), text, scale);
+}
+
+// **The height of a line**, which is the number `draw_text` puts down as damage and the number an app
+// needs to centre a glyph in a box (0.121.0): a face of outlines says eleven pixels of line per step
+// (`kOutlineBody` is eight of body) and the five by seven of the flash says seven, so the app asks and
+// never guesses — the two faces differ and a guessed eleven is a text two pixels low on a board with
+// the table (docs/30, docs/92).
+uint16_t font_line_height(int8_t handle, uint8_t scale) {
+  const font::Face& face = face_of(handle);
+  const uint8_t step = (face.height != 0) ? face.height : font::kGlyphHeight;
+  return static_cast<uint16_t>(step * scale);
 }
 
 // **The number of quick paints after which what is left is ghost**, which is what a panel shows after a few

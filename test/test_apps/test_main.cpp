@@ -9344,6 +9344,168 @@ void test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so(
   storage->remove("/apps/onebad");
 }
 
+// **The calculator of the paper project, key for key** (0.121.0): the app is painted by hand, so the test
+// asks the app where its keys are —`run calculator keys` prints the display box and the centre of every
+// one— and presses them with the finger of the bench. What comes back is the line the app prints at every
+// `=`, which is the whole path at once: the frame of the glass, the hit test by rectangle, the arithmetic
+// and the console.
+//
+// **The layout is the original's and it is asserted as numbers**: a display of 508x200 under the bar and a
+// keypad of four columns and five rows, the zero double, which is what the port promises. And **a key
+// repaints the display box and not the page**, which the log says with the size of the region painted.
+void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  // **The glass and the panel are of the model and a test's `Options()` has them off** (docs/85): an app
+  // that needs a glass says so and stops, which is right on a headless bench and is not what this reads.
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/calculator"));
+  // **The app that ships is the app the test runs** (docs/85): the two files come from the repository and
+  // not from a copy that goes stale.
+  TEST_ASSERT_TRUE(
+      copy_a_host_file(storage, "apps/calculator/calculator.lua", "/apps/calculator/calculator.lua"));
+  TEST_ASSERT_TRUE(
+      copy_a_host_file(storage, "apps/calculator/manifest.json", "/apps/calculator/manifest.json"));
+
+  // **Where the keys are, from the app**: one line per key and one for the display box (docs/30).
+  kernel::log_echo(true);
+  pump_captured(40, g_out, sizeof(g_out), "run calculator keys");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator display 16 16 508 200"), g_out);
+  // The first page is the whole view and it is one paint: 540x912 is the page under the bar of the system.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "540x912"), g_out);
+
+  struct Spot {
+    char label[8];
+    int x;
+    int y;
+  };
+  Spot spots[24] = {};
+  int spot_count = 0;
+  for (const char* at = strstr(g_out, "Calculator key "); at != nullptr && spot_count < 24;
+       at = strstr(at + 1, "Calculator key ")) {
+    char label[8] = {0};
+    int x = 0;
+    int y = 0;
+    if (sscanf(at, "Calculator key %7s %d %d", label, &x, &y) != 3) continue;
+    snprintf(spots[spot_count].label, sizeof(spots[0].label), "%s", label);
+    spots[spot_count].x = x;
+    spots[spot_count].y = y;
+    ++spot_count;
+  }
+  // The nineteen keys of the original: ten digits, the four operations, the point, equals, clear, back and
+  // the sign. A keypad that lost one of them is a calculator that cannot be used.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(19, spot_count, g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // A key is pressed where the app says it is, and the panel counts in the frame of the page: the point of
+  // the view is the point of the glass plus where the view sits under the bar (docs/30, docs/50).
+  auto press = [&](const char* want) {
+    for (int i = 0; i < spot_count; ++i) {
+      if (strcmp(spots[i].label, want) != 0) continue;
+      if (!panel->finger_down(0, static_cast<uint16_t>(view.x + spots[i].x),
+                              static_cast<uint16_t>(view.y + spots[i].y))) {
+        return false;
+      }
+      pump_turns(40);
+      if (!panel->finger_up(0)) return false;
+      pump_turns(40);
+      return true;
+    }
+    return false;
+  };
+
+  kernel::log_echo(true);
+  capture_begin();
+  TEST_ASSERT_TRUE(press("7"));
+  TEST_ASSERT_TRUE(press("+"));
+  TEST_ASSERT_TRUE(press("3"));
+  TEST_ASSERT_TRUE(press("="));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 7 + 3 = 10"), g_out);
+  // **A key paints the display box and not the page**: what was painted after the four presses is the inside
+  // of the frame of the box —508 wide and 200 tall at the most, and the frame itself does not change— and not
+  // one of 540x912, which would be the whole page flashing at every digit (docs/50).
+  int painted_w = 0;
+  int painted_h = 0;
+  int paints = 0;
+  for (const char* at = strstr(g_out, "[I][UI] paint "); at != nullptr;
+       at = strstr(at + 1, "[I][UI] paint ")) {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    if (sscanf(at, "[I][UI] paint %d,%d %dx%d", &x, &y, &w, &h) != 4) continue;
+    painted_w = w;
+    painted_h = h;
+    ++paints;
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, paints, g_out);
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(508, painted_w, g_out);
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(200, painted_h, g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "540x912"), g_out);
+
+  // Dividing by zero has no answer, and the next key clears the way instead of asking for Clear first.
+  capture_begin();
+  TEST_ASSERT_TRUE(press("C"));
+  TEST_ASSERT_TRUE(press("8"));
+  TEST_ASSERT_TRUE(press("/"));
+  TEST_ASSERT_TRUE(press("0"));
+  TEST_ASSERT_TRUE(press("="));
+  TEST_ASSERT_TRUE(press("2"));
+  TEST_ASSERT_TRUE(press("+"));
+  TEST_ASSERT_TRUE(press("2"));
+  TEST_ASSERT_TRUE(press("="));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 8 / 0 = Error"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 2 + 2 = 4"), g_out);
+
+  // The point, the backspace and the sign.
+  capture_begin();
+  TEST_ASSERT_TRUE(press("C"));
+  TEST_ASSERT_TRUE(press("1"));
+  TEST_ASSERT_TRUE(press("2"));
+  TEST_ASSERT_TRUE(press("3"));
+  TEST_ASSERT_TRUE(press("<"));
+  TEST_ASSERT_TRUE(press("="));
+  TEST_ASSERT_TRUE(press("C"));
+  TEST_ASSERT_TRUE(press("5"));
+  TEST_ASSERT_TRUE(press("."));
+  TEST_ASSERT_TRUE(press("5"));
+  TEST_ASSERT_TRUE(press("+"));
+  TEST_ASSERT_TRUE(press("1"));
+  TEST_ASSERT_TRUE(press("="));
+  TEST_ASSERT_TRUE(press("C"));
+  TEST_ASSERT_TRUE(press("5"));
+  TEST_ASSERT_TRUE(press("+/-"));
+  TEST_ASSERT_TRUE(press("+"));
+  TEST_ASSERT_TRUE(press("1"));
+  TEST_ASSERT_TRUE(press("="));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 12 = 12"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 5.5 + 1 = 6.5"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: -5 + 1 = -4"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+
+  storage->remove("/apps/calculator/calculator.lua");
+  storage->remove("/apps/calculator/manifest.json");
+  storage->remove("/apps/calculator");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -9529,6 +9691,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_switches_of_a_manifest_reach_the_app);
   RUN_TEST(test_apps_info_shows_the_keys_a_manifest_carries);
   RUN_TEST(test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so);
+  RUN_TEST(test_the_calculator_of_the_paper_project_adds_with_the_finger);
   UNITY_END();
   return 0;
 }

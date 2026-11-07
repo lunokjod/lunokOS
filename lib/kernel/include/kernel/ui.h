@@ -744,6 +744,11 @@ bool canvas_set_font(int16_t slot, int8_t handle);
 bool app_set_font(int8_t handle);
 // How wide a text is with that face, in pixels, which is what centring it needs (docs/30).
 uint16_t font_text_width(int8_t handle, const char* text, uint8_t scale);
+// **How tall a line is with that face, in pixels** (0.121.0): the other half of `font_text_width`, and what
+// centring a text **vertically** needs — `ui.text` and `cv:text` put the top of the line at `y`, so a glyph in
+// the middle of a box is `y + (box_h - line_height) / 2`. It is the height of the face and not of the text: a
+// line is one height whatever it says (docs/30).
+uint16_t font_line_height(int8_t handle, uint8_t scale);
 
 // ---- what it takes to leave the page clean (docs/50, docs/90) ----
 //

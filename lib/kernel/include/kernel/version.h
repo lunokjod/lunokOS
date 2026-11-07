@@ -2190,7 +2190,35 @@ namespace kernel {
 // `test_apps_info_shows_the_keys_a_manifest_carries` and
 // `test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so` (473 -> 477, compiled).
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.120.0";
+// 0.121.0 (7/11): **the first app of the paper project ported here, and the one call it needed**. `calculator`
+// is the paper's pocket calculator, key for key: nineteen keys painted by hand, a display box with the waiting
+// operation above and the number below, the twelve digits of the original, `-0` shown as `0`, the font stepping
+// down until the number fits, an error that clears on the next key, and `nil` as the only answer to a division
+// by zero. Measured on the bench (m5stack-paper, `--flash` the tree): `run calculator keys` prints
+// `Calculator display 16 16 508 200` and the centre of the nineteen keys, and the page is painted once with
+// `gl16` (540x912); a key paints the box alone (508x200) with `a2`, which is the original's rule —a digit costs
+// a box and not nineteen keys— said with this system's qualities (docs/30, docs/50).
+//
+// **The finger is polled and not taken from a gesture**, and that is the port's one real difference: the
+// system says a `tap` 350 ms after the finger leaves and merges two taps inside that window into one `double`,
+// which on a calculator is a digit that arrives late and two keys that become one. So the app reads
+// `touch.read()` —the frame of the glass in its own view's coordinates— and presses on the first frame of a
+// contact, and drops the gestures it does not use (docs/30, docs/50).
+//
+// **The new call is `ui.line_height([scale])`**, the other half of `ui.text_width`: `ui.text` puts the top of
+// the line at `y`, so centring a glyph in a key is `y + (h - line_height) / 2`, and the number cannot be written
+// in the app because the two faces of this system do not agree —the bold face of outlines on the disk is eleven
+// pixels of line per step and the five by seven of the flash is seven— (docs/30, docs/92). The kernel answer is
+// `ui::font_line_height`, which is the same `face.height * scale` that `draw_text` puts down as damage.
+//
+// Two new cases, `test_the_line_height_of_a_face_is_what_centres_a_text` (the call, against the face the bench
+// boots with) and `test_the_calculator_of_the_paper_project_adds_with_the_finger` (the app from the disk, run
+// with real fingers on the bench's panel: `7 + 3 = 10`, `8 / 0 = Error` and the key that clears it,
+// `12 = 12` after the backspace, `5.5 + 1 = 6.5` and `-5 + 1 = -4`), so 477 -> 479 cases. **A key repaints the
+// display box and not the page is asserted with the region the log prints** —under 508x200, and never the
+// 540x912 of the page— (docs/50).
+// **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
+static const char kVersion[] = "0.121.0";
 
 }  // namespace kernel
 
