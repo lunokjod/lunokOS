@@ -589,13 +589,23 @@ char 48
   i refusa el que no cap a setze; és el que carrega `run fonts` (docs/30). I una app també pot carregar el
   `.ttf` sencer: `run buttons` ho fa amb Lato Black a 24 px i el nucli en dibuixa els outlines, que és el camí
   que no té taula de bits (docs/30).
+- **I una cara pot portar els accents** (7/11, 0.127.0): `tools/ttf_latin1.py` retalla un `.ttf` a Latin-1 i
+  **escriu els glifs que estan fets de peces**, que és la meitat que no es veu. El lector del sistema llegeix
+  un glif com una llista de contorns i refusa un glif muntat de trossos, i mitja Europa de les fonts escriuen
+  `é` com la `e` i l'accent amb un desplaçament: el fitxer només retallat donava l'amplada bona i **cap tinta**.
+  L'eina camina les peces (`DecomposingRecordingPen`) i les torna a escriure com un dibuix (`TTGlyphPen`), i
+  treu els hints perquè aquest lector no executa mai cap instrucció d'un glif. Mesurat a la cara del llibre:
+  232 glifs, 55 aplanats, el més gran de 85 punts i 5 contorns, **23 856 B**. La mateixa ordre amb `--set ascii`
+  fa les cares del sistema tal com són ara, i el que la prova mesura és el cas
+  `test_a_latin1_face_draws_the_accented_letters` de `test_font`.
 - **I es mira amb dues apps**: `run fonts` posa la font del sistema i una cara carregada a la mateixa pàgina,
   amb el que cada cara diu de si mateixa i l'amplada d'una línia a la consola; `run sheet` dibuixa tots els
   glifs del sistema dins de la seva cel·la, que és el que diu si els bits cauen on toca. Totes dues van amb
   `--display` (o `--gui`) i s'acaben soles.
-- **El que no hi és**: ni kerning, ni una taula per sota de `0x20` o per sobre de `0x7F`. Una cara de
-  bits és un mapa de bits i un fitxer de text el descriu sencer; una cara d'**outlines** (`.ttf`) és
-  l'altre camí i la dibuixa el nucli a la mida que es demana (docs/30).
+- **El que no hi és**: ni kerning, ni una taula per sota de `0x20` o per sobre de `0x7F` **en una cara de
+  bits**. Una cara de bits és un mapa de bits i un fitxer de text el descriu sencer; una cara d'**outlines**
+  (`.ttf`) és l'altre camí, la dibuixa el nucli a la mida que es demana i **porta els codis que porta el
+  fitxer** (des de 0.127.0 se li pregunten tots els bytes, no només l'ASCII; docs/30).
 
 ## El tàctil: un dit que costa el que costa (1/11)
 

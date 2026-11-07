@@ -11,6 +11,7 @@
 #include <unity.h>
 
 #include "kernel/font.h"
+#include "ttf/ttf.h"
 
 void setUp(void) {}
 
@@ -416,6 +417,57 @@ static void test_a_pcf_becomes_the_same_face_as_its_bdf() {
   TEST_ASSERT_EQUAL_UINT8('A', any.first);
 }
 
+// **A byte is a code, and a face of outlines may carry the letters of Latin-1** (0.127.0): the drawing of a
+// text asks the face and does not stop at ASCII, so the `e acute` of a book advances and paints instead of
+// being dropped. The vector is the face this repository ships for a book —`tools/ttf_latin1.py` cut it and
+// wrote out the glyphs that were made of pieces—, and the numbers are the ones the glass measured (docs/30,
+// docs/46 D3).
+static void test_a_latin1_face_draws_the_accented_letters() {
+  static char face_file[32768];
+  const uint32_t length =
+      read_file("data/res/fonts/dejavuserif-latin1.ttf", face_file, sizeof(face_file));
+  TEST_ASSERT_GREATER_THAN(0, length);
+  ttf::Face storage;
+  kernel::font::Face face = kernel::font::system_face();
+  TEST_ASSERT_NULL_MESSAGE(kernel::font::load_ttf(face_file, length, storage, face), "the face of a book");
+  TEST_ASSERT_NOT_NULL(face.outline);
+  // **The fourth letter is an accent and not a gap**: at step four —the text of a page— `caf` is 54 px and
+  // `cafe acute` is 75, so the accented letter took twenty-one of its own. Before 0.127.0 the two were the same
+  // number and the letter vanished.
+  TEST_ASSERT_EQUAL_UINT16(54, kernel::font::width(face, "caf", 4));
+  TEST_ASSERT_EQUAL_UINT16(75, kernel::font::width(face, "caf\xE9", 4));
+  // And the other letters a book needs are in the file: the cedilla, the middle dot and the dashes.
+  TEST_ASSERT_GREATER_THAN(0, kernel::font::width(face, "\xE7", 1));
+  TEST_ASSERT_GREATER_THAN(0, kernel::font::width(face, "\xB7", 1));
+  TEST_ASSERT_GREATER_THAN(0, kernel::font::width(face, "\x96", 1));
+  // **The glyph is in the file, and it paints above the letter it belongs to**: a face that carries the code
+  // of an accent and renders nothing is the failure this case exists for, so the ink is compared, not the
+  // number of the glyph.
+  uint16_t glyph = 0;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(ttf::kOk),
+                        static_cast<int>(ttf::glyph_of(storage, 0xE9, glyph)));
+  Runs plain = {};
+  Runs accented = {};
+  kernel::font::runs(face, "e", 0, 0, 4, kernel::font::no_clip(), keep_run, &plain);
+  kernel::font::runs(face, "\xE9", 0, 0, 4, kernel::font::no_clip(), keep_run, &accented);
+  TEST_ASSERT_GREATER_THAN(0, plain.count);
+  TEST_ASSERT_GREATER_THAN(0, accented.count);
+  int32_t plain_top = 0x7FFF;
+  for (uint32_t i = 0; i < plain.count; ++i) {
+    if (plain.y[i] < plain_top) plain_top = plain.y[i];
+  }
+  int32_t accented_top = 0x7FFF;
+  for (uint32_t i = 0; i < accented.count; ++i) {
+    if (accented.y[i] < accented_top) accented_top = accented.y[i];
+  }
+  TEST_ASSERT_LESS_THAN(plain_top, accented_top);
+  // **A byte the face does not carry is a gap and takes no room**, which is what a control code of a file
+  // of a book is, and it is also what every face of the flash answers above ASCII (docs/30).
+  TEST_ASSERT_EQUAL_UINT16(0, kernel::font::width(face, "\x01\x1F", 1));
+  TEST_ASSERT_NOT_EQUAL(static_cast<int>(ttf::kOk),
+                        static_cast<int>(ttf::glyph_of(storage, 0x01, glyph)));
+}
+
 // **What is not a pcf, and what is one this reader does not know, is refused with the reason** (docs/30).
 static void test_a_pcf_that_is_not_one_says_why() {
   uint32_t length = 0;
@@ -470,5 +522,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_bdf_that_is_not_a_face_says_why);
   RUN_TEST(test_a_pcf_becomes_the_same_face_as_its_bdf);
   RUN_TEST(test_a_pcf_that_is_not_one_says_why);
+  RUN_TEST(test_a_latin1_face_draws_the_accented_letters);
   return UNITY_END();
 }

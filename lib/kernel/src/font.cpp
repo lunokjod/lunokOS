@@ -187,8 +187,12 @@ uint16_t width(const Face& face, const char* text, uint8_t scale) {
     const uint16_t px = static_cast<uint16_t>(kOutlineBody * scale);
     uint16_t total = 0;
     for (const char* at = text; *at != '\0'; ++at) {
+      // **A byte is a code, and the face says which ones it carries** (0.127.0): a face of outlines may
+      // come with the letters of Latin-1, and dropping everything above ASCII here was the one line that
+      // forbade an `e acute` in the whole system whatever the file had inside (docs/30, docs/46 D3). What
+      // the file does not carry is still a gap, because that is what `glyph_of` answers.
       const uint8_t code = static_cast<uint8_t>(*at);
-      if (code < 0x20 || code > 0x7F) continue;
+      if (code < 0x20) continue;
       uint16_t glyph = 0;
       if (ttf::glyph_of(*face.outline, code, glyph) != ttf::kOk) continue;
       total = static_cast<uint16_t>(total + ttf::advance(*face.outline, glyph, px));
@@ -226,8 +230,10 @@ uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, 
   const int32_t ascent = static_cast<int32_t>((static_cast<int32_t>(font.ascent) * px) / static_cast<int32_t>(body));
   int32_t pen = x;
   for (const char* at = text; *at != '\0'; ++at) {
+    // The same rule as the measurement (0.127.0): a byte is a code and the face decides. A face of the
+    // flash or of a file of bits is ASCII and answers nothing above it, so nothing changes for them.
     const uint8_t code = static_cast<uint8_t>(*at);
-    if (code < 0x20 || code > 0x7F) continue;
+    if (code < 0x20) continue;
     uint16_t glyph = 0;
     if (ttf::glyph_of(font, code, glyph) != ttf::kOk) continue;
     ttf::Bitmap box;

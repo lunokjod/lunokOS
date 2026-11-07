@@ -107,7 +107,7 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 |---|---|---|---|
 | **D1** | **La pantalla sencera**: amagar la barra de 48 files i donar a l'app les 540 × 960, amb el gest de sortida del sistema | El lector del paper té `paperos.fullscreen` i sense això perd 48 files i el gest de dos tocs | ~150 línies al nucli (vista, barra, toc) |
 | **D2** | **Com torna la pàgina**: un objecte superfície nou (com el paper) o **compondre dins d'un canvas de l'app** | És la decisió de menys codi: aquí la vista ja és un canvas i no caldria `free()` ni un tipus nou | 0 si és dins del canvas; ~200 si és un objecte |
-| **D3** | **Cares amb accents**: les del disc són **95 glifs, U+0020–U+007E** (mesurat) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Regenerar les cares amb Latin-1 (mesurat: DejaVuSerif passa de 14 716 a **23 708 B**) i convertir UTF-8 → un byte al tokenitzador |
+| **D3** | **Cares amb accents** — **resolt el 7/11 (0.127.0)**: el dibuix d'un text preguntava a la cara només pels codis per sota de `0x7F` i ara li pregunta per **qualsevol byte**; la cara del llibre és `/fonts/dejavuserif-latin1.ttf` (**23 856 B, 232 glifs**) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Fet amb `tools/ttf_latin1.py`, que retalla el DejaVu Serif i **aplana els glifs fets de peces** (el lector refusa un glif muntat de trossos: 55 glifs compostos, el més gran de 85 punts i 5 contorns). Queda el tokenitzador convertint UTF-8 → un byte (fase 2); les **tres cares del sistema segueixen sent ASCII** |
 | **D4** | **Pintar un bloc de píxels en un canvas** | Les imatges del llibre surten del ZIP a la memòria i `img::decode` dona files; `canvas_image` llegeix un **fitxer** | `ui::canvas_bitmap` (~40 línies) |
 | **D5** | **El text amb èmfasi** (A4) | Negreta i cursiva són a la llista de funcionalitats del paper | ~80 línies a `lib/kernel/src/font.cpp` |
 | **D6** | **La mida de l'app**: 3 959 línies i **131 161 B** (100 499 B sense comentaris) contra un sostre de font de **49 152 B**, i `load`/`dofile` són `nil` | L'app no hi cap i no es pot partir en mòduls | Decisió: sostre a ~160 KB, o `require` per a les apps |
@@ -119,7 +119,7 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 |---|---|---|---|
 | Pantalla | 540 × 960 | 540 × 912 (sota la barra) | D1, si el lector ha de tenir les 960 |
 | Caixa de text del paper | 508 × 801 | 500 × ~800 | la maquetació s'adapta sola: tot ve d'arguments |
-| Cares | **sis, d'un bit, totes en negreta**, de 16 a 70 px | **TTF d'outlines** amb avanç per glif, ASCII imprès | A4 (èmfasi) i D3 (accents) |
+| Cares | **sis, d'un bit, totes en negreta**, de 16 a 70 px | **TTF d'outlines** amb avanç per glif; les del sistema encara ASCII imprès, i la del llibre amb Latin-1 | A4 (èmfasi); D3 ja hi és per a la cara del llibre |
 | Cares per app | — | **3** (`kMaxFaces`) | cos + títol + (res més): l'app del paper en fa servir dues |
 | Memòria gran | PSRAM, capítol 1 MB, imatge 2 MB | `pal::extra_memory()`, **4 MB al Paper** | A5 |
 | Màquina de Lua | 128 KB, 400 000 instruccions per callback | **4 MB al Paper** (diu el seu sostre), 128 KB a l'ATOM | el comptatge de pàgines de fons potser no cal; es mesura |
@@ -132,7 +132,7 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 |---|---|---|
 | **1** | **`lib/zip`** (A1) i el seu adaptador | Un zip de joguina fet a mà, un `stored`, un `deflate` de debò, un nom llarg, una entrada xifrada i una de ZIP64 refusades amb la seva frase |
 | **2** | **`lib/epub`, el tokenitzador** (A2) | Paraules amb el byte, blocs, entitats (inclosa `&eacute;`), `script`/`style` fora, `br`/`hr`, `b`/`i`/`sup`, les quatre marques de taula |
-| **3** | **Les cares amb Latin-1 (D3) i el text amb èmfasi (D5)** | `à` es pinta; una negreta és més gruixuda; una cursiva biaixa |
+| **3** | **Les cares amb Latin-1 (D3, feta el 7/11) i el text amb èmfasi (D5)** | `à` es pinta (fet: 54 px contra 75 px en una línia de prova, i la tinta de l'accent per sobre de la lletra); una negreta és més gruixuda; una cursiva biaixa |
 | **4** | **El paginador** (A3, A4) | Una pàgina de text amb el seu `next`, una imatge flotada amb bandes, una taula de tres columnes, una fila que no es parteix |
 | **5** | **El llibre** (A5, A6) i `canvas_bitmap` (D4) | Un llibre de joguina obert, un capítol inflat, una pàgina composta en un canvas, `levels` |
 | **6** | **La porta de Lua** (B1–B8) | Les mateixes proves, però des d'un script: `run epub-probe` |
@@ -148,8 +148,9 @@ mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mi
    això la fase 8 no cap.
 2. **Com torna la pàgina** (D2): un objecte superfície o compondre dins d'un canvas de l'app.
 3. **La pantalla sencera** (D1): si el lector ha de tenir les 960 files.
-4. **Els accents** (D3): regenerar les cares amb Latin-1 —canvia el que veu el sistema sencer, no només
-   l'EPUB— o deixar-lo només per a la cara del llibre.
+4. **Els accents** (D3): **decidit el 7/11 (0.127.0)**: la cara del llibre és llatina i les tres del sistema
+   no s'han tocat, perquè canviar-les canvia el que veu tothom i no fa falta per al lector. Si l'amo les vol
+   llatines, és una ordre d'eina per cada fitxer (`tools/ttf_latin1.py`).
 5. **El cau de miniatures** (C11): amb `ui.image_save` o sense.
 
 ## 7 · El que no es porta, i per què

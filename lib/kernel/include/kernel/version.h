@@ -2433,9 +2433,41 @@ namespace kernel {
 // **The deflate of the test is real**: the 81 bytes of the chapter are what zlib produced from the same sentence, and
 // the two checksums are its numbers (`2CAB616F` for `application/epub+zip` and `447404B8` for the chapter), so what the
 // suite tries is this reader against a compressor that is not mine.
-// **Pending**: the tests of this turn (written, compiled, **not executed**: that wants the owner's word for it), the doc
-// of the next phase, and the same line of the ATOM.
-static const char kVersion[] = "0.126.0";
+// **Pending**: the tests of that turn (written, compiled, **not executed**: that wants the owner's word for it), the
+// doc of the next phase, and the same line of the ATOM.
+//
+// 0.127.0 (7/11): **the accents, and the glyph that was made of pieces**.
+//
+// **The second piece of the port is the one that was a wall of one line: the accents** (docs/46 D3). The drawing of
+// a text asked a face of outlines its glyph **only for the bytes up to `0x7F`** —one line in the width of a text and
+// one in the walk of the runs— before asking the file anything, so an `e acute` was dropped whatever the file had
+// inside, and every reader of a Catalan book would have lost the letter silently. A byte is a code and the face
+// decides: what the file does not carry is still a gap (`ttf::glyph_of` answers, and the line advances by nothing),
+// and what it carries is drawn —which is exactly what the paper project's own faces meant when they were tables of
+// bits— (docs/30).
+//
+// **And the second half of the wall was the file itself.** Cutting DejaVu Serif down to Latin-1 with `pyftsubset`
+// gave an `e acute` with its own advance and **no ink at all**, and the reason is a thing worth writing down: the
+// reader of this system walks a glyph that is a list of contours, and DejaVu writes `e acute` as a **glyph made of
+// pieces** —the `e` and the accent, each one its own glyph, with an offset— which `lib/ttf` refuses by name. So
+// **`tools/ttf_latin1.py`** cuts the face and then writes the pieces out where they belong (`DecomposingRecordingPen`
+// walks what a glyph is made of and hands back the drawing, `TTGlyphPen` turns it into a glyph again). The hints go
+// too, because this reader never runs an instruction of a glyph and they were a third of the file. Measured on the
+// file: **232 glyphs, 55 of them flattened, the biggest of 85 points and 5 contours** (the reader takes 256 and 64),
+// **23 856 B** against the 10 896 of the ASCII-only `dejavuserif.ttf` beside it, and `/fonts/dejavuserif-latin1.ttf`
+// is the face a book is read with —the printable ASCII, `U+00A0` to `U+00FF`, the long dashes, the quotation marks,
+// the ellipsis and the bullet—.
+//
+// Measured on the glass of the bench, with a probe app that loads the face and paints three lines: `caf` is **54 px**
+// and `caf\xE9` is **75 px** at step one —the same 54 and 54 of before the fix—, and the page shows `café, pera i
+// poma`, `aà è é í ò ó ú ü ç · « »` and `guixos amb accent: À È É Í Ò` with the accents above the letters and not
+// beside them. `test_font` gets a case that measures the two widths, the ink of the accent above the ink of the `e`
+// it belongs to, and a byte the face does not carry: **489 cases in 20 suites**, built with `pio test -e test
+// --without-testing` and 0 warnings.
+// **Pending**: the 489 cases are **not executed** (that wants the owner's word for it); the three faces of the
+// system are still ASCII and one command each would make them Latin-1; and the tokenizer of the next phase is the
+// one that turns UTF-8 into this one byte per character.
+static const char kVersion[] = "0.127.0";
 
 }  // namespace kernel
 

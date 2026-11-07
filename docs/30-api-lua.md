@@ -1015,9 +1015,27 @@ i el contracte.
   dins de dues apps i el disc el pagava dues vegades. `/fonts` és el `res/fonts/` del disc vist des de
   l'arrel (docs/70), una fila de la taula de muntatges, i una app **la llegeix i no hi escriu**, com `/apps`.
   El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (8 548 B), `dejavusansmono.ttf`
-  (8 084 B) i `dejavuserif.ttf` (10 896 B) —retallats a l'ASCII imprimible amb `pyftsubset`, i la llicència
+  (8 084 B), `dejavuserif.ttf` (10 896 B) i `dejavuserif-latin1.ttf` (23 856 B) —les quatre primeres
+  retallades a l'ASCII imprimible amb `pyftsubset` i la cinquena amb `tools/ttf_latin1.py`, i la llicència
   de DejaVu al costat, `/fonts/LICENCE.txt`—. `run fonts-ttf` i `run label` les fan servir i no en guarden
   cap còpia.
+
+- **Una cara d'outlines porta els codis que porta el fitxer, i el byte és el codi** (7/11, 0.127.0). Fins a
+  0.127.0 el dibuix d'un text saltava qualsevol byte per sobre de `0x7F` abans de preguntar-li res a la
+  cara —dues línies, una a l'amplada i una altra al dibuix—, i això volia dir que un `é` no es podia
+  escriure ni amb un fitxer que el tingués a dins. Avui qui decideix és la cara: si el fitxer porta el
+  codi, la lletra avança i es pinta; si no, és un forat i la línia avança igual. El text d'aquest sistema,
+  doncs, **és d'un byte per caràcter** —Latin-1 quan la cara ho és—, i convertir UTF-8 a aquest byte és
+  feina de qui llegeix el text i no de qui el dibuixa.
+- **La cara del llibre, i els glifs fets de peces** (7/11, 0.127.0). `dejavuserif-latin1.ttf` surt de
+  `python3 tools/ttf_latin1.py --ttf <DejaVuSerif.ttf> --out data/res/fonts/dejavuserif-latin1.ttf`: 232
+  glifs —l'ASCII, les lletres de `U+00A0` a `U+00FF`, els guions llargs, les cometes, els punts suspensius
+  i el bullet—, **23 856 B**, i el glif més gran de 85 punts i 5 contorns (el lector en vol 256 i 64,
+  docs/75). L'`e` amb accent és el que fa falta explicar: el DejaVu l'escriu com **un glif fet de peces**
+  (la `e` i l'accent, cada un amb el seu dibuix i un desplaçament) i `lib/ttf` refusa això per nom, o sigui
+  que el fitxer només retallat donava l'amplada bona i **cap tinta**. L'eina camina les peces amb
+  `DecomposingRecordingPen` i el que en surt és el dibuix; amb els **55** compostos aplanats, l'`é` es
+  pinta. La prova que ho mesura és el cas `test_a_latin1_face_draws_the_accented_letters` de `test_font`.
 
 - **Una cara pot ser parcial**: un codi que no hi és es dibuixa com un forat i la línia avança igual, o sigui
   que una cara de deu xifres és una cara legal i el text del voltant no es desplaça.
