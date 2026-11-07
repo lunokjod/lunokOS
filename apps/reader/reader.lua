@@ -29,8 +29,7 @@ view.h = view.height
 -- The foot of the page and the bar of the two buttons, in the papers of this system: a line of the small step and
 -- a button of the paper project's height, which is what the About app uses (docs/45, docs/46).
 local kFoot = 40
-local kBar = 84
-local kPageH = view.h - kFoot - kBar
+local kPageH = view.h - kFoot
 local kPageW = view.w
 
 -- **The face of the book** (docs/46, C13): the serif of the disk with the letters of Latin-1, and the system's if
@@ -121,7 +120,7 @@ local function give_back()
 end
 
 local function present_page()
-  if screen == nil then return end
+  if screen == nil or book == nil then return end
 
   screen:clear(15, 'gc16')
   local nxt, done, used, picture = epub.page(screen, from, {
@@ -150,7 +149,7 @@ end
 
 -- **The page after this one** is the byte the page said, and there is nothing to compute (docs/46, §1).
 local function turn_forward()
-  if ended or screen == nil then return end
+  if ended or screen == nil or book == nil then return end
 
   from = next_at
   forget_page()
@@ -160,7 +159,7 @@ end
 -- **The page before this one** is the last page that started before the byte we are at, which is found by walking
 -- the chapter with `measure`: the same arithmetic and not a pixel (docs/46, B4).
 local function turn_back()
-  if screen == nil or from == 0 then return end
+  if screen == nil or book == nil or from == 0 then return end
 
   local walk = 0
   local last = 0
@@ -222,40 +221,6 @@ local function open_book(one)
     foot:place(8, kPageH)
   end
 
-  -- The two buttons of the page, with the dial and the finger: the paper project's height and half of the width
-  -- each (docs/46, C3).
-  local back = ui.button(kPageW / 2 - 12, kBar - 12)
-  local forward = ui.button(kPageW / 2 - 12, kBar - 12)
-  if back == nil or forward == nil then return false end
-
-  local back_label = ui.label(kPageW / 2 - 32, kBar - 32)
-  local forward_label = ui.label(kPageW / 2 - 32, kBar - 32)
-  if back_label ~= nil then
-    back_label.text = '<'
-    back_label.scale = 5
-    back_label.align = 'center'
-    back_label.valign = 'middle'
-    back_label.color = 0
-    back_label.background = 15
-    back_label:place(8, 8)
-    back:add(back_label)
-  end
-  if forward_label ~= nil then
-    forward_label.text = '>'
-    forward_label.scale = 5
-    forward_label.align = 'center'
-    forward_label.valign = 'middle'
-    forward_label.color = 0
-    forward_label.background = 15
-    forward_label:place(8, 8)
-    forward:add(forward_label)
-  end
-
-  back:place(0, kPageH + kFoot)
-  forward:place(kPageW / 2 + 4, kPageH + kFoot)
-  back.on_click = function() turn_back() end
-  forward.on_click = function() turn_forward() end
-
   return present_page()
 end
 
@@ -301,6 +266,56 @@ local function show_shelf()
   ui.present('gc16')
 end
 
+-- **The beginning of the chapter**, which is what a finger going up asks for: the first byte, and the position is
+-- written down as any page (docs/46, C3).
+local function first_page()
+  if screen == nil or book == nil or from == 0 then return end
+
+  from = 0
+  forget_page()
+  present_page()
+end
+
+-- **A page is turned with a finger or with a key** (0.135.0), and the two say the same three things: a drag to the
+-- left is the page after this one, a drag to the right the one before, and a drag up the beginning of the chapter.
+-- The length is a hand's, and the way that moves more is the way the gesture is: a diagonal is not two pages.
+--
+-- The gestures are shapes of the flow of fingers that the system makes (`touch.gesture`, docs/30) and not something
+-- the chip knows. The keys of the board reach `on_button` **because this page has no focusable control**: if it had
+-- one, the system would take the dial for it (docs/30, docs/90).
+local kSwipe = 60
+
+local function on_gesture()
+  if screen == nil or book == nil or touch == nil or touch.gesture == nil then return end
+
+  local gesture = touch.gesture()
+  if gesture == nil or gesture.kind ~= 'drag' then return end
+
+  local dx = gesture.dx or 0
+  local dy = gesture.dy or 0
+  if math.abs(dx) >= math.abs(dy) then
+    if dx <= -kSwipe then
+      turn_forward()
+    elseif dx >= kSwipe then
+      turn_back()
+    end
+  elseif dy <= -kSwipe then
+    first_page()
+  end
+end
+
+-- **The keys of the board**: the one in the middle and the one below go forward, the one above goes back, which is
+-- the same order as the fingers. On a board with one key —the ATOM— that key is the middle one and it turns the page.
+function on_button(kind, held_ms, key)
+  if kind ~= 'press' or screen == nil or book == nil then return end
+
+  if key == 1 then
+    turn_back()
+  elseif key == 0 or key == 2 then
+    turn_forward()
+  end
+end
+
 -- The book of the manifest, when the shell opened one with `open`: the app starts on its page and not on the shelf
 -- (docs/46, B10).
 local opened = app.args and app.args.path
@@ -311,6 +326,7 @@ else
 end
 
 while true do
+  on_gesture()
   ui.present()
   sys.delay(50):await()
 end

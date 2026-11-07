@@ -2716,7 +2716,36 @@ namespace kernel {
 // does not are the full screen (D1) and the dark page (C9), which want the bar of the system to be able to go away.
 // **And one thing for the owner**: `apps/reader` has to be named in `custom_apps` of `platformio.ini` for a built
 // disk to carry it —that file is his—, and until then the app of the bench runs from the card.
-static const char kVersion[] = "0.134.0";
+//
+// 0.135.0 (7/11): **the reader without a single button, turned with a finger and with the keys**.
+//
+// The owner, with the app in his hands: *«No vull botons per les págines, vull gestos swipe esquerra, dreta i amunt
+// per anar al principi del capítol. Els botons físics també son per canviar de página anterior/seguint.»* So the bar
+// of two buttons is gone, the page takes the whole view but its foot, and the two ways of turning it are the
+// system's own:
+//
+//   - **the finger**: `touch.gesture()` gives the shape of the flow of fingers —a `drag` and how far it went— and the
+//     app reads it: a drag to the **left** is the page after this one, to the **right** the one before, and **up** the
+//     beginning of the chapter. Sixty pixels is a hand's, and the way that moved more is the way the gesture is, so a
+//     diagonal is not two pages at once (docs/30, docs/46 C3);
+//   - **the keys**: `on_button(kind, held_ms, key)` —the hook the system calls between two turns— with the key `1`
+//     going back and the keys `0` and `2` going forward, which is the same order as the fingers and leaves the single
+//     key of the ATOM as the key that turns the page forwards.
+//
+// **And the keys only reach the app because the page has no focusable control**: the dial is the system's while there
+// is something to focus (docs/30, docs/90), so an app that wants the keys has to be a page of one thing —a canvas and
+// a foot—, which is exactly what a reader is. The foot stays: it is the chapter and how far in, and it is
+// information and not a control.
+//
+// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **332 lines** of Lua, the
+// page is composed into a canvas of **540 × 872** (the view is 912 and the foot takes 40) and the foot says
+// `ch01 0%` with nothing under it. `apps/reader` is named in `custom_apps` of `platformio.ini`, which its owner asked
+// for in the same breath, so a built disk carries the app and not only the card.
+// **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); **the bench cannot press a key
+// nor lay a finger** —`--script` runs shell lines and the panel of the emulator only takes fingers from a test—, so
+// the two ways of turning a page are wired to the hooks the system documents and **were not exercised on the glass**;
+// and the app still has no full screen, no dark page, no cover and no thumbnails (docs/46, C9, C11 and D1).
+static const char kVersion[] = "0.135.0";
 
 }  // namespace kernel
 
