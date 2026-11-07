@@ -165,6 +165,12 @@ local dark = false
 -- and plates and nothing between them, so this flag is the whole answer about the levels of a page, and the turn of a
 -- page reads it to choose between the two-level pass and the wash that leaves no ghost (docs/50).
 local two_tone = false
+-- **The keys of the board are the page's only after the centre enters it** (0.141.0, docs/46 C3): the gate a slider
+-- has (`ui.slider`: the arrows walk the controls until a person says «enter» with the middle key), which is what the
+-- owner asked for with the page in his hands. Here the page is the only thing on the glass, so before the centre the
+-- arrows walk nothing at all; the right of the foot says `keys` while the page is entered, because a mode nobody can
+-- see is a mode that looks like a key that does not work.
+local page_mode = false
 
 -- The two tones of a page, which are the two tones of the menu over it: ink and paper, or paper and ink.
 local function ink_level() return dark and 15 or 0 end
@@ -303,7 +309,11 @@ local function say_foot()
   -- of the owner and it is written down there.
   foot.text = string.format('Chapter %d/%d - %d%%', chapter_at, chapter_total, percent())
   if endmark ~= nil then
-    if ended then
+    if page_mode then
+      -- **The page is entered and the arrows are its own** (docs/46, C3): the right of the foot says what they do while
+      -- it lasts, and the end of the chapter comes back when the mode goes.
+      endmark.text = 'keys'
+    elseif ended then
       endmark.text = (chapter_at >= chapter_total) and 'the end' or 'chapter end'
     else
       endmark.text = ''
@@ -400,6 +410,8 @@ local function give_back()
   -- **The page that says what the glass has on it goes with the page** (docs/46, C10): the next page is composed over
   -- whatever the shelf left, and a `du` asked from a flag of a book that is gone is a ghost.
   two_tone = false
+  -- **And the keys are nobody's until the centre says so again** (docs/46, C3).
+  page_mode = false
   release_notice()
 end
 
@@ -745,6 +757,11 @@ end
 local function open_menu()
   if menu ~= nil or book == nil then return end
 
+  -- **A menu takes the dial, so the page gives it back** (docs/30, docs/46 C3): a control the dial leaves is not entered
+  -- any more, and a person who comes back to the page says «enter» again.
+  page_mode = false
+  say_foot()
+
   local bar = ui.menu_bar(kPageW, kPageH)
   if bar == nil then return end
 
@@ -852,17 +869,25 @@ function on_resize(width, height)
   end
 end
 
--- **The keys of the board**: the one in the middle and the one below go forward, the one above goes back, which is
--- the same order as the fingers. On a board with one key —the ATOM— that key is the middle one and it turns the page.
+-- **The keys of the board**: the centre **enters the page** and leaves it, and while it is entered the two keys turn
+-- it —up goes back and down goes forward, the same order as the fingers—. It is the gate of the slider (docs/30):
+-- before the centre the keys are the walk of the dial, and this page has no control to walk, so they do nothing. A
+-- notice or a menu is a page of its own and takes the keys and the mode with it (docs/46, C3, C4 and C12).
 function on_button(kind, held_ms, key)
   if kind ~= 'press' or screen == nil or book == nil then return end
-  -- **A key does not turn the page behind a menu**: while the card is up the dial is the system's, and a page that moved
-  -- under a menu would be a page nobody asked for (docs/46, C4). A notice is a page of its own in the same way (C12).
   if menu ~= nil or notice ~= nil or notice_card ~= nil then return end
+
+  if key == 0 then
+    page_mode = not page_mode
+    say_foot()
+    return
+  end
+
+  if not page_mode then return end
 
   if key == 1 then
     turn_back()
-  elseif key == 0 or key == 2 then
+  elseif key == 2 then
     turn_forward()
   end
 end

@@ -9796,11 +9796,12 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   kernel::boot(hal::platform());
 }
 
-// **The reader turns its page with a finger** (0.140.0, docs/46 C3, C8, C10 and C13): the app of `apps/reader` on a real
-// disk with a book and the two faces of the book, the glass and the touch of the model, and the position the app keeps in
-// its own file as the proof of which page is on the glass. The pass that turns a text page over a text page is a `du`
-// —mode 1 of the panel— and a page that comes after one with a plate takes the wash (docs/50).
-void test_the_reader_turns_its_page_with_a_finger(void) {
+// **The reader turns its page with a finger and with the keys after the centre** (0.140.0 and 0.141.0, docs/46 C3, C8,
+// C10 and C13): the app of `apps/reader` on a real disk with a book and the two faces of the book, the glass and the touch
+// of the model, and the position the app keeps in its own file as the proof of which page is on the glass. The pass that
+// turns a text page over a text page is a `du` —mode 1 of the panel— and a page that comes after one with a plate takes
+// the wash (docs/50).
+void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
@@ -9873,6 +9874,31 @@ void test_the_reader_turns_its_page_with_a_finger(void) {
   TEST_ASSERT_TRUE(tap(100, 400));
   TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
   TEST_ASSERT_TRUE(tap(100, 400));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  // **The keys of the board are the page's only after the centre enters it** (0.141.0, docs/46 C3): the gate the slider
+  // has. Before the centre the arrows are the walk of the dial, and this page carries no control to walk, so nothing
+  // moves; after it, up goes back and down goes forward.
+  auto press = [&](int key) {
+    emu::press_key(key, true);
+    pump_turns(60);
+    emu::press_key(key, false);
+    pump_turns(60);
+  };
+  press(2);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  press(0);  // the centre enters the page
+  press(2);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
+  press(1);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
+
+  // **And the centre leaves it again**: the window of the three presses that close an app is a second and a half, so a
+  // reading pause is more than that, and the arrow is the walk of the dial once more (docs/30).
+  pump_turns(1600);
+  press(0);
+  press(2);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
 
   kernel::shell::close_app();
@@ -10085,7 +10111,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_calculator_of_the_paper_project_adds_with_the_finger);
   RUN_TEST(test_the_about_app_lists_the_libraries_of_the_project);
   RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
-  RUN_TEST(test_the_reader_turns_its_page_with_a_finger);
+  RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
   UNITY_END();
   return 0;
 }

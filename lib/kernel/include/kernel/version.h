@@ -2976,7 +2976,33 @@ namespace kernel {
 // thing to check on the first run. Still missing, with their fitxes in docs/46: C7 (the cover as a state), C15 (a page
 // by number), C2 with C14 (the OPF and the contents, which want the ZIP door B6–B7), C11 (the cache of thumbnails,
 // which wants B9) and the foot of the shelf.
-static const char kVersion[] = "0.140.0";
+// 0.141.0 (8/11): **the keys of the board are the page's only after the centre enters it**, which is the rule the slider
+// already had. The owner, with the reader in his hands: *«si la pàgina del llibre té focus i s'ha polsat el botó físic
+// central es pot pujar i baixar pàgina amb els botons físics (com l'Slider, que necessita un pas d'entrada al control per
+// poder usar els botons). Si no, els botons físics funcionen normal recorrent controls. Un cop obtingut el focus a la
+// pàgina s'ha de polsar el botó central per poder passar pàgines»*.
+//
+//   - **the gate**: the centre toggles `page_mode` and, while it is on, key 1 is the page before and key 2 the page
+//     after. Before the centre the arrows are the walk of the dial, and this page carries no focusable control to walk,
+//     so they do nothing —which is the same answer the walk gives on a page with one control and nothing else—;
+//   - **it is the app's flag and not a new control**, and the two reasons are the ones the system would charge for: a
+//     focusable control is a **pointer target**, so a tap on the page would enter the page as well as turn it (the tap
+//     turns the page in 0.140.0 and has to keep doing so), and a page with a focusable control **takes the centre away
+//     from the three presses that close an app** (`ui_has_focusable`, docs/30), which is the only way out of an app
+//     without a control on the Paper. When the page gets other controls, `ui_button_event` takes the keys before the app
+//     and this flag is not reached — the rule of the walk wins by itself (docs/30);
+//   - **the mode says so on the glass**: the right of the foot says `keys` while it lasts, on the row that already says
+//     the end of a chapter, because a mode nobody sees is a key that looks broken. A menu, a notice, leaving the book or
+//     closing it take the mode away, and the page is entered again with the centre.
+//
+// The app test of 0.140.0 grew this half —`test_the_reader_turns_its_page_with_a_finger_and_with_the_keys`—: after the
+// taps have walked the book to the byte zero, key 2 does nothing, the centre followed by key 2 lands on the byte of the
+// second page, key 1 comes back to zero, and after a second and a half (the window of the three presses that close an
+// app) the centre leaves the page and key 2 does nothing again. The suites are still **532 cases**, and
+// `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** — the `keys` mark of the foot and
+// the mode itself are proven by the code and the test, not by a photograph of the panel.
+static const char kVersion[] = "0.141.0";
 
 }  // namespace kernel
 
