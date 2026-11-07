@@ -811,7 +811,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.progress(w, h)` | **un objecte** o `nil, error` | Una **barra**: fons, pista i el tros fet, tot del sistema. `value` és 0 a 100 i **un negatiu és «encara no ho sé»**. **No és enfocable** (3/11, 0.69.0) |
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)` (3/11, 0.69.0) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
-| `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El lloc de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)` i la part de lloc lliure que vol cada un amb `child.weight` (3/11, 0.70.0) |
+| `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El VBox o l'HBox de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)`, i cada cel·la diu **el seu percentatge del box amb `child.share`** (0.103.0) o la seva part del lloc lliure amb `child.weight` (3/11, 0.70.0) |
 | `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0) |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
@@ -1386,9 +1386,15 @@ seu marc. Tres fluxos: `'vertical'` (una columna: cada fill sota l'anterior, amb
   sistema, perquè una pàgina de quatre línies i una de dues no volen el mateix aire.
 - **Un fill és tan gran com el que va demanar** (`ui.label(200, 20)`), i **creuat al flux** és tan gran com el panel:
   una línia d'una columna és tan ampla com la columna. Això és el que fa que l'app no hagi de dir cap coordenada.
-- **`child.weight` parteix el lloc que sobra**: els fills amb pes 0 es queden la mida que tenen, i el que queda es
-  reparteix pel pes amb **el darrer que pren el romanent** (o cent píxels d'arrodoniment deixarien una tira de pàgina
-  al fons del panel). Un pes de 0 a 15.
+- **`child.share` és un percentatge del box** (0.103.0): `1` a `100`, i és **de dins del box** i no del que sobra,
+  o sigui que una cel·la que diu `50` és la meitat del panel tant si els germans són fixos, amb pes o no hi són. És
+  la manera de dir un VBox de dues meitats o un HBox de 25/75 sense comptar el que han demanat els altres.
+- **`child.weight` parteix el lloc que sobra**: les cel·les amb pes 0 es queden la mida que tenen, les que tenen
+  `share` ja s'han endut el seu tros, i el que queda es reparteix pel pes amb **el darrer que pren el romanent** (o cent
+  píxels d'arrodoniment deixarien una tira de pàgina al fons del panel). Un pes de 0 a 15.
+- **Tres maneres de col·locar-se, i cada cel·la tria la seva**: `share` (el percentatge), `weight` (el que sobra) o
+  cap dels dos (la mida amb què es va fer). No cal dir-ho a totes: una cel·la fixa conviu amb una de percentatge i
+  amb una de pes.
 - **Quan es fa el repartiment?** Quan el panel es dibuixa. Per això una pàgina girada, una vista d'una altra mida o
   un fill afegit de nou es col·loquen sols: l'app no ha de tornar a calcular res.
 - **El fill que no és del panel no es toca**: si un control s'ha mogut a un altre lloc, el panel el salta, o deixaria
@@ -1409,6 +1415,11 @@ local body = ui.label(10, 100)
 body.text = 'Nothing to wake up for'
 body.weight = 1          -- es queda el lloc que sobra
 page:add(body)
+
+-- **I una cel·la que vol el 40 % del box**, sigui quina sigui la mida de les altres:
+local half = ui.panel(10, 10, 'vertical')
+half.share = 40
+page:add(half)
 ui.present('gc16')
 ```
 

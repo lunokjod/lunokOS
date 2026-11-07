@@ -5126,6 +5126,10 @@ int l_panel_draw(lua_State* L) {
       if (child != nullptr && child->slot >= 0) {
         kids[count].slot = child->slot;
         kids[count].weight = static_cast<uint8_t>(ui_field_number(L, -1, "weight", 0));
+        // **`cell.share`: a percentage of the inside of the box** (0.103.0). Fifty is half of it, and zero —the
+        // normal case— asks for the weight instead (docs/30, docs/90).
+        const lua_Integer share = ui_field_number(L, -1, "share", 0);
+        kids[count].share = static_cast<uint8_t>((share < 0) ? 0 : ((share > 100) ? 100 : share));
         ++count;
       }
       lua_pop(L, 1);

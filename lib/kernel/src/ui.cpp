@@ -1127,6 +1127,7 @@ uint16_t panel_layout_for_lua(int16_t slot, uint8_t flow, uint16_t padding, uint
   for (uint16_t i = 0; i < used; ++i) {
     mine[i].slot = children[i].slot;
     mine[i].weight = children[i].weight;
+    mine[i].share = children[i].share;
   }
   const uint16_t moved =
       panel_layout(slot, static_cast<PanelFlow>(flow), padding, gap, mine, used);
@@ -2484,62 +2485,88 @@ bool canvas_resize(int16_t slot, uint16_t width, uint16_t height) {
 
 uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
                       const PanelChild* children, uint16_t count) {
-  if (!live(slot) || children == nullptr || count == 0 || count > 16) return 0;
+  if (!live(slot) || children == nullptr || count == 0) return 0;
   const Canvas& panel = g_canvases[slot];
   const int32_t inner_w = static_cast<int32_t>(panel.width) - 2 * static_cast<int32_t>(padding);
   const int32_t inner_h = static_cast<int32_t>(panel.height) - 2 * static_cast<int32_t>(padding);
   if (inner_w <= 0 || inner_h <= 0) return 0;
 
   // **Only the children that are still this panel's** are arranged: a control that moved to another panel is
-  // not this one's business, and counting it would put a gap where nobody is (docs/90).
-  int8_t mine[16];
-  uint8_t weights[16];
-  uint8_t used = 0;
-  for (uint8_t i = 0; i < count; ++i) {
+  // not this one's business, and counting it would put a gap where nobody is (docs/90). **The list is as long as the
+  // panel is** (0.103.0): sixteen of them live on the stack and a longer one takes a block, so a page of forty rows in
+  // one panel is a page laid out and not a page laid out in half (docs/75, docs/90).
+  PanelChild on_stack[16];
+  PanelChild* mine = on_stack;
+  void* block = nullptr;
+  if (count > 16) {
+    block = pal::extra_memory().allocate(sizeof(PanelChild) * count, true);
+    if (block != nullptr) mine = static_cast<PanelChild*>(block);
+  }
+  const uint16_t room = (block != nullptr || count <= 16) ? count : 16;
+  uint16_t used = 0;
+  for (uint16_t i = 0; i < room; ++i) {
     const Canvas* child = find(children[i].slot);
     if (child == nullptr || child->parent != slot) continue;
-    mine[used] = children[i].slot;
-    weights[used] = children[i].weight;
+    mine[used] = children[i];
     ++used;
   }
-  if (used == 0) return 0;
+  if (used == 0) {
+    if (block != nullptr) pal::extra_memory().release(block);
+    return 0;
+  }
 
   uint8_t moved = 0;
   if (flow == PanelFlow::kOverlay) {
-    for (uint8_t i = 0; i < used; ++i) {
-      if (place(mine[i], padding, padding)) ++moved;
+    for (uint16_t i = 0; i < used; ++i) {
+      if (place(mine[i].slot, padding, padding)) ++moved;
     }
+    if (block != nullptr) pal::extra_memory().release(block);
     return moved;
   }
 
   const bool vertical = (flow == PanelFlow::kVertical);
   const int32_t span = vertical ? inner_h : inner_w;
   const int32_t across = vertical ? inner_w : inner_h;
+  // **Three ways to be laid out, and each cell says which one** (0.103.0): a `share` claims that percentage of the
+  // inside of the box and comes out first, a `weight` splits what is left after the shares and the cells that keep
+  // their own size, and a cell with neither keeps the size it was made with.
   int32_t fixed = 0;
+  int32_t shared = 0;
   int32_t total_weight = 0;
-  uint8_t weighted = 0;
-  for (uint8_t i = 0; i < used; ++i) {
-    const Canvas& child = g_canvases[mine[i]];
+  uint16_t weighted = 0;
+  for (uint16_t i = 0; i < used; ++i) {
+    const Canvas& child = g_canvases[mine[i].slot];
     const int32_t size = vertical ? child.height : child.width;
-    if (weights[i] == 0) {
+    if (mine[i].share > 0) {
+      int32_t claimed = (span * static_cast<int32_t>(mine[i].share)) / 100;
+      if (claimed > span) claimed = span;
+      if (claimed < 0) claimed = 0;
+      shared += claimed;
+    } else if (mine[i].weight == 0) {
       fixed += size;
     } else {
-      total_weight += weights[i];
+      total_weight += mine[i].weight;
       ++weighted;
     }
   }
   const int32_t gaps = static_cast<int32_t>(gap) * ((used > 1) ? (used - 1) : 0);
-  int32_t free_room = span - fixed - gaps;
+  int32_t free_room = span - fixed - gaps - shared;
   if (free_room < 0) free_room = 0;
   int32_t given = 0;
   int32_t cursor = static_cast<int32_t>(padding);
-  for (uint8_t i = 0; i < used; ++i) {
-    Canvas& child = g_canvases[mine[i]];
+  for (uint16_t i = 0; i < used; ++i) {
+    Canvas& child = g_canvases[mine[i].slot];
     int32_t size = vertical ? child.height : child.width;
-    if (weights[i] > 0 && total_weight > 0) {
+    if (mine[i].share > 0) {
+      // **The percentage is of the inside of the box** and not of what is left: a cell that says 50 is half the box
+      // whether its brothers are fixed, weighted or absent.
+      size = (span * static_cast<int32_t>(mine[i].share)) / 100;
+      if (size < 0) size = 0;
+      if (size > span) size = span;
+    } else if (mine[i].weight > 0 && total_weight > 0) {
       // **The last one takes the remainder**, or a hundred pixels of rounding leave a strip of page at the
       // bottom of the panel that nobody asked for (docs/90).
-      size = (weighted <= 1) ? (free_room - given) : ((free_room * weights[i]) / total_weight);
+      size = (weighted <= 1) ? (free_room - given) : ((free_room * mine[i].weight) / total_weight);
       if (size < 0) size = 0;
       given += size;
       --weighted;
@@ -2548,12 +2575,13 @@ uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t g
     // it, the size it was given. A control with a buffer keeps its own size and only moves.
     const uint16_t new_w = static_cast<uint16_t>(vertical ? across : size);
     const uint16_t new_h = static_cast<uint16_t>(vertical ? size : across);
-    canvas_resize(mine[i], new_w, new_h);
+    canvas_resize(mine[i].slot, new_w, new_h);
     const uint16_t x = static_cast<uint16_t>(vertical ? padding : cursor);
     const uint16_t y = static_cast<uint16_t>(vertical ? cursor : padding);
-    if (place(mine[i], x, y)) ++moved;
+    if (place(mine[i].slot, x, y)) ++moved;
     cursor += size + static_cast<int32_t>(gap);
   }
+  if (block != nullptr) pal::extra_memory().release(block);
   return moved;
 }
 

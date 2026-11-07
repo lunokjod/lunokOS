@@ -453,12 +453,19 @@ bool row_draw(int16_t slot, const char* title, const char* detail, const char* s
 // without a buffer: it holds children and paints nothing, so it costs no pixels (docs/90).
 enum class PanelFlow : uint8_t { kVertical = 0, kHorizontal = 1, kOverlay = 2 };
 
-// One child of a panel: the canvas, and **how much of the free room it takes**. Weight 0 is "as big as I am":
-// the control keeps the size it was made with and is stretched across the flow —a row of a column is as wide
-// as the column— while the free room is split among the ones with weight (docs/30, docs/90).
+// One child of a panel: the canvas, **how much of the free room it takes** and **what share of the box it claims**.
+// Three ways to be laid out, and each cell says which one it wants:
+//
+//   - `share` 1 to 100: **that percentage of the inside of the box**, asked as a percentage and not as a weight, so a
+//     cell that says 50 is half the box whether its brothers are fixed, weighted or not there at all (0.103.0);
+//   - `weight` above 0: a part of the **free room** —what the shares and the cells of weight 0 left—, split in
+//     proportion to the numbers the app gave (`1` and `1` are half each, `1` and `3` are a quarter and three);
+//   - neither: the size the control was made with, stretched across the flow —a row of a column is as wide as the
+//     column (docs/30, docs/90).
 struct PanelChild {
   int16_t slot;
   uint8_t weight;
+  uint8_t share;
 };
 
 // **Arranges the children of a panel** and returns how many of them moved: padding round the inside, `gap`

@@ -3112,6 +3112,52 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **A cell of a box says how much of it it wants** (0.103.0): `cell.share = 30` is thirty per cent of the inside of
+// the panel, and 0 (the normal case) is "lay me out by my weight" or by the size I was made with. The field is the
+// app's, and the arithmetic is the kernel's (docs/30, docs/90).
+void test_a_cell_of_a_box_claims_a_share_of_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "box",
+                           "{\"title\":\"Box\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local column = ui.panel(200, 100, 'vertical')\n"
+                           "column:place(20, 20)\n"
+                           "local a = ui.label(10, 10)\n"
+                           "a.share = 30\n"
+                           "column:add(a)\n"
+                           "local b = ui.label(10, 10)\n"
+                           "b.share = 70\n"
+                           "column:add(b)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('a ' .. a:caps().height .. ' b ' .. b:caps().height)\n"
+                           // **And a row is a VBox turned round**: the same declaration with `horizontal`.
+                           "local row = ui.panel(300, 100, 'horizontal')\n"
+                           "row:place(20, 200)\n"
+                           "local c = ui.label(10, 10)\n"
+                           "c.share = 25\n"
+                           "row:add(c)\n"
+                           "local d = ui.label(10, 10)\n"
+                           "d.share = 75\n"
+                           "row:add(d)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('c ' .. c:caps().width .. ' d ' .. d:caps().width)\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run box");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a 30 b 70"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "c 75 d 225"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/box/app.lua");
+  storage->remove("/apps/box/manifest.json");
+  storage->remove("/apps/box");
+}
+
 // **The walk of the dial is as long as the page** (0.102.0): forty buttons on the glass, and the ring reaches the
 // thirty-sixth. The list of stops used to be thirty-two on the stack, so a page with more controls than that had the
 // rest unreachable —the ring turned round at the thirty-second and the buttons after it could not be pressed—.
@@ -7554,6 +7600,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_cell_of_a_box_claims_a_share_of_it);
   RUN_TEST(test_the_dial_walks_more_stops_than_the_old_list_held);
   RUN_TEST(test_a_label_and_the_dots_take_no_children);
   RUN_TEST(test_a_button_that_has_the_ring_inverts_what_it_holds);

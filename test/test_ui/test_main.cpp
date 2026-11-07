@@ -1785,6 +1785,59 @@ void test_a_checkbox_that_redraws_asks_its_child_to_draw_again() {
   ui::release(box);
 }
 
+// **A cell can claim a percentage of the box** (0.103.0), which is the other way of dividing a panel: a `share` is of
+// the **inside of the box** and not of what is left, so a cell that says 25 is a quarter of it whatever its brothers
+// ask for. And **the list of a panel is as long as the panel is**: sixteen children used to be the whole of it because
+// the list lived on the stack (docs/30, docs/90).
+void test_a_cell_can_claim_a_percentage_of_the_box(void) {
+  fresh_view();
+  int16_t panel = -1;
+  int16_t first = -1;
+  int16_t second = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, panel));
+  TEST_ASSERT_TRUE(ui::place(panel, 0, 0));
+  TEST_ASSERT_TRUE(ui::create(10, 10, panel, false, first));
+  TEST_ASSERT_TRUE(ui::create(10, 10, panel, false, second));
+
+  // **Half and half**, whatever the size they were made with: fifty per cent of a hundred is fifty.
+  const ui::PanelChild halves[2] = {{first, 0, 50}, {second, 0, 50}};
+  TEST_ASSERT_EQUAL_UINT16(2, ui::panel_layout(panel, ui::PanelFlow::kVertical, 0, 0, halves, 2));
+  TEST_ASSERT_EQUAL_UINT16(50, ui::at(first)->height);
+  TEST_ASSERT_EQUAL_UINT16(0, ui::at(first)->y);
+  TEST_ASSERT_EQUAL_UINT16(50, ui::at(second)->height);
+  TEST_ASSERT_EQUAL_UINT16(50, ui::at(second)->y);
+
+  // **A share takes its part first and the weight splits what is left**: a quarter of the box, and the other three
+  // quarters for the cell that asked for the room that is left.
+  const ui::PanelChild mixed[2] = {{first, 0, 25}, {second, 1, 0}};
+  TEST_ASSERT_EQUAL_UINT16(2, ui::panel_layout(panel, ui::PanelFlow::kVertical, 0, 0, mixed, 2));
+  TEST_ASSERT_EQUAL_UINT16(25, ui::at(first)->height);
+  TEST_ASSERT_EQUAL_UINT16(75, ui::at(second)->height);
+  ui::release(first);
+  ui::release(second);
+  ui::release(panel);
+
+  // **Twenty children in one panel**, all of them placed: a page of twenty rows is a page laid out and not a page laid
+  // out in sixteen and four on top of each other.
+  int16_t tall = -1;
+  int16_t rows[20];
+  TEST_ASSERT_TRUE(ui::create(100, 200, 0, false, tall));
+  TEST_ASSERT_TRUE(ui::place(tall, 0, 0));
+  ui::PanelChild many[20];
+  for (int i = 0; i < 20; ++i) {
+    TEST_ASSERT_TRUE(ui::create(10, 10, tall, false, rows[i]));
+    many[i].slot = rows[i];
+    many[i].weight = 1;
+    many[i].share = 0;
+  }
+  TEST_ASSERT_EQUAL_UINT16(20, ui::panel_layout(tall, ui::PanelFlow::kVertical, 0, 0, many, 20));
+  TEST_ASSERT_EQUAL_UINT16(0, ui::at(rows[0])->y);
+  TEST_ASSERT_EQUAL_UINT16(190, ui::at(rows[19])->y);
+  TEST_ASSERT_EQUAL_UINT16(10, ui::at(rows[19])->height);
+  for (int i = 0; i < 20; ++i) ui::release(rows[i]);
+  ui::release(tall);
+}
+
 // **A panel is a declaration and not a list of places**: a column stacks its children with the gap between them,
 // stretches each one to the width of the panel, and the room that is left is split by weight with the last one
 // taking the remainder (docs/30, docs/90).
@@ -3061,6 +3114,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_progress_bar_fills_a_prefix_of_its_track);
   RUN_TEST(test_a_slider_puts_the_knob_where_the_value_says);
   RUN_TEST(test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked);
+  RUN_TEST(test_a_cell_can_claim_a_percentage_of_the_box);
   RUN_TEST(test_a_panel_stacks_its_children_in_a_column);
   RUN_TEST(test_a_row_panel_splits_the_width_and_stretches_the_height);
   RUN_TEST(test_the_table_of_canvases_is_what_the_memory_holds);

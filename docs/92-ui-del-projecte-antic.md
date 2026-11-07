@@ -552,3 +552,28 @@ el focus que **inverteix** el quadrat, i el deshabilitat que passa pel to `dim` 
 `(10, 14)` és marc i no corba, el mig `(16, 20)` és el cos quan no està marcat i és tinta quan ho està, i les dues
 diagonals `(14, 18)` i `(18, 18)` hi són—; **442 casos natius verds**, i al bolcat es veuen els tres estats: apagat,
 encès amb la X, i encès i deshabilitat **en gris** (el marc, la X i la paraula del fill).
+
+## 18. Un VBox i un HBox, i la cel·la que vol un percentatge (0.103.0)
+
+**Els dos ja hi eren, amb un sol control**: `ui.panel(w, h, 'vertical' | 'horizontal' | 'overlay')`. Un panel no té
+buffer ni pinta cap píxel: dona a cada fill el seu marc, i tot el que fa és aritmètica. El repartiment passa **quan el
+panel es dibuixa**, i per això una pàgina girada o d'una altra mida es col·loca sola.
+
+**El que hi havia**: `padding`, `gap`, i `child.weight` com a part del **lloc que sobra** (els fills de pes 0 es
+queden la mida amb què es van fer, i el romanent el pren el darrer amb pes). O sigui que un `50/50` només sortia si les
+dues cel·les tenien pes i no n'hi havia cap de fixa.
+
+**El que s'hi ha afegit**: **`child.share`**, un percentatge (1 a 100) **de dins del box** i no del que queda, o sigui
+que una cel·la que diu `50` és la meitat del panel passi el que passi amb els germans. Les tres maneres es poden
+barrejar en un mateix panel: `share` primer, `weight` sobre el que queda, i la mida pròpia per a qui no diu res.
+
+**I una cosa que estava trencada des de 0.102.0**: el pont va deixar de tallar el panel a setze fills, però
+`panel_layout` **del nucli** encara feia `if (count > 16) return 0` i tenia la llista filtrada en una matriu de setze a
+la pila — o sigui que un panel de quaranta files **no es col·locava gens** (totes a 0,0) i la prova que vaig escriure
+llavors no ho veia perquè només mirava el dial. Ara la llista llarga va a un bloc, com al pont.
+
+**Mesurat**: **444 casos natius verds**, dos de nous: `test_a_cell_can_claim_a_percentage_of_the_box` (50/50 d'un box
+de 100 → 50 i 50; un `share` de 25 amb un pes darrere → 25 i 75; i **vint fills** en un panel tots col·locats, el
+vintè a y=190) i `test_a_cell_of_a_box_claims_a_share_of_it` (des de Lua: `share = 30` i `70` en un box de 100 donen
+30 i 70, i en un HBox de 300 `share = 25` i `75` donen 75 i 225). Ignorant el `share` al mesurament, la prova del
+nucli es posa vermella.

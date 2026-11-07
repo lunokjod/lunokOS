@@ -1557,7 +1557,19 @@ namespace kernel {
 // Measured: 442 native cases green, and the checkbox test reads the glass pixel by pixel (the corner is the frame and
 // not a curve, the middle is the body and then the ink, and both diagonals are there). Three states looked at with
 // `--dump`: off, on with the cross, and on and disabled in the lighter tone (docs/30, docs/92).
-static const char kVersion[] = "0.102.1";
+//
+// 0.103.0 (8/11): **a cell of a box can claim a percentage of it.** `ui.panel(w, h, 'vertical' | 'horizontal')` is the
+// VBox and the HBox of this system and it was already there —padding, gap and `child.weight` as a share of what is
+// left—, but a cell could only ask for the room the others did not want, so a fifty/fifty was a coincidence of weights
+// and fixed cells broke it. `child.share` (1..100) is now a percentage **of the inside of the box**, so a cell that
+// says 50 is half of it whatever its brothers ask for; the three ways (share, weight, its own size) mix in one panel.
+// And a bug of 0.102.0 came out with it: the bridge stopped cutting a panel at sixteen children but `panel_layout` in
+// the kernel still did (`if (count > 16) return 0`), so a panel of forty rows was laid out as forty controls on top of
+// each other and the test of that day did not see it because it only looked at the dial.
+// Measured: 444 native cases green (two new: 50/50, 25+weight, and twenty children with the twentieth at y=190 in the
+// kernel; `share = 30`/`70` and 25/75 in an HBox from Lua), and ignoring the share turns the kernel one red (docs/30,
+// docs/90, docs/92).
+static const char kVersion[] = "0.103.0";
 
 }  // namespace kernel
 

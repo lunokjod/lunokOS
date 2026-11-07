@@ -460,6 +460,9 @@ struct UIOps {
   struct UIPanelChild {
     int16_t slot;
     uint8_t weight;
+    // **A percentage of the inside of the box** (0.103.0): 50 is half of it, and 0 is "lay me out by the weight".
+    // The app writes it as `cell.share = 50` on the child.
+    uint8_t share;
   };
   uint16_t (*panel_layout)(int16_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
                            const UIPanelChild* children, uint16_t count);
