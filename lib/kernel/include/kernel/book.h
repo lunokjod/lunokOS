@@ -80,6 +80,10 @@ const char* chapter_at(int32_t index, int32_t& bytes);
 // `epub/page.h`) and it is not painted here: whoever composes it walks the items.
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out);
 
+// **The table the door of Lua asks for** (0.132.0): the calls of a book as the interpreter wants them, and a page
+// that is both laid out and painted in the canvas of an app, which is the one call of this file that needs the UI.
+void bind();
+
 }  // namespace book
 }  // namespace kernel
 

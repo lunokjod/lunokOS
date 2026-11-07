@@ -5,6 +5,8 @@
 
 #include "hal/hal.h"
 #include "kernel/font.h"
+#include "kernel/ui.h"
+#include "luabind/luabind.h"
 #include "pal/pal.h"
 
 namespace kernel {
@@ -25,6 +27,7 @@ struct State {
   uint8_t* chapter = nullptr;
   epub::Item* items = nullptr;
   char* words = nullptr;
+  uint32_t bytes = 0;  // the size of the file, which is what the zip asks for first
   int32_t chapter_bytes = 0;
   char mount[16];
   char rel[160];
@@ -35,7 +38,7 @@ State g;
 // **The file behind the zip**: the zip asks for its size and for bytes at an offset, and a file of a mount asks
 // to be seeked and read (docs/46, A1). A short read is a file that is not what its header said, and the zip reader
 // is told so with a -1 instead of being given bytes that are not the ones it asked for.
-int64_t file_size(void* ctx) { return static_cast<State*>(ctx)->file.size; }
+int64_t file_size(void* ctx) { return static_cast<int64_t>(static_cast<State*>(ctx)->bytes); }
 
 int32_t file_read_at(void* ctx, uint32_t offset, uint8_t* dst, uint32_t len) {
   State* state = static_cast<State*>(ctx);
@@ -67,6 +70,26 @@ int32_t line_of(void* ctx, uint8_t face, uint8_t scale) {
   const uint8_t step = (chosen.height != 0) ? chosen.height : font::kGlyphHeight;
 
   return static_cast<int32_t>(step) * scale;
+}
+
+// **The words of a refusal**, which are the zip's and are said as they are: a book that is not a book, a made-up
+// zip64, an entry with a password, a compression this reader does not know and a checksum that does not match are
+// five different things and a person has to be told which one it is (docs/46, A1).
+const char* reason_of(zip::Status status) {
+  switch (status) {
+    case zip::kOk: return nullptr;
+    case zip::kNotAZip: return "the file is not a book";
+    case zip::kSplit: return "the book is a zip of several volumes";
+    case zip::kZip64: return "the book needs zip64, which this reader does not read";
+    case zip::kDirectory: return "the contents of the book are damaged";
+    case zip::kNoRoom: return "the book has more files than this reader holds";
+    case zip::kBadData: return "a piece of the book is cut";
+    case zip::kEncrypted: return "the book is locked with a password";
+    case zip::kMethod: return "the book is compressed in a way this reader does not know";
+    case zip::kCrc: return "a piece of the book does not match its checksum";
+  }
+
+  return "the book cannot be opened";
 }
 
 // **The names that are a chapter of a book**, which is the fallback of docs/46 C2: an `.xhtml`, an `.html` or an
@@ -136,6 +159,9 @@ const char* open(const char* path) {
   if (!storage->open(g.rel, hal::OpenMode::kRead, g.file)) return "the book cannot be opened";
 
   g.storage = storage;
+  // **The size of the file is the one the mount said**, and not the one the slot carries: a slot is a handle and
+  // its size is the backend's business, while a zip asks for the length of the file before it asks anything else.
+  g.bytes = info.size;
 
   // **The blocks come before the table is read**, and the table is the one that says whether this is a book at
   // all: a file that is not one gives everything back.
@@ -156,9 +182,10 @@ const char* open(const char* path) {
   g.source.read_at = file_read_at;
 
   uint16_t count = 0;
-  if (g.archive.open(g.source, g.table, kEntries, count) != zip::kOk) {
+  const zip::Status status = g.archive.open(g.source, g.table, kEntries, count);
+  if (status != zip::kOk) {
     close();
-    return "the file is not a book";
+    return reason_of(status);
   }
 
   g.open = true;
@@ -251,6 +278,73 @@ bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style,
   out.used = result.used;
 
   return true;
+}
+
+namespace {
+
+// **The names of an entry, said to the interpreter**: it asks by index and the table of the book answers as long as
+// the book is open (docs/46, B6).
+const char* name_of(int32_t index) {
+  const zip::Entry* one = entry(index);
+
+  return (one != nullptr) ? one->name : nullptr;
+}
+
+int32_t chapter_bytes_of(const char* name) {
+  int32_t bytes = 0;
+  if (chapter(name, bytes) == nullptr) return -1;
+
+  return bytes;
+}
+
+// **A page laid out and painted in a canvas of an app**: the plan is the paginator's and the pixels are the UI's,
+// and they meet here because both halves are the kernel's (docs/46, A5, B3 and D2).
+bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
+  const ui::Canvas* canvas = ui::at(slot);
+  if (canvas == nullptr) return false;
+
+  epub::Style mine;
+  mine.body_scale = style.body_scale;
+  mine.title_scale = style.title_scale;
+  mine.small_scale = style.small_scale;
+  mine.indent = style.indent;
+
+  Fonts faces;
+  faces.body = &ui::font_face(style.body);
+  faces.title = &ui::font_face(style.title);
+  faces.small = &ui::font_face(style.small);
+
+  Page laid;
+  if (!page(from, canvas->width, canvas->height, mine, faces, laid)) return false;
+
+  ui::PageFonts paint;
+  paint.body = style.body;
+  paint.title = style.title;
+  paint.small = style.small;
+  if (!ui::canvas_book_page(slot, laid.items, laid.words, laid.count, paint, 0, "gc16")) return false;
+
+  style.count = laid.count;
+  style.next = laid.next;
+  style.ended = laid.ended;
+  style.used = laid.used;
+  style.has_picture = laid.has_picture;
+
+  return true;
+}
+
+}  // namespace
+
+void bind() {
+  luabind::BookOps ops;
+  ops.open = open;
+  ops.close = close;
+  ops.entries = entries;
+  ops.name = name_of;
+  ops.first_chapter = first_chapter;
+  ops.chapter = chapter_bytes_of;
+  ops.page = page_into;
+
+  luabind::set_book_ops(ops);
 }
 
 }  // namespace book

@@ -653,6 +653,43 @@ struct UIOps {
 
 void set_ui_ops(const UIOps& ops);
 
+// **The book of the disk** (0.132.0, docs/46 A5): what `epub.*` asks the system, in one table and for the same
+// reason the canvases are one — the interpreter does not know what a mount, a zip or a face is, and the kernel does
+// (docs/20, docs/46).
+//
+// `open` answers nullptr when the book opened and the reason when it did not; `name` answers nullptr past the end;
+// `first_chapter` answers -1 for a book with no chapter; and `chapter` says how many bytes it has, or -1. `page`
+// composes a page of the chapter that is open and paints it in the canvas, and says where the next one starts.
+//
+// **A page is composed into a canvas the app already has** (docs/46, D2): it costs no surface and no `free()`.
+struct BookStyle {
+  int8_t body = -1;   // the handle of `ui.load_font`, or -1 for the face of the system
+  int8_t title = -1;
+  int8_t small = -1;
+  uint8_t body_scale = 4;
+  uint8_t title_scale = 5;
+  uint8_t small_scale = 3;
+  int16_t indent = 24;
+  // What comes back.
+  int32_t next = 0;
+  bool ended = false;
+  int32_t used = 0;
+  bool has_picture = false;
+  int16_t count = 0;
+};
+
+struct BookOps {
+  const char* (*open)(const char* path);
+  void (*close)();
+  int32_t (*entries)();
+  const char* (*name)(int32_t index);
+  int32_t (*first_chapter)();
+  int32_t (*chapter)(const char* name);
+  bool (*page)(int16_t slot, int32_t from, BookStyle& style);
+};
+
+void set_book_ops(const BookOps& ops);
+
 // The system changed the size of the view under the app: `on_resize(width, height)` if the app has
 // one. False when it does not, which is a legal app —it just draws the same thing again— and the
 // canvas is white when it happens (docs/30).

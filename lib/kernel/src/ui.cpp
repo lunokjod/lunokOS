@@ -2033,16 +2033,55 @@ bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t s
 
 // **The same text with the ink a line of a book has** (0.129.0): the bold, the italic and the step off the
 // baseline of a `sup`/`sub`, which the faces of this system cannot give and the rectangles of a glyph can
-// (docs/46 A4).
-bool canvas_text_styled(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
-                        const char* mode, const font::Ink& ink) {
+// (docs/46 A4). And **with the face it is asked for** (0.132.0): `-1` is the face the canvas draws with.
+bool canvas_text_styled(int16_t slot, int8_t font, int16_t x, int16_t y, const char* text, uint8_t scale,
+                        uint8_t level, const char* mode, const font::Ink& ink) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached || text == nullptr || scale == 0) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
-  draw_text(*target.canvas, face_of(target.canvas->face), target.x + x, target.y + y, text, scale,
-            clamped(level), chosen, ink);
+  const font::Face& face = (font >= 0) ? face_of(font) : face_of(target.canvas->face);
+  draw_text(*target.canvas, face, target.x + x, target.y + y, text, scale, clamped(level), chosen, ink);
+  close_draw(target);
+  return true;
+}
+
+// **A page of a book, painted** (0.132.0): the plan of the paginator turned into pixels, in the canvas the app
+// gave. A word is a text with its ink and its face, a rule is one row of ink, and a picture is not painted yet —
+// the reader does not decode one (docs/46, A5 and D2).
+bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, int16_t count,
+                      const PageFonts& fonts, uint8_t level, const char* mode) {
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) return false;
+  if (!g_attached || items == nullptr || words == nullptr) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return true;
+
+  for (int16_t i = 0; i < count; ++i) {
+    const epub::Item& item = items[i];
+    if (item.kind == epub::Item::kWord) {
+      font::Ink ink = font::Ink();
+      ink.bold = (item.ink & epub::kInkBold) != 0;
+      ink.italic = (item.ink & epub::kInkItalic) != 0;
+      if ((item.ink & epub::kInkRiseMask) == epub::kInkRiseUp) ink.rise = -1;
+      if ((item.ink & epub::kInkRiseMask) == epub::kInkRiseDown) ink.rise = 1;
+
+      int8_t handle = fonts.body;
+      if (item.face == epub::kFaceTitle) handle = fonts.title;
+      if (item.face == epub::kFaceSmall) handle = fonts.small;
+
+      const font::Face& face = (handle >= 0) ? face_of(handle) : face_of(target.canvas->face);
+      draw_text(*target.canvas, face, target.x + item.x, target.y + item.y, words + item.text, item.scale,
+                clamped(level), chosen, ink);
+    } else if (item.kind == epub::Item::kRule) {
+      const uint16_t w = (item.w > 0) ? static_cast<uint16_t>(item.w) : 1;
+      draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x + item.x),
+                     static_cast<uint16_t>(target.y + item.y), w, 1, clamped(level), chosen);
+    }
+    // A picture is a box the page reserved and nothing is decoded for it yet (docs/46, A5).
+  }
+
   close_draw(target);
   return true;
 }
@@ -6363,6 +6402,9 @@ hal::UpdateMode cleaner_for(uint16_t levels, uint16_t paints) {
 
 uint16_t levels_shown() { return g_levels; }
 uint16_t paints_since_clean() { return g_paints; }
+
+// **The face behind a handle**, which is the table `font_load` filled (docs/30, docs/46 C13).
+const font::Face& font_face(int8_t handle) { return face_of(handle); }
 
 }  // namespace ui
 }  // namespace kernel

@@ -3021,6 +3021,7 @@ int l_button_held(lua_State* L) {
 const uint8_t kTouchPointsInFrame = 5;
 
 UIOps g_ui_ops = {};  // and ui.*
+BookOps g_book_ops = {};  // and epub.*
 
 TouchOps g_touch_ops = {};  // and touch.
 
@@ -9070,6 +9071,125 @@ void open_libraries(lua_State* L) {
   lua_pop(L, 6);
 }
 
+// ---------------------------------------------------------------------------
+// epub: a book of the disk, a chapter of it, and a page of the chapter (docs/46 A5)
+// ---------------------------------------------------------------------------
+//
+// **One book at a time**, which is the system's rule and not a limitation of the door: a chapter of a book is half
+// a megabyte of the extra memory and there is one reader. The module IS the book —`open`, `chapter`, `page`,
+// `close`— and every call says so in the words of a person when there is none.
+//
+// **A page is composed into a canvas the app already has** (docs/46, D2): it costs no surface, no `free()` and no
+// pixels of the system's, and what comes back is where the next page starts —a byte— and what the page took.
+
+double epub_opt_number(lua_State* L, int index, const char* field, double fallback) {
+  if (!lua_istable(L, index)) return fallback;
+  lua_getfield(L, index, field);
+  const double value = lua_isnumber(L, -1) ? static_cast<double>(lua_tonumber(L, -1)) : fallback;
+  lua_pop(L, 1);
+
+  return value;
+}
+
+// **The face an app asks for is the object `ui.load_font` gave it** and not a number (docs/30): the field is read
+// as a font and its handle is what the kernel wants, or the face of the system when the field is nil.
+int8_t epub_opt_font(lua_State* L, int index, const char* field, int8_t fallback) {
+  if (!lua_istable(L, index)) return fallback;
+
+  lua_getfield(L, index, field);
+  int8_t handle = fallback;
+  if (!lua_isnoneornil(L, -1)) {
+    const int8_t read = font_handle_of(L, -1);
+    if (read >= 0) handle = read;
+  }
+  lua_pop(L, 1);
+
+  return handle;
+}
+
+int l_epub_open(lua_State* L) {
+  if (g_book_ops.open == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const char* path = luaL_checkstring(L, 1);
+  const char* why = g_book_ops.open(path);
+  if (why != nullptr) return push_nil_error(L, "E_INVAL", why);
+
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_epub_close(lua_State* L) {
+  if (g_book_ops.close != nullptr) g_book_ops.close();
+  (void)L;
+  return 0;
+}
+
+int l_epub_entries(lua_State* L) {
+  if (g_book_ops.entries == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  lua_pushinteger(L, g_book_ops.entries());
+  return 1;
+}
+
+// The name of the entry at that index, counting from one as Lua does.
+int l_epub_name(lua_State* L) {
+  if (g_book_ops.name == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const int32_t index = static_cast<int32_t>(luaL_checkinteger(L, 1));
+  const char* name = g_book_ops.name(index - 1);
+  if (name == nullptr) return push_nil_error(L, "E_INVAL", "this book has no such entry");
+
+  lua_pushstring(L, name);
+  return 1;
+}
+
+int l_epub_first_chapter(lua_State* L) {
+  if (g_book_ops.first_chapter == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const char* name = g_book_ops.name(g_book_ops.first_chapter());
+  if (name == nullptr) return push_nil_error(L, "E_INVAL", "this book carries no chapter");
+
+  lua_pushstring(L, name);
+  return 1;
+}
+
+// The chapter is inflated and kept by the system; what comes back is how many bytes it has, because an app does
+// not have to hold a chapter to read one.
+int l_epub_chapter(lua_State* L) {
+  if (g_book_ops.chapter == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const char* name = luaL_checkstring(L, 1);
+  const int32_t bytes = g_book_ops.chapter(name);
+  if (bytes < 0) return push_nil_error(L, "E_INVAL", "this book carries no such chapter");
+
+  lua_pushinteger(L, bytes);
+  return 1;
+}
+
+// epub.page(canvas, from, opts): a page of the chapter that is open, painted in that canvas.
+//
+// `opts` is `{face, title_face, small_face, scale, title_scale, small_scale, indent}`, and every one of them has a
+// default: the face of the system and the steps of a page of a book.
+int l_epub_page(lua_State* L) {
+  if (g_book_ops.page == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const int16_t slot = static_cast<int16_t>(luaL_checkinteger(L, 1));
+  const int32_t from = static_cast<int32_t>(luaL_optinteger(L, 2, 0));
+
+  BookStyle style;
+  style.body = epub_opt_font(L, 3, "face", style.body);
+  style.title = epub_opt_font(L, 3, "title_face", style.body);
+  style.small = epub_opt_font(L, 3, "small_face", style.body);
+  style.body_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "scale", style.body_scale));
+  style.title_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "title_scale", style.title_scale));
+  style.small_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "small_scale", style.small_scale));
+  style.indent = static_cast<int16_t>(epub_opt_number(L, 3, "indent", style.indent));
+
+  if (!g_book_ops.page(slot, from, style)) {
+    return push_nil_error(L, "E_INVAL", "that page cannot be composed: no book, no chapter, or no canvas");
+  }
+
+  lua_pushinteger(L, style.next);
+  lua_pushboolean(L, style.ended ? 1 : 0);
+  lua_pushinteger(L, style.used);
+  lua_pushboolean(L, style.has_picture ? 1 : 0);
+  return 4;
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9127,6 +9247,18 @@ void seal_globals(lua_State* L) {
   set_function(L, "encode", l_qr_encode);
   set_function(L, "caps", l_qr_caps);
   lua_setglobal(L, "qr");
+
+  // epub: a book of the disk, a chapter of it and a page of the chapter painted in
+  // a canvas of the app (docs/46, A5 and B3).
+  lua_createtable(L, 0, 7);
+  set_function(L, "open", l_epub_open);
+  set_function(L, "close", l_epub_close);
+  set_function(L, "entries", l_epub_entries);
+  set_function(L, "name", l_epub_name);
+  set_function(L, "first_chapter", l_epub_first_chapter);
+  set_function(L, "chapter", l_epub_chapter);
+  set_function(L, "page", l_epub_page);
+  lua_setglobal(L, "epub");
 
   // json: reading fields out of a text, with the same helpers the manifests use.
   lua_createtable(L, 0, 2);
@@ -9755,6 +9887,7 @@ void set_meter_ops(const MeterOps& ops) { g_meter_ops = ops; }
 
 // And the panel, which the kernel installs only when the board answers with a surface (docs/50).
 void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
+void set_book_ops(const BookOps& ops) { g_book_ops = ops; }
 
 // The answer of a sleep: `true` when the board came back. A board that went to a
 // deep sleep never gets here, because the app was closed before it went and the

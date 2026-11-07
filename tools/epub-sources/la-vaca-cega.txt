@@ -1,0 +1,38 @@
+## La vaca cega
+
+Topant de cap en una i altra soca,
+avançant d'esma pel camí de l'aigua,
+se'n ve la vaca tota sola. És cega.
+
+D'un cop de roc llençat amb massa traça,
+el bailet va desfer-li un ull, i en l'altre
+se li ha posat un tel: la vaca és cega.
+
+Ve a abeurar-se a la font com ans solia,
+mes no amb el ferm posat d'altres vegades
+ni amb ses companyes, no: ve tota sola.
+
+Ses germanes, pels singles, per les comes,
+pel silenci dels prats i en la ribera,
+fan sonar l'esquellot, mentre pasturen
+l'herba fresca a l'atzar... Ella cauria.
+
+Topa de morro en l'esmolada pica
+i recula afrontada; però torna,
+i abaixa el cap a l'aigua, i beu calmosa.
+
+Beu poc, sens gaire set. Després aixeca
+al cel, enorme, la embanyada testa
+amb un gran gest tràgic; parpelleja
+sobre les mortes nines, i se'n torna
+orfe de llum sota del sol que crema,
+vacil·lant pels camins inoblidables,
+brandant llànguidament la llarga cua.
+
+## Nota del llibre
+
+Aquest llibre és la mostra del lector d'aquest sistema, i no és cap llibre de debò: és un poema de domini públic amb una nota al darrere, fet per provar una pàgina, el seu lloc i el seu byte.
+
+El poema és «La vaca cega», de Joan Maragall i Gorina, publicat el 1893 dins Poesies. L'autor va morir l'any 1911, o sigui que l'obra és de domini públic, i el text s'ha copiat de Viquitexts, que el té revisat contra l'edició impresa.
+
+El lector d'aquest sistema llegeix l'XHTML d'un capítol, el converteix en paraules amb el seu byte, maqueta una pàgina amb una cara de debò i la pinta en un canvas de l'app. El que no fa, i és honest dir-ho, és mirar el CSS del llibre, fer columnes, partir paraules o dibuixar una imatge: això és la feina de les fases que venen.

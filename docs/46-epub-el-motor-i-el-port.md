@@ -122,9 +122,9 @@ definicions i el `Token` porta `inset` (0.130.0).
 
 | # | Funcionalitat | Al paper | Avui aquí | Què cal |
 |---|---|---|---|---|
-| **B1** | `epub.open(unit, path)` → objecte llibre, amb el motiu quan no és un llibre | `lEpubOpen` | **No hi és** | `luabind`: un objecte amb metataula i `__gc`, com `paperos.epub.book` |
-| **B2** | `book:chapter(href)` → bytes del capítol, i `close()` | `lEpubChapter` | **No hi és** | el mateix |
-| **B3** | `book:page(from, w, h, opts)` → la pàgina composta | `lEpubPage` | **No hi és** | Vegeu la decisió **D2**: superficie nova o directament dins d'un canvas de l'app |
+| **B1** | `epub.open(unit, path)` → objecte llibre, amb el motiu quan no és un llibre — **fet el 7/11 (0.132.0)**, i **com a mòdul i no com a objecte**: hi ha **un sol llibre obert** al sistema (el capítol és mig megabyte de memòria extra) | `lEpubOpen` | **No hi era** | `epub.open(path)`, `close()`, `entries()`, `name(i)`, `first_chapter()` (docs/30) |
+| **B2** | `book:chapter(href)` → bytes del capítol, i `close()` — **fet el 7/11 (0.132.0)**: `epub.chapter(name)` infla el capítol i en diu **quants bytes** (l'app no l'ha de tenir a la mà per llegir-lo) | `lEpubChapter` | **No hi era** | el mateix |
+| **B3** | `book:page(from, w, h, opts)` → la pàgina composta — **fet el 7/11 (0.132.0)**: `epub.page(canvas, from, opts)` **pinta dins del canvas de l'app** i torna `next, ended, used, has_picture` | `lEpubPage` | **No hi era** | Resolt amb la decisió **D2**: cap superfície nova |
 | **B4** | `book:measure(from, w, h, opts)` → on acaba la pàgina, sense pintar | `lEpubMeasure` | **No hi és** | el mateix, sense canvas |
 | **B5** | Les opcions d'una pàgina: `face`, `title_face`, `small_face`, `dark` | `epubStyleFrom` | Les cares es donen per **número** (`ui.load_font`) i no per nom | `{face = <número>, title_face = …, dark = true}`, i `paper`/`ink` segons `dark` |
 | **B6** | `zip.entries(unit, path)` → la llista d'entrades | `lZipEntries` | **No hi és** | surt de l'A1; l'app en llegeix el `container.xml` i l'OPF |
@@ -158,7 +158,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 | # | Què | Per què l'EPUB el necessita | Mida |
 |---|---|---|---|
 | **D1** | **La pantalla sencera**: amagar la barra de 48 files i donar a l'app les 540 × 960, amb el gest de sortida del sistema | El lector del paper té `paperos.fullscreen` i sense això perd 48 files i el gest de dos tocs | ~150 línies al nucli (vista, barra, toc) |
-| **D2** | **Com torna la pàgina**: un objecte superfície nou (com el paper) o **compondre dins d'un canvas de l'app** | És la decisió de menys codi: aquí la vista ja és un canvas i no caldria `free()` ni un tipus nou | 0 si és dins del canvas; ~200 si és un objecte |
+| **D2** | **Com torna la pàgina** — **decidit el 7/11 (0.132.0)**: **dins d'un canvas de l'app** (`epub.page(canvas, from, opts)`) | És la decisió de menys codi: aquí la vista ja és un canvas i no caldria `free()` ni un tipus nou | 0 tipus nous: `ui::canvas_book_page` camina el pla i el pinta |
 | **D3** | **Cares amb accents** — **resolt el 7/11 (0.127.0)**: el dibuix d'un text preguntava a la cara només pels codis per sota de `0x7F` i ara li pregunta per **qualsevol byte**; la cara del llibre és `/fonts/dejavuserif-latin1.ttf` (**23 856 B, 232 glifs**) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Fet amb `tools/ttf_latin1.py`, que retalla el DejaVu Serif i **aplana els glifs fets de peces** (el lector refusa un glif muntat de trossos: 55 glifs compostos, el més gran de 85 punts i 5 contorns). Queda el tokenitzador convertint UTF-8 → un byte (fase 2); les **tres cares del sistema segueixen sent ASCII** |
 | **D4** | **Pintar un bloc de píxels en un canvas** | Les imatges del llibre surten del ZIP a la memòria i `img::decode` dona files; `canvas_image` llegeix un **fitxer** | `ui::canvas_bitmap` (~40 línies) |
 | **D5** | **El text amb èmfasi** (A4) — **fet el 7/11 (0.129.0)**: `font::Ink` a les dues canonades del text (outlines i bits) i `canvas_text_styled` | Negreta i cursiva són a la llista de funcionalitats del paper | Fet a `lib/kernel/src/font.cpp` i `lib/kernel/src/ui.cpp`; quatre casos a `test/test_font` compten els rectangles |

@@ -412,8 +412,36 @@ monòton torna a començar a cada arrencada), i en arrencar les vençudes es dis
 `late_ms`. Sense època no s'escriu res, perquè una hora relativa no vol dir res després d'un
 reinici (docs/60).
 
-## `qr`
+## `epub`
 
+**Un llibre del disc, un capítol seu i una pàgina del capítol pintada en un canvas** (7/11, 0.132.0). És la
+porta del lector: el motor —el zip, el tokenitzador i el paginador— és del sistema i l'app només demana pàgines.
+
+| Crida | Què fa |
+|---|---|
+| `epub.open(path)` | obre el llibre d'un camí absolut (`/littlefs/epub/x.epub`); `true`, o `nil` i el motiu |
+| `epub.entries()` | quantes entrades té el llibre |
+| `epub.name(i)` | el nom de l'entrada `i` (comptant des d'u) |
+| `epub.first_chapter()` | el nom del primer fitxer que sembla un capítol |
+| `epub.chapter(name)` | **infla** aquest capítol i en diu quants bytes té |
+| `epub.page(canvas, from, opts)` | maqueta una pàgina des del byte `from` i **la pinta en aquell canvas**; torna `next, ended, used, has_picture` |
+| `epub.close()` | tanca el llibre i torna la memòria |
+
+`opts` és `{face, title_face, small_face, scale, title_scale, small_scale, indent}`, i cada camp té un valor per
+defecte (la cara del sistema i els passos d'una pàgina de llibre). Les cares són **l'objecte que torna
+`ui.load_font`**, no un número.
+
+**La posició de lectura és un byte dins del capítol** i no un número de pàgina: `epub.page` torna `next`, que
+és el byte on comença la pàgina següent. Un lector desa `(capítol, byte)`. Quan `ended` és cert el capítol
+s'ha acabat.
+
+Hi ha **un sol llibre obert** al sistema: el capítol és mig megabyte de memòria extra i el lector és un. Per
+això el mòdul fa de llibre i no cal cap objecte amb metataula ni `__gc`: `open` tanca el que hi hagués.
+
+El que el lector **no** fa encara: ni una imatge (la caixa de la foto es reserva i no es descodifica), ni el
+CSS, ni columnes, ni partició de paraules (docs/46).
+
+## `qr`
 | Crida | Torna | Notes |
 |---|---|---|
 | `qr.encode(text[, nivell[, mode]])` | taula o `nil, error` | `nivell`: `"l"`, `"m"` (per defecte), `"q"`, `"h"`; `mode`: `"auto"` (per defecte), `"numeric"`, `"alnum"`, `"byte"` |

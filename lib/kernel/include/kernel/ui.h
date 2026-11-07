@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "epub/page.h"
 #include "hal/hal.h"
 // **A canvas draws a text with an ink** (0.129.0): the bold, the italic and the step off the baseline live in
 // `kernel/font.h`, and this header names them instead of repeating the three fields (docs/46, A4).
@@ -151,6 +152,11 @@ const Damage& damage(uint8_t index);
 
 // The canvas at that slot, or nullptr. Slot 0 is the view of the app, which the system owns.
 const Canvas* at(int16_t slot);
+
+// **The face behind a handle of `font_load`**, or the face of the system for a negative one: it is what the reader
+// of a book needs to know which typeface an app asked for, and it is the same table `canvas_set_font` uses
+// (docs/30, docs/46 C13).
+const font::Face& font_face(int8_t handle);
 // **How many controls this board can hold**, which is how many slots the table of canvases has: it is asked of the
 // extra memory at boot and not written in this file (0.102.0, docs/75).
 uint16_t canvas_count();
@@ -241,8 +247,23 @@ bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t s
 // to the right, an italic is a slant row by row, and a `sup`/`sub` is a step off the baseline. It is the primitive
 // the reader of a book composes its pages with, and it is here and not in a call of Lua because what needs it is
 // the system and not an app (docs/30, docs/46 D5).
-bool canvas_text_styled(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
-                        const char* mode, const font::Ink& ink);
+//
+// **It says which face** (0.132.0): a page of a book has three —the words, the titles and the caption— and a canvas
+// has one, so the call names the one it wants; `-1` is the face the canvas draws with, which is what the other
+// primitives use (docs/30).
+bool canvas_text_styled(int16_t slot, int8_t font, int16_t x, int16_t y, const char* text, uint8_t scale,
+                        uint8_t level, const char* mode, const font::Ink& ink);
+
+// **A page of a book, painted** (0.132.0, docs/46 A5 and D2): walks the plan the paginator made —the words with
+// their face, their step and their ink, the rules and the boxes of the pictures— and paints it in the canvas. The
+// faces are handed in by number (`ui.load_font`), one per role, and `-1` is the face of the system.
+struct PageFonts {
+  int8_t body = -1;
+  int8_t title = -1;
+  int8_t small = -1;
+};
+bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, int16_t count,
+                      const PageFonts& fonts, uint8_t level, const char* mode);
 
 // ---- a label: one text in the frame of a control (docs/30, docs/90) ----
 //

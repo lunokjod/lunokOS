@@ -2614,7 +2614,43 @@ namespace kernel {
 // not measured yet** —a page of a chapter with figures places the words and leaves the picture out—; the glass is
 // **still not looked at**, and the next piece is the one that changes that: paint a page of items in a canvas and
 // open the door from Lua, which is what a person needs to see a book on the screen (docs/46, B2 and B3).
-static const char kVersion[] = "0.131.0";
+//
+// 0.132.0 (7/11): **a book on the glass, and the door of Lua that puts it there**.
+//
+// A page of a book is now a picture a person can look at: `ui::canvas_book_page` walks the plan of the paginator and
+// paints it —a word with its face, its step and its ink, a rule as a row of ink— and the module `epub` of Lua asks
+// for it. The rest is the same road of the last four pieces: `/littlefs/epub/la-vaca-cega.epub`, its central
+// directory, the chapter inflated to the extra memory, the tokenizer, the paginator and the pixels.
+//
+// **The door is a module and not an object** (`epub.open`, `epub.chapter`, `epub.page`, `epub.close`), because there
+// is one book open at a time in this system and a chapter is half a megabyte of the extra memory: an object with a
+// metatable would promise many of them. `epub.chapter` says how many bytes a chapter has and not its text, because
+// an app does not have to hold a chapter to read one. And **the page is composed into a canvas the app already
+// has** —the decision D2 of docs/46, which costs no surface and no `free()`—: what comes back is `next`, the byte
+// the next page starts at, which is the reading position of a book.
+//
+// **Two faults were found by looking at the glass, and neither would have been found by a test that passes**: the
+// first page came out in the bold sans face of the system with every accent missing, and there were two reasons at
+// once. **The size of a file is the one the mount said in its `stat`** and not the one the slot a mount hands out
+// carries —that one is the backend's business and was zero, so the zip said "not a zip"—, and **the faces of a page
+// are the objects `ui.load_font` gives**, not numbers, so reading them as numbers fell back to the face of the
+// system, which is ASCII and has no `ç`. The accent then painted as a gap and the word closed up: `camí` was `cam`.
+//
+// Measured on the bench of the computer, with the emulator's glass and `--dump`: the sample book is
+// `data/epub/la-vaca-cega.epub`, **2 275 bytes**, two chapters of **308 words**, built by `tools/make_epub.py` from
+// the text in `tools/epub-sources/la-vaca-cega.txt` —«La vaca cega», of Joan Maragall, 1893, public domain—. The
+// probe app reads it: **5 entries**, the first chapter `OEBPS/ch01.xhtml` of **1 107 bytes**; the first page is
+// laid out from byte 0 and ends at **byte 625** having used **891 of the 912 rows** of the view; the second page
+// starts at that byte, uses **638 rows** and closes the chapter. The image of the two pages is what the glass shows:
+// the serif face of the book, the title in its own step, the air between the stanzas and every accent where it goes.
+// `pio run -e emulator` says SUCCESS with 0 warnings, and the suites are still **23 and 520 cases** built with 0
+// warnings (the door and the painter have no case yet: a canvas needs a booted kernel and the picture was looked at
+// instead, which is said here as it is).
+// **Pending**: the 520 cases are **not executed** (that wants the owner's word for it); the pictures of a book are
+// still not measured nor painted; there is no app of the reader —the shelf, the menus, the foot and the saved
+// position are docs/46 C1..C13—; and the next piece is the picture of a page inside a book: the `href` resolved
+// against the chapter and one image in a cache (docs/46, A5) and `ui::canvas_bitmap` (D4).
+static const char kVersion[] = "0.132.0";
 
 }  // namespace kernel
 

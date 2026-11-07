@@ -4,6 +4,7 @@
 
 #include "alarms/alarms.h"
 #include "kernel/apps.h"
+#include "kernel/book.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
@@ -357,6 +358,9 @@ void boot(hal::IPlatform& platform) {
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
+  // **The book of the disk is given to the interpreter** (0.132.0): the door of Lua asks the kernel what a mount, a
+  // zip and a page are, and it asks through a table of calls, the same way the canvases are (docs/20, docs/46).
+  book::bind();
   // **The keyboard the settings chose** (0.93.0): the UI says which children it carries, and a name that is not one of
   // them falls back to qwerty with a line, the same way a unit that is not there does; the boot does not stop for a
   // setting (docs/30, docs/70).

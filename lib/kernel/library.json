@@ -4,6 +4,7 @@
   "description": "lunokOS kernel: boot, event loop, shell, log ring.",
   "dependencies": {
     "alarms": "*",
+    "epub": "*",
     "luabind": "*",
     "ttf": "*",
     "img": "*"
