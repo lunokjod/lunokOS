@@ -3031,7 +3031,37 @@ namespace kernel {
 // the book, with its fitxa in docs/46: **C14** (the index, `nav`/NCX, which the OPF now makes reachable), **C7** (the
 // cover as a state; the OPF already carries the `cover` item for it), **C15** (a page by number), **C11** (the cache of
 // thumbnails, which wants B9) and the foot of the shelf.
-static const char kVersion[] = "0.142.0";
+// 0.143.0 (8/11): **the index of the book, on the glass and in the menu** (docs/46, C14) — and the ceiling of an app's
+// source, raised for it.
+//
+//   - **the index, read**: EPUB 3 leaves a `nav` in an XHTML file of its own and EPUB 2 a `toc.ncx` with a `navPoint`
+//     per entry. The two end in a label and an `href`, the `#fragment` is dropped —an entry lands on the first page of
+//     its chapter, which is what this reader can do— and the `href` becomes a chapter of the spine; two entries in the
+//     same file keep the first one, the chapter itself; and a book that declares no index **gets one made of its
+//     chapters** (`Chapter k`) when it has more than one, which is the one that lets chapter thirty of eighty be
+//     reached. The name is the number and not the title, because a title means inflating every chapter when the book is
+//     opened and the book keeps one in memory. The log says where it came from: `index 2 (ncx)`;
+//   - **the index, on the glass**: `Book → Contents` gives the page back and puts up a `ui.list` that pages itself,
+//     with **a control for every row** —the dial walks the chapters and the centre opens one, and a finger opens the row
+//     it presses—. The row of the chapter that is open is the marked one and the list opens on its page. A long press
+//     or a swipe puts it away; choosing a row opens the chapter from its first byte, recounts its pages and remembers
+//     the position, and a chapter that cannot be read leaves the reader on the shelf with a notice;
+//   - **the finger that chose belongs to the choice**: the system answers the press and the same finger arrives once
+//     more as a `tap`, so for six hundred milliseconds after a choice a tap is that one and not a page turn. It was a
+//     latent bug of the menu of 0.137.0 (choosing *Dark page* turned a page behind the card) and the index made it
+//     impossible to ignore;
+//   - **the ceiling of the source is 65 536 B** (docs/75): the reader is **49 710 B** of Lua and the 49 152 B cap said
+//     `too big to run`. The block is the heap's and goes back before the app runs a line, so 64 KB are 32 KB of heap
+//     while an app starts and nothing while it runs. It is a step and not the decision docs/46 D6 asks for.
+//
+// The sample book of `data/epub/` carries a real index since this version (`tools/make_epub.py` writes the `toc.ncx`
+// and names it in the spine), and the app test reads the line: `La vaca cega, 2 chapter(s), index 2 (ncx)`. The suites
+// are **533 cases**, and `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn: the list of the index,
+// its marked row and the `Contents` entry are proven by the code and by the line of the log, not by a photograph of the
+// panel. Of the book, what is still missing with its fitxa in docs/46: **C7** (the cover as a state), **C15** (a page by
+// number), **C11** (the cache of thumbnails, which wants B9) and the foot of the shelf.
+static const char kVersion[] = "0.143.0";
 
 }  // namespace kernel
 

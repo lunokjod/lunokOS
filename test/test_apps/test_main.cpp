@@ -9836,8 +9836,9 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // **And the serif was on the disk**: a book read in the face of the system says so, and this test wants the two faces.
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: no serif face"), g_out);
   // **The title and the spine are the book's, from its OPF** (docs/46, C2): the sample says its own title and the two
-  // chapters the spine orders, which is not the same thing as the names of its files.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "reader: La vaca cega, 2 chapter(s)"), g_out);
+  // chapters the spine orders, which is not the same thing as the names of its files. **And its index** (C14) comes from
+  // the `toc.ncx` of the book: two entries into two chapters of the spine.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "reader: La vaca cega, 2 chapter(s), index 2 (ncx)"), g_out);
 
   const char* path = "/data/reader/reading.txt";
   char where[256] = {0};

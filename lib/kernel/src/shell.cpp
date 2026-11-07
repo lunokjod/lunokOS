@@ -73,7 +73,13 @@ const size_t kPrintCap = 1024;
 // that fits the board. What it costs is the moment of the load and nothing after it: the block is freed before the app
 // runs a line, and the chunk the compiler keeps is **21 578 B** stripped (43 499 B with the debug names), which fits the
 // 131 072 B ceiling of an interpreter with its 29 842 B floor to spare (docs/75, measured on the bench).
-const size_t kSourceCap = 49152;
+//
+// **64 KB since 0.143.0**: the reader of EPUB of this system is **49 710 B** of Lua —the shelf, the page, the foot, the
+// menu, the index and the two faces— and the 48 KB cap said no to an app that fits the board. The block is the heap's
+// and it is given back before the app runs a line (0.56.0), so 64 KB are **32 KB of heap while an app starts and
+// nothing while it runs**. docs/46 D6 still asks for a decision between a much bigger ceiling and a `require` for the
+// apps; this is a step that unblocks the reader, not that decision (docs/75).
+const size_t kSourceCap = 65536;
 // **The ceiling of an app's interpreter when the board does not say one**: 131 072 B since 4/11, and it was
 // 65 536 B. The number is measured and not chosen: on an ATOM the interpreter is **29 842 B** before the app
 // has run a line (13 021 of Lua itself, 13 200 of the UI library and the rest the other globals), so a 64 KB

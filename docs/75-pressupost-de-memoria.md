@@ -203,6 +203,17 @@ no posar buffers grans a la pila** (més amunt): la regla prohibeix la **pila**,
 que es demana i es torna abans que l'app corri una línia no el paga ningú quan no s'usa. Si el `malloc`
 falla, el sistema ho diu (`no memory for the source`) i no arrenca l'app, que és el que ha de fer.
 
+## El sostre del codi d'entrada, pujat a 64 KB (8/11, 0.143.0)
+
+El lector d'EPUB d'aquest sistema és **49 710 B** de Lua —el prestatge, la pàgina, el peu, els menús, l'índex i les
+dues cares— i el sostre de 49 152 B li deia `too big to run` just quan va arribar el C14. El sostre és ara de
+**65 536 B**, i el preu és el mateix d'abans i pel mateix motiu: el bloc és del heap i es torna abans que l'app corri
+una línia (0.56.0), o sigui que **64 KB són 32 KB de heap mentre una app arrenca i res mentre corre**. El flash no es
+mou.
+
+El que **no** és: la decisió de docs/46 D6, que vol triar entre un sostre molt més gran i un `require` per a les apps.
+El chunk del lector i el cost d'aquest pas al banc **no s'han mesurat** i queden a docs/95.
+
 ## Un bloc que no creix no es queda sense lloc (4/11)
 
 El heap del banc (`pal_host`, `HostExtraMemory`) té **dues cases** com la placa: la RAM del xip i la memòria

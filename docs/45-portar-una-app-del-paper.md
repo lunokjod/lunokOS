@@ -155,7 +155,8 @@ port va ensenyar i que valen per al següent:
   que `day.lua` i `week.lua` **no es poden carregar**: les tres parts són un sol fitxer de 1 250 línies, amb l'ordre
   de sempre —dades, dibuix, pàgina— i el capçal de cada part dient de quin fitxer de l'original surt.
 - **El preu de la font es diu al pitjor moment i no a la pàgina.** L'app fa **44 545 B** i el sostre de font de la
-  shell era de 32 768 B (`too big to run`): el sostre és **49 152 B** des d'aquesta versió, i no costa RAM mentre
+  shell era de 32 768 B (`too big to run`): el sostre és **49 152 B** des d'aquesta versió (i **65 536 B** des de la
+  0.143.0, docs/75), i no costa RAM mentre
   l'app corre perquè el bloc es torna quan el chunk ja està compilat (docs/75). El chunk que queda són **21 578 B**
   sense noms de depuració.
 - **Dibuixar un gràfic és un `ui.canvas`.** L'original el pintava a `on_draw()`, que aquí no existeix; un canvas amb

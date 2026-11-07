@@ -96,12 +96,15 @@ def container():
     )
 
 
-def opf(title, author, names):
+def opf(title, author, names, ncx_href=None):
     items = "\n".join(
         '    <item id="c%d" href="%s" media-type="application/xhtml+xml"/>' % (i + 1, one)
         for i, one in enumerate(names)
     )
+    if ncx_href is not None:
+        items += '\n    <item id="ncx" href="%s" media-type="application/x-dtbncx+xml"/>' % ncx_href
     spine = "\n".join('    <itemref idref="c%d"/>' % (i + 1) for i in range(len(names)))
+    toc = ' toc="ncx"' if ncx_href is not None else ''
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book">\n'
@@ -112,9 +115,35 @@ def opf(title, author, names):
         '    <dc:identifier id="book">lunok-book-%s</dc:identifier>\n'
         "  </metadata>\n"
         "  <manifest>\n%s\n  </manifest>\n"
-        "  <spine>\n%s\n  </spine>\n"
+        "  <spine%s>\n%s\n  </spine>\n"
         "</package>\n"
-        % (escape(title), escape(author), re.sub(r"[^a-z0-9]+", "-", title.lower()), items, spine)
+        % (escape(title), escape(author), re.sub(r"[^a-z0-9]+", "-", title.lower()), items, toc, spine)
+    )
+
+
+def ncx(title, names, titles):
+    """**The index of the book**, which is what EPUB 2 calls a `toc.ncx`.
+
+    One `navPoint` per chapter, with the title the source gave it and the file it opens: the reader of this house
+    turns that pair into a chapter of the spine, so the sample book carries a real index instead of a generated one.
+    """
+    points = []
+    for i, (one, label) in enumerate(zip(names, titles)):
+        points.append(
+            '    <navPoint id="n%d" playOrder="%d">\n'
+            "      <navLabel><text>%s</text></navLabel>\n"
+            '      <content src="%s"/>\n'
+            "    </navPoint>" % (i + 1, i + 1, escape(label), one)
+        )
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'
+        "  <head>\n"
+        '    <meta name="dtb:uid" content="lunok-book-%s"/>\n'
+        "  </head>\n"
+        "  <docTitle><text>%s</text></docTitle>\n"
+        "  <navMap>\n%s\n  </navMap>\n"
+        "</ncx>\n" % (re.sub(r"[^a-z0-9]+", "-", title.lower()), escape(title), "\n".join(points))
     )
 
 
@@ -161,7 +190,9 @@ def main():
         # The `mimetype` is the first entry and it is **stored**: a reader looks for it without ungzipping.
         book.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", zipfile.ZIP_STORED)
         book.writestr("META-INF/container.xml", container())
-        book.writestr("OEBPS/content.opf", opf(args.title, args.author, names))
+        book.writestr("OEBPS/content.opf", opf(args.title, args.author, names, ncx_href="toc.ncx"))
+        # **And its index**, which is what the reader shows as Contents (docs/46, C14).
+        book.writestr("OEBPS/toc.ncx", ncx(args.title, names, [one[0] for one in chapters]))
         # **The picture of the sample is drawn here**, and the chapter that holds it says so with an `<img>`,
         # which is the only thing the reader of this house takes from a picture (docs/46, A2).
         if args.figure:

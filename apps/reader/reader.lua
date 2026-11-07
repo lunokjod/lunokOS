@@ -148,10 +148,23 @@ local function join_path(folder, href)
   return table.concat(parts, '/')
 end
 
+-- **A label of the index as words** (docs/46, C14): the tags out, the entities a title uses decoded and the spaces
+-- squeezed, because a `nav` of EPUB 3 writes its labels in XHTML and a `toc.ncx` writes plain text.
+local function clean_label(text)
+  text = text:gsub('<[^>]->', '')
+  text = text:gsub('&nbsp;', ' '):gsub('&lt;', '<'):gsub('&gt;', '>'):gsub('&quot;', '"'):gsub('&amp;', '&')
+  text = text:gsub('%s+', ' ')
+  return text:gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+-- **The ceiling of an index**: a book of a thousand chapters has an index of a thousand rows, and the list of the
+-- reader is the one that pages itself (docs/46, C14).
+local kMaxIndex = 128
+
 -- **The chapters of the book, in the order they are read** (0.142.0, docs/46 C2): `META-INF/container.xml` names the
 -- OPF, the OPF names every file of the book and its spine says the order — which is the order of the book and not the
 -- order of the names. When the OPF cannot be read, the `.xhtml`, `.html` and `.htm` outside `META-INF`, sorted by name,
--- which is what the reader has done since the first day. It also says the title of the book, which the bar shows.
+-- which is what the reader has done since the first day. It also says the title of the book and its index.
 local function chapters_of_book()
   local known = {}
   for i = 1, epub.entries() do
@@ -161,6 +174,8 @@ local function chapters_of_book()
 
   local spine = {}
   local title = nil
+  local toc = {}
+  local toc_from = 'none'
 
   local container = epub.read('META-INF/container.xml')
   local opf_path = container and (container:match('full%-path%s*=%s*"([^"]+)"') or
@@ -187,18 +202,88 @@ local function chapters_of_book()
           if known[href] then spine[#spine + 1] = href end
         end
       end
+
+      -- **The index the book declares** (0.143.0, docs/46 C14): EPUB 3 leaves a `nav` in an XHTML file of its own and
+      -- EPUB 2 a `toc.ncx` with a `navPoint` per entry. The two end in a label and an href that is turned into a
+      -- chapter of the spine, with its `#fragment` dropped — an entry lands on the first page of its chapter, which
+      -- is what this reader can do.
+      local nav_href, ncx_href = nil, nil
+      for _, item in pairs(items) do
+        local href = item.href or ''
+        local kind = (item['media-type'] or ''):lower()
+        if nav_href == nil and item.properties ~= nil and item.properties:find('nav', 1, true) then
+          nav_href = join_path(base, href)
+        end
+        if ncx_href == nil and (kind == 'application/x-dtbncx+xml' or href:lower():match('%.ncx$')) then
+          ncx_href = join_path(base, href)
+        end
+      end
+
+      local function chapter_of(target)
+        local file = join_path(base, (target:gsub('#.*$', '')))
+        for i = 1, #spine do
+          if spine[i] == file then return i end
+        end
+        return nil
+      end
+
+      local function add_entry(label, target)
+        if #toc >= kMaxIndex then return end
+        local at = chapter_of(target)
+        if at == nil then return end
+        -- **Two entries in the same file land on the same page**: the index keeps the first one, the chapter itself.
+        if #toc > 0 and toc[#toc].at == at then return end
+        local words = clean_label(label)
+        if words == '' then return end
+        toc[#toc + 1] = { title = words, chapter = spine[at], at = at }
+      end
+
+      if nav_href ~= nil and known[nav_href] then
+        local src = epub.read(nav_href)
+        if src ~= nil then
+          local nav = src:match('<nav[^>]-toc.->(.-)</nav>') or src
+          for href, label in nav:gmatch('<a%s[^>]-href%s*=%s*"([^"]+)"[^>]*>(.-)</a>') do
+            add_entry(label, href)
+          end
+        end
+        if #toc > 0 then toc_from = 'nav' end
+      end
+
+      if #toc == 0 and ncx_href ~= nil and known[ncx_href] then
+        local src = epub.read(ncx_href)
+        if src ~= nil then
+          for label, target in
+            src:gmatch('<text[^>]*>([^<]*)</text>%s*</navLabel>%s*<content%s[^>]-src%s*=%s*"([^"]+)"') do
+            add_entry(label, target)
+          end
+        end
+        if #toc > 0 then toc_from = 'ncx' end
+      end
     end
   end
 
-  if #spine > 0 then return spine, title end
-
-  local out = {}
-  for name in pairs(known) do
-    if not name:find('^META%-INF/') and name:match('%.x?html?$') then out[#out + 1] = name end
+  if #spine == 0 then
+    local out = {}
+    for name in pairs(known) do
+      if not name:find('^META%-INF/') and name:match('%.x?html?$') then out[#out + 1] = name end
+    end
+    table.sort(out)
+    spine = out
   end
-  table.sort(out)
 
-  return out, title
+  -- **A book that declares no index gets one made of its chapters** (docs/46, C14): it is not the index the author
+  -- wrote, it is the one that lets chapter thirty of eighty be reached. The name is the number and not the title —
+  -- reading a title means inflating every chapter of the book when it is opened, and a book keeps one chapter in
+  -- memory.
+  if #toc == 0 and #spine > 1 then
+    local most = (#spine < kMaxIndex) and #spine or kMaxIndex
+    for k = 1, most do
+      toc[k] = { title = 'Chapter ' .. k, chapter = spine[k], at = k }
+    end
+    toc_from = 'spine'
+  end
+
+  return spine, title, toc, toc_from
 end
 
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
@@ -221,6 +306,19 @@ local ended = false
 local foot = nil
 local endmark = nil
 local strip = nil
+-- **The spine of the open book and its index** (0.143.0, docs/46 C2 and C14): the chapters in the order they are read
+-- and the entries of the book's own index —a label and the chapter it opens—. A book of one chapter declares no index
+-- and one is not made up for it.
+local chapter_list = {}
+local toc = {}
+-- **The index on the glass**: the list of its rows while it is up and the title above it. It is a screen of its own,
+-- so the page is given back while it is there and built again when it goes (docs/30, docs/90).
+local index_list = nil
+local index_head = nil
+-- **The finger that chose a row belongs to the row** (docs/46, C14): the system answers the press and the same finger
+-- arrives once more as a `tap`, and a page turned by it would be a page nobody asked for. This is the moment until
+-- which a tap is that one, and the window is the one the finger takes to be counted as a tap (docs/30).
+local swallow_tap = 0
 
 -- **The pages of a chapter, counted in the background** (0.138.0, docs/46 C5): `measure` lays a page out and paints
 -- nothing, and the walk of a chapter of half a megabyte is more than one turn of the glass, so it is paid a few pages at
@@ -466,7 +564,10 @@ local function put_a_notice(headline, text)
   ui.present('gc16')
 end
 
-local function give_back()
+-- **The page and its foot go back together** (docs/30): a canvas, two labels and the strip of the balls, which are
+-- the four things a page of a book is made of here. The count of the chapter stays: the index gives the page back and
+-- takes it again, and recounting a chapter for that would be walking it for nothing.
+local function release_page()
   if screen ~= nil then
     screen:release()
     screen = nil
@@ -479,6 +580,21 @@ local function give_back()
   endmark = nil
   if strip ~= nil then strip:release() end
   strip = nil
+end
+
+-- **The index is a screen and it goes back with its rows** (docs/90).
+local function release_index()
+  if index_list ~= nil then index_list:release() end
+  index_list = nil
+  if index_head ~= nil then index_head:release() end
+  index_head = nil
+end
+
+local function give_back()
+  release_page()
+  release_index()
+  chapter_list = {}
+  toc = {}
   pages = {}
   walked = 0
   counting = false
@@ -539,17 +655,8 @@ end
 -- **The page of the book, built again when the view changes size** (0.136.0, docs/46 D1): a canvas of the new size, the
 -- foot under it, and the page drawn in it. The system makes a new view and the objects of before point at a canvas
 -- nobody has any more, so this is a build and not a move (docs/30, docs/90).
-local function build_page()
-  if screen ~= nil then
-    screen:release()
-    screen = nil
-  end
-  if foot ~= nil then foot:release() end
-  foot = nil
-  if endmark ~= nil then endmark:release() end
-  endmark = nil
-  if strip ~= nil then strip:release() end
-  strip = nil
+local function build_page(restart)
+  release_page()
   if book == nil then return false end
 
   screen = ui.canvas(kPageW, kPageH)
@@ -591,8 +698,8 @@ local function build_page()
   if strip ~= nil then strip:place(0, kPageH + kStripTop) end
 
   -- **And the chapter is counted from here**, because a page is as many words as fit this box and the box has just been
-  -- made (docs/46, C5).
-  start_count(false)
+  -- made (docs/46, C5). A chapter the index opens is counted from zero even when the box is the same (docs/46, C14).
+  start_count(restart == true)
 
   return present_page(true)
 end
@@ -646,7 +753,7 @@ local function open_book(one)
     return false
   end
 
-  local chapters, book_title = chapters_of_book()
+  local chapters, book_title, book_toc, toc_from = chapters_of_book()
   local where = positions()[one.path]
   local which = (where ~= nil) and where.chapter or chapters[1]
   local n = (which ~= nil) and epub.chapter(which) or nil
@@ -677,13 +784,17 @@ local function open_book(one)
   end
   chapter_total = (#chapters > 0) and #chapters or 1
 
+  chapter_list = chapters
+  toc = book_toc
+
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end
   remember(one.path, chapter, from)
 
-  -- **What the book is, said in the log** (docs/46, C2): the title of its OPF and how many chapters the spine says,
-  -- which is the one thing a reader that had to fall back to the names cannot say.
-  console.print(string.format('reader: %s, %d chapter(s)', book_title or one.title, chapter_total))
+  -- **What the book is, said in the log** (docs/46, C2 and C14): the title of its OPF, how many chapters the spine
+  -- says and where its index came from, which is the one thing a reader that had to fall back to the names cannot say.
+  console.print(string.format('reader: %s, %d chapter(s), index %d (%s)', book_title or one.title, chapter_total,
+                              #toc, toc_from))
 
   if not build_page() then
     epub.close()
@@ -768,6 +879,126 @@ function show_shelf(why)
   if why ~= nil then put_a_notice('The book would not open', why) end
 end
 
+-- **A chapter of the open book, from a byte** (0.143.0, docs/46 C14): the index lands here, and it is the same three
+-- things opening a book does — inflate the chapter, remember where we are and build the page again— with the count of
+-- the new chapter starting from zero, because the pages of the old one are not its pages.
+local function open_chapter(href, byte)
+  local n = epub.chapter(href)
+  if n == nil then return false end
+
+  chapter = href
+  bytes = n
+  from = (byte ~= nil and byte > 0 and byte < n) and byte or 0
+  chapter_at = 1
+  for i = 1, #chapter_list do
+    if chapter_list[i] == href then chapter_at = i end
+  end
+  remember(book.path, chapter, from)
+
+  return build_page(true)
+end
+
+-- **A row of the index is a chapter**: the finger that chose it belongs to it, the index goes, and the chapter is read
+-- from its first byte (docs/46, C14). A chapter that cannot be read leaves the reader on the shelf with a notice.
+local function go_to_chapter(at)
+  local one = toc[at]
+  if one == nil then return end
+
+  swallow_tap = sys.time_ms() + 600
+  release_index()
+  if open_chapter(one.chapter, 0) then return end
+
+  show_shelf('the chapter "' .. one.title .. '" cannot be read')
+end
+
+-- **The index on the glass** (0.143.0, docs/46 C14): the rows of the book's own index in a `ui.list`, which pages
+-- itself and whose rows are controls —the dial walks them and the centre opens one—. The row of the chapter that is
+-- open is the marked one and the list opens on the page it is on.
+local kIndexRow = 56
+local kIndexHead = 64
+
+local function open_index()
+  if book == nil then return end
+  release_page()
+  release_index()
+  page_mode = false
+
+  if #toc == 0 then
+    -- **A book of one chapter has no index and none is invented** (docs/46, C14): the page comes back and a notice says
+    -- why nothing happened.
+    build_page()
+    put_a_notice('This book has no index', 'it has one chapter, so there is nothing to choose')
+    return
+  end
+
+  index_head = ui.label(view.w - 40, 48)
+  if index_head ~= nil then
+    index_head.text = 'Contents'
+    index_head.scale = 3
+    index_head.color = 0
+    index_head.background = 15
+    index_head:place(20, 12)
+  end
+
+  local height = view.h - kIndexHead - 24
+  index_list = ui.list(view.w - 40, height)
+  if index_list == nil then
+    build_page()
+    return
+  end
+
+  local list = index_list
+  list.row_height = kIndexRow
+  list.separator = true
+  list.scale = 3
+  list.background = 15
+  list.text = 0
+  list.dim = 8
+
+  -- **The list opens on the page of the chapter that is open**, which is the one row a person wants to see.
+  local rows = height // kIndexRow
+  if rows > 0 then list.page = ((chapter_at - 1) // rows) + 1 end
+
+  for i, one in ipairs(toc) do
+    local entry = ui.list_entry(view.w - 40, kIndexRow)
+    if entry ~= nil then
+      entry.background = 15
+      entry.border = 0
+      entry.separator = true
+      entry.marked = (one.chapter == chapter)
+
+      local words = ui.label(view.w - 64, kIndexRow - 8)
+      if words ~= nil then
+        words.text = one.title
+        words.scale = 3
+        words.align = 'left'
+        words.color = 0
+        words.background = 15
+        words:place(12, 5)
+        entry:add(words)
+      end
+
+      local at = i
+      entry.on_click = function()
+        go_to_chapter(at)
+      end
+      list:add(entry)
+    end
+  end
+
+  list:place(20, kIndexHead)
+  ui.present('gc16')
+end
+
+-- **And it goes back with a long press or a swipe**, the two fingers a menu also answers (docs/90): a tap is the
+-- list's, and choosing a row is the other way out.
+local function close_index()
+  if index_list == nil then return end
+
+  release_index()
+  build_page()
+end
+
 -- **The beginning of the chapter**, which is what a finger going up asks for: the first byte, and the position is
 -- written down as any page (docs/46, C3).
 local function first_page()
@@ -800,7 +1031,7 @@ end
 -- `checked` carries its box, even when it is off (docs/30, docs/90).
 local function menu_items()
   return {
-    { title = 'Book', items = { 'Shelf' } },
+    { title = 'Book', items = { 'Shelf', 'Contents' } },
     { title = 'View', items = {
       { label = 'Full screen', checked = ui.full_screen() },
       { label = 'Dark page', checked = dark },
@@ -824,8 +1055,15 @@ end
 -- from one and in the order of `menu_items`.
 local function on_menu_pick(title, entry)
   release_menu()
+  -- **The finger that chose an entry belongs to the entry** (docs/46, C14): the system answers the press and the same
+  -- finger also arrives as a tap, and the page behind the card must not turn for it.
+  swallow_tap = sys.time_ms() + 600
   if title == 1 then
-    show_shelf()
+    if entry == 1 then
+      show_shelf()
+    else
+      open_index()
+    end
   elseif entry == 1 then
     -- **The system answers with `on_resize`**, which builds the page in the new box: nothing else is owed here.
     ui.full_screen(not ui.full_screen())
@@ -873,10 +1111,22 @@ end
 local kSwipe = 60
 
 local function on_gesture()
-  if screen == nil or book == nil or touch == nil or touch.gesture == nil then return end
+  if touch == nil or touch.gesture == nil then return end
 
   local gesture = touch.gesture()
   if gesture == nil then return end
+
+  -- **The finger that chose a row belongs to the row** (docs/46, C14): the system answered the press and the same
+  -- finger arrives here once more, and a page turned by it would be a page nobody asked for.
+  if gesture.kind == 'tap' and sys.time_ms() < swallow_tap then return end
+
+  -- **The index is a page of its own**: a long press or a swipe puts it away, and a tap is the list's (docs/46, C14).
+  if index_list ~= nil then
+    if gesture.kind == 'long' or gesture.kind == 'drag' then close_index() end
+    return
+  end
+
+  if screen == nil or book == nil then return end
 
   -- **With a menu up, the finger is the menu's**: a tap below the row of words and a swipe put it away, and neither
   -- turns the page behind it. The tap that chose an entry was already answered by the system and the menu is gone by the
@@ -939,7 +1189,11 @@ function on_resize(width, height)
   -- **A new view takes the controls with it** (docs/90): the menu of the page before is a canvas nobody has any more.
   release_menu()
   use_view(width, height)
-  if pending ~= nil then
+  if index_list ~= nil then
+    -- **The index is built again in the new box**: its rows are controls of a page that is gone, and a row a finger
+    -- can press on a page that is gone is a row that opens nothing (docs/30).
+    open_index()
+  elseif pending ~= nil then
     -- **A book that is still being opened keeps its page** (docs/46, C8): the loading page is drawn again in the new box
     -- and the book opens in the turn that comes, which is where it was going anyway.
     ask_for(pending)
