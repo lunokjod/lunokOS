@@ -21,6 +21,7 @@
 #include <esp_system.h>
 #include <esp_tls_errors.h>
 #include <esp_wifi.h>
+#include <mbedtls/platform.h>
 #include <mdns.h>
 #include <wifi_provisioning/manager.h>
 #include <wifi_provisioning/scheme_ble.h>
@@ -34,6 +35,7 @@
 #include "esp32/nvs.h"
 #include "hal/hal.h"
 #include "hal/log.h"
+#include "pal/pal.h"
 
 // Arduino releases the memory of the Bluetooth controller at boot **unless**
 // `btInUse()` says somebody wants it (`cores/esp32/esp32-hal-misc.c`:
@@ -347,6 +349,31 @@ bool manager_for(ProvTransport transport) {
 // back and the alarms are not delayed by a page (docs/30). One job at a time,
 // because the kernel has one waiter, and the handover is a few words behind a
 // critical section.
+// **The big blocks of a TLS session go to the extra memory of the board** (7/11, measured on the M5Paper by its owner).
+// mbedTLS asks for the memory of a session through the platform hooks of the library —this core has
+// `MBEDTLS_PLATFORM_MEMORY` on—, and a handshake needs **two buffers of sixteen kilobytes** plus the session: with the
+// board's own RAM at **28 500 B free (26 612 in one piece)** it answered `mbedtls_ssl_setup returned -0x7F00`, which is
+// `MBEDTLS_ERR_SSL_ALLOC_FAILED`, while **3 650 839 B** of extra memory sat unused beside it. A block of this many bytes
+// or more comes from the extra memory and the small ones stay home, which is the rule the interpreter already follows
+// (docs/75). The extra memory of this chip is not DMA, and that is fine: these buffers are walked by the processor and
+// the radio has buffers of its own (docs/50, docs/85).
+const size_t kTlsExtraBytes = 4096;
+
+void* tls_calloc(size_t count, size_t size) {
+  if (count == 0 || size == 0 || count > (0xFFFFFFFFu / size)) return nullptr;
+  const size_t bytes = count * size;
+  void* block = nullptr;
+  if (bytes >= kTlsExtraBytes) block = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (block == nullptr) block = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (block == nullptr) return nullptr;
+  memset(block, 0, bytes);
+  return block;
+}
+
+void tls_free(void* block) {
+  if (block != nullptr) heap_caps_free(block);
+}
+
 const uint32_t kHttpUrlCap = 192;
 const uint32_t kHttpStack = 10240;  // the TLS handshake runs on this stack
 
@@ -396,6 +423,23 @@ HttpError http_error_for(esp_err_t err) {
   return HttpError::kTls;
 }
 
+// **A page goes to the extra memory of the board when there is one** (7/11, measured on the M5Paper by the owner):
+// sixteen kilobytes taken from the RAM the chip keeps for itself is exactly what the TLS handshake that comes next does
+// not have to spare. On the board the page was `malloc`ed from the internal memory and the handshake then failed with
+// `mbedtls_ssl_setup returned -0x7F00` —`MBEDTLS_ERR_SSL_ALLOC_FAILED`, which names the allocator and says nothing
+// about the page or about this line—, while the same command in the bench worked because the bench has all the memory of
+// a PC. The policy is the one of the interpreter: a big block goes where there is room and the small ones stay home
+// (docs/75, docs/85).
+char* page_block(uint32_t bytes) {
+  if (bytes == 0) return nullptr;
+  return static_cast<char*>(pal::extra_memory().allocate(bytes, true));
+}
+
+void page_block_free(char* block) {
+  if (block == nullptr) return;
+  pal::extra_memory().release(block);
+}
+
 // Reads the page into a buffer of `max_bytes` and leaves it in the job, or —when the caller gave a
 // volume and the page grows past that room— **into the file, from its first byte**, because a file
 // with the end of a page is a file nobody can read (docs/30). Called in the task and nowhere else, so
@@ -403,11 +447,27 @@ HttpError http_error_for(esp_err_t err) {
 void http_fetch(HttpJob& job) {
   char* body = nullptr;
   if (job.max_bytes > 0) {
-    body = static_cast<char*>(malloc(job.max_bytes + 1));
+    body = page_block(job.max_bytes + 1);
     if (body == nullptr) {
       job.error = HttpError::kNoMemory;
       return;
     }
+  }
+  // **The numbers before the handshake**, because a TLS session asks for some forty kilobytes of the chip's own memory
+  // in pieces and a board that cannot give them answers with the allocator's error and nothing a person can act on. This
+  // line is where the question "how much is there?" is answered, and the next run of the board says whether the page of
+  // the block above is what was missing (docs/75, docs/85).
+  const pal::HeapInfo inside = pal::system().heap();
+  const hal::ExtraMemory outside = hal::platform().extra_memory();
+  hal::logf(pal::kLogInfo, "HTTP", "%u B for the page, %u B of RAM free (%u in one piece), %u B of extra",
+            static_cast<unsigned>(job.max_bytes), static_cast<unsigned>(inside.free_bytes),
+            static_cast<unsigned>(inside.largest_free_bytes), static_cast<unsigned>(outside.free_bytes));
+  // **The hooks of mbedTLS are installed before the first client of this run**, because a session that starts before them
+  // would take its sixteen kilobytes from the chip's own RAM and the handshake would fail exactly as it did on the board
+  // (docs/75, docs/85). Installing them twice is harmless and the job is one at a time (docs/30).
+  static bool hooks_ready = false;
+  if (!hooks_ready) {
+    if (mbedtls_platform_set_calloc_free(&tls_calloc, &tls_free) == 0) hooks_ready = true;
   }
   esp_http_client_config_t config = {};
   config.url = job.url;
@@ -422,7 +482,7 @@ void http_fetch(HttpJob& job) {
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (client == nullptr) {
-    free(body);
+    page_block_free(body);
     job.error = HttpError::kConnect;
     return;
   }
@@ -432,7 +492,13 @@ void http_fetch(HttpJob& job) {
   bool file_open = false;
   esp_err_t err = esp_http_client_open(client, 0);
   if (err != ESP_OK) {
-    hal::logf(pal::kLogWarn, "HTTP", "could not open %s (%s)", job.url, esp_err_to_name(err));
+    // **And the numbers again when it fails**, because the reason it fails is almost always a block that is not there:
+    // a TLS handshake asks the chip's own memory for some forty kilobytes in pieces, and `-0x7F00` is
+    // `MBEDTLS_ERR_SSL_ALLOC_FAILED` said in the words of the library (docs/75, docs/85).
+    const pal::HeapInfo left = pal::system().heap();
+    hal::logf(pal::kLogWarn, "HTTP", "could not open %s (%s), %u B of RAM free (%u in one piece)", job.url,
+              esp_err_to_name(err), static_cast<unsigned>(left.free_bytes),
+              static_cast<unsigned>(left.largest_free_bytes));
     job.error = http_error_for(err);
   } else {
     esp_http_client_fetch_headers(client);
@@ -498,7 +564,7 @@ void http_fetch(HttpJob& job) {
           break;
         }
         saved = len + 1;
-        free(body);
+        page_block_free(body);
         body = nullptr;
         len = 0;
       } else {
@@ -538,10 +604,10 @@ void http_fetch(HttpJob& job) {
       job.body = body;
       job.body_len = len;
     } else {
-      free(body);
+      page_block_free(body);
     }
   } else {
-    free(body);
+    page_block_free(body);
     job.saved = (job.error == HttpError::kNone);
     job.body_len = saved;
   }

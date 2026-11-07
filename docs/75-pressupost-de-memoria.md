@@ -659,3 +659,53 @@ bytes cadascuna, el relleu de la resposta real de l'API):
 Són **28 vegades** menys en aquest document, i el guany creix amb el nombre d'entrades perquè una
 manera és O(n²) i l'altra O(n). El número és del PC i no de la placa: a la flash, on una lectura de
 4 KB costa 819 µs, el que compta és la quantitat de passades, i aquesta és la que ha canviat.
+
+## Una pàgina de la xarxa no es menja la memòria del handshake (7/11, 0.97.1)
+
+**El que va passar a la placa, amb el registre a la mà.** A l'M5Paper, `repo` va respondre:
+
+```
+E (719547) esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
+E (719547) esp-tls: create_ssl_handle failed
+[W][HTTP] could not open https://api.github.com/repos/lunokjod/lunokOS/contents/apps (ESP_ERR_HTTP_CONNECT)
+```
+
+`-0x7F00` és **`MBEDTLS_ERR_SSL_ALLOC_FAILED`**: la biblioteca diu que **no ha pogut tenir un bloc**, i no té res a
+veure amb el certificat, amb el DNS ni amb la xarxa — que ja havien anat bé. Al banc la mateixa ordre baixa seixanta
+carpetes perquè un PC té tota la memòria que vulgui, i per això el banc no ho veia.
+
+**D'on surt el número.** Un handshake de TLS demana a la **RAM pròpia del xip** uns **quaranta kilobytes en peces**
+(16 KB de buffer de lectura, 16 KB d'escriptura, la sessió i els transformats del xifrat). I abans del handshake,
+aquesta funció demanava **la pàgina sencera** a la mateixa RAM: `kHttpBytes` del shell són **16 384 B** en un sol
+bloc, més el `malloc` del client. Amb els dos comptats, al Paper no hi arribaven.
+
+**La regla, que és la que l'intèrpret ja feia servir** (`counting_alloc`): **un bloc gran va on hi ha lloc i els
+petits es queden a casa**. La pàgina d'una descàrrega va ara a la **memòria extra** de la placa
+(`pal::extra_memory().allocate(bytes, true)`, PSRAM al Paper) i només cau a la interna quan no n'hi ha. Els blocs
+petits de Lua ja ho feien amb `kExtraThreshold`.
+
+**I la petició diu els números**, abans d'obrir i quan no pot obrir:
+
+```
+[I][HTTP] 16384 B for the page, 96 000 B of RAM free (40 000 in one piece), 4 067 000 B of extra
+```
+
+Si una placa torna a dir `-0x7F00`, la línia de dalt diu **quant** hi havia i **si era en una peça**: `free_bytes` és
+el total i `largest_free_bytes` el bloc més gran, que és el que un `malloc` pot donar de debò.
+
+**I el ganxo de mbedTLS.** El nucli d'Arduino porta `MBEDTLS_PLATFORM_MEMORY` activat, o sigui que la biblioteca demana
+la seva memòria per `mbedtls_platform_set_calloc_free()`. La petició instal·la els ganxos abans del primer client:
+**un bloc de 4 KB o més va a la memòria extra** i els petits es queden a la RAM del xip. Els dos buffers de setze
+kilobytes del handshake són el bloc més gran que demana aquest firmware i ara viuen a la PSRAM. La PSRAM no és DMA i
+no cal que ho sigui: aquests buffers els camina el processador, i la ràdio té els seus.
+
+**Mesurat a la placa després del canvi (7/11, M5Paper):**
+
+```
+[I][HTTP] 0 B for the page, 28944 B of RAM free (26612 in one piece), 3650839 B of extra
+repo: 61 folders in lunokjod/lunokOS/apps (40251 B of JSON)
+repo: the answer is in /sd/http/apps
+```
+
+O sigui: **amb els mateixos 28 944 B de RAM interna** que abans fallaven, ara el handshake passa, perquè els seus
+blocs grans ja no surten d'aquí.

@@ -1423,7 +1423,24 @@ namespace kernel {
 // Measured on the bench: **433 native cases green** (90 of them in `test_ui`), the tests of the button and of the keyboard
 // fall when their drawing is broken on purpose (`drop = 0` and the margin taken away), and the emulator, `paper` and
 // `atom_matrix` build with no warning.
-static const char kVersion[] = "0.97.0";
+// 0.97.1 (7/11): **a page of the network no longer takes the memory the TLS handshake needs, and the handshake itself
+// goes to the extra memory.** On the M5Paper the owner ran `repo` and the board answered `mbedtls_ssl_setup returned
+// -0x7F00` —`MBEDTLS_ERR_SSL_ALLOC_FAILED`, the library saying it could not have a block— with the network up and the
+// address resolved; in the bench the same command brought sixty folders down, because a bench has the memory of a PC.
+// The first measure said where the memory was not: **28 500 B free of the chip's own RAM (26 612 in one piece) beside
+// **3 650 839 B** of extra memory that nobody was using, and a handshake asks for **two buffers of sixteen kilobytes**
+// plus its session. Two things changed. The **page** of a download is asked to the extra memory of the board and not to
+// the chip's own (`pal::extra_memory().allocate(bytes, true)`, the rule the interpreter already followed). And **mbedTLS
+// itself allocates through the platform hooks** —this core has `MBEDTLS_PLATFORM_MEMORY` on— so a block of four
+// kilobytes or more is taken from the extra memory and the small ones stay home: the two buffers of the handshake are
+// the biggest thing this firmware asks for and they now live where there is room. The request says **how much memory it
+// had** before opening and how much is left when it cannot open, so the next run of any board answers the question with
+// a number and not with the name of an allocator (docs/75, docs/85).
+// Measured: `paper`, `atom`, `atom_matrix`, `tkoala` and `esp32` build with no warning. **This file is the HAL of the
+// ESP32 and has no native test**: what proves the change is the board, which with **the same 28 944 B of internal RAM**
+// that failed before now says `[I][HTTP] 0 B for the page, 28944 B of RAM free (26612 in one piece), 3650839 B of
+// extra` and brings **61 folders and 40 251 B of JSON** down (docs/75).
+static const char kVersion[] = "0.97.1";
 
 }  // namespace kernel
 
