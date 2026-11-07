@@ -399,3 +399,36 @@ que vaig inventar amb `damage()` era buida perquè el dany es compta dins del pr
 app muda. L'app de mostra dona un `on_click` a cada control que posa al dial i escriu a la línia de baix què s'ha
 premut; les dues proves noves ho mesuren (el vidre es mou quan el dial es mou, i el centre arriba a l'`on_click`), i
 les dues es posen vermelles quan se'ls treu la línia que proven.
+
+## 13. Una parada per pestanya (0.99.0)
+
+**La tira de pestanyes era una sola parada del dial**, i això la feia una trampa: les fletxes li arribaven i les
+consumien canviant la pestanya, la pàgina de sota es tornava a construir, i la volta tornava a començar a la tira. El
+7/11, amb la placa a la mà, l'amo ho va dir així: *«no puc pitjar res, i els botons físics només em mouen per les
+pestanyes»*.
+
+**El projecte del paper no ho fa així.** `tab_strip.h` ho diu a la capçalera: *«The tabs ARE `Button`s and the strip
+hands them to the navigator as focusable: the arrows walk into the strip and from one tab to the next, and the centre
+key chooses the one that has the focus. The strip itself never takes a key.»* I `TabStrip::draw()` pinta la pestanya
+que respondrà **invertida** (`lit = enabled() && (focused() || isPressed())`), amb la cara de tinta, la paraula de
+paper i el marc i la línia girats.
+
+**Què s'ha fet, un per un:**
+
+| Peça | Què fa ara |
+|---|---|
+| el recorregut (`ui_walk_targets`) | una tira de `n` pestanyes dona **`n` parades**, una per columna, amb el mateix control i un `item` que diu quina és |
+| el focus (`ui_apply_focus`) | escriu `focus_index` al control i `g_ui_focus_item` a la volta; el control que pren el dial per si sol posa l'item a zero |
+| les fletxes (`ui_step_value`) | la tira **ja no hi és**: no s'empassa cap tecla i la volta continua endins o enfora |
+| el centre (`ui_activate`) | posa `index` a la pestanya del cercle i l'app ho sent a `on_change(self, index)` |
+| el dibuix (`tabs_draw`) | la pestanya de `lit` va invertida; la resta, com sempre |
+| el dit | el tacte també desa quina pestanya ha tocat, o un toc a la tira hauria triat la primera |
+
+**L'app del catàleg ja no crida `ui.focus`**: el dial es queda a la tira, que és on el va deixar la persona, i la
+pàgina es construeix a sota. La crida continua existint per a les pàgines que es reconstrueixen per un altre motiu.
+
+**Mesurat**: 148 casos natius verds, amb dues proves noves —`test_each_tab_of_a_strip_is_a_stop_of_the_dial` (una
+fletxa mou el cercle dins la tira i no tria res, tres fletxes el treuen de la tira i cauen al botó de sota, el centre
+prem el botó, i tornar enrere el deixa a l'última pestanya) i la lectura de la inversió **píxel a píxel** de la
+superfície (`level_at(24, 88)` i `level_at(124, 88)`)—. Trencant `ui_tabs_items` perquè torni zero (la tira d'una sola
+parada) es posen vermelles dues proves; trencant el `lit` del pintor, la de la inversió.

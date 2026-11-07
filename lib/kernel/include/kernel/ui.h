@@ -469,8 +469,13 @@ bool canvas_resize(int8_t slot, uint16_t width, uint16_t height);
 // **Equal columns across the frame**, one word in each, a line of two pixels under all of them but the chosen
 // one —the missing line is what says "you are here" on a glass of two tones— and the words in the ink of the
 // page. `index` is 1 to `count`, and 0 is "none chosen", which leaves the line whole (docs/90).
-bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t text,
-               uint8_t background, uint8_t scale);
+//
+// **`lit` is the tab the dial is on**, 1 to `count`, and 0 when the ring is on another control: that tab is
+// drawn inverted —the face takes the ink and the word takes the paper, and the bookmark and the line go the other
+// way round— because a strip is one control with one stop per tab and the ring has to be somewhere a person can
+// see (0.99.0, docs/92).
+bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+               uint8_t text, uint8_t background, uint8_t scale);
 
 // ---- a list: rows on pages and never a scroll (docs/30, docs/90) ----
 //

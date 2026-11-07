@@ -3112,6 +3112,125 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **Every tab of a strip is a stop of the dial** (0.99.0), which is what the paper project does: its tabs are
+// `Button`s and the navigator walks them one at a time, the arrows go from one tab to the next and out of the
+// strip at either end, and the centre chooses the tab the ring is on. One stop for the whole strip made the arrows
+// change the tab instead of moving the dial, and the page under it could not be reached without turning pages
+// (the owner, 7/11 and 8/11, docs/92).
+void test_each_tab_of_a_strip_is_a_stop_of_the_dial(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "stops",
+                           "{\"title\":\"Stops\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local tabs = ui.tabs(300, 40)\n"
+                           "tabs:place(20, 20)\n"
+                           "tabs.items = {'One', 'Two', 'Three'}\n"
+                           "tabs.index = 1\n"
+                           "tabs.on_change = function(self, index) console.print('chose ' .. index) end\n"
+                           "tabs.on_focus = function(self, on) console.print('strip focus ' .. tostring(on)) end\n"
+                           "local column = ui.panel(300, 200, 'vertical')\n"
+                           "column:place(20, 100)\n"
+                           "local b = ui.button(280, 60)\n"
+                           "b.on_focus = function(self, on) console.print('button focus ' .. tostring(on)) end\n"
+                           "b.on_click = function(self) console.print('button pressed') end\n"
+                           "column:add(b)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('stops up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run stops");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stops up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **The tab that will answer is the one drawn inverted**, and the one next to it is paper: the strip sits at
+  // (20, 20) of the view and the view starts under the bar of the system, so a point four pixels inside each tab
+  // and in the middle of its height is on the face and not on the word (docs/50, docs/92).
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(24, 88), "the first tab opens with the ring on it");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(124, 88), "and the second one is paper");
+
+  // **One arrow, one tab**: the ring moves inside the strip and the button below it is still not the dial's, which
+  // is the whole difference with the strip of one stop (the first arrow then landed on the button).
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "button focus true"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "chose"), g_out);
+  // **And the glass moved the ring to that tab**: the inversion follows the dial and not the page.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(24, 88), "the first tab is paper now");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(124, 88), "and the second one has the ring");
+
+  // **Two more and the walk leaves the strip**: the third tab was the last stop of it, and the next arrow lands on
+  // the button of the page under it. No tab was chosen on the way, because an arrow does not choose.
+  capture_begin();
+  pump_turns(10);
+  for (int i = 0; i < 2; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button focus true"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "chose"), g_out);
+
+  // **And the centre presses what the ring has**, which after three stops is the button and not a tab.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(0, true);
+  pump_turns(20);
+  emu::press_key(0, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button pressed"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "chose"), g_out);
+
+  // **A walk back leaves the button and lands on the last tab**, which is the strip's end nearest to it.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button focus false"), g_out);
+
+  // And the centre on that tab is what turns the page: the app hears the tab the ring is on, which is the last one.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(0, true);
+  pump_turns(20);
+  emu::press_key(0, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "chose 3"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/stops/app.lua");
+  storage->remove("/apps/stops/manifest.json");
+  storage->remove("/apps/stops");
+
+  // The next test gets the default bench back: the display was this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A key paints its own answer on the glass** (0.98.0). The ring of the focus and the button going down are the
 // system's doing —the app never sees the key, `ui_button_event` takes it— so the paint that shows them is the
 // system's too. A page that the app presented once and then went to sleep has to show where the dial went; without
@@ -3195,8 +3314,17 @@ void test_the_centre_presses_the_control_the_dial_is_on(void) {
 
   pump_captured(60, g_out, sizeof(g_out), "run showcase 1");
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **The dial starts on the strip** (0.99.0): the tabs are the first stops of the page and the first one opens
+  // lit, so the walk has to come out of the strip before anything of the page can be pressed — five tabs, and the
+  // next arrow is the button of the page— and then the centre is the button's.
   capture_begin();
-  pump_turns(20);
+  pump_turns(10);
+  for (int i = 0; i < 5; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
   emu::press_key(0, true);
   pump_turns(20);
   emu::press_key(0, false);
@@ -4927,18 +5055,27 @@ void test_a_panel_arranges_the_page_and_the_dial_changes_the_tab(void) {
   // (`pump_captured`) and not from the window the rest of the test reads (docs/85).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a 10 280"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "b 34 280"), g_out);
+  // **The arrows walk the strip one tab at a time** (0.99.0): the first arrow moves the ring to the second tab
+  // and does not turn the page, so the app hears nothing at all. It is the paper project's strip, whose tabs are
+  // buttons the navigator walks (docs/92).
   capture_begin();
   pump_turns(20);
-  // Key 2 is down on the bench's dial, which is the next tab of the strip.
   emu::press_key(2, true);
   pump_turns(20);
   emu::press_key(2, false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  // **Ten pixels of padding and four of gap**, and the width of the panel less the two paddings: the app asked
-  // for a column, not for two places.
-  // The strip moved to its second tab and the app was told. **`tab 2` is read from the capture that holds the
-  // press**, because the app is asleep in its wait until the key comes and prints nothing before it.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "tab 2"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **And the centre chooses the tab the ring is on**, which is when the page turns and the app is told. **`tab 2`
+  // is read from the capture that holds the press**, because the app is asleep in its wait until the key comes.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(0, true);
+  pump_turns(20);
+  emu::press_key(0, false);
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tab 2"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tab now 2"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its one change");
@@ -7130,6 +7267,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_each_tab_of_a_strip_is_a_stop_of_the_dial);
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);
   RUN_TEST(test_the_centre_presses_the_control_the_dial_is_on);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);

@@ -2482,8 +2482,8 @@ uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap
 // **Equal columns and a line that is missing under the chosen one**: on two tones there is no bold and no
 // colour, so "you are here" is said by taking the line away instead of by adding anything, and a tab that is
 // drawn with a line under it is a tab that is not the one (docs/90).
-bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t text,
-               uint8_t background, uint8_t scale) {
+bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+               uint8_t text, uint8_t background, uint8_t scale) {
   if (!live(slot) || labels == nullptr || count == 0 || text > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
   const int32_t width = strip.width;
@@ -2508,17 +2508,30 @@ bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t in
     const int32_t x0 = target.x + static_cast<int32_t>(i) * column;
     const int32_t x1 = (i + 1 == count) ? (target.x + width) : (x0 + column);
     const bool chosen = (static_cast<uint8_t>(i + 1) == index);
+    // **The tab that will answer is drawn inverted**, which is the one signal this system uses for "here is the
+    // dial" and the paper project's rule for its strip (`lit = enabled() && (focused() || isPressed())`): the face
+    // takes the ink, the word takes the paper, and the lines of the bookmark and of the bottom go the other way
+    // round. On a glass of two and a half tones the inversion is the only thing a person reads as "this one"
+    // (0.99.0, docs/92).
+    const bool the_one = (lit != 0) && (static_cast<uint8_t>(i + 1) == lit);
+    const uint8_t line_level = the_one ? background : text;
+    // The word keeps the ink unless the face took it: a lit tab is ink with a paper word, and every other tab is
+    // paper with an ink one (the paper project: `lit ? panelBg : text`).
+    const uint8_t face_level = the_one ? background : text;
+    if (the_one) {
+      put_rect(*target.canvas, x0, target.y, x1 - x0, height, text);
+    }
     // **The tab you are on is a bookmark**: two pixels of line on its left, on its top and on its right, **and not on
     // the bottom**, so the line it sits on is not painted under it and the eye reads that tab as being in front of the
     // page below. On a glass of two and a half tones there is no colour to say which one is in front, and those three
     // lines are the whole signal —it is the paper project's `TabStrip::draw()`, and it is not the underline this
     // control had before (0.97.0, docs/92).
     if (chosen) {
-      put_rect(*target.canvas, x0, target.y, line, height, text);
-      put_rect(*target.canvas, x1 - line, target.y, line, height, text);
-      put_rect(*target.canvas, x0, target.y, x1 - x0, line, text);
+      put_rect(*target.canvas, x0, target.y, line, height, line_level);
+      put_rect(*target.canvas, x1 - line, target.y, line, height, line_level);
+      put_rect(*target.canvas, x0, target.y, x1 - x0, line, line_level);
     } else {
-      put_rect(*target.canvas, x0, target.y + height - line, x1 - x0, line, text);
+      put_rect(*target.canvas, x0, target.y + height - line, x1 - x0, line, line_level);
     }
     // The word, in the middle of its column and between the bookmark and the line.
     if (labels[i] != nullptr && labels[i][0] != '\0' && (x1 - x0 - 2 * line) > 8) {
@@ -2526,7 +2539,7 @@ bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t in
                                         static_cast<uint16_t>(x1 - x0 - 2 * line - 8), scale, shown, sizeof(shown));
       const int32_t at_x = x0 + ((x1 - x0) - static_cast<int32_t>(taken)) / 2;
       const int32_t at_y = target.y + (height - line_h) / 2;
-      draw_text(*target.canvas, face, at_x, at_y, shown, scale, text, mode);
+      draw_text(*target.canvas, face, at_x, at_y, shown, scale, face_level, mode);
     }
   }
   close_draw(target);

@@ -812,7 +812,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)` (3/11, 0.69.0) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
 | `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El lloc de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)` i la part de lloc lliure que vol cada un amb `child.weight` (3/11, 0.70.0) |
-| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable**: les fletxes canvien la triada i `on_change(self, index)` avisa (3/11, 0.70.0) |
+| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0) |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
@@ -1413,8 +1413,13 @@ ui.present('gc16')
 
 - **`ui.tabs`**: `items` és un array de paraules (vuit com a molt) i `index` és quina està triada, 1 a n; **0 vol dir
   cap**. Les columnes són iguals, i **la triada és la que no té la línia a sota**: a dos tons no hi ha negreta ni
-  color, i treure la línia és el que diu «ets aquí» (el que el vell va aprendre a `tab_strip.h:44`). Les fletxes del
-  dial la mouen mentre té el focus i l'app ho sap per `on_change(self, index)`.
+  color, i treure la línia és el que diu «ets aquí» (el que el vell va aprendre a `tab_strip.h:44`). **Cada pestanya
+  és una parada del dial** (0.99.0, com al projecte del paper, on les pestanyes són botons): les fletxes entren a la
+  tira i van d'una pestanya a la següent, i surten de la tira per qualsevol dels dos caps; **el centre tria la
+  pestanya on és el cercle**, i llavors l'app ho sap per `on_change(self, index)`. **La pestanya del cercle es pinta
+  invertida** —la cara pren la tinta i la paraula el paper, i la línia i el marc del darrere van a l'inrevés—, que és
+  el mateix senyal que fa servir qualsevol control enfocat. `focus_index` diu quina és (1 a n, 0 = el cercle és en
+  un altre control) i una app pot llegir-lo.
 - **`ui.dots`**: `pages` i `current`, i el de la pàgina on ets **és una bola plena i més gran**, mentre que els altres
   són **anelles amb paper a dins**, tots enfilats en un **pal** que només es veu a l'aire entre dues boles (0.94.1). Són
   dos tons i prou —negre i paper—, i per això la tira es pot pintar i esborrar amb la forma d'ona binària; una tira de
@@ -1428,11 +1433,14 @@ ui.present('gc16')
 ### `ui.focus`: on és el dial quan la pàgina es torna a construir (0.97.4)
 
 **Una pàgina que es construeix de nou perd el control on era el dial**, i la volta comença
-al primer control de l'arbre. En un app que té una tira de pestanyes a dalt, aquest primer
-control és **la tira**: les fletxes mouen la pestanya (que és la seva feina), la pàgina es
-torna a construir a cada moviment, i la volta torna a començar a la tira. El resultat, amb la
-placa a la mà, és el que va dir l'amo el 7/11: *«no puc pitjar res, i els botons físics només
-em mouen per les pestanyes»*.
+al primer control de l'arbre, que en una app amb una tira de pestanyes és la primera pestanya.
+Fins a 0.99.0 això era una trampa: la tira era **una sola** parada, les fletxes la recorrien
+canviant la pestanya, la pàgina es tornava a construir a cada moviment i la volta tornava a
+començar a la tira. Amb la placa a la mà, l'amo ho va dir el 7/11: *«no puc pitjar res, i els
+botons físics només em mouen per les pestanyes»*. **Aquella trampa ja no hi és** —cada pestanya
+és una parada i les fletxes no trien res—, però una pàgina que es torna a construir per un altre
+motiu (un botó que la canvia, una dada que arriba) continua perdent el dial, i per això hi ha la
+crida.
 
 `ui.focus(control)` diu on ha d'anar el dial:
 
@@ -1446,9 +1454,31 @@ end
 if first ~= nil then ui.focus(first) end
 ```
 
+**I el cercle surt al vidre de seguida**, sense esperar el `present` de la pàgina: aquesta
+crida es fa just després de construir, i un cercle que no es veu no és cap resposta.
+
 **I la pàgina s'esborra abans de construir-la** (`ui.clear(15)`): un control pinta el seu
 rectangle i no més, o sigui que una pàgina de tres controls darrere d'una de sis deixa els
-tres de la d'abans al vidre.
+tres de l'abans al vidre.
+
+### Una parada per pestanya: la tira com la del projecte del paper (0.99.0)
+
+**A la tira, el dial no tria: camina.** Cada pestanya és una parada pròpia —el projecte del
+paper fa que les pestanyes siguin `Button` i que el navegador les recorri d'una en una
+(`tab_strip.h`: *«The tabs ARE `Button`s and the strip hands them to the navigator as
+focusable»*)—, i el centre és qui tria la pestanya on és el cercle:
+
+- les **fletxes** entren a la tira, van d'una pestanya a la següent i **surten** per qualsevol
+  dels dos caps cap a la pàgina de sota, o sigui que la tira ja no s'empassa cap tecla;
+- el **centre** posa `index` a la pestanya del cercle i l'app ho sent a `on_change(self, index)`;
+- la **pestanya del cercle es pinta invertida** (la cara pren la tinta, la paraula el paper i
+  la línia i el marc van a l'inrevés), que és el mateix senyal que fa servir un botó enfocat;
+- `focus_index` diu quina pestanya té el cercle (1 a n, i 0 quan el cercle és en un altre
+  control), i una app pot llegir-lo.
+
+**La prova del vidre** és al banc: dues proves noves —una parada per pestanya, i la inversió
+llegida píxel a píxel de la superfície— i totes dues es posen vermelles quan se'ls treu la línia
+que proven.
 
 ### La tecla es pinta sola: el sistema és qui la rep (0.98.0)
 

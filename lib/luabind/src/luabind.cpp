@@ -3287,9 +3287,13 @@ struct LuaCanvas {
 // because it is the system's state: an app may read `focused` but it does not decide it, and a slot
 // only means something together with the generation that handed it out (docs/30, docs/90).
 int8_t g_ui_focus_slot = -1;
+// Which tab of the strip has the ring, 0 when the ring is on a control of its own.
+uint8_t g_ui_focus_item = 0;
 uint16_t g_ui_focus_generation = 0;
 int8_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
+// Which tab of a strip the finger went down on, 0 for a control of its own.
+uint8_t g_ui_touch_item = 0;
 bool g_ui_touch_inside = false;
 
 // **The gesture the system remembers of one finger** (0.88.0): where the finger started, where it is now, how many
@@ -4074,12 +4078,16 @@ int l_canvas_newindex(lua_State* L) {
     if (!wanted && focused) {
       g_ui_focus_slot = -1;
       g_ui_focus_generation = 0;
+      // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+      g_ui_focus_item = 0;
       lua_pushboolean(L, 0);
       lua_setfield(L, -2, "focused");
       redraw = true;
     } else if (wanted && focus_gone) {
       g_ui_focus_slot = canvas->slot;
       g_ui_focus_generation = canvas->generation;
+      // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+      g_ui_focus_item = 0;
       lua_pushboolean(L, 1);
       lua_setfield(L, -2, "focused");
       redraw = true;
@@ -4361,6 +4369,8 @@ int l_ui_button(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -4639,6 +4649,8 @@ int l_ui_checkbox(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -4823,6 +4835,8 @@ int l_ui_slider(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5032,6 +5046,12 @@ int l_tabs_draw(lua_State* L) {
   lua_getfield(L, -1, "index");
   const int index = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **The tab the dial is on**, which is the one painted inverted: the walk gives the strip one stop per tab and
+  // writes here which of them has the ring, and this is the only thing the painter needs to know about the focus
+  // (0.99.0, docs/92).
+  lua_getfield(L, -1, "focus_index");
+  const int lit = static_cast<int>(lua_tointeger(L, -1));
+  lua_pop(L, 1);
   const char* labels[8];
   uint8_t count = 0;
   lua_getfield(L, -1, "items");
@@ -5048,8 +5068,8 @@ int l_tabs_draw(lua_State* L) {
   lua_pop(L, 1);  // the fields table
   if (g_ui_ops.tabs_draw != nullptr && count > 0) {
     g_ui_ops.tabs_draw(canvas->slot, labels, count, static_cast<uint8_t>((index < 0) ? 0 : index),
-                       static_cast<uint8_t>(text), static_cast<uint8_t>(background),
-                       static_cast<uint8_t>((scale == 0) ? 1 : scale));
+                       static_cast<uint8_t>((lit < 0) ? 0 : lit), static_cast<uint8_t>(text),
+                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale));
   }
   return 0;
 }
@@ -5082,6 +5102,10 @@ int l_ui_tabs(lua_State* L) {
   lua_setfield(L, -2, "focused");
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "focusable");
+  // Which tab of the strip has the ring, 0 when the ring is on another control: the walk writes it and the painter
+  // reads it, and an app may read it too to know where the dial is (0.99.0, docs/30, docs/92).
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "focus_index");
   lua_pushcfunction(L, &l_tabs_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
@@ -5095,9 +5119,20 @@ int l_ui_tabs(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
+    // **A strip that takes the dial lights the tab it opens on**, which is the one the page below is showing: the
+    // ring is one stop per tab and a strip with no lit tab says nothing about where the person is (0.99.0, docs/92).
     lua_getiuservalue(L, -1, 1);
+    lua_getfield(L, -1, "index");
+    const lua_Integer opening = lua_tointeger(L, -1);
+    lua_pop(L, 1);
+    const uint8_t lit = static_cast<uint8_t>((opening > 0) ? opening : 1);
+    g_ui_focus_item = lit;
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
+    lua_pushinteger(L, lit);
+    lua_setfield(L, -2, "focus_index");
     lua_pop(L, 1);
     if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(created->slot);
   }
@@ -5317,6 +5352,8 @@ int l_ui_list(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5421,6 +5458,8 @@ int l_ui_month(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5672,6 +5711,8 @@ int l_ui_dialog(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5763,6 +5804,8 @@ int l_ui_menu(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5860,6 +5903,8 @@ int l_ui_menu_bar(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -5952,6 +5997,8 @@ int l_ui_textbox_multiline(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -6066,6 +6113,8 @@ int l_ui_selector(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -6207,6 +6256,8 @@ int l_ui_notification_bar(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -6335,6 +6386,8 @@ int l_ui_icon_grid(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -6444,6 +6497,8 @@ int l_ui_textbox(lua_State* L) {
   if (focus_is_gone) {
     g_ui_focus_slot = created->slot;
     g_ui_focus_generation = created->generation;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
     lua_getiuservalue(L, -1, 1);
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "focused");
@@ -7480,6 +7535,10 @@ int l_ui_root(lua_State* L) {
 struct FocusTarget {
   int8_t slot;
   uint16_t generation;
+  // **Which tab of a strip this stop is**, 1..count, and 0 for a control that is a stop of its own: a strip of
+  // tabs is one control and **one stop per tab**, as it is in the paper project, where the tabs are `Button`s and
+  // the navigator walks them one at a time (0.99.0, docs/92).
+  uint8_t item;
   int32_t x;
   int32_t y;
   int32_t w;
@@ -7720,6 +7779,22 @@ bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* t
   return true;
 }
 
+// **How many tabs a strip carries**, asked of the table the control keeps its labels in, and zero for anything
+// that is not a strip: the walk needs the number to give each tab a stop of its own (0.99.0, docs/90, docs/92).
+int ui_tabs_items(lua_State* L, int object) {
+  object = lua_absindex(L, object);
+  if (!ui_field_bool(L, object, "__tabs", false)) return 0;
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  lua_getfield(L, -1, "items");
+  const int count = lua_istable(L, -1) ? static_cast<int>(lua_rawlen(L, -1)) : 0;
+  lua_pop(L, 2);
+  return (count > 0) ? count : 0;
+}
+
 // Walks the tree the drawing walks: the children of the app, in their order, cut at the frame of
 // their fathers. A control is a target when it is a button or when the app said `focusable`; a label
 // inside a button is not one, which is what makes the button the thing a person lands on.
@@ -7772,19 +7847,47 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       continue;
     }
 
-    if (ui_target_is_focusable(L, -1, with_boxes) && count < kMaxFocusTargets) {
-      FocusTarget& target = targets[count];
-      target.slot = child->slot;
-      target.generation = child->generation;
-      target.x = cx0;
-      target.y = cy0;
-      target.w = cx1 - cx0;
-      target.h = cy1 - cy0;
-      target.depth = depth;
-      target.order = order++;
-      lua_pushvalue(L, -1);
-      lua_rawseti(L, objects, count + 1);
-      ++count;
+    if (ui_target_is_focusable(L, -1, with_boxes)) {
+      // **A strip of tabs is one stop per tab** (0.99.0): the arrows walk into the strip and from one tab to the
+      // next, out of it at either end, and the centre chooses the tab the ring is on. One stop for the whole strip
+      // made the arrows change the tab instead of moving the dial, which is the owner's complaint of 7/11 and what
+      // the paper project never did —there the tabs are buttons and the navigator walks them (docs/90, docs/92).
+      const int items = ui_tabs_items(L, -1);
+      if (items > 0) {
+        const int32_t span = cx1 - cx0;
+        for (int tab = 0; tab < items && count < kMaxFocusTargets; ++tab) {
+          const int32_t left = cx0 + (span * tab) / items;
+          const int32_t right = cx0 + (span * (tab + 1)) / items;
+          if (right <= left) continue;
+          FocusTarget& target = targets[count];
+          target.slot = child->slot;
+          target.generation = child->generation;
+          target.item = static_cast<uint8_t>(tab + 1);
+          target.x = left;
+          target.y = cy0;
+          target.w = right - left;
+          target.h = cy1 - cy0;
+          target.depth = depth;
+          target.order = order++;
+          lua_pushvalue(L, -1);
+          lua_rawseti(L, objects, count + 1);
+          ++count;
+        }
+      } else if (count < kMaxFocusTargets) {
+        FocusTarget& target = targets[count];
+        target.slot = child->slot;
+        target.generation = child->generation;
+        target.item = 0;
+        target.x = cx0;
+        target.y = cy0;
+        target.w = cx1 - cx0;
+        target.h = cy1 - cy0;
+        target.depth = depth;
+        target.order = order++;
+        lua_pushvalue(L, -1);
+        lua_rawseti(L, objects, count + 1);
+        ++count;
+      }
     }
     ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, with_boxes, targets, count, order, objects);
     lua_pop(L, 1);  // the child
@@ -7812,34 +7915,49 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, bool with_boxes = fal
   return count;
 }
 
-int ui_target_index(const FocusTarget* targets, int count, int8_t slot, uint16_t generation) {
+int ui_target_index(const FocusTarget* targets, int count, int8_t slot, uint16_t generation,
+                    uint8_t item) {
   for (int i = 0; i < count; ++i) {
-    if (targets[i].slot == slot && targets[i].generation == generation) return i;
+    if (targets[i].slot == slot && targets[i].generation == generation && targets[i].item == item) {
+      return i;
+    }
   }
   return -1;
 }
 
 void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int objects, int index) {
-  const int old_index = ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation);
+  const int old_index =
+      ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
   if (old_index != index && old_index >= 0) {
     lua_rawgeti(L, objects, old_index + 1);
     if (ui_set_field_bool(L, -1, "focused", false)) {
       ui_invalidate(L, -1);
       ui_call_hook(L, -1, "on_focus", true, false);
     }
+    // **The tab the dial leaves stops being the lit one**: the strip is one control and the paint needs to know
+    // which of its tabs has the ring (0.99.0, docs/92).
+    if (ui_set_field_number(L, -1, "focus_index", 0)) ui_invalidate(L, -1);
     lua_pop(L, 1);
   }
   if (index < 0 || index >= count) {
     g_ui_focus_slot = -1;
     g_ui_focus_generation = 0;
+    // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+    g_ui_focus_item = 0;
+    g_ui_focus_item = 0;
     return;
   }
   g_ui_focus_slot = targets[index].slot;
   g_ui_focus_generation = targets[index].generation;
+  g_ui_focus_item = targets[index].item;
   lua_rawgeti(L, objects, index + 1);
   if (ui_set_field_bool(L, -1, "focused", true)) {
     ui_invalidate(L, -1);
     ui_call_hook(L, -1, "on_focus", true, true);
+  }
+  if (targets[index].item != 0 &&
+      ui_set_field_number(L, -1, "focus_index", targets[index].item)) {
+    ui_invalidate(L, -1);
   }
   lua_pop(L, 1);
 }
@@ -7980,6 +8098,16 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
     // only has to keep the number (docs/30, docs/90).
     const lua_Integer which = ui_field_number(L, object, "index", 0);
     if (which > 0) ui_call_hook_number(L, object, "on_pick", which);
+  } else if (ui_field_bool(L, object, "__tabs", false)) {
+    // **The centre chooses the tab the dial is on** (0.99.0). The strip has one stop per tab, so the click belongs
+    // to a tab and not to the strip: `index` becomes the tab of the ring, the app hears `on_change(self, index)`,
+    // and the page below is the app's to build. It is the paper project's `TabStrip::onKey`, which gives the key to
+    // the tab that has the focus and to nobody else (docs/30, docs/92).
+    const lua_Integer which = ui_field_number(L, object, "focus_index", 0);
+    if (which > 0) {
+      if (ui_set_field_number(L, object, "index", which)) ui_invalidate(L, object);
+      ui_call_hook_number(L, object, "on_change", which);
+    }
   } else if (!ui_call_hook(L, object, "on_click", false, false)) {
     ui_call_hook(L, object, "on_activate", false, false);
   }
@@ -8637,6 +8765,8 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_failed = false;
   g_ui_focus_slot = -1;
   g_ui_focus_generation = 0;
+  // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+  g_ui_focus_item = 0;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -8675,6 +8805,8 @@ void stop() {
   g_exit_requested = false;
   g_ui_focus_slot = -1;
   g_ui_focus_generation = 0;
+  // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
+  g_ui_focus_item = 0;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -9023,7 +9155,6 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   lua_rawgeti(L, objects, index + 1);
   const int object = lua_gettop(L);
   const bool slider = ui_field_bool(L, object, "__slider", false);
-  const bool tabs = ui_field_bool(L, object, "__tabs", false);
   const bool list = ui_field_bool(L, object, "__list", false);
   const bool dialog = ui_field_bool(L, object, "__dialog", false);
   const bool month = ui_field_bool(L, object, "__month", false);
@@ -9033,7 +9164,10 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   // answered that it did not take the key because the answer was decided here, before its own branch, and the cells
   // never moved on a page that had a grid (found on the bench, 3/11).
   const bool grid = ui_field_bool(L, object, "__icon_grid", false);
-  if (!slider && !tabs && !list && !dialog && !month && !menu && !menu_bar && !grid) {
+  // **A strip of tabs is not in this list any more** (0.99.0): its arrows are the walk of the dial, which lands on
+  // one tab at a time and goes out of the strip at either end, and the centre chooses the one it is on. A strip that
+  // ate the arrows was a page nobody could leave (docs/90, docs/92).
+  if (!slider && !list && !dialog && !month && !menu && !menu_bar && !grid) {
     lua_pop(L, 1);
     return false;
   }
@@ -9080,7 +9214,7 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   // **A control that holds a value of its own takes the arrows while it has the focus**: a slider a number, a
   // strip of tabs the chosen one, a list the page, a dialog the door and a calendar the day. What changes between
   // them is the field, the range and the name of the hook, and that is all this function knows (docs/30, docs/90).
-  const char* field = slider ? "value" : (tabs ? "index" : (dialog ? "choice" : (month ? "selected" : "page")));
+  const char* field = slider ? "value" : (dialog ? "choice" : (month ? "selected" : "page"));
   // **A door of a dialog and a day of a calendar are not values the app keeps**: the dial moves them and the app
   // hears about it when the centre chooses one, so there is no hook here (docs/90).
   const char* hook = list ? "on_page" : ((dialog || month) ? nullptr : "on_change");
@@ -9093,14 +9227,6 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
     minimum = ui_field_number(L, object, "min", 0);
     maximum = ui_field_number(L, object, "max", 100);
     value = ui_field_number(L, object, "value", 0);
-  } else if (tabs) {
-    lua_getiuservalue(L, object, 1);
-    lua_getfield(L, -1, "items");
-    const lua_Integer count = lua_istable(L, -1) ? static_cast<lua_Integer>(lua_rawlen(L, -1)) : 0;
-    lua_pop(L, 2);
-    minimum = (count > 0) ? 1 : 0;
-    maximum = count;
-    value = ui_field_number(L, object, "index", 1);
   } else if (dialog) {
     minimum = 1;
     maximum = 2;
@@ -9277,7 +9403,8 @@ bool ui_button_event(const char* kind, uint32_t key) {
   }
 
   const int objects = top + 1;
-  const int current = ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation);
+  const int current =
+      ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
   int target = -1;
   if (activate) {
     target = (current >= 0) ? current : 0;
@@ -9425,7 +9552,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
 
   if (!down) {
     if (g_ui_touch_slot >= 0) {
-      const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
+      const int index =
+          ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation, g_ui_touch_item);
       if (index >= 0) {
         lua_rawgeti(g_state, objects, index + 1);
         if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
@@ -9442,6 +9570,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       }
       g_ui_touch_slot = -1;
       g_ui_touch_generation = 0;
+      g_ui_touch_item = 0;
       g_ui_touch_inside = false;
       g_ui_swipe_tap_armed = false;
       g_ui_swipe_moved = false;
@@ -9452,7 +9581,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   }
 
   if (g_ui_touch_slot >= 0) {
-    const int index = ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation);
+    const int index =
+        ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation, g_ui_touch_item);
     // **The finger that walks a box with a gesture moves the window** (0.88.0): the rows it has travelled are paid one
     // at a time, and the gesture is the system's —the caret of the box and the bar are the same number— while the app
     // only registers it and hears it. A finger that does not reach a whole row spends nothing: the pixels are kept for
@@ -9511,6 +9641,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     ui_apply_focus(g_state, targets, count, objects, hit);
     g_ui_touch_slot = targets[hit].slot;
     g_ui_touch_generation = targets[hit].generation;
+    g_ui_touch_item = targets[hit].item;
     g_ui_touch_inside = true;
     lua_rawgeti(g_state, objects, hit + 1);
     const int hit_object = lua_absindex(g_state, -1);

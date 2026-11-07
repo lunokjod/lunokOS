@@ -1495,7 +1495,17 @@ namespace kernel {
 // gives the dial has an `on_click` that writes the line at the bottom, because what a press *does* is the app's.
 // Measured: 436 native cases green (two new: the glass moves when the dial moves, and the centre reaches the
 // control's `on_click`), and both go red when their line is taken out (docs/30, docs/92).
-static const char kVersion[] = "0.98.0";
+//
+// 0.99.0 (8/11): **one stop per tab.** A strip of tabs was a single stop of the dial and ate the arrows to change
+// the tab, which is the trap the owner met on 7/11 (*«no puc pitjar res, i els botons físics només em mouen per les
+// pestanyes»*). The paper project's strip is a row of `Button`s the navigator walks one at a time and the strip
+// never takes a key, so the walk now gives a strip one target per column: the arrows go tab by tab and leave the
+// strip at either end, the centre chooses the tab the ring is on (`on_change`), and the tab that will answer is
+// painted inverted, as `TabStrip::draw()` does. `focus_index` says which tab has the ring, and the finger records
+// the tab it went down on. The showcase app no longer calls `ui.focus`: the dial stays where the person left it.
+// Measured: 148 native cases green (a new one walks the strip and reads the inversion pixel by pixel), and both go
+// red when the stop per tab or the `lit` tab are taken out (docs/30, docs/92).
+static const char kVersion[] = "0.99.0";
 
 }  // namespace kernel
 

@@ -464,9 +464,11 @@ struct UIOps {
   // (docs/90).
   bool (*canvas_resize)(int8_t slot, uint16_t width, uint16_t height);
   // **A strip of tabs and the dots of a page** (docs/30, docs/90): the words in equal columns with the line
-  // missing under the chosen one, and the strip that says where this page is among the others.
-  bool (*tabs_draw)(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t text,
-                    uint8_t background, uint8_t scale);
+  // missing under the chosen one, and the strip that says where this page is among the others. **`lit` is the
+  // tab the dial is on**, 0 when the ring is elsewhere: the strip is one control with one stop per tab and the
+  // tab that will answer is drawn inverted, as the paper project does (`TabStrip::draw()`, 0.99.0, docs/92).
+  bool (*tabs_draw)(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+                    uint8_t text, uint8_t background, uint8_t scale);
   bool (*dots_draw)(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
   // **A list** (docs/30, docs/90): how many rows fit in a frame of that height and how many pages the items make
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the

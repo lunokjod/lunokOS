@@ -1866,24 +1866,35 @@ void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
   const char* labels[3] = {"One", "Two", "Three"};
 
   // The second is the chosen one: the line of two pixels is under the first and under the third and it is not
-  // under the second.
-  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 2, 0, 15, 1));
+  // under the second. No tab has the ring yet, which is the `lit` that says which one would answer.
+  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 2, 0, 0, 15, 1));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 39));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(150, 39));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(250, 39));
-  // And the words are above the line: each column has ink of its own.
+  // And the words are above the line **in the ink of the page**: each column has the ink of its word, and a strip
+  // whose words came out in the colour of the paper would be a strip of five empty boxes (found by looking at the
+  // dump of the showcase, 8/11). The box counted is inside the second column and away from the bookmark lines.
   int ink = 0;
-  for (uint16_t y = 0; y < 36; ++y) {
-    for (uint16_t x = 100; x < 200; ++x) {
+  for (uint16_t y = 4; y < 36; ++y) {
+    for (uint16_t x = 106; x < 194; ++x) {
       if (view_level(x, y) == 0) ++ink;
     }
   }
-  TEST_ASSERT_GREATER_THAN(0, ink);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(10, ink, "the word of a tab is in ink");
 
   // Index 0 is "none chosen" and leaves the line whole, which is what a strip that has not been used yet says.
-  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 0, 0, 15, 1));
+  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 0, 0, 0, 15, 1));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(150, 39));
-  TEST_ASSERT_FALSE(ui::tabs_draw(strip, nullptr, 3, 2, 0, 15, 1));
+
+  // **The tab that will answer is inverted** (0.99.0): the face of the third takes the ink, its word takes the
+  // paper, and the two next to it stay as they were. It is the paper project's `TabStrip::draw()`, where
+  // `lit = focused() || isPressed()` and the face of the lit tab is the colour of the text (docs/92).
+  TEST_ASSERT_TRUE(ui::tabs_draw(strip, labels, 3, 1, 3, 0, 15, 1));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(250, 4));   // the face of the third tab, in ink
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 4));   // the first one, in paper
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(150, 39));   // the second keeps its line
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(50, 39));   // and the first is the chosen one: no line under it
+  TEST_ASSERT_FALSE(ui::tabs_draw(strip, nullptr, 3, 2, 0, 0, 15, 1));
   ui::release(strip);
 }
 

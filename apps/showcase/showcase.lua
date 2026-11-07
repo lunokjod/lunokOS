@@ -83,15 +83,11 @@ root:add(hint)
 -- Every control of the page that is on the glass, in the order it was made: children are given back before
 -- their father, because a control that is inside another one outlives it otherwise.
 local built = {}
-local first_stop = nil
 
 local function keep(control, name)
   if control == nil then return nil end
   built[#built + 1] = control
   body:add(control)
-  -- **The first control of the page a person can land on**, which is where the dial goes when the page is a new one:
-  -- a label is not a place the dial stops, a button is (docs/30, docs/90).
-  if first_stop == nil and control.focusable == true then first_stop = control end
   -- **A control that is pressed says so on the line at the bottom** (8/11): the ring and the press itself are
   -- painted by the system, but what a press *does* is the app's, and a page whose button answers nothing is a page
   -- a person presses twice and then calls dead (the owner on the board: *«no respon a l'usuari»*, docs/92). The
@@ -110,7 +106,6 @@ local function clear_page()
     built[i]:release()
   end
   built = {}
-  first_stop = nil
   -- **And the whole page the app is given is paper before the new one is built**: a control paints its own rectangle and
   -- no more, so a page of three controls after a page of six would leave the three of the one before on the glass —the
   -- page was a mix of two pages after a tab—. The page is the app's and the bar is not in it (docs/30, docs/90).
@@ -262,17 +257,18 @@ local function show(page)
   tabs.index = page
   dots.current = page
   pages[page]()
-  -- **And the dial goes into the page and not back to the strip**: the page was built again, so the control the dial was
-  -- on is gone and the walk would start at the first one of the tree —the tabs—, where the arrows change the tab for
-  -- ever and nothing of the page can be pressed (the owner, 7/11: *«no puc pitjar res»*) (docs/30).
-  if first_stop ~= nil then ui.focus(first_stop) end
+  -- **The dial stays on the strip and the page is built under it**: the tabs are one stop each (0.99.0), so choosing
+  -- one changes the page and leaves the ring where the finger or the centre put it — it is what the paper project
+  -- does— and nothing has to be told where the dial goes. Before this, the strip was a single stop whose arrows
+  -- changed the tab, and this call existed to take the dial out of it (docs/30, docs/92).
   -- **The page that is on the glass is said out loud**, because a gallery whose pages do not turn is a page that looks
   -- right and is the first one for ever —and the console is where a test and a person read it— (docs/30).
   console.print('page ' .. page .. ' ' .. kNames[page])
   ui.present('gld16')
 end
 
--- The tabs are the navigation, so the dial moves them and this says which page that was.
+-- The tabs are the navigation: the arrows walk them one at a time and the centre chooses the one the ring is on, which
+-- is when this says which page that was.
 tabs.on_change = function(self, index)
   show(index)
 end
