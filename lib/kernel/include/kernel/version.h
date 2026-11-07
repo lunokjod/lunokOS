@@ -2391,7 +2391,51 @@ namespace kernel {
 // `2026-11-01|09:00:00|S` and nothing else— so 480 -> **481 cases**.
 // **Pending**: the tests of the turn (none executed), `timeclock` in `custom_apps` (a word in `platformio.ini`, which is
 // the owner's), and the same line of the ATOM.
-static const char kVersion[] = "0.125.0";
+// 0.126.0 (7/11): **the plan of the EPUB port, and its first piece: the zip container**.
+//
+// The reader of the paper project is not an app that draws pages: it asks the system for the page already composed,
+// because measuring words and deciding where every line goes is arithmetic over a buffer and, in Lua, it would have to
+// be walked in pieces under a budget of instructions. Porting it is therefore **porting an engine** —3 319 lines of C++
+// and 1 344 of tests in the paper— and then the 3 959-line app. The whole inventory, functionality by functionality and
+// with the order of the phases, is **docs/46-epub-el-motor-i-el-port.md**: the engine (A1..A7: zip, XHTML, paginator,
+// emphasis, the open book, the grey count, the limits), the door of Lua (B1..B10), the app (C1..C15) and the seven
+// things this system does not have and the reader asks for (D1..D7: fullscreen, how the page comes back, Latin-1
+// faces, a blit of pixels, styled text, the size of an app, the settings).
+//
+// **And the first piece is done: `lib/zip`** (A1). A zip is walked from its two ends —the record that closes it and the
+// central directory— and never from the middle: a book of ten megabytes opens in three reads. It is **the container and
+// nothing else** (stored and deflate, the checksum, the name, where the stream starts), so it adds to a system that
+// already had `lib/inflate` only the structure of the frame — and it is the first library of this tree with the same
+// discipline as the rest: **no allocation of its own**. The table of entries and the block of the compressed stream are
+// the caller's, and the one block of its own is the window where the closing record is searched, which is **static**
+// because this runs under the interpreter of an app and the loop that holds it has eight kilobytes of stack
+// (docs/46, A7). There is one zip open at a time in this system and the header says so.
+//
+// Five things the format teaches, all of them written where they bite: the closing record is searched **from the end**
+// (a zip may carry 65 535 bytes of comment after it, and the copy that matters is the last one), the comment has to land
+// **exactly at the end of the file** (a signature inside a comment is not a record), **the central directory is the only
+// truth** (a local header can lie with zeros and a data descriptor), a `stored` entry whose two sizes disagree is
+// damaged, and the window of the deflate **is the output block**, which is why `inflate::raw` is one-shot.
+//
+// What it refuses, each with its own word: a zip split in volumes, **ZIP64**, an **encrypted** entry, a method that is
+// not stored or deflate, a name of more than 127 bytes, an entry of more than two gigabytes, a stream that inflates to
+// something other than what its header promised, a compressed entry bigger than its own contents (a bomb wearing the
+// size of a chapter) and a **checksum that does not match** —which is exactly what a card with a bad block gives—.
+//
+// Measured on the bench of the computer: `lib/zip` is **a header of 109 lines and 293 of C++**, with `-Wall -Wextra
+// -Werror` from its own `library.json`, and `test/test_zip` builds 7 cases: a zip of three entries built **byte by byte
+// inside the test** (a folder, a stored `mimetype` and a deflated chapter), the same file read by python's `zipfile` to
+// prove that what the test writes is a legal zip —`['mimetype', 'META-INF/', 'OEBPS/text/cap1.xhtml']` and the chapter
+// comes back whole—, a comment with the signature of a record written inside it, and six refusals each with the file
+// patched where the number lives. `pio test -e test --without-testing` builds the 20 suites, **488 cases**, with 0
+// warnings.
+//
+// **The deflate of the test is real**: the 81 bytes of the chapter are what zlib produced from the same sentence, and
+// the two checksums are its numbers (`2CAB616F` for `application/epub+zip` and `447404B8` for the chapter), so what the
+// suite tries is this reader against a compressor that is not mine.
+// **Pending**: the tests of this turn (written, compiled, **not executed**: that wants the owner's word for it), the doc
+// of the next phase, and the same line of the ATOM.
+static const char kVersion[] = "0.126.0";
 
 }  // namespace kernel
 

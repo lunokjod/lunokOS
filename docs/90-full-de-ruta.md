@@ -29,7 +29,7 @@ perquè:
 |---|---|---|
 | `console.flush`, `console.read`, `console.read_byte`, `console.on_data` | cap app no les ha demanades; `read_line` cobreix el teclat | M1 |
 | `sys.reboot` | reiniciar sense dir res a qui hi ha al davant no és una crida d'app | M6 |
-| `time.utc`, `local`, `format`, `parse`, `set`, `tz` | el rellotge dona l'hora i prou; cap app ha demanat formatar-la | M3 |
+| `time.format`, `parse`, `set` | el rellotge dona l'hora i les parts del dia; formatar-la no l'ha demanada cap app (`utc`, `date` i `tz` hi són des de la 0.125.0) | M3 |
 | `time.sync` | ja hi ha `net.ntp`, que és el que fa la feina | M5 |
 | `Promise.all`, `Promise.race` | cap app ha necessitat esperar dues coses alhora | M1 |
 | `app.spawn`, `app.raise` | una app té un sol fil i una finestra d'alarma ja passa a primer pla amb `raise` de l'alarma | M2 |
@@ -484,6 +484,21 @@ forma, `[nivell][etiqueta] missatge` (docs/30, docs/85).
 | El pic de memòria d'una crida | avui es compta el temps i no els bytes; `sys.heap()` dona el pic de l'app sencera i no el d'una crida |
 | El repartiment de les pintades per mode | només `gc16` té fila pròpia: `du`, `du4` i `a2` van juntes amb `glass.flush` |
 | Un `stats` en format JSON o en una ordre a part | per a un guió de proves que vulgui els números sense llegir una taula d'ulls |
+
+## El lector d'EPUB, i per què no és una app (7/11)
+
+El lector d'EPUB del projecte del paper **no maqueta res**: demana al sistema la pàgina ja composta i
+la pinta, perquè mesurar paraules i decidir on va cada línia és aritmètica sobre un buffer i, en Lua,
+s'hauria de fer a bocins perquè un callback té un pressupost. O sigui que portar-lo és, sobretot,
+**portar un motor**: el contenidor ZIP, el tokenitzador de l'XHTML, el paginador i el llibre obert
+—3 319 línies de C++ i 1 344 de proves al paper— i després l'app de 3 959 línies.
+
+El pla sencer, funcionalitat per funcionalitat i amb l'ordre de les fases, és a
+[`46 · L'EPUB: el motor i el port`](46-epub-el-motor-i-el-port.md). El que cal saber d'aquí estant:
+la primera peça és el **ZIP** (el deflate ja hi és, `lib/inflate`), el rellotge i el disc tambéhi
+són, i el que no hi és i l'EPUB demana és la **pantalla sencera**, el **text amb èmfasi**, les
+**cares amb accents** (les del disc són ASCII imprès i un llibre en català no ho és) i la mida de
+l'app (131 161 B contra un sostre de 49 152).
 
 ## Fora de la v1
 

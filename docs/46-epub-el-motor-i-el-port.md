@@ -1,0 +1,166 @@
+# 46 · L'EPUB: el motor del paper i el port a aquest sistema
+
+Aquest document és el **pla** de portar el lector d'EPUB de `OLD/PaperOS` a aquest sistema, i la
+referència de cada peça mentre es fa. No és un resum: és la llista de funcionalitats, una per una,
+amb l'ordre en què s'han de fer i amb el que li falta a aquest sistema per a cada una.
+
+Es llegeix així: la **§2** diu què hi ha al paper (fitxer a fitxer i amb quines crides); la **§3**
+és la llista numerada —`A1`, `B3`, `C7`…— i és la que mana; la **§4** compara els dos maquinari i
+les dues màquines de Lua; la **§5** és l'ordre de les fases, un commit per fase.
+
+## 1 · Les dues meitats
+
+L'EPUB del paper **no maqueta res**: demana al sistema la pàgina ja composta i la pinta. El
+repartiment, que és la decisió de l'amo del 23/10 (*«veig que implementar en lua el lector d'epub
+dona problemes... fem-ho com amb les imatges, un render a un canvas»*), és:
+
+| Meitat | Què fa | On viu |
+|---|---|---|
+| **El motor** | obre el ZIP, llegeix l'XHTML, mesura les paraules, decideix on va cada línia i compon la pàgina en un canvas | C++ del sistema (`src/core/`, `src/system/`) |
+| **El producte** | el prestatge, l'índex, els menús, el peu, la posició de cada llibre | l'app de Lua (`pos_launch.lua`, 3 959 línies) |
+
+El contracte entre les dues meitats, que és el que aquest port ha de respectar:
+
+```
+paperos.epub.open(unit, path) → book
+book:chapter(href) → bytes              infla UN capítol a la PSRAM
+book:measure(from, w, h, opts) → next   compta una pàgina sense pintar-la
+book:page(from, w, h, opts) → surface, next, hasPicture, used, levels
+book:close()
+surface:draw(x, y) / width() / height() / free() / save(path)
+```
+
+**La posició de lectura és un byte dins del capítol.** No és un número de pàgina: una pàgina és
+`page(from, …)` i torna `next`, i el que es desa per llibre és `(capítol, byte)`. Per això el
+tokenitzador dona l'offset de cada paraula i per això `measure()` existeix.
+
+## 2 · Què hi ha al paper, fitxer a fitxer
+
+| Fitxer | Línies | Què fa |
+|---|---|---|
+| `src/core/zip_archive.{h,cpp}` | 130 + 508 | El **contenidor ZIP**: recorregut del final (EOCD), directori central, capçalera local per entrada, stored (0) i deflate (8), `find` per nom, `extract` amb un bloc del qui crida. Refusa per nom: ZIP64, xifrat, mètodes que no siguin 0 o 8, noms de més de 127 B, entrades de més de 2 GB, i un deflate més gran que el seu contingut (bomba). |
+| `src/system/storage_zip_source.h` | 84 | L'adaptador entre el ZIP i la memòria del sistema (`readChunk` en trossos de 512 + 1). |
+| `src/core/epub_html.{h,cpp}` | 242 + 773 | L'**XHTML d'un capítol, paraula a paraula**: el byte de cada paraula, el bloc que l'obre, les entitats (inclosa la Latin-1), `script`/`style`/`head`/comentaris sencers fora, `<br>`/`<hr>` com a tokens, les imatges amb el costat on floten, `b`/`i`/`sup`/`sub` amb comptador de profunditat, `<pre>` i els marcadors de taula (`<td>`, `</td>`, `</tr>`, `</table>`). |
+| `src/core/epub_layout.{h,cpp}` | 105 + 836 | **Una pàgina composta dins d'un canvas**: el llomall en píxels, la cara de cada bloc, l'aire abans de cada bloc, la sagnia de cita i de figura, el peu de figura centrat, les imatges flotades amb bandes perquè les paraules les envoltin, `<hr>`, les **taules com a reixa** (columnes comptades amb una sonda sobre el mateix capítol), i el final de pàgina que mai no parteix una imatge ni una fila. També el **mode mesura**: la mateixa aritmètica sense tocar un píxel ni descodificar una imatge. |
+| `src/system/epub_book.{h,cpp}` | 155 + 486 | **El llibre obert**: un capítol inflat a la memòria gran (sostre 1 MB), una imatge en cau (sostre 2 MB), la resolució de l'`href` relatiu al capítol, i el recompte de grisos de la pàgina composta (`levels`). |
+| `src/system/lua_api.cpp` (EPUB/ZIP) | ~300 | La **porta de Lua**: `epub.open`, `book:chapter/page/measure/close`, `zip.entries/open/extract`, i l'objecte d'una entrada (`size/name/read/close`). |
+| `test/native/tests_zip.cpp` | 442 | El ZIP amb un fitxer de joguina fet a mà i blocs que ha comprimit el zlib de debò. |
+| `test/native/tests_epub.cpp` + `_styles.cpp` | 718 + 184 | La maquetació, els blocs, les taules, les imatges flotades i els estils. |
+| `data/app/EPUB/pos_launch.lua` | **3 959** | L'app: el prestatge, el llibre, els menús, el peu, la llista de lectures. |
+| `data/app/EPUB/EPUB.md` + `PENDENT.md` | 494 + 258 | El disseny i els catorze forats coneguts del lector. |
+
+## 3 · La llista de funcionalitats
+
+Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu què hi ha al lunokOS
+**verificat al codi**, no al full de ruta.
+
+### A · El motor (C++, dins del sistema)
+
+| # | Funcionalitat | Al paper | Avui aquí | Què cal |
+|---|---|---|---|---|
+| **A1** | **El contenidor ZIP**: llegir el final del fitxer, el directori central i les capçaleres locals; una entrada `stored` i una de `deflate`; buscar per nom; treure una entrada a un bloc del qui crida; refusar ZIP64, xifrat, mètodes estranys, noms llargs i bombes, cada un amb la seva frase | `zip_archive.cpp` 508 + `storage_zip_source.h` 84 | **Res.** `lib/inflate` té el deflate i el `crc32`, que és mitja feina; `docs/70` diu que el contenidor no hi és | `lib/zip` (~500 línies) + l'adaptador sobre `hal::IStorage` (~80) + proves (~400) |
+| **A2** | **El tokenitzador XHTML**: paraules amb el seu byte, blocs (`p`, `h1..h3`, `li`, `blockquote`, `figure`, `figcaption`, `dl/dt/dd`, `pre`), entitats (les de l'XML i les de la Latin-1), `script`/`style`/`head`/comentaris sencers fora, `<br>`/`<hr>`, imatges amb `float`/`align`/`class`, `b`/`strong`, `i`/`em`, `sup`/`sub` amb comptador, i els quatre marcadors de taula | `epub_html.cpp` 773 | **Res**: aquí només hi ha `lib/json`; no hi ha cap lector d'XML ni d'HTML | `lib/epub` part 1 (~800 línies) + proves |
+| **A3** | **El paginador**: salt de línia amb l'avanç de cada glif, l'aire de cada bloc i la seva cara, sagnia de cita/figura/`dd`, peu de figura centrat, imatge flotada amb bandes (les paraules l'envolten), imatge sencera que obre pàgina, `<hr>`, la reixa d'una taula (columnes comptades amb una sonda, fila que no es parteix, capçalera subratllada), i el final de pàgina que diu **el byte** de la pàgina següent | `epub_layout.cpp` 836 | **Res**. El canvas i les mètriques sí que hi són: `ui::canvas_text`, `font_text_width`, `font_line_height` | `lib/epub` part 2 (~700 línies) + proves. **Es reescriu, no es copia**: aquí no hi ha `IFont`/`ICanvas` amb glifs i bitmaps |
+| **A4** | **Els senyals dins d'una línia**: negreta (segona passada un píxel a la dreta), cursiva (biaix fila a fila) i superíndex/subíndex (un terç de línia amunt, un cinquè avall) | `epub_layout.cpp` (`drawGlyph`, `drawRun`) | **No hi és**: `canvas_text` pinta una cadena sencera amb una cara i prou | Una primitiva nova: `ui::canvas_text_styled(slot, x, y, text, scale, level, mode, flags)` i el seu camí al `lib/kernel/src/font.cpp` (~80 línies) |
+| **A5** | **El llibre obert**: `open` (mida del fitxer), `chapter(entry)` que infla un capítol a la memòria gran, `member(href)` que resol un `href` relatiu al capítol i guarda **una** imatge en cau, i `layout` que compon o només mesura | `epub_book.cpp` 486 | **Res** | `lib/epub` part 3 + la memòria gran: `pal::extra_memory()` ja hi és i la fa servir el TLS (4 MB al Paper) |
+| **A6** | **El recompte de grisos d'una pàgina composta** (`levels`): es passeja pels píxels i compta quants nivells hi ha, que és el que decideix si la pàgina es pot girar amb `du` o necessita una passada que esborri | `levelsOf()` a `epub_book.cpp` | El concepte hi és (`hal::UpdateMode`, docs/50) però **cap app no pot preguntar-ho d'una pàgina** | Sortirà sol si la pàgina es compon dins d'un canvas de l'app: el nucli ja sap comptar els nivells (`ui::levels_shown`) |
+| **A7** | **La disciplina de límits i de pila**: sostres declarats (capítol 1 MB, imatge 2 MB, nom 127 B), deflate en un bloc del qui crida (no 32 KB de finestra pròpia), taules del descompressor fora de la pila (el `loopTask` fa 8 KB i el paper va reiniciar la placa dues vegades per això) | tot el `core/` | Aquí el `lib/inflate` ja treballa sobre un bloc del qui crida i sense al·locar | Es manté la regla: **cap funció del motor al·loca**, i els blocs grans van a `extra_memory` |
+
+### B · La porta de Lua
+
+| # | Funcionalitat | Al paper | Avui aquí | Què cal |
+|---|---|---|---|---|
+| **B1** | `epub.open(unit, path)` → objecte llibre, amb el motiu quan no és un llibre | `lEpubOpen` | **No hi és** | `luabind`: un objecte amb metataula i `__gc`, com `paperos.epub.book` |
+| **B2** | `book:chapter(href)` → bytes del capítol, i `close()` | `lEpubChapter` | **No hi és** | el mateix |
+| **B3** | `book:page(from, w, h, opts)` → la pàgina composta | `lEpubPage` | **No hi és** | Vegeu la decisió **D2**: superficie nova o directament dins d'un canvas de l'app |
+| **B4** | `book:measure(from, w, h, opts)` → on acaba la pàgina, sense pintar | `lEpubMeasure` | **No hi és** | el mateix, sense canvas |
+| **B5** | Les opcions d'una pàgina: `face`, `title_face`, `small_face`, `dark` | `epubStyleFrom` | Les cares es donen per **número** (`ui.load_font`) i no per nom | `{face = <número>, title_face = …, dark = true}`, i `paper`/`ink` segons `dark` |
+| **B6** | `zip.entries(unit, path)` → la llista d'entrades | `lZipEntries` | **No hi és** | surt de l'A1; l'app en llegeix el `container.xml` i l'OPF |
+| **B7** | `zip.open(unit, path, name)` → entrada amb `size()/name()/read(from,len)/close()` | `lZipOpen` + l'objecte | **No hi és** | el mateix |
+| **B8** | `zip.extract(unit, path, name, destUnit, dest)` → una entrada a un fitxer | `lZipExtract` | **No hi és** | el mateix; aquí, a més, `img::decode` llegeix **de memòria**, o sigui que la portada no cal extreure-la |
+| **B9** | `surface:save(path)` (la miniatura `.ics`) | `ImageSurface::save` | **No hi és** (`ui.image_save` no existeix) | Decisió **D4**: afegir-ho o deixar córrer el cau de miniatures |
+| **B10** | `opens: "epub"` i `app.args.path` | `paperos.opened_file` | **Sí** (0.120.0) | res |
+
+### C · L'app (Lua)
+
+| # | Funcionalitat | Al paper | Què cal aquí |
+|---|---|---|---|
+| **C1** | **El prestatge**: els `.epub` de `/epub` de cada unitat, en pàgines, amb la tira de boletes del sistema (16 com a molt, la finestra al voltant de l'actual) | `shelf*` de l'app | `fs.list`/`fs.mounts` i `ui.dots` ja hi són |
+| **C2** | **Obrir un llibre**: `META-INF/container.xml` → OPF → `dc:title` + `manifest`/`spine`, i si l'OPF no es llegeix, les entrades `.xhtml`/`.html`/`.htm`/`.xml` fora de `META-INF/` per ordre de nom | `openBook()` | B6 (o B7 llegint-lo a trossos) |
+| **C3** | **Passar pàgina**: tecles, toc al costat, lliscament lateral; dos tocs al centre (dins de 1500 ms) demanen la pantalla sencera | `nextPage/prevPage`, `on_tap` | les tecles i el toc hi són; **la pantalla sencera no** (D1) |
+| **C4** | **Els menús** `Book` (Shelf, Contents) i `View` (Full screen, Dark page / Light page) | `paperos.ui.menubar` | `ui.menu_bar` hi és |
+| **C5** | **El peu**: capítol i percentatge, i les boletes de les pàgines del capítol (14 de finestra, tres de més petites als caps, sostre de 512) | `foot*` | B4 per comptar, `ui.dots` per pintar. El comptatge va **de fons**, unes quantes pàgines per volta del rellotge |
+| **C6** | **La llista de lectures**: `/epub/reading.txt`, una línia per llibre `unitat TAB camí TAB capítol TAB byte TAB portada`, 200 com a molt, i el més vell cau | `readingList*` | `fs.read`/`fs.write` sobre la unitat del llibre: res de sistema |
+| **C7** | **La portada com a estat**: la primera pàgina del primer capítol comença al byte zero, o sigui que «sóc a la portada» no es pot deduir del byte | `book.cover` | res |
+| **C8** | **La pantalla de càrrega**: «Opening the book…» i el nom del fitxer, i el llibre s'obre **al torn següent** (el panell només viatja quan el callback s'ha acabat) | `openOnNextTurn` | el bucle de l'app: res |
+| **C9** | **El paper fosc i el clar**: només per a les pàgines del llibre, no per al prestatge ni per a la portada, i **no es desa** | `dark` | B5 (`dark = true`) |
+| **C10** | **La passada de la pàgina**: `du` quan la pàgina que marxa i la que arriba són de dos tons, i una passada que esborri quan no; `levels` de les dues | `turnPage()` | aquí: `ui.present('du')` / `ui.present('gc16')` |
+| **C11** | **El cau de miniatures** `.llibre.epub.cache.ics` al costat del llibre (64 px, `ICS1`), amb l'espai preguntat **abans** d'escalar i el cau dins d'un `pcall` | `saveThumb()` | B9 + `fs.space` (que ja hi és) |
+| **C12** | **Un error és un avís**: el registre, la ratlla del prestatge i un avís del sistema que, tocat, obre la targeta amb la frase sencera | `oops()/showError()` | `ui.notification_bar` + `ui.dialog` hi són |
+| **C13** | **Dues cares del llibre**: `/fonts/book.pof` pel cos i `/fonts/book-sans.pof` pels títols, i el sistema si no hi són | `bookFace` | `ui.load_font` accepta `.ttf`/`.bdf`/`.pcf`/`.lfont`: les cares del paper s'han de **refer** en un d'aquests quatre formats |
+| **C14** | **L'índex del llibre** (`Contents`) | **No hi és al paper** (`PENDENT.md` pas 1) | Es fa aquí o no es fa: no és cap regressió, però és la meitat d'un lector |
+| **C15** | **Anar a una pàgina pel número** | **No hi és al paper** (pas 14) | igual |
+
+### D · El que el sistema encara no té i l'EPUB demana
+
+| # | Què | Per què l'EPUB el necessita | Mida |
+|---|---|---|---|
+| **D1** | **La pantalla sencera**: amagar la barra de 48 files i donar a l'app les 540 × 960, amb el gest de sortida del sistema | El lector del paper té `paperos.fullscreen` i sense això perd 48 files i el gest de dos tocs | ~150 línies al nucli (vista, barra, toc) |
+| **D2** | **Com torna la pàgina**: un objecte superfície nou (com el paper) o **compondre dins d'un canvas de l'app** | És la decisió de menys codi: aquí la vista ja és un canvas i no caldria `free()` ni un tipus nou | 0 si és dins del canvas; ~200 si és un objecte |
+| **D3** | **Cares amb accents**: les del disc són **95 glifs, U+0020–U+007E** (mesurat) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Regenerar les cares amb Latin-1 (mesurat: DejaVuSerif passa de 14 716 a **23 708 B**) i convertir UTF-8 → un byte al tokenitzador |
+| **D4** | **Pintar un bloc de píxels en un canvas** | Les imatges del llibre surten del ZIP a la memòria i `img::decode` dona files; `canvas_image` llegeix un **fitxer** | `ui::canvas_bitmap` (~40 línies) |
+| **D5** | **El text amb èmfasi** (A4) | Negreta i cursiva són a la llista de funcionalitats del paper | ~80 línies a `lib/kernel/src/font.cpp` |
+| **D6** | **La mida de l'app**: 3 959 línies i **131 161 B** (100 499 B sense comentaris) contra un sostre de font de **49 152 B**, i `load`/`dofile` són `nil` | L'app no hi cap i no es pot partir en mòduls | Decisió: sostre a ~160 KB, o `require` per a les apps |
+| **D7** | **Els ajustos d'una app** (`prefs`) | El paper hi desa l'últim llibre i la unitat | Un fitxer a `/cfg` de l'app: res de sistema |
+
+## 4 · Els dos maquinari, i les dues màquines de Lua
+
+| Cosa | Paper | Aquí | Què vol dir per al port |
+|---|---|---|---|
+| Pantalla | 540 × 960 | 540 × 912 (sota la barra) | D1, si el lector ha de tenir les 960 |
+| Caixa de text del paper | 508 × 801 | 500 × ~800 | la maquetació s'adapta sola: tot ve d'arguments |
+| Cares | **sis, d'un bit, totes en negreta**, de 16 a 70 px | **TTF d'outlines** amb avanç per glif, ASCII imprès | A4 (èmfasi) i D3 (accents) |
+| Cares per app | — | **3** (`kMaxFaces`) | cos + títol + (res més): l'app del paper en fa servir dues |
+| Memòria gran | PSRAM, capítol 1 MB, imatge 2 MB | `pal::extra_memory()`, **4 MB al Paper** | A5 |
+| Màquina de Lua | 128 KB, 400 000 instruccions per callback | **4 MB al Paper** (diu el seu sostre), 128 KB a l'ATOM | el comptatge de pàgines de fons potser no cal; es mesura |
+| Deflate | `core/deflate.h` | `lib/inflate` (raw, zlib, crc32) | A1 és **menys** feina que al paper |
+| Imatges | des d'un fitxer (cal extreure) | **`img::decode` des de memòria** | B8 no cal per a les portades: es descodifiquen del bloc |
+
+## 5 · Les fases, i què ha de provar cada una
+
+| Fase | Què es fa | Què queda provat |
+|---|---|---|
+| **1** | **`lib/zip`** (A1) i el seu adaptador | Un zip de joguina fet a mà, un `stored`, un `deflate` de debò, un nom llarg, una entrada xifrada i una de ZIP64 refusades amb la seva frase |
+| **2** | **`lib/epub`, el tokenitzador** (A2) | Paraules amb el byte, blocs, entitats (inclosa `&eacute;`), `script`/`style` fora, `br`/`hr`, `b`/`i`/`sup`, les quatre marques de taula |
+| **3** | **Les cares amb Latin-1 (D3) i el text amb èmfasi (D5)** | `à` es pinta; una negreta és més gruixuda; una cursiva biaixa |
+| **4** | **El paginador** (A3, A4) | Una pàgina de text amb el seu `next`, una imatge flotada amb bandes, una taula de tres columnes, una fila que no es parteix |
+| **5** | **El llibre** (A5, A6) i `canvas_bitmap` (D4) | Un llibre de joguina obert, un capítol inflat, una pàgina composta en un canvas, `levels` |
+| **6** | **La porta de Lua** (B1–B8) | Les mateixes proves, però des d'un script: `run epub-probe` |
+| **7** | **La pantalla sencera** (D1) | La vista passa a 540 × 960 i la sortida és el gest del sistema |
+| **8** | **L'app sencera** (C1–C13) | El prestatge, un llibre obert, una pàgina girada, la posició desada i represa |
+
+Cada fase és un commit amb la seva versió, les proves escrites i, si es poden executar, els números
+mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mida (D6).
+
+## 6 · Les decisions que són de l'amo
+
+1. **La mida de les apps** (D6): el sostre de font puja a ~160 KB o les apps guanyen `require`. Sense
+   això la fase 8 no cap.
+2. **Com torna la pàgina** (D2): un objecte superfície o compondre dins d'un canvas de l'app.
+3. **La pantalla sencera** (D1): si el lector ha de tenir les 960 files.
+4. **Els accents** (D3): regenerar les cares amb Latin-1 —canvia el que veu el sistema sencer, no només
+   l'EPUB— o deixar-lo només per a la cara del llibre.
+5. **El cau de miniatures** (C11): amb `ui.image_save` o sense.
+
+## 7 · El que no es porta, i per què
+
+- **DRM** (Adobe, LCP): no és compressió, és un altre problema. Es refusa per nom, com al paper.
+- **ZIP64**: un llibre que el necessita no cap en aquesta placa.
+- **Els tipus de lletra incrustats de l'EPUB** (TTF/WOFF a dins del llibre): aquí una cara es carrega
+  d'un fitxer del disc i n'hi ha tres; el paper tampoc no els fa servir.
+- **L'EPUB de maquetació fixa** (`fixed-layout`): el paper no el llegeix i aquí tampoc no es farà
+  sense una decisió.
+- **SVG** com a imatge: no el llegeix cap dels dos sistemes.
+- Els catorze forats que el paper ja té llistats al seu `PENDENT.md` (CSS, justificat, partició de
+  paraules, text vertical…) **no són regressions**: es porten tal com són, i si es volen tancar, es
+  tanquen després amb la seva pròpia llista.

@@ -613,8 +613,52 @@ stream truncat, un quart tipus de bloc que no existeix, un `stored` que menteix 
 massa petita— i els dos checksums amb els valors de sempre (`adler32("Wikipedia") = 0x11E60398`,
 `crc32("123456789") = 0xCBF43926`).
 
-**El que encara no hi és**: el **contenidor zip** (fi del directori central, capçaleres, i el nom de cada
-entrada) i la capa d'epub a sobre. El deflate era la peça que no existia; el zip és recórrer estructures.
+## El contenidor zip (7/11, 0.126.0)
+
+Un zip té tres parts i el lector en camina **les dues puntes**: una capçalera local i un stream per a cada
+entrada, un **directori central** al final amb un registre per entrada (el nom, el mètode, les dues mides, el
+checksum i on és la capçalera local), i un **registre que el tanca** amb quants n'hi ha i on comença el
+directori. Un llibre de deu megabytes s'obre en tres lectures.
+
+| Crida | Què fa |
+|---|---|
+| `zip::Archive::open(source, table, cap, count)` | Llegeix el registre final i el directori, i omple la taula d'entrades del qui crida |
+| `archive.find(name)` | L'índex de l'entrada que es diu així, o -1 |
+| `archive.at(i)` | L'entrada: `name`, `size`, `packed`, `local`, `crc`, `method`, `flags`, `dir` |
+| `archive.extract(i, out, cap, written, packed, packed_cap)` | Una entrada sencera, a un bloc del qui crida |
+| Resultat | `kOk`, `kNotAZip`, `kSplit`, `kZip64`, `kDirectory`, `kNoRoom`, `kBadData`, `kEncrypted`, `kMethod`, `kCrc` |
+
+**Les cinc regles que costa aprendre del format**
+
+1. **El registre final es busca des del final**, no des del començament: darrere seu hi pot haver fins a
+   65 535 bytes de comentari, i la còpia que val és **l'última**.
+2. **La longitud del comentari ha d'acabar exactament al final del fitxer.** Quatre bytes dins d'un
+   comentari també són la firma; el que distingeix un registre d'una casualitat és el compte.
+3. **El directori central és l'única veritat.** Una capçalera local pot mentir —hi ha escriptors que hi
+   posen zeros i un descriptor de dades després del stream—, o sigui que les mides surten del directori i la
+   capçalera local només serveix per trobar on comença el stream.
+4. **Una entrada `stored` amb les dues mides diferents està trencada**: stored vol dir que els bytes són els
+   bytes.
+5. **La finestra del deflate és el bloc d'esortida**, i per això `inflate::raw` és d'una passada: els bytes
+   comprimits es copien a un bloc del qui crida i el resultat va a l'altre.
+
+**I el que no aloca res**: la taula d'entrades i el bloc del stream són del qui crida, perquè això córrer sota
+l'intèrpret d'una app i sota la pila de 8 KB del `loopTask` (docs/46, A7). L'única cosa pròpia és la finestra de
+la recerca del registre final, **estàtica** i d'un kilobyte, i per això hi ha un zip obert alhora en aquest
+sistema.
+
+**El que es refusa, i per què**: un zip partit en volums, **ZIP64** (un desplaçament de 64 bits en un fitxer que
+cap en aquesta placa és un fitxer que algú ha tallat), una entrada **xifrada** (el DRM és un altre problema), un
+mètode que no sigui `stored` o `deflate`, un nom de més de 127 bytes, una entrada de més de dos gigabytes, un
+stream que infla a una altra cosa que el que la seva capçalera promet, i un **checksum que no quadra** (una
+tarja amb un bloc dolent dona exactament això).
+
+**Com es prova**: `test/test_zip/` amb un zip **construït byte a byte dins de la prova** —una carpeta, un
+`mimetype` stored i un capítol deflated amb un stream que ha fet el zlib de debò—, un comentari amb una firma a
+dins, i cada refús amb el seu fitxer pedaçat on viu el número.
+
+**El que encara no hi és**: la **capa d'epub** a sobre del zip (l'XHTML, el paginador i el llibre obert),
+que és la feina que el pla de [docs/46](46-epub-el-motor-i-el-port.md) té repartida en fases.
 
 ## Errors típics
 
