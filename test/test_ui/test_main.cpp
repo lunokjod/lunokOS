@@ -1437,15 +1437,20 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   fresh_view();
   TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardAlpha));
   TEST_ASSERT_TRUE(ui::keyboard_visible());
-  // Four rows of forty-four pixels in a view of five hundred and forty, and never the two fifths the rule allows.
-  TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
+  // **Four rows and the two fifths of the rule** (0.107.0): the key wants sixty-four pixels and four of them are two
+  // hundred and fifty-six, which does not fit a view of five hundred and forty —the rule allows two hundred and
+  // sixteen— so this view gets keys of fifty-four. The height that is asked for is the whole band either way.
+  TEST_ASSERT_EQUAL_UINT16(216, ui::keyboard_height());
   TEST_ASSERT_LESS_OR_EQUAL_UINT16(static_cast<uint16_t>((ui::canvas().height * 2) / 5), ui::keyboard_height());
   // **The band is not part of the view an app has** (0.84.0): the canvas is still the five hundred and forty of the
   // glass under the bar, and `ui.height()` —what `ui.caps().height` says to an app— is what is left over the band.
   const uint16_t top = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
-  TEST_ASSERT_EQUAL_UINT16(364, top);
+  // Where each row starts, which is what the fingers of this test use: a quarter of the band each, and the point a
+  // little below it is inside the row.
+  const uint16_t row = static_cast<uint16_t>(ui::keyboard_height() / 4);
+  TEST_ASSERT_EQUAL_UINT16(324, top);
   TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
-  TEST_ASSERT_EQUAL_UINT16(364, ui::height());
+  TEST_ASSERT_EQUAL_UINT16(324, ui::height());
   TEST_ASSERT_TRUE(ui::present());
   // **The keys keep the margin of the glass** (0.97.0, docs/92): the twelve pixels at the left of the band are the
   // paper of the band and not a key, and the first key of the row starts there with its one pixel of line.
@@ -1467,7 +1472,7 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
 
   // **The row of `a` is staggered half a key**: the first twentieth of it is air, so a finger there is a touch of
   // the band that presses nothing and the dial stays where it was —on the second key of the first row—.
-  TEST_ASSERT_TRUE(ui::keyboard_touch(20, top + 44 + 22, true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(20, static_cast<uint16_t>(top + row + 10), true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(150, top + 10), "the dial left the key it was on");
@@ -1475,10 +1480,10 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   // A finger on the `a` itself puts the dial there, which is the cell the paint put down: the keys keep the twelve
   // pixels of margin of the glass, so the row of `a` starts at thirty-seven, and **the chosen key is its whole cell in
   // ink** and not a block inside three pixels of air (0.97.0, docs/92).
-  TEST_ASSERT_TRUE(ui::keyboard_touch(100, top + 41 + 22, true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(100, static_cast<uint16_t>(top + row + 40), true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(70, top + 41 + 4));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(70, static_cast<uint16_t>(top + row + 4)));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(150, top + 10));
 
   // **The capitals are a lock and not a shift**: what a capital costs is more ink in the cell of the letter and the
@@ -1497,13 +1502,13 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   const int lower = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN(0, lower);
   // The case is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
-  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 82 + 20, true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(72, static_cast<uint16_t>(top + 2 * row + 20), true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
   const int capital = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the case did not change the letters");
   // The key is lit while it is on, and the band is painted once for it.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, top + 82 + 10));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, static_cast<uint16_t>(top + 2 * row + 10)));
   // **A letter of the row of `q` does not put it out**, and it does not paint the band either: the capitals stay and
   // the key stays lit —what a lock is for— (0.84.4).
   // The dial walks off the case key and onto a letter —the `z` of its row—, which is a move and paints the band once.
@@ -1515,10 +1520,11 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::keyboard_key("press", 0));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_INT_MESSAGE(capital, ink_in(192, top + 4), "a letter put the capitals out");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(20, top + 82 + 10), "the key of the case went out with a letter");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(20, static_cast<uint16_t>(top + 2 * row + 10)),
+                                  "the key of the case went out with a letter");
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(before_the_letter, glass().paint_count(), "a letter painted the band");
   // And the key again takes the capitals back.
-  TEST_ASSERT_TRUE(ui::keyboard_touch(72, top + 88 + 22, true));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(72, static_cast<uint16_t>(top + 2 * row + 22), true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_INT_MESSAGE(lower, ink_in(192, top + 4), "the lock did not turn the capitals off");
@@ -1532,7 +1538,7 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(0, top), "the band did not come back after a clear");
   // The same with a rectangle the app paints over it, which is the other way a page wipes the band.
-  TEST_ASSERT_TRUE(ui::fill_rect(0, static_cast<uint16_t>(top), 540, 176, 15, nullptr));
+  TEST_ASSERT_TRUE(ui::fill_rect(0, static_cast<uint16_t>(top), 540, ui::keyboard_height(), 15, nullptr));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(0, top), "the band did not come back after a rectangle");
 
@@ -1543,13 +1549,13 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(walked + 1, glass().paint_count(), "a walk of the dial painted more than once");
 
   // **The digits are the other alphabet and the same band**: four rows, because a page laid out around a band of
-  // a hundred and seventy-six does not move when the digits come (docs/90).
+  // two hundred and sixteen does not move when the digits come (docs/90).
   TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardNumeric));
-  TEST_ASSERT_EQUAL_UINT16(176, ui::keyboard_height());
+  TEST_ASSERT_EQUAL_UINT16(216, ui::keyboard_height());
   TEST_ASSERT_TRUE(ui::present());
   // The `1` of the first row is ink and the band is still at the bottom of the canvas.
   const uint16_t foot = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
-  TEST_ASSERT_EQUAL_UINT16(364, foot);
+  TEST_ASSERT_EQUAL_UINT16(324, foot);
   TEST_ASSERT_EQUAL_UINT8(0, view_level(0, foot));
   // The dial is on the `1` of the first row, and the chosen key is a block of ink with the digit in paper.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(20, foot + 10));

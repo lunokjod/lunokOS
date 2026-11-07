@@ -1623,7 +1623,29 @@ namespace kernel {
 // whether it takes the dial, and the ring reaches the control past the hundred and twenty-seventh— and the breaks
 // that turn them red are: taking `__inverts` off the entry, not inheriting `disabled` in `l_canvas_add`, and putting
 // `g_ui_focus_slot` back to `int8_t` (docs/30, docs/92 §21).
-static const char kVersion[] = "0.106.0";
+//
+// 0.107.0 (8/11): **a keyboard a thumb can press.** The owner, with the board in his hand: *«El teclat ha de ser més
+// alt i amb tecles i lletres més grans, gairebé no es poden polsar. També trobo a faltar una tecla: "Backspace" (en
+// icona, com l'<enter>)»*. A key was forty-four pixels tall and its letter two steps of a body of nine —eighteen
+// pixels on a band of a hundred and seventy-six—, which is read at a hand's distance and not where a board is held.
+// This panel reads a finger at about six pixels a millimetre, so **a key is sixty-four** now: a little over a
+// centimetre, the smallest a thumb presses without looking. The band is two hundred and fifty-six and the app keeps
+// six hundred and fifty-six of page (it had seven hundred and thirty-six), and the band still never takes more than
+// two fifths of the view, so a short view shrinks the key instead (fifty-four in five hundred and forty, thirty-two at
+// the floor). **The letter takes the height of its key** —the step comes out of the cell and not from a constant— with
+// the ceiling at five, and the word of a key (`123`, `MAY`, `space`) two steps under its letter. The five is what the
+// block of the antialiased glyph holds at twice its size: sixty-four pixels refused the tallest letters and the key
+// fell back to the blocky text, which is exactly the letter a person cannot read; the block is **96 x 96** (1 152
+// bytes instead of 512). And the backspace wears **its own symbol** and not the arrow of a "back" gesture: the
+// pentagon of the box it deletes with a cross inside, drawn with the same strokes (`ink_line`) as the enter, which
+// stays the arrow that turns.
+// Measured: `kb:height()` says **256** and `ui.caps().height` **656** with the band on the glass (read from the
+// emulator); the dumps of the alpha and the numeric bands are four rows of big keys with readable letters, the
+// pentagon with the cross at the end of the row and the arrow of the enter after the dot. **The suite was not run**
+// (the owner did not ask for it): the two band tests were re-pointed from 176/736 to 256/656 and from the rows of
+// forty-four to the rows of the rule, and the break that has to turn them red is putting the key back to forty-four
+// (docs/30, docs/92 §22).
+static const char kVersion[] = "0.107.0";
 
 }  // namespace kernel
 

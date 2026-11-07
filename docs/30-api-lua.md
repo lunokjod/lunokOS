@@ -819,7 +819,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.grid_entry(w, h)` | **un objecte** o `nil, error` | **Una cel·la d'una graella que l'app construeix** (0.105.0): el mateix control que `ui.list_entry` sense la línia del separador, i el contingut és un fill (una icona amb el seu nom, un box de dues cel·les, una imatge) |
 | `ui.list(w, h)` | **un objecte** o `nil, error` | **Files en pàgines i mai scroll**: `items` (una llista de taules amb `title`, `detail` i `subtitle`, o de cadenes, que són el títol), `row_height`, `page` i `marked` (la fila triada de tota la llista, 1 a n, o 0). El peu diu `2 / 4` i **les fletxes del dial canvien la pàgina** amb `on_page(self, page)` (3/11, 0.71.0) |
 | `ui.textbox(w, h)` | **un objecte** o `nil, error` | **Una línia on es tecleja**, amb el cursor de bloc: `text`, `cursor` (quants bytes hi ha abans del cursor), `caret` (el bloc que el sistema fa parpellejar; l'app el llegeix), `mask` (puntets en lloc de lletres), `color`, `scale` i **`keyboard`** (`'alpha'` per defecte, `'numeric'`, o `false` si la caixa no vol teclat). **És enfocable** (3/11, 0.72.0, 0.91.0, 0.92.0) |
-| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 736 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0) |
+| `ui.keyboard()` | **un objecte del sistema** | **El teclat, que no és un control**: `kb.target = box` (on escriu), `kb:show('alpha'\|'numeric')` (exigeix una caixa de text), `kb:hide()`, `kb:height()` (la banda que pren) i `kb:visible()`. El teclat **pinta el sistema**, no l'app; des de 0.83.0 és un QWERTY de minúscules amb majúscules, barra d'espai i icones, i la banda fa quatre files en els dos jocs. **Des de 0.84.0 la vista de l'app és el que queda sobre la banda** (`ui.caps().height` baixa a 656 i l'app rep `on_resize`). **Des de 0.91.0 segueix el focus**: un dit sobre una caixa que pren tecles (`box.keyboard`) obre la banda i la caixa passa a ser el target; un dit fora la tanca (3/11, 0.72.0, 0.91.0). **Des de 0.107.0 les tecles fan 64 píxels d'alt** i la lletra ocupa l'alçada de la tecla, i el backspace té la icona del seu símbol |
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
@@ -1790,20 +1790,20 @@ a l'NVS i l'arrencada la torna a posar. Un teclat nou és un fill més i una fil
 | `kb.target = box` | La caixa on escriu. El sistema la mou a la caixa que pren el focus; l'app la pot escriure abans d'un `kb:show` |
 | `kb:show('alpha')` · `kb:show('numeric')` | La banda surt per al target, amb el joc que es demana. **Exigeix una caixa de text viva que prengui tecles**: sense target, amb un objecte que no és una caixa, o amb `keyboard = false`, torna `nil, E_INVAL` |
 | `kb:hide()` | La banda marxa (i marxa sola quan l'app s'acaba). **No esborra el target**: una caixa que encara pren tecles la torna a obrir quan el dit hi torna; perquè no ho faci, `box.keyboard = false` |
-| `kb:height()` | **La banda que pren** —176 al Paper—, que des de 0.84.0 ja no cal restar de res: és el que es pregunta per pintar una barra pròpia just a sobre |
+| `kb:height()` | **La banda que pren** —256 al Paper des de 0.107.0, quatre files de 64—, que des de 0.84.0 ja no cal restar de res: és el que es pregunta per pintar una barra pròpia just a sobre |
 | `kb:visible()` | Si és al vidre |
 
-**La vista de l'app és el que queda sobre la banda** (0.84.0). `ui.caps().height` i `ui.height()` diuen **736 i no 912**
+**La vista de l'app és el que queda sobre la banda** (0.84.0). `ui.caps().height` i `ui.height()` diuen **656 i no 912**
 mentre el teclat és al vidre, i l'app rep **`on_resize(width, height)`** quan la banda surt i quan marxa —el mateix hook
 d'una vista que canvia de mida o de gir—, o sigui que una pàgina que es fa a partir de `ui.caps()` ja queda bé i no ha de
-restar res. El llenç de sota no es torna a demanar (no costa ni un byte: la banda es pinta a sobre dels seus últims 176
+restar res. El llenç de sota no es torna a demanar (no costa ni un byte: la banda es pinta a sobre dels seus últims 256
 píxels), i `ui.canvas().height` continua dient l'alçada del llenç per a qui necessiti la mida física.
 
 ```lua
 local kb = ui.keyboard()
 kb.target = box             -- el sistema també ho fa quan el dit hi cau
 kb:show('alpha')            -- la banda primer (o el dit, des de 0.91.0)
-local view = ui.caps()      -- i la vista ja és el que queda: 736
+local view = ui.caps()      -- i la vista ja és el que queda: 656
 local page = ui.panel(view.width, view.height, 'vertical')
 
 function on_resize(width, height)   -- la banda ha vingut o se n'ha anat
@@ -1831,9 +1831,16 @@ end
 - **Les lletres són una tipografia de debò** (0.85.0): `DejaVu Sans Bold` de `/fonts`, dibuixada amb
   `font::load_ttf`, i la cara 5 × 7 del sistema només quan el disc no porta `/fonts`. El joc alfa és un QWERTY
   esglaonat —la fila de la `a` va mitja tecla més a la dreta que la de la `q`— amb la **barra d'espai** al seu lloc,
-  la tecla de **majúscules** (`MAY`) a l'esquerra de la `z` i la de **retrocés** (←) a la dreta de la `m`. Les tecles
-  que no són lletres es dibuixen amb el signe i no amb la paraula: ← per esborrar, ↵ per l'enter, i una barra
-  d'extrems rodons per l'espai.
+  la tecla de **majúscules** (`MAY`) a l'esquerra de la `z` i la de **retrocés** a la dreta de la `m`. Les tecles
+  que no són lletres es dibuixen amb el signe i no amb la paraula: el **pentàgon amb una creu a dins** per esborrar
+  (0.107.0), ↵ per l'enter, i la paraula `space` per la barra.
+- **La tecla fa 64 píxels d'alt i la lletra ocupa l'alçada de la tecla** (0.107.0): abans eren 44 i la lletra es
+  quedava en dos passos de cos —divuit píxels en una banda de cent setanta-sis—, i l'amo ho va dir tal com es veu al
+  vidre: *«el teclat ha de ser més alt i amb tecles i lletres més grans, gairebé no es poden polsar»*. Aquest panell
+  llegeix un dit a uns sis píxels per mil·límetre, o sigui que 64 és una mica més d'un centímetre, el més petit que un
+  polze prem sense mirar. **La banda no passa mai de dos cinquens de la vista** i, en un vidre petit, s'encongeix ella
+  (mínim 32); el sostre de la lletra és **5 passos**, que és el que cap al bloc de noranta-sis píxels del glif
+  antialiasejat.
 - **Cada lletra es pinta a doble mida i es rebaixa a quatre nivells de tinta** (0.85.0): la cara dona corbes i el
   vidre té setze nivells, o sigui que la diagonal d'una `x` són quatre passos i no una escala de píxels. És el que fa
   que el teclat no sembli una graella. El fitxer són **8,5 KB** de la memòria extra i es té mentre la banda és al
@@ -1875,7 +1882,7 @@ end
 local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
-view = ui.caps()                  -- i el que la pàgina té és el que queda: 736 (0.84.0)
+view = ui.caps()                  -- i el que la pàgina té és el que queda: 656 (0.84.0)
 ui.present('gc16')
 ```
 

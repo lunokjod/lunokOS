@@ -271,7 +271,7 @@ que res d'això**, perquè són les que diuen si un control nou pot declarar el 
 | **el teclat del sistema** — banda pròpia, dial que camina les tecles, i el camp escrit abans de `on_change` | **0.72.0** | `test_the_keyboard_types_into_the_box_it_was_given` |
 | **el teclat, dibuixat** (0.83.0) — QWERTY esglaonat de minúscules amb majúscules, barra d'espai, icones (← ↵ ⇧) en lloc de paraules, cap botó, quatre files en els dos jocs i la banda neta amb `gl16` | **0.83.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
 | **el teclat que no parpelleja** (0.83.1) — es pinta al llenç a cada present i al vidre només hi va el que ha canviat: dues cel·les quan el dial camina, la banda quan canvia el joc, res quan s'escriu una lletra | **0.83.1** | el mateix, amb el comptador de pintades del vidre |
-| **la vista que el teclat no trepitja** (0.84.0) — `ui.caps().height` baixa a 736 amb la banda i torna a 912 quan marxa, l'app rep `on_resize`, i `cv:resize` deixa un panel prendre la mida nova | **0.84.0** | `test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given` |
+| **la vista que el teclat no trepitja** (0.84.0) — `ui.caps().height` baixa a 656 amb la banda (736 fins a 0.106.0, amb tecles de 44) i torna a 912 quan marxa, l'app rep `on_resize`, i `cv:resize` deixa un panel prendre la mida nova | **0.84.0** | `test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given` |
 | **la caixa de text, neta** (0.84.1) — el text de la finestra s'acumulava entre pintades (un buffer estàtic que no s'esborrava), el cursor a zero es pintava al final de la fila, i les apps presenten el canvi amb `gl16` | **0.84.1** | `test_a_box_paints_its_text_and_not_the_one_before_it`, `test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row` |
 | **el teclat, dibuixat de debò** (0.85.0) — DejaVu Sans Bold de `/fonts` a doble mida i rebaixat a quatre nivells de tinta, `MAY` com a bloqueig, i la banda que només es repinta quan canvia ella o quan la pàgina la trepitja | **0.85.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
 | **el dial de la finestra, dibuixat** (0.85.1) — fletxa amunt, cercle farcit i fletxa avall com a runs d'un píxel (`gui_key_icon`) en lloc de les paraules, botons de 40 × 40 amb 6 de buit, i una placa d'una tecla que es queda la paraula | **0.85.1** | `test_the_keys_of_the_window_are_the_dial_of_the_board` |
@@ -695,3 +695,36 @@ anterior): les quatre proves noves estan escrites i compilen —
 `test_the_ring_reaches_a_control_past_the_hundred_and_twenty_seventh`— i les trencades que les han de posar vermelles
 són: treure `__inverts` de l'entrada, no heretar el `disabled` a `l_canvas_add`, i tornar `g_ui_focus_slot` a
 `int8_t`.
+
+## 22. Un teclat que un dit pot prémer (0.107.0)
+
+**L'amo, amb la placa a la mà**: *«El teclat ha de ser més alt i amb tecles i lletres més grans, gairebé no es poden
+polsar. També trobo a faltar una tecla: "Backspace" (en icona, com l'<enter>)»*.
+
+**Les tecles feien 44 píxels i la lletra dos passos de cos.** En una banda de 176 píxels (quatre files), la lletra
+feia divuit píxels d'alçada: es llegeix a un pam de la cara i no a la distància a què es té una placa a la mà. La
+xifra que decideix és aquesta: el panell del Paper té sis píxels per mil·límetre, i un polze prem sense mirar a partir
+d'un centímetre, o sigui **seixanta píxels**. Ara la tecla en fa **64** i la banda **256** (quatre files), o sigui que
+l'app té **656** píxels de pàgina on abans en tenia 736 —el preu de poder escriure—, i la banda no passa mai de dos
+cinquens de la vista, així que en un vidre petit s'encongeix ella (mínim 32).
+
+**La lletra ocupa ara l'alçada de la tecla**: la mida surt de la cel·la i no d'una constant (`(h - 8) / body`), amb el
+sostre a **cinc passos**, i la paraula d'una tecla (`123`, `MAY`, `space`) va **dos passos per sota** de la seva
+lletra perquè capgi en una cel·la de cinc o sis caràcters. El sostre de cinc no és arbitrari: el glif es dibuixa
+antialiasejat a **doble mida**, o sigui que cinc passos són noranta píxels i el bloc de la corba era de seixanta-quatre
+—**la lletra més gran queia al text de blocs**, precisament la que no es pot llegir—. El bloc ara és de **96 × 96**
+(1 152 bytes en lloc de 512, al costat del codi i no a la memòria extra: el glif d'una tecla, un cada vegada).
+
+**El retrocés era una fletxa**, la mateixa que faria servir un gest de «tornar», i l'amo la trobava a faltar com a
+tecla perquè no la llegia com a tal. Ara és **el símbol del retrocés**: el pentàgon de la caixa que esborra —dos braços
+cap a un punt a l'esquerra i tres costats rectes— amb una **creu a dins**. L'enter continua sent la fletxa que gira
+(`↵`), i la barra d'espai diu `space`. Les dues icones comparteixen el dibuix de traços (`ink_line`) i no el d'un
+caràcter de la tipografia, que a vint-i-cinc píxels seria una taca.
+
+**Mesurat aquest torn**: `kb:height()` diu **256** i `ui.caps().height` **656** amb la banda al vidre (llegit de
+l'emulador, no suposat), i el bolcat de la banda amb el QWERTY dona quatre files de tecles grans amb les lletres
+llegibles, el **pentàgon amb la creu** a la dreta de la `m` i el `↵` a la dreta del punt. **La suite no s'ha
+executat** (l'amo no ho ha demanat): les dues proves de la banda s'han reapuntat de 176/736 a 256/656 i és el que
+s'hauria de córrer —`test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given` i
+`test_the_keyboard_follows_the_box_that_takes_the_focus`—, i la trencada que les ha de posar vermelles és tornar la
+tecla a 44.

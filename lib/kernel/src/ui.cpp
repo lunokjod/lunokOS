@@ -5057,8 +5057,15 @@ const font::Face& keyboard_face() {
 // file draws curves and the panel has sixteen levels, so the ink of a diagonal is four steps and not a staircase —which
 // is the whole difference between a keyboard and a grid of pixels—. It costs the glyphs of forty keys, and they are
 // painted when the case or the alphabet changes and not on every key (docs/50).
-const uint16_t kAaMaxWidth = 64;
-const uint16_t kAaMaxHeight = 64;
+// **Ninety-six pixels of block** (0.107.0): the glyph is rendered at twice its size, so a letter of `scale` five is
+// ninety pixels of it (`kOutlineBody` nine, twice). With sixty-four the tallest letters did not fit, `ttf::render`
+// refused them and the key fell back to the blocky text of the table —which on a key of sixty-four would be precisely
+// the letters the owner cannot read— (docs/50, docs/90).
+const uint16_t kAaMaxWidth = 96;
+const uint16_t kAaMaxHeight = 96;
+// **The tallest a letter of a key goes**: it is what the block above holds, and one step more is a letter drawn
+// without its four shades of ink (docs/90).
+const uint8_t kKeyTextScale = 5;
 const uint16_t kAaRowBytes = kAaMaxWidth / 8;
 uint8_t g_aa_rows[kAaRowBytes * kAaMaxHeight];
 
@@ -5143,14 +5150,44 @@ void draw_key_text(Canvas& view, const font::Face& face, int32_t x, int32_t y, c
 
 // ---- the three icons of the keys that are not letters (docs/90) ----
 
-void icon_arrow_left(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
-  const int32_t t = (h >= 30) ? 4 : 3;
-  int32_t arm = (h < w) ? h : w;
-  arm = (arm / 3) | 1;  // an odd arm keeps the shaft on one row of pixels
-  const int32_t cx = x + w / 2;
-  const int32_t cy = y + h / 2;
-  put_rect(view, cx - arm, cy - t / 2, 2 * arm, t, level);
-  for (int32_t i = 0; i < arm; ++i) put_rect(view, cx - arm + i, cy - i - t / 2, t, 2 * i + t, level);
+// **A stroke between two points**, stepped one pixel at a time on the longer axis: the icons of this band are twenty
+// pixels and a line of them is a stair, which is what the glass can hold (docs/90).
+void ink_line(Canvas& view, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t t, uint8_t level) {
+  const int32_t dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
+  const int32_t dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
+  const int32_t steps = (dx > dy) ? dx : dy;
+  if (steps <= 0) {
+    put_rect(view, x0, y0, t, t, level);
+    return;
+  }
+  for (int32_t i = 0; i <= steps; ++i) {
+    const int32_t px = x0 + ((x1 - x0) * i) / steps;
+    const int32_t py = y0 + ((y1 - y0) * i) / steps;
+    put_rect(view, px, py, t, t, level);
+  }
+}
+
+// **The backspace is the shape of a backspace** (0.107.0): the pentagon of the box it deletes —two arms to a point on
+// the left and three straight sides— with a cross in the middle, which is the symbol every screen keyboard carries and
+// none of the other keys of this band uses. It was the arrow of a "back" gesture, and the owner asked for the icon
+// *«en icona, com l'<enter>»*: two keys of the same band that are two different things cannot wear the same drawing
+// (docs/90, docs/92).
+void icon_backspace(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
+  const int32_t t = (h >= 30) ? 4 : ((h >= 18) ? 3 : 2);
+  int32_t head = w / 3;
+  if (head < t + 2) head = t + 2;  // the point has to be a point and not a corner
+  const int32_t mid = y + h / 2;
+  // The point and the three sides: a stroke from the middle of the left edge to each corner of it.
+  ink_line(view, x, mid, x + head, y, t, level);
+  ink_line(view, x, mid, x + head, y + h - t, t, level);
+  put_rect(view, x + head, y, w - head, t, level);
+  put_rect(view, x + head, y + h - t, w - head, t, level);
+  put_rect(view, x + w - t, y + t, t, h - 2 * t, level);
+  // **The cross**, which is what the key does to the line: the two diagonals of the body of the box.
+  const int32_t body_x = x + head + (w - head) / 2;
+  const int32_t arm = h / 5;
+  ink_line(view, body_x - arm, mid - arm, body_x + arm, mid + arm, t, level);
+  ink_line(view, body_x - arm, mid + arm, body_x + arm, mid - arm, t, level);
 }
 
 // **The enter is the arrow that turns**: down the right and along the bottom to the left, which is the
@@ -5175,7 +5212,7 @@ void icon_enter(Canvas& view, int32_t x, int32_t y, int32_t w, int32_t h, uint8_
 void draw_icon(Canvas& view, KeyAction action, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level) {
   switch (action) {
     case KeyAction::kBack:
-      icon_arrow_left(view, x, y, w, h, level);
+      icon_backspace(view, x, y, w, h, level);
       break;
     case KeyAction::kEnter:
       icon_enter(view, x, y, w, h, level);
@@ -5305,10 +5342,15 @@ void Keyboard::measure() {
     key_h_ = 0;
     return;
   }
-  int32_t key_h = 44;
+  // **A key is a finger and not a line of text** (0.107.0): forty-four pixels is a row of a table, and the owner said
+  // what it does on the glass —*«el teclat ha de ser més alt i amb tecles i lletres més grans, gairebé no es poden
+  // polsar»*—. This panel reads a finger at about six pixels a millimetre, so a key of sixty-four is a little over a
+  // centimetre, which is the smallest a thumb presses without looking (docs/90). The band still never takes more than
+  // two fifths of the view, so a small glass shrinks it instead of eating the page.
+  int32_t key_h = 64;
   const int32_t room = (static_cast<int32_t>(view.height) * 2) / 5;
   if (key_h * rows > room) key_h = room / rows;
-  if (key_h < 24) key_h = 24;
+  if (key_h < 32) key_h = 32;
   key_h_ = static_cast<uint16_t>(key_h);
 }
 
@@ -5549,11 +5591,17 @@ void Keyboard::paint() {
       if (shown[0] != '\0') {
         // **A word of a key is smaller than its letter**: `123`, `MAY` and `space` are three cells and more, and a
         // letter is one, and the body that fits one of them is not the body that fits five (docs/90).
+        // **A letter takes the height of its key and a word takes two steps less** (0.107.0): a letter was capped at
+        // two steps of a key of forty-four, which is eighteen pixels tall on a band of a hundred and seventy-six —the
+        // letters of a keyboard nobody can read from arm's length—. Now the height of the cell decides, and the word
+        // of a key (`123`, `MAY`, `space`) is two steps under its letter so that it fits a cell of five or six
+        // characters wide (docs/90, docs/92).
         const bool word = shown[1] != '\0';
         const int32_t room_text = w - 8;
-        uint8_t scale = static_cast<uint8_t>(word ? 2 : ((h - 12) / body));
+        uint8_t scale = static_cast<uint8_t>((h - 8) / body);
+        if (word && scale > 2) scale = static_cast<uint8_t>(scale - 2);
         if (scale < 2) scale = 2;
-        if (scale > 4) scale = 4;
+        if (scale > kKeyTextScale) scale = kKeyTextScale;
         int32_t taken = static_cast<int32_t>(font::width(face, shown, scale));
         while (scale > 1 && taken > room_text) {
           --scale;

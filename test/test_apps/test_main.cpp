@@ -5842,8 +5842,8 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   storage->remove("/apps/typer");
 }
 
-// **The band of the keyboard comes out of the view the app is given** (0.84.0): `ui.caps().height` is seven hundred and
-// thirty-six with the keyboard up on the Paper and nine hundred and twelve without it, `kb:height()` still says the band,
+// **The band of the keyboard comes out of the view the app is given** (0.84.0): `ui.caps().height` is six hundred and
+// fifty-six with the keyboard up on the Paper and nine hundred and twelve without it, `kb:height()` still says the band,
 // and the app hears `on_resize` —the hook that already means "the view is another one"— when it comes and when it goes.
 // An app that subtracts the band by hand would take it out twice, which is why the two demos that open the keyboard say
 // the size of the system and not their own (docs/30, docs/90).
@@ -5873,13 +5873,13 @@ void test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given(void) {
   pump_captured(60, g_out, sizeof(g_out), "run resizer");
   // The page of the Paper is the glass under the bar of the system: five hundred and forty by nine hundred and twelve.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "view 912"), g_out);
-  // With the band up, the four rows of forty-four are the system's and the app has seven hundred and thirty-six.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 176, view 736"), g_out);
+  // With the band up, the four rows of sixty-four are the system's and the app has six hundred and fifty-six.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 256, view 656"), g_out);
   // And the band going gives them all back, without a word from the app: the hook was not defined yet at that point.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone, view 912"), g_out);
   // The show that comes after it finds the hook and tells it the view is another one.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "again, view 736"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "again, view 656"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its keys");
 
   storage->remove("/apps/resizer/app.lua");
@@ -5945,7 +5945,7 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736 kb true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656 kb true"), g_out);
 
   // The centre presses the key the keyboard is on: a `q` goes into the box that took the finger.
   capture_begin();
@@ -5997,7 +5997,7 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x736 kb true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656 kb true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one focus true"), g_out);
 
   // And the empty page ends the edition: no ring and no keyboard.
