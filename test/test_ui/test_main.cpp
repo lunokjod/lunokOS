@@ -2131,6 +2131,27 @@ void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
   ui::release(strip);
 }
 
+// **A chapter of a book has more than two hundred and fifty-five pages** (0.138.0, docs/46 C5): the strip counted them
+// in a byte and it refused more than thirty-two, so a chapter of a book was a counter that either wrapped or did not
+// take the number at all. It takes up to the five hundred and twelve of the paper project now, and the window is the same
+// window.
+void test_the_dots_of_a_page_count_the_pages_of_a_chapter() {
+  fresh_view();
+  int16_t strip = -1;
+  TEST_ASSERT_TRUE(ui::create(200, 37, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
+  // **Three hundred pages and the two hundred and fiftieth one**: six balls fit a step of 32 in two hundred pixels, the
+  // window is 247..252 and the open one is the fourth of them, at a hundred and fifteen.
+  TEST_ASSERT_TRUE(ui::dots_draw(strip, 300, 250, 0, 15));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(115, 12));   // the open page, solid
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(115, 0));    // from its first row to its last one
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(147, 12));  // its neighbour, a ring with paper inside it
+  // And the whole strip is inside its box, which is the thing a byte that wrapped would have broken.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(199, 12));
+  ui::release(strip);
+}
+
 // **A list measures its pages once and both the app and the drawing ask the same question**: a list that fits
 // takes no footer and says nothing about pages, and one that does not takes the band and counts the rows again
 // in what is left (docs/30, docs/90).
@@ -3442,6 +3463,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
   RUN_TEST(test_the_dots_of_a_page_are_the_strip_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip);
+  RUN_TEST(test_the_dots_of_a_page_count_the_pages_of_a_chapter);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
   RUN_TEST(test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name);

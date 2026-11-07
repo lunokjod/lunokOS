@@ -510,7 +510,7 @@ struct UIOps {
   // tab that will answer is drawn inverted, as the paper project does (`TabStrip::draw()`, 0.99.0, docs/92).
   bool (*tabs_draw)(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                     uint8_t text, uint8_t background, uint8_t scale);
-  bool (*dots_draw)(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
+  bool (*dots_draw)(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background);
   // **A list** (docs/30, docs/90): how many rows fit in a frame of that height and how many pages the items make
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the
   // paging. The words come one page at a time, so a list of a thousand rows costs what one page costs.

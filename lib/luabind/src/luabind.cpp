@@ -3666,7 +3666,7 @@ bool is_dots_field(const char* key) {
 bool dots_field_valid(lua_State* L, const char* key, int value) {
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
-  if (strcmp(key, "pages") == 0 || strcmp(key, "current") == 0) return number >= 0 && number <= 32;
+  if (strcmp(key, "pages") == 0 || strcmp(key, "current") == 0) return number >= 0 && number <= 512;
   return number >= 0 && number <= 15;
 }
 
@@ -5560,8 +5560,8 @@ int l_dots_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the fields table
   if (g_ui_ops.dots_draw != nullptr) {
-    g_ui_ops.dots_draw(canvas->slot, static_cast<uint8_t>((pages < 0) ? 0 : pages),
-                       static_cast<uint8_t>((current < 0) ? 0 : current), ink_or_dim(off, level),
+    g_ui_ops.dots_draw(canvas->slot, static_cast<uint16_t>((pages < 0) ? 0 : pages),
+                       static_cast<uint16_t>((current < 0) ? 0 : current), ink_or_dim(off, level),
                        static_cast<uint8_t>(background));
   }
   return 0;

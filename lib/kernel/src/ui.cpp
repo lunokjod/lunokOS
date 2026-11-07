@@ -6113,7 +6113,7 @@ const int32_t kDotGap = 7;     // the air between two balls, so that two of them
 const int32_t kDotAir = 12;    // the air the strip leaves under itself, so it does not hug the edge of the glass
 const int32_t kDotDesignH = kDotBig + kDotAir;  // the box the design asks for: thirty-seven pixels
 
-bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background) {
+bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background) {
   if (!live(slot) || level > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
   const int32_t width = strip.width;

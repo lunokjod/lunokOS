@@ -28,6 +28,9 @@ ui.title('Library')
 -- **The size of the view is read every time the system gives another one** (0.136.0): asking for the whole glass and
 -- giving it back are two of those moments, and a canvas of the size of before is a page with a strip of paper left over.
 local kFoot = 40
+-- **The room the dots take at the right of the foot** (docs/46, C5): a ball is 25 pixels and 7 of air, so this is eight of
+-- them and the window follows the page that is read when the chapter has more.
+local kDotsW = 264
 local view = { w = 0, h = 0 }
 local kPageW = 0
 local kPageH = 0
@@ -117,6 +120,20 @@ local from = 0
 local next_at = 0
 local ended = false
 local foot = nil
+local dots = nil
+
+-- **The pages of a chapter, counted in the background** (0.138.0, docs/46 C5): `measure` lays a page out and paints
+-- nothing, and the walk of a chapter of half a megabyte is more than one turn of the glass, so it is paid a few pages at
+-- a time between two turns of the loop. `pages` is the byte each page starts at, in order, and it is also what going
+-- back a page needs: the page before this one is the one before it in the table (docs/46, B4).
+local kCountPerTurn = 4
+local kMaxPages = 512
+local pages = {}
+local walked = 0
+local counting = false
+local count_at = 0
+local count_w = -1
+local count_h = -1
 -- **The page with its ink and its paper swapped** (0.137.0, docs/46 C9): it is only the page of the book —not the shelf
 -- and not the cover—, it is not saved anywhere, and it says the same words in the same places with the two tones the
 -- other way round. The menu of the View has the switch that turns it (docs/46, C4).
@@ -131,12 +148,88 @@ local function percent()
   return math.floor(from * 100 / bytes + 0.5)
 end
 
+-- **The walk of the chapter, a few pages at a time** (0.138.0, docs/46 C5): from zero to the end of the chapter, and
+-- the table of what each page starts at. False when there is no chapter to count, and `counting` says whether it is
+-- still going, which is what the foot reads to say a number or a percentage.
+local function start_count(force)
+  if not force and count_w == kPageW and count_h == kPageH and walked > 0 then return end
+  pages = {}
+  walked = 0
+  count_at = 0
+  count_w = kPageW
+  count_h = kPageH
+  counting = (book ~= nil and screen ~= nil and bytes > 0)
+end
+
+-- **A few pages of the walk per turn**, and the answer says whether it found any: the foot is written again only when
+-- the count has landed, because a foot repainted every turn is ink spent on a number that has not changed (docs/50).
+local function count_some()
+  if not counting or screen == nil then return false end
+  for i = 1, kCountPerTurn do
+    local nxt, done = epub.page(screen, count_at, {
+      face = face,
+      scale = kBody,
+      title_scale = kBody + 1,
+      small_scale = kBody - 1,
+      measure = true,
+    })
+    if nxt == nil then
+      counting = false
+      return true
+    end
+    walked = walked + 1
+    pages[walked] = count_at
+    if done or nxt <= count_at or walked >= kMaxPages then
+      counting = false
+      return true
+    end
+    count_at = nxt
+  end
+  return true
+end
+
+-- **Which page of the chapter a byte is on**, from the table of the count: 0 while the walk has not reached it.
+local function page_index(at)
+  local found = 0
+  for i = 1, walked do
+    if pages[i] > at then break end
+    found = i
+  end
+  return found
+end
+
+-- **What the foot says**: the chapter and how many pages it has, or the percentage of the chapter while the count is
+-- still walking it —a number is better than a guess and a guess is better than nothing— (docs/46, C5).
+local function say_foot()
+  if foot == nil then return end
+  local which = page_index(from)
+  if counting or which == 0 then
+    foot.text = string.format('%s %d%%', title, percent())
+  else
+    foot.text = string.format('%s %d/%d %d%%', title, which, walked, percent())
+  end
+  if dots ~= nil then
+    dots.pages = (walked > 1) and walked or 1
+    dots.current = (which > 0) and which or 1
+  end
+end
+
 local function give_back()
   if screen ~= nil then
     screen:release()
     screen = nil
   end
+  -- **The foot and the dots are the page's and they go with it** (0.138.0): a label left behind would keep its words on
+  -- the glass of the shelf for ever, because nothing paints over what is not drawn again (docs/30, docs/90).
+  if foot ~= nil then foot:release() end
   foot = nil
+  if dots ~= nil then dots:release() end
+  dots = nil
+  pages = {}
+  walked = 0
+  counting = false
+  count_w = -1
+  count_h = -1
 end
 
 local function present_page()
@@ -160,7 +253,7 @@ local function present_page()
   ended = done
   foot.color = ink_level()
   foot.background = paper_level()
-  foot.text = string.format('%s   %d%%', title, percent())
+  say_foot()
   ui.present('gc16')
 
   return true
@@ -178,7 +271,10 @@ local function build_page()
     screen:release()
     screen = nil
   end
+  if foot ~= nil then foot:release() end
   foot = nil
+  if dots ~= nil then dots:release() end
+  dots = nil
   if book == nil then return false end
 
   screen = ui.canvas(kPageW, kPageH)
@@ -189,7 +285,9 @@ local function build_page()
   screen:place(0, 0)
   if face ~= nil then screen:font(face) end
 
-  foot = ui.label(kPageW, kFoot)
+  -- **The foot is the chapter on the left and the dots of the pages on the right**, and the label is only as wide as
+  -- the room the dots leave (docs/46, C5).
+  foot = ui.label(kPageW - kDotsW - 16, kFoot)
   if foot ~= nil then
     foot.text = ''
     foot.scale = 2
@@ -198,6 +296,19 @@ local function build_page()
     foot.background = paper_level()
     foot:place(8, kPageH)
   end
+
+  dots = ui.dots(kDotsW, kFoot)
+  if dots ~= nil then
+    dots.pages = 1
+    dots.current = 1
+    dots.level = ink_level()
+    dots.background = paper_level()
+    dots:place(kPageW - kDotsW - 8, kPageH)
+  end
+
+  -- **And the chapter is counted from here**, because a page is as many words as fit this box and the box has just been
+  -- made (docs/46, C5).
+  start_count(false)
 
   return present_page()
 end
@@ -211,21 +322,27 @@ local function turn_forward()
   present_page()
 end
 
--- **The page before this one** is the last page that started before the byte we are at, which is found by walking
--- the chapter with `measure`: the same arithmetic and not a pixel (docs/46, B4).
+-- **The page before this one** is the one before it in the table of the count (0.138.0, docs/46 C5), and while the walk
+-- has not reached the page we are on it is the last page that started before this byte, found by walking the chapter with
+-- `measure`: the same arithmetic and not a pixel (docs/46, B4).
 local function turn_back()
   if screen == nil or book == nil or from == 0 then return end
 
-  local walk = 0
-  local last = 0
-  while true do
-    local nxt = epub.page(screen, walk, { face = face, scale = kBody, measure = true })
-    if nxt == nil or nxt <= walk or nxt > from then break end
-    last = walk
-    walk = nxt
+  local which = page_index(from)
+  if which > 0 then
+    from = (which > 1) and pages[which - 1] or 0
+  else
+    local walk = 0
+    local last = 0
+    while true do
+      local nxt = epub.page(screen, walk, { face = face, scale = kBody, measure = true })
+      if nxt == nil or nxt <= walk or nxt > from then break end
+      last = walk
+      walk = nxt
+    end
+    from = last
   end
 
-  from = last
   forget_page()
   present_page()
 end
@@ -487,6 +604,9 @@ end
 
 while true do
   on_gesture()
+  -- **The count of the chapter takes a few pages of every turn** (docs/46, C5), and the foot is written again when it
+  -- has landed: a foot repainted every turn would be ink spent on a number that has not changed (docs/50).
+  if count_some() and not counting then say_foot() end
   ui.present()
   sys.delay(50):await()
 end

@@ -2831,7 +2831,43 @@ namespace kernel {
 // exercised on the glass** —the bench lays no fingers—, so what is proven there is the paint of the menu and of the dark
 // page, and the gesture has to be tried on the board; the Contents of the Book menu waits for the real chapters of the
 // book (C2, C14); and the reader still has no cover, no thumbnails and no count of pages (docs/46, C5, C11).
-static const char kVersion[] = "0.137.0";
+// 0.138.0 (7/11): **the foot of the reader counts the pages of its chapter** (docs/46 C5).
+//
+// The foot said `ch01 25%`, which is a share of the bytes of the chapter and not a page among pages —the owner has been
+// reading it for a day—, and the design of the reader of the paper has a strip of dots under the page that says where a
+// person is. Both need the same number: **how many pages the chapter has and which of them is the one that is read**.
+//
+//   - **the count is a walk in the background**: `epub.page(..., {measure = true})` lays a page out and paints nothing,
+//     and the walk of a chapter is more than one turn of the glass, so it pays **four pages per turn** in the loop of
+//     the app. What it leaves is the table of the byte each page starts at, which answers three questions at once: how
+//     many pages (`#pages`), which one the byte we are at is on, and **the page before this one without walking the
+//     chapter again** — that walk was the price of going back a page since 0.134.0 (docs/46, B4);
+//   - **the foot** says `ch01 3/12 25%` when the count has landed and only the percentage while it is walking, because a
+//     number is better than a guess and a guess is better than nothing. The label is only as wide as the room the dots
+//     leave: 260 of the 540 pixels of the page;
+//   - **the dots** are `ui.dots` at the right of the foot, 264 x 40, which is eight balls of the strip of the paper
+//     project, and the window follows the page that is read. **They were a byte with a ceiling of thirty-two pages**
+//     —`uint8_t` in the kernel and a validation that refused more— and a chapter of a book has more: they take the
+//     **512** of the paper project now (docs/30).
+//
+// **And a foot that stayed on the glass**: `give_back` released the canvas of the page and **dropped the label without
+// releasing it**, so going from a book to the shelf left `ch01 51%` under the shelf for ever — nothing paints over what
+// is not drawn again (docs/30, docs/90). The label and the dots are released now, and the same two lines keep the dots
+// of a dark page from outliving it.
+//
+// Measured on the bench, looking at the glass: the chapter of `la-vaca-cega.epub` is **1154 B and 2 pages**, and with
+// the position at byte **586** the foot says **`ch01 2/2 51%`** with the second ball solid. A probe book of **6160
+// words** —the poem twenty times— is **27 pages**: the foot says `ch01 1/27 0%` and the strip shows **8 balls** with the
+// first one solid, and the count landed over the turns of the loop with one repaint of the foot and no repaint of the
+// page. The reader is **612 lines** of Lua. `pio run -e emulator` says SUCCESS with 0 warnings and `pio test -e test
+// --without-testing` builds the **23 suites and 530 cases** with 0 warnings, one of them new (`test_ui`: three hundred
+// pages in a strip of two hundred pixels, the window of the open page inside the box).
+// **Pending**: the 530 cases are **not executed** (that wants the owner's word for it); **what a page of `measure` costs
+// on the board is not measured** —on the PC a walk of twenty-seven pages does not reach a millisecond, and the Xtensa is
+// not the PC—, which is exactly why the count is spread over turns; the strip of the paper project shows fourteen balls
+// and this one eight, because the foot of this reader shares its row with the words of the chapter; and the dots of a
+// chapter of more than 512 pages stop at 512 (docs/46, C5).
+static const char kVersion[] = "0.138.0";
 
 }  // namespace kernel
 

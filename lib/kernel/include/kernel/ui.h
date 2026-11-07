@@ -760,7 +760,10 @@ bool keyboard_select(const char* id);
 // **When the pages do not fit**, the strip shows as many balls as its box holds and the window of them that contains the
 // open page, so the counter is inside the box and the page a person is on is always one of the balls. The whole strip
 // owes **one** damaged region and not one per ball (docs/30, docs/90).
-bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
+// **A strip of dots says where a page is among the pages of a chapter**, and **a chapter is up to 512 pages** (0.138.0,
+// docs/46 C5): it was a byte and a limit of thirty-two, and a chapter of a book is longer than both. The strip shows the
+// window of them that holds the page that is read and never more than the width of its box takes (docs/90).
+bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background);
 
 // ---- the faces a text can be drawn with (docs/30) ----
 //
