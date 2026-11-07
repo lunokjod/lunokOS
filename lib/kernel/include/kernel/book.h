@@ -35,6 +35,11 @@ const uint32_t kChapterBytes = 512u * 1024u;
 const uint16_t kEntries = 128;
 const int16_t kItems = 256;   // the words and the rules of one page
 const int16_t kWords = 4096;  // the letters and the hrefs of one page
+// **The blocks of a picture**, asked for the first time a book has one: the file as it comes out of the zip and the
+// pixels in the box the page leaves for it. A page of the Paper is 540 × 912 at four bits a pixel, which is the size
+// of the second one, and a picture of a book that does not fit here is not a picture of a page (docs/46, A5).
+const uint32_t kPictureFileBytes = 256u * 1024u;
+const uint32_t kPicturePixels = 540u * 960u / 2u;
 
 // **The three faces a page of a book is drawn with** (docs/46, C13): the words, the titles and the caption of a
 // figure. A null is the face of the system, so a book that was given no face of its own still reads.

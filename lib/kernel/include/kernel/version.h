@@ -2646,11 +2646,40 @@ namespace kernel {
 // `pio run -e emulator` says SUCCESS with 0 warnings, and the suites are still **23 and 520 cases** built with 0
 // warnings (the door and the painter have no case yet: a canvas needs a booted kernel and the picture was looked at
 // instead, which is said here as it is).
-// **Pending**: the 520 cases are **not executed** (that wants the owner's word for it); the pictures of a book are
-// still not measured nor painted; there is no app of the reader —the shelf, the menus, the foot and the saved
-// position are docs/46 C1..C13—; and the next piece is the picture of a page inside a book: the `href` resolved
-// against the chapter and one image in a cache (docs/46, A5) and `ui::canvas_bitmap` (D4).
-static const char kVersion[] = "0.132.0";
+// **Pending**: the 520 cases are **not executed** (that wants the owner's word for it); there is no app of the reader
+// —the shelf, the menus, the foot and the saved position are docs/46 C1..C13—; and the next piece is a plate that is
+// bigger than the block of a page, which today is refused and not shrunk before it is decoded.
+//
+// 0.133.0 (7/11): **the pictures of a book, and a blit of pixels in a canvas**.
+//
+// A book has plates and the reader had none: the tokenizer had carried `<img>` since 0.128.0 and the paginator
+// reserved its box since 0.130.0, and what was missing was the two ends —where the name points and what to put in
+// the box—. `ui::canvas_bitmap` is the first: four bits a pixel, two in a byte with the left one in the high nibble,
+// which is the packing the glass, the canvas and `img::decode` already speak, so a picture drawn on a page is a
+// **copy** and not a conversion. And `kernel::book` is the second: the `href` of a picture is **resolved against the
+// chapter** (`img/x.png` is `OEBPS/img/x.png` for `OEBPS/ch01.xhtml`, and `../img/x.png` goes up a folder), its size
+// comes from the header of the file and not from decoding it (`img::read_info`), the pixels are fitted to the box the
+// page leaves for it **row by row in the sink of the decoder** —the cheapest resampler there is and the one an e-ink
+// plate deserves— and **one picture is kept**, because a page turns around one and the block is the board's.
+//
+// The three blocks of a picture are asked for the first time a book has one and they leave with the book: **256 KB**
+// for the file as it comes out of the zip and **259 200 bytes** of pixels, which is a page of the Paper at four bits.
+// The scratch of the decoder is the block of the compressed stream, which is free at that moment: a chapter and a
+// picture are not decoded at once, and the block is the board's either way.
+//
+// Measured on the bench of the computer, looking at the glass: the sample book grew a plate drawn by
+// `tools/make_epub.py` itself (`--figure`: a frame, a mountain and a sun, 240 × 150 PNG) and it is **3 421 bytes**;
+// the first page of the poem now ends at **byte 586 instead of 625** —the picture took its room— and says
+// `picture=true`; the image is on the glass, centred under the title, with the words flowing under it. `test_book`
+// has a fifth case with a **BMP of two by two pixels** built byte by byte: the entry is resolved against the chapter,
+// the item of the page is a picture of two by two —the size of the file, not scaled— and the page says it holds one.
+// `pio test -e test --without-testing` builds the **23 suites and 521 cases** with 0 warnings, and `pio run -e
+// emulator` says SUCCESS with 0 warnings.
+// **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); a plate **bigger** than the
+// block of a page is refused and not shrunk before it is decoded (a photo of a camera is 750 KB at four bits and the
+// block is 259 200); and the app of the reader —the shelf, the menus, the foot and the position of each book, C1 to
+// C13— is the piece that is left for a book to be read by a person and not by a probe.
+static const char kVersion[] = "0.133.0";
 
 }  // namespace kernel
 

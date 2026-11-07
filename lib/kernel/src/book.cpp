@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "hal/hal.h"
+#include "img/img.h"
 #include "kernel/font.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
@@ -31,6 +32,18 @@ struct State {
   int32_t chapter_bytes = 0;
   char mount[16];
   char rel[160];
+
+  // **The chapter that is open** and the one picture in a cache (docs/46, A5): the name of the chapter, because a
+  // picture of a book is named relative to it, and the two blocks of a picture —the file as it comes out of the zip
+  // and the pixels as the decoder hands them out— which are asked for the first time a book has one.
+  char chapter_name[160];
+  char picture_name[160];
+  uint8_t* picture_file = nullptr;
+  uint32_t picture_file_bytes = 0;
+  uint8_t* picture_pixels = nullptr;
+  int32_t picture_width = 0;
+  int32_t picture_height = 0;
+  bool picture_ready = false;
 };
 
 State g;
@@ -106,6 +119,8 @@ bool looks_like_chapter(const char* name) {
 // Everything the book took, given back. It is what a failed `open` does too, so a book that is not a book leaves
 // the extra memory as it found it.
 void release_blocks() {
+  if (g.picture_pixels != nullptr) pal::extra_memory().release(g.picture_pixels);
+  if (g.picture_file != nullptr) pal::extra_memory().release(g.picture_file);
   if (g.words != nullptr) pal::extra_memory().release(g.words);
   if (g.items != nullptr) pal::extra_memory().release(g.items);
   if (g.chapter != nullptr) pal::extra_memory().release(g.chapter);
@@ -117,6 +132,189 @@ void release_blocks() {
   g.chapter = nullptr;
   g.packed = nullptr;
   g.table = nullptr;
+  g.picture_pixels = nullptr;
+  g.picture_file = nullptr;
+  g.picture_file_bytes = 0;
+  g.picture_width = 0;
+  g.picture_height = 0;
+  g.picture_ready = false;
+  g.picture_name[0] = 0;
+  g.chapter_name[0] = 0;
+}
+
+// **The entry of a picture, which is a name relative to the chapter it lives in** (docs/46, A5): `img/x.png` is
+// `OEBPS/img/x.png` when the chapter is `OEBPS/ch01.xhtml`, and `../img/x.png` goes one folder up. A name is
+// resolved and never guessed: what does not resolve is a picture that is not drawn and nothing else.
+bool resolve_href(const char* href, char* out, int32_t cap) {
+  if (href == nullptr || g.chapter_name[0] == 0) return false;
+
+  char path[160];
+  int32_t at = 0;
+  const char* slash = strrchr(g.chapter_name, '/');
+  if (slash != nullptr) {
+    at = static_cast<int32_t>(slash - g.chapter_name) + 1;
+    if (at >= static_cast<int32_t>(sizeof(path))) return false;
+    memcpy(path, g.chapter_name, static_cast<size_t>(at));
+  }
+  path[at] = 0;
+
+  const char* step = href;
+  while (*step != 0) {
+    const char* end = strchr(step, '/');
+    const int32_t len = (end != nullptr) ? static_cast<int32_t>(end - step) : static_cast<int32_t>(strlen(step));
+
+    if (len == 0 || (len == 1 && step[0] == '.')) {
+      // this folder: nothing to do
+    } else if (len == 2 && step[0] == '.' && step[1] == '.') {
+      while (at > 0 && path[at - 1] != '/') --at;
+      if (at > 0) --at;
+      path[at] = 0;
+    } else {
+      if (at + len + 2 >= static_cast<int32_t>(sizeof(path))) return false;
+      memcpy(path + at, step, static_cast<size_t>(len));
+      at += len;
+      path[at] = 0;
+      if (end != nullptr) {
+        path[at++] = '/';
+        path[at] = 0;
+      }
+    }
+
+    if (end == nullptr) break;
+    step = end + 1;
+  }
+
+  if (at == 0 || at >= cap) return false;
+  memcpy(out, path, static_cast<size_t>(at) + 1);
+
+  return true;
+}
+
+// **The picture being decoded, and the box it is being put in**: the decoder hands the rows of the file and the
+// page wants rows of the box, so the sink takes the row it needs and samples the columns it needs. It is the
+// cheapest resampler there is and the one an e-ink page of a book deserves: a plate is a plate (docs/46, A5).
+struct Fit {
+  uint8_t* target;
+  int32_t stride;
+  int32_t width;
+  int32_t height;
+  int32_t source_width;
+  int32_t source_height;
+  int32_t last_row;
+};
+
+void fit_row(void* ctx, uint16_t y, const uint8_t* packed) {
+  Fit* fit = static_cast<Fit*>(ctx);
+  const int32_t row = static_cast<int32_t>(y) * fit->height / fit->source_height;
+  if (row == fit->last_row || row < 0 || row >= fit->height) return;
+
+  fit->last_row = row;
+  uint8_t* line = fit->target + row * fit->stride;
+  for (int32_t column = 0; column < fit->width; ++column) {
+    const int32_t at = column * fit->source_width / fit->width;
+    const uint8_t byte = packed[at / 2];
+    const uint8_t level = static_cast<uint8_t>(((at & 1) == 0) ? (byte >> 4) : (byte & 0x0F));
+    uint8_t& target = line[column / 2];
+    if ((column & 1) == 0) {
+      target = static_cast<uint8_t>((target & 0x0F) | (level << 4));
+    } else {
+      target = static_cast<uint8_t>((target & 0xF0) | level);
+    }
+  }
+}
+
+// **One picture, in the cache**: the bytes of the entry, its size from the header, and the pixels in the box the
+// page will leave for it. A page asks for a picture once and looks at it twice —to reserve the room and to paint
+// it— and the second time it is here, which is what the cache is for.
+bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
+  out_w = 0;
+  out_h = 0;
+  if (!g.open || href == nullptr) return false;
+
+  char name[160];
+  if (!resolve_href(href, name, sizeof(name))) return false;
+
+  if (g.picture_ready && strcmp(name, g.picture_name) == 0) {
+    out_w = g.picture_width;
+    out_h = g.picture_height;
+    return true;
+  }
+  g.picture_ready = false;
+
+  const int32_t index = g.archive.find(name);
+  if (index < 0) return false;
+
+  const zip::Entry* one = g.archive.at(static_cast<uint16_t>(index));
+  if (one == nullptr || one->dir || one->size > kPictureFileBytes) return false;
+
+  if (g.picture_file == nullptr) {
+    g.picture_file = static_cast<uint8_t*>(pal::extra_memory().allocate(kPictureFileBytes, true));
+    if (g.picture_file == nullptr) return false;
+    g.picture_file_bytes = kPictureFileBytes;
+  }
+
+  uint32_t written = 0;
+  if (g.archive.extract(static_cast<uint16_t>(index), g.picture_file, g.picture_file_bytes, written, g.packed,
+                        kChapterBytes) != zip::kOk) {
+    return false;
+  }
+
+  img::Info info;
+  if (img::read_info(g.picture_file, written, info) != img::kOk || info.width == 0 || info.height == 0) return false;
+
+  int32_t width = info.width;
+  int32_t height = info.height;
+  if (max_w > 0 && width > max_w) {
+    height = height * max_w / width;
+    width = max_w;
+  }
+  if (max_h > 0 && height > max_h) {
+    width = width * max_h / height;
+    height = max_h;
+  }
+  if (width <= 0 || height <= 0) return false;
+  if (static_cast<uint32_t>((width + 1) / 2) * static_cast<uint32_t>(height) > kPicturePixels) return false;
+
+  if (g.picture_pixels == nullptr) {
+    g.picture_pixels = static_cast<uint8_t*>(pal::extra_memory().allocate(kPicturePixels, true));
+    if (g.picture_pixels == nullptr) return false;
+  }
+
+  // **The scratch of the decoder is the block of the compressed stream**, which is free at this moment: a chapter
+  // and a picture of a page are not decoded at once, and the block is the board's either way (docs/46, A7).
+  if (img::scratch_bytes(g.picture_file, written) > kChapterBytes) return false;
+
+  Fit fit;
+  fit.target = g.picture_pixels;
+  fit.stride = (width + 1) / 2;
+  fit.width = width;
+  fit.height = height;
+  fit.source_width = info.width;
+  fit.source_height = info.height;
+  fit.last_row = -1;
+
+  if (img::decode(g.picture_file, written, img::RowSink(fit_row, &fit), g.packed, kChapterBytes) != img::kOk) {
+    return false;
+  }
+
+  const size_t name_len = strlen(name);
+  if (name_len >= sizeof(g.picture_name)) return false;
+  memcpy(g.picture_name, name, name_len + 1);
+  g.picture_width = width;
+  g.picture_height = height;
+  g.picture_ready = true;
+
+  out_w = width;
+  out_h = height;
+
+  return true;
+}
+
+// What the paginator asks about a picture: the box it takes inside a box (docs/46, A3).
+bool measure_picture(void* ctx, const char* href, int32_t max_w, int32_t max_h, int32_t& w, int32_t& h) {
+  (void)ctx;
+
+  return load_picture(href, max_w, max_h, w, h);
 }
 
 }  // namespace
@@ -230,6 +428,11 @@ const char* chapter_at(int32_t index, int32_t& bytes) {
     return nullptr;
   }
 
+  if (one != nullptr) {
+    const size_t name_len = strlen(one->name);
+    if (name_len < sizeof(g.chapter_name)) memcpy(g.chapter_name, one->name, name_len + 1);
+  }
+
   g.chapter_bytes = static_cast<int32_t>(written);
   bytes = g.chapter_bytes;
 
@@ -268,8 +471,12 @@ bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style,
   metrics.text_width = width_of;
   metrics.line_height = line_of;
 
+  epub::Pictures pictures;
+  pictures.ctx = nullptr;
+  pictures.measure = measure_picture;
+
   epub::Result result;
-  if (!epub::layout(tokens, width, height, style, metrics, nullptr, sheet, result)) return false;
+  if (!epub::layout(tokens, width, height, style, metrics, &pictures, sheet, result)) return false;
 
   out.count = result.count;
   out.ended = result.ended;
@@ -322,6 +529,20 @@ bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
   paint.title = style.title;
   paint.small = style.small;
   if (!ui::canvas_book_page(slot, laid.items, laid.words, laid.count, paint, 0, "gc16")) return false;
+
+  // **And the pictures last**, because a page never puts a word on top of one: a floated picture makes the words
+  // go beside it and a plate makes them go under it, so the order of the paint is not the order of the paper
+  // (docs/46, A5).
+  for (int16_t i = 0; i < laid.count; ++i) {
+    const epub::Item& item = laid.items[i];
+    if (item.kind != epub::Item::kPicture) continue;
+
+    int32_t w = 0;
+    int32_t h = 0;
+    if (!load_picture(laid.words + item.text, item.w, item.h, w, h)) continue;
+    ui::canvas_bitmap(slot, item.x, item.y, static_cast<uint16_t>(w), static_cast<uint16_t>(h), g.picture_pixels,
+                      static_cast<uint16_t>((w + 1) / 2), "gc16");
+  }
 
   style.count = laid.count;
   style.next = laid.next;

@@ -17,6 +17,7 @@ everything under it is the chapter. Blank lines separate paragraphs.
 """
 
 import argparse
+import io
 import os
 import re
 import sys
@@ -70,8 +71,12 @@ def chapters_of(path):
     return out
 
 
-def xhtml(title, paragraphs):
-    body = "\n".join("<p>%s</p>" % escape(one) for one in paragraphs if one)
+def xhtml(title, paragraphs, figure=False):
+    parts = []
+    if figure:
+        parts.append('<p><img src="img/plate.png" alt="figure"/></p>')
+    parts.extend("<p>%s</p>" % escape(one) for one in paragraphs if one)
+    body = "\n".join(parts)
     return (
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<html xmlns="http://www.w3.org/1999/xhtml">\n'
@@ -113,12 +118,31 @@ def opf(title, author, names):
     )
 
 
+def figure():
+    """A plate for the book of the sample: a frame, a cross and a line, at the size of a figure.
+
+    It is drawn here and not copied from anywhere, which is the only way a repository can carry a picture
+    without carrying somebody's.
+    """
+    from PIL import Image, ImageDraw
+
+    plate = Image.new("L", (240, 150), 255)
+    pen = ImageDraw.Draw(plate)
+    pen.rectangle((0, 0, 239, 149), outline=0)
+    pen.rectangle((6, 6, 233, 143), outline=0)
+    pen.line((20, 120, 120, 30), fill=0, width=3)
+    pen.line((120, 30, 220, 120), fill=0, width=3)
+    pen.ellipse((100, 60, 140, 100), outline=0, width=3)
+    return plate
+
+
 def main():
     parser = argparse.ArgumentParser(description="An EPUB out of a text file")
     parser.add_argument("--source", required=True, help="the text, with `## ` opening a chapter")
     parser.add_argument("--out", required=True, help="the .epub to write")
     parser.add_argument("--title", required=True)
     parser.add_argument("--author", default="unknown")
+    parser.add_argument("--figure", action="store_true", help="put a plate at the front of the first chapter")
     args = parser.parse_args()
 
     chapters = chapters_of(args.source)
@@ -138,8 +162,15 @@ def main():
         book.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", zipfile.ZIP_STORED)
         book.writestr("META-INF/container.xml", container())
         book.writestr("OEBPS/content.opf", opf(args.title, args.author, names))
-        for name, (title, paragraphs) in zip(names, chapters):
-            book.writestr("OEBPS/" + name, xhtml(title, paragraphs))
+        # **The picture of the sample is drawn here**, and the chapter that holds it says so with an `<img>`,
+        # which is the only thing the reader of this house takes from a picture (docs/46, A2).
+        if args.figure:
+            plate = io.BytesIO()
+            figure().save(plate, format="PNG")
+            book.writestr("OEBPS/img/plate.png", plate.getvalue())
+
+        for index, (name, (title, paragraphs)) in enumerate(zip(names, chapters)):
+            book.writestr("OEBPS/" + name, xhtml(title, paragraphs, args.figure and index == 0))
 
     size = os.path.getsize(args.out)
     words = sum(len(" ".join(p).split()) for _, p in chapters)

@@ -63,6 +63,30 @@ struct Zip {
     len += size;
   }
 
+  void add_bytes(const char* name, const uint8_t* data, int32_t size) {
+    Kept& one = kept[count++];
+    const int32_t name_len = static_cast<int32_t>(strlen(name));
+
+    memcpy(one.name, name, static_cast<size_t>(name_len) + 1);
+    one.size = static_cast<uint32_t>(size);
+    one.crc = inflate::crc32(data, one.size);
+    one.local = static_cast<uint32_t>(len);
+
+    u32(0x04034B50u);
+    u16(20);
+    u16(0);
+    u16(0);
+    u16(0);
+    u16(0);
+    u32(one.crc);
+    u32(one.size);
+    u32(one.size);
+    u16(static_cast<uint16_t>(name_len));
+    u16(0);
+    raw(name, name_len);
+    raw(data, size);
+  }
+
   void add(const char* name, const char* data) {
     Kept& one = kept[count++];
     const int32_t name_len = static_cast<int32_t>(strlen(name));
@@ -223,6 +247,31 @@ bool load_book_face() {
   return ok;
 }
 
+// **A plate of two by two pixels**, which is the smallest picture a page can carry: a BMP of twenty-four bits,
+// which is the family of a picture that a script writes without a library.
+int32_t tiny_bmp(uint8_t* out) {
+  memset(out, 0, 70);
+  out[0] = 'B';
+  out[1] = 'M';
+  out[2] = 70;   // the size of the file
+  out[10] = 54;  // where the pixels start
+  out[14] = 40;  // the size of the header of the picture
+  out[18] = 2;   // width
+  out[20] = 2;   // height
+  out[22] = 1;   // one plane
+  out[24] = 24;  // twenty-four bits a pixel
+  out[34] = 16;  // the bytes of the pixels, rows padded to four
+
+  // Two rows of two pixels, from the bottom up: black, white, white, black.
+  out[54] = 0;
+  out[57] = 255;
+  out[58] = 255;
+  out[59] = 255;
+  out[62] = 0;
+
+  return 70;
+}
+
 }  // namespace
 
 // **A book opens, says what it carries and closes**: the table of entries is the truth and the chapters are found
@@ -341,6 +390,49 @@ static void test_a_file_that_is_not_a_book_says_why() {
   kernel::book::close();
 }
 
+// **A picture of a book: its entry is resolved against the chapter, its size comes from the file and it ends where
+// the page left room for it** (0.133.0, docs/46 A5 and D4).
+static void test_a_picture_of_the_book_is_placed() {
+  TEST_ASSERT_TRUE(boot());
+  TEST_ASSERT_TRUE(load_book_face());
+
+  uint8_t bmp[70];
+  const int32_t size = tiny_bmp(bmp);
+
+  Zip zip;
+  zip.add("mimetype", "application/epub+zip");
+  zip.add("OEBPS/ch3.xhtml", "<html><body><p>a<img src=\"img/plate.bmp\"/>b</p></body></html>");
+  zip.add_bytes("OEBPS/img/plate.bmp", bmp, size);
+  zip.finish();
+  TEST_ASSERT_TRUE(write_file("/epub/plate.epub", zip.bytes, zip.len));
+
+  TEST_ASSERT_NULL_MESSAGE(kernel::book::open("/littlefs/epub/plate.epub"), "a book with a picture");
+  int32_t bytes = 0;
+  TEST_ASSERT_NOT_NULL(kernel::book::chapter("OEBPS/ch3.xhtml", bytes));
+
+  kernel::book::Fonts fonts;
+  fonts.body = &g_face;
+  fonts.title = &g_face;
+  fonts.small = &g_face;
+
+  kernel::book::Page page;
+  TEST_ASSERT_TRUE(kernel::book::page(0, 400, 700, epub::Style(), fonts, page));
+  // The picture is placed, and its hundred and forty-six thousand pixels of room were taken by the page.
+  TEST_ASSERT_TRUE_MESSAGE(page.has_picture, "the page says it holds a picture");
+  bool found = false;
+  for (int16_t i = 0; i < page.count; ++i) {
+    if (page.items[i].kind != epub::Item::kPicture) continue;
+    found = true;
+    TEST_ASSERT_EQUAL_STRING("img/plate.bmp", page.words + page.items[i].text);
+    // Two by two, which is what the file says of itself: the page did not have to scale it.
+    TEST_ASSERT_EQUAL_INT16(2, page.items[i].w);
+    TEST_ASSERT_EQUAL_INT16(2, page.items[i].h);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found, "the picture is an item of the page");
+
+  kernel::book::close();
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -348,6 +440,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_book_opens_and_says_what_it_carries);
   RUN_TEST(test_a_chapter_comes_out_of_the_book);
   RUN_TEST(test_a_page_of_the_book_is_laid_out);
+  RUN_TEST(test_a_picture_of_the_book_is_placed);
   RUN_TEST(test_a_file_that_is_not_a_book_says_why);
   return UNITY_END();
 }
