@@ -502,9 +502,15 @@ línia** hi és des de la 0.129.0 (negreta, cursiva i `sup`/`sub` al `lib/kernel
 el disc també hi són, i les **cares amb accents** hi són per a la cara del llibre (0.127.0: `à è é ç · « »`
 es pinten; les tres cares del sistema segueixen sent ASCII). I el **llibre obert** ja hi és (7/11, 0.131.0:
 `kernel/book.h` i `book.cpp`, 88 + 390 línies i 4 casos, amb un `.epub` de debò escrit al disc del test i un
-capítol inflat de 512 KB a la memòria extra). El que no hi és i el lector demana és **pintar la pàgina** en un
-canvas i la **porta de Lua** (B2–B7), la foto en cau del llibre, la imatge en un canvas (D4), la **pantalla
-sencera** i la mida de l'app (131 161 B contra un sostre de 49 152).
+capítol inflat de 512 KB a la memòria extra). La **pàgina pintada en un canvas** (0.132.0), la **porta de
+Lua** (0.132.0), la **foto en un canvas** (0.133.0), l'**app del lector** (0.134.0, amb els dits i les
+tecles el 0.135.0) i la **pantalla sencera** (0.136.0) ja hi són. El que no hi és i el lector demana, amb la
+seva fitxa a docs/46: **l'OPF llegit des de Lua** (C2, que vol la porta del ZIP, B6–B7); **la passada de la
+pàgina** (C10), la **pàgina fosca** (C9) i els **menús** (C4); el **peu amb el comptatge de pàgines** (C5), la
+**portada com a estat** (C7), la **pantalla de càrrega** (C8), l'**índex** (C14) i anar a una pàgina pel
+número (C15); el **cau de la fotografia i la miniatura del prestatge** (C11, que vol desar una superfície,
+B9), **un error com a avís** (C12) i les **dues cares del llibre** (C13); i **la mida de l'app** (131 161 B
+contra un sostre de font de 49 152, D6) amb els seus **ajustos** (D7).
 
 ## Fora de la v1
 

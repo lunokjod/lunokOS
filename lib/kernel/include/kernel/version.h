@@ -2787,7 +2787,16 @@ namespace kernel {
 // exercised on the glass**, because the bench lays no fingers —`--script` runs shell lines and the panel of the emulator
 // only takes fingers from a test— and the case that covers them is the one in `test_touch`; and the reader still has no
 // dark page, no cover, no thumbnails and no menus (docs/46, C4, C9, C11).
-static const char kVersion[] = "0.136.0";
+// 0.136.1 (7/11): **the roadmap said the reader was missing what it already has**. `docs/90` still named
+// painting the page in a canvas, the door of Lua, the picture in a canvas and the whole glass as things the
+// reader was waiting for, and all four are in the system since 0.132.0 to 0.136.0. The paragraph now says what
+// the reader really lacks —the OPF read from Lua (C2), the pass of the page (C10), the dark page (C9), the
+// menus (C4), the foot with the count (C5), the cover (C7), the loading screen (C8), the contents (C14), going
+// to a page by number (C15), the cache of the picture (C11), an error as a notice (C12), the two faces of the
+// book (C13), the size of the app (D6) and its settings (D7)— with the card of each one in docs/46, because a
+// roadmap that promises what is already done is a person looking for a file that is not there. No code in this
+// commit: `docs/90-full-de-ruta.md` and this line.
+static const char kVersion[] = "0.136.1";
 
 }  // namespace kernel
 
