@@ -64,7 +64,9 @@ slider.on_change = function(self, value)
 end
 page:add(slider)
 
-local dots = ui.dots(10, 22)
+-- **Thirty-seven pixels of box and the whole width**: the ball of the page that is read is twenty-five and the strip
+-- leaves twelve of air under itself, which is the counter of the paper project (0.112.0, docs/30, docs/92).
+local dots = ui.dots(view.width - 2 * 12, 37)
 dots.pages = 3
 dots.current = 2
 page:add(dots)

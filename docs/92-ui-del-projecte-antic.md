@@ -878,3 +878,46 @@ a `test_apps` perquè és on hi ha el disc i el vidre); el bolcat de l'emulador 
 460x200 at 40,380` i la imatge al mig del vidre de 540 × 960 amb la barra a sobre. Les trencades, provades: **treure la
 neteja** deixa la taca de tinta de la cantonada a la prova (Expected 15 Was 0) i **pintar la imatge a la cantonada**
 deixa el mig buit (Expected 0 Was 15).
+
+## 27. Els punts de pàgina, la còpia del projecte del paper (0.112.0)
+
+**L'amo ho va dir així**: *«Revisa el control original de Dots al PaperOS i compara'l amb el que has implementat a
+LunokOS.... et vaig dir que volía una copia exacta del aspecte dels controls de PaperOS a LunokOS»*. I tenia raó: la
+tira de punts de lunokOS era **una altra tira**.
+
+**El que diu l'original** (`OLD/PaperOS/src/ui/page_dots.h` i `.cpp`, amb els comentaris del seu amo a dins):
+
+| Cosa | PaperOS |
+|---|---|
+| bola de les pàgines que no es llegeixen | **19** px, anella de **2** px de tinta i paper a dins |
+| bola de la pàgina que es llegeix | **25** px, **sòlida**, i és l'ample de **totes** les caselles |
+| aire entre dues boles | **7** px |
+| pal que les enfila | **3** px, dibuixat **abans** que les boles |
+| caixa del disseny | **37** px: 25 de bola i **12** d'aire a sota; la tira es pinta **a dalt** de la seva caixa |
+| pàgines que no hi caben | fins a **16**, i la tira es queda clavada a setze |
+
+**El que hi havia a lunokOS fins a la 0.111.0** era una tira derivada de l'alçada de la caixa: bola petita `height/3`
+(lligada a 3..12), bola gran `small + 4` (16 com a molt), anella 2 o 1 segons la mida, pal 2 o 3, aire 8 o 5, la tira
+**centrada a la caixa** i el lloc de cada bola el de la gran (16 com a molt) — i les dues apps del disc li donaven una
+caixa de **10 px d'ample i 22 o 26 de alt**, o sigui que les boles sortien de **7 i 11 píxels**: menys de la meitat de
+les de l'original, i el comptador ni tan sols es veia bé.
+
+**Ara** les set xifres són les de l'original, fixes i no un terç de l'alçada: **19, 25, 2, 3, 7 i 12**, amb la caixa de
+37 i la tira a dalt de la seva caixa. Una caixa **més baixa** que 37 encongeix tota la tira amb el mateix factor —perquè
+una app que li dona vint píxels no pot rebre una bola de vint-i-cinc— i una de més alta li deixa l'aire a sota; amb la
+caixa del disseny, la tira és la de l'original **píxel per píxel**, perquè el dibuix és el mateix: un disc de tinta i,
+per a les que no es llegeixen, el paper a dins de dos píxels enllà; el pal abans que les boles.
+
+**Dues diferències que es queden i que es diuen**: (1) el **finestra** de 0.94.1 quan les pàgines no hi caben —l'original
+es quedava a setze i la tira sortia de la pantalla, i una tira que surt del vidre no és un comptador—; i (2) l'**escala**
+quan la caixa és petita. Cap de les dues es veu amb la caixa del disseny.
+
+**I les apps s'han arreglat**: `showcase` i `controls` donaven a la tira deu píxels d'ample; ara li donen
+`view.width - 2 * 12` i **37** d'alçada, que és el que li demanava el projecte del paper amb el `preferredSize()`.
+
+**Mesurat aquest torn**: la tira de cinc boles de `showcase`, llegida píxel a píxel del bolcat, dona **bola sòlida de 25
+píxels** (de la fila 863 a la 887), **anelles de 19 amb dos píxels de tinta** (la vora esquerra a 58 i 59 i el paper a
+60), **pal de tres files** (11, 12 i 13) i **la tira sencera de 149 píxels**, que és 12 + 4 · 32 + 9; i el bolcat de
+`controls` ensenya dues anelles de 19 i una bola sòlida de 25 amb el pal de 3 al mig. Les proves dels punts s'han
+reapuntat amb els números de l'original (box de 200 × 37: centres a 67, 99 i 131, fila dels centres la 12, l'aire de
+sota fins a la 36) i la suite sencera està verda.

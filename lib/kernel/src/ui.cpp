@@ -5794,6 +5794,20 @@ void put_disc(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t le
 
 }  // namespace
 
+// **The strip of dots of the old project, measured once** (0.112.0): the numbers are the ones its owner settled on
+// with the board in his hand —*«vull que els cercles siguin una mica mes grans, amb una vora negra i les boles
+// unides per un pal»*, and then *«l'actual mes fosc que els altres»* and *«el cercle que representa la pagina actual
+// ha de ser mes gros que els altres»*— and they are **fixed**, and not a third of the height of the box: a strip of
+// this build has to look the same in every app that shows it, and a counter whose balls change size with the box they
+// were given is not the same counter (docs/30, docs/92 §27).
+const int32_t kDotSmall = 19;  // the diameter of the balls of the pages that are not open, drawn as a ring of ink
+const int32_t kDotBig = 25;    // the page that is read: a solid disc, and the room of every ball, or the strip moves
+const int32_t kDotRing = 2;    // the ink of a ring: two pixels, and the paper inside is what cuts the rod into beads
+const int32_t kDotRod = 3;     // the rod the balls are threaded on, seen only in the air between two of them
+const int32_t kDotGap = 7;     // the air between two balls, so that two of them are two and not one
+const int32_t kDotAir = 12;    // the air the strip leaves under itself, so it does not hug the edge of the glass
+const int32_t kDotDesignH = kDotBig + kDotAir;  // the box the design asks for: thirty-seven pixels
+
 bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background) {
   if (!live(slot) || level > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
@@ -5806,24 +5820,29 @@ bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint
   const hal::UpdateMode mode = hal::UpdateMode::kDu;
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
-  int32_t small = height / 3;
+  // **A box of the size the design asks for is the design**: thirty-seven pixels, the ball of the page that is read and
+  // the air under it. A smaller box shrinks the whole strip by the same amount —every number, so the aspect stays— and a
+  // taller one keeps the size and gives the air the room, which is what an app gets by handing it the whole height it
+  // has (docs/30, docs/92).
+  const auto of = [height](int32_t value) {
+    return (height >= kDotDesignH) ? value : (value * height) / kDotDesignH;
+  };
+  int32_t small = of(kDotSmall);
+  int32_t big = of(kDotBig);
+  int32_t ring = of(kDotRing);
+  int32_t rod = of(kDotRod);
+  int32_t gap = of(kDotGap);
   if (small < 3) small = 3;
-  if (small > 12) small = 12;
-  const int32_t big = small + 4;
-  // **Two tones and a rod** (0.94.1): the strip is the abacus the old project settled on after a grey one smeared —
-  // **the page that is open is a solid ball and the bigger one, and the others are rings with paper inside**, joined by
-  // a bar that is only seen in the air between two of them. There is no intermediate tone anywhere, so the strip is
-  // drawn and erased with the binary waveform and nothing in it fights the clean (docs/50, docs/92, docs/90).
-  const int32_t ring = (small >= 9) ? 2 : 1;
-  const int32_t rod = ring + 1;
-  // **The room of a dot is the room of the biggest one**, or the strip shifts sideways when the big one moves from one
-  // end to the other (docs/90).
-  const int32_t gap = (big > 8) ? 8 : 5;
+  if (big < small + 2) big = small + 2;
+  if (ring < 1) ring = 1;
+  if (rod < 1) rod = 1;
+  if (gap < 2) gap = 2;
+  // **What the strip can say, and a window when there is more** (0.94.1): with the pages that do not fit the strip
+  // used to run off both edges of its box, and a counter that leaves the glass is not a counter. It shows as many
+  // balls as fit —never fewer than one— and, when there are more pages than that, the window of them that holds the
+  // open page, so the strip is always inside its box and the page a person is on is always one of the balls
+  // (docs/30, docs/90).
   const int32_t step = big + gap;
-  // **What the strip can say, and a window when there is more** (0.94.1): with the pages that do not fit the strip used
-  // to run off both edges of its box, and a counter that leaves the glass is not a counter. It shows as many balls as
-  // fit —never fewer than one— and, when there are more pages than that, the window of them that holds the open page, so
-  // the strip is always inside its box and the page a person is on is always one of the balls (docs/30, docs/90).
   int32_t shown = (width + gap) / step;
   if (shown < 1) shown = 1;
   if (shown > static_cast<int32_t>(pages)) shown = static_cast<int32_t>(pages);
@@ -5836,27 +5855,31 @@ bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint
   }
   const int32_t total = shown * step - gap;
   int32_t x = target.x + (width - total) / 2 + big / 2;
-  const int32_t middle = target.y + height / 2;
+  // **And the strip is at the top of its box** (the owner, 11/11: *«Que els punts (cercles) marca-pàgines estiguin una
+  // mica mes amunt estàn enganxades a la part d'abaix»*): what is left over of the height is the air **under** it and
+  // not around it, so the strip keeps that air whichever box it is given (docs/90, docs/92).
+  const int32_t middle = target.y + big / 2;
   const int32_t from = x;
-  // **The rod goes first and the balls on top of it**: it is drawn before them, so what is seen of it is the air between
-  // two balls and nothing else —the edge of every ball is what threads them onto it—, and a rod drawn after would cross
-  // the middle of each one (docs/90).
+  // **The rod goes first and the balls on top of it**: it is drawn before them, so what is seen of it is the air
+  // between two balls and nothing else —the edge of every ball is what threads them onto it—, and a rod drawn after
+  // would cross the middle of each one (docs/90).
   const int32_t to = x + (shown - 1) * step;
   for (int32_t t = 0; t < rod; ++t) {
     put_rect(*target.canvas, from, middle - rod / 2 + t, to - from + 1, 1, level);
   }
   for (int32_t i = 0; i < shown; ++i) {
     const bool here = (first + i + 1 == static_cast<int32_t>(current));
-    const int32_t radius = ((here ? big : small)) / 2;
+    const int32_t radius = (here ? big : small) / 2;
+    // The ring first, as a disc of ink: the body is the same disc two pixels smaller and what is left of the first one
+    // is the ring. The page that is read has no paper inside it, and that is what says which one it is.
     put_disc(*target.canvas, x, middle, radius, level);
-    // The paper inside a ring is what cuts the rod into beads, and it is the whole difference between a ring and a
-    // blob: a strip of solid balls says "here is something" and not "which one of these".
     if (!here && radius > ring) put_disc(*target.canvas, x, middle, radius - ring, background);
     x += step;
   }
-  // **One region for the strip and not one per ball** (0.94.1): with a ball made of two discs and a rod the marks would
-  // pass the eight the canvas holds, and past them the whole page becomes one paint of the quality that cannot look wrong
-  // —a wash of the panel for a page turn—. The strip is one control and it owes one rectangle (docs/30, docs/90).
+  // **One region for the strip and not one per ball** (0.94.1): with a ball made of two discs and a rod the marks
+  // would pass the eight the canvas holds, and past them the whole page becomes one paint of the quality that cannot
+  // look wrong —a wash of the panel for a page turn—. The strip is one control and it owes one rectangle: the box of
+  // the balls, not the air under them (docs/30, docs/90).
   mark_box(*target.canvas, from - big / 2, middle - big / 2, (to - from) + big, big, mode);
   close_draw(target);
   return true;

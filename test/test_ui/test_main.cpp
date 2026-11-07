@@ -2058,58 +2058,75 @@ void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
   ui::release(strip);
 }
 
-// **The strip is two tones and a rod, and the open page is the solid ball** (0.94.1): the balls are rings with paper
-// inside and the one being read is a solid disc and bigger, so the counter says "which one" without a grey —and a strip
-// of two tones is one the panel erases with the binary waveform (docs/50, docs/90).
-void test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid(void) {
+// **The strip is the one of the paper project, pixel for pixel** (0.112.0): a ball of **19** pixels for the pages
+// that are not open, drawn as a ring of **two** pixels of ink with paper inside, a ball of **25** for the one being
+// read —solid, and the room of every ball so the strip does not move—, an air of **7** between two of them, the **rod**
+// of three pixels that threads them and is seen only in the air, and the air of **12** pixels the strip leaves under
+// itself so it does not hug the edge. The box the design asks for is 25 + 12 = 37 pixels, and this is the copy of the
+// numbers the owner settled on in the project of the paper (docs/30, docs/92 §27).
+void test_the_dots_of_a_page_are_the_strip_of_the_paper_project(void) {
   fresh_view();
   int16_t strip = -1;
-  TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::create(200, 37, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
 
-  // Three pages and the second one in a box of 100 by 24: balls of 8 and 12 pixels, a gap of 8 and a rod of 2. The
-  // strip is 52 wide and starts at column 24, so the centres are at 30, 50 and 70 and the row of the centres is 12.
+  // Three pages and the second one: slots of 25 and an air of 7 make a step of 32, the strip is 89 wide and it is
+  // centred, so the centres of the balls are at 67, 99 and 131, and the row of the centres is 12 —the top of the box,
+  // with the twelve pixels of air under it.
   TEST_ASSERT_TRUE(ui::dots_draw(strip, 3, 2, 0, 15));
 
-  // The page that is open: a solid disc, ink from its top row to its bottom one.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 12));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 7));   // the top of the big ball, six pixels above the centre
-  // The others: ink at the edge and paper in the middle, which is the whole difference between a ring and a ball.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(30, 8));   // the top edge of the small ball
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));  // paper inside the ring
-  // And the rod: ink in the air between two balls, on the row of their centres.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(40, 12));
+  // The page that is read: a solid disc of 25 pixels, ink from its top row to its bottom one.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(99, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(99, 0));    // its first row
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(99, 24));   // and its last one
+  // The others: a ring of 19 pixels with two of ink and paper inside, which is the whole difference between a ring and
+  // a ball.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(67, 3));                     // the top of the ring
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(58, 12));                    // its left edge, at the row of the centres
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(59, 12));                    // the second pixel of ink
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(60, 12));                   // and the paper inside it
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(67, 12));                   // the middle of the ring
+  // **The rod**, three pixels thick, in the air between two balls.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(83, 11));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(83, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(83, 13));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(83, 10));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(83, 14));
+  // **And the air under the strip**: the box is thirty-seven pixels and the strip ends at twenty-four.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(99, 25));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(99, 36));
   // Nothing is painted outside the strip.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 12));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(97, 12));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(197, 12));
   ui::release(strip);
 }
 
-// **More pages than fit are a window and not a strip running off the edge** (0.94.1): forty pages in a strip of 100 px
-// used to be drawn from outside the box, so the counter left the glass on both sides. It shows the five balls that fit
-// and the window of them that holds the open page, and the open one is still the solid ball of the strip.
+// **More pages than fit are a window and not a strip running off the edge** (0.94.1): forty pages in a strip used to be
+// drawn from outside the box, so the counter left the glass on both sides. It shows the balls that fit and the window of
+// them that holds the open page, and the open one is still the solid ball of the strip (docs/30, docs/90).
 void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
   fresh_view();
   int16_t strip = -1;
-  TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
+  TEST_ASSERT_TRUE(ui::create(200, 37, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
-  // Forty pages and the thirty-seventh: five balls fit, the window is 35..39 and the open one is the middle one of it.
+  // Six balls of a step of 32 fit in two hundred pixels: the window of the thirty-seventh page is 34..39 and the open
+  // one is the fourth of them, at a hundred and fifteen.
   TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 37, 0, 15));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(50, 12));   // the open page, solid, in the middle of the strip
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));  // its neighbour, a ring
-  // The two ends of the window are inside the box: a ball of 8 pixels at column 10 keeps paper outside its edge.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(115, 12));   // the open page, solid
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(115, 0));    // from its first row to its last one
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(83, 12));   // its neighbour, a ring
+  // The two ends of the window are inside the box.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(0, 12));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 8));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(90, 8));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(99, 12));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 3));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(179, 3));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(199, 12));
 
-  // **The first page is the first ball of the window and the last one the last**: the window moves to the ends instead of
-  // hanging out of them.
+  // **The first page is the first ball of the window and the last one the last**: the window moves to the ends instead
+  // of hanging out of them.
   ui::clear(15, nullptr);
   TEST_ASSERT_TRUE(ui::dots_draw(strip, 40, 1, 0, 15));
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(10, 12));   // the first page, solid, in the first slot
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 12));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(90, 12));  // and the fifth sees the fifth dot of a ring
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(19, 12));    // the first page, solid, in the first slot
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(51, 12));   // the second one, a ring
   ui::release(strip);
 }
 
@@ -3247,7 +3264,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_strip_of_tabs_has_no_line_under_the_chosen_one);
   RUN_TEST(test_a_button_is_the_drawing_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);
-  RUN_TEST(test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid);
+  RUN_TEST(test_the_dots_of_a_page_are_the_strip_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);

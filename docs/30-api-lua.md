@@ -1444,6 +1444,15 @@ ui.present('gc16')
   quan la gran canvia de punta. **Si les pàgines no hi caben**, la tira en dibuixa tantes com hi caben i la finestra
   d'elles que conté la pàgina on ets: el comptador no surt mai de la seva caixa i la pàgina que llegeixes és sempre una
   de les boles.
+
+  **Les mides són les del projecte del paper, exactes** (0.112.0): bola de **19** píxels per a les pàgines que no són
+  obertes, amb una anella de **2** píxels de tinta i paper a dins; bola de **25** per a la que es llegeix, **sòlida**, i
+  és l'amplada de **totes** les caselles; **7** píxels d'aire entre dues boles i un **pal de 3** que les enfila. La caixa
+  que demana el disseny és de **37** píxels —la bola gran i **12** d'aire a sota, perquè la tira no s'enganxi a la vora—
+  i la tira es pinta **a dalt de la seva caixa**, amb el que queda per sota. Una caixa més baixa que 37 encongeix tota la
+  tira amb el mateix factor (l'aspecte no canvia); una de més alta li deixa l'aire a sota. **L'amplada sí que és la de
+  la pàgina**: la tira es centra dins del que li donen i es talla al marc, o sigui que una app ha de donar-li l'amplada
+  on vol que es vegi (a les apps del disc: `ui.dots(view.width - 2 * 12, 37)`).
 - Cap dels dos no és un dibuix de l'app: són controls del nucli, com la resta (docs/92 §10).
 
 ### `ui.focus`: on és el dial quan la pàgina es torna a construir (0.97.4)

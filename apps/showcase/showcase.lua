@@ -70,7 +70,11 @@ body.weight = 1
 body.gap = 12
 root:add(body)
 
-local dots = ui.dots(10, 26)
+-- **The counter of pages is the strip of the paper project, and it asks for its room**: thirty-seven pixels of
+-- height —the ball of the page that is read and the air under it— and the whole width of the page between the two
+-- margins of the panel, because a ball is twenty-five pixels and the strip is centred in what it is given
+-- (0.112.0, docs/30, docs/92).
+local dots = ui.dots(view.width - 2 * 12, 37)
 dots.pages = kPages
 dots.current = 1
 root:add(dots)

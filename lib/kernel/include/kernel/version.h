@@ -1732,7 +1732,28 @@ namespace kernel {
 // the middle of the 540 x 960 glass with the bar over it. The breaks: taking the wash out leaves the mark of ink of
 // the corner in the test (15 expected, 0 found), and painting the picture at the corner leaves the middle empty
 // (docs/50, docs/92 §26).
-static const char kVersion[] = "0.111.0";
+//
+// 0.112.0 (8/11): **the strip of dots is the one of the paper project, pixel for pixel.** The owner: *«Revisa el
+// control original de Dots al PaperOS i compara'l amb el que has implementat a LunokOS.... et vaig dir que volía una
+// copia exacta del aspecte dels controls de PaperOS a LunokOS»*. The original (`OLD/PaperOS/src/ui/page_dots.*`) has
+// **19** for the balls of the pages that are not open —a ring of **2** pixels of ink with paper inside—, **25** for the
+// one being read and solid, and that is the room of **every** ball, **7** of air between two of them and a rod of
+// **3**, drawn before the balls; the box the design asks for is **37** —the big ball and **12** of air under it, with
+// the strip at the top of its box—. lunokOS had a strip derived from the height of the box: a ball of `height / 3`
+// (three to twelve), a big one of `small + 4` (sixteen at most), a ring of two or one, an air of eight or five, the
+// strip centred in its box —and the two apps of the disk gave it a box of ten pixels wide and twenty-two or
+// twenty-six tall, so its balls came out **seven and eleven pixels**: less than half of the original's—.
+// The seven numbers are the original's now, fixed and not a third of the height, the strip is painted at the top of
+// its box with the air under it, and `showcase` and `controls` give it `view.width - 2 * 12` by **37**, which is what
+// the original's `preferredSize()` asked the layout for. **Two differences stay, and they are said**: the window of
+// 0.94.1 when the pages do not fit (the original clamped at sixteen and the strip left the screen), and a box shorter
+// than thirty-seven shrinking the whole strip by the same factor, so an app that gives it twenty pixels does not get a
+// ball of twenty-five. Neither is seen with the box of the design.
+// Measured: reading the dump pixel by pixel, the five balls of `showcase` are a **solid ball of 25** (rows 863 to 887),
+// **rings of 19 with two pixels of ink** (the left edge at 58 and 59, the paper at 60), a **rod of three rows** (11, 12
+// and 13) and the whole strip **149 pixels** wide, which is 12 + 4 * 32 + 9; the dots tests were re-pointed to the
+// original's numbers and the suite is green (docs/30, docs/92 §27).
+static const char kVersion[] = "0.112.0";
 
 }  // namespace kernel
 
