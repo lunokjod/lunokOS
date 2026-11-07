@@ -332,9 +332,10 @@ uint8_t dialog_hit(int8_t slot, uint16_t x, uint16_t y);
 // to be guessed— and it carries no "close" row: the finger outside the card and the back key are already the way out,
 // and a row of "Close" in a menu of three is a fourth option (docs/90).
 //
-// **An option the app cannot do now is taken off the card and not shown dead**: this glass has two tones and there is
-// no way to draw a disabled row that a person can tell from an active one, and a row that looks like it does
-// something and does nothing is worse than no row at all. `primary` is the option of the moment and it is the one
+// **An option the app cannot do now is taken off the card and not shown dead**: a card is the list of what can be
+// done now, and a dead row in a card of three is a row a person tries. The glass can draw a lighter row —the level
+// `dim` exists for it and `disabled` is the state of a control since 0.100.0—, and a menu that changes shape is
+// honest in a way a menu of dead rows is not; the bar of a menu keeps its entries and greys them (docs/30, docs/92). `primary` is the option of the moment and it is the one
 // that is inverted; `tag` is a short word in front of the label —"sys" for an app of the system, "lua" for a
 // script— and it is empty when the app has nothing to say there (docs/30, docs/90).
 const uint8_t kMaxMenuOptions = 12;

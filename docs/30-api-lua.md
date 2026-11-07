@@ -1480,6 +1480,43 @@ focusable»*)—, i el centre és qui tria la pestanya on és el cercle:
 llegida píxel a píxel de la superfície— i totes dues es posen vermelles quan se'ls treu la línia
 que proven.
 
+### Els estats d'un control: seleccionat, premut i deshabilitat (0.100.0)
+
+Un control no és una foto: té estats, i cada estat es veu al vidre i diu què pot passar si el prems.
+
+| Estat | Camp | Com es veu | Què respon |
+|---|---|---|---|
+| **Normal** | — | el dibuix de sempre | tot |
+| **Seleccionat** (té el dial) | `focused` | invertit o amb anella, segons el control | el centre, i les fletxes si té valor |
+| **Premut** | `pressed` | la cara baixa quatre píxels i la vora es canvia | res mentre dura: és el moment |
+| **Deshabilitat** | `disabled` | la seva tinta baixa al `dim` del control (8 per defecte) | **res**: ni el dial, ni el dit, ni el teclat |
+
+**`disabled = true` és l'estat que diu «ara no».** El control continua a la pàgina i es dibuixa —una persona ha de
+poder llegir què no està disponible—, però **la tinta cau al `dim` del propi control** (la mateixa que ja fa servir
+una paraula secundària) i el paper no es toca: el fons, i la pista d'un slider, queden com eren. Es pinta **sense
+l'anella**, perquè no pot tenir el focus.
+
+**I no rep res**: `ui_target_is_focusable` el refusa, i és la pregunta que fan els tres camins d'entrada —la volta del
+dial, el dit i el teclat (que només s'obre en un quadre que la volta li ha donat)—. O sigui que un control apagat no
+es pot enfocar, ni prémer amb el dit, ni escriure-hi.
+
+**L'estat baixa als fills**, com a qualsevol sistema: apagar un botó apaga l'etiqueta que porta a dins, i tornar-lo a
+encendre la torna. Un fill que s'hagi d'apagar pel seu compte es diu **després** del pare.
+
+```lua
+local save = ui.button(300, kButton)
+save.disabled = true          -- es dibuixa fluix i no respon a res
+-- ... arriba la connexió ...
+save.disabled = false         -- torna el dibuix de sempre i la volta hi pot caure
+```
+
+**Escriure `disabled` repinta el control** (i els seus fills), i si el control tenia el dial, el torna: deixar
+l'anella sobre un control que cap tecla no pot tocar és una pàgina que menteix sobre on caurà una pulsació.
+
+**Les entrades d'una barra de menú ja tenien el seu `enabled`** des de 0.68.0, amb el mateix dibuix apagat i salts a
+la volta; ara és el mateix to i la mateixa regla. **Les opcions d'un menú de targeta no**: allà el que no es pot fer
+s'amaga, perquè una targeta és la llista del que es pot fer **ara** (docs/92 §14).
+
 ### La tecla es pinta sola: el sistema és qui la rep (0.98.0)
 
 **`ui_button_event` pren la tecla abans que l'app en sàpiga res.** La volta del dial i la

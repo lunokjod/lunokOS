@@ -3748,6 +3748,10 @@ bool list_field_valid(lua_State* L, const char* key, int value) {
   return number >= 0 && number <= 15;
 }
 
+// Declared here because a control that goes off has to say so to its children, and that walk lives with the
+// painters further down.
+void ui_set_disabled_below(lua_State* L, int object, bool off, int depth);
+
 int l_canvas_newindex(lua_State* L) {
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4067,6 +4071,21 @@ int l_canvas_newindex(lua_State* L) {
   // **A control that stops being focusable gives the focus back**: leaving the ring on it would be a
   // control the dialog says is out of the walk and still looks like the one Enter activates. The first
   // control that becomes focusable takes the empty focus, the same way a new button does.
+  // **A control that is disabled repaints, and if it had the dial it gives it back** (0.100.0): the tones it is
+  // drawn with change, and leaving the ring on a control that no key can reach is a page that lies about where a
+  // press will land.
+  if (key != nullptr && strcmp(key, "disabled") == 0) {
+    redraw = true;
+    const bool off = lua_toboolean(L, 3) != 0;
+    ui_set_disabled_below(L, 1, off, 0);
+    if (off && g_ui_focus_slot == canvas->slot && g_ui_focus_generation == canvas->generation) {
+      g_ui_focus_slot = -1;
+      g_ui_focus_generation = 0;
+      g_ui_focus_item = 0;
+      lua_pushboolean(L, 0);
+      lua_setfield(L, -2, "focused");
+    }
+  }
   if (key != nullptr && strcmp(key, "focusable") == 0) {
     const bool wanted = lua_toboolean(L, 3) != 0;
     const bool focused = g_ui_focus_slot == canvas->slot &&
@@ -4180,12 +4199,99 @@ int l_ui_canvas(lua_State* L) { return create_control(L, true); }
 
 int l_ui_control(lua_State* L) { return create_control(L, false); }
 
+// **The state of a control that is disabled** (0.100.0). A control can be off: it is still on the page —it is
+// drawn, so a person reads what is not available right now— but its ink falls to the lighter tone of its own
+// theme (`dim`, the same level a secondary word already uses), it never wears the ring of the focus, and it is not
+// a stop of the walk: `ui_target_is_focusable` refuses it, and the dial, the finger and the keyboard all ask that
+// one question (docs/30, docs/92).
+//
+// **The levels are not guessed here**: each painter is handed explicit tones, so this only says which of them are
+// the ink. `background` stays paper —a disabled control is still a page and not a hole—, and so does the `track` of
+// a slider, which is the paper of the tube.
+struct DisabledInk {
+  bool on;
+  uint8_t dim;
+};
+
+DisabledInk ui_disabled_ink(lua_State* L, int object) {
+  DisabledInk ink = {false, 8};
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return ink;
+  }
+  lua_getfield(L, -1, "disabled");
+  ink.on = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
+  if (ink.on) {
+    lua_getfield(L, -1, "dim");
+    const lua_Integer dim = lua_isnumber(L, -1) ? lua_tointeger(L, -1) : 8;
+    ink.dim = static_cast<uint8_t>((dim < 0) ? 0 : ((dim > 15) ? 15 : dim));
+  }
+  lua_pop(L, 1);
+  return ink;
+}
+
+// The level a painter asked for, or the lighter tone of the control when it is off.
+uint8_t ink_or_dim(const DisabledInk& off, int level) {
+  if (off.on) return off.dim;
+  return static_cast<uint8_t>(level);
+}
+
+// **A control hands its state to its children** (0.100.0): a disabled button dims the label it holds and gives it
+// back when it is enabled again, because the box and the word inside it are one thing to the person reading the
+// page. The tree is the app's own table of children, so this walks it with a depth cap; a child that goes off is
+// repainted (its tones changed) and a child that had the dial gives it back, because no key can reach it any more
+// (docs/30, docs/92).
+void ui_set_disabled_below(lua_State* L, int object, bool off, int depth) {
+  if (depth > 16) return;
+  object = lua_absindex(L, object);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
+    return;
+  }
+  const int fields = lua_gettop(L);
+  lua_getfield(L, fields, "children");
+  if (!lua_istable(L, -1)) {
+    lua_pop(L, 2);
+    return;
+  }
+  const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  for (lua_Integer i = 1; i <= total; ++i) {
+    lua_rawgeti(L, -1, i);
+    LuaCanvas* kid = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    if (kid != nullptr) {
+      lua_getiuservalue(L, -1, 1);
+      if (lua_istable(L, -1)) {
+        lua_pushboolean(L, off ? 1 : 0);
+        lua_setfield(L, -2, "disabled");
+        if (off && g_ui_focus_slot == kid->slot && g_ui_focus_generation == kid->generation) {
+          g_ui_focus_slot = -1;
+          g_ui_focus_generation = 0;
+          g_ui_focus_item = 0;
+          lua_pushboolean(L, 0);
+          lua_setfield(L, -2, "focused");
+        }
+      }
+      lua_pop(L, 1);
+      ui_set_disabled_below(L, lua_gettop(L), off, depth + 1);
+      if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(kid->slot);
+    }
+    lua_pop(L, 1);  // the child
+  }
+  lua_pop(L, 2);  // the children and the fields table
+}
+
 // **The `on_draw` of a label**: the fields the app put on the object are the whole state of the line, and
 // the kernel is the one that owns the metrics, the ellipsis and the alignment. It draws nothing if the label
 // is gone, and it returns no value: a draw is a question the presenter asks, not an answer (docs/30,
 // docs/90).
 int l_label_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4216,7 +4322,7 @@ int l_label_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.label_draw != nullptr) {
-    g_ui_ops.label_draw(canvas->slot, text, static_cast<uint8_t>(color),
+    g_ui_ops.label_draw(canvas->slot, text, ink_or_dim(off, color),
                         static_cast<uint8_t>(background), static_cast<uint8_t>(align),
                         static_cast<uint8_t>(valign),
                         static_cast<uint8_t>((scale == 0) ? 1 : scale));
@@ -4260,6 +4366,8 @@ int l_ui_label(lua_State* L) {
 // it to the same frame (docs/30, docs/90).
 int l_button_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4314,8 +4422,9 @@ int l_button_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.button_draw != nullptr) {
-    g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border), pressed,
-                         focused, primary, title, tag, static_cast<uint8_t>((color >= 0 && color <= 15) ? color : 0),
+    g_ui_ops.button_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border), pressed,
+                         focused && !off.on, primary, title, tag,
+                         ink_or_dim(off, (color >= 0 && color <= 15) ? color : 0),
                          static_cast<uint8_t>((scale >= 1 && scale <= 16) ? scale : 1));
   }
   return 0;
@@ -4521,6 +4630,8 @@ uint8_t ui_menu_bar_items(lua_State* L, int object, UIOps::UIMenuBarTitle* title
 // docs/90).
 int l_checkbox_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4547,8 +4658,8 @@ int l_checkbox_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.checkbox_draw != nullptr) {
-    g_ui_ops.checkbox_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
-                           static_cast<uint8_t>(mark), checked, pressed, focused);
+    g_ui_ops.checkbox_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border),
+                           ink_or_dim(off, mark), checked, pressed, focused && !off.on);
   }
   return 0;
 }
@@ -4664,6 +4775,8 @@ int l_ui_checkbox(lua_State* L) {
 // value is the field `value`, 0 to 100, and a negative one is "nothing to say yet" (docs/30, docs/90).
 int l_progress_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4687,8 +4800,8 @@ int l_progress_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.progress_draw != nullptr) {
-    g_ui_ops.progress_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
-                           static_cast<uint8_t>(track), static_cast<uint8_t>(fill),
+    g_ui_ops.progress_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border),
+                           static_cast<uint8_t>(track), ink_or_dim(off, fill),
                            static_cast<int16_t>(value));
   }
   return 0;
@@ -4728,6 +4841,8 @@ int l_ui_progress(lua_State* L) {
 // arrows are not here: the system moves the value and calls `on_change` (docs/30, docs/90).
 int l_slider_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4772,11 +4887,12 @@ int l_slider_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.slider_draw != nullptr) {
-    g_ui_ops.slider_draw(canvas->slot, static_cast<uint8_t>(background), static_cast<uint8_t>(border),
-                         static_cast<uint8_t>(track), static_cast<uint8_t>(fill),
-                         static_cast<uint8_t>(text), static_cast<int16_t>(value),
+    g_ui_ops.slider_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border),
+                         static_cast<uint8_t>(track), ink_or_dim(off, fill),
+                         ink_or_dim(off, text), static_cast<int16_t>(value),
                          static_cast<int16_t>(minimum), static_cast<int16_t>(maximum),
-                         suffix, static_cast<uint8_t>((scale == 0) ? 1 : scale), pressed, focused);
+                         suffix, static_cast<uint8_t>((scale == 0) ? 1 : scale), pressed,
+                         focused && !off.on);
   }
   return 0;
 }
@@ -4851,6 +4967,8 @@ int l_ui_slider(lua_State* L) {
 // docs/90).
 int l_row_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -4886,7 +5004,7 @@ int l_row_draw(lua_State* L) {
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.row_draw != nullptr) {
-    g_ui_ops.row_draw(canvas->slot, title, detail, subtitle, static_cast<uint8_t>(text),
+    g_ui_ops.row_draw(canvas->slot, title, detail, subtitle, ink_or_dim(off, text),
                       static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
                       static_cast<uint8_t>((scale == 0) ? 1 : scale), marked, separator);
   }
@@ -5028,6 +5146,8 @@ int l_ui_panel(lua_State* L) {
 // way a person says them (docs/30, docs/90).
 int l_tabs_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -5068,7 +5188,7 @@ int l_tabs_draw(lua_State* L) {
   lua_pop(L, 1);  // the fields table
   if (g_ui_ops.tabs_draw != nullptr && count > 0) {
     g_ui_ops.tabs_draw(canvas->slot, labels, count, static_cast<uint8_t>((index < 0) ? 0 : index),
-                       static_cast<uint8_t>((lit < 0) ? 0 : lit), static_cast<uint8_t>(text),
+                       off.on ? 0 : static_cast<uint8_t>((lit < 0) ? 0 : lit), ink_or_dim(off, text),
                        static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale));
   }
   return 0;
@@ -5143,6 +5263,8 @@ int l_ui_tabs(lua_State* L) {
 // there is only one page (docs/30, docs/90).
 int l_dots_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -5164,7 +5286,7 @@ int l_dots_draw(lua_State* L) {
   lua_pop(L, 1);  // the fields table
   if (g_ui_ops.dots_draw != nullptr) {
     g_ui_ops.dots_draw(canvas->slot, static_cast<uint8_t>((pages < 0) ? 0 : pages),
-                       static_cast<uint8_t>((current < 0) ? 0 : current), static_cast<uint8_t>(level),
+                       static_cast<uint8_t>((current < 0) ? 0 : current), ink_or_dim(off, level),
                        static_cast<uint8_t>(background));
   }
   return 0;
@@ -5201,6 +5323,8 @@ int l_ui_dots(lua_State* L) {
 // a list cannot say "2 / 3" over the rows of the fourth page (docs/30, docs/90).
 int l_list_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.list_draw == nullptr || g_ui_ops.canvas_caps == nullptr ||
       g_ui_ops.list_page_of == nullptr) {
@@ -5254,7 +5378,7 @@ int l_list_draw(lua_State* L) {
     // **A list with nothing in it is an empty frame and not a hole**: it paints its background and says no page,
     // which is the same thing an app gets before it fills the items (docs/90).
     g_ui_ops.list_draw(canvas->slot, 0, 1, 1, 0, nullptr, nullptr, nullptr,
-                       static_cast<uint16_t>(row_height), static_cast<uint8_t>(text),
+                       static_cast<uint16_t>(row_height), ink_or_dim(off, text),
                        static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
                        static_cast<uint8_t>((scale == 0) ? 1 : scale), separator, focused);
     lua_settop(L, fields - 1);
@@ -5296,9 +5420,10 @@ int l_list_draw(lua_State* L) {
   if (mark_now < 1 || mark_now > count) mark_now = 0;
   g_ui_ops.list_draw(canvas->slot, count, static_cast<uint8_t>(page_now), pages,
                      static_cast<uint8_t>(mark_now), titles, details, subtitles,
-                     static_cast<uint16_t>(row_height), static_cast<uint8_t>(text),
+                     static_cast<uint16_t>(row_height), ink_or_dim(off, text),
                      static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                     static_cast<uint8_t>((scale == 0) ? 1 : scale), separator, focused);
+                     static_cast<uint8_t>((scale == 0) ? 1 : scale), separator,
+                     focused && !off.on);
   lua_settop(L, fields - 1);
   return 0;
 }
@@ -5369,6 +5494,8 @@ int l_ui_list(lua_State* L) {
 // their places —the kernel knows which weekday the first is, and that number is not an app's to compute— (docs/90).
 int l_month_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.month_draw == nullptr) return 0;
   lua_getiuservalue(L, 1, 1);
@@ -5403,8 +5530,9 @@ int l_month_draw(lua_State* L) {
                       static_cast<uint8_t>((month < 1 || month > 12) ? 1 : month),
                       static_cast<uint8_t>((selected < 0) ? 0 : selected),
                       static_cast<uint8_t>((today < 0) ? 0 : today), weekdays,
-                      static_cast<uint8_t>(text), static_cast<uint8_t>(dim),
-                      static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale), focused);
+                      ink_or_dim(off, text), static_cast<uint8_t>(dim),
+                      static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale),
+                      focused && !off.on);
   lua_pop(L, 2);  // the weekdays and the fields table
   return 0;
 }
@@ -5499,6 +5627,8 @@ uint8_t chart_samples(lua_State* L, int index, uint16_t* out, uint8_t most) {
 // outline when it is a part of the same total (docs/90).
 int l_sparkline_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.sparkline_draw == nullptr) return 0;
   lua_getiuservalue(L, 1, 1);
@@ -5522,7 +5652,7 @@ int l_sparkline_draw(lua_State* L) {
   lua_getfield(L, fields, "top");
   tops = chart_samples(L, -1, top, kMaxSparkSamples);
   g_ui_ops.sparkline_draw(canvas->slot, samples, (tops > 0) ? top : nullptr, count,
-                          static_cast<uint8_t>(color), static_cast<uint8_t>(background));
+                          ink_or_dim(off, color), static_cast<uint8_t>(background));
   lua_pop(L, 3);  // the top, the samples and the fields table
   return 0;
 }
@@ -5556,6 +5686,8 @@ int l_ui_sparkline(lua_State* L) {
 // the app chose (docs/90).
 int l_pie_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.pie_draw == nullptr) return 0;
   lua_getiuservalue(L, 1, 1);
@@ -5574,7 +5706,7 @@ int l_pie_draw(lua_State* L) {
   uint8_t count = 0;
   lua_getfield(L, fields, "slices");
   count = chart_samples(L, -1, slices, kMaxPieSlices);
-  g_ui_ops.pie_draw(canvas->slot, slices, count, static_cast<uint8_t>(color),
+  g_ui_ops.pie_draw(canvas->slot, slices, count, ink_or_dim(off, color),
                     static_cast<uint8_t>(background));
   lua_pop(L, 2);  // the slices and the fields table
   return 0;
@@ -5610,6 +5742,8 @@ int l_ui_pie(lua_State* L) {
 // in half is a question nobody can answer (docs/90).
 int l_dialog_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.dialog_draw == nullptr) return 0;
   lua_getiuservalue(L, 1, 1);
@@ -5651,8 +5785,9 @@ int l_dialog_draw(lua_State* L) {
   lua_getfield(L, -5, "cancel");
   const char* cancel = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
   g_ui_ops.dialog_draw(canvas->slot, title, text, note, accept, cancel, static_cast<uint8_t>(emphasis),
-                       static_cast<uint8_t>(choice), static_cast<uint8_t>(color), static_cast<uint8_t>(dim),
-                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale), focused);
+                       static_cast<uint8_t>(choice), ink_or_dim(off, color), static_cast<uint8_t>(dim),
+                       static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale),
+                       focused && !off.on);
   lua_pop(L, 6);  // the five texts and the fields table
   return 0;
 }
@@ -5729,6 +5864,8 @@ int l_ui_dialog(lua_State* L) {
 // same option a finger picks, because the geometry is the kernel's and not the app's (docs/90).
 int l_menu_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.menu_draw == nullptr) return 0;
   const int base = lua_gettop(L);
@@ -5749,8 +5886,9 @@ int l_menu_draw(lua_State* L) {
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
   const bool focused = ui_field_bool(L, 1, "focused", false);
   g_ui_ops.menu_draw(canvas->slot, title, items, count, static_cast<uint8_t>((index < 0) ? 0 : index),
-                     static_cast<uint8_t>(color), static_cast<uint8_t>(dim),
-                     static_cast<uint8_t>(background), static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+                     ink_or_dim(off, color), static_cast<uint8_t>(dim),
+                     static_cast<uint8_t>(background), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                     focused && !off.on);
   lua_settop(L, base);
   return 0;
 }
@@ -5759,8 +5897,10 @@ int l_menu_draw(lua_State* L) {
 // `items` —a Lua array of words, or of tables with `label`, `tag`, `hidden` and `primary`, twelve at most—, `index`
 // —the option the dial is on, from 1—, `title`, the ink, the dim and the paper, and the size of the words.
 //
-// **An option the app cannot do now is hidden and not shown dead**: this glass has two tones and a row that looks like
-// it does something and does nothing is worse than no row at all. **The arrows of the dial walk the options that are
+// **An option the app cannot do now is hidden and not shown dead**: the glass can draw a lighter row since 0.100.0
+// (`disabled`, dim ink), but a card is the list of what can be done *now* —a dead row in a card of three is a row a
+// person tries— and a menu that changes shape is honest in a way a menu of dead rows is not. The **bar of a menu**
+// keeps its entries and greys them, because a bar is a list of places and not of actions. **The arrows of the dial walk the options that are
 // on the card**, skipping the hidden ones, and the centre picks one with `on_pick(self, index)`; closing the menu is
 // the app's —read the action, close, and then run it—, the same rule a card follows (docs/30, docs/90).
 int l_ui_menu(lua_State* L) {
@@ -5822,6 +5962,8 @@ int l_ui_menu(lua_State* L) {
 // the C stack and no allocation at all (docs/90).
 int l_menu_bar_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.menu_bar_draw == nullptr) return 0;
   const int base = lua_gettop(L);
@@ -5842,8 +5984,9 @@ int l_menu_bar_draw(lua_State* L) {
   const bool focused = ui_field_bool(L, 1, "focused", false);
   g_ui_ops.menu_bar_draw(canvas->slot, titles, count, static_cast<uint8_t>((open < 0) ? 0 : open),
                          static_cast<uint8_t>((index < 0) ? 0 : index), static_cast<uint16_t>((bar_height < 1) ? 1 : bar_height),
-                         static_cast<uint8_t>(color), static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                         static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+                         ink_or_dim(off, color), static_cast<uint8_t>(dim),
+                         static_cast<uint8_t>(background), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                         focused && !off.on);
   lua_settop(L, base);
   return 0;
 }
@@ -5919,6 +6062,8 @@ int l_ui_menu_bar(lua_State* L) {
 // where the caret is in bytes and whether the long lines wrap (docs/90).
 int l_textbox_multiline_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.textbox_multiline_draw == nullptr) return 0;
   lua_getiuservalue(L, 1, 1);
@@ -5937,8 +6082,8 @@ int l_textbox_multiline_draw(lua_State* L) {
   const bool wrap = ui_field_bool(L, 1, "wrap", false);
   const lua_Integer top = ui_field_number(L, 1, "top", -1);
   g_ui_ops.textbox_multiline_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, wrap,
-                                  static_cast<uint8_t>(color), static_cast<uint8_t>(background),
-                                  static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                  ink_or_dim(off, color), static_cast<uint8_t>(background),
+                                  ink_or_dim(off, border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
                                   static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)));
   lua_pop(L, 2);  // the text and the fields table
   return 0;
@@ -6016,6 +6161,8 @@ int l_ui_textbox_multiline(lua_State* L) {
 // language— (docs/30, docs/90).
 int l_selector_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.selector_draw == nullptr) return 0;
   const int base = lua_gettop(L);
@@ -6049,9 +6196,10 @@ int l_selector_draw(lua_State* L) {
   const lua_Integer border = ui_field_number(L, 1, "border", 0);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
   const bool focused = ui_field_bool(L, 1, "focused", false);
-  g_ui_ops.selector_draw(canvas->slot, label, value, choosing, static_cast<uint8_t>(color),
+  g_ui_ops.selector_draw(canvas->slot, label, value, choosing, ink_or_dim(off, color),
                          static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                         static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+                         ink_or_dim(off, border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                         focused && !off.on);
   lua_settop(L, base);
   return 0;
 }
@@ -6183,6 +6331,8 @@ uint16_t ui_notification_total(lua_State* L, int object) {
 // the `+N` that says how many are waiting. The app says the notices and not one pixel of them (docs/30, docs/90).
 int l_notification_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.notification_bar_draw == nullptr) return 0;
   const int base = lua_gettop(L);
@@ -6199,10 +6349,10 @@ int l_notification_draw(lua_State* L) {
   const lua_Integer border = ui_field_number(L, 1, "border", 0);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
   const bool focused = ui_field_bool(L, 1, "focused", false);
-  g_ui_ops.notification_bar_draw(canvas->slot, cards, shown, total, static_cast<uint8_t>(color),
+  g_ui_ops.notification_bar_draw(canvas->slot, cards, shown, total, ink_or_dim(off, color),
                                  static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                                 static_cast<uint8_t>(border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
-                                 focused);
+                                 ink_or_dim(off, border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
+                                 focused && !off.on);
   lua_settop(L, base);
   return 0;
 }
@@ -6310,6 +6460,8 @@ uint8_t ui_grid_items(lua_State* L, int object, UIOps::UIGridItem* out) {
 // which page is on the glass (docs/30, docs/90).
 int l_icon_grid_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (g_ui_ops.icon_grid_draw == nullptr) return 0;
   const int base = lua_gettop(L);
@@ -6329,9 +6481,9 @@ int l_icon_grid_draw(lua_State* L) {
   const bool focused = ui_field_bool(L, 1, "focused", false);
   g_ui_ops.icon_grid_draw(canvas->slot, cells, count, static_cast<uint8_t>((index < 0) ? 0 : index),
                           static_cast<uint8_t>((marked < 0) ? 0 : marked),
-                          static_cast<uint8_t>((columns < 0) ? 0 : columns), static_cast<uint8_t>(color),
+                          static_cast<uint8_t>((columns < 0) ? 0 : columns), ink_or_dim(off, color),
                           static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
-                          static_cast<uint8_t>((scale < 1) ? 1 : scale), focused);
+                          static_cast<uint8_t>((scale < 1) ? 1 : scale), focused && !off.on);
   lua_settop(L, base);
   return 0;
 }
@@ -6405,6 +6557,8 @@ int l_ui_icon_grid(lua_State* L) {
 // (docs/30, docs/90).
 int l_textbox_draw(lua_State* L) {
   if (!canvas_ready(L, 1)) return 0;
+  // What this control is in: on, or off and drawn in its lighter tone.
+  const DisabledInk off = ui_disabled_ink(L, 1);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   lua_getiuservalue(L, 1, 1);
   if (!lua_istable(L, -1)) {
@@ -6438,8 +6592,8 @@ int l_textbox_draw(lua_State* L) {
   const char* text = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
   if (g_ui_ops.textbox_draw != nullptr) {
     g_ui_ops.textbox_draw(canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), caret, mask,
-                          static_cast<uint8_t>(color), static_cast<uint8_t>(background),
-                          static_cast<uint8_t>(border), static_cast<uint8_t>((scale == 0) ? 1 : scale));
+                          ink_or_dim(off, color), static_cast<uint8_t>(background),
+                          ink_or_dim(off, border), static_cast<uint8_t>((scale == 0) ? 1 : scale));
   }
   lua_pop(L, 2);  // the text and the fields table
   return 0;
@@ -7620,6 +7774,11 @@ bool ui_has_hook(lua_State* L, int object, const char* name) {
 }
 
 bool ui_target_is_focusable(lua_State* L, int object, bool with_boxes) {
+  // **A control that is disabled is not a stop** (0.100.0): it is drawn so a person reads what is not available,
+  // and none of the three ways in reaches it —the dial asks this, the finger asks this, and the keyboard only opens
+  // on a box the walk gave the focus to—. It is the same rule as `focusable = false`, said with the state the app
+  // gives a control instead of with the walk's own flag (docs/30, docs/92).
+  if (ui_field_bool(L, object, "disabled", false)) return false;
   // **A box of text is a target of the finger and not of the dial** (0.85.2, and the code now says it too): a finger
   // on a line puts the caret where it landed, and a box the keyboard types into has nothing to say to the dial, so it
   // is not a stop of the walk. It is a stop of the touch walk when `focusable` is on, which is what puts the caret

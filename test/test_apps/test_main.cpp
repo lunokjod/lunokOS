@@ -3112,6 +3112,143 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **A control can be disabled: it is drawn in the lighter tone of its theme and it answers nothing** (0.100.0).
+// It is still on the page —a person reads what is not available right now— but its ink falls to its `dim`, it
+// never wears the ring, and it is not a stop of the walk: the dial skips it, the finger does not reach it and the
+// keyboard does not open on it, because the three ask the same question (docs/30, docs/92).
+void test_a_disabled_control_is_drawn_lighter_and_answers_nothing(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  // The finger is one of the three ways in, so the bench has a glass that takes one.
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "off",
+                           "{\"title\":\"Off\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local column = ui.panel(340, 240, 'vertical')\n"
+                           "column:place(20, 20)\n"
+                           "column.gap = 10\n"
+                           "local b1 = ui.button(320, 70)\n"
+                           "b1.on_focus = function(self, on) console.print('focus one ' .. tostring(on)) end\n"
+                           "b1.on_click = function(self) console.print('click one') end\n"
+                           "column:add(b1)\n"
+                           "local b2 = ui.button(320, 70)\n"
+                           "local w = ui.label(200, 40)\n"
+                           "w.text = 'off'\n"
+                           "b2:add(w)\n"
+                           "console.print('child before ' .. tostring(w.disabled))\n"
+                           "b2.disabled = true\n"
+                           "console.print('child off ' .. tostring(w.disabled))\n"
+                           "b2.disabled = false\n"
+                           "console.print('child back ' .. tostring(w.disabled))\n"
+                           "b2.disabled = true\n"
+                           "b2.on_focus = function(self, on) console.print('focus two ' .. tostring(on)) end\n"
+                           "b2.on_click = function(self) console.print('click two') end\n"
+                           "column:add(b2)\n"
+                           "local b3 = ui.button(320, 70)\n"
+                           "b3.on_focus = function(self, on) console.print('focus three ' .. tostring(on)) end\n"
+                           "b3.on_click = function(self) console.print('click three') end\n"
+                           "column:add(b3)\n"
+                           "local lower = ui.panel(340, 140, 'vertical')\n"
+                           "lower:place(20, 300)\n"
+                           "lower.gap = 0\n"
+                           "local r1 = ui.row(320, 60)\n"
+                           "r1.title = 'on'\n"
+                           "r1.marked = true\n"
+                           "lower:add(r1)\n"
+                           "local r2 = ui.row(320, 60)\n"
+                           "r2.title = 'off'\n"
+                           "r2.marked = true\n"
+                           "r2.disabled = true\n"
+                           "lower:add(r2)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('off up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run off");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "off up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **The state goes down the tree**: the label inside the button is off with it, because the box and the word
+  // inside it are one thing to the person reading the page, and it comes back when the button does (docs/30,
+  // docs/92).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "child before nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "child off true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "child back false"), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // **The two rows are the same drawing with one field between them**: the marked row fills itself with the ink of
+  // its words, so the one that is on is a block of black and the one that is off is a block of its `dim` (8), which
+  // is the level a secondary word already uses (docs/30, docs/92).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(170, 378), "the row that is on is in ink");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(8, glass->level_at(170, 438), "and the row that is off, in its lighter tone");
+
+  // **One arrow skips it**: the ring goes from the first button to the third, and the middle one never hears the
+  // focus because it is not a stop at all.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus three true"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "focus two"), g_out);
+
+  // **And the centre presses the one the ring is on**: a disabled control does not answer, and nothing here ever
+  // says it did.
+  capture_begin();
+  pump_turns(10);
+  emu::press_key(0, true);
+  pump_turns(20);
+  emu::press_key(0, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click three"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "click two"), g_out);
+
+  // **And the finger does not reach it either**: a tap on the disabled button lands on nothing, while the same tap
+  // on the one that is on is a click. The hand and the dial ask the same question, so a page cannot be read one way
+  // by the keys and another by the hand (docs/30, docs/50, docs/92).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 170, 190));  // the second button, the one that is off
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  TEST_ASSERT_TRUE(panel->finger_down(0, 170, 100));  // and the first one, which is on
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click one"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "click two"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "focus two"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/off/app.lua");
+  storage->remove("/apps/off/manifest.json");
+  storage->remove("/apps/off");
+
+  // The next test gets the default bench back: the display and the finger were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **Every tab of a strip is a stop of the dial** (0.99.0), which is what the paper project does: its tabs are
 // `Button`s and the navigator walks them one at a time, the arrows go from one tab to the next and out of the
 // strip at either end, and the centre chooses the tab the ring is on. One stop for the whole strip made the arrows
@@ -7267,6 +7404,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_a_disabled_control_is_drawn_lighter_and_answers_nothing);
   RUN_TEST(test_each_tab_of_a_strip_is_a_stop_of_the_dial);
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);
   RUN_TEST(test_the_centre_presses_the_control_the_dial_is_on);

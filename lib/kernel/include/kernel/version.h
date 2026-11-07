@@ -1505,7 +1505,21 @@ namespace kernel {
 // the tab it went down on. The showcase app no longer calls `ui.focus`: the dial stays where the person left it.
 // Measured: 148 native cases green (a new one walks the strip and reads the inversion pixel by pixel), and both go
 // red when the stop per tab or the `lit` tab are taken out (docs/30, docs/92).
-static const char kVersion[] = "0.99.0";
+//
+// 0.100.0 (8/11): **a control can be disabled.** A control had no such state: `focusable = false` took it off the dial
+// and off the finger and changed not one pixel of it, and the sentence that justified that —*"this glass has two
+// tones and there is no way to draw a disabled row"*— was the old project's, from a two-tone panel: this glass has
+// sixteen levels and has used the `dim` (8) tone for secondary words since 0.97.3. A bar of a menu already had it
+// per entry (`enabled` greyed and skipped). Now `disabled` is a field of every control: its ink falls to its `dim`
+// (paper and the track of a slider stay, and the ring is not painted), the walk, the finger and the keyboard all
+// refuse it through the one question they ask (`ui_target_is_focusable`), writing it repaints the control and gives
+// the dial back if it was there, and the state goes down the tree so the label inside a disabled button is off with
+// it. The menu card keeps `hidden` —a card is the list of what can be done now— and its comment says so.
+// Measured: 438 native cases green (one new: the row that is on is a block of level 0 and the same row off is 8, an
+// arrow skips the middle button, the centre presses the third and the finger never touches the second), and three
+// deliberate breaks turn it red: letting the walk land on it, not lightening the tones, and not telling the
+// children (docs/30, docs/92).
+static const char kVersion[] = "0.100.0";
 
 }  // namespace kernel
 

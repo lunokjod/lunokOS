@@ -145,6 +145,18 @@ pages[1] = function()
   words.scale = body_scale
   button:add(words)
   built[#built + 1] = words
+  -- **And one that is off**: a control the app cannot use right now is still drawn, in the lighter tone of its own
+  -- theme, and it answers nothing —neither the dial nor the finger reaches it and the keyboard does not open on it
+  -- (0.100.0, docs/30, docs/92).
+  local off = keep(ui.button(10, kButton), 'off button')
+  off.background = 15
+  off.border = 0
+  local off_words = ui.label(view.width - 64, kBodyLine)
+  off_words.text = 'button: off, and it answers nothing'
+  off_words.scale = body_scale
+  off:add(off_words)
+  built[#built + 1] = off_words
+  off.disabled = true
   local box = keep(ui.checkbox(10, 56), 'checkbox')
   box.checked = true
   box.scale = body_scale

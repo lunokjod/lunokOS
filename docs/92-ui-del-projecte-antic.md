@@ -432,3 +432,39 @@ fletxa mou el cercle dins la tira i no tria res, tres fletxes el treuen de la ti
 prem el botó, i tornar enrere el deixa a l'última pestanya) i la lectura de la inversió **píxel a píxel** de la
 superfície (`level_at(24, 88)` i `level_at(124, 88)`)—. Trencant `ui_tabs_items` perquè torni zero (la tira d'una sola
 parada) es posen vermelles dues proves; trencant el `lit` del pintor, la de la inversió.
+
+## 14. Els estats d'un control: seleccionat i deshabilitat (0.100.0)
+
+**Fins a 0.99.0 un control no podia estar deshabilitat.** L'única cosa que s'hi assemblava era `focusable = false`,
+que el treia del dial i del dit però **no canviava ni un píxel**: el control seguia tenint l'aspecte d'un control que
+respon. I la frase que ho justificava —*«aquest vidre té dos tons i no hi ha manera de dibuixar una fila
+deshabilitada que es distingeixi d'una activa»*— era del projecte vell: aquest vidre té **setze nivells** i fa servir
+el to `dim` (8) per a les paraules secundàries de mitja dotzena de controls des de 0.97.3. El que ja existia era a la
+**barra de menú**, on una entrada amb `enabled = false` es pinta amb `dim` i la volta se la salta (`ui.cpp:4522` i
+`luabind.cpp:9083`).
+
+**Què s'ha fet**, i per què cada peça és on és:
+
+| Peça | Què fa |
+|---|---|
+| `disabled` (camp de tots els controls) | l'estat; `false` per defecte, sense haver-lo de declarar |
+| el to (`ui_disabled_ink` / `ink_or_dim`) | la tinta del control cau al seu `dim`; **el paper i la pista d'un slider no es toquen**, i l'anella no es pinta |
+| `ui_target_is_focusable` | el refusa, i és la pregunta que fan el dial, el dit i el teclat: un sol lloc per als tres camins |
+| `__newindex` | escriure `disabled` **repinta** i, si el control tenia el dial, **el torna** |
+| `ui_set_disabled_below` | l'estat **baixa als fills** (un botó apaga l'etiqueta que porta a dins) |
+| els 21 pintors | cada un passa la seva tinta per `ink_or_dim` i el focus per `&& !off.on` |
+
+**Els vint-i-un pintors i no un embolcall** és una decisió: cada pintor ja rep els tons explícits —és el que va fer
+possible portar el projecte del paper sense inventar un tema— i aquest canvi només diu **quins d'aquells tons són
+tinta**. Un embolcall genèric hauria hagut d'endevinar-ho per control.
+
+**Què no s'ha tocat**: les opcions d'un **menú de targeta** continuen amb `hidden`, i el comentari que ho justifica
+s'ha reescrit —la raó no és el vidre, és que una targeta és la llista del que es pot fer **ara**—. La barra de menú
+continua tenint el seu `enabled` per entrada.
+
+**Mesurat**: **438 casos natius verds** (437 abans, i un de nou); una prova nova
+(`test_a_disabled_control_is_drawn_lighter_and_answers_nothing`) que mira el vidre —una fila marcada encesa és un
+bloc de nivell **0** i la mateixa fila apagada un bloc de nivell **8**—, que una fletxa **salta** el control del mig,
+que el centre prem el tercer i **mai** el segon, i que el **dit** tampoc no el toca (el banc necessita `opts.touch` i
+`kernel::touch::boot`, que és el que faltava perquè el toc no fes res). Tres trencades a propòsit: fer que el dial hi
+caigui torna la prova vermella, no aclarir els tons també, i no baixar l'estat als fills també.
