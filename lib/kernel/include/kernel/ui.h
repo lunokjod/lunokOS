@@ -40,12 +40,16 @@ struct Damage {
 // that cannot look wrong (`gc16`), and `damage_count()` is how an app sees it happening (docs/30).
 const uint8_t kMaxDamage = 8;
 
-// **Two ceilings and not one.** A control is cheap —a frame and its lists— and there can be many; a view
-// is four bits per pixel and there can be few. It is the difference between a page with twenty labels and
-// a page with eight (docs/90).
-const uint8_t kMaxControls = 32;
-// How many of those controls may own a buffer at once, the root included.
-const uint8_t kMaxCanvases = 8;
+// **The number of controls is what the memory holds, and not a number in this file** (0.102.0). The table of
+// canvases is taken from the board's extra memory at boot —the PSRAM of the Paper, which has three and a half
+// megabytes idle— and `canvas_count()` says how many slots there are; a hundred and ninety-two bytes each, so
+// thousands. The buffers are the ones that cost: a view is four bits per pixel, a quarter of a megabyte for a
+// page of this size, and **that** is the ceiling that a page meets first (docs/75, docs/90).
+const uint16_t kMaxCanvases = 8;
+// A slot is a number in the table and it is an `int16_t`: the type is the only ceiling left on how many controls a
+// page may have, and it is thirty-two thousand. **`-1` is "no slot" and it is signed**, or a comparison with a slot
+// would be a comparison of 65535 with -1 (docs/90).
+const int16_t kNoSlot = -1;
 
 // **A control is a frame, and a frame may or may not have a view.** The frame is the size and the place it
 // occupies inside the one that holds it, its father, its ordered children, what it owes and what it draws;
@@ -73,9 +77,11 @@ struct Canvas {
   uint8_t damage_count = 0;
   // **One father and ordered children.** The canvases inside this one are here in the order they were
   // added, and that order is the order of the layers: the one added later is in front (docs/90).
-  int8_t parent = -1;
-  int8_t children[kMaxControls];
-  uint8_t child_count = 0;
+  int16_t parent = kNoSlot;
+  // **The children are a list and not an array** (0.102.0): the first one and the next of each of them, so a
+  // control with two hundred children costs the same table as one with two, and there is no ceiling to hit.
+  int16_t first_child = kNoSlot;
+  int16_t next_sibling = kNoSlot;
   // A number that changes every time the slot is handed out again: an app that keeps an object past the
   // moment the view was made again holds a stale slot and has to be told, not write into whatever took
   // its place (docs/90).
@@ -141,51 +147,54 @@ const Damage& damage(uint8_t index);
 // ---- the canvases inside the view: a control is one of these (docs/90) ----
 
 // The canvas at that slot, or nullptr. Slot 0 is the view of the app, which the system owns.
-const Canvas* at(int8_t slot);
+const Canvas* at(int16_t slot);
+// **How many controls this board can hold**, which is how many slots the table of canvases has: it is asked of the
+// extra memory at boot and not written in this file (0.102.0, docs/75).
+uint16_t canvas_count();
 // A control of its own inside `parent` (`-1` is the view). **With a buffer or without one**: a control with
 // a buffer (`ui.canvas`) is composed onto its father as a layer of its own; a control without one
 // (`ui.control`) paints into the first canvas that holds it, cut at its own frame, and costs no pixels at
 // all. False when there is no slot left, when there is no room for another buffer and one was asked for,
 // or when the extra memory does not take it.
-bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8_t& slot);
+bool create(uint16_t width, uint16_t height, int16_t parent, bool with_view, int16_t& slot);
 // Gives the buffer back and moves the slot's generation on: an object of an app that still points here
 // is refused instead of writing into whoever took the slot (docs/90).
-bool release(int8_t slot);
+bool release(int16_t slot);
 // Where the canvas sits in its parent, in the parent's pixels.
-bool place(int8_t slot, uint16_t x, uint16_t y);
+bool place(int16_t slot, uint16_t x, uint16_t y);
 // **Puts a canvas inside another one**, which is what a control holding a control is: it becomes the
 // last child of `parent` —so it is in front of the ones already there— and its place is now read in the
 // new parent's pixels. The view of the app is the one canvas an app cannot move into another (docs/90).
-bool reparent(int8_t slot, int8_t parent);
+bool reparent(int16_t slot, int16_t parent);
 // The father of a canvas, or -1 (the view of the app has none).
-int8_t parent_of(int8_t slot);
+int16_t parent_of(int16_t slot);
 
 // ---- redrawing, and only when it is needed (docs/90) ----
 
 // **Marks this canvas and every canvas that holds it** as needing a redraw. A child that changed is a
 // father whose buffer is not what the child has on it any more. Without a rectangle it is the whole
 // canvas; with one, **that** is what has to be painted, which is what keeps a repaint cheap (docs/90).
-bool invalidate(int8_t slot);
-bool invalidate_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+bool invalidate(int16_t slot);
+bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
 // The turn of a redraw: the system opens the box before asking a control to draw itself and closes it
 // after, and only while it is open is the drawing cut at the box (docs/90).
-bool begin_draw(int8_t slot);
-bool end_draw(int8_t slot);
+bool begin_draw(int16_t slot);
+bool end_draw(int16_t slot);
 // Whether it has to be drawn. False is "nothing changed": the control is not asked to draw at all.
-bool needs_draw(int8_t slot);
+bool needs_draw(int16_t slot);
 // It has been drawn: nothing more to do until something changes it again.
-bool mark_drawn(int8_t slot);
+bool mark_drawn(int16_t slot);
 // How many times the slot has been handed out (`at(slot)->generation`), for the object of an app that has
 // to know whether the canvas it holds is still the one it made.
-uint16_t generation_of(int8_t slot);
+uint16_t generation_of(int16_t slot);
 
 // Drawing into a canvas that is not the view. The same calls the view has, and the same rules: a region
 // is kept in whole nibbles and nothing is painted outside the canvas (docs/30).
-bool canvas_clear(int8_t slot, uint8_t level, const char* mode);
-bool canvas_fill_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+bool canvas_clear(int16_t slot, uint8_t level, const char* mode);
+bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                       const char* mode);
-bool canvas_pixel(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
-uint8_t canvas_damage(int8_t slot);
+bool canvas_pixel(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+uint8_t canvas_damage(int16_t slot);
 
 // ---- the primitives of a canvas, and the text (docs/30, docs/90) ----
 //
@@ -196,13 +205,13 @@ uint8_t canvas_damage(int8_t slot);
 // `level` is the colour, and on this glass the colour is a level from 0 (black) to 15 (white); `mode` is
 // the quality, and `nullptr` is `du`. A `frame` is a rectangle of one pixel drawn round the outside of
 // the box and a `rect` is the box filled; a `circle` is the line round and a `disc` is the inside.
-bool canvas_frame(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+bool canvas_frame(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                   const char* mode);
-bool canvas_line(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
+bool canvas_line(int16_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
                  const char* mode);
-bool canvas_circle(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+bool canvas_circle(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
                    const char* mode);
-bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+bool canvas_disc(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
                  const char* mode);
 // A text drawn into the canvas with **the face the canvas was given**, or with the font of the system when
 // it was given none, `scale` times its size and **cut at the border of the canvas**: that is what a label is
@@ -210,7 +219,7 @@ bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius
 // **A picture on the canvas**, read from a file of the volume and turned into rows of the canvas as it is
 // decoded (docs/30): `w` or `h` zero is the size of the picture, and a size that is not the picture's is a
 // nearest neighbour scale. `reason` says why when it is false.
-bool canvas_image(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
+bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
                   const char* mode, const char*& code, const char*& reason);
 
 // The same on the app's own view, which is what `ui.image` is (docs/30).
@@ -222,7 +231,7 @@ bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, con
 bool image_info(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
                 const char*& code, const char*& reason);
 
-bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
+bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode);
 
 // ---- a label: one text in the frame of a control (docs/30, docs/90) ----
@@ -242,7 +251,7 @@ uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale
 // **Draws a label into its frame**, with its own face and colours: the background first —a control without
 // a buffer owes the pixels it covers— and then the text, aligned and cut at the frame. The app's `present`
 // is what calls it, and only when the control owes a draw (docs/30, docs/90).
-bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
                 uint8_t valign, uint8_t scale);
 
 // **Draws a button into its frame, with the drawing of the paper project** (0.97.0): a box in the colour of its shadow
@@ -254,7 +263,7 @@ bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background
 // inverted word— and `tag` is a small word in an outlined box at its left that says what kind of thing the row is. A
 // child added with `add` is still composed after the box and cut at the frame, and it is **not** inverted: a control the
 // app paints keeps the colours the app gave it (docs/30, docs/90, docs/92).
-bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false,
+bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused = false,
                  bool primary = false, const char* title = nullptr, const char* tag = nullptr,
                  uint8_t color = 0, uint8_t scale = 1);
 
@@ -268,13 +277,13 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
 // below and is never thinner than six, or zero when the frame is too small to hold one. An app asks for it to
 // place the label that names the setting —`label:place(cb:box() + 8, 0)`— instead of guessing the geometry
 // (docs/30, docs/90).
-int16_t checkbox_side(int8_t slot);
+int16_t checkbox_side(int16_t slot);
 
 // **Draws a checkbox into its frame**: the row in its background colour, the box with a border and a body, the
 // bevel of a thing a finger can press —swapped and darker while it is held—, the tick when it is checked, and
 // the ring of the focus. The tick is `mark`'s level and the app chooses it, because on a dark checkbox a black
 // tick is a page with nothing on it (docs/30, docs/90).
-bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
+bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
                    bool pressed, bool focused);
 
 // ---- a month: seven columns and six weeks, and the days in their place (docs/30, docs/90) ----
@@ -286,13 +295,13 @@ bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark
 //
 // `weekdays` is an array of seven short names from the app, because the names of the days are a language and a
 // language is not the kernel's.
-bool month_draw(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
+bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
                 const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                 bool focused);
 
 // **Which day of the month a point of the grid is on**, or zero: the same cells the paint uses, so a finger and a
 // drawing cannot disagree (docs/90).
-uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
+uint8_t month_hit(int16_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
 
 // ---- a sparkline and a pie: the shape of some numbers (docs/30, docs/90) ----
 //
@@ -301,14 +310,14 @@ uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_
 // these charts are for is the shape: up, down, flat— and two series when the second is a part of the same total,
 // the bottom one solid and the top one an outline (docs/90).
 const uint8_t kMaxSparkSamples = 24;
-bool sparkline_draw(int8_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
+bool sparkline_draw(int16_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
                     uint8_t background);
 
 // **A pie is four slices at most and its tones are the control's**: the app says the darkest one and the control
 // walks four steps of four from it, so the legend an app draws beside it can say the same numbers and not almost
 // the same (docs/30, docs/90). `slices` are the values and the angles come from their sum.
 const uint8_t kMaxPieSlices = 4;
-bool pie_draw(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
+bool pie_draw(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
 
 // ---- a dialog: a card over the page, words and two doors (docs/30, docs/90) ----
 //
@@ -317,13 +326,13 @@ bool pie_draw(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color,
 // half read— and a note under the message in the dim colour. `emphasis` is the door that is inverted (0 none, 1
 // the cancel, 2 the accept) and `choice` is the one the dial is on, which wears the focus; on this glass there is
 // no colour to say "this is the one", so the two signals are an inverted box and a ring (docs/90).
-bool dialog_draw(int8_t slot, const char* title, const char* text, const char* note, const char* accept,
+bool dialog_draw(int16_t slot, const char* title, const char* text, const char* note, const char* accept,
                  const char* cancel, uint8_t emphasis, uint8_t choice, uint8_t text_level, uint8_t dim,
                  uint8_t background, uint8_t scale, bool focused);
 
 // **Which door of a dialog a point of its own frame is on**: 0 for the card, 1 for the left and 2 for the right.
 // The geometry is one function, so a finger and the paint cannot disagree (docs/90).
-uint8_t dialog_hit(int8_t slot, uint16_t x, uint16_t y);
+uint8_t dialog_hit(int16_t slot, uint16_t x, uint16_t y);
 
 // ---- a menu: a card of options, and the card is the system's (docs/30, docs/90) ----
 //
@@ -352,12 +361,12 @@ struct MenuOption {
 // fifty-two pixels**, which is the least this system allows for anything a fingertip presses, while the rows grow
 // into the room that is left: three options in a tall card are three tall doors. `index` is the option the dial is
 // on, from 1, and the ring is drawn there, inside the box and in the tone that contrasts with it (docs/90).
-bool menu_draw(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
+bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
                uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
 
 // **Which option a point of the card is on**, from 1, or 0 for the card itself and the gap between two boxes. The
 // geometry is one function, so the box that is painted is the box that answers the finger (docs/90).
-uint8_t menu_hit(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
+uint8_t menu_hit(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
                  uint16_t x, uint16_t y);
 
 // ---- a bar of menus: the titles and the one that is unfolded (docs/30, docs/90) ----
@@ -396,16 +405,16 @@ struct MenuBarTitle {
 // height of the row —never under forty-four pixels, because a word is a thing a finger presses— and the rest of the
 // frame is the room the open menu has, which is why a bar is given the height of the page and not the height of a row
 // (docs/90).
-bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
+bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
                    uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
                    bool focused);
 
 // **Which title of the row a point is on**, from 1, or 0; and **which entry of the open menu**, from 1, or 0 for the
 // card, a separator and the space between two rows. One geometry, so the box that is painted is the box that answers
 // (docs/90).
-uint8_t menu_bar_title_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
+uint8_t menu_bar_title_at(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
                           uint8_t scale, uint16_t x, uint16_t y);
-uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
+uint8_t menu_bar_entry_at(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
                           uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y);
 
 // ---- a progress bar: how much of something is done (docs/30, docs/90) ----
@@ -414,7 +423,7 @@ uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count
 // with the weight of a button reads as something to press. `value` is 0 to 100 and **a negative value is
 // "nothing to say yet"**: the track is drawn and nothing is filled, which is what a system that does not
 // know the answer shows (docs/90).
-bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+bool progress_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                    int16_t value);
 
 // ---- a slider: a track, a knob and the number (docs/30, docs/90) ----
@@ -423,7 +432,7 @@ bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t trac
 // `value` by `step` while the slider has the focus, and the app is told with `on_change`. The value is text
 // with the face the control was given, `scale` times its size, and `suffix` is what comes after it —a `%`, a
 // ` C`—, because a number without its unit is a number that means something else (docs/30).
-bool slider_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                  uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
                  uint8_t scale, bool pressed, bool focused);
 
@@ -433,7 +442,7 @@ bool slider_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track,
 // own column, and the line under the row when `separator` asks for it. A **marked** row is the chosen one and
 // it is **inverted** —the words in the paper colour and the row in the ink one—, which is what a person can
 // read at once on this glass (docs/90).
-bool row_draw(int8_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
+bool row_draw(int16_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
               uint8_t dim, uint8_t background, uint8_t scale, bool marked, bool separator);
 
 // ---- a panel: the room that arranges what it holds (docs/30, docs/90) ----
@@ -448,7 +457,7 @@ enum class PanelFlow : uint8_t { kVertical = 0, kHorizontal = 1, kOverlay = 2 };
 // the control keeps the size it was made with and is stretched across the flow —a row of a column is as wide
 // as the column— while the free room is split among the ones with weight (docs/30, docs/90).
 struct PanelChild {
-  int8_t slot;
+  int16_t slot;
   uint8_t weight;
 };
 
@@ -456,14 +465,14 @@ struct PanelChild {
 // between two, the children of weight 0 at the size they have, and the room that is left split by weight with
 // the last one taking the remainder. Moving a child is a change of the glass and it is declared here, so the
 // app does not have to know which of them landed somewhere new (docs/30, docs/90).
-uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
-                     const PanelChild* children, uint8_t count);
+uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
+                      const PanelChild* children, uint16_t count);
 
 // **A new size for a control without a buffer**: its frame is a rectangle and nothing else, so a panel that
 // gives it a share of the room only writes the two numbers down. A canvas with a buffer of its own is refused,
 // because its pixels were handed out with a size and a size that changes is a release and a new canvas
 // (docs/30, docs/90).
-bool canvas_resize(int8_t slot, uint16_t width, uint16_t height);
+bool canvas_resize(int16_t slot, uint16_t width, uint16_t height);
 
 // ---- a strip of tabs: the chosen one has no line under it (docs/30, docs/90) ----
 //
@@ -475,7 +484,7 @@ bool canvas_resize(int8_t slot, uint16_t width, uint16_t height);
 // drawn inverted —the face takes the ink and the word takes the paper, and the bookmark and the line go the other
 // way round— because a strip is one control with one stop per tab and the ring has to be somewhere a person can
 // see (0.99.0, docs/92).
-bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                uint8_t text, uint8_t background, uint8_t scale);
 
 // ---- a list: rows on pages and never a scroll (docs/30, docs/90) ----
@@ -496,7 +505,7 @@ ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items);
 // **The rows of one page**, with the footer that says which page it is and a chevron on the side that has
 // somewhere to go. `marked` is the row of this page that is the chosen one, from 1, or 0 for none. The words
 // come one page at a time, so a list of a thousand rows costs what one page costs (docs/30, docs/90).
-bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
                const char* const* titles, const char* const* details, const char* const* subtitles,
                uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                bool separator, bool focused);
@@ -511,12 +520,12 @@ bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t 
 // `cursor` is how many bytes of the text are before the caret; `caret` says whether the block is drawn, because
 // the blinking is the app's clock and not the control's; `mask` draws a dot for every letter, which is what a
 // password is (docs/30).
-bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
+bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
                   uint8_t background, uint8_t border, uint8_t scale);
 
 // How wide the inside of a text box is with that scale, which is what an app needs to place a hint of its own in
 // the empty box (docs/90).
-uint16_t textbox_inside(int8_t slot, uint8_t scale);
+uint16_t textbox_inside(int16_t slot, uint8_t scale);
 
 // ---- a box of several lines: the same box, with room to fall (docs/30, docs/90) ----
 //
@@ -535,29 +544,29 @@ uint16_t textbox_inside(int8_t slot, uint8_t scale);
 // text does not fit the right side of the box is a **bar**: the track says how much text there is and the thumb where a
 // person is. The bar moves with the finger the app has registered (`on_swipe`) and the thumb is worked out again from
 // the window, so the paint keeps no state of the gesture (docs/30, docs/90).
-bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
+bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
                             uint8_t background, uint8_t border, uint8_t scale, int16_t top = -1);
 
 // **Where a point of the box puts the cursor**: the row from the y and the letter from the x, both measured with the
 // font, which is the only thing that knows how wide a letter comes out. A byte offset of the text, for a finger that
 // went past the end of a row (docs/90).
-uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+uint16_t textbox_multiline_hit(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                uint16_t x, uint16_t y, int16_t top = -1);
 
 // How many rows the box shows with that scale, which is what an app needs to know whether its text fits and how much
 // of the page the keyboard leaves it (docs/90).
-uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale);
+uint8_t textbox_multiline_rows(int16_t slot, uint8_t scale);
 
 // **How many rows the whole text has** and **how many pixels one row is**: the first is what an app says in its status
 // line ("row 12 of 40") and the second is what a finger has to travel to move the window one row (0.88.0,
 // docs/30, docs/90).
-uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale);
-uint8_t textbox_multiline_line(int8_t slot, uint8_t scale);
+uint16_t textbox_multiline_total(int16_t slot, const char* text, bool wrap, uint8_t scale);
+uint8_t textbox_multiline_line(int16_t slot, uint8_t scale);
 
 // **Where the window is left when a finger moves it**: `rows` rows added to the one that is seen now —the cursor's
 // when `top` is `-1`—, clamped to `[0, total - fit]`. The app writes it in `top` and the system writes it when the
 // gesture is its own (0.88.0, docs/90).
-uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+uint16_t textbox_multiline_scroll(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                   int16_t top, int16_t rows);
 
 // ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
@@ -572,7 +581,7 @@ uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor
 // triangle, because a field that goes black from end to end reads as the whole page going dark (the owner said so of the
 // old one, 17/10). And **the empty value is a state of its own**: `value` is what the app says "nothing chosen" looks
 // like in its own language, and it is drawn exactly where a value would be.
-bool selector_draw(int8_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
+bool selector_draw(int16_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
                    uint8_t background, uint8_t border, uint8_t scale, bool focused);
 
 // ---- a band of notifications: the cards and how they are painted (docs/30, docs/90) ----
@@ -593,15 +602,15 @@ struct Notification {
 
 // `items` are the ones to draw, oldest first and **the newest last**, and `total` is how many the app really has: the
 // difference is what the `+N` says.
-bool notification_bar_draw(int8_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
+bool notification_bar_draw(int16_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
                            uint8_t dim, uint8_t background, uint8_t border, uint8_t scale, bool focused);
 
 // **Which card a point is on, counted from the bottom** (1 is the newest), and **whether it is on the cross of that card**:
 // two questions because a finger on the cross dismisses and a finger on the card opens it. Zero is no card at all, which is
 // the space between two of them and the line that says how many are waiting (docs/90). `total` is the same number the paint
 // was given, because the `+N` line takes room from the cards and a finger has to land on a card that is there.
-uint8_t notification_bar_card_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
-bool notification_bar_close_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
+uint8_t notification_bar_card_at(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
+bool notification_bar_close_at(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y);
 
 // ---- a grid of cells: an icon with its name under it, on pages (docs/30, docs/90) ----
 //
@@ -621,12 +630,12 @@ struct GridItem {
   const char* mark;
 };
 
-bool icon_grid_draw(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
+bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
                     uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
 
 // **Which cell a point of the frame is on**, from 1, or 0 for the gaps, the footer and a place where there is no cell. The
 // same geometry the paint uses, page included (docs/90).
-uint8_t icon_grid_hit(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
+uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
                       uint8_t scale, uint16_t x, uint16_t y);
 
 // ---- the keyboard: the system's, not a control (docs/30, docs/90) ----
@@ -669,7 +678,7 @@ bool keyboard_select(const char* id);
 // **When the pages do not fit**, the strip shows as many balls as its box holds and the window of them that contains the
 // open page, so the counter is inside the box and the page a person is on is always one of the balls. The whole strip
 // owes **one** damaged region and not one per ball (docs/30, docs/90).
-bool dots_draw(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
+bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
 
 // ---- the faces a text can be drawn with (docs/30) ----
 //
@@ -690,7 +699,7 @@ bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uin
 // **The face of a canvas**, and the face of the app's view for the shorthand calls (`ui.text`). -1 is the
 // font of the system. A canvas whose face is given back draws with the system's again, which is why the
 // number is checked every time and never trusted (docs/30).
-bool canvas_set_font(int8_t slot, int8_t handle);
+bool canvas_set_font(int16_t slot, int8_t handle);
 bool app_set_font(int8_t handle);
 // How wide a text is with that face, in pixels, which is what centring it needs (docs/30).
 uint16_t font_text_width(int8_t handle, const char* text, uint8_t scale);

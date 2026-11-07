@@ -357,7 +357,7 @@ static void test_a_region_at_an_odd_x_lands_where_it_says() {
 // until it moves (docs/90).
 static void test_a_child_canvas_lands_where_it_is_placed() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(slot, 0, 0, 20, 10, 0, "du"));
   TEST_ASSERT_TRUE(ui::place(slot, 100, 50));
@@ -374,7 +374,7 @@ static void test_a_child_canvas_lands_where_it_is_placed() {
 // border, and one that starts outside paints nothing at all (docs/90).
 static void test_a_canvas_is_cut_at_its_border() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(slot, 0, 0, 200, 200, 0, "du"));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(slot, 40, 40, 10, 10, 0, "du"));  // outside: nothing
@@ -391,7 +391,7 @@ static void test_a_canvas_is_cut_at_its_border() {
 static void test_a_canvas_that_paints_nothing_composes_nothing() {
   fresh_view();
   const uint32_t before = glass().paint_count();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 30, 30));
   TEST_ASSERT_TRUE(ui::present());
@@ -412,12 +412,12 @@ static void test_a_canvas_that_paints_nothing_composes_nothing() {
 // system's** and an app cannot give it back (docs/90).
 static void test_the_canvases_have_a_ceiling_and_are_given_back() {
   fresh_view();
-  int8_t slots[ui::kMaxCanvases] = {};
+  int16_t slots[ui::kMaxCanvases] = {};
   for (uint8_t i = 0; i + 1 < ui::kMaxCanvases; ++i) {
     TEST_ASSERT_TRUE(ui::create(8, 8, -1, true, slots[i]));
     TEST_ASSERT_TRUE(ui::at(slots[i]) != nullptr);
   }
-  int8_t extra = -1;
+  int16_t extra = -1;
   TEST_ASSERT_FALSE(ui::create(8, 8, -1, true, extra));
   TEST_ASSERT_TRUE(ui::release(slots[0]));
   // **Given back does not mean free yet**: the buffer lives until the next present has painted over it, and
@@ -433,7 +433,7 @@ static void test_the_canvases_have_a_ceiling_and_are_given_back() {
 // the objects an app was holding point at nothing, which is what the generation check is for (docs/90).
 static void test_a_view_made_again_takes_the_canvases_with_it() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   TEST_ASSERT_TRUE(ui::resize(320, 240));
   TEST_ASSERT_NULL(ui::at(slot));
@@ -445,7 +445,7 @@ static void test_a_view_made_again_takes_the_canvases_with_it() {
 // whole canvas becomes one `gc16` (docs/30, docs/50).
 static void test_a_line_is_a_line_and_costs_one_region() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, slot));
   TEST_ASSERT_TRUE(ui::canvas_line(slot, 0, 0, 39, 39, 0, "du"));
   TEST_ASSERT_EQUAL_UINT8(1, ui::canvas_damage(slot));
@@ -457,7 +457,7 @@ static void test_a_line_is_a_line_and_costs_one_region() {
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(11, 10));
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(10, 11));
   // A straight line is a rectangle, and it lands on its own row.
-  int8_t flat = -1;
+  int16_t flat = -1;
   TEST_ASSERT_TRUE(ui::create(20, 6, -1, true, flat));
   TEST_ASSERT_TRUE(ui::canvas_line(flat, 0, 3, 19, 3, 0, "du"));
   TEST_ASSERT_TRUE(ui::place(flat, 0, 60));
@@ -471,7 +471,7 @@ static void test_a_line_is_a_line_and_costs_one_region() {
 // line round (docs/30).
 static void test_a_frame_an_empty_inside_and_a_disc_a_full_one() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, slot));
   TEST_ASSERT_TRUE(ui::canvas_frame(slot, 4, 4, 20, 20, 0, "du"));
   TEST_ASSERT_TRUE(ui::canvas_disc(slot, 30, 10, 6, 0, "du"));
@@ -493,7 +493,7 @@ static void test_a_frame_an_empty_inside_and_a_disc_a_full_one() {
 // (docs/30, docs/90).
 static void test_a_text_is_cut_at_the_canvas_border() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   // "II" at twice the size is 22 pixels wide and 14 tall: wider and taller than the canvas.
   TEST_ASSERT_TRUE(ui::canvas_text(slot, 0, 0, "II", 2, 0, "du"));
@@ -528,8 +528,8 @@ static void test_the_primitives_are_on_the_view_too() {
 // pixels of its father, so nesting is nesting and not arithmetic at every draw (docs/90).
 static void test_a_canvas_can_hold_another_one_and_lands_inside_it() {
   fresh_view();
-  int8_t outer = -1;
-  int8_t inner = -1;
+  int16_t outer = -1;
+  int16_t inner = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, outer));
   TEST_ASSERT_TRUE(ui::create(20, 20, outer, true, inner));
   TEST_ASSERT_EQUAL_INT8(outer, ui::parent_of(inner));
@@ -547,8 +547,8 @@ static void test_a_canvas_can_hold_another_one_and_lands_inside_it() {
 // is in front where the two overlap (docs/90).
 static void test_children_are_layers_in_the_order_they_were_added() {
   fresh_view();
-  int8_t first = -1;
-  int8_t second = -1;
+  int16_t first = -1;
+  int16_t second = -1;
   TEST_ASSERT_TRUE(ui::create(30, 30, -1, true, first));
   TEST_ASSERT_TRUE(ui::create(30, 30, -1, true, second));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(first, 0, 0, 30, 30, 0, "du"));
@@ -564,9 +564,9 @@ static void test_children_are_layers_in_the_order_they_were_added() {
 // itself. The view of the app is nobody's child (docs/90).
 static void test_a_canvas_has_one_father_and_cannot_hold_itself() {
   fresh_view();
-  int8_t outer = -1;
-  int8_t inner = -1;
-  int8_t other = -1;
+  int16_t outer = -1;
+  int16_t inner = -1;
+  int16_t other = -1;
   TEST_ASSERT_TRUE(ui::create(20, 20, -1, true, outer));
   TEST_ASSERT_TRUE(ui::create(10, 10, outer, true, inner));
   TEST_ASSERT_FALSE(ui::reparent(outer, inner));
@@ -590,8 +590,8 @@ static void test_a_canvas_has_one_father_and_cannot_hold_itself() {
 // (docs/90).
 static void test_a_canvas_is_only_drawn_when_something_changed() {
   fresh_view();
-  int8_t father = -1;
-  int8_t child = -1;
+  int16_t father = -1;
+  int16_t child = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, father));
   TEST_ASSERT_TRUE(ui::create(20, 20, father, true, child));
   // New canvases owe a draw, and the view inside them does too.
@@ -622,7 +622,7 @@ static void test_a_canvas_is_only_drawn_when_something_changed() {
 // reaches the glass is that strip, at the quality the drawing asked for (docs/30, docs/90).
 static void test_a_redraw_is_cut_to_the_box_the_control_owes() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 0, 0));
   TEST_ASSERT_TRUE(ui::mark_drawn(slot));
@@ -656,8 +656,8 @@ static void test_a_redraw_is_cut_to_the_box_the_control_owes() {
 // of them fit where one canvas would not (docs/90).
 static void test_a_control_without_a_view_is_a_frame_in_the_tree() {
   fresh_view();
-  int8_t box = -1;
-  int8_t inside = -1;
+  int16_t box = -1;
+  int16_t inside = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, false, box));
   TEST_ASSERT_NULL(ui::at(box)->bits);
   TEST_ASSERT_EQUAL_UINT32(0, ui::at(box)->bytes);
@@ -677,8 +677,8 @@ static void test_a_control_without_a_view_is_a_frame_in_the_tree() {
 // grid inside the view paints on the view and cannot paint outside the cell it was given (docs/90).
 static void test_a_control_without_a_view_paints_on_the_one_that_holds_it() {
   fresh_view();
-  int8_t grid = -1;
-  int8_t cell = -1;
+  int16_t grid = -1;
+  int16_t cell = -1;
   TEST_ASSERT_TRUE(ui::create(60, 40, -1, false, grid));
   TEST_ASSERT_TRUE(ui::place(grid, 10, 10));
   TEST_ASSERT_TRUE(ui::create(20, 10, grid, false, cell));
@@ -703,7 +703,7 @@ static void test_a_control_without_a_view_paints_on_the_one_that_holds_it() {
 // nothing stale in a buffer somebody else will get (docs/90).
 static void test_a_canvas_that_goes_away_is_clean_before_it_is_freed() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(20, 10, -1, true, slot));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(slot, 0, 0, 20, 10, 0, "du"));
   TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
@@ -729,8 +729,8 @@ static void test_a_canvas_that_goes_away_is_clean_before_it_is_freed() {
 // is freed after the same clean paint (docs/90).
 static void test_a_canvas_takes_its_children_with_it_when_it_goes() {
   fresh_view();
-  int8_t father = -1;
-  int8_t child = -1;
+  int16_t father = -1;
+  int16_t child = -1;
   TEST_ASSERT_TRUE(ui::create(40, 40, -1, true, father));
   TEST_ASSERT_TRUE(ui::create(10, 10, father, true, child));
   TEST_ASSERT_TRUE(ui::canvas_fill_rect(child, 0, 0, 10, 10, 0, "du"));
@@ -754,10 +754,10 @@ static void test_a_canvas_takes_its_children_with_it_when_it_goes() {
 // else, whatever hangs inside it (docs/90).
 static void test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child() {
   fresh_view();
-  int8_t father = -1;
+  int16_t father = -1;
   TEST_ASSERT_TRUE(ui::create(60, 60, -1, true, father));
   for (uint8_t i = 0; i < 3; ++i) {
-    int8_t kid = -1;
+    int16_t kid = -1;
     TEST_ASSERT_TRUE(ui::create(10, 10, father, true, kid));
     TEST_ASSERT_TRUE(ui::place(kid, static_cast<uint16_t>(i * 15), 0));
   }
@@ -1219,7 +1219,7 @@ static void test_a_label_cuts_its_text_with_three_dots() {
 // What is outside the text is the background of the label, not the page.
 static void test_a_label_places_its_line_by_alignment() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
   TEST_ASSERT_TRUE(ui::label_draw(slot, "H", 0, 15, 0, 0, 1));  // left, top
@@ -1247,7 +1247,7 @@ static void test_a_label_places_its_line_by_alignment() {
 // away, which is a button pushed into the page (docs/92).
 static void test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed() {
   fresh_view();
-  int8_t slot = -1;
+  int16_t slot = -1;
   TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, slot));
   TEST_ASSERT_TRUE(ui::place(slot, 10, 10));
   TEST_ASSERT_TRUE(ui::button_draw(slot, 15, 0, false));
@@ -1279,8 +1279,8 @@ static void test_a_button_sits_on_its_shadow_and_sinks_when_it_is_pressed() {
 // (docs/30, docs/90).
 static void test_a_button_that_redraws_asks_its_child_to_draw_again() {
   fresh_view();
-  int8_t button = -1;
-  int8_t child = -1;
+  int16_t button = -1;
+  int16_t child = -1;
   TEST_ASSERT_TRUE(ui::create(40, 20, 0, false, button));
   TEST_ASSERT_TRUE(ui::create(10, 10, button, false, child));
   TEST_ASSERT_TRUE(ui::mark_drawn(child));
@@ -1294,8 +1294,8 @@ static void test_a_button_that_redraws_asks_its_child_to_draw_again() {
 // larger than the button, but what it paints stops at the frame the button gave it (docs/30, docs/90).
 static void test_a_label_inside_a_button_is_clipped_to_the_button() {
   fresh_view();
-  int8_t button = -1;
-  int8_t label = -1;
+  int16_t button = -1;
+  int16_t label = -1;
   TEST_ASSERT_TRUE(ui::create(40, 30, 0, false, button));
   TEST_ASSERT_TRUE(ui::place(button, 10, 10));
   TEST_ASSERT_TRUE(ui::create(100, 100, button, false, label));
@@ -1583,7 +1583,7 @@ static void test_the_cleaner_between_apps_follows_the_page() {
 
 void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(60, 20, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 10, 10));
   // **Twelve pixels of box in a row of twenty**: the square on the left is the control and the rest of the row is the
@@ -1641,7 +1641,7 @@ void test_a_checkbox_is_a_box_with_a_tick_and_a_ring() {
 // a page that shows a full bar before it knows anything is a page that lies (docs/30, docs/90).
 void test_a_progress_bar_fills_a_prefix_of_its_track() {
   fresh_view();
-  int8_t bar = -1;
+  int16_t bar = -1;
   TEST_ASSERT_TRUE(ui::create(100, 16, 0, false, bar));
   TEST_ASSERT_TRUE(ui::place(bar, 10, 10));
 
@@ -1674,7 +1674,7 @@ void test_a_progress_bar_fills_a_prefix_of_its_track() {
 // is inside the frame and not half outside it (docs/30, docs/90).
 void test_a_slider_puts_the_knob_where_the_value_says() {
   fresh_view();
-  int8_t slider = -1;
+  int16_t slider = -1;
   TEST_ASSERT_TRUE(ui::create(200, 40, 0, false, slider));
   TEST_ASSERT_TRUE(ui::place(slider, 10, 10));
 
@@ -1723,7 +1723,7 @@ void test_a_slider_puts_the_knob_where_the_value_says() {
 // is the one" says on a glass of sixteen levels (docs/30, docs/90).
 void test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked() {
   fresh_view();
-  int8_t row = -1;
+  int16_t row = -1;
   TEST_ASSERT_TRUE(ui::create(240, 40, 0, false, row));
   TEST_ASSERT_TRUE(ui::place(row, 10, 10));
 
@@ -1768,8 +1768,8 @@ void test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked() {
 // docs/90).
 void test_a_checkbox_that_redraws_asks_its_child_to_draw_again() {
   fresh_view();
-  int8_t box = -1;
-  int8_t label = -1;
+  int16_t box = -1;
+  int16_t label = -1;
   TEST_ASSERT_TRUE(ui::create(200, 30, 0, false, box));
   TEST_ASSERT_TRUE(ui::create(150, 20, box, false, label));
   TEST_ASSERT_TRUE(ui::mark_drawn(label));
@@ -1784,10 +1784,10 @@ void test_a_checkbox_that_redraws_asks_its_child_to_draw_again() {
 // taking the remainder (docs/30, docs/90).
 void test_a_panel_stacks_its_children_in_a_column() {
   fresh_view();
-  int8_t panel = -1;
-  int8_t first = -1;
-  int8_t second = -1;
-  int8_t third = -1;
+  int16_t panel = -1;
+  int16_t first = -1;
+  int16_t second = -1;
+  int16_t third = -1;
   TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, panel));
   TEST_ASSERT_TRUE(ui::place(panel, 10, 10));
   TEST_ASSERT_TRUE(ui::create(40, 40, panel, false, first));
@@ -1830,9 +1830,9 @@ void test_a_panel_stacks_its_children_in_a_column() {
 // what a bar of buttons and a strip of tabs are (docs/30, docs/90).
 void test_a_row_panel_splits_the_width_and_stretches_the_height() {
   fresh_view();
-  int8_t panel = -1;
-  int8_t one = -1;
-  int8_t two = -1;
+  int16_t panel = -1;
+  int16_t one = -1;
+  int16_t two = -1;
   TEST_ASSERT_TRUE(ui::create(200, 60, 0, false, panel));
   TEST_ASSERT_TRUE(ui::create(50, 20, panel, false, one));
   TEST_ASSERT_TRUE(ui::create(50, 20, panel, false, two));
@@ -1856,11 +1856,34 @@ void test_a_row_panel_splits_the_width_and_stretches_the_height() {
   ui::release(panel);
 }
 
+// **How many controls a page may have is what the memory holds** (0.102.0): the table of canvases is taken from the
+// extra memory at boot and `canvas_count()` says how many slots there are. It used to be thirty-two, written in the
+// header, and both the number of controls a page could have and the number of children one control could hold were
+// that same number (docs/75, docs/90).
+void test_the_table_of_canvases_is_what_the_memory_holds(void) {
+  fresh_view();
+  TEST_ASSERT_GREATER_THAN_MESSAGE(32, kernel::ui::canvas_count(),
+                                   "the table is the extra memory's and not 32");
+  // **A hundred and fifty controls on one page**: two hundred slots asked for and every one of them made, which is
+  // six times what the old table held.
+  int16_t made[150];
+  for (int i = 0; i < 150; ++i) {
+    TEST_ASSERT_TRUE(ui::create(8, 8, 0, false, made[i]));
+    TEST_ASSERT_TRUE(made[i] >= 0);
+  }
+  // And every one of them is a child of the view: the list of children has no length of its own any more.
+  for (int i = 0; i < 150; ++i) {
+    TEST_ASSERT_EQUAL_INT(0, ui::parent_of(made[i]));
+    TEST_ASSERT_NOT_NULL(ui::at(made[i]));
+  }
+  for (int i = 0; i < 150; ++i) ui::release(made[i]);
+}
+
 // **A strip of tabs says "you are here" by taking the line away**: on two tones there is no bold and no colour,
 // so the chosen tab is the one with nothing under it (docs/30, docs/90).
 void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
   fresh_view();
-  int8_t strip = -1;
+  int16_t strip = -1;
   TEST_ASSERT_TRUE(ui::create(300, 40, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
   const char* labels[3] = {"One", "Two", "Three"};
@@ -1906,7 +1929,7 @@ void test_a_strip_of_tabs_has_no_line_under_the_chosen_one() {
 // pixels on the face, and the frame walks with the face and does not stay on the box (docs/30, docs/90, docs/92).
 void test_a_button_is_the_drawing_of_the_paper_project(void) {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(200, 64, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
 
@@ -1947,7 +1970,7 @@ void test_a_button_is_the_drawing_of_the_paper_project(void) {
 // one dot says nothing and it would cost a paint of the panel to say it (docs/30, docs/90).
 void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
   fresh_view();
-  int8_t strip = -1;
+  int16_t strip = -1;
   TEST_ASSERT_TRUE(ui::create(100, 20, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
 
@@ -1975,7 +1998,7 @@ void test_the_dots_of_a_page_draw_nothing_when_there_is_one_page() {
 // of two tones is one the panel erases with the binary waveform (docs/50, docs/90).
 void test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid(void) {
   fresh_view();
-  int8_t strip = -1;
+  int16_t strip = -1;
   TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
 
@@ -2002,7 +2025,7 @@ void test_the_dots_of_a_page_are_rings_on_a_rod_and_the_open_one_is_solid(void) 
 // and the window of them that holds the open page, and the open one is still the solid ball of the strip.
 void test_the_dots_of_a_page_keep_the_open_one_inside_a_narrow_strip(void) {
   fresh_view();
-  int8_t strip = -1;
+  int16_t strip = -1;
   TEST_ASSERT_TRUE(ui::create(100, 24, 0, false, strip));
   TEST_ASSERT_TRUE(ui::place(strip, 0, 0));
   // Forty pages and the thirty-seventh: five balls fit, the window is 35..39 and the open one is the middle one of it.
@@ -2051,7 +2074,7 @@ void test_a_list_measures_its_pages_with_one_arithmetic() {
 // band is the line of the footer and the words in it, and **no row is drawn under it** (docs/30, docs/90).
 void test_a_list_draws_one_page_and_says_which_one_it_is() {
   fresh_view();
-  int8_t list = -1;
+  int16_t list = -1;
   TEST_ASSERT_TRUE(ui::create(300, 200, 0, false, list));
   TEST_ASSERT_TRUE(ui::place(list, 0, 0));
   const char* titles[3] = {"One", "Two", "Three"};
@@ -2134,7 +2157,7 @@ void test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name() {
 // where the next letter goes (docs/30, docs/90).
 void test_a_textbox_keeps_the_caret_on_the_glass() {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(200, 40, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
   // Two pixels of border and six of padding on each side: a hundred and eighty-four pixels of inside.
@@ -2188,7 +2211,7 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   // "what is left after the caret" starting at the beginning of the window and the piece in front was never drawn, so a
   // path of twenty-two characters came out cut with the caret alone on the right (found in the graphical editor, 4/11,
   // docs/90).
-  int8_t wide = -1;
+  int16_t wide = -1;
   TEST_ASSERT_TRUE(ui::create(400, 40, 0, false, wide));
   TEST_ASSERT_TRUE(ui::place(wide, 0, 60));
   TEST_ASSERT_TRUE(ui::textbox_draw(wide, "/data/editor/note.txt", 22, true, false, 0, 15, 0, 2));
@@ -2226,7 +2249,7 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
 // this test prints —the bench's numbers and not the board's, but the shape of the loop is the same— (docs/75, docs/90).
 void test_the_window_of_a_textbox_carries_the_width_of_the_tail(void) {
   fresh_view();
-  int8_t wide = -1;
+  int16_t wide = -1;
   TEST_ASSERT_TRUE(ui::create(900, 40, 0, false, wide));
   TEST_ASSERT_TRUE(ui::place(wide, 0, 0));
   // **Three hundred letters with the caret at the front**: the window fills nine hundred pixels, which is about seventy
@@ -2269,7 +2292,7 @@ void test_the_window_of_a_textbox_carries_the_width_of_the_tail(void) {
 // emphasised door is inverted, and the finger and the paint ask the same geometry (docs/30, docs/90).
 void test_a_dialog_wraps_its_message_and_has_two_doors() {
   fresh_view();
-  int8_t card = -1;
+  int16_t card = -1;
   TEST_ASSERT_TRUE(ui::create(400, 300, 0, false, card));
   TEST_ASSERT_TRUE(ui::place(card, 0, 0));
   const char* message = "This card deletes every note you wrote and there is no way back at all";
@@ -2332,7 +2355,7 @@ void test_a_dialog_wraps_its_message_and_has_two_doors() {
 // inverted, today wears a frame, and the finger asks the same cells the paint put down (docs/30, docs/90).
 void test_a_calendar_puts_the_first_day_where_the_weekday_says() {
   fresh_view();
-  int8_t grid = -1;
+  int16_t grid = -1;
   TEST_ASSERT_TRUE(ui::create(280, 280, 0, false, grid));
   TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
   const char* names[7] = {"M", "T", "W", "T", "F", "S", "S"};
@@ -2373,7 +2396,7 @@ void test_a_calendar_puts_the_first_day_where_the_weekday_says() {
 // finger asks the same boxes the paint put down (docs/30, docs/90).
 void test_a_menu_hides_the_options_the_app_cannot_do() {
   fresh_view();
-  int8_t card = -1;
+  int16_t card = -1;
   TEST_ASSERT_TRUE(ui::create(300, 200, 0, false, card));
   TEST_ASSERT_TRUE(ui::place(card, 0, 0));
 
@@ -2443,7 +2466,7 @@ void test_a_menu_hides_the_options_the_app_cannot_do() {
 // presses, and the finger asks the same boxes the paint put down (docs/30, docs/90).
 void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
   fresh_view();
-  int8_t bar = -1;
+  int16_t bar = -1;
   TEST_ASSERT_TRUE(ui::create(400, 400, 0, false, bar));
   TEST_ASSERT_TRUE(ui::place(bar, 0, 0));
 
@@ -2516,7 +2539,7 @@ void test_a_bar_of_menus_hangs_the_menu_under_its_word() {
 // first row shown. A box the text fits in has no bar, and the text loses no room to it (docs/90).
 void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   // A box of a hundred pixels is six rows of the fourteen of a letter: fifteen lines do not fit and five do.
   TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
@@ -2577,7 +2600,7 @@ void test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right(void) {
 // text, so an app does not have to know how many rows there are to move the window (docs/30, docs/90).
 void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
   const char* text = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\nthirteen\n"
@@ -2614,7 +2637,7 @@ void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
 // cursor at the end of a row is one cell after its last letter (docs/90).
 static void test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row() {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(300, 120, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
   // The ink of a cell of the first line: the letters of "Notes" at scale 2 are five cells of twelve pixels from eight.
@@ -2652,7 +2675,7 @@ static void test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end
 // on the bench with `run typing`, 4/11, docs/90).
 static void test_a_box_paints_its_text_and_not_the_one_before_it() {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(480, 60, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 20, 20));
   // The ink of the line: the box centres a line of twenty-one pixels in sixty, and the text starts eight pixels in.
@@ -2686,7 +2709,7 @@ static void test_a_box_paints_its_text_and_not_the_one_before_it() {
 // text that is there —which is the same arithmetic the paint used— (docs/30, docs/90).
 void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
   fresh_view();
-  int8_t box = -1;
+  int16_t box = -1;
   TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
   TEST_ASSERT_TRUE(ui::place(box, 0, 0));
   const char* text = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight";
@@ -2725,7 +2748,7 @@ void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
 
   // **A wrapped row breaks at the last space that fits**: the room is eighty-four pixels and a letter is twelve, so
   // "aaaa" is the first row, the space is the break and the next row starts after it.
-  int8_t narrow = -1;
+  int16_t narrow = -1;
   TEST_ASSERT_TRUE(ui::create(100, 60, 0, false, narrow));
   TEST_ASSERT_TRUE(ui::place(narrow, 0, 0));
   const char* words = "aaaa bbbb cccc";
@@ -2747,7 +2770,7 @@ void test_a_box_of_lines_keeps_the_caret_on_the_glass() {
 // its paper and only that column goes to ink, and the frame gets the weight of the focus (docs/30, docs/90).
 void test_a_selector_is_a_field_with_a_door_on_its_right() {
   fresh_view();
-  int8_t field = -1;
+  int16_t field = -1;
   TEST_ASSERT_TRUE(ui::create(400, 60, 0, false, field));
   TEST_ASSERT_TRUE(ui::place(field, 0, 0));
 
@@ -2804,7 +2827,7 @@ void test_a_selector_is_a_field_with_a_door_on_its_right() {
 // the cross of a card is the box a finger dismisses with (docs/30, docs/90).
 void test_a_band_of_notifications_puts_the_newest_at_the_bottom() {
   fresh_view();
-  int8_t band = -1;
+  int16_t band = -1;
   TEST_ASSERT_TRUE(ui::create(400, 200, 0, false, band));
   TEST_ASSERT_TRUE(ui::place(band, 0, 0));
 
@@ -2851,7 +2874,7 @@ void test_a_band_of_notifications_puts_the_newest_at_the_bottom() {
 // cells the paint put down, page included— (docs/30, docs/90).
 void test_a_grid_puts_the_page_where_the_cursor_is() {
   fresh_view();
-  int8_t grid = -1;
+  int16_t grid = -1;
   TEST_ASSERT_TRUE(ui::create(300, 300, 0, false, grid));
   TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
 
@@ -2912,7 +2935,7 @@ void test_a_grid_puts_the_page_where_the_cursor_is() {
 // two are parts of one total and the ink is the only level a chart may use (docs/30, docs/90).
 void test_a_sparkline_scales_to_the_peak_of_its_window() {
   fresh_view();
-  int8_t chart = -1;
+  int16_t chart = -1;
   TEST_ASSERT_TRUE(ui::create(120, 40, 0, false, chart));
   TEST_ASSERT_TRUE(ui::place(chart, 0, 0));
 
@@ -2948,7 +2971,7 @@ void test_a_sparkline_scales_to_the_peak_of_its_window() {
 // numbers (docs/30, docs/90).
 void test_a_pie_is_two_halves_when_the_slices_are_equal() {
   fresh_view();
-  int8_t pie = -1;
+  int16_t pie = -1;
   TEST_ASSERT_TRUE(ui::create(120, 120, 0, false, pie));
   TEST_ASSERT_TRUE(ui::place(pie, 0, 0));
 
@@ -3034,6 +3057,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked);
   RUN_TEST(test_a_panel_stacks_its_children_in_a_column);
   RUN_TEST(test_a_row_panel_splits_the_width_and_stretches_the_height);
+  RUN_TEST(test_the_table_of_canvases_is_what_the_memory_holds);
   RUN_TEST(test_a_strip_of_tabs_has_no_line_under_the_chosen_one);
   RUN_TEST(test_a_button_is_the_drawing_of_the_paper_project);
   RUN_TEST(test_the_dots_of_a_page_draw_nothing_when_there_is_one_page);

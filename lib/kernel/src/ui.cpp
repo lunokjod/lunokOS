@@ -28,16 +28,50 @@
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
+
+#include <new>  // placement new: the table of canvases is raw memory from the extra memory
 #include "ttf/ttf.h"
 
 namespace kernel {
 namespace ui {
 namespace {
 
-// **The canvases the system holds**, slot 0 is the view of the app and the rest are the controls an app
-// makes inside it. A fixed table and not a list: a canvas is handed out and given back, and an app that
-// needs more of them than this is an app that should compose two into one (docs/90).
-Canvas g_canvases[kMaxControls];
+// **The canvases the system holds**, slot 0 is the view of the app and the rest are the controls an app makes
+// inside it. **The table is the extra memory's and the memory is the ceiling** (0.102.0): half a megabyte of the
+// PSRAM of the Paper holds twenty-seven hundred and thirty controls —a hundred and ninety-two bytes each— and the
+// rest of the extra memory is left for the buffers, which are the ones that cost a quarter of a megabyte. The
+// number of slots is asked with `canvas_count()` and not written here (docs/75, docs/90).
+const size_t kSlotTableBytes = 512u * 1024u;
+const uint16_t kMinSlots = 32;
+Canvas* g_canvases = nullptr;
+uint16_t g_canvas_count = 0;
+
+// **The table of canvases, from the extra memory** and cut to what it will take: the block asked for is halved
+// until the allocator says yes, so a board with little extra memory gets fewer slots instead of no display, and a
+// board without extra memory at all still gets `kMinSlots` from the heap (docs/75).
+bool boot_table() {
+  if (g_canvases != nullptr) return true;
+  size_t count = kSlotTableBytes / sizeof(Canvas);
+  if (count > 32767u) count = 32767u;  // a slot is an `int16_t`
+  while (count >= kMinSlots) {
+    void* block = pal::extra_memory().allocate(count * sizeof(Canvas), true);
+    if (block != nullptr) {
+      Canvas* table = static_cast<Canvas*>(block);
+      for (size_t i = 0; i < count; ++i) new (&table[i]) Canvas();
+      g_canvases = table;
+      g_canvas_count = static_cast<uint16_t>(count);
+      // **The number is said once in the log**, because it is the board's memory talking and not a constant of the
+      // code: it is the answer to "how many controls does this page hold" (0.102.0, docs/75).
+      log_printf(pal::kLogInfo, "UI", "the table of canvases: %u slots of %u bytes",
+                 static_cast<unsigned>(g_canvas_count), static_cast<unsigned>(sizeof(Canvas)));
+      return true;
+    }
+    count /= 2;
+  }
+  return false;
+}
+
+
 bool g_attached = false;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
@@ -79,20 +113,18 @@ Canvas& root() { return g_canvases[0]; }
 
 // A slot is a control when it is in use, **with a buffer or without one**: a grid or a box is a control
 // that paints nothing and still has a frame, children and a draw (docs/90).
-bool live(int8_t slot) {
-  return slot >= 0 && slot < static_cast<int8_t>(kMaxControls) && g_canvases[slot].in_use;
-}
+bool live(int16_t slot) { return slot >= 0 && slot < g_canvas_count && g_canvases[slot].in_use; }
 
 // The first canvas that holds this control: the nearest father —or the control itself— that has a buffer.
 // It is where the pixels of a control without a view go (docs/90).
-int8_t painting_holder(int8_t slot) {
-  for (int8_t walk = slot; walk >= 0; walk = g_canvases[walk].parent) {
+int16_t painting_holder(int16_t slot) {
+  for (int16_t walk = slot; walk >= 0; walk = g_canvases[walk].parent) {
     if (g_canvases[walk].bits != nullptr) return walk;
   }
-  return -1;
+  return kNoSlot;
 }
 
-Canvas* find(int8_t slot) { return live(slot) ? &g_canvases[slot] : nullptr; }
+Canvas* find(int16_t slot) { return live(slot) ? &g_canvases[slot] : nullptr; }
 
 // Two regions of the same quality this close become one paint: a frame drawn side by side, a line of
 // text one letter at a time. Merging them costs a few pixels of ink and saves a whole update, and an
@@ -203,23 +235,29 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 }
 
 // Takes a canvas out of the list of children of its father, if it has one and it is there.
-void unlink_from_parent(int8_t slot) {
-  const int8_t father = g_canvases[slot].parent;
+void unlink_from_parent(int16_t slot) {
+  const int16_t father = g_canvases[slot].parent;
   if (father < 0) return;
   Canvas& parent = g_canvases[father];
-  uint8_t kept = 0;
-  for (uint8_t i = 0; i < parent.child_count; ++i) {
-    if (parent.children[i] == slot) continue;
-    parent.children[kept++] = parent.children[i];
+  if (parent.first_child == slot) {
+    parent.first_child = g_canvases[slot].next_sibling;
+  } else {
+    for (int16_t walk = parent.first_child; walk != kNoSlot; walk = g_canvases[walk].next_sibling) {
+      if (g_canvases[walk].next_sibling == slot) {
+        g_canvases[walk].next_sibling = g_canvases[slot].next_sibling;
+        break;
+      }
+    }
   }
-  parent.child_count = kept;
+  g_canvases[slot].next_sibling = kNoSlot;
+  g_canvases[slot].parent = kNoSlot;
 }
 
 // **Asks for a control to go away, and does not free it yet.** The rectangle it occupies is owed to the
 // first control that paints —so the hole is painted over on the next draw— and every child goes with it.
 // The buffer is wiped and the slot given back at the end of the next present, when the page is already
 // clean (docs/90).
-void request_release(int8_t slot, bool top) {
+void request_release(int16_t slot, bool top) {
   if (!live(slot)) return;
   Canvas& control = g_canvases[slot];
   if (control.pending_release) return;
@@ -229,11 +267,11 @@ void request_release(int8_t slot, bool top) {
   // rectangle would fill the list of eight with pieces of the same hole and end up in one `gc16` of the
   // whole union, which is the opposite of cheap (docs/90).
   if (top) {
-    const int8_t painter = painting_holder(control.parent);
+    const int16_t painter = painting_holder(control.parent);
     if (painter >= 0) {
       int32_t offset_x = 0;
       int32_t offset_y = 0;
-      for (int8_t walk = slot; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
+      for (int16_t walk = slot; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
         offset_x += g_canvases[walk].x;
         offset_y += g_canvases[walk].y;
       }
@@ -241,23 +279,30 @@ void request_release(int8_t slot, bool top) {
                       control.width, control.height);
     }
   }
-  // The children go with it, marked, without a rectangle of their own: theirs are all inside this one.
-  int8_t inside[kMaxControls];
-  const uint8_t count = control.child_count;
-  for (uint8_t i = 0; i < count; ++i) inside[i] = control.children[i];
-  for (uint8_t i = 0; i < count; ++i) request_release(inside[i], false);
+  // The children go with it, marked, without a rectangle of their own: theirs are all inside this one. **The next
+  // one of the list is read before the children are told**, because a child that goes away changes the list it is
+  // in.
+  int16_t child = control.first_child;
+  while (child != kNoSlot) {
+    const int16_t next = g_canvases[child].next_sibling;
+    request_release(child, false);
+    child = next;
+  }
 }
 
 // Gives one canvas back, and everything that was inside it: a child whose parent is gone could never be
 // composed and would keep its buffer for nothing (docs/90). **The buffer is wiped white first**, so that
 // nothing of this control can be composed out of a block somebody else is about to get.
-void release_slot(int8_t slot) {
+void release_slot(int16_t slot) {
   if (!live(slot)) return;
-  // A copy of the list, because releasing a child changes the list it came from.
-  int8_t inside[kMaxControls];
-  uint8_t count = g_canvases[slot].child_count;
-  for (uint8_t i = 0; i < count; ++i) inside[i] = g_canvases[slot].children[i];
-  for (uint8_t i = 0; i < count; ++i) release_slot(inside[i]);
+  // **The next of the list is read before the child is released**, because releasing a child changes the list it
+  // came from (docs/90).
+  int16_t child = g_canvases[slot].first_child;
+  while (child != kNoSlot) {
+    const int16_t next = g_canvases[child].next_sibling;
+    release_slot(child);
+    child = next;
+  }
   unlink_from_parent(slot);
   if (g_canvases[slot].bits != nullptr) {
     memset(g_canvases[slot].bits, 0xFF, g_canvases[slot].bytes);
@@ -271,16 +316,24 @@ void release_slot(int8_t slot) {
 
 // A canvas becomes the **last** child of another one: the layers are the order of the list, and the last
 // one added is the one in front (docs/90).
-bool attach_to(int8_t slot, int8_t parent) {
+bool attach_to(int16_t slot, int16_t parent) {
   if (!live(slot) || slot == 0 || !live(parent) || slot == parent) return false;
   // A control cannot end up inside itself: the walk would never end.
-  for (int8_t walk = parent; walk >= 0; walk = g_canvases[walk].parent) {
+  for (int16_t walk = parent; walk != kNoSlot; walk = g_canvases[walk].parent) {
     if (walk == slot) return false;
   }
   unlink_from_parent(slot);
   Canvas& father = g_canvases[parent];
-  if (father.child_count >= kMaxControls) return false;
-  father.children[father.child_count++] = slot;
+  // **The last one added is the one in front**: the list is walked to its end and the new child goes there, and
+  // there is no number of children that cannot be reached (docs/90).
+  g_canvases[slot].next_sibling = kNoSlot;
+  if (father.first_child == kNoSlot) {
+    father.first_child = slot;
+  } else {
+    int16_t last = father.first_child;
+    while (g_canvases[last].next_sibling != kNoSlot) last = g_canvases[last].next_sibling;
+    g_canvases[last].next_sibling = slot;
+  }
   g_canvases[slot].parent = parent;
   return true;
 }
@@ -302,7 +355,7 @@ bool make_root(uint16_t width, uint16_t height) {
   // view is the one state `set_rotation` says must never happen (docs/50, docs/90).
   void* block = pal::extra_memory().allocate(bytes, true);
   if (block == nullptr) return false;
-  for (uint8_t i = 1; i < kMaxControls; ++i) release_slot(static_cast<int8_t>(i));
+  for (uint16_t i = 1; i < g_canvas_count; ++i) release_slot(static_cast<int16_t>(i));
   const uint16_t at_x = root().x;
   const uint16_t at_y = root().y;
   release_slot(0);
@@ -397,16 +450,15 @@ void compose_region(Canvas& parent, const Canvas& child, int32_t origin_x, int32
 // controls were added —the one added later is in front—, and each view is composed into the first canvas
 // that holds it: the offset is what every control between the two adds with its place, so a label inside a
 // box inside a panel lands where the three of them say (docs/90).
-void compose_tree(int8_t slot, int8_t destination, int32_t origin_x, int32_t origin_y) {
+void compose_tree(int16_t slot, int16_t destination, int32_t origin_x, int32_t origin_y) {
   Canvas& control = g_canvases[slot];
   // **The children first.** A father's buffer has to be complete before it travels up: composing him into
   // his own father and *then* composing his children into him was a father that reached the glass without
   // what his children had just put in him (found by this suite, 1/11).
-  const int8_t theirs = (control.bits != nullptr) ? slot : destination;
+  const int16_t theirs = (control.bits != nullptr) ? slot : destination;
   const int32_t base_x = (control.bits != nullptr) ? 0 : origin_x;
   const int32_t base_y = (control.bits != nullptr) ? 0 : origin_y;
-  for (uint8_t i = 0; i < control.child_count; ++i) {
-    const int8_t index = control.children[i];
+  for (int16_t index = control.first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
     // A control on its way out is **not composed**: its pixels are what the painter has just painted
     // over, and composing them again would put the ghost back on the page (docs/90).
     if (!live(index) || g_canvases[index].pending_release) continue;
@@ -785,10 +837,10 @@ struct DrawTarget {
   int32_t y = 0;
 };
 
-DrawTarget open_draw(int8_t slot) {
+DrawTarget open_draw(int16_t slot) {
   DrawTarget out;
   if (!live(slot)) return out;
-  const int8_t holder = painting_holder(slot);
+  const int16_t holder = painting_holder(slot);
   if (holder < 0) return out;
   Canvas& canvas = g_canvases[holder];
   out.canvas = &canvas;
@@ -1015,6 +1067,8 @@ bool idle_for_lua() { return idle(); }
 
 bool resize_for_lua(uint16_t width, uint16_t height) { return resize(width, height); }
 
+uint16_t canvas_count_for_lua() { return canvas_count(); }
+
 uint8_t damage_for_lua() { return damage_count(); }
 
 uint16_t rotation_for_lua() { return rotation(); }
@@ -1025,7 +1079,7 @@ bool title_for_lua(const char* text) { return title(text); }
 
 const char* last_error_for_lua() { return display::last_error(); }
 
-bool canvas_create_for_lua(uint16_t width, uint16_t height, bool with_view, int8_t& slot,
+bool canvas_create_for_lua(uint16_t width, uint16_t height, bool with_view, int16_t& slot,
                            uint16_t& generation) {
   generation = 0;
   if (!g_attached) return false;
@@ -1034,18 +1088,18 @@ bool canvas_create_for_lua(uint16_t width, uint16_t height, bool with_view, int8
   return true;
 }
 
-bool canvas_alive_for_lua(int8_t slot, uint16_t generation) {
+bool canvas_alive_for_lua(int16_t slot, uint16_t generation) {
   const Canvas* target = find(slot);
   return target != nullptr && target->generation == generation;
 }
 
 // Two wrappers and not the public names: `place` is also the move of the view, and a pointer taken from an
 // overloaded name is a thing the next reader has to work out (docs/30).
-bool canvas_place_for_lua(int8_t slot, uint16_t x, uint16_t y) { return place(slot, x, y); }
+bool canvas_place_for_lua(int16_t slot, uint16_t x, uint16_t y) { return place(slot, x, y); }
 
-bool canvas_release_for_lua(int8_t slot) { return release(slot); }
+bool canvas_release_for_lua(int16_t slot) { return release(slot); }
 
-bool canvas_caps_for_lua(int8_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y) {
+bool canvas_caps_for_lua(int16_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y) {
   const Canvas* target = find(slot);
   if (target == nullptr) return false;
   width = target->width;
@@ -1057,15 +1111,27 @@ bool canvas_caps_for_lua(int8_t slot, uint16_t& width, uint16_t& height, uint16_
 
 // **The bridge does not know what a panel flow is**: it says a number and this is the one place that turns it
 // into the enum, so `luabind` keeps no knowledge of the layout of the kernel (docs/10, docs/90).
-uint8_t panel_layout_for_lua(int8_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
-                             const luabind::UIOps::UIPanelChild* children, uint8_t count) {
-  if (children == nullptr || count > 16) return 0;
-  PanelChild mine[16];
-  for (uint8_t i = 0; i < count; ++i) {
+uint16_t panel_layout_for_lua(int16_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
+                              const luabind::UIOps::UIPanelChild* children, uint16_t count) {
+  if (children == nullptr || count == 0) return 0;
+  // **The list of a panel is copied into a block of its own and not into sixteen places on the stack** (0.102.0):
+  // a panel of forty rows is a page, and the sixteen was the stack talking (docs/75, docs/90).
+  PanelChild on_stack[16];
+  PanelChild* mine = on_stack;
+  void* block = nullptr;
+  if (count > 16) {
+    block = pal::extra_memory().allocate(sizeof(PanelChild) * count, true);
+    if (block != nullptr) mine = static_cast<PanelChild*>(block);
+  }
+  const uint16_t used = (block != nullptr || count <= 16) ? count : 16;
+  for (uint16_t i = 0; i < used; ++i) {
     mine[i].slot = children[i].slot;
     mine[i].weight = children[i].weight;
   }
-  return panel_layout(slot, static_cast<PanelFlow>(flow), padding, gap, mine, count);
+  const uint16_t moved =
+      panel_layout(slot, static_cast<PanelFlow>(flow), padding, gap, mine, used);
+  if (block != nullptr) pal::extra_memory().release(block);
+  return moved;
 }
 
 // **One arithmetic and two callers**: the app asks how many rows and pages a list of that size makes and the
@@ -1078,7 +1144,7 @@ uint8_t list_page_of_for_lua(uint16_t height, uint16_t row_height, uint16_t item
 
 // **The options of a menu, said in the kernel's words**: the bridge reads them from the app's table and the drawing
 // takes the system's array, because the two sides of a control do not share a struct (docs/90).
-bool menu_draw_for_lua(int8_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
+bool menu_draw_for_lua(int16_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
                        uint8_t index, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
                        bool focused) {
   if (items == nullptr || count > kMaxMenuOptions) return false;
@@ -1092,7 +1158,7 @@ bool menu_draw_for_lua(int8_t slot, const char* title, const luabind::UIOps::UIM
   return menu_draw(slot, title, mine, count, index, color, dim, background, scale, focused);
 }
 
-uint8_t menu_hit_for_lua(int8_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
+uint8_t menu_hit_for_lua(int16_t slot, const char* title, const luabind::UIOps::UIMenuOption* items, uint8_t count,
                          uint8_t scale, uint16_t x, uint16_t y) {
   if (items == nullptr || count > kMaxMenuOptions) return 0;
   MenuOption mine[kMaxMenuOptions];
@@ -1127,7 +1193,7 @@ bool menu_bar_build(const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
   return true;
 }
 
-bool menu_bar_draw_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count, uint8_t open,
+bool menu_bar_draw_for_lua(int16_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count, uint8_t open,
                            uint8_t index, uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background,
                            uint8_t scale, bool focused) {
   MenuBarTitle mine[kMaxMenuBarTitles];
@@ -1136,7 +1202,7 @@ bool menu_bar_draw_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* ti
   return menu_bar_draw(slot, mine, count, open, index, bar_height, color, dim, background, scale, focused);
 }
 
-uint8_t menu_bar_title_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
+uint8_t menu_bar_title_at_for_lua(int16_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
                                   uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
   MenuBarTitle mine[kMaxMenuBarTitles];
   MenuBarEntry entries[kMaxMenuBarEntries];
@@ -1144,7 +1210,7 @@ uint8_t menu_bar_title_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTi
   return menu_bar_title_at(slot, mine, count, bar_height, scale, x, y);
 }
 
-uint8_t menu_bar_entry_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
+uint8_t menu_bar_entry_at_for_lua(int16_t slot, const luabind::UIOps::UIMenuBarTitle* titles, uint8_t count,
                                   uint8_t open, uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
   MenuBarTitle mine[kMaxMenuBarTitles];
   MenuBarEntry entries[kMaxMenuBarEntries];
@@ -1154,7 +1220,7 @@ uint8_t menu_bar_entry_at_for_lua(int8_t slot, const luabind::UIOps::UIMenuBarTi
 
 // **The cards of a band, said in the kernel's words**: three of them at most on the glass, and the rest are counted by the
 // control (docs/90).
-bool notification_bar_draw_for_lua(int8_t slot, const luabind::UIOps::UINotification* items, uint8_t shown,
+bool notification_bar_draw_for_lua(int16_t slot, const luabind::UIOps::UINotification* items, uint8_t shown,
                                    uint16_t total, uint8_t color, uint8_t dim, uint8_t background, uint8_t border,
                                    uint8_t scale, bool focused) {
   if (items == nullptr || shown > kMaxNotifications) return false;
@@ -1176,7 +1242,7 @@ bool icon_grid_build(const luabind::UIOps::UIGridItem* items, uint8_t count, Gri
   return true;
 }
 
-bool icon_grid_draw_for_lua(int8_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
+bool icon_grid_draw_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
                             uint8_t marked, uint8_t columns, uint8_t color, uint8_t dim, uint8_t background,
                             uint8_t scale, bool focused) {
   GridItem mine[kMaxGridItems];
@@ -1184,7 +1250,7 @@ bool icon_grid_draw_for_lua(int8_t slot, const luabind::UIOps::UIGridItem* items
   return icon_grid_draw(slot, mine, count, index, marked, columns, color, dim, background, scale, focused);
 }
 
-uint8_t icon_grid_hit_for_lua(int8_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
+uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* items, uint8_t count, uint8_t index,
                               uint8_t columns, uint8_t scale, uint16_t x, uint16_t y) {
   GridItem mine[kMaxGridItems];
   if (!icon_grid_build(items, count, mine)) return 0;
@@ -1199,6 +1265,10 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   // system's and not the panel's, and a board whose model has no screen still asks for the same text —a run with no
   // display writes to the console and the pages of a window on the bench are drawn with it too— (docs/30, docs/92).
   load_system_face();
+  // **The table of canvases first**: it is the extra memory's and its size is the number of controls this board can
+  // hold, so everything after it —the view, the buffers— is taken knowing that this much is spoken for (0.102.0,
+  // docs/75, docs/90).
+  if (!boot_table()) return false;
   if (!display::available()) return false;
   // The view of an app is the glass **under the bar of the system**, and never the bar: a page that goes
   // wrong cannot take the hour with it (docs/30).
@@ -1207,6 +1277,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   if (!make_root(display::width(), usable)) return false;
   root().y = top_rows;
   luabind::set_ui_ops(luabind::UIOps{caps_for_lua,
+                                     canvas_count_for_lua,
                                      clear_for_lua,
                                      rect_for_lua,
                                      pixel_for_lua,
@@ -1314,6 +1385,11 @@ uint16_t height() {
 }
 uint8_t levels() { return 16; }
 
+// **How many controls this board can hold** (0.102.0): the slots of the table, which the extra memory sized at boot.
+// A page asks it when it wants to know how much it can build, and the tests ask it to prove that the number is the
+// memory's and not a constant of this file (docs/75, docs/90).
+uint16_t canvas_count() { return g_canvas_count; }
+
 void attach() {
   if (root().bits == nullptr) return;
   // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
@@ -1325,7 +1401,7 @@ void attach() {
   g_attached = true;
   // A white view, nothing drawn and nothing pending, and **no controls inside it**: the app that had
   // them is gone (docs/30, docs/90). The glass is not touched until the app presents.
-  for (uint8_t i = 1; i < kMaxControls; ++i) release_slot(static_cast<int8_t>(i));
+  for (uint16_t i = 1; i < g_canvas_count; ++i) release_slot(static_cast<int16_t>(i));
   // **And the faces it loaded go back too**: the block of an app is the app's, and an app that ends with a
   // font loaded would leave a kilobyte of the extra memory spoken for by nobody (docs/30, docs/75).
   release_faces();
@@ -1393,23 +1469,25 @@ const Damage& damage(uint8_t index) {
   return root().damage[index];
 }
 
-const Canvas* at(int8_t slot) { return find(slot); }
+const Canvas* at(int16_t slot) { return find(slot); }
 
-bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8_t& slot) {
-  slot = -1;
-  const int8_t holder = (parent < 0) ? 0 : parent;
-  if (!live(holder)) return false;
+bool create(uint16_t width, uint16_t height, int16_t parent, bool with_view, int16_t& slot) {
+  slot = kNoSlot;
+  const int16_t holder = (parent < 0) ? 0 : parent;
   // **A control with no room in its father is not made**: it would hold a frame that no composition would
   // ever reach (docs/90).
-  if (g_canvases[holder].child_count >= kMaxControls) return false;
+  if (!live(holder)) return false;
   // The same rule as the view: a canvas is a whole number of bytes wide, or a byte would hold the last
   // pixel of one line and the first of the next (docs/50).
   width = static_cast<uint16_t>(width & ~1u);
   if (width == 0 || height == 0) return false;
-  int8_t free_slot = -1;
-  for (uint8_t i = 1; i < kMaxControls; ++i) {
+  // **The first free slot of the table, and the table is as long as the memory made it**: a page that fills it is
+  // a page with more than two thousand controls on it, and the refusal is the memory's and not a number of this
+  // file (docs/75, docs/90).
+  int16_t free_slot = kNoSlot;
+  for (uint16_t i = 1; i < g_canvas_count; ++i) {
     if (!g_canvases[i].in_use) {
-      free_slot = static_cast<int8_t>(i);
+      free_slot = static_cast<int16_t>(i);
       break;
     }
   }
@@ -1418,7 +1496,7 @@ bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8
     // How many views are spoken for already. It is counted here and not kept anywhere else so the number
     // and the table can never disagree (docs/90).
     uint8_t views = 0;
-    for (uint8_t i = 0; i < kMaxControls; ++i) {
+    for (uint16_t i = 0; i < g_canvas_count; ++i) {
       if (g_canvases[i].in_use && g_canvases[i].bits != nullptr) ++views;
     }
     if (views >= kMaxCanvases) return false;
@@ -1443,15 +1521,18 @@ bool create(uint16_t width, uint16_t height, int8_t parent, bool with_view, int8
     made.bits = static_cast<uint8_t*>(block);
     memset(made.bits, 0xFF, made.bytes);
   }
-  made.parent = holder;
   made.generation = ++g_generation;
-  Canvas& father = g_canvases[holder];
-  father.children[father.child_count++] = free_slot;
+  // **Into its father, at the end**: the father is set by `attach_to`, which is also the only place that knows the
+  // order of the layers, so a canvas made here goes through the same door as one that changes father (docs/90).
+  if (!attach_to(free_slot, holder)) {
+    g_canvases[free_slot] = Canvas{};
+    return false;
+  }
   slot = free_slot;
   return true;
 }
 
-bool release(int8_t slot) {
+bool release(int16_t slot) {
   // The view of the app is the system's: an app gives back what it made and nothing else (docs/90).
   if (slot == 0 || !live(slot)) return false;
   // **It is asked for, not done**: the pixels are still on the page and the buffer is still in use until
@@ -1464,14 +1545,16 @@ bool release(int8_t slot) {
 // way out. Anything that still points at one of these slots answers `E_INVAL`, because the object of the
 // app was told at the moment it asked (docs/90).
 static void sweep_released() {
-  for (uint8_t i = 1; i < kMaxControls; ++i) {
-    if (g_canvases[i].in_use && g_canvases[i].pending_release) release_slot(static_cast<int8_t>(i));
+  for (uint16_t i = 1; i < g_canvas_count; ++i) {
+    if (g_canvases[i].in_use && g_canvases[i].pending_release) {
+      release_slot(static_cast<int16_t>(i));
+    }
   }
 }
 
-bool reparent(int8_t slot, int8_t parent) {
-  const int8_t holder = (parent < 0) ? 0 : parent;
-  const int8_t was = parent_of(slot);
+bool reparent(int16_t slot, int16_t parent) {
+  const int16_t holder = (parent < 0) ? 0 : parent;
+  const int16_t was = parent_of(slot);
   const Canvas* canvas = find(slot);
   if (canvas == nullptr || !attach_to(slot, holder)) return false;
   // The father it leaves owes exactly the rectangle it was occupying; the new father owes nothing (the
@@ -1482,15 +1565,15 @@ bool reparent(int8_t slot, int8_t parent) {
   return true;
 }
 
-int8_t parent_of(int8_t slot) {
+int16_t parent_of(int16_t slot) {
   const Canvas* target = find(slot);
-  return (target != nullptr) ? target->parent : -1;
+  return (target != nullptr) ? target->parent : kNoSlot;
 }
 
 // **Marks this canvas and every canvas that holds it** as needing a redraw: a child that moved left its
 // pixels inside its father's buffer, and the father is the one that has to paint them over —which it
 // does when its own `on_draw` paints its canvas from scratch— (docs/90).
-bool invalidate_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
   Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   canvas->needs_draw = true;
@@ -1519,13 +1602,13 @@ bool invalidate_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h
 // control whose layer is composed over its father again at the next present: the father has nothing of its
 // own to paint. What the father owes is what a child **leaves behind** —a move, a canvas going away— and
 // those reasons say so explicitly, with the rectangle, where they happen (docs/90).
-bool invalidate(int8_t slot) {
+bool invalidate(int16_t slot) {
   const Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   return invalidate_rect(slot, 0, 0, canvas->width, canvas->height);
 }
 
-bool begin_draw(int8_t slot) {
+bool begin_draw(int16_t slot) {
   Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   if (canvas->redraw_w <= 0 || canvas->redraw_h <= 0) {
@@ -1538,7 +1621,7 @@ bool begin_draw(int8_t slot) {
   return true;
 }
 
-bool end_draw(int8_t slot) {
+bool end_draw(int16_t slot) {
   Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   canvas->in_draw = false;
@@ -1550,35 +1633,35 @@ bool end_draw(int8_t slot) {
   return true;
 }
 
-bool needs_draw(int8_t slot) {
+bool needs_draw(int16_t slot) {
   const Canvas* target = find(slot);
   return (target != nullptr) && target->needs_draw;
 }
 
-bool mark_drawn(int8_t slot) {
+bool mark_drawn(int16_t slot) {
   Canvas* target = find(slot);
   if (target == nullptr) return false;
   target->needs_draw = false;
   return true;
 }
 
-uint16_t generation_of(int8_t slot) {
+uint16_t generation_of(int16_t slot) {
   const Canvas* target = find(slot);
   return (target != nullptr) ? target->generation : 0;
 }
 
-bool place(int8_t slot, uint16_t x, uint16_t y) {
+bool place(int16_t slot, uint16_t x, uint16_t y) {
   Canvas* target = find(slot);
   if (target == nullptr) return false;
   if (target->x != x || target->y != y) {
     // **The place the child leaves is owed to the first control that paints**, which may be a grandfather:
     // a box inside a panel holds children but paints nothing, so it is the panel that has to paint over
     // the hole, in the panel's own pixels (docs/90).
-    const int8_t painter = painting_holder(target->parent);
+    const int16_t painter = painting_holder(target->parent);
     if (painter >= 0) {
       int32_t offset_x = 0;
       int32_t offset_y = 0;
-      for (int8_t walk = slot; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
+      for (int16_t walk = slot; walk != painter && walk >= 0; walk = g_canvases[walk].parent) {
         offset_x += g_canvases[walk].x;
         offset_y += g_canvases[walk].y;
       }
@@ -1592,7 +1675,7 @@ bool place(int8_t slot, uint16_t x, uint16_t y) {
   return true;
 }
 
-bool canvas_clear(int8_t slot, uint8_t level, const char* mode) {
+bool canvas_clear(int16_t slot, uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   const Canvas* control = find(slot);
@@ -1609,7 +1692,7 @@ bool canvas_clear(int8_t slot, uint8_t level, const char* mode) {
   return true;
 }
 
-bool canvas_fill_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                       const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1626,7 +1709,7 @@ bool canvas_fill_rect(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 // —or the size of the picture— scaled as it is read, cut to the canvas and to what the control owes, and the
 // damage left where it landed. The file is read into the app's extra memory and the decoder's block with it,
 // and both go back before this returns: a picture is on the page, not in the heap (docs/75).
-bool canvas_image(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
+bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
                   const char* mode, const char*& code, const char*& reason) {
   code = "E_INVAL";
   reason = nullptr;
@@ -1792,7 +1875,7 @@ bool image_info(const char* path, char* format, size_t format_cap, uint16_t& wid
   return true;
 }
 
-bool canvas_pixel(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode) {
+bool canvas_pixel(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
@@ -1804,12 +1887,12 @@ bool canvas_pixel(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char
   return true;
 }
 
-uint8_t canvas_damage(int8_t slot) {
+uint8_t canvas_damage(int16_t slot) {
   const Canvas* target = find(slot);
   return (target != nullptr) ? target->damage_count : 0;
 }
 
-bool canvas_frame(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+bool canvas_frame(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                   const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1821,7 +1904,7 @@ bool canvas_frame(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, u
   return true;
 }
 
-bool canvas_line(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
+bool canvas_line(int16_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
                  const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1834,7 +1917,7 @@ bool canvas_line(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, ui
   return true;
 }
 
-bool canvas_circle(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+bool canvas_circle(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
                    const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1847,7 +1930,7 @@ bool canvas_circle(int8_t slot, int16_t center_x, int16_t center_y, int16_t radi
   return true;
 }
 
-bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
+bool canvas_disc(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius, uint8_t level,
                  const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1860,7 +1943,7 @@ bool canvas_disc(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius
   return true;
 }
 
-bool canvas_text(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
+bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale, uint8_t level,
                  const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
@@ -1907,7 +1990,7 @@ uint16_t label_text(int8_t face, const char* text, uint16_t width, uint8_t scale
   }
 }
 
-bool label_draw(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+bool label_draw(int16_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
                 uint8_t valign, uint8_t scale) {
   if (!live(slot) || color > 15 || background > 15 ||
       align > static_cast<uint8_t>(LabelAlign::kRight) ||
@@ -2043,7 +2126,7 @@ void paint_button(Canvas& view, int8_t face_slot, const font::Face& face, int32_
   }
 }
 
-bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
+bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
                  bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale) {
   if (!live(slot) || background > 15 || border > 15 || color > 15 || scale == 0 || scale > 16) return false;
   const Canvas& button = g_canvases[slot];
@@ -2056,12 +2139,14 @@ bool button_draw(int8_t slot, uint8_t background, uint8_t border, bool pressed, 
   // button's own fill, so the child is asked to draw again whenever the frame does. **And a child is not inverted**: it
   // is a control the app paints with the colours the app gave it, and this system does not reach inside another
   // control's fields (docs/30, docs/90).
-  for (uint8_t i = 0; i < button.child_count; ++i) invalidate(button.children[i]);
+  for (int16_t child = button.first_child; child != kNoSlot; child = g_canvases[child].next_sibling) {
+    invalidate(child);
+  }
   close_draw(target);
   return true;
 }
 
-int16_t checkbox_side(int8_t slot) {
+int16_t checkbox_side(int16_t slot) {
   if (!live(slot)) return 0;
   const int32_t height = g_canvases[slot].height;
   // **Four pixels of frame above and below**, which is the room the ring of the focus needs: the ring is
@@ -2075,7 +2160,7 @@ int16_t checkbox_side(int8_t slot) {
   return static_cast<int16_t>(side);
 }
 
-bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
+bool checkbox_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
                    bool pressed, bool focused) {
   if (!live(slot) || background > 15 || border > 15 || mark > 15) return false;
   const Canvas& control = g_canvases[slot];
@@ -2143,7 +2228,9 @@ bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark
   // **The row is opaque too**: the child that names the setting was drawn after this control and the row
   // covers it, so a checkbox that redraws asks its children to draw again, as the button does (docs/30,
   // docs/90).
-  for (uint8_t i = 0; i < control.child_count; ++i) invalidate(control.children[i]);
+  for (int16_t child = control.first_child; child != kNoSlot; child = g_canvases[child].next_sibling) {
+    invalidate(child);
+  }
   close_draw(target);
   return true;
 }
@@ -2154,7 +2241,7 @@ bool checkbox_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t mark
 // end of a bar a rounded end and not a cut, and it is two calls because a bar is the cheapest thing on the
 // page: no border of three pixels, no ring, no bevel. A bar is the answer to "how much of this is done" and
 // nothing about it says "press me" (docs/90).
-bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+bool progress_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                    int16_t value) {
   if (!live(slot) || background > 15 || border > 15 || track > 15 || fill > 15) return false;
   const Canvas& bar = g_canvases[slot];
@@ -2220,7 +2307,7 @@ bool progress_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t trac
 // to the middle of where it goes at the maximum —a track that runs to the edge leaves a knob half outside the
 // frame—, the knob as a square of the height of the control, and the number in the right column, measured
 // with the face the control was given (docs/30, docs/90).
-bool slider_draw(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+bool slider_draw(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                  uint8_t text, int16_t value, int16_t minimum, int16_t maximum, const char* suffix,
                  uint8_t scale, bool pressed, bool focused) {
   if (!live(slot) || background > 15 || border > 15 || track > 15 || fill > 15 || text > 15) return false;
@@ -2372,7 +2459,7 @@ void paint_row(Canvas& canvas, int32_t x, int32_t y, int32_t width, int32_t heig
   }
 }
 
-bool row_draw(int8_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
+bool row_draw(int16_t slot, const char* title, const char* detail, const char* subtitle, uint8_t text,
               uint8_t dim, uint8_t background, uint8_t scale, bool marked, bool separator) {
   if (!live(slot) || text > 15 || dim > 15 || background > 15) return false;
   const Canvas& row = g_canvases[slot];
@@ -2389,7 +2476,7 @@ bool row_draw(int8_t slot, const char* title, const char* detail, const char* su
 
 // ---- a panel: the room that arranges what it holds (docs/90) ----
 
-bool canvas_resize(int8_t slot, uint16_t width, uint16_t height) {
+bool canvas_resize(int16_t slot, uint16_t width, uint16_t height) {
   Canvas* target = find(slot);
   if (target == nullptr || width == 0 || height == 0) return false;
   // **A control with a buffer is not resized here**: its pixels are a block of the extra memory handed out
@@ -2402,8 +2489,8 @@ bool canvas_resize(int8_t slot, uint16_t width, uint16_t height) {
   return true;
 }
 
-uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
-                     const PanelChild* children, uint8_t count) {
+uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t gap,
+                      const PanelChild* children, uint16_t count) {
   if (!live(slot) || children == nullptr || count == 0 || count > 16) return 0;
   const Canvas& panel = g_canvases[slot];
   const int32_t inner_w = static_cast<int32_t>(panel.width) - 2 * static_cast<int32_t>(padding);
@@ -2482,7 +2569,7 @@ uint8_t panel_layout(int8_t slot, PanelFlow flow, uint16_t padding, uint16_t gap
 // **Equal columns and a line that is missing under the chosen one**: on two tones there is no bold and no
 // colour, so "you are here" is said by taking the line away instead of by adding anything, and a tab that is
 // drawn with a line under it is a tab that is not the one (docs/90).
-bool tabs_draw(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                uint8_t text, uint8_t background, uint8_t scale) {
   if (!live(slot) || labels == nullptr || count == 0 || text > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
@@ -2594,7 +2681,7 @@ ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items) {
   return out;
 }
 
-bool list_draw(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
                const char* const* titles, const char* const* details, const char* const* subtitles,
                uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                bool separator, bool focused) {
@@ -2681,7 +2768,7 @@ static int32_t caret_cell_width(const font::Face& face, const char* under, int32
   return width;
 }
 
-bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
+bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
                   uint8_t background, uint8_t border, uint8_t scale) {
   if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
   const Canvas& box = g_canvases[slot];
@@ -2836,7 +2923,7 @@ bool textbox_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bo
   return true;
 }
 
-uint16_t textbox_inside(int8_t slot, uint8_t scale) {
+uint16_t textbox_inside(int16_t slot, uint8_t scale) {
   if (!live(slot)) return 0;
   const Canvas& box = g_canvases[slot];
   if (scale == 0) scale = 1;
@@ -3035,7 +3122,7 @@ MultilineLayout multiline_layout(const Canvas& box, const char* text, uint16_t c
 
 }  // namespace
 
-bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
+bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
                             uint8_t background, uint8_t border, uint8_t scale, int16_t top) {
   if (!live(slot) || color > 15 || background > 15 || border > 15) return false;
   const Canvas& box = g_canvases[slot];
@@ -3137,7 +3224,7 @@ bool textbox_multiline_draw(int8_t slot, const char* text, uint16_t cursor, bool
   return true;
 }
 
-uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+uint16_t textbox_multiline_hit(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                uint16_t x, uint16_t y, int16_t top) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
@@ -3185,7 +3272,7 @@ uint16_t textbox_multiline_hit(int8_t slot, const char* text, uint16_t cursor, b
   return static_cast<uint16_t>(offset + used);
 }
 
-uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale) {
+uint8_t textbox_multiline_rows(int16_t slot, uint8_t scale) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
@@ -3203,7 +3290,7 @@ uint8_t textbox_multiline_rows(int8_t slot, uint8_t scale) {
 
 // **How many rows the whole text has**, which is what an app wants to say "row 12 of 40" in its status line
 // (0.88.0): the same measurement the paint makes, the bar included (docs/30, docs/90).
-uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8_t scale) {
+uint16_t textbox_multiline_total(int16_t slot, const char* text, bool wrap, uint8_t scale) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
@@ -3214,7 +3301,7 @@ uint16_t textbox_multiline_total(int8_t slot, const char* text, bool wrap, uint8
 
 // **The height of one row in pixels**, which is what a finger has to travel to move the window one row: the same
 // arithmetic of the paint, or the gesture and the text do not speak of the same distance (0.88.0, docs/90).
-uint8_t textbox_multiline_line(int8_t slot, uint8_t scale) {
+uint8_t textbox_multiline_line(int16_t slot, uint8_t scale) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
   if (scale > 16) scale = 16;
@@ -3228,7 +3315,7 @@ uint8_t textbox_multiline_line(int8_t slot, uint8_t scale) {
 // that is seen now —the cursor's if the app has not chosen one— and turned back into a row of the bar's track. The
 // result is what the app has to write in `top`, and what the system writes when the gesture is its own
 // (docs/30, docs/90).
-uint16_t textbox_multiline_scroll(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+uint16_t textbox_multiline_scroll(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                   int16_t top, int16_t rows) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
@@ -3266,7 +3353,7 @@ MonthCells cells_of(const Canvas& grid, uint16_t year, uint8_t month) {
 
 }  // namespace
 
-bool month_draw(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
+bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
                 const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                 bool focused) {
   if (!live(slot) || text > 15 || dim > 15 || background > 15) return false;
@@ -3342,7 +3429,7 @@ bool month_draw(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uin
   return true;
 }
 
-uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y) {
+uint8_t month_hit(int16_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y) {
   if (!live(slot)) return 0;
   const Canvas& grid = g_canvases[slot];
   const MonthCells cells = cells_of(grid, year, month);
@@ -3357,7 +3444,7 @@ uint8_t month_hit(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_
 
 // ---- a sparkline and a pie (docs/90) ----
 
-bool sparkline_draw(int8_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
+bool sparkline_draw(int16_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count, uint8_t color,
                     uint8_t background) {
   if (!live(slot) || color > 15 || background > 15) return false;
   const Canvas& chart = g_canvases[slot];
@@ -3470,7 +3557,7 @@ uint8_t sector_of(int32_t dx, int32_t dy) {
 
 }  // namespace
 
-bool pie_draw(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background) {
+bool pie_draw(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background) {
   if (!live(slot) || color > 15 || background > 15) return false;
   const Canvas& chart = g_canvases[slot];
   const int32_t width = chart.width;
@@ -3625,7 +3712,7 @@ int32_t wrap_lines(int8_t face_handle, const char* text, int32_t width, uint8_t 
 
 }  // namespace
 
-bool dialog_draw(int8_t slot, const char* title, const char* text, const char* note, const char* accept,
+bool dialog_draw(int16_t slot, const char* title, const char* text, const char* note, const char* accept,
                  const char* cancel, uint8_t emphasis, uint8_t choice, uint8_t text_level, uint8_t dim,
                  uint8_t background, uint8_t scale, bool focused) {
   if (!live(slot) || text_level > 15 || dim > 15 || background > 15) return false;
@@ -3711,7 +3798,7 @@ bool dialog_draw(int8_t slot, const char* title, const char* text, const char* n
   return true;
 }
 
-uint8_t dialog_hit(int8_t slot, uint16_t x, uint16_t y) {
+uint8_t dialog_hit(int16_t slot, uint16_t x, uint16_t y) {
   if (!live(slot)) return 0;
   const Canvas& card = g_canvases[slot];
   const Doors doors = doors_of(card);
@@ -3834,7 +3921,7 @@ MenuBox menu_cell(const MenuGrid& grid, int32_t rank) {
 
 }  // namespace
 
-bool menu_draw(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
+bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t index,
                uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
   const Canvas& card = g_canvases[slot];
@@ -3891,7 +3978,7 @@ bool menu_draw(int8_t slot, const char* title, const MenuOption* items, uint8_t 
   return true;
 }
 
-uint8_t menu_hit(int8_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
+uint8_t menu_hit(int16_t slot, const char* title, const MenuOption* items, uint8_t count, uint8_t scale,
                  uint16_t x, uint16_t y) {
   if (!live(slot)) return 0;
   if (scale == 0) scale = 1;
@@ -3993,7 +4080,7 @@ GridBox icon_grid_box(const GridCells& cells, int32_t which) {
 
 }  // namespace
 
-bool icon_grid_draw(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
+bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t marked,
                     uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
   const Canvas& grid = g_canvases[slot];
@@ -4065,7 +4152,7 @@ bool icon_grid_draw(int8_t slot, const GridItem* items, uint8_t count, uint8_t i
   return true;
 }
 
-uint8_t icon_grid_hit(int8_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
+uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
                       uint8_t scale, uint16_t x, uint16_t y) {
   // The cells have no name and no mark: where a cell is does not depend on what it says, so the app does not have to give the
   // words again to ask where a finger landed (docs/90).
@@ -4155,7 +4242,7 @@ void notification_cross(Canvas& canvas, int32_t x, int32_t y, int32_t size, uint
 
 }  // namespace
 
-bool notification_bar_draw(int8_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
+bool notification_bar_draw(int16_t slot, const Notification* items, uint8_t shown, uint16_t total, uint8_t color,
                            uint8_t dim, uint8_t background, uint8_t border, uint8_t scale, bool focused) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15 || border > 15) return false;
   const Canvas& band = g_canvases[slot];
@@ -4215,7 +4302,7 @@ bool notification_bar_draw(int8_t slot, const Notification* items, uint8_t shown
   return true;
 }
 
-uint8_t notification_bar_card_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
+uint8_t notification_bar_card_at(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
   if (!live(slot) || shown == 0 || total == 0) return 0;
   if (shown > kMaxNotifications) shown = kMaxNotifications;
   if (scale == 0) scale = 1;
@@ -4233,7 +4320,7 @@ uint8_t notification_bar_card_at(int8_t slot, uint8_t shown, uint16_t total, uin
   return 0;
 }
 
-bool notification_bar_close_at(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
+bool notification_bar_close_at(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x, uint16_t y) {
   if (!live(slot) || shown == 0 || total == 0) return false;
   if (shown > kMaxNotifications) shown = kMaxNotifications;
   if (scale == 0) scale = 1;
@@ -4264,7 +4351,7 @@ const int32_t kSelectorPad = 12;
 
 }  // namespace
 
-bool selector_draw(int8_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
+bool selector_draw(int16_t slot, const char* label, const char* value, bool choosing, uint8_t color, uint8_t dim,
                    uint8_t background, uint8_t border, uint8_t scale, bool focused) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15 || border > 15) return false;
   const Canvas& field = g_canvases[slot];
@@ -4429,7 +4516,7 @@ int32_t menu_bar_height_of(const MenuBarTitle& title, int32_t row_h) {
 
 }  // namespace
 
-bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
+bool menu_bar_draw(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
                    uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
                    bool focused) {
   if (!live(slot) || color > 15 || dim > 15 || background > 15) return false;
@@ -4542,7 +4629,7 @@ bool menu_bar_draw(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8
   return true;
 }
 
-uint8_t menu_bar_title_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
+uint8_t menu_bar_title_at(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint16_t bar_height,
                           uint8_t scale, uint16_t x, uint16_t y) {
   if (!live(slot) || titles == nullptr || count == 0) return 0;
   if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
@@ -4560,7 +4647,7 @@ uint8_t menu_bar_title_at(int8_t slot, const MenuBarTitle* titles, uint8_t count
   return 0;
 }
 
-uint8_t menu_bar_entry_at(int8_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
+uint8_t menu_bar_entry_at(int16_t slot, const MenuBarTitle* titles, uint8_t count, uint8_t open,
                           uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y) {
   if (!live(slot) || titles == nullptr || count == 0) return 0;
   if (count > kMaxMenuBarTitles) count = kMaxMenuBarTitles;
@@ -5525,7 +5612,7 @@ void put_disc(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t le
 
 }  // namespace
 
-bool dots_draw(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background) {
+bool dots_draw(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background) {
   if (!live(slot) || level > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
   const int32_t width = strip.width;
@@ -5734,7 +5821,7 @@ int8_t font_load(const char* path, const char*& reason) {
     return -1;
   }
   // A free slot first: a face that cannot be kept is not worth reading the file for.
-  int8_t slot = -1;
+  int16_t slot = -1;
   for (uint8_t i = 0; i < kMaxFaces; ++i) {
     if (!g_faces[i].in_use) {
       slot = static_cast<int8_t>(i);
@@ -5819,7 +5906,7 @@ namespace {
 
 void load_system_face() {
   const char* reason = nullptr;
-  const int8_t handle = font_load(kSystemFace, reason);
+  const int16_t handle = font_load(kSystemFace, reason);
   if (handle < 0) {
     // **A glass with no face on its disk is a glass with the table of the flash**, and the log says which of the two it
     // is: a page of five by seven that nobody expected is a font that was not read (docs/30, docs/70).
@@ -5855,7 +5942,7 @@ bool font_info(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uin
   return true;
 }
 
-bool canvas_set_font(int8_t slot, int8_t handle) {
+bool canvas_set_font(int16_t slot, int8_t handle) {
   if (!live(slot)) return false;
   if (handle >= static_cast<int8_t>(kMaxFaces)) return false;
   if (handle >= 0 && !g_faces[handle].in_use) return false;

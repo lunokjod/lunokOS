@@ -1534,7 +1534,19 @@ namespace kernel {
 // Measured: 440 native cases green (two new: the label's paper inside a ringed button is level 0 and its word level
 // 15; and `label:add`/`dots:add` answer `nil, E_INVAL` while `panel:add` answers true), and taking the argument out
 // of the painter's call turns the first one red (docs/30, docs/92).
-static const char kVersion[] = "0.101.0";
+//
+// 0.102.0 (8/11): **the number of controls is what the memory holds.** `kMaxControls = 32` was a static table and it
+// was three ceilings at once: how many controls a page had, how many children one control could hold (the list was
+// `int8_t children[kMaxControls]` inside every canvas) and, in the bridge, how many stops the dial could walk
+// (`FocusTarget[32]` on the stack of the event); the slot was an `int8_t`, which stops working at 127. The owner said
+// it plainly: *«per qué hi ha un kMaxControls? vaig dir que la psram és el límit»*. The table of canvases is taken
+// from the extra memory at boot —half a megabyte, 3 276 slots of 160 bytes measured, halved until the block is accepted— and
+// `canvas_count()` says how many there are; a slot is an `int16_t`; the children are a linked list with no ceiling of
+// its own; the list of stops is a block of the extra memory, one per event, as long as the table; and a panel lays
+// out as many children as it holds. `sizeof(Canvas)` went from 192 to 160 bytes.
+// Measured: 442 native cases green (two new: 150 controls on one page and forty stops walked to the thirty-sixth),
+// and putting the table back to 32 turns both red (docs/30, docs/75, docs/92).
+static const char kVersion[] = "0.102.0";
 
 }  // namespace kernel
 

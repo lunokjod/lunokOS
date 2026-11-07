@@ -347,6 +347,9 @@ struct UIInfo {
 
 struct UIOps {
   bool (*caps)(UIInfo& out);
+  // **How many controls the table of this board holds** (0.102.0): the list of stops the walk builds for a key press
+  // is that long and not a number in this library, because the memory is the only ceiling there is (docs/75).
+  uint16_t (*slots)();
   // The last argument is the quality the app asked for, or nullptr for the default. False when the name
   // is not one of this glass, which is reported and not rounded to another one (docs/30).
   bool (*clear)(uint8_t level, const char* mode);
@@ -371,83 +374,83 @@ struct UIOps {
   // inside the parent, and a number that says whether the object an app is holding still means the
   // canvas that is there —a view made again hands the slot to somebody else, and a stale object has to
   // be refused instead of drawing into it—.
-  bool (*canvas_create)(uint16_t width, uint16_t height, bool with_view, int8_t& slot,
+  bool (*canvas_create)(uint16_t width, uint16_t height, bool with_view, int16_t& slot,
                         uint16_t& generation);
-  bool (*canvas_alive)(int8_t slot, uint16_t generation);
-  bool (*canvas_release)(int8_t slot);
-  bool (*canvas_place)(int8_t slot, uint16_t x, uint16_t y);
-  bool (*canvas_clear)(int8_t slot, uint8_t level, const char* mode);
-  bool (*canvas_rect)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+  bool (*canvas_alive)(int16_t slot, uint16_t generation);
+  bool (*canvas_release)(int16_t slot);
+  bool (*canvas_place)(int16_t slot, uint16_t x, uint16_t y);
+  bool (*canvas_clear)(int16_t slot, uint8_t level, const char* mode);
+  bool (*canvas_rect)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                       const char* mode);
-  bool (*canvas_pixel)(int8_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
-  uint8_t (*canvas_damage)(int8_t slot);
-  bool (*canvas_caps)(int8_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y);
+  bool (*canvas_pixel)(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+  uint8_t (*canvas_damage)(int16_t slot);
+  bool (*canvas_caps)(int16_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y);
   // **The primitives of a canvas**, and the text with the font of the system. `slot` 0 is the view of the
   // app, so `ui.line` and `cv:line` are the same call with a different canvas. `level` is the colour —0
   // black, 15 white— and `mode` the quality, or nullptr for `du` (docs/30, docs/90).
-  bool (*canvas_frame)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+  bool (*canvas_frame)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                        const char* mode);
-  bool (*canvas_line)(int8_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
+  bool (*canvas_line)(int16_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t level,
                       const char* mode);
-  bool (*canvas_circle)(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius,
+  bool (*canvas_circle)(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius,
                         uint8_t level, const char* mode);
-  bool (*canvas_disc)(int8_t slot, int16_t center_x, int16_t center_y, int16_t radius,
+  bool (*canvas_disc)(int16_t slot, int16_t center_x, int16_t center_y, int16_t radius,
                       uint8_t level, const char* mode);
-  bool (*canvas_text)(int8_t slot, int16_t x, int16_t y, const char* text, uint8_t scale,
+  bool (*canvas_text)(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t scale,
                       uint8_t level, const char* mode);
   // **A canvas inside another one** (docs/90): one father, and the children in the order they were added,
   // which is the order of the layers.
-  bool (*canvas_reparent)(int8_t slot, int8_t parent);
+  bool (*canvas_reparent)(int16_t slot, int16_t parent);
   // The canvas that holds this one, or -1 for the view of the app (docs/90).
-  int8_t (*canvas_parent)(int8_t slot);
+  int16_t (*canvas_parent)(int16_t slot);
   // **Redrawing, only when it is needed** (docs/90): whether a control has anything to redraw, that it has
   // been drawn, that something changed and it and its fathers must draw again, and the number of the
   // canvas a slot holds —so the object of an app can tell whether it is still the one it made—.
-  bool (*canvas_needs_draw)(int8_t slot);
-  bool (*canvas_drawn)(int8_t slot);
-  bool (*canvas_invalidate)(int8_t slot);
-  uint16_t (*canvas_generation)(int8_t slot);
+  bool (*canvas_needs_draw)(int16_t slot);
+  bool (*canvas_drawn)(int16_t slot);
+  bool (*canvas_invalidate)(int16_t slot);
+  uint16_t (*canvas_generation)(int16_t slot);
   // The box a control owes, and the window in which its drawing is cut at it: a control that redraws itself
   // paints the smallest part of the glass, not the page (docs/30, docs/90).
-  bool (*canvas_invalidate_rect)(int8_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-  bool (*canvas_begin_draw)(int8_t slot);
-  bool (*canvas_end_draw)(int8_t slot);
+  bool (*canvas_invalidate_rect)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  bool (*canvas_begin_draw)(int16_t slot);
+  bool (*canvas_end_draw)(int16_t slot);
   // **The faces of a text** (docs/30): one loaded from a portable font file, the one a canvas draws with,
   // and the one the app's own view uses. `handle` -1 is the font of the system, and a handle that was given
   // back is refused instead of read.
   int8_t (*font_load)(const char* path, const char*& reason);
   bool (*font_release)(int8_t handle);
   bool (*font_info)(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint16_t& glyphs);
-  bool (*canvas_set_font)(int8_t slot, int8_t handle);
+  bool (*canvas_set_font)(int16_t slot, int8_t handle);
   bool (*app_set_font)(int8_t handle);
   // How wide a text is with that face and that scale, in pixels (docs/30).
   uint16_t (*font_text_width)(int8_t handle, const char* text, uint8_t scale);
   // **The text of a label** (docs/30, docs/90): the background of its frame and the line, aligned and
   // shortened with "..." when it does not fit. The face is the one the control was given, so the app only
   // says the words, the colour, the alignment and the size.
-  bool (*label_draw)(int8_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
+  bool (*label_draw)(int16_t slot, const char* text, uint8_t color, uint8_t background, uint8_t align,
                      uint8_t valign, uint8_t scale);
   // **The frame of a button** (docs/30, docs/90): background, border, a second inner border while it is
   // pressed and another one two pixels in while it has the focus. The child of the button is drawn by the
   // tree after this control, not here.
-  bool (*button_draw)(int8_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
+  bool (*button_draw)(int16_t slot, uint8_t background, uint8_t border, bool pressed, bool focused,
                       bool primary, const char* title, const char* tag, uint8_t color, uint8_t scale);
   // **A checkbox** (docs/30, docs/90): the side of the square it draws —which is where the child that names
   // the setting goes— and the row itself: background, border, the tick's level, whether it is checked, held
   // and focused.
-  int16_t (*checkbox_side)(int8_t slot);
-  bool (*checkbox_draw)(int8_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
+  int16_t (*checkbox_side)(int16_t slot);
+  bool (*checkbox_draw)(int16_t slot, uint8_t background, uint8_t border, uint8_t mark, bool checked,
                         bool pressed, bool focused);
   // **A progress bar, a slider and a row of a list** (docs/30, docs/90): the three controls of a page that
   // are not a frame with words in it. The bar says how much of something is done and takes no focus; the
   // slider is a number the arrows move and the control draws; the row is one line and the two columns of a
   // list, inverted when it is the chosen one.
-  bool (*progress_draw)(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+  bool (*progress_draw)(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                         int16_t value);
-  bool (*slider_draw)(int8_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
+  bool (*slider_draw)(int16_t slot, uint8_t background, uint8_t border, uint8_t track, uint8_t fill,
                       uint8_t text, int16_t value, int16_t minimum, int16_t maximum,
                       const char* suffix, uint8_t scale, bool pressed, bool focused);
-  bool (*row_draw)(int8_t slot, const char* title, const char* detail, const char* subtitle,
+  bool (*row_draw)(int16_t slot, const char* title, const char* detail, const char* subtitle,
                    uint8_t text, uint8_t dim, uint8_t background, uint8_t scale, bool marked,
                    bool separator);
   // **A panel arranges the controls it holds** (docs/30, docs/90): one child is a slot and the weight of its
@@ -455,55 +458,55 @@ struct UIOps {
   // everything. The bridge says the weights it read from the app's fields and the kernel does the arithmetic,
   // so a page is a declaration and not a list of places.
   struct UIPanelChild {
-    int8_t slot;
+    int16_t slot;
     uint8_t weight;
   };
-  uint8_t (*panel_layout)(int8_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
-                          const UIPanelChild* children, uint8_t count);
+  uint16_t (*panel_layout)(int16_t slot, uint8_t flow, uint16_t padding, uint16_t gap,
+                           const UIPanelChild* children, uint16_t count);
   // A new frame for a control without a buffer: what a panel gives a child that takes a share of the room
   // (docs/90).
-  bool (*canvas_resize)(int8_t slot, uint16_t width, uint16_t height);
+  bool (*canvas_resize)(int16_t slot, uint16_t width, uint16_t height);
   // **A strip of tabs and the dots of a page** (docs/30, docs/90): the words in equal columns with the line
   // missing under the chosen one, and the strip that says where this page is among the others. **`lit` is the
   // tab the dial is on**, 0 when the ring is elsewhere: the strip is one control with one stop per tab and the
   // tab that will answer is drawn inverted, as the paper project does (`TabStrip::draw()`, 0.99.0, docs/92).
-  bool (*tabs_draw)(int8_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+  bool (*tabs_draw)(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                     uint8_t text, uint8_t background, uint8_t scale);
-  bool (*dots_draw)(int8_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
+  bool (*dots_draw)(int16_t slot, uint8_t pages, uint8_t current, uint8_t level, uint8_t background);
   // **A list** (docs/30, docs/90): how many rows fit in a frame of that height and how many pages the items make
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the
   // paging. The words come one page at a time, so a list of a thousand rows costs what one page costs.
   uint8_t (*list_page_of)(uint16_t height, uint16_t row_height, uint16_t items, uint8_t& rows);
-  bool (*list_draw)(int8_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+  bool (*list_draw)(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
                     const char* const* titles, const char* const* details, const char* const* subtitles,
                     uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                     bool separator, bool focused);
   // **A dialog** (docs/30, docs/90): a card with a title, a message that wraps, a note and two doors, and which
   // door a point of it is on —one geometry for the paint and for the finger.
-  bool (*dialog_draw)(int8_t slot, const char* title, const char* text, const char* note, const char* accept,
+  bool (*dialog_draw)(int16_t slot, const char* title, const char* text, const char* note, const char* accept,
                       const char* cancel, uint8_t emphasis, uint8_t choice, uint8_t text_level, uint8_t dim,
                       uint8_t background, uint8_t scale, bool focused);
-  uint8_t (*dialog_hit)(int8_t slot, uint16_t x, uint16_t y);
+  uint8_t (*dialog_hit)(int16_t slot, uint16_t x, uint16_t y);
   // **A sparkline and a pie** (docs/30, docs/90): the shape of a window of samples with the scale of its own peak,
   // and four slices whose tones the app can work out for its legend.
-  bool (*sparkline_draw)(int8_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count,
+  bool (*sparkline_draw)(int16_t slot, const uint16_t* samples, const uint16_t* top, uint8_t count,
                          uint8_t color, uint8_t background);
-  bool (*pie_draw)(int8_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
+  bool (*pie_draw)(int16_t slot, const uint16_t* slices, uint8_t count, uint8_t color, uint8_t background);
   // **A calendar month** (docs/30, docs/90): seven columns and six weeks, the names of the days from the app —a
   // language is not the kernel's— and which day a point of the grid is on, for the finger.
-  bool (*month_draw)(int8_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
+  bool (*month_draw)(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, uint8_t today,
                      const char* const* weekdays, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                      bool focused);
-  uint8_t (*month_hit)(int8_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
+  uint8_t (*month_hit)(int16_t slot, uint16_t year, uint8_t month, uint16_t x, uint16_t y);
   // **The days of a month**, from the one copy of the leap year rule in the system: the dial of a calendar stops at
   // the end of a month and not at the thirty-first of every one (docs/60, docs/90).
   uint8_t (*month_days)(uint16_t year, uint8_t month);
   // **A text box** (docs/30, docs/90): the window of the text that keeps the caret on the glass, the caret as a
   // block with the letter under it in paper, and how wide the inside of the frame is for an app that places a
   // hint of its own.
-  bool (*textbox_draw)(int8_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
+  bool (*textbox_draw)(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
                        uint8_t background, uint8_t border, uint8_t scale);
-  uint16_t (*textbox_inside)(int8_t slot, uint8_t scale);
+  uint16_t (*textbox_inside)(int16_t slot, uint8_t scale);
   // **The keyboard is the system's and not a control** (docs/90): the app shows it, asks the band it takes and
   // hands over the box it types into; every key comes back as one number.
   bool (*keyboard_show)(uint8_t kind);
@@ -530,9 +533,9 @@ struct UIOps {
     bool hidden;
     bool primary;
   };
-  bool (*menu_draw)(int8_t slot, const char* title, const UIMenuOption* items, uint8_t count, uint8_t index,
+  bool (*menu_draw)(int16_t slot, const char* title, const UIMenuOption* items, uint8_t count, uint8_t index,
                     uint8_t color, uint8_t dim, uint8_t background, uint8_t scale, bool focused);
-  uint8_t (*menu_hit)(int8_t slot, const char* title, const UIMenuOption* items, uint8_t count, uint8_t scale,
+  uint8_t (*menu_hit)(int16_t slot, const char* title, const UIMenuOption* items, uint8_t count, uint8_t scale,
                       uint16_t x, uint16_t y);
   // **A bar of menus** (docs/30, docs/90): the titles of the row and the entries of the one whose menu is unfolded. An
   // entry is a word, a line between two words, or a word with a tick in front of it; **an entry that cannot be used now
@@ -550,33 +553,33 @@ struct UIOps {
     const UIMenuBarEntry* entries;
     uint8_t count;
   };
-  bool (*menu_bar_draw)(int8_t slot, const UIMenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
+  bool (*menu_bar_draw)(int16_t slot, const UIMenuBarTitle* titles, uint8_t count, uint8_t open, uint8_t index,
                         uint16_t bar_height, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
                         bool focused);
-  uint8_t (*menu_bar_title_at)(int8_t slot, const UIMenuBarTitle* titles, uint8_t count, uint16_t bar_height,
+  uint8_t (*menu_bar_title_at)(int16_t slot, const UIMenuBarTitle* titles, uint8_t count, uint16_t bar_height,
                                uint8_t scale, uint16_t x, uint16_t y);
-  uint8_t (*menu_bar_entry_at)(int8_t slot, const UIMenuBarTitle* titles, uint8_t count, uint8_t open,
+  uint8_t (*menu_bar_entry_at)(int16_t slot, const UIMenuBarTitle* titles, uint8_t count, uint8_t open,
                                uint16_t bar_height, uint8_t scale, uint16_t x, uint16_t y);
   // **A box of several lines** (docs/30, docs/90): the window that keeps the caret on the glass, the caret as a block
   // with the letter under it in paper, where a point of the box puts the caret, and how many rows the box shows.
-  bool (*textbox_multiline_draw)(int8_t slot, const char* text, uint16_t cursor, bool caret, bool wrap,
+  bool (*textbox_multiline_draw)(int16_t slot, const char* text, uint16_t cursor, bool caret, bool wrap,
                                  uint8_t color, uint8_t background, uint8_t border, uint8_t scale, int16_t top);
-  uint16_t (*textbox_multiline_hit)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+  uint16_t (*textbox_multiline_hit)(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                     uint16_t x, uint16_t y, int16_t top);
-  uint8_t (*textbox_multiline_rows)(int8_t slot, uint8_t scale);
+  uint8_t (*textbox_multiline_rows)(int16_t slot, uint8_t scale);
   // **The scroll bar** (0.88.0): how many rows the whole text has, how many pixels one row is and where the window is
   // left when the finger moves it by `rows` rows, which is what the gesture of an `on_swipe` needs and what an app wants
   // to say "row 12 of 40" (docs/30, docs/90).
-  uint16_t (*textbox_multiline_total)(int8_t slot, const char* text, bool wrap, uint8_t scale);
-  uint8_t (*textbox_multiline_line)(int8_t slot, uint8_t scale);
-  uint16_t (*textbox_multiline_scroll)(int8_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+  uint16_t (*textbox_multiline_total)(int16_t slot, const char* text, bool wrap, uint8_t scale);
+  uint8_t (*textbox_multiline_line)(int16_t slot, uint8_t scale);
+  uint16_t (*textbox_multiline_scroll)(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                        int16_t top, int16_t rows);
   // **A selector** (docs/30, docs/90): a field with the question in the dim tone and the answer in the ink, and the
   // column of the triangle on its right, which is the door. **The value is a word the app resolves** —the chosen option
   // or the one it says "nothing" with— so a field that shows "Hora  09:30" costs one string and not a list, and the only
   // thing that changes while the list is open is that column, because a field that goes dark from end to end reads as the
   // page going dark. This control draws a field and holds no list: the list is a `ui.menu` the app opens.
-  bool (*selector_draw)(int8_t slot, const char* label, const char* value, bool choosing, uint8_t color,
+  bool (*selector_draw)(int16_t slot, const char* label, const char* value, bool choosing, uint8_t color,
                         uint8_t dim, uint8_t background, uint8_t border, uint8_t scale, bool focused);
   // **A band of notifications** (docs/30, docs/90): the cards from edge to edge, **the newest at the bottom** —the one nearest
   // the finger and the one that goes away first—, a title, a text and a cross each, and a `+N` when some of them do not fit
@@ -585,12 +588,12 @@ struct UIOps {
     const char* title;
     const char* text;
   };
-  bool (*notification_bar_draw)(int8_t slot, const UINotification* items, uint8_t shown, uint16_t total,
+  bool (*notification_bar_draw)(int16_t slot, const UINotification* items, uint8_t shown, uint16_t total,
                                 uint8_t color, uint8_t dim, uint8_t background, uint8_t border, uint8_t scale,
                                 bool focused);
-  uint8_t (*notification_bar_card_at)(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x,
+  uint8_t (*notification_bar_card_at)(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x,
                                       uint16_t y);
-  bool (*notification_bar_close_at)(int8_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x,
+  bool (*notification_bar_close_at)(int16_t slot, uint8_t shown, uint16_t total, uint8_t scale, uint16_t x,
                                     uint16_t y);
   // **A grid of cells** (docs/30, docs/90): an icon with its name under it, on pages, and **the page follows the cursor** so a
   // grid never sits on a page where the cell a person is on is not. The icon is a box with a short mark in it —this kernel has
@@ -599,10 +602,10 @@ struct UIOps {
     const char* label;
     const char* mark;
   };
-  bool (*icon_grid_draw)(int8_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t marked,
+  bool (*icon_grid_draw)(int16_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t marked,
                          uint8_t columns, uint8_t color, uint8_t dim, uint8_t background, uint8_t scale,
                          bool focused);
-  uint8_t (*icon_grid_hit)(int8_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t columns,
+  uint8_t (*icon_grid_hit)(int16_t slot, const UIGridItem* items, uint8_t count, uint8_t index, uint8_t columns,
                            uint8_t scale, uint16_t x, uint16_t y);
 };
 

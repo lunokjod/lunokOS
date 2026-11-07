@@ -3112,6 +3112,57 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   storage->remove("/apps/showcase");
 }
 
+// **The walk of the dial is as long as the page** (0.102.0): forty buttons on the glass, and the ring reaches the
+// thirty-sixth. The list of stops used to be thirty-two on the stack, so a page with more controls than that had the
+// rest unreachable —the ring turned round at the thirty-second and the buttons after it could not be pressed—.
+void test_the_dial_walks_more_stops_than_the_old_list_held(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "many",
+                           "{\"title\":\"Many\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local column = ui.panel(400, 900, 'vertical')\n"
+                           "column:place(20, 10)\n"
+                           "column.gap = 0\n"
+                           "for i = 1, 40 do\n"
+                           "  local b = ui.button(380, 20)\n"
+                           "  b.on_focus = function(self, on)\n"
+                           "    if on then console.print('at ' .. i) end\n"
+                           "  end\n"
+                           "  column:add(b)\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('many up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run many");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "many up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // Thirty-five arrows down the column: the thirty-sixth button is the one with the ring, and thirty-three of them are
+  // past the thirty-two the old list could hold.
+  capture_begin();
+  pump_turns(10);
+  for (int i = 0; i < 35; ++i) {
+    emu::press_key(2, true);
+    pump_turns(6);
+    emu::press_key(2, false);
+    pump_turns(6);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 36"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "at 33"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/many/app.lua");
+  storage->remove("/apps/many/manifest.json");
+  storage->remove("/apps/many");
+}
+
 // **A line of text and the dots of a page take no children** (0.101.0): they are their whole frame and their painter
 // owns every pixel of it. It is refused with the error an app can read, and not silently accepted like before, when a
 // child sat on top of the word and was part of nothing (docs/30, docs/92).
@@ -7503,6 +7554,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
+  RUN_TEST(test_the_dial_walks_more_stops_than_the_old_list_held);
   RUN_TEST(test_a_label_and_the_dots_take_no_children);
   RUN_TEST(test_a_button_that_has_the_ring_inverts_what_it_holds);
   RUN_TEST(test_a_disabled_control_is_drawn_lighter_and_answers_nothing);

@@ -3279,7 +3279,7 @@ int l_ui_rotation(lua_State* L) {
 // beside it (the uservalue of the object): reading looks there first and then in the methods, and writing
 // always goes there, so a control is a thing an app can shape without a second table to keep in step.
 struct LuaCanvas {
-  int8_t slot;
+  int16_t slot;
   uint16_t generation;
 };
 
@@ -4165,7 +4165,7 @@ int create_control(lua_State* L, bool with_view) {
   if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
     return push_nil_error(L, "E_INVAL", "a control is a size in pixels");
   }
-  int8_t slot = -1;
+  int16_t slot = -1;
   uint16_t generation = 0;
   if (!g_ui_ops.canvas_create(static_cast<uint16_t>(width), static_cast<uint16_t>(height), with_view,
                               slot, generation)) {
@@ -5104,14 +5104,23 @@ int l_panel_draw(lua_State* L) {
     lua_pop(L, 1);
     return 0;
   }
-  // **The weights are the app's fields and the arithmetic is the kernel's**: what crosses is a slot and a
-  // number, and a panel of more than sixteen controls is a panel that should hold two panels (docs/90).
-  UIOps::UIPanelChild kids[16];
-  uint8_t count = 0;
+  // **The weights are the app's fields and the arithmetic is the kernel's**, and the list is as long as the app's
+  // panel is: sixteen of them live on the stack and a page of forty rows takes a block of the extra memory, because
+  // the sixteen was the stack talking and not the memory (0.102.0, docs/75, docs/90).
+  UIOps::UIPanelChild on_stack[16];
   lua_getfield(L, -1, "children");
+  lua_Integer total = 0;
+  if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  UIOps::UIPanelChild* kids = on_stack;
+  void* block = nullptr;
+  if (total > 16) {
+    block = pal::extra_memory().allocate(sizeof(UIOps::UIPanelChild) * static_cast<size_t>(total), true);
+    if (block != nullptr) kids = static_cast<UIOps::UIPanelChild*>(block);
+  }
+  const lua_Integer room = static_cast<lua_Integer>((block != nullptr || total <= 16) ? total : 16);
+  uint16_t count = 0;
   if (lua_istable(L, -1)) {
-    const lua_Integer total = static_cast<lua_Integer>(lua_rawlen(L, -1));
-    for (lua_Integer i = 1; i <= total && count < 16; ++i) {
+    for (lua_Integer i = 1; i <= room; ++i) {
       lua_rawgeti(L, -1, i);
       LuaCanvas* child = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
       if (child != nullptr && child->slot >= 0) {
@@ -5128,6 +5137,7 @@ int l_panel_draw(lua_State* L) {
     g_ui_ops.panel_layout(canvas->slot, flow, static_cast<uint16_t>(padding),
                           static_cast<uint16_t>(gap), kids, count);
   }
+  if (block != nullptr) pal::extra_memory().release(block);
   return 0;
 }
 
@@ -7050,7 +7060,7 @@ int refuse_shape(lua_State* L) {
   return push_nil_error(L, "E_INVAL", "not a quality of this display");
 }
 
-int frame_at(lua_State* L, int8_t slot, int base) {
+int frame_at(lua_State* L, int16_t slot, int base) {
   const lua_Integer x = luaL_checkinteger(L, base);
   const lua_Integer y = luaL_checkinteger(L, base + 1);
   const lua_Integer w = luaL_checkinteger(L, base + 2);
@@ -7070,7 +7080,7 @@ int frame_at(lua_State* L, int8_t slot, int base) {
   return 1;
 }
 
-int line_at(lua_State* L, int8_t slot, int base) {
+int line_at(lua_State* L, int16_t slot, int base) {
   const lua_Integer x0 = luaL_checkinteger(L, base);
   const lua_Integer y0 = luaL_checkinteger(L, base + 1);
   const lua_Integer x1 = luaL_checkinteger(L, base + 2);
@@ -7088,7 +7098,7 @@ int line_at(lua_State* L, int8_t slot, int base) {
   return 1;
 }
 
-int circle_at(lua_State* L, int8_t slot, int base, bool filled) {
+int circle_at(lua_State* L, int16_t slot, int base, bool filled) {
   const lua_Integer cx = luaL_checkinteger(L, base);
   const lua_Integer cy = luaL_checkinteger(L, base + 1);
   const lua_Integer radius = luaL_checkinteger(L, base + 2);
@@ -7113,7 +7123,7 @@ int circle_at(lua_State* L, int8_t slot, int base, bool filled) {
 
 // A text: the letter of the system's font, `scale` times its size, in the colour asked for, and cut at
 // the border of the canvas it is drawn into (docs/30).
-int text_at(lua_State* L, int8_t slot, int base) {
+int text_at(lua_State* L, int16_t slot, int base) {
   const lua_Integer x = luaL_checkinteger(L, base);
   const lua_Integer y = luaL_checkinteger(L, base + 1);
   const char* text = luaL_checkstring(L, base + 2);
@@ -7291,7 +7301,7 @@ int8_t font_handle_of(lua_State* L, int index) {
 int l_canvas_font(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   const int8_t handle = font_handle_of(L, 2);
-  const int8_t slot = canvas_slot_of(L);
+  const int16_t slot = canvas_slot_of(L);
   if (handle == -2 || g_ui_ops.canvas_set_font == nullptr ||
       !g_ui_ops.canvas_set_font(slot, handle)) {
     return refuse_shape(L);
@@ -7750,7 +7760,7 @@ int l_ui_root(lua_State* L) {
 // that was released or changed father is not in the tree any more, and a cached list would press a
 // button that is not there. The ceiling is the same as the tree's (docs/90).
 struct FocusTarget {
-  int8_t slot;
+  int16_t slot;
   uint16_t generation;
   // **Which tab of a strip this stop is**, 1..count, and 0 for a control that is a stop of its own: a strip of
   // tabs is one control and **one stop per tab**, as it is in the paper project, where the tabs are `Button`s and
@@ -7764,7 +7774,29 @@ struct FocusTarget {
   int order;
 };
 
-const int kMaxFocusTargets = 32;
+// **The list of stops is as long as the table of controls** (0.102.0): the walk asks the board how many slots it has
+// and takes a block that holds one stop per slot, then gives it back when the event is over. It used to be an array
+// of thirty-two on the stack, and a page with more controls than that had its stops cut at the thirty-second
+// (docs/75, docs/90).
+struct FocusList {
+  FocusTarget* items = nullptr;
+  int capacity = 0;
+
+  FocusList() {
+    const int slots = (g_ui_ops.slots != nullptr) ? static_cast<int>(g_ui_ops.slots()) : 32;
+    capacity = (slots > 0) ? slots : 32;
+    items = static_cast<FocusTarget*>(pal::extra_memory().allocate(
+        sizeof(FocusTarget) * static_cast<size_t>(capacity), true));
+    if (items == nullptr) {
+      capacity = 0;
+    }
+  }
+  ~FocusList() {
+    if (items != nullptr) pal::extra_memory().release(items);
+  }
+  FocusList(const FocusList&) = delete;
+  FocusList& operator=(const FocusList&) = delete;
+};
 
 bool ui_field_bool(lua_State* L, int object, const char* key, bool fallback) {
   object = lua_absindex(L, object);
@@ -8022,7 +8054,7 @@ int ui_tabs_items(lua_State* L, int object) {
 // inside a button is not one, which is what makes the button the thing a person lands on.
 void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t clip_x0,
                      int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth, bool with_boxes,
-                     FocusTarget* targets, int& count, int& order, int objects) {
+                     FocusTarget* targets, int capacity, int& count, int& order, int objects) {
   object = lua_absindex(L, object);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (!ui_control_alive(canvas)) return;
@@ -8077,7 +8109,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       const int items = ui_tabs_items(L, -1);
       if (items > 0) {
         const int32_t span = cx1 - cx0;
-        for (int tab = 0; tab < items && count < kMaxFocusTargets; ++tab) {
+        for (int tab = 0; tab < items && count < capacity; ++tab) {
           const int32_t left = cx0 + (span * tab) / items;
           const int32_t right = cx0 + (span * (tab + 1)) / items;
           if (right <= left) continue;
@@ -8095,7 +8127,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
           lua_rawseti(L, objects, count + 1);
           ++count;
         }
-      } else if (count < kMaxFocusTargets) {
+      } else if (count < capacity) {
         FocusTarget& target = targets[count];
         target.slot = child->slot;
         target.generation = child->generation;
@@ -8111,7 +8143,8 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
         ++count;
       }
     }
-    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, with_boxes, targets, count, order, objects);
+    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, with_boxes, targets, capacity, count,
+                    order, objects);
     lua_pop(L, 1);  // the child
   }
   lua_settop(L, base);
@@ -8120,7 +8153,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
 // Builds the list and **leaves the Lua objects in a table on top of the stack**: both the event and
 // the thing the event changes live in Lua, and finding a slot again after a callback is a search that
 // can hit a released control. The caller pops the table.
-int ui_collect_targets(lua_State* L, FocusTarget* targets, bool with_boxes = false) {
+int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity, bool with_boxes = false) {
   const int top = lua_gettop(L);
   lua_createtable(L, 0, 0);
   const int objects = top + 1;
@@ -8132,12 +8165,13 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, bool with_boxes = fal
   }
   int count = 0;
   int order = 0;
-  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, with_boxes, targets, count, order, objects);
+  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, with_boxes, targets, capacity, count,
+                  order, objects);
   lua_pop(L, 1);  // the root
   return count;
 }
 
-int ui_target_index(const FocusTarget* targets, int count, int8_t slot, uint16_t generation,
+int ui_target_index(const FocusTarget* targets, int count, int16_t slot, uint16_t generation,
                     uint8_t item) {
   for (int i = 0; i < count; ++i) {
     if (targets[i].slot == slot && targets[i].generation == generation && targets[i].item == item) {
@@ -8223,10 +8257,11 @@ void ui_feedback() {
 int l_ui_focus(lua_State* L) {
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, 1, kCanvasMeta));
   if (canvas == nullptr || !ui_control_alive(canvas)) return 0;
-  FocusTarget targets[kMaxFocusTargets];
+  FocusList list;
+  FocusTarget* targets = list.items;
   const int top = lua_gettop(L);
   const int objects = top + 1;
-  const int count = ui_collect_targets(L, targets, false);
+  const int count = ui_collect_targets(L, targets, list.capacity, false);
   if (count <= 0) {
     lua_settop(L, top);
     return 0;
@@ -9583,9 +9618,10 @@ void ui_keyboard_typed(int code) {
 // up/left is previous, down/right is next, centre is enter. A board with one key has only the centre.
 bool ui_button_event(const char* kind, uint32_t key) {
   if (g_state == nullptr || kind == nullptr || strcmp(kind, "press") != 0) return false;
-  FocusTarget targets[kMaxFocusTargets];
+  FocusList list;
+  FocusTarget* targets = list.items;
   const int top = lua_gettop(g_state);
-  const int count = ui_collect_targets(g_state, targets);
+  const int count = ui_collect_targets(g_state, targets, list.capacity);
   if (count <= 0) {
     lua_settop(g_state, top);
     return false;
@@ -9657,9 +9693,10 @@ bool ui_button_event(const char* kind, uint32_t key) {
 bool ui_has_focusable() {
   if (g_state == nullptr) return false;
   if (g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible()) return true;
-  FocusTarget targets[kMaxFocusTargets];
+  FocusList list;
+  FocusTarget* targets = list.items;
   const int top = lua_gettop(g_state);
-  const int count = ui_collect_targets(g_state, targets, true);
+  const int count = ui_collect_targets(g_state, targets, list.capacity, true);
   lua_settop(g_state, top);
   return count > 0;
 }
@@ -9766,10 +9803,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   // **A turn with nobody on the glass and nothing held costs nothing**: the panel is read every turn,
   // and walking the whole tree only to find that there is no finger is work the app pays for no reason.
   if (!down && g_ui_touch_slot < 0) return;
-  FocusTarget targets[kMaxFocusTargets];
+  FocusList list;
+  FocusTarget* targets = list.items;
   const int top = lua_gettop(g_state);
   // **The finger lands on boxes the dial does not walk** (0.85.2): a line of text is a place to put a caret.
-  const int count = ui_collect_targets(g_state, targets, true);
+  const int count = ui_collect_targets(g_state, targets, list.capacity, true);
   const int objects = top + 1;
 
   if (!down) {

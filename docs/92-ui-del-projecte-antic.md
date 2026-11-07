@@ -502,3 +502,35 @@ vista.
 és **nivell 0** i el mot és **nivell 15** dins de la cara de tinta; el del refús comprova que `label:add` i
 `dots:add` tornen `nil, E_INVAL` mentre `panel:add` torna `true`. Trencant el pas de l'argument al pintor, la prova del
 botó es posa vermella («Expected 0 Was 15»).
+
+## 16. Quants controls hi caben (0.102.0)
+
+**`kMaxControls = 32` era una taula estàtica i, pitjor, era tres sostres en un**: quants controls cabien en una
+pàgina, quants fills podia tenir cada control (la llista era un `int8_t children[kMaxControls]` **dins** de cada
+canvas, o sigui 32 bytes per canvas i un sostre de fills igual al de controls) i, al pont, quantes parades podia
+recórrer el dial (`kMaxFocusTargets = 32`, una matriu a la pila de l'event). A més, el slot era un `int8_t`, que deixa
+de funcionar a partir de 127.
+
+**L'amo ho va dir clar**: *«per qué hi ha un kMaxControls? vaig dir que la psram és el límit»*.
+
+**Què s'ha fet:**
+
+| Peça | Abans | Ara |
+|---|---|---|
+| la taula | `Canvas g_canvases[32]` a `.bss` | mig megabyte de la memòria extra, **3 276 slots** mesurats, i es parteix per dos si el bloc no hi cap |
+| el slot | `int8_t` (127) | `int16_t` (32 767), i `kNoSlot = -1` **amb signe** |
+| els fills | `int8_t children[32]` dins de cada canvas | llista enllaçada: `first_child` i `next_sibling`, sense sostre |
+| la llista de parades del dial | `FocusTarget[32]` a la pila | un bloc de la memòria extra, un per event, tan llarg com slots té la placa |
+| el panel | 16 fills (la pila del pont) | els que hi caben: 16 a la pila i un bloc per als panells més grans |
+
+`sizeof(Canvas)` baixa de **192 a 160 bytes** mesurats (treure el vector de fills de 32 i posar-hi dos `int16_t`), i
+la taula deixa de viure a la RAM interna.
+
+**Una trampa que va sortir pel camí**: la primera `kNoSlot` era `uint16_t`, i `index != kNoSlot` amb un `int16_t`
+compara **65535 amb -1**; el compilador ho va dir (`-Winfinite-recursion`) i el bucle de composició hauria estat
+infinit.
+
+**Mesurat**: **442 casos natius verds**, dos de nous: `test_the_table_of_canvases_is_what_the_memory_holds` (la taula
+té més de 32 slots, es fan **150 controls** i tots pengen de la vista) i
+`test_the_dial_walks_more_stops_than_the_old_list_held` (quaranta botons al vidre i el dial arriba al **trenta-sisè**,
+quan abans s'aturava al trenta-dos). Tornant la taula a 32 a propòsit, les dues es posen vermelles.

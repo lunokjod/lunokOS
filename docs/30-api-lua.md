@@ -1480,6 +1480,19 @@ focusable»*)—, i el centre és qui tria la pestanya on és el cercle:
 llegida píxel a píxel de la superfície— i totes dues es posen vermelles quan se'ls treu la línia
 que proven.
 
+### Quants controls hi caben: els que la memòria deixi (0.102.0)
+
+**No hi ha cap número de controls.** La taula de controls la pren el nucli de la **memòria extra** (la PSRAM de la
+Paper) quan arrenca, i `ui::canvas_count()` diu quants n'hi ha: mig megabyte de taula són **3 276 controls** de 160
+bytes cada un (mesurat al registre, `[I][UI] the table of canvases`, i el que sobra de PSRAM queda per als buffers, que és el que de debò costa (una vista de 540 × 912
+són 246 KB). Si el bloc no hi cap, la mida es parteix per dos fins que hi càpiga, o sigui que una placa amb poca
+memòria extra en té menys i no es queda sense pantalla.
+
+**Un control no té cap sostre de fills**: la llista de fills és enllaçada (el primer i el següent), i un panel de
+quaranta files es col·loca sencer. Abans hi havia `kMaxControls = 32` escrit al capçal, i era **tres** coses alhora:
+quants controls cabien, quants fills podia tenir un control, i —al pont— quantes parades podia recórrer el dial. Les
+tres són ara la mateixa: la memòria.
+
 ### Què pot contenir què: el control que anida (0.101.0)
 
 **Un control que conté un altre control és un canvas amb fills.** Tots els controls són el mateix objecte —una vista o
