@@ -247,6 +247,47 @@ static void test_the_kernel_turns_a_finger_into_a_long_press() {
   TEST_ASSERT_TRUE(chip().finger_up(0));
 }
 
+// **Three taps are the system's, and on the whole glass they are the way back to the bar** (0.136.0, docs/46 D1). The
+// gesture is taken out of the queue before the app reads it —the kernel asks it right after `touch::poll` and before the
+// app's turn— so a page that covers everything cannot take away the way out, and what the app hears is not the three
+// taps but `on_resize` with the view it has now (docs/30).
+static void test_three_taps_take_the_app_out_of_the_whole_glass() {
+  boot_with_a_touch_panel();
+  chip().reset();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().height);
+
+  // **Three taps of a hand**, each one inside the window of the one before, with the turn of the kernel after each of
+  // them. Twenty milliseconds a turn because the panel of the bench scans every ten and a read inside a window whose
+  // frame was taken finds nobody (docs/50, docs/85).
+  for (int i = 0; i < 3; ++i) {
+    TEST_ASSERT_TRUE(chip().finger_down(0, 200, 300));
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+    TEST_ASSERT_TRUE(chip().finger_up(0));
+    // **A lift is a glass that has been quiet for a whole scan**: the chip hands the frame of the finger over once more
+    // and only the turns after it are nobody (docs/50).
+    for (int t = 0; t < 4; ++t) {
+      turn(20);
+      kernel::ui::poll_full_screen();
+    }
+  }
+
+  // The bar is back and the view is the one of every app.
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  // **And the app never heard them**: there is no gesture of three taps in the queue it reads (docs/30).
+  kernel::touch::Gesture gesture;
+  while (kernel::touch::take_gesture(gesture)) {
+    TEST_ASSERT_TRUE_MESSAGE(gesture.kind == nullptr || strcmp(gesture.kind, "triple") != 0,
+                             "the app heard the three taps of the system");
+  }
+}
+
 // **One switch for every wait of this bench**: with the times on, a read of the panel sleeps the bus it
 // uses; with them off —`--no-delay`, and every test— the same read is the model and asks the clock for
 // nothing (docs/85).
@@ -285,5 +326,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_panel_slower_than_the_turn_answers_nothing_half_the_time);
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
+  RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);
   return UNITY_END();
 }

@@ -825,6 +825,24 @@ bool title(const char* text);
 bool place(uint16_t x, uint16_t y);
 bool resize(uint16_t width, uint16_t height);
 
+// ---- the whole glass for an app that asks for it (0.136.0, docs/46 D1) ----
+//
+// An app may ask the system to keep **the whole glass**: the strip of the bar goes away, the view is made the size of
+// the panel and placed at its corner, and the app is told with `on_resize`, which is the hook a turn already gives it.
+// Asking for the glass back —or being given it back— makes the view the one of every app again and the bar returns.
+//
+// **The way out is the system's and not the app's**: three taps on the glass are heard by the kernel, taken out of the
+// queue before the app reads it, and they give the glass back, so a page that covers everything cannot take away the
+// way back to the bar. And **an app that ends gives back what it took** —by its own will or by an error—, because the
+// view of the next app and the bar of the system are not the app's to keep.
+bool full_screen(bool on);
+bool is_full_screen();
+// **The three taps of the system**, asked in the turn of the kernel right after `touch::poll` and before the app runs:
+// any later and the app would read the gesture first (docs/30). True when the glass was given back.
+bool poll_full_screen();
+// **The view of every app again**, said to nobody: the app that took the whole glass is gone (0.136.0).
+void give_back_the_glass();
+
 // **Turns the page**: 0, 90, 180 or 270 degrees, and the whole system goes with it —the glass, the bar and
 // the fingers, which read it from the same place— because the frame of an app is made again at the new
 // size and the app is told with `on_resize` (docs/30, docs/50).

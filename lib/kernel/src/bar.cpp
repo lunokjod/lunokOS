@@ -61,6 +61,9 @@ bool g_title_changed = true;
 // **The glass under the bar changed** —a turn, a new size, the boot— and the whole strip is owed, not one box of it.
 bool g_whole_changed = false;
 bool g_drawn = false;
+// **Whether the strip is on the glass** (0.136.0): false while an app has asked for the whole glass, and then no turn
+// of the bar paints anything at all (docs/30, docs/46 D1).
+bool g_visible = true;
 
 // What is on the glass, and the last values read, which may be newer than it.
 Status g_shown;
@@ -235,6 +238,8 @@ bool boot(hal::IPlatform& platform) {
   if (!display::available()) return false;
   g_platform = &platform;
   g_title[0] = '\0';
+  // **A boot is a bar and no app**: the strip is on the glass again whatever the app of before asked for (0.136.0).
+  g_visible = true;
   // The first paint of the bar is **`gc16` and not `init`**: `init` is the two-second beginning of the
   // glass, and while it runs the controller holds its busy line low for two whole seconds — which is
   // the ceiling of the driver, so an app that paints right after the boot found the panel refusing
@@ -265,8 +270,18 @@ void refresh() {
   g_whole_changed = true;
 }
 
+void show(bool on) {
+  if (g_visible == on) return;
+  g_visible = on;
+  // **A strip that comes back is a strip owed whole** (0.136.0): while it was away the glass under it was somebody
+  // else's page and it has its own ink, so what is on it now is not the bar (docs/50, docs/46 D1).
+  if (on) g_whole_changed = true;
+}
+
+bool visible() { return g_visible; }
+
 void poll() {
-  if (!g_drawn || g_platform == nullptr) return;
+  if (!g_drawn || g_platform == nullptr || !g_visible) return;
   hal::IClock* clock = g_platform->clock();
   int64_t mono = 0;
   if (clock != nullptr) {

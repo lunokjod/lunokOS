@@ -1,6 +1,8 @@
 // The glass: the frame of the last turn and the gestures made out of it (docs/30, docs/50).
 #include "kernel/touch.h"
 
+#include <string.h>
+
 #include "kernel/display.h"
 #include "kernel/meter.h"
 #include "kernel/orientation.h"
@@ -391,6 +393,20 @@ bool take_gesture(Gesture& out) {
   for (uint8_t i = 1; i < g_queue_count; ++i) g_queue[i - 1] = g_queue[i];
   --g_queue_count;
   return true;
+}
+
+bool take_gesture_of(const char* kind, Gesture& out) {
+  if (kind == nullptr) return false;
+  for (uint8_t i = 0; i < g_queue_count; ++i) {
+    if (g_queue[i].kind == nullptr || strcmp(g_queue[i].kind, kind) != 0) continue;
+    out = g_queue[i];
+    // **The ones before it keep the order they had** (0.136.0): a gesture that a person made before the three taps is
+    // still theirs, and taking the whole queue would throw away what the app has not read yet (docs/30).
+    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
+    --g_queue_count;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace touch

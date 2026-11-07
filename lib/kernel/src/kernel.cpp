@@ -491,6 +491,10 @@ void poll() {
   // The glass, in the same turn: a frame becomes a tap, a long press, a drag or two fingers here,
   // and not in the app, so every board makes the same gestures out of the same points (docs/50).
   touch::poll();
+  // **And the three taps of an app that asked for the whole glass are the system's** (0.136.0, docs/46 D1): the gesture
+  // is taken out of the queue here, before the app's turn below, so the app neither handles it nor hears it and the bar
+  // always has a way back (docs/30).
+  ui::poll_full_screen();
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine
   // suspended: the interpreter is not closed from inside its own call (docs/30).

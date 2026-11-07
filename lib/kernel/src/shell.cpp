@@ -1256,11 +1256,19 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   drop_source();
   if (!compiled) {
     luabind::stop();
+    // **An app that did not even start gives back what it was given** (0.136.0, docs/46 D1): the title of the bar and
+    // the view, if the text it could not compile had asked for the whole glass before it failed.
+    ui::give_back_the_glass();
+    bar::title("");
     return false;
   }
   if (!luabind::poll()) {  // it never waited: it is already over
     const int code = luabind::exit_code();
     luabind::stop();
+    // **An app that ends in its first turn is an app that ended** (0.136.0, docs/46 D1): same two lines as an app that
+    // ends between two turns, or a page that failed would keep the bar away and its title on it (docs/30).
+    ui::give_back_the_glass();
+    bar::title("");
     if (code != 0) {
       out("app exit ");
       out_num(static_cast<uint32_t>(code));
@@ -3235,6 +3243,10 @@ void close_app() {
   luabind::call_hook("on_close");
   luabind::stop();
   g_app_alive = false;
+  // **An app that took the whole glass gives it back when it goes** (0.136.0, docs/46 D1): the bar of the system and the
+  // view of every app come back here, so the page that comes next —or the console— is not left without its hour, and the
+  // system is not left with a view nobody asked for (docs/30).
+  ui::give_back_the_glass();
   // The bar goes back to nobody's title: the app that was in front is not any more (docs/30).
   bar::title("");
   out("app closed\r\n");
@@ -3290,6 +3302,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
     ok = luabind::call_alarm(entry, late_ms);
   }
   luabind::stop();
+  // **A window is an app too, for the glass** (0.136.0, docs/46 D1): whatever it asked for is given back when it goes,
+  // because the page of a window is not a page anybody asked for and the bar is not its (docs/30, docs/60).
+  ui::give_back_the_glass();
   return ok;
 }
 
@@ -3320,6 +3335,10 @@ bool poll_app() {
   const bool died = luabind::failed();
   luabind::stop();
   g_app_alive = false;
+  // **However the app ended, the view of the system comes back** (0.136.0, docs/46 D1): an app that asked for the whole
+  // glass and died —a mistake in its Lua, a reset of the interpreter— would otherwise leave the bar away and the page of
+  // a stranger on the glass, with no way back for the person in front of it (docs/30).
+  ui::give_back_the_glass();
   bar::title("");  // the app in front is over (docs/30)
   // However the app ended, the light goes off: the console is where an error is
   // read, and a red light left on for nobody is the energy this system does not

@@ -258,6 +258,95 @@ static void test_the_title_goes_away_with_the_app() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
 }
 
+// **An app that asks for the whole glass gets it** (0.136.0, docs/46 D1): the strip of the system goes away, the view is
+// the panel and it starts on the first row, and a page drawn in it covers the rows the hour used to have.
+static void test_an_app_that_asks_for_the_whole_glass_gets_it() {
+  boot_with_a_panel();
+  ui::attach();
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_TRUE(ui::is_full_screen());
+  TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().width);
+  TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().x);
+  TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().y);
+  // **And the strip is not painted any more**: a title that changes is a title nobody draws, because the bar is not on
+  // the glass at all.
+  bar::poll();
+  const uint32_t before = glass().paint_count();
+  bar::title("WHOLE");
+  bar::poll();
+  TEST_ASSERT_EQUAL_UINT32(before, glass().paint_count());
+  // The page of the app reaches the first row of the glass, which is where the hour was.
+  TEST_ASSERT_TRUE(ui::clear(0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  const emu::MemorySurface::Paint* last = glass().paint_at(glass().paint_count() - 1);
+  TEST_ASSERT_NOT_NULL(last);
+  TEST_ASSERT_EQUAL_UINT16(0, last->y);
+  TEST_ASSERT_EQUAL_UINT16(540, last->h);
+  // Nobody's title for the tests after this one, and the glass given back.
+  bar::title("");
+  TEST_ASSERT_TRUE(ui::full_screen(false));
+}
+
+// **And the bar comes back with the view it owns** (0.136.0, docs/46 D1): asking for the glass back makes the view the one
+// of every app —the panel under the strip— and the strip is painted whole, because what is under it is a page and not the
+// bar any more.
+static void test_the_bar_comes_back_when_the_app_gives_the_glass_back() {
+  boot_with_a_panel();
+  ui::attach();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_TRUE(ui::full_screen(false));
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().width);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
+  const uint32_t before = glass().paint_count();
+  bar::poll();
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(48, paint->h);
+}
+
+// **An app that ends gives the glass back, however it ends** (0.136.0, docs/46 D1): the shell says so when the app is
+// gone —by its own will or by an error— and `attach` promises the view of every app to the one that comes next, so a page
+// that died with the whole glass cannot leave the system without its hour.
+static void test_the_view_of_every_app_comes_back_when_the_app_ends() {
+  boot_with_a_panel();
+  ui::attach();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  ui::give_back_the_glass();
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  // And the app that comes next is attached in the view of every app even when the one before did not give it back.
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  ui::attach();
+  TEST_ASSERT_FALSE(ui::is_full_screen());
+  TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
+  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+}
+
+// **The whole glass turns with the page**: a page that took the panel keeps the whole panel when it is turned, and the
+// rows of the bar do not come back behind its back (0.136.0, docs/30).
+static void test_the_whole_glass_turns_with_the_page() {
+  boot_with_a_panel();
+  ui::attach();
+  TEST_ASSERT_TRUE(ui::full_screen(true));
+  TEST_ASSERT_TRUE(ui::set_rotation(90));
+  TEST_ASSERT_EQUAL_UINT16(540, ui::width());
+  TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(0, ui::canvas().y);
+  // Back, so the tests after this one see the frame they expect.
+  TEST_ASSERT_TRUE(ui::set_rotation(0));
+  TEST_ASSERT_EQUAL_UINT16(540, ui::canvas().height);
+  TEST_ASSERT_TRUE(ui::full_screen(false));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -271,5 +360,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_turn_paints_the_whole_strip);
   RUN_TEST(test_a_long_title_is_cut_at_its_box);
   RUN_TEST(test_the_title_goes_away_with_the_app);
+  RUN_TEST(test_an_app_that_asks_for_the_whole_glass_gets_it);
+  RUN_TEST(test_the_bar_comes_back_when_the_app_gives_the_glass_back);
+  RUN_TEST(test_the_view_of_every_app_comes_back_when_the_app_ends);
+  RUN_TEST(test_the_whole_glass_turns_with_the_page);
   return UNITY_END();
 }

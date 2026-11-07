@@ -3374,6 +3374,29 @@ int l_ui_rotation(lua_State* L) {
   return 1;
 }
 
+// ui.full_screen([on]): **the app asks the system to keep the whole glass** (0.136.0, docs/46 D1). The strip of the bar
+// goes away, the view is made the size of the panel and placed at its corner, and the app is told with `on_resize`, which
+// is the hook it already knows. Without an argument it answers whether the app has the whole glass, which is the same
+// shape `ui.rotation` has (docs/30).
+//
+// **The way out is not here**: three taps on the glass are the system's and the app never hears them, because a page that
+// covers everything cannot be left to the page to open the door back (docs/30).
+int l_ui_full_screen(lua_State* L) {
+  if (g_ui_ops.full_screen == nullptr || g_ui_ops.is_full_screen == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  if (lua_gettop(L) == 0 || lua_isnil(L, 1)) {
+    lua_pushboolean(L, g_ui_ops.is_full_screen() ? 1 : 0);
+    return 1;
+  }
+  const bool on = lua_toboolean(L, 1) != 0;
+  if (!g_ui_ops.full_screen(on)) {
+    return push_nil_error(L, "E_NOMEM", "there is no memory for a view of that size");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // ---------------------------------------------------------------------------
 // ui.canvas: the control layer's basic thing, an object with methods (docs/90)
 // ---------------------------------------------------------------------------
@@ -9378,6 +9401,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "damage", l_ui_damage);
   set_function(L, "title", l_ui_title);
   set_function(L, "rotation", l_ui_rotation);
+  set_function(L, "full_screen", l_ui_full_screen);
   set_function(L, "canvas", l_ui_canvas);
   set_function(L, "control", l_ui_control);
   set_function(L, "label", l_ui_label);

@@ -25,6 +25,7 @@
 #include "kernel/display.h"
 #include "kernel/font.h"
 #include "kernel/fs_ops.h"
+#include "kernel/touch.h"
 #include "kernel/vfs.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -73,6 +74,9 @@ bool boot_table() {
 
 
 bool g_attached = false;
+// **Whether the app in front has the whole glass** (0.136.0): the view is then the panel and the bar of the system is
+// away. It is the system's state and not a wish of the app's —an app that ends leaves it false— (docs/30, docs/46 D1).
+bool g_full_screen = false;
 // **Whether the canvas still holds the band of the keyboard**: it is a picture drawn into the page, so it is there
 // until something wipes it —the app's `clear`, a rectangle or a pixel over it, a new canvas— and a letter typed does
 // not. The flag is the band's, and `clear` asks it through this door (docs/50, docs/90).
@@ -376,6 +380,25 @@ bool make_root(uint16_t width, uint16_t height) {
   return true;
 }
 
+// **The size and the place of the view, made again** (0.136.0): the one place where the system decides how much glass an
+// app has. `full` is the whole panel with no bar of the system; otherwise the panel under the bar, which is the view
+// every app is given. False when there is no memory for the new view, and then **nothing has changed at all** — not the
+// glass, not the bar, not the app (docs/30, docs/50, docs/46 D1).
+bool make_view(bool full) {
+  hal::ISurface* surface = display::surface();
+  if (surface == nullptr) return false;
+  const uint16_t top = full ? 0 : bar::height();
+  if (surface->height() <= top) return false;
+  if (!make_root(surface->width(), static_cast<uint16_t>(surface->height() - top))) return false;
+  // The view of an app starts at the left corner of the page whether the bar is there or not: the bar is above it or
+  // it is not, and never a margin on the side (docs/30).
+  root().x = 0;
+  root().y = top;
+  g_full_screen = full;
+  bar::show(!full);
+  return true;
+}
+
 // Composes one region and asks for its paint. **The translation happens here and only here**: the
 // damage is in the canvas' coordinates and the glass wants panel ones, and a view that sits in a corner
 // with a strip of the system next to it is the normal case (docs/30).
@@ -548,6 +571,24 @@ bool paint_root() {
   settle_root();
   g_painting = false;
   return ok;
+}
+
+// **The glass under a view that has just been made again is washed before the app draws in it** (0.136.0): what is
+// there is the strip of the bar or the page of an app that had the whole glass, and a page drawn over it with `du`
+// would keep the ghost of the hour. It is the same wash `attach` asks for between two apps, with the cleaner the page
+// that was here deserves, and the counters go back to nothing because the glass is white paper again (docs/50, docs/90).
+//
+// **`over_the_bar` is the view that has just grown over the strip of the system**: the hour and the line under it are
+// ink the bar put there and not the app, and the levels of the app say nothing about them, so they are added here or a
+// `du` wash —which is what an app that has drawn nothing deserves— leaves them on the glass as a ghost (docs/50).
+void clean_the_glass(bool over_the_bar) {
+  uint16_t levels = g_levels;
+  if (over_the_bar) levels = static_cast<uint16_t>(levels | (1u << 0) | (1u << 15));
+  const hal::UpdateMode mode = cleaner_for(levels, g_paints);
+  damage_add(root(), 0, 0, root().width, root().height, mode);
+  paint_root();
+  g_levels = 0;
+  g_paints = 0;
 }
 
 // ---- the primitives ----
@@ -997,6 +1038,11 @@ bool draw_clear(Canvas& canvas, uint8_t level, hal::UpdateMode mode) {
   if (canvas.bits == nullptr) return false;
   const uint8_t level_value = clamped(level);
   memset(canvas.bits, static_cast<uint8_t>((level_value << 4) | level_value), canvas.bytes);
+  // **A page that was emptied in one level is a page that showed that level** (0.136.0): it is written with a `memset`
+  // and not a box at a time, so it was the one primitive that told the counters nothing, and the wash that the system
+  // chooses between two pages —and after an app that had the whole glass— read a black page as a page of nothing
+  // (docs/50, docs/90).
+  note_level(level_value);
   damage_add(canvas, 0, 0, canvas.width, canvas.height, mode);
   return true;
 }
@@ -1181,6 +1227,11 @@ uint8_t damage_for_lua() { return damage_count(); }
 uint16_t rotation_for_lua() { return rotation(); }
 
 bool set_rotation_for_lua(uint16_t degrees) { return set_rotation(degrees); }
+
+// **The whole glass, asked by the app** (0.136.0, docs/46 D1): the same two answers `ui.rotation` gives —set it, or ask
+// it and get a boolean— and the system's own way out is `poll_full_screen`, which no app can call (docs/30).
+bool full_screen_for_lua(bool on) { return full_screen(on); }
+bool is_full_screen_for_lua() { return is_full_screen(); }
 
 bool title_for_lua(const char* text) { return title(text); }
 
@@ -1403,6 +1454,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      title_for_lua,
                                      rotation_for_lua,
                                      set_rotation_for_lua,
+                                     full_screen_for_lua,
+                                     is_full_screen_for_lua,
                                      canvas_create_for_lua,
                                      canvas_alive_for_lua,
                                      canvas_release_for_lua,
@@ -1511,6 +1564,11 @@ uint16_t canvas_count() { return g_canvas_count; }
 
 void attach() {
   if (root().bits == nullptr) return;
+  // **The view of the app that starts is the view of every app** (0.136.0): an app that took the whole glass and ended
+  // —by its own will, by an error, or by another app taking the front— does not pass it on to the next one, and the bar
+  // of the system comes back with the view (docs/30, docs/46 D1). It is done before the wash below, because the wash is
+  // of the view the app is about to draw in.
+  give_back_the_glass();
   // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
   // after the app that asked for it would be a keyboard typing into nothing (docs/90). It goes **with the page out of
   // the books**, because the app that leaves is not told that its view grew and the one that comes has not asked for a
@@ -6194,7 +6252,9 @@ bool set_rotation(uint16_t degrees) {
   const uint16_t was = display::rotation();
   // The glass decides: its driver keeps the image in the frame of the page and turns what it sends.
   if (!display::set_rotation(degrees)) return false;
-  const uint16_t top = bar::height();
+  // **A page that has the whole glass turns with it** (0.136.0): the strip of the bar is not there, so the view of the
+  // app is the whole page and no rows are given away (docs/30, docs/46 D1).
+  const uint16_t top = g_full_screen ? 0 : bar::height();
   if (display::height() <= top) {
     display::set_rotation(was);
     return false;
@@ -6215,6 +6275,52 @@ bool set_rotation(uint16_t degrees) {
 }
 
 uint16_t rotation() { return display::rotation(); }
+
+// ---- the whole glass for an app that asks for it (0.136.0, docs/46 D1) ----
+
+bool full_screen(bool on) {
+  if (!g_attached || root().bits == nullptr) return false;
+  // **Asking for what it has is free**: no view is made, no memory is paid and no repaint is owed, and an app that asks
+  // on every turn —or on every page— is not asking the system to do anything (docs/30).
+  if (on == g_full_screen) return true;
+  if (!make_view(on)) {
+    log_printf(pal::kLogWarn, "UI", "no memory for the %s view", on ? "whole glass" : "view under the bar");
+    return false;
+  }
+  // **The glass is washed before the app draws in it**: the strip of the bar went away taking its hour with it, and a
+  // page drawn over the rows it used with `du` keeps the ghost of it (docs/50, docs/90).
+  clean_the_glass(on);
+  // And the app is told the size it has now, which is the hook a turn already gives it: it is the one that knows what
+  // belongs on a page of a size and the system does not (docs/30).
+  luabind::call_resize(root().width, root().height);
+  log_printf(pal::kLogInfo, "UI", "%s glass: the view is %ux%u at %u,%u", on ? "whole" : "under the bar",
+             static_cast<unsigned>(root().width), static_cast<unsigned>(root().height),
+             static_cast<unsigned>(root().x), static_cast<unsigned>(root().y));
+  return true;
+}
+
+bool is_full_screen() { return g_full_screen; }
+
+void give_back_the_glass() {
+  if (!g_full_screen) return;
+  // The app that asked is gone or is going: there is nobody to tell, and the view of every app and the bar of the
+  // system are what the next page needs (docs/30, docs/46 D1). A view that cannot be made is said and not hidden.
+  if (!make_view(false)) {
+    log_printf(pal::kLogWarn, "UI", "no memory for the view under the bar");
+  }
+}
+
+bool poll_full_screen() {
+  if (!g_full_screen) return false;
+  // **Three taps on the glass are the system's and not the app's** (0.136.0): the gesture is taken out of the queue
+  // before the app reads it, so a page of a book that covers everything cannot take away the way back to the bar.
+  // What the app does hear is `on_resize`, which is how it knows its view is another size (docs/30).
+  touch::Gesture gesture;
+  if (!touch::take_gesture_of("triple", gesture)) return false;
+  log_printf(pal::kLogInfo, "UI", "three taps at %u,%u: the glass goes back",
+             static_cast<unsigned>(gesture.x), static_cast<unsigned>(gesture.y));
+  return full_screen(false);
+}
 
 // ---- the faces a text can be drawn with (docs/30) ----
 

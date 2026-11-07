@@ -52,6 +52,11 @@ struct Gesture {
 // repeats for ever in a loop that reads it twice (docs/30).
 bool take_gesture(Gesture& out);
 
+// **One gesture of a kind, and the others stay in their place** (0.136.0): the system hears the three taps that take an
+// app out of the whole glass and the app never hears them, so that one gesture is taken out of the queue and the ones
+// before it keep the order they had (docs/30, docs/46 D1).
+bool take_gesture_of(const char* kind, Gesture& out);
+
 }  // namespace touch
 }  // namespace kernel
 

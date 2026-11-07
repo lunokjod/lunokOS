@@ -27,6 +27,12 @@ bool boot(hal::IPlatform& platform);
 // The title of the app in front, or "" when there is none. The bar repaints itself on the next turn.
 void title(const char* text);
 
+// **Whether the strip is on the glass at all** (0.136.0): an app that asked for the whole glass has it away, and the
+// system paints no strip over a page that is not its own until the glass is given back (docs/30, docs/46 D1). A bar
+// that comes back is painted whole, because what is under it is not the bar any more.
+void show(bool on);
+bool visible();
+
 // The glass changed under the bar —a turn, a new size—: paint the strip again whole (docs/50).
 void refresh();
 

@@ -157,7 +157,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 
 | # | Què | Per què l'EPUB el necessita | Mida |
 |---|---|---|---|
-| **D1** | **La pantalla sencera**: amagar la barra de 48 files i donar a l'app les 540 × 960, amb el gest de sortida del sistema | El lector del paper té `paperos.fullscreen` i sense això perd 48 files i el gest de dos tocs | ~150 línies al nucli (vista, barra, toc) |
+| **D1** | **La pantalla sencera** — **feta el 7/11 (0.136.0)**: `ui.full_screen(true/false)` al sistema (la barra marxa, la vista passa a 540 × 960 des de la fila 0, i l'app rep `on_resize`); **els tres tocs són del sistema** i se'ls queda de la cua abans que l'app els llegeixi; i una app que s'acaba torna el vidre tota sola (per les bones o per un error) | El lector del paper té `paperos.fullscreen` i sense això perd 48 files i el gest de dos tocs | Fet: `make_view` a `lib/kernel/src/ui.cpp` (una sola funció fa la vista sencera i la de sota la barra), `bar::show`, `touch::take_gesture_of` i els quatre finals d'app de `shell.cpp` (el tancament, la mort entre torns, la mort al primer torn i la finestra d'una alarma) |
 | **D2** | **Com torna la pàgina** — **decidit el 7/11 (0.132.0)**: **dins d'un canvas de l'app** (`epub.page(canvas, from, opts)`) | És la decisió de menys codi: aquí la vista ja és un canvas i no caldria `free()` ni un tipus nou | 0 tipus nous: `ui::canvas_book_page` camina el pla i el pinta |
 | **D3** | **Cares amb accents** — **resolt el 7/11 (0.127.0)**: el dibuix d'un text preguntava a la cara només pels codis per sota de `0x7F` i ara li pregunta per **qualsevol byte**; la cara del llibre és `/fonts/dejavuserif-latin1.ttf` (**23 856 B, 232 glifs**) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Fet amb `tools/ttf_latin1.py`, que retalla el DejaVu Serif i **aplana els glifs fets de peces** (el lector refusa un glif muntat de trossos: 55 glifs compostos, el més gran de 85 punts i 5 contorns). Queda el tokenitzador convertint UTF-8 → un byte (fase 2); les **tres cares del sistema segueixen sent ASCII** |
 | **D4** | **Pintar un bloc de píxels en un canvas** — **fet el 7/11 (0.133.0)**: `ui::canvas_bitmap(slot, x, y, w, h, bits, stride, mode)`, quatre bits per píxel, que és el que `img::decode` i el canvas parlen | Les imatges del llibre surten del ZIP a la memòria i `canvas_image` llegeix un **fitxer** | Fet: una foto és una **còpia** i no una conversió |
@@ -169,7 +169,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 
 | Cosa | Paper | Aquí | Què vol dir per al port |
 |---|---|---|---|
-| Pantalla | 540 × 960 | 540 × 912 (sota la barra) | D1, si el lector ha de tenir les 960 |
+| Pantalla | 540 × 960 | 540 × 960 (D1, feta: la barra marxa quan l'app la demana) | cap diferència mentre el lector té la pantalla sencera |
 | Caixa de text del paper | 508 × 801 | 500 × ~800 | la maquetació s'adapta sola: tot ve d'arguments |
 | Cares | **sis, d'un bit, totes en negreta**, de 16 a 70 px | **TTF d'outlines** amb avanç per glif; les del sistema encara ASCII imprès, i la del llibre amb Latin-1 | A4 (èmfasi); D3 ja hi és per a la cara del llibre |
 | Cares per app | — | **3** (`kMaxFaces`) | cos + títol + (res més): l'app del paper en fa servir dues |
@@ -187,7 +187,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 | **3** | **Les cares amb Latin-1 (D3, feta el 7/11) i el text amb èmfasi (D5, fet el 7/11)** | `à` es pinta (fet: 54 px contra 75 px en una línia de prova, i la tinta de l'accent per sobre de la lletra); una negreta és un píxel més ampla i la línia no s'allarga; una cursiva biaixa de la fila de dalt a la de baix; un `sup` puja un terç de línia |
 | **4** | **El paginador** (A3) — **fet el 7/11 (0.130.0)** | Les línies amb l'avanç de cada paraula (una cara de regla al test), l'aire de cada bloc i la seva cara, la sagnia de cita, el peu centrat, la imatge flotada amb banda, la que no cabe que obre pàgina, la reixa d'una taula de dues columnes i la capçalera subratllada, el final de pàgina que diu el byte i una pàgina que continua **des d'aquell byte**: 12 casos |
 | **5** | **El llibre** (A5) — **fet el 7/11 (0.131.0) menys la foto en cau** —, la imatge en un canvas (D4) i els grisos (A6) | Un `.epub` de joguina **escrit al disc del test** i obert pel camí de debò (fitxer → zip → capítol → tokenitzador → paginador amb la cara del llibre), un capítol inflat de 512 KB, una pàgina des d'un byte i la que comença en aquell byte: **4 casos** || **6** | **La porta de Lua** (B1–B8) | Les mateixes proves, però des d'un script: `run epub-probe` |
-| **7** | **La pantalla sencera** (D1) | La vista passa a 540 × 960 i la sortida és el gest del sistema |
+| **7** | **La pantalla sencera** (D1) — **feta el 7/11 (0.136.0)** | La vista passa a 540 × 960 des de la fila 0, la barra no es pinta, tres tocs la tornen (els sent el sistema i no l'app) i una app que s'acaba torna el vidre |
 | **8** | **L'app sencera** (C1–C13) | El prestatge, un llibre obert, una pàgina girada, la posició desada i represa |
 
 Cada fase és un commit amb la seva versió, les proves escrites i, si es poden executar, els números
@@ -198,7 +198,7 @@ mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mi
 1. **La mida de les apps** (D6): el sostre de font puja a ~160 KB o les apps guanyen `require`. Sense
    això la fase 8 no cap.
 2. **Com torna la pàgina** (D2): un objecte superfície o compondre dins d'un canvas de l'app.
-3. **La pantalla sencera** (D1): si el lector ha de tenir les 960 files.
+3. **La pantalla sencera** (D1): **feta el 7/11 (0.136.0)** — l'app la demana amb `ui.full_screen(true)`, tres tocs la desfan i els sent el sistema, i el lector la té en obrir (`apps/reader`), o sigui que la decisió que quedava era com es torna i la prengué l'amo.
 4. **Els accents** (D3): **decidit el 7/11 (0.127.0)**: la cara del llibre és llatina i les tres del sistema
    no s'han tocat, perquè canviar-les canvia el que veu tothom i no fa falta per al lector. Si l'amo les vol
    llatines, és una ordre d'eina per cada fitxer (`tools/ttf_latin1.py`).

@@ -391,6 +391,11 @@ struct UIOps {
   // The turn of the page: 0, 90, 180 or 270. Reading it and setting it are the same value (docs/50).
   uint16_t (*rotation)();
   bool (*set_rotation)(uint16_t degrees);
+  // **The whole glass for an app that asks for it** (0.136.0, docs/46 D1): the bar of the system goes away and the view
+  // is the panel; false when there is no memory for it, and then nothing changed. The second one answers whether the app
+  // has the whole glass, which is what `ui.full_screen()` with no argument says (docs/30).
+  bool (*full_screen)(bool on);
+  bool (*is_full_screen)();
   // **A canvas of the app's own**, the control layer's basic thing (docs/90): a buffer, its place
   // inside the parent, and a number that says whether the object an app is holding still means the
   // canvas that is there —a view made again hands the slot to somebody else, and a stale object has to

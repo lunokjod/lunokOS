@@ -10,9 +10,9 @@
 -- (docs/46, B4) — a chapter of a book is a few dozen pages and walking them is cheaper than keeping a table that
 -- the screen would have to be told about anyway.
 --
--- What it does not do, said here so nobody looks for it: there is no full screen (docs/46, D1), no dark page, no
--- cover and no thumbnails (C11 needs a cache of images and a `save` of a surface), and the chapter is the first one
--- that looks like a chapter until the OPF is read in Lua (C2).
+-- What it does not do, said here so nobody looks for it: no dark page, no cover and no thumbnails (C11 needs a cache of
+-- images and a `save` of a surface), and the chapter is the first one that looks like a chapter until the OPF is read in
+-- Lua (C2).
 
 local caps = sys.caps()
 if not caps.display then
@@ -20,17 +20,30 @@ if not caps.display then
   return
 end
 
+-- **The whole glass** (0.136.0, docs/46 D1): a page of a book is a page and the strip of the system takes forty-eight
+-- rows of it. The app asks for the glass here and the system answers with `on_resize`, which is a hook the app already
+-- knows; three taps on the glass give the bar back and the same hook says so again.
+ui.full_screen(true)
 ui.title('Library')
 
-local view = ui.caps()
-view.w = view.width
-view.h = view.height
-
--- The foot of the page and the bar of the two buttons, in the papers of this system: a line of the small step and
--- a button of the paper project's height, which is what the About app uses (docs/45, docs/46).
+-- **The size of the view is read every time the system gives another one** (0.136.0): asking for the whole glass and
+-- giving it back are two of those moments, and a canvas of the size of before is a page with a strip of paper left over.
 local kFoot = 40
-local kPageH = view.h - kFoot
-local kPageW = view.w
+local view = { w = 0, h = 0 }
+local kPageW = 0
+local kPageH = 0
+
+local function use_view(width, height)
+  view.w = width
+  view.h = height
+  kPageW = width
+  kPageH = height - kFoot
+end
+
+do
+  local now = ui.caps()
+  use_view(now.width, now.height)
+end
 
 -- **The face of the book** (docs/46, C13): the serif of the disk with the letters of Latin-1, and the system's if
 -- the disk does not carry it. The step is four, which is the thirty-six pixels of body of the paper project.
@@ -147,6 +160,38 @@ local function forget_page()
   if chapter ~= nil and book ~= nil then remember(book.path, chapter, from) end
 end
 
+-- **The page of the book, built again when the view changes size** (0.136.0, docs/46 D1): a canvas of the new size, the
+-- foot under it, and the page drawn in it. The system makes a new view and the objects of before point at a canvas
+-- nobody has any more, so this is a build and not a move (docs/30, docs/90).
+local function build_page()
+  if screen ~= nil then
+    screen:release()
+    screen = nil
+  end
+  foot = nil
+  if book == nil then return false end
+
+  screen = ui.canvas(kPageW, kPageH)
+  if screen == nil then
+    console.print('reader: there is no memory for a page')
+    return false
+  end
+  screen:place(0, 0)
+  if face ~= nil then screen:font(face) end
+
+  foot = ui.label(kPageW, kFoot)
+  if foot ~= nil then
+    foot.text = ''
+    foot.scale = 2
+    foot.align = 'left'
+    foot.color = 0
+    foot.background = 15
+    foot:place(8, kPageH)
+  end
+
+  return present_page()
+end
+
 -- **The page after this one** is the byte the page said, and there is nothing to compute (docs/46, §1).
 local function turn_forward()
   if ended or screen == nil or book == nil then return end
@@ -202,26 +247,12 @@ local function open_book(one)
   if from >= bytes then from = 0 end
   remember(one.path, chapter, from)
 
-  screen = ui.canvas(kPageW, kPageH)
-  if screen == nil then
+  if not build_page() then
     epub.close()
-    console.print('reader: there is no memory for a page')
     return false
   end
-  screen:place(0, 0)
-  if face ~= nil then screen:font(face) end
 
-  foot = ui.label(kPageW, kFoot)
-  if foot ~= nil then
-    foot.text = ''
-    foot.scale = 2
-    foot.align = 'left'
-    foot.color = 0
-    foot.background = 15
-    foot:place(8, kPageH)
-  end
-
-  return present_page()
+  return true
 end
 
 local function show_shelf()
@@ -301,6 +332,18 @@ local function on_gesture()
     end
   elseif dy <= -kSwipe then
     first_page()
+  end
+end
+
+-- **The system gave the app another view** (0.136.0, docs/46 D1): the whole glass when it is asked for, and the glass
+-- under the bar when three taps give it back —which the system hears and the app does not—. The page of a book is drawn
+-- again in the new box, on the byte it was at: a resize is not a page turn and the position does not move.
+function on_resize(width, height)
+  use_view(width, height)
+  if book ~= nil then
+    build_page()
+  else
+    show_shelf()
   end
 end
 

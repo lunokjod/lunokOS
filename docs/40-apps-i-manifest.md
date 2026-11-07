@@ -324,7 +324,7 @@ Totes les funcions són opcionals. Si existeixen, es criden en aquest ordre:
 | `on_alarm(id, payload, meta)` | Quan venç una alarma seva |
 | `on_button(kind, held_ms, key)` | Quan es prem una tecla (docs/30) |
 | `on_light()` | Quan un moment del sistema s'acaba i el llum torna a ser de l'app, perquè el torni a pintar si durant la interrupció ha canviat d'idea (docs/30) |
-| `on_resize(width, height)` | Quan la vista de l'app és una altra: una rotació (`ui.rotation`), un `ui.resize` o un canvi del sistema. El canvas és **nou i blanc** i el sistema no sap què hi va: tornar a dibuixar és de l'app (docs/30, docs/50) |
+| `on_resize(width, height)` | Quan la vista de l'app és una altra: una rotació (`ui.rotation`), un `ui.resize`, **la pantalla sencera o la tornada** (`ui.full_screen`, i els tres tocs que la desfan, que fa el sistema, 0.136.0) o un canvi del sistema. El canvas és **nou i blanc** i el sistema no sap què hi va: tornar a dibuixar és de l'app (docs/30, docs/46 D1, docs/50) |
 | `on_pause()` | Abans de tancar-se per deixar pas a una altra app |
 | `on_save()` | Just després de `on_pause`; bon moment per escriure l'estat al disc (`fs.data`) |
 | `on_close()` | Últim, abans de destruir la VM |

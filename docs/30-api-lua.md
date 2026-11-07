@@ -857,6 +857,14 @@ L'únic que el sistema pinta són **les 48 files de dalt**: la barra amb l'hora,
 càrrega, que no és de cap app (docs/50, «La barra del sistema»). Per això la vista d'una app comença a
 la fila 48 i `ui.caps().y` ho diu.
 
+**I les 48 files poden ser de l'app** (0.136.0, docs/46 D1): `ui.full_screen(true)` demana al sistema de
+quedar-se tota la pantalla, i el sistema li dona —la vista passa a **540 × 960** i comença a la fila 0, i
+la barra s'amaga i no es torna a pintar fins que la pàgina deixa de ser sencera—. El sistema li diu la
+mida nova amb `on_resize`, que és el mateix ganxo d'un gir. **La sortida no és de l'app**: tres tocs
+seguits sobre el vidre són del sistema, que se'ls queda de la cua abans que l'app els llegeixi, i tornen a
+posar la barra i la vista de tothom. I **una app que s'acaba torna el vidre** —per les bones o perquè mor—,
+perquè la pàgina següent i la barra no són seves per quedar-se-les.
+
 | Crida | Torna | Notes |
 |---|---|---|
 | `ui.caps()` | `{width, height, levels, x, y}` | La grandària de la **vista**, els seus nivells (16) i **on està** dins del vidre. L'alçada és **el que queda sobre el teclat** mentre la banda és al vidre (0.84.0) |
@@ -867,6 +875,7 @@ la fila 48 i `ui.caps().y` ho diu.
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema** |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
+| `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
 | `ui.resize(w, h)` | `true` o `nil, error` | Una vista d'una altra mida: el sistema en fa una altra, blanca, i crida `on_resize` |
 | `ui.canvas(w, h)` | **un objecte** o `nil, error` | Un control **amb vista pròpia**: un buffer i un lloc, que el sistema compon amb la resta quan l'app fa `ui.present` (vegeu a sota) |

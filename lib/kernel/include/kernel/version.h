@@ -2745,7 +2745,49 @@ namespace kernel {
 // nor lay a finger** —`--script` runs shell lines and the panel of the emulator only takes fingers from a test—, so
 // the two ways of turning a page are wired to the hooks the system documents and **were not exercised on the glass**;
 // and the app still has no full screen, no dark page, no cover and no thumbnails (docs/46, C9, C11 and D1).
-static const char kVersion[] = "0.135.0";
+// 0.136.0 (7/11): **the whole glass for an app that asks for it, and three taps that are the system's** (docs/46 D1).
+//
+// The owner, with the list of what the reader was missing in front of him: *«Fes la D1, pantalla sencera, l'app demana
+// al sistema de quedar-se tota la pantalla, el sistema li dona permis, amplia la vista de l'app i amaga la barra de
+// sistema. Per sortir de pantalla completa son 3 tocs a la vista de l'app que ha demanat pantalla completa. [...] L'app
+// no gestiona els 3 tocs, ho fa el sistema.»* So the system has one more thing an app can ask for, and it has it in the
+// shape the rest of the system already has:
+//
+//   - **`ui.full_screen(true)`** — or `(false)` — from Lua, and `ui::full_screen` in the kernel: the strip of the bar is
+//     hidden, the view is made the size of the panel and placed at the corner (540 × 960 at 0,0 instead of 540 × 912 at
+//     0,48), and the app is told with `on_resize`, which is the hook a turn already gives it. Without an argument the
+//     call answers whether the app has the whole glass, the same shape `ui.rotation` has. Asking for what it already
+//     has costs nothing: no view is made and no repaint is owed;
+//   - **the way out is the system's**: three taps are a `triple` the gesture machine already made, and the kernel asks
+//     for it right after `touch::poll` and before the app's turn, so the app neither handles them nor hears them — the
+//     queue keeps the gestures that were there before it (`touch::take_gesture_of`) and the app hears `on_resize`;
+//   - **an app that ends gives the glass back**, by its own will or by an error: the closing, the death between two
+//     turns, the death inside the first turn, and a window of an alarm all go through `ui::give_back_the_glass`, and
+//     `ui::attach` promises the view of every app to the app that comes next whatever the one before did.
+//
+// **Two things the code taught me while it was being written**, and both are in the system now:
+//
+//   - **a view that has just been made again is washed with the ink that was under it**: when the view grows over the
+//     strip, the hour is the bar's ink and not the app's, so the wash after the change counts levels 0 and 15 whatever
+//     the app has drawn, or a `du` wash leaves the ghost of the clock on the first page of a book;
+//   - **`ui.clear` never told the counters what it had painted**: it writes the page with a `memset` and not a box at a
+//     time, so a page emptied to black counted as a page of nothing and the wash between two apps —and the one after
+//     the whole glass— chose `du` for a page that was black. One line, and the black page of C9 will need it.
+//
+// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **375 lines** of Lua and asks
+// for the whole glass one line after it starts. Run with `run reader /littlefs/epub/la-vaca-cega.epub` the log says
+// `whole glass: the view is 540x960 at 0,0`, the wash after it is the two-level one (`a2`, the bar's ink went with it)
+// and **the page is the whole panel**: the ink of the poem starts at row 8 and the foot `ch01 0%` ends at row 935, where
+// with the bar it was 48 rows less. A probe app that takes the whole glass, paints it black and dies leaves **the bar
+// back on the glass** (the hour is read in the dump) and the view at 540 × 912; a probe that asks for it back gets
+// `under the bar glass: the view is 540x912 at 0,48` and the bar paints itself whole again. `pio run -e emulator` says
+// SUCCESS with 0 warnings and `pio test -e test --without-testing` builds the **23 suites and 527 cases** with 0
+// warnings, five of them new (four in `test_bar`, one in `test_touch`).
+// **Pending**: the 527 cases are **not executed** (that wants the owner's word for it); **the three taps were not
+// exercised on the glass**, because the bench lays no fingers —`--script` runs shell lines and the panel of the emulator
+// only takes fingers from a test— and the case that covers them is the one in `test_touch`; and the reader still has no
+// dark page, no cover, no thumbnails and no menus (docs/46, C4, C9, C11).
+static const char kVersion[] = "0.136.0";
 
 }  // namespace kernel
 
