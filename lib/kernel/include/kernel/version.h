@@ -1645,7 +1645,29 @@ namespace kernel {
 // (the owner did not ask for it): the two band tests were re-pointed from 176/736 to 256/656 and from the rows of
 // forty-four to the rows of the rule, and the break that has to turn them red is putting the key back to forty-four
 // (docs/30, docs/92 §22).
-static const char kVersion[] = "0.107.0";
+//
+// 0.108.0 (8/11): **the caret of the end of a document.** The owner saw it with the board in his hand: *«al polsar
+// <enter> al teclat, si es el final del document, el cursor no baixa i queda text solapat, al escriure es veu el text
+// nou a la fila seguent»*, and his diagnosis was the right one —the cursor can be after the last byte, and a document
+// whose last key was an enter ends in a break—. The walk that counts the rows of a box of several lines stopped at the
+// `\0`, so a text ending in `\n` had one row fewer than it has: with `"one\ntwo\n"` it counted two, the cursor of the
+// end (byte 8) belonged to neither of them, `cursor_row` kept its initial zero and **the block was painted in the
+// first row, over the words of the document**, while the text grew below it. The walk now goes one row further when
+// the last byte it ate is a break, and stops when a row measures zero bytes —the empty row at the end, counted
+// once—. The paint, the finger and the swipe ask the same measurement, so all three are right at once.
+// And the editor of the glass is brought up to the system: **the footer at two steps** (28 and 24 pixels instead of
+// two lines of 46 at the body of the glass, the state in ink and the note in the dim tone) with **the row of the caret
+// and the whole text** in it (`row 1/67`, from `box:lines()`), **the box from edge to edge** —the twelve pixels of
+// margin on each side were two hundred and forty pixels of a line of code given away— and its text at three steps,
+// and **a sample page `notes.txt`** in the app's own `/res` (`apps/<id>/res/`, the kernel's rule) copied into its
+// ground on the first run, 1 417 bytes, with long lines for the wrap and more rows than the glass holds.
+// Measured: `box:lines()` is 3 for `"one\ntwo\n"` and the dump of the box with the cursor at the end puts the block in
+// the third row (`--dump`, looked at); the editor opens the sample (`the sample page is /data/editor/notes.txt, 1417
+// bytes`) and its footer says `/data/editor/notes.txt  1417 B  row 1/67` at two steps with the box touching both
+// edges. **The suite was not run** (the owner did not ask for it): the new test
+// `test_a_text_that_ends_in_a_break_has_a_row_for_the_caret` is written and compiles, and the break that turns it red
+// is the walk stopping at the `\0` again (docs/30, docs/92 §23).
+static const char kVersion[] = "0.108.0";
 
 }  // namespace kernel
 

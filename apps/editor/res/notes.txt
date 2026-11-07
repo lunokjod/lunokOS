@@ -1,0 +1,33 @@
+Notes for the bench
+===================
+
+This is a page to try the editor with. It is long on purpose: some of its
+lines run past the edge of the glass so that wrapping has something to do,
+and there are more rows than the page can show so that the scroll bar has
+somewhere to walk.
+
+Why this page exists
+--------------------
+
+An editor with nothing to read is an editor nobody can try. This one is
+copied into the ground of the app the first time it runs, so everything you
+write here can be saved without asking the prompt for a path.
+
+What to try
+-----------
+
+  - Move the caret with the arrows and with a finger on the text.
+  - Press Enter at the end of a line and watch the caret go down to the row
+    that the break opened, instead of staying over the words above it.
+  - Turn Word wrap off in the View menu and see the long lines run off the
+    right side of the page.
+  - Turn Read Only on and see the keyboard go away: a page that cannot be
+    written has nothing to type into.
+  - Swipe the text with a finger and read the row you are on in the line
+    under the page.
+
+A long line follows, which is here to be wrapped and to be walked with the
+finger once wrapping is turned off in the View menu of the bar: the quick
+brown fox jumps over the lazy dog, and then it does it again, and again,
+because a line that is longer than the glass is the one case that tells
+whether a row is the text or the box.

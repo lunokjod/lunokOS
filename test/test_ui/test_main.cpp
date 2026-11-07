@@ -2734,6 +2734,41 @@ static void test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end
   ui::release(box);
 }
 
+// **A text that ends in a break has a row after it, and the caret of the end of the text is in that row** (0.108.0):
+// a document whose last key was an enter ends in `\n` and its cursor sits at the start of the row the break opened —
+// the cursor of a box of text may be after the last byte, which is the rule of both boxes—. That row was not counted,
+// so the caret belonged to no row of the walk and was drawn in the **first** one, over the words of the document,
+// while the text kept growing below it (found on the board, at the end of a page, docs/90, docs/92).
+static void test_a_text_that_ends_in_a_break_has_a_row_for_the_caret() {
+  fresh_view();
+  int16_t box = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 160, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  const char* text = "one\ntwo\n";
+  const uint16_t end = static_cast<uint16_t>(strlen(text));
+  // Three rows: the two lines and the one the last break opened, which is what the status line of an app says.
+  TEST_ASSERT_EQUAL_UINT16(3, ui::textbox_multiline_total(box, text, false, 2));
+  const auto ink_in = [](uint16_t y0) {
+    int ink = 0;
+    for (uint16_t x = 8; x < 40; ++x) {
+      for (uint16_t y = y0; y < y0 + 14; ++y) {
+        if (view_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+  // A box of two steps has its first row at eight and a row of fourteen pixels.
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, end, false, false, 0, 15, 0, 2));
+  const int first_without = ink_in(8);
+  const int third_without = ink_in(8 + 2 * 14);
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, end, true, false, 0, 15, 0, 2));
+  // **The block of the caret is on the third row** and the first one is as it was: the words of the document and the
+  // caret of its end are two different rows.
+  TEST_ASSERT_GREATER_THAN_MESSAGE(third_without, ink_in(8 + 2 * 14), "the caret of the end is not in the last row");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(first_without, ink_in(8), "the caret of the end went back to the first row");
+  ui::release(box);
+}
+
 // **A box paints the text it was given and not the one before it** (0.84.1): the tail of the line is a buffer kept
 // between paints and it was never emptied, so every paint appended its text to the last one —a box with "h", then "he",
 // then "hel" showed "h", "hhe", "hhehel", which on the glass is a box full of ghosts of every word typed so far— (found
@@ -3164,6 +3199,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_bar_of_menus_hangs_the_menu_under_its_word);
   RUN_TEST(test_a_box_paints_its_text_and_not_the_one_before_it);
   RUN_TEST(test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row);
+  RUN_TEST(test_a_text_that_ends_in_a_break_has_a_row_for_the_caret);
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
   RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
   RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);

@@ -728,3 +728,46 @@ executat** (l'amo no ho ha demanat): les dues proves de la banda s'han reapuntat
 s'hauria de córrer —`test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given` i
 `test_the_keyboard_follows_the_box_that_takes_the_focus`—, i la trencada que les ha de posar vermelles és tornar la
 tecla a 44.
+
+## 23. El cursor del final d'un document, i l'editor al dia (0.108.0)
+
+**L'amo ho va veure a la placa**: *«He observat un glitch al polsar <enter> al teclat, si es el final del document, el
+cursor no baixa i queda text solapat, al escriure es veu el text nou a la fila seguent. Tot sembla funcionar, però el
+cursor no està anant on toca (el document s'amplia amb un retorn de carro al final, així que el cursor pot arribar-hi
+per les normes que vam parlar de com es comporta el cursor als camps d'introducció de text)»*. La diagnosi era
+exacta: **el cursor hi era i el dibuix no sabia on**.
+
+**El que passava**: el recorregut que compta les files d'una caixa de diverses línies parava quan el punter arribava al
+`\0`, i un text que s'acaba en `\n` té una fila buida **després** de l'últim salt. Amb `"one\ntwo\n"` el
+recorregut en comptava **dues** i el cursor del final (byte 8) no pertanyia a cap de les dues: `cursor_row` es quedava
+al valor inicial, que és zero, i el bloc de tinta es pintava **a la primera fila**, sobre les paraules del document —
+mentre el text, que sí que creixia, posava la línia nova a la tercera—. El resultat era exactament el que es veu al
+vidre: text solapat a dalt i lletres noves baixant.
+
+**La correcció**: el recorregut continua una fila més quan l'últim byte consumit és un salt de línia, i s'atura quan la
+fila mesura zero bytes (que és la fila buida del final, comptada una vegada). `box:lines()` diu **3** per a
+`"one\ntwo\n"`, i la fila del cursor és la tercera amb el cursor a zero. Res més no canvia: el pintor, el dit i el
+gest demanen la mateixa mesura, o sigui que la correcció val per als tres alhora.
+
+**L'editor, posat al dia** (era el motiu del torn, i les tres coses que l'amo va demanar):
+
+- **El peu era massa gran**: dues línies de quaranta-sis píxels amb el cos del sistema. Ara són de **28 i 24** amb
+  **dos passos** de cos (catorze píxels de text), el peu en tinta i la nota en el to `dim` (8). El peu diu **la fila
+  del cursor i el total** (`row 1/67`), que surt de `box:lines()` i del comptatge dels salts abans del cursor: és
+  informació que el control ja donava i l'app no ensenyava.
+- **La caixa ocupa el vidre**: de sota la barra fins al peu i **d'extrem a extrem**, sense els dotze píxels de marge de
+  cada costat que l'app es quedava (eren dos-cents quaranta píxels d'una línia de codi perduts). L'únic marge és el
+  marc de la caixa, que és el control. I el text va a **tres passos** perquè el vidre porta un document i no un llibre:
+  vint-i-set píxels per fila són vint-i-nou files on el cos del sistema en donava vint-i-dos.
+- **Una pàgina d'exemple, `notes.txt`**: viu a `apps/editor/res/notes.txt`, que és el `/res` **propi de l'app** (la
+  regla del nucli: `/res` són els fitxers estàtics de l'app, `apps/<id>/res/`), i la primera arrencada la copia al
+  terreny de l'app (`/data/editor/notes.txt`, amb `fs.mkdir` del terreny abans, que una app que no ha escrit mai no el
+  té) perquè **Save hi escrigui sense demanar cap camí**. Fa **1 417 bytes**, té ratlles llargues per provar el wrap,
+  més files que el vidre per provar la barra, i una llista del que es pot provar.
+
+**Mesurat aquest torn**: `box:lines()` dona **3** per a `"one\ntwo\n"` i el bolcat de la caixa amb el cursor al
+final posa el bloc **a la tercera fila** (`--dump`, mirat); l'editor obre la pàgina d'exemple (`the sample page is
+/data/editor/notes.txt, 1417 bytes`), el peu diu `/data/editor/notes.txt  1417 B  row 1/67` amb el text a dos passos,
+i la caixa arriba a les dues vores del vidre. **La suite no s'ha executat** (l'amo no ho ha demanat): la prova nova
+`test_a_text_that_ends_in_a_break_has_a_row_for_the_caret` està escrita i compila, i la trencada que l'ha de posar
+vermella és tornar el recorregut a parar al `\0` sense comptar la fila del salt.

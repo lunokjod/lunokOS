@@ -29,9 +29,18 @@ end
 -- system never makes a row smaller than forty-four and this one is a comfortable fifty-two (docs/30, docs/90).
 local kBarHeight = 52
 local kBarRow = 54
-local kStatusH = 46
-local kNoteH = 46
+-- **The two lines under the page are a caption and not a title** (0.108.0): they were at the size of the glass —nine
+-- hundred and twelve pixels of page with a footer of a hundred and eight— and the owner read what it does on the
+-- board: *«l'app editor lua te al peu un text massa gros»*. At two steps the same words take a line of fourteen pixels
+-- and the page keeps the room (docs/30, docs/92).
+local kSmall = 2
+local kStatusH = 28
+local kNoteH = 24
 local kCardH = 208
+-- **The page the editor opens when nobody names one**: it ships in `/res` —the system's own content, which an app
+-- reads and does not write— and the first run copies it into the ground of the app, where Save works (docs/70).
+local kSampleName = 'notes.txt'
+local kSampleFrom = '/res/' .. kSampleName
 -- **A file the person has to name** starts in the app's own ground, which is the one place it may write without the
 -- prompt having named a path (docs/70).
 local kNewPath = '/data/editor/note.txt'
@@ -64,19 +73,39 @@ local function code_of(err)
   return tostring(err)
 end
 
--- **Two lines at the bottom of the page**: the state —the name of the file, its size and the two switches— and, over
--- it, the last thing that happened. One line for both is a line that a path and a sentence do not fit in on this
--- glass, and the note is the one place a person on the board reads what a Save did (docs/30).
+-- **Which row of the text the caret is on**, counted from one: the box says how many rows the whole text has
+-- (`box:lines()`, 0.88.0) and this counts the breaks before the cursor, which is the only thing the box does not
+-- say —it says where the window starts and not where the person is writing— (docs/30).
+local function current_row()
+  local _, breaks = string.gsub(string.sub(doc.text, 1, doc.cursor), '\n', '')
+  return breaks + 1
+end
+
+-- **Two lines at the bottom of the page**: the state —the name of the file, its size and the row of the caret— and,
+-- under it, the last thing that happened or, when nothing has, the two switches of View. One line for both is a line
+-- that a path and a sentence do not fit in on this glass, and the note is the one place a person on the board reads
+-- what a Save did (docs/30).
 local function status_text()
-  local parts = {doc.dirty and '*' or ' ', doc.path or '(no file)', #doc.text .. ' B'}
-  if doc.readonly then parts[#parts + 1] = 'read only' end
+  local total = 1
+  if box ~= nil then total = box:lines() or 1 end
+  local parts = {doc.dirty and '*' or ' ', doc.path or '(no file)', #doc.text .. ' B',
+                 'row ' .. current_row() .. '/' .. total}
+  return table.concat(parts, '  ')
+end
+
+local function flags_text()
+  local parts = {}
   if doc.wrap then parts[#parts + 1] = 'wrap' end
+  if doc.readonly then parts[#parts + 1] = 'read only' end
+  if #parts == 0 then return '' end
   return table.concat(parts, '  ')
 end
 
 local function say()
   if status ~= nil then status.text = status_text() end
-  if note ~= nil then note.text = doc.note end
+  -- **The note when there is one and the switches when there is not**: a line that says nothing is a line of the page
+  -- spent, and the two ticks of View are what a person looks for when nothing just happened (docs/30).
+  if note ~= nil then note.text = (doc.note ~= '') and doc.note or flags_text() end
 end
 
 -- **The whole page is painted again and clean**: opening a file, closing a card and unfolding a menu are moments
@@ -195,14 +224,17 @@ end
 -- control is placed and sized here, which is what an `on_resize` needs (0.84.0, docs/30).
 function layout()
   local now = ui.caps()
-  local top = kBarRow + 8
-  local bottom = now.height - kStatusH - kNoteH - 16
-  box:resize(now.width - 24, bottom - top)
-  box:place(12, top)
-  note:resize(now.width - 24, kNoteH)
-  note:place(12, now.height - kStatusH - kNoteH - 12)
-  status:resize(now.width - 24, kStatusH)
-  status:place(12, now.height - kStatusH - 6)
+  -- **The text takes the glass** (0.108.0): the box goes from under the bar to the footer and from edge to edge, and
+  -- the frame of the box is the only inset —an app that leaves twelve pixels of its own on each side is a page that
+  -- gives away two hundred and forty pixels of a line of code— (docs/30, docs/92).
+  local top = kBarRow
+  local bottom = now.height - kStatusH - kNoteH
+  box:resize(now.width, bottom - top)
+  box:place(0, top)
+  note:resize(now.width - 12, kNoteH)
+  note:place(6, now.height - kStatusH - kNoteH)
+  status:resize(now.width - 12, kStatusH)
+  status:place(6, now.height - kStatusH)
   bar:resize(now.width, bar_tall and now.height or kBarRow)
   bar:place(0, 0)
   place_card()
@@ -312,9 +344,13 @@ end
 
 -- ---- the page ----
 
-box = ui.textbox_multiline(view.width - 24, view.height - kBarRow - kStatusH - 20)
+box = ui.textbox_multiline(view.width, view.height - kBarRow - kStatusH - kNoteH)
 box.wrap = doc.wrap
-box:place(12, kBarRow + 8)
+-- **Three steps of the system's body**: the glass holds a document and not a page of a book, so the text is smaller
+-- than the title of a page on purpose —twenty-seven pixels a row is twenty-nine rows of a code file where the size of
+-- the glass would show twenty-two— (docs/30, docs/92).
+box.scale = 3
+box:place(0, kBarRow)
 -- **The finger that walks the box moves the window and the bar on the right**: the app registers the gesture with
 -- `on_swipe` and the system does the arithmetic —it writes the `top` of the box and presents the page—, and all that is
 -- left here is saying where the person is inside the file, which is what the line under the page can do
@@ -344,13 +380,20 @@ box.on_change = function(self, text)
   ui.present('gld16')
 end
 
-note = ui.label(view.width - 24, kNoteH)
+-- **The caption under the page, at two steps** (0.108.0): the note in the dim tone of a secondary word and the state in
+-- the ink, both of them centred in their line (docs/30, docs/92).
+note = ui.label(view.width - 12, kNoteH)
 note.text = ''
-note:place(12, view.height - kStatusH - kNoteH - 12)
+note.scale = kSmall
+note.color = 8
+note.valign = 'middle'
+note:place(6, view.height - kStatusH - kNoteH)
 
-status = ui.label(view.width - 24, kStatusH)
+status = ui.label(view.width - 12, kStatusH)
 status.text = status_text()
-status:place(12, view.height - kStatusH - 6)
+status.scale = kSmall
+status.valign = 'middle'
+status:place(6, view.height - kStatusH)
 
 bar = ui.menu_bar(view.width, kBarRow)
 bar.bar_height = kBarHeight
@@ -425,10 +468,39 @@ end
 
 bar.on_pick = function(self, title, entry) on_choice(title, entry) end
 
--- **The page as it starts**: the path the prompt named, or an empty page with the keyboard up. `app.args.path` is
--- the only path the prompt has granted and the one Save writes without asking (docs/30, docs/70).
+-- **The sample page in the ground of the app**: shipped in `/res`, copied once, and then it is a file like any other
+-- —edited, saved and reopened—. A page with nothing to read is an editor nobody can try (docs/30, docs/70).
+local function make_sample()
+  local ground = fs.data()
+  local path = fs.data(kSampleName)
+  if path == nil then return nil end
+  local there = fs.stat(path)
+  if there ~= nil and there.size ~= nil and there.size > 0 then return path end
+  local data = fs.read(kSampleFrom)
+  if data == nil then
+    console.print('editor: no ' .. kSampleFrom .. ' to copy')
+    return nil
+  end
+  -- **The ground of the app has to be there before a file goes in it**: a write is a temporary file and a rename in
+  -- the folder that holds it, and the folder of an app that has never written is not created by itself (docs/70).
+  if ground ~= nil then pcall(fs.mkdir, ground) end
+  if fs.write(path, data) == nil then
+    console.print('editor: cannot copy the sample into ' .. path)
+    return nil
+  end
+  console.print('editor: the sample page is ' .. path .. ', ' .. #data .. ' bytes')
+  return path
+end
+
+-- **The page as it starts**: the path the prompt named, or the sample with the keyboard up. `app.args.path` is the
+-- only path the prompt has granted and the one Save writes without asking (docs/30, docs/70).
 if app.args ~= nil and app.args.path ~= nil and app.args.path ~= '' then
   load(app.args.path)
+else
+  local sample = make_sample()
+  if sample ~= nil and load(sample) then
+    doc.note = 'the sample page, copied in the ground of the app'
+  end
 end
 layout()
 resume()

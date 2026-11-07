@@ -2087,6 +2087,11 @@ El que canvia és què fa amb un text que no hi cap.
   arriba sencer a `on_change(self, text)` després de cada tecla, i **`box:rows()`** diu quantes files s'hi veuen, preguntat
   a la mateixa aritmètica del dibuix. **`box:lines()`** diu quantes files té el text sencer, que és el que una app vol
   per dir «fila 12 de 40» a la seva línia d'estat (0.88.0).
+- **Un text que s'acaba en un salt de línia té una fila més** (0.108.0): el cursor d'una caixa de text pot ser **darrere
+  de l'últim byte**, i si aquest byte és un `\n` el cursor és al començament d'una fila que encara no té cap lletra —
+  l'estat de qualsevol document just després de l'enter que va obrir-ne l'última línia—. Abans aquesta fila no es
+  comptava, el cursor del final no pertanyia a cap fila del recorregut i es pintava **a la primera**, sobre les
+  paraules del document, mentre el text creixia a sota. `box:lines()` ho diu: `one\ntwo\n` són **tres** files.
 
 #### La barra del desplaçament i el gest (0.88.0)
 

@@ -3126,7 +3126,13 @@ void multiline_measure(const font::Face& face, const char* at, int32_t room, uin
     (void)span;
     at += taken;
     offset += taken;
-  } while (at[0] != '\0' && row < 4096);
+    // **A text that ends in a break has a row after it** (0.108.0): the last byte of the text being a `\n` means the
+    // cursor can be at the start of a row that has no letters, which is the state of a document right after the enter
+    // that ended its last line. Without that row the caret of the end of such a text belonged to no row of the walk and
+    // was drawn in the first one, over the words of the document —the text grew and the block stayed at the top, which
+    // is what the owner saw with the board in his hand (docs/90, docs/92).
+    if (taken == 0) break;
+  } while (at[0] != '\0' || (offset > 0 && at[-1] == '\n'));
   out.total = row;
 }
 
