@@ -365,7 +365,7 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // first —after the app is closed and before the chip stops— so a person finds the reason it went dark instead of
   // the last page of an app that is no longer there. A light sleep is a nap and paints nothing: the board keeps what
   // it has and is back in a moment (docs/30, docs/50, docs/92).
-  if (mode == hal::SleepMode::kDeep) splash::show(splash::kShutdown);
+  if (mode == hal::SleepMode::kDeep) splash::show(splash::kPowerOff);
   const bool back = g_power->sleep(mode, until);
   if (!back) return false;
   // A board that answers slept lightly (or is the emulator): what it was told is

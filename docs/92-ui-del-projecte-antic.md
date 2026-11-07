@@ -859,10 +859,10 @@ de la memòria extra de la mida del que hi cap; el fitxer sencer i el bloc de de
 extra i es tornen quan la imatge és al vidre.
 
 **Els moments són paraules i la paraula és el nom del fitxer**: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i
-`/res/splash.png` per a tots. `boot`, `shutdown`, `charging` i `sleep` són els quatre moments del sistema, i el banc
-porta **tres imatges de 460 × 200** fetes amb la tipografia del sistema (`boot.png`, `shutdown.png`, `charging.png`);
-`sleep` no en té, i això és el que la prova fa servir per veure que un moment sense imatge **no pinta res i diu per
-què**.
+`/res/splash.png` per a tots. En la 0.111.0 eren **quatre** —`boot`, `shutdown`, `charging` i `sleep`— i el banc
+portava **tres imatges de 460 × 200** fetes amb la tipografia del sistema (`boot.png`, `shutdown.png`,
+`charging.png`); `sleep` no en tenia, i això és el que la prova fa servir per veure que un moment sense imatge **no
+pinta res i diu per què**. La 0.114.0 els va portar a **sis** i va canviar `boot.png` pel logotip: vegeu §29.
 
 **On s'encén**: a `kernel::boot`, just després de `display::boot` (el panell acaba d'arrencar i no hi ha res més al
 vidre); i a `power::sleep`, abans que el xip parin els rellotges, **només en un son profund** —un son lleuger és una
@@ -921,3 +921,287 @@ píxels** (de la fila 863 a la 887), **anelles de 19 amb dos píxels de tinta** 
 `controls` ensenya dues anelles de 19 i una bola sòlida de 25 amb el pal de 3 al mig. Les proves dels punts s'han
 reapuntat amb els números de l'original (box de 200 × 37: centres a 67, 99 i 131, fila dels centres la 12, l'aire de
 sota fins a la 36) i la suite sencera està verda.
+
+## 28. El document de l'editor i el dit (0.113.0)
+
+**La queixa de l'amo**: *«No aconsegueixo fer scroll al document de l'Editor»*. I la caixa de diverses línies tenia
+gest des de la 0.88.0: el que faltava no era el gest sinó les condicions que el fan segur.
+
+**Què hi havia fins a la 0.112.0.** El sistema buscava el control que el dit va tocar en baixar, li donava el focus,
+s'apuntava el `slot` i la `generation` i pintava. A cada moviment tornava a buscar el control per aquella parella i, si
+el trobava, movia la finestra. **No preguntava res més**: ni si el control tenia el focus encara, ni si el dit era dins
+del rectangle de la caixa, ni si l'app havia donat el control de baixa pel camí. I `box:release()` i el col·lector
+deixaven el gest viu: el dit podia seguir movent un `slot` que ja era d'un altre control.
+
+**Què fa ara.**
+
+1. **El focus i el rectangle, a cada moviment.** Si el control ha perdut el dial (`focused` fals) o el dit ha sortit del
+   rectangle de dibuix de la caixa, el gest s'atura i les files que havia recorregut es perden.
+2. **Una caixa que es deixa anar es queda sense gest.** `release()` i el `__gc` criden el mateix oblidador, que neteja
+   el contacte, el gest i el cursor que esperava. I el contacte queda marcat com a **orfe** (`g_ui_touch_orphan`) fins
+   que el dit s'aixeca: la caixa que l'app construeixi al mateix lloc **no** rep el swipe d'un contacte que va començar
+   a la que s'ha anat.
+3. **El teclat també.** Si la caixa que es deixa anar és la que escrivia el teclat, el teclat es queda sense objectiu:
+   una referència a un `slot` que es recicla és un número que aviat vol dir un altre control.
+4. **El `wrap` ja comptava i ara ho diu una prova.** `multiline_layout` i `textbox_multiline_scroll` reben el `wrap` de
+   la caixa des de la 0.88.0, i `ui_swipe_by` el llegeix del camp; el que faltava era una prova que ho mesurés. Amb deu
+   línies de quaranta lletres en una caixa de 200 × 100 a escala 2: **11 files** sense `wrap` (les deu línies i la fila
+   buida del salt final, 0.108.0), **més files amb `wrap`**, **6 files que s'hi veuen**, el **polze més curt** amb
+   `wrap` que sense, i l'**última finestra** a `total − 6` en tots dos casos, que és on el dit s'ha d'aturar.
+
+**També s'ha trobat, i s'ha arreglat després** (0.116.0): aleshores `ui.focus(box)` **no feia res**, perquè `ui.focus`
+camina els controls del dial i una caixa de text no n'era una parada (`ui_target_is_focusable` la deixava passar només
+amb el dit a sobre). La 0.116.0 fa que la caixa sigui una parada del dial i `ui.focus(box)` funciona; la prova d'aquest
+torn fa servir un botó perquè en aquell moment no hi havia cap altra manera.
+
+**Les proves noves**: `test_the_document_of_the_editor_scrolls_with_a_finger` (arrenca l'editor del disc, que copia la
+seva mostra de `/res`, i el fa rodar amb el dit), `test_a_swipe_only_moves_the_box_that_has_the_dial`,
+`test_a_swipe_that_leaves_the_box_stops_where_it_left_it`, `test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows`
+i `test_the_bar_and_the_window_of_a_box_of_lines_count_the_rows_of_the_glass` al nucli.
+
+**Mesurat aquest torn**: amb el teclat obert la pàgina de l'editor és de **540 × 656** i la banda del teclat de **256**
+px (ho diu la consola de l'app: `editor: view 540x656 band 256`), i el dit que camina la caixa fa dir a l'app
+`editor: row N of M`. **La suite sencera queda pendent de passar** en el moment d'escriure això: són **458** casos
+(453 i cinc de nous) i les trencades per provar són treure el guard del focus (la prova del dial s'ha de posar
+vermella) i treure el marcatge del contacte orfe (la prova de la baixa ha de veure el `fresh`).
+
+## 29. El logotip, els sis moments i la splash d'una app (0.114.0)
+
+**El que va demanar l'amo**: *«El logo de lunokOS ha de ser una lluna plena realista amb la paraula "lunok" dins la
+lluna i "OS" sobresortint per la dreta de la lluna amb el color invertit (sobre la lluna text negre amb vores
+blanques) fora de la lluna text blanc amb vores negres. Fes una versió alternativa amb la luna en plan clipart. Les
+provarem ambdues.»* I, en el torn següent, l'aclariment que va canviar el dibuix: *«en quant a la lluna realista, em
+refería a una foto amb el fons blanc»*.
+
+**El logotip són dues tintes i una paraula.** «lunok» va **dins** de la lluna: tinta amb vora de paper, perquè el disc
+és un gris clar i la vora blanca és el que fa que la lletra segueixi sent una lletra allà on hi ha un cràter fosc.
+«OS» va **fora**: paper amb vora de tinta, perquè una lletra blanca sobre paper no és res sense la vora. La unió de la
+paraula és la vora del disc, o sigui que és la lluna la que separa les dues meitats, i el gruix de la vora és de **tres
+píxels**: amb quatre la vora s'empassa la lletra i «OS» surt tota de tinta (mesurat: la tija d'una lletra aquí fa nou o
+deu píxels).
+
+**La versió «realista» és una fotografia.** És la imatge **`as11-44-6667`** de la NASA —la lluna plena fotografiada des
+de l'Apollo 11—, que és una obra del govern dels Estats Units i, per tant, de domini públic: el cel negre s'hi treu
+(retallant el disc, que és el que el cinturó de brillantor diu on és) i el paper del sistema hi va al darrere. No té
+res a veure amb la primera versió que vaig fer, que era una esfera pintada per mi: l'amo va dir que volia una foto, i
+una foto és el que hi ha. La segona versió és el mateix logotip amb la lluna **en clipart**: disc pla, contorn gruixut,
+cràters que són cercles i quatre estrelles de quatre puntes; els cràters no cauen dins de la banda on passa la paraula
+perquè una taca sota una lletra es llegeix com a part de la lletra.
+
+**Les dues imatges les dibuixa `tools/make_splash_images.py`**, que també escriu `reboot.png` en l'estil pla de
+`poweroff.png` i `charging.png` (la paraula, una ratlla, la línia de sota). La fotografia es baixa **un cop** i es
+deixa a `~/.cache/lunokOS/`: el repositori guarda el que en surt —`boot.png` de **18,8 KB**— i no els 160 KB de la foto
+de ningú.
+
+**Els moments passen de quatre a sis**, i són les paraules que una persona escriu: `boot`, `boot-alt` (el logotip en
+clipart, que és un moment propi i no un commutador del dibuix, perquè una imatge és un fitxer i un fitxer és una
+paraula), `poweroff` (era `shutdown`), `reboot`, `charging` i `sleep`. `poweroff` i `reboot` s'encenen **de debò**: el
+`poweroff` de la consola, abans de tallar el corrent, i el `reboot`, abans de reiniciar; i el son profund, que ja ho
+feia, ara pinta `poweroff`. `sleep` continua sense imatge, i és el cas que la prova fa servir.
+
+**I una app pot tenir la seva**: `"splash": "res/logo.png"` al `manifest.json`. El sistema, quan arrenca una app de
+Lua, pinta la imatge amb la mateixa crida dels moments —neteja de tot el panell i al mig, sense escalar— i després
+arrenca l'intèrpret; la primera pàgina que l'app presenta se l'emporta. És el sistema i no l'app qui la pinta perquè
+una app no pot pintar abans d'existir. Un nom que surti del directori de l'app (`/`, `..`) es descarta amb una línia
+al registre, i un nom que hi és però no és cap imatge no impideix res: **el dibuix és decoració i l'app arrenca
+igual**.
+
+**Les proves escrites**: `test_the_splash_paints_a_picture_in_the_middle_of_the_glass` repassa ara els sis mots
+(`count()` és **6**, `kind_of("boot-alt")` no és `boot`, i `word(kBootAlt)` és `boot-alt`) i
+`test_an_app_that_names_a_picture_has_it_painted_before_it_starts` arrenca una app del banc amb `"splash"` i mira el
+vidre: els dos píxels de la imatge al mig del panell i el paper a la vora, la tinta d'un racó esborrada per la neteja,
+i una app sense el camp que deixa el racó amb la tinta com era.
+
+**Pendent**: passar la suite (les proves d'aquest torn i les de la 0.113.0, que encara no han corregut) i mirar les
+dues imatges al vidre de debò, que és el que l'amo vol provar.
+
+## 30. El logotip a l'arrencada, el més aviat possible i triat per la persona (0.115.0)
+
+**El que va demanar l'amo**: *«El logo s'ha de veure a l'iniciar el sistema en cas de que el dispositiu tingui
+algun tipus de pantalla. Usa la comanda splash boot per mostrar aquest boot splash. La comanda cfg ha de tenir una
+opció per mostrar "boot" o "boot-alt" al iniciar el sistema. L'splash del boot s'ha d'arrencar el mes aviat
+possible als dispositius amb pantalla.»*
+
+**El logotip ja hi era, però no era el primer que passava.** Fins a la 0.114.0 `display::boot` i la splash eren
+**al mig** de l'arrencada: després de les alarmes, de la ràdio, de la llum, del botó, del sensor, de l'aire i del
+tàctil. O sigui que la placa encenia el panell quan ja havia fet mitja feina, i la persona mirava un vidre blanc
+mentre tot allò passava. Ara **el panell i el logotip són el primer que fa el sistema després de tenir les eines
+per fer-ho**: els muntatges (el dibuix és un fitxer) i els ajustos (el dibuix és el que la persona ha triat) van
+davant, i la resta del maquinari —les alarmes que han sobreviscut al tall, la ràdio, la llum, el botó, el sensor,
+l'aire, el tàctil, la barra— es fa **mentre el vidre ja diu lunokOS**. És literalment la mateixa crida que fa la
+comanda `splash boot` (`splash::show(kind_of(cfg::boot_splash()))`), que és el que l'amo va demanar: una manera de
+pintar-lo i no dues. Una placa sense pantalla contesta `no glass` i la línia queda al registre de depuració,
+perquè no hi ha cap altre lloc on dir-ho.
+
+**La tria és un ajust del sistema, com el de la unitat i el del teclat.** `cfg boot` llista els dos dibuixos amb el
+mot, el camí de la imatge que el disc té per a cada un i una estrella al que surt ara:
+
+```
+lunok> cfg boot
+cfg: boot pictures are
+  * boot  /res/splash/boot.png
+    boot-alt  /res/splash/boot-alt.png
+lunok> cfg boot boot-alt
+settings: boot boot-alt
+```
+
+Va a l'NVS (`cfg/boot`) i sobreviu a un reinici; un mot que aquest build no té es **refusa allà on s'escriu** (amb
+la llista), i el que hi havia es queda. **És una paraula i no un camí**, i això és una decisió i no una comoditat:
+el que es desa és un dels mots de la splash, i un camí a l'ajust seria una manera de fer que el primer alè de la
+placa obrís qualsevol fitxer del disc. El mot es pregunta a la mateixa llista de moments de la splash
+(`is_a_boot_word`), i no a una segona llista que podria divergir: quan hi hagi un tercer dibuix, només caldrà que
+sigui un moment del boot.
+
+**Mesurat a l'emulador**, amb la targeta i l'NVS a `emulator/`:
+
+```
+[I][CFG] /cfg on sd (asked for sd), keyboard qwerty, boot boot-alt
+[I][SPLASH] /res/splash/boot-alt.png, 460x200 at 40,380
+[I][BOOT] board=m5stack-paper caps=16/19
+```
+
+O sigui que la splash surt **abans** de la línia que diu què té la placa, que fins ara era de les primeres; el
+bolcat del vidre ensenya el clipart al mig del panell i el paper a les vores; i `cfg boot boot` el torna a la
+fotografia. La prova del banc (`test_the_boot_paints_the_drawing_the_settings_chose`) escriu dos BMP de dos per dos
+—el mateix dibuix de cap per avall— amb els dos noms, tria el mot, arrenca el sistema i llegeix **el píxel del mig
+del vidre**: blanc sobre negre amb `boot-alt` i negre sobre blanc amb `boot`, i a més el refús de `charging` (un
+moment que no és un dibuix del logotip) i que la tria sobreviu a un `cfg::boot`.
+
+## 31. Entrar a una caixa, el cursor sense banda i la vora que no hi és (0.116.0)
+
+**El que va demanar l'amo**: *«Si un control multiline esta en mode read only no s'ha de mostrar el teclat quan el Text
+multiline reb el focus. El cursor si que hi ha de ser en qualevol cas. El Control Multiline te una vora per defecte, en
+aquesta app no vull que hi sigui, fes que el control tingui opció per mostrar vora o no. També que el "read only" ha de
+ser una propietat del control Multiline, que no aixecarà el teclat en cas de rebre focus. El control de text d'una sola
+linia igual. Quan el control de text d'una sola linia reb el focus, com el control Slider, s'ha de polsar el botó central
+per "entrar" al control i poder usar els botons físics per avançar el cursor o anar enrrere. El control multiline igual,
+però amb linies, cada toc dels botons físics puja o baixa una linia. Revisa l'app lua Editor per si els canvis li
+afecten.»*
+
+**El cursor era del teclat i ara és del focus.** Fins a la 0.115.0 el bloc d'una caixa vivia de la banda: `caret_poll`
+no feia res si el teclat no era al vidre i `kb:hide()` apagava el cursor. Amb un camp de només lectura això és
+exactament el contrari del que ha de passar —la pàgina es llegeix i el cursor és on és la persona—, o sigui que la regla
+és ara la del focus: **una caixa que té el focus té el cursor**, amb banda o sense, i el bloc s'apaga quan el focus se'n
+va (o quan l'app l'oblida). `kb:hide()` amaga les lletres i no el lloc.
+
+**`readonly` és una propietat de la caixa**, i el sistema la pregunta abans de posar cap banda: `ui_box_keyboard` contesta
+que la caixa **no vol tecles** quan el camp és cert, i el camí del cursor la deixa passar igualment. Val per a les dues
+caixes, la d'una línia i la de diverses. Abans, l'editor deia `box.keyboard = false` i s'emportava el bloc amb el
+teclat.
+
+**El dial s'atura a una caixa de text** (i això canvia una regla de la 0.85.2: *una caixa de text és un objectiu del dit
+i no del dial*). El motiu és el que demana l'amo: per entrar-hi amb el centre primer s'hi ha de poder arribar, i una
+placa amb tecles i sense tàctil no hi arribava de cap manera. El dial hi cau amb el cursor i **sense banda**; la banda és
+el que compra el centre. `ui.focus(box)` també funciona des d'aquesta versió (era la limitació que la 0.113.0 va deixar
+escrita a docs/30).
+
+**El centre entra i surt de la caixa** (`editing`), i dins seu **les dues tecles del dial són el cursor**:
+
+- una línia → una **lletra** a cada tecla, i una lletra és un punt de codi i no un byte (`textbox_caret` al nucli, i
+  l'accent de «el meu fitxer» no es parteix);
+- diverses línies → una **fila** a cada tecla (`textbox_multiline_row` al nucli), i la fila és la que el vidre ensenya:
+  amb `wrap` una línia llarga són més files. La columna es queda tan a prop com la fila permet i a les puntes el cursor
+  es queda quiet;
+- `top` torna a `-1` quan el cursor es mou amb una tecla, i **l'app ho sent a `box.on_move(self, cursor)`** abans que el
+  sistema pinti, perquè les seves paraules de sota la pàgina surtin a la mateixa passada.
+
+L'aritmètica és al nucli i no a l'app pel mateix motiu que el valor d'un slider: una fila depèn de la tipografia i de la
+finestra, i una app que en tingués una còpia dibuixaria el bloc on la pintada no és.
+
+**I `framed = false` treu la vora.** El control pinta la vora en `border` i l'interior en `background`, o sigui que un
+marc del color de dins no és cap marc: luabind dona el segon com a primer quan la bandera és falsa, i el paper arriba
+fins a la vora. És una bandera i no un quart color perquè el que una app vol dir és «sense vora».
+
+**L'editor, repassat**: `box.framed = false` (el document és tota la pàgina), `box.readonly = doc.readonly` en lloc de
+`box.keyboard = ...`, i un `on_move` que actualitza la fila de la línia de sota sense presentar (el sistema pinta).
+La pàgina de l'editor, mirada al vidre de l'emulador, ja no té cap marc i el text arriba a la vora esquerra.
+
+**Les proves escrites**: `test_the_dial_stops_on_a_text_box_and_the_centre_enters_it` (la regla nova, amb la banda
+apagada en arribar i encesa en entrar, i el botó encara abastable), `test_a_read_only_box_has_a_caret_and_never_a_band`
+(les dues caixes), `test_the_keys_walk_the_rows_of_a_box_the_centre_entered` (files 4 i 8 d'un text de tres línies, i
+abans del centre el cursor no es mou), `test_the_keys_walk_the_letters_of_a_line` i
+`test_a_box_without_a_frame_leaves_its_edge_in_paper` (la vora del control a la tinta i la del sense vora al paper).
+
+**Pendent**: passar la suite sencera —les cinc proves d'aquest torn i les de la 0.113.0, la 0.114.0 i la 0.115.0, que
+encara no han corregut— i tocar-ho amb el dit i amb el dial a la placa, que és el que l'amo vol veure.
+
+## 32. Un slider es toca després d'entrar-hi (0.117.0)
+
+**El que va demanar l'amo**: *«Quan un slider rep el focus, pujar i baixar amb els botons físics significa continuar amb
+el funcionament normal del focus. Certs controls s'han d'activar (botó central) per poder-los usar: per pujar o baixar el
+valor del slider, perdent els botons per canviar el focus. Per controls que tinguin un comportament similar al slider. Al
+rebre el focus, els botons continuarán com sempre (canviant focus) s'ha de polsar el botó central per "entrar" al slider
+i llavors si escollir el valor amb els mateixos dos botons (amunt/avall). El botó central torna els botons físics al
+sistema i torna a servir per moure el focus.»*
+
+**Fins a la 0.116.0 el slider prenia les fletxes pel sol fet de tenir el focus** (`ui_step_value`), i la regla era la del
+projecte del paper: un control que té un valor es deixa moure i, quan no pot més, torna la tecla al caminar. El resultat,
+en una pàgina amb un slider al mig, és que **les tecles de caminar no hi eren**: les fletxes movien el número quan la
+persona volia anar al control de baix.
+
+**Ara el focus és el focus i el centre és la porta**, que és la mateixa forma que la 0.116.0 va donar a les caixes de
+text:
+
+- amb el slider enfocat, amunt i avall **continuen caminant el dial**;
+- **el centre l'entra** (`editing` és cert dins), i les dues tecles són el número, de `step` en `step`, amb
+  `on_change(self, value)` a cada moviment —la resta del camí del valor no canvia: `min`, `max`, `top`, els extrems que
+  tornen la tecla... res d'això no s'ha tocat, només quan hi arriba;
+- **el centre en surt** i les tecles tornen al sistema. L'app sent les dues presses per `on_click(self)`, o sigui que un
+  slider amb un callback no perd res i a més pot llegir `self.editing` per saber per què li arriba;
+- **`editing` s'apaga sol** quan el dial se'n va a un altre control: qui torna ha de dir «entrar» una altra vegada.
+
+**La regla és una funció i no un cas** (`ui_enters_to_move`): el que ha de complir un control per entrar-hi és **no tenir
+cap acció pròpia al botó central**. Avui és el slider i prou. Un **menú**, una **targeta**, un **calendari**, una
+**graella** i una **llista** trien alguna cosa amb el centre: entrar-hi trauria a aquest botó el significat que ja té, i
+això és un altre canvi i no aquest. Queda dit aquí perquè la llista de «controls semblants al slider» sigui una decisió
+i no una endevinalla.
+
+**La prova escrita**: `test_a_slider_takes_the_keys_only_after_the_centre` —amb el slider enfocat, avall no imprimeix
+cap `value`; el centre imprimeix `click slider true`; avall dues vegades dona `value 6` i `value 7`; el centre imprimeix
+`click slider false`; i avall ja no mou el número. Compilada, no executada: la suite sencera continua pendent del permís
+de l'amo.
+
+## 33. La pila que la placa va trobar i la pàgina d'imatges al dia (0.118.0)
+
+L'amo va portar el log de la placa, i no era una petició d'interfície sinó un reinici:
+
+```
+lunok> run images
+***ERROR*** A stack overflow in task loopTask has been detected
+```
+
+…després de tres fotos. I amb el log, dues preguntes: **«el carregador d'imatges usa PSRAM?»** i
+**«aprofita per modernitzar l'app `images` amb els controls UI nous i les seves mecàniques»**.
+
+**La resposta a la primera és sí i no, i el «no» era el que petava.** El fitxer i el bloc de treball sí que
+venien de la memòria extra (`pal::extra_memory()`, docs/75); el que no hi era era **l'estat dels
+descodificadors**, que vivia en variables locals, o sigui a la pila de la tasca de l'app. El GIF era el pitjor:
+la taula del LZW (12 288 B), la cadena (4 096 B) i una fila de còpia (2 048 B) contra els **7 320 B lliures**
+que la mateixa tasca diu en arrencar. Cada família té ara dues funcions —`*_state_at` i `*_state_bytes`—, el seu
+estat va al bloc del cridador darrere del que la imatge ja demanava, i la fila que es dona al `RowSink` també hi
+va. Mesurat amb `-fstack-usage` (docs/75 té la taula): **GIF 16 656 → 256 B, JPEG 6 432 → 912 B, PNG 2 320 →
+256 B, BMP/ICO/PNM ~2 280 → ~220 B**. I `tools/check_stack.py` ho vigila, perquè aquesta mena de número no la
+veu ni el compilador ni l'emulador fins que la placa reinicia.
+
+**L'app d'imatges passava a ser de les velles**: nou botons de res, un text al mig i tres botons de
+`back`/`quit`/`next` que caminaven el menú d'una en una. Ara és una pàgina de controls de debò:
+
+- **una graella de nou cel·les** (`ui.icon_grid`) amb la marca d'una o dues lletres i l'extensió del fitxer sota:
+  el dial **camina les cel·les**, la cel·la triada s'inverteix, la del dial porta l'anell i **el centre tria** amb
+  `on_pick`. Els nou formats no es recorren d'un en un a cops de botó sinó com el que són, un menú de nou.
+- **la caixa de sota la imatge és de només lectura i sense vora** (`readonly` i `framed = false`, 0.116.0): porta
+  les xifres del format i la frase que diu per a què serveix. **El centre hi entra i les fletxes en caminen les
+  files**, i el teclat no puja mai; el cursor hi és, que és el que diu que allò és un lloc on una persona és.
+- **una tira de punts** (`ui.dots`, 0.112.0) diu on ets de les nou, on abans hi havia un `1 / 9` pintat amb
+  `ui.text`.
+- **un sol botó**, `quit`; el `back` i el `next` no hi són perquè la graella ja és el camí.
+
+I un detall trobat amb la pàgina a la mà de l'emulador: a `scale` 3 el nom de la cel·la `bmp8` es tallava a
+`bm...`. Una graella de cinc columnes dona **103 px de cel·la** i el nom va a `scale` 2, el text dens del paper:
+un nom de format tallat amb tres punts no és el nom d'un format.
+
+**Les proves escrites i compilades, sense executar**: `test_a_block_that_is_smaller_than_the_picture_needs_is_refused`
+(cada família demana bloc, un byte menys és `kNoRoom`, i el número que demana és exactament el que necessita) i
+`test_the_page_of_pictures_walks_its_nine_families` (l'app del disc, arrencada de debò: `9 pictures, 1 drawn, 0
+failed`, tres premses de dial fins a la graella i el centre que canvia la imatge a la segona família). La suite
+sencera continua pendent del permís de l'amo.

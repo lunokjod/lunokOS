@@ -56,10 +56,13 @@ struct RowSink {
   void* ctx;
 };
 
-// **What the decoder needs besides the file**, in bytes: a PNG has to be inflated into something and a
-// JPEG keeps a band of samples for each component. Zero is a picture that is read where it lies (a BMP, a
-// GIF, a netpbm). It is asked before the file is read, so the caller allocates once and knows the price of
-// the picture it is about to load (docs/75).
+// **What the decoder needs besides the file**, in bytes: a PNG has to be inflated into something, a JPEG
+// keeps a band of samples for each component, and every family builds the row it hands to the sink. **The
+// state of a decoder lives in this block and not on the stack** (0.118.0): the table of a GIF is twelve
+// kilobytes, the header of a JPEG three and a half, and the task that runs an app has six or seven —the
+// board answered a page of pictures with a stack overflow in `loopTask`—. It is asked before the file is
+// read, so the caller allocates once and knows the price of the picture it is about to load; a block
+// smaller than this number is refused with `kNoRoom` and never written past (docs/75, docs/85).
 uint32_t scratch_bytes(const uint8_t* data, uint32_t len);
 
 // Reads the header only: the size, the depth and the family, for an app that wants to lay a picture out

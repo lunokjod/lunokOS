@@ -28,10 +28,17 @@ namespace splash {
 // **The moments this system has a picture for.** The word of each one is what names its file, and the
 // list is the one place a moment is added: a picture called `charging.png` is the charging moment of a
 // build that knows the word, and a file of a word nobody knows is a file nothing looks for (docs/30).
+//
+// **The words are the ones a person types** (0.114.0): `boot`, `boot-alt`, `poweroff`, `reboot`,
+// `charging` and `sleep`, which are the six of the command and the ones a manifest may name. `boot-alt`
+// is the second drawing of the logo —the one the owner wanted to see beside the photograph of the Moon—
+// and it is a moment of its own and not a switch of the paint: a picture is a file, and a file is a word.
 enum Kind : uint8_t {
   kNone = 0,
-  kBoot,       // coming up, before the first page
-  kShutdown,   // going down: a deep sleep or a power off
+  kBoot,       // coming up, before the first page: the logo, cut out of a photograph of the Moon
+  kBootAlt,    // the same moment with the logo drawn as clipart
+  kPowerOff,   // going down: a deep sleep, the power off, the board that stops
+  kReboot,     // the board is being restarted under a person's hand
   kCharging,   // on the cable, waiting
   kSleep,      // a light sleep, where the board keeps what it has
 };

@@ -8,6 +8,8 @@
 // the caller gave, and then those rows are turned into grey and written to the sink, which is what lets a
 // photograph of a megapixel be read on a board whose heap is smaller than the picture (docs/30, docs/75).
 #include <math.h>
+#include <new>
+#include <string.h>
 
 #include "img_private.h"
 
@@ -40,21 +42,33 @@ struct Component {
   int32_t predictor = 0;
 };
 
-struct Header {
+// **The frame of the picture and its tables are two things** (0.118.0): the frame is the numbers a page is laid out
+// with —a dozen words— and the tables are what makes a decoder, three kilobytes of them. Asking the size of a picture
+// and the block it needs is a question about the frame alone, so it costs the stack a frame and not a header; the
+// tables are the decoder's and they live in the block the caller gave (docs/75).
+struct Frame {
   uint32_t width = 0;
   uint32_t height = 0;
   uint32_t components = 0;
   Component comp[kMaxComponents];
   uint32_t max_h = 1;
   uint32_t max_v = 1;
+  uint32_t restart_interval = 0;
+  uint32_t entropy_at = 0;  // where the bits of the first scan start
+};
+
+struct Tables {
   uint16_t quant[4][64];
   bool have_quant[4] = {false, false, false, false};
   Huffman dc[4];
   Huffman ac[4];
   bool have_dc[4] = {false, false, false, false};
   bool have_ac[4] = {false, false, false, false};
-  uint32_t restart_interval = 0;
-  uint32_t entropy_at = 0;  // where the bits of the first scan start
+};
+
+struct Header {
+  Frame frame;
+  Tables tables;
 };
 
 // **A Huffman table, made canonical** (ITU T.81, C.2): the file gives the lengths and the values, and the codes
@@ -239,8 +253,10 @@ bool one_block(Bits& bits, const Huffman& dc, const Huffman& ac, const uint16_t*
 }
 
 // The header of the file, walked marker by marker until the first scan: the numbers a picture is made of
-// (ITU T.81, B.2).
-Status read_header(const uint8_t* data, uint32_t len, Header& out) {
+// (ITU T.81, B.2). **`tables` says whether the decoder is coming**: a caller that only wants the size of the
+// picture —and the block it needs— passes nothing, and the tables of the file are walked past and not kept, which
+// is three kilobytes of stack that the question does not cost (0.118.0, docs/75).
+Status read_header(const uint8_t* data, uint32_t len, Frame& out, Tables* tables) {
   Cursor cursor{data, len, 2};  // past the SOI
   while (true) {
     uint8_t marker = 0;
@@ -326,9 +342,11 @@ Status read_header(const uint8_t* data, uint32_t len, Header& out) {
           if (body_cursor.at + total > end) return kBadData;
           const uint8_t* values = data + body_cursor.at;
           if (!body_cursor.skip(total)) return kBadData;
-          Huffman& table = (table_class == 0) ? out.dc[table_id] : out.ac[table_id];
-          if (!build_huffman(table, counts, values, total)) return kBadData;
-          ((table_class == 0) ? out.have_dc[table_id] : out.have_ac[table_id]) = true;
+          if (tables != nullptr) {
+            Huffman& table = (table_class == 0) ? tables->dc[table_id] : tables->ac[table_id];
+            if (!build_huffman(table, counts, values, total)) return kBadData;
+            ((table_class == 0) ? tables->have_dc[table_id] : tables->have_ac[table_id]) = true;
+          }
         }
         break;
       }
@@ -343,16 +361,18 @@ Status read_header(const uint8_t* data, uint32_t len, Header& out) {
           if (table_id > 3 || precision > 1) return kBadData;
           const uint32_t bytes = (precision == 0) ? 64 : 128;
           if (body_cursor.at + bytes > end) return kBadData;
-          for (uint32_t i = 0; i < 64; ++i) {
-            if (precision == 0) {
-              out.quant[table_id][i] = data[body_cursor.at + i];
-            } else {
-              out.quant[table_id][i] = static_cast<uint16_t>((data[body_cursor.at + i * 2] << 8) |
-                                                             data[body_cursor.at + i * 2 + 1]);
+          if (tables != nullptr) {
+            for (uint32_t i = 0; i < 64; ++i) {
+              if (precision == 0) {
+                tables->quant[table_id][i] = data[body_cursor.at + i];
+              } else {
+                tables->quant[table_id][i] = static_cast<uint16_t>((data[body_cursor.at + i * 2] << 8) |
+                                                                   data[body_cursor.at + i * 2 + 1]);
+              }
             }
+            tables->have_quant[table_id] = true;
           }
           body_cursor.skip(bytes);
-          out.have_quant[table_id] = true;
         }
         break;
       }
@@ -392,9 +412,13 @@ Status read_header(const uint8_t* data, uint32_t len, Header& out) {
         }
         if (spectral_start != 0 || spectral_end != 63 || approximation != 0) return kUnsupported;
         out.entropy_at = body_cursor.at;
-        for (uint32_t c = 0; c < out.components; ++c) {
-          if (!out.have_dc[out.comp[c].dc] || !out.have_ac[out.comp[c].ac]) return kBadData;
-          if (!out.have_quant[out.comp[c].quant]) return kBadData;
+        // **A picture whose scan names a table that is not in the file is broken**, and only a decoder can say so:
+        // the caller that asked for the size did not keep the tables (0.118.0).
+        if (tables != nullptr) {
+          for (uint32_t c = 0; c < out.components; ++c) {
+            if (!tables->have_dc[out.comp[c].dc] || !tables->have_ac[out.comp[c].ac]) return kBadData;
+            if (!tables->have_quant[out.comp[c].quant]) return kBadData;
+          }
         }
         return kOk;
       }
@@ -405,18 +429,18 @@ Status read_header(const uint8_t* data, uint32_t len, Header& out) {
   }
 }
 
-uint32_t mcus_across(const Header& header) {
+uint32_t mcus_across(const Frame& header) {
   const uint32_t block = header.max_h * 8;
   return (header.width + block - 1) / block;
 }
 
-uint32_t bands_down(const Header& header) { return (header.height + header.max_v * 8 - 1) / (header.max_v * 8); }
+uint32_t bands_down(const Frame& header) { return (header.height + header.max_v * 8 - 1) / (header.max_v * 8); }
 
 }  // namespace
 
 Status jpeg_info(const uint8_t* data, uint32_t len, Info& out) {
-  Header header;
-  const Status status = read_header(data, len, header);
+  Frame header;
+  const Status status = read_header(data, len, header, nullptr);
   if (status != kOk) return status;
   if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
   out.format = "JPEG";
@@ -426,51 +450,71 @@ Status jpeg_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The state of the decoder in the block of the caller** (0.118.0): the header —its tables are three kilobytes— and
+// the row it builds before it writes it. The planes come first and the state goes after them, on a word.
+uint32_t jpeg_state_at(uint32_t planes) { return aligned_at(planes); }
+
+uint32_t jpeg_state_bytes() { return static_cast<uint32_t>(sizeof(Header) + kRowBytes); }
+
 uint32_t jpeg_scratch(const uint8_t* data, uint32_t len) {
-  Header header;
-  if (read_header(data, len, header) != kOk) return 0;
+  Frame header;
+  if (read_header(data, len, header, nullptr) != kOk) return 0;
   // Three planes of a band of MCUs: the widest the components can be and eight rows of each one, which for a
   // photograph of a page is a few tens of kilobytes (docs/30, docs/75).
   const uint64_t plane = static_cast<uint64_t>(mcus_across(header) * header.max_h * 8) * (header.max_v * 8);
-  const uint64_t bytes = plane * 3;
+  const uint64_t bytes = static_cast<uint64_t>(jpeg_state_at(static_cast<uint32_t>(plane * 3))) +
+                         jpeg_state_bytes();
   return (bytes > 0xFFFFFFFFu) ? 0 : static_cast<uint32_t>(bytes);
 }
 
 Status decode_jpeg(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
-  Header header;
-  const Status status = read_header(data, len, header);
+  // **The header and the row of the page are in the block and not on the stack** (0.118.0): the tables of a JPEG are
+  // three kilobytes and the row two more, and the task that runs an app has six or seven. `jpeg_scratch` counted both,
+  // so a caller that gave the number it was asked for has them (docs/75).
+  if (scratch == nullptr) return kNoRoom;
+  Frame probe;
+  const Status first = read_header(data, len, probe, nullptr);
+  if (first != kOk) return first;
+  if (probe.width > kMaxSide || probe.height > kMaxSide) return kUnsupported;
+  if (probe.components != 1 && probe.components != 3) return kUnsupported;
+  const uint32_t probe_mcus = mcus_across(probe);
+  const uint32_t probe_plane = probe_mcus * probe.max_h * 8 * (probe.max_v * 8);
+  const uint32_t state_at = jpeg_state_at(probe_plane * 3);
+  if (cap < state_at + jpeg_state_bytes()) return kNoRoom;
+  // **The header is built where it stands**: the block is the caller's and a decoder that wrote into a header it had
+  // not made would read a table of the picture before it (0.118.0).
+  Header& header = *new (scratch + state_at) Header();
+  const Status status = read_header(data, len, header.frame, &header.tables);
   if (status != kOk) return status;
-  if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
-  if (header.components != 1 && header.components != 3) return kUnsupported;
+  Frame& frame = header.frame;
 
-  const uint32_t mcus = mcus_across(header);
-  const uint32_t plane_width = mcus * header.max_h * 8;
-  const uint32_t band_rows = header.max_v * 8;
+  const uint32_t mcus = mcus_across(frame);
+  const uint32_t plane_width = mcus * frame.max_h * 8;
+  const uint32_t band_rows = frame.max_v * 8;
   const uint32_t plane_bytes = plane_width * band_rows;
-  if (scratch == nullptr || cap < plane_bytes * 3) return kNoRoom;
   uint8_t* planes[kMaxComponents] = {scratch, scratch + plane_bytes, scratch + plane_bytes * 2};
 
   Bits bits;
   bits.data = data;
   bits.len = len;
-  bits.at = header.entropy_at;
+  bits.at = frame.entropy_at;
   int32_t block[64];
   uint32_t mcu_index = 0;
-  uint8_t packed[(kMaxSide + 1) / 2];
+  uint8_t* packed = scratch + state_at + sizeof(Header);
 
-  for (uint32_t band = 0; band < bands_down(header); ++band) {
+  for (uint32_t band = 0; band < bands_down(frame); ++band) {
     // The eight (or sixteen) rows of every component, block by block.
     for (uint32_t band_y = 0; band_y < band_rows; ++band_y) {
       for (uint32_t x = 0; x < plane_width; ++x) {
-        for (uint32_t c = 0; c < header.components; ++c) planes[c][band_y * plane_width + x] = 128;
+        for (uint32_t c = 0; c < frame.components; ++c) planes[c][band_y * plane_width + x] = 128;
       }
     }
     for (uint32_t mx = 0; mx < mcus; ++mx) {
-      for (uint32_t c = 0; c < header.components; ++c) {
-        Component& component = header.comp[c];
+      for (uint32_t c = 0; c < frame.components; ++c) {
+        Component& component = frame.comp[c];
         for (uint32_t by = 0; by < component.v; ++by) {
           for (uint32_t bx = 0; bx < component.h; ++bx) {
-            if (!one_block(bits, header.dc[component.dc], header.ac[component.ac], header.quant[component.quant],
+            if (!one_block(bits, header.tables.dc[component.dc], header.tables.ac[component.ac], header.tables.quant[component.quant],
                            component.predictor, block)) {
               return kTruncated;
             }
@@ -481,7 +525,7 @@ Status decode_jpeg(const uint8_t* data, uint32_t len, const RowSink& sink, uint8
         }
       }
       ++mcu_index;
-      if (header.restart_interval != 0 && mcu_index % header.restart_interval == 0) {
+      if (frame.restart_interval != 0 && mcu_index % frame.restart_interval == 0) {
         // A restart marker: the bits go back to a byte and the difference of every component starts again
         // (ITU T.81, B.2.3).
         bits.align();
@@ -492,25 +536,25 @@ Status decode_jpeg(const uint8_t* data, uint32_t len, const RowSink& sink, uint8
           ++bits.at;
         }
         if (bits.at + 1 < bits.len) bits.at += 2;
-        for (uint32_t c = 0; c < header.components; ++c) header.comp[c].predictor = 0;
+        for (uint32_t c = 0; c < frame.components; ++c) frame.comp[c].predictor = 0;
       }
     }
     // The band turned into rows of the page.
     for (uint32_t row = 0; row < band_rows; ++row) {
       const uint32_t y = band * band_rows + row;
-      if (y >= header.height) break;
+      if (y >= frame.height) break;
       Row out;
-      row_start(out, packed, static_cast<uint16_t>(header.width), static_cast<uint16_t>(y));
-      for (uint32_t x = 0; x < header.width; ++x) {
-        if (header.components == 1) {
+      row_start(out, packed, static_cast<uint16_t>(frame.width), static_cast<uint16_t>(y));
+      for (uint32_t x = 0; x < frame.width; ++x) {
+        if (frame.components == 1) {
           const uint8_t grey = planes[0][row * plane_width + x];
           row_put_grey(out, grey);
           continue;
         }
         // Every component is sampled at its own rate: the sample of a pixel is the one it lands on
         // (ITU T.81, A.2.3).
-        const uint32_t cx = x * header.comp[1].h / header.max_h;
-        const uint32_t cy = row * header.comp[1].v / header.max_v;
+        const uint32_t cx = x * frame.comp[1].h / frame.max_h;
+        const uint32_t cy = row * frame.comp[1].v / frame.max_v;
         const int32_t luma = planes[0][row * plane_width + x];
         const int32_t cb = static_cast<int32_t>(planes[1][cy * plane_width + cx]) - 128;
         const int32_t cr = static_cast<int32_t>(planes[2][cy * plane_width + cx]) - 128;

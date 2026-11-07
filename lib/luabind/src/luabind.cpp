@@ -3300,6 +3300,10 @@ uint16_t g_ui_touch_generation = 0;
 // Which tab of a strip the finger went down on, 0 for a control of its own.
 uint8_t g_ui_touch_item = 0;
 bool g_ui_touch_inside = false;
+// **A contact that has lost its control** (0.113.0): the app releases the box the finger is on, and the finger that is
+// still on the glass is not a press on whatever the app builds in its place —the contact began on another control—. It
+// is cleared when the finger goes up, which is when a press of its own can begin (docs/30, docs/90).
+bool g_ui_touch_orphan = false;
 
 // **The gesture the system remembers of one finger** (0.88.0): where the finger started, where it is now, how many
 // pixels have not been paid in rows yet, whether it has travelled far enough to be a gesture and not a tap, and the caret
@@ -3446,12 +3450,17 @@ bool progress_field_valid(lua_State* L, const char* key, int value) {
 // size of the number. `min` and `max` are a 16-bit value because that is what the control draws and what the
 // kernel is handed (docs/30, docs/90).
 bool is_slider_field(const char* key) {
+  // **`editing` is the slider being entered with the centre** (0.117.0): the field the system writes and the app reads
+  // to know whether the two keys are the number or the walk, and it is writable from Lua because a page that puts the
+  // person inside a slider on purpose is a page that knows what it wants (docs/30, docs/92).
   return strcmp(key, "value") == 0 || strcmp(key, "min") == 0 || strcmp(key, "max") == 0 ||
          strcmp(key, "step") == 0 || strcmp(key, "suffix") == 0 || strcmp(key, "scale") == 0 ||
-         strcmp(key, "track") == 0 || strcmp(key, "fill") == 0 || strcmp(key, "text") == 0;
+         strcmp(key, "track") == 0 || strcmp(key, "fill") == 0 || strcmp(key, "text") == 0 ||
+         strcmp(key, "editing") == 0;
 }
 
 bool slider_field_valid(lua_State* L, const char* key, int value) {
+  if (strcmp(key, "editing") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
   if (strcmp(key, "suffix") == 0) {
     return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
   }
@@ -3553,7 +3562,10 @@ bool is_list_field(const char* key) {
 // password and the two colours with the size (docs/30, docs/90).
 bool is_textbox_field(const char* key) {
   return strcmp(key, "text") == 0 || strcmp(key, "cursor") == 0 || strcmp(key, "caret") == 0 ||
-         strcmp(key, "mask") == 0 || strcmp(key, "color") == 0 || strcmp(key, "scale") == 0;
+         strcmp(key, "mask") == 0 || strcmp(key, "color") == 0 || strcmp(key, "scale") == 0 ||
+         // **The two words of 0.116.0**: a box that is read and not written keeps its caret and never brings the band,
+         // and a box that has no frame is a box whose frame is the colour of the paper (docs/30, docs/92).
+         strcmp(key, "readonly") == 0 || strcmp(key, "framed") == 0 || strcmp(key, "editing") == 0;
 }
 
 // **The fields of a sparkline**: the samples, the second series and the two colours (docs/30, docs/90).
@@ -3639,12 +3651,17 @@ bool menu_bar_field_valid(lua_State* L, const char* key, int value) {
 bool is_textbox_multiline_field(const char* key) {
   return strcmp(key, "text") == 0 || strcmp(key, "cursor") == 0 || strcmp(key, "caret") == 0 ||
          strcmp(key, "wrap") == 0 || strcmp(key, "top") == 0 || strcmp(key, "color") == 0 ||
-         strcmp(key, "scale") == 0;
+         strcmp(key, "scale") == 0 ||
+         // **The two words of 0.116.0**: read and not written, and a frame or no frame (docs/30, docs/92).
+         strcmp(key, "readonly") == 0 || strcmp(key, "framed") == 0 || strcmp(key, "editing") == 0;
 }
 
 bool textbox_multiline_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "text") == 0) return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
-  if (strcmp(key, "caret") == 0 || strcmp(key, "wrap") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (strcmp(key, "caret") == 0 || strcmp(key, "wrap") == 0 || strcmp(key, "readonly") == 0 ||
+      strcmp(key, "framed") == 0 || strcmp(key, "editing") == 0) {
+    return lua_type(L, value) == LUA_TBOOLEAN;
+  }
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 65535;
@@ -3734,7 +3751,10 @@ bool dialog_field_valid(lua_State* L, const char* key, int value) {
 
 bool textbox_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "text") == 0) return lua_isnoneornil(L, value) || lua_type(L, value) == LUA_TSTRING;
-  if (strcmp(key, "caret") == 0 || strcmp(key, "mask") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
+  if (strcmp(key, "caret") == 0 || strcmp(key, "mask") == 0 || strcmp(key, "readonly") == 0 ||
+      strcmp(key, "framed") == 0 || strcmp(key, "editing") == 0) {
+    return lua_type(L, value) == LUA_TBOOLEAN;
+  }
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "cursor") == 0) return number >= 0 && number <= 4096;
@@ -6298,7 +6318,11 @@ int l_textbox_multiline_draw(lua_State* L) {
   const lua_Integer cursor = ui_field_number(L, 1, "cursor", 0);
   const lua_Integer color = ui_field_number(L, 1, "color", 0);
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
-  const lua_Integer border = ui_field_number(L, 1, "border", 0);
+  // **A box without a frame** (0.116.0): the control paints its frame in `border` and its inside in `background`, so a
+  // frame of the colour of the inside is no frame at all. It is a flag and not a fourth colour because what an app wants
+  // to say is "no frame", and a document that fills the page has nothing to be framed by (docs/30, docs/92).
+  const bool framed = ui_field_bool(L, 1, "framed", true);
+  const lua_Integer border = framed ? ui_field_number(L, 1, "border", 0) : background;
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
   const bool caret = ui_field_bool(L, 1, "caret", true);
   const bool wrap = ui_field_bool(L, 1, "wrap", false);
@@ -6835,8 +6859,10 @@ int l_textbox_draw(lua_State* L) {
   lua_getfield(L, -1, "background");
   const int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
+  // **A box without a frame is a box whose frame is the colour of its inside** (0.116.0, docs/30, docs/92).
+  const bool framed = ui_field_bool(L, 1, "framed", true);
   lua_getfield(L, -1, "border");
-  const int border = static_cast<int>(lua_tointeger(L, -1));
+  const int border = framed ? static_cast<int>(lua_tointeger(L, -1)) : background;
   lua_pop(L, 1);
   lua_getfield(L, -1, "scale");
   const int scale = static_cast<int>(lua_tointeger(L, -1));
@@ -6978,12 +7004,15 @@ void caret_stop(lua_State* L) {
 // **What a text box says about the keyboard** (0.91.0): a box of one line or of several, and the field `keyboard`
 // —`'alpha'` by default, `'numeric'`, or `false` for a box that takes no keys—. It is the one question the system
 // asks before a band comes up, and the one that lets a page read-only scroll without opening a keyboard (docs/30).
+// **And `readonly` says it with a word that means it** (0.116.0): a document a person reads has no keys to press, and an
+// app that had to write `keyboard = false` to say "this box is not to be written in" was an app that threw the caret
+// away with the keyboard. A read-only box keeps its block and never brings the band (docs/30, docs/92).
 bool ui_box_keyboard(lua_State* L, int object, bool& wants, uint8_t& kind) {
   object = lua_absindex(L, object);
   const bool line = ui_field_bool(L, object, "__textbox", false);
   const bool lines = ui_field_bool(L, object, "__textbox_multiline", false);
   if (!line && !lines) return false;
-  wants = true;
+  wants = !ui_field_bool(L, object, "readonly", false);
   kind = 0;
   lua_getiuservalue(L, object, 1);
   if (lua_istable(L, -1)) {
@@ -7029,8 +7058,15 @@ void ui_keyboard_follow_object(lua_State* L, int object) {
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   bool wants = false;
   uint8_t kind = 0;
-  if (canvas == nullptr || !canvas_ready(L, object) || !ui_box_keyboard(L, object, wants, kind) || !wants) {
+  if (canvas == nullptr || !canvas_ready(L, object) || !ui_box_keyboard(L, object, wants, kind)) {
     ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
+    return;
+  }
+  // **The box keeps the block whether or not it takes keys** (0.116.0): a finger on a page nobody types into still puts
+  // the caret where it landed —that is a place in the text— and the band is the only thing it does not get (docs/30).
+  ui_keyboard_target_set(L, object);
+  if (!wants) {
     ui_keyboard_hide();
     return;
   }
@@ -7064,8 +7100,8 @@ int l_keyboard_show(lua_State* L) {
   if (!wants) {
     // **A box that said it takes no keys is not overruled by a show** (0.91.0): the read-only page of the editor is
     // scrollable and its finger is alive, and an app that calls `kb:show()` by mistake does not bring a keyboard over it.
+    // **And the block stays** (0.116.0): the answer is the band away, not the caret of the page being read (docs/30).
     lua_settop(L, base);
-    ui_keyboard_forget_target(L);
     ui_keyboard_hide();
     return push_nil_error(L, "E_INVAL", "the box does not take a keyboard");
   }
@@ -7099,9 +7135,19 @@ int l_keyboard_show(lua_State* L) {
 }
 
 int l_keyboard_hide(lua_State* L) {
-  // **A band that goes takes the block with it**: the target stays for a later `kb:show()`, but the box is not being
-  // edited while the keyboard is away (0.92.0, docs/30).
-  caret_stop(L);
+  // **The band goes and the block stays** (0.116.0): the caret is the focus's and not the keyboard's —a read-only page
+  // has a place in its text and no band— so hiding the keys is not hiding where the person is. The block stops when the
+  // box loses the focus, which is the dial leaving it or the target being forgotten (docs/30, docs/92).
+  if (g_keyboard_target_ref != LUA_NOREF) {
+    lua_rawgeti(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    if (canvas != nullptr && canvas->slot >= 0) {
+      caret_set_field(L, -1, true);
+      if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
+      g_caret_on = true;
+    }
+    lua_pop(L, 1);
+  }
   ui_keyboard_hide();
   lua_pushboolean(L, 1);
   return 1;
@@ -7774,9 +7820,41 @@ int l_canvas_damage(lua_State* L) {
 
 // canvas:release(): gives the buffer back now instead of waiting for the collector. The object is spent
 // afterwards (docs/90).
+// **A control that is given back takes its gesture with it** (0.113.0): a box the app releases in the middle of a swipe
+// —a page that is built again, a card that closes, an app that ends with the finger on the glass— is not a box any
+// more, and the finger that is still down must not move a window that nobody draws. The same for the keyboard it was
+// typing into: a reference to a slot that is being given back is a number that means another control in a moment
+// (docs/30, docs/90).
+void ui_gesture_forget_if(LuaCanvas* canvas) {
+  if (canvas == nullptr || canvas->slot < 0) return;
+  // **The box the keys go to can be given back too** (0.113.0): a box that is released while the band is up leaves the
+  // keyboard holding an object that will never be drawn again, and the keys would go to a window nobody sees. This is
+  // asked before the slot goes, because a released slot is a number that another control takes (docs/30, docs/75).
+  if (g_keyboard_target_ref != LUA_NOREF && g_state != nullptr) {
+    lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+    LuaCanvas* typed = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+    const bool mine = typed != nullptr && typed->slot == canvas->slot && typed->generation == canvas->generation;
+    lua_pop(g_state, 1);
+    if (mine) ui_keyboard_forget_target(g_state);
+  }
+  if (g_ui_touch_slot != canvas->slot || g_ui_touch_generation != canvas->generation) return;
+  g_ui_touch_orphan = true;
+  g_ui_touch_slot = -1;
+  g_ui_touch_generation = 0;
+  g_ui_touch_item = 0;
+  g_ui_touch_inside = false;
+  g_ui_swipe_tap_armed = false;
+  g_ui_swipe_moved = false;
+  g_ui_swipe_rest = 0;
+  g_ui_swipe_y0 = 0;
+  g_ui_swipe_y = 0;
+  g_ui_swipe_tap = 0;
+}
+
 int l_canvas_release(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  ui_gesture_forget_if(canvas);
   if (g_ui_ops.canvas_release != nullptr) g_ui_ops.canvas_release(canvas->slot);
   canvas->slot = -1;
   canvas->generation = 0;
@@ -7788,6 +7866,7 @@ int l_canvas_gc(lua_State* L) {
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
   if (canvas->slot >= 0 && g_ui_ops.canvas_alive != nullptr &&
       g_ui_ops.canvas_alive(canvas->slot, canvas->generation) && g_ui_ops.canvas_release != nullptr) {
+    ui_gesture_forget_if(canvas);
     g_ui_ops.canvas_release(canvas->slot);
   }
   canvas->slot = -1;
@@ -8108,19 +8187,20 @@ bool ui_has_hook(lua_State* L, int object, const char* name) {
   return there;
 }
 
-bool ui_target_is_focusable(lua_State* L, int object, bool with_boxes) {
+bool ui_target_is_focusable(lua_State* L, int object) {
   // **A control that is disabled is not a stop** (0.100.0): it is drawn so a person reads what is not available,
   // and none of the three ways in reaches it —the dial asks this, the finger asks this, and the keyboard only opens
   // on a box the walk gave the focus to—. It is the same rule as `focusable = false`, said with the state the app
   // gives a control instead of with the walk's own flag (docs/30, docs/92).
   if (ui_field_bool(L, object, "disabled", false)) return false;
-  // **A box of text is a target of the finger and not of the dial** (0.85.2, and the code now says it too): a finger
-  // on a line puts the caret where it landed, and a box the keyboard types into has nothing to say to the dial, so it
-  // is not a stop of the walk. It is a stop of the touch walk when `focusable` is on, which is what puts the caret
-  // and brings the keyboard (0.91.0, docs/30, docs/90).
+  // **A box of text is a stop of the dial too** (0.116.0, and it was the finger's only since 0.85.2): a person with a
+  // board that has keys and no touch has to be able to land on a field, and the ring on a field is the caret in it and
+  // no band —the band is what the centre brings when it enters the box, which is the shape a slider has with its
+  // value—. `focusable` keeps being the one flag that decides whether a control is reachable (docs/30, docs/90,
+  // docs/92).
   const bool box = ui_field_bool(L, object, "__textbox", false) ||
                    ui_field_bool(L, object, "__textbox_multiline", false);
-  if (box) return with_boxes && ui_field_bool(L, object, "focusable", true);
+  if (box) return ui_field_bool(L, object, "focusable", true);
   const bool button = ui_field_bool(L, object, "__button", false);
   const bool checkbox = ui_field_bool(L, object, "__checkbox", false);
   const bool slider = ui_field_bool(L, object, "__slider", false);
@@ -8293,7 +8373,7 @@ int ui_tabs_items(lua_State* L, int object) {
 // their fathers. A control is a target when it is a button or when the app said `focusable`; a label
 // inside a button is not one, which is what makes the button the thing a person lands on.
 void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t clip_x0,
-                     int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth, bool with_boxes,
+                     int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth,
                      FocusTarget* targets, int capacity, int& count, int& order, int objects) {
   object = lua_absindex(L, object);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
@@ -8341,7 +8421,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       continue;
     }
 
-    if (ui_target_is_focusable(L, -1, with_boxes)) {
+    if (ui_target_is_focusable(L, -1)) {
       // **A strip of tabs is one stop per tab** (0.99.0): the arrows walk into the strip and from one tab to the
       // next, out of it at either end, and the centre chooses the tab the ring is on. One stop for the whole strip
       // made the arrows change the tab instead of moving the dial, which is the owner's complaint of 7/11 and what
@@ -8383,7 +8463,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
         ++count;
       }
     }
-    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, with_boxes, targets, capacity, count,
+    ui_walk_targets(L, -1, x, y, cx0, cy0, cx1, cy1, depth + 1, targets, capacity, count,
                     order, objects);
     lua_pop(L, 1);  // the child
   }
@@ -8393,7 +8473,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
 // Builds the list and **leaves the Lua objects in a table on top of the stack**: both the event and
 // the thing the event changes live in Lua, and finding a slot again after a callback is a search that
 // can hit a released control. The caller pops the table.
-int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity, bool with_boxes = false) {
+int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
   const int top = lua_gettop(L);
   lua_createtable(L, 0, 0);
   const int objects = top + 1;
@@ -8405,7 +8485,7 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity, bool wi
   }
   int count = 0;
   int order = 0;
-  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, with_boxes, targets, capacity, count,
+  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, targets, capacity, count,
                   order, objects);
   lua_pop(L, 1);  // the root
   return count;
@@ -8430,6 +8510,9 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
       ui_invalidate(L, -1);
       ui_call_hook(L, -1, "on_focus", true, false);
     }
+    // **A control the dial leaves is not entered any more** (0.116.0 for the boxes, 0.117.0 for the slider): the other
+    // control has the ring, and a person who comes back has to say "enter" again (docs/30, docs/92).
+    if (ui_set_field_bool(L, -1, "editing", false)) ui_invalidate(L, -1);
     // **The tab the dial leaves stops being the lit one**: the strip is one control and the paint needs to know
     // which of its tabs has the ring (0.99.0, docs/92).
     if (ui_set_field_number(L, -1, "focus_index", 0)) ui_invalidate(L, -1);
@@ -8441,6 +8524,10 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
     // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
     g_ui_focus_item = 0;
     g_ui_focus_item = 0;
+    // **A dial that leaves everything takes the block with it**: the caret is the focus's and there is no focus at all
+    // (0.116.0, docs/30).
+    ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
     return;
   }
   g_ui_focus_slot = targets[index].slot;
@@ -8454,6 +8541,19 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   if (targets[index].item != 0 &&
       ui_set_field_number(L, -1, "focus_index", targets[index].item)) {
     ui_invalidate(L, -1);
+  }
+  // **The block of a box is the focus's and not the keyboard's** (0.116.0): a box the dial has landed on has a caret in
+  // it —a read-only document has a place in its text and no band— and the band is only what entering it brings. A
+  // control that is not a box takes the block and the band away, because a band with nothing to type into is a band
+  // over a page nobody is writing (docs/30, docs/90).
+  if (ui_field_bool(L, -1, "__textbox", false) || ui_field_bool(L, -1, "__textbox_multiline", false)) {
+    ui_keyboard_target_set(L, -1);
+    // **A page nobody types into does not keep a band that was up for the box before** (0.116.0): the target is the new
+    // box and the letters go with the box that takes them (docs/30, docs/92).
+    if (ui_field_bool(L, -1, "readonly", false)) ui_keyboard_hide();
+  } else {
+    ui_keyboard_forget_target(L);
+    ui_keyboard_hide();
   }
   lua_pop(L, 1);
 }
@@ -8501,7 +8601,7 @@ int l_ui_focus(lua_State* L) {
   FocusTarget* targets = list.items;
   const int top = lua_gettop(L);
   const int objects = top + 1;
-  const int count = ui_collect_targets(L, targets, list.capacity, false);
+  const int count = ui_collect_targets(L, targets, list.capacity);
   if (count <= 0) {
     lua_settop(L, top);
     return 0;
@@ -8605,6 +8705,38 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
       if (ui_set_field_number(L, object, "index", which)) ui_invalidate(L, object);
       ui_call_hook_number(L, object, "on_change", which);
     }
+  } else if (ui_field_bool(L, object, "__slider", false)) {
+    // **The centre enters a slider and leaves it** (0.117.0): while it is inside, the two keys of the board are the
+    // number and not the walk; the centre gives them back. The app hears the press both times, so a slider with an
+    // `on_click` keeps answering, and nothing else changes state: no band, no target, no paint of its own (docs/30,
+    // docs/92).
+    const bool editing = ui_field_bool(L, object, "editing", false);
+    if (ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
+    ui_call_hook(L, object, "on_click", false, false);
+  } else if (ui_field_bool(L, object, "__textbox", false) ||
+             ui_field_bool(L, object, "__textbox_multiline", false)) {
+    // **The centre enters a box of text and leaves it** (0.116.0): a field is not a button, and once a person is inside
+    // it the two keys of the board are the caret —the shape a slider has, where the keys move the value of the control
+    // the ring is on—. Entering brings the band when the box takes keys and only the block when it does not, which is
+    // what a read-only document is; leaving takes the band and leaves the block, because the box still has the focus
+    // (docs/30, docs/90, docs/92).
+    const bool editing = ui_field_bool(L, object, "editing", false);
+    bool wants = false;
+    uint8_t kind = 0;
+    ui_box_keyboard(L, object, wants, kind);
+    if (ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
+    if (editing) {
+      ui_keyboard_hide();
+    } else {
+      // The target is the box in both cases: the block is the focus's, and the block is the point of entering a page
+      // nobody types into (docs/30).
+      ui_keyboard_target_set(L, object);
+      if (wants && g_ui_ops.keyboard_show != nullptr) {
+        g_keyboard_kind = kind;
+        g_ui_ops.keyboard_show(kind);
+      }
+    }
+    ui_call_hook(L, object, "on_activate", false, false);
   } else if (!ui_call_hook(L, object, "on_click", false, false)) {
     ui_call_hook(L, object, "on_activate", false, false);
   }
@@ -9269,9 +9401,16 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_rest = 0;
+  // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
+  // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
+  // moment it is touched (docs/30, docs/75).
+  g_ui_swipe_y0 = 0;
+  g_ui_swipe_y = 0;
+  g_ui_swipe_tap = 0;
   // **The keyboard's box is this interpreter's**: a reference into a state that is going away is a number that
   // means nothing in the next one (docs/30, docs/75).
   g_keyboard_target_ref = LUA_NOREF;
@@ -9309,9 +9448,16 @@ void stop() {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_rest = 0;
+  // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
+  // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
+  // moment it is touched (docs/30, docs/75).
+  g_ui_swipe_y0 = 0;
+  g_ui_swipe_y = 0;
+  g_ui_swipe_tap = 0;
   lua_close(g_state);
   g_state = nullptr;
 }
@@ -9644,6 +9790,74 @@ bool ui_step_menu(lua_State* L, int object, int direction) {
   return true;
 }
 
+// The page draws what it owes and then the glass is painted, which is what a caret moved by the system does (0.85.2).
+void ui_draw_and_present(const char* mode);
+
+// **A box of text that a person has entered takes the two keys as the caret** (0.116.0): one letter back or forward in a
+// box of one line, one row up or down in a box of several. The arithmetic is the kernel's —a letter is a code point and
+// a row is the one the glass shows, wrapped or not— and what is here is the field, the paint and the hook, the same
+// three things every other move of a control does (docs/30, docs/90, docs/92).
+bool ui_step_caret(lua_State* L, int objects, int index, int direction) {
+  lua_rawgeti(L, objects, index + 1);
+  const int object = lua_absindex(L, -1);
+  const bool line = ui_field_bool(L, object, "__textbox", false);
+  const bool lines = ui_field_bool(L, object, "__textbox_multiline", false);
+  if ((!line && !lines) || !ui_field_bool(L, object, "editing", false)) {
+    lua_pop(L, 1);
+    return false;
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (canvas == nullptr || canvas->slot < 0) {
+    lua_pop(L, 1);
+    return false;
+  }
+  lua_getiuservalue(L, object, 1);
+  const char* text = "";
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "text");
+    if (lua_isstring(L, -1)) text = lua_tostring(L, -1);
+    lua_pop(L, 1);
+  }
+  const lua_Integer cursor = ui_field_number(L, object, "cursor", 0);
+  const lua_Integer scale = ui_field_number(L, object, "scale", 3);
+  const uint8_t box_scale = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+  uint16_t next = static_cast<uint16_t>((cursor < 0) ? 0 : ((cursor > 65535) ? 65535 : cursor));
+  if (line) {
+    next = (g_ui_ops.textbox_caret != nullptr)
+               ? g_ui_ops.textbox_caret(canvas->slot, text, next, static_cast<int16_t>(direction))
+               : next;
+  } else if (g_ui_ops.textbox_multiline_row != nullptr) {
+    const bool wrap = ui_field_bool(L, object, "wrap", false);
+    const lua_Integer top = ui_field_number(L, object, "top", -1);
+    next = g_ui_ops.textbox_multiline_row(canvas->slot, text, next, wrap, box_scale,
+                                          static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)),
+                                          static_cast<int16_t>(direction));
+  }
+  lua_pop(L, 1);  // the fields table
+  const bool moved = (next != static_cast<uint16_t>((cursor < 0) ? 0 : cursor));
+  if (moved) {
+    if (ui_set_field_number(L, object, "cursor", next)) ui_invalidate(L, object);
+    // **A caret moved by a key takes the window with it**, the same way a letter typed does: a block that walked out of
+    // the box is a person editing a row nobody can see (docs/30, docs/90).
+    if (lines && ui_set_field_number(L, object, "top", -1)) ui_invalidate(L, object);
+    // **The app hears where the caret went before the glass is painted**: it is the number a line under the page says,
+    // and the paint of the caret is the same one that takes the app's own words —two paints for one key is an e-ink
+    // page blinking for nothing— (docs/30, docs/90).
+    ui_call_hook_number(L, object, "on_move", next);
+    ui_draw_and_present("gld16");
+  }
+  lua_pop(L, 1);
+  return moved;
+}
+
+// **The controls whose centre does nothing but enter them** (0.117.0): a slider is a number and nothing else, so the
+// centre has no other meaning to take away, and its keys are its own only once a person is inside it. Anything that is
+// added to this list has to have no centre action of its own, or the centre would be two things at once (docs/30,
+// docs/92).
+bool ui_enters_to_move(lua_State* L, int object) {
+  return ui_field_bool(L, object, "__slider", false);
+}
+
 // **A control that is a value takes the arrow while it has the focus, and gives it back when it cannot move
 // any further.** It is the rule the old system learned —a control returns the key it does not use— and it is
 // what keeps a page with a slider from being a dead end: at the end of the range the arrow walks the focus
@@ -9667,6 +9881,16 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   // one tab at a time and goes out of the strip at either end, and the centre chooses the one it is on. A strip that
   // ate the arrows was a page nobody could leave (docs/90, docs/92).
   if (!slider && !list && !dialog && !month && !menu && !menu_bar && !grid) {
+    lua_pop(L, 1);
+    return false;
+  }
+  // **A control whose keys move a value is entered with the centre before its keys are its own** (0.117.0, and the
+  // owner asked for it with the slider in his hand): *«Al rebre el focus, els botons continuarán com sempre (canviant
+  // focus) s'ha de polsar el botó central per "entrar" al slider i llavors si escollir el valor amb els mateixos dos
+  // botons»*. A slider has no centre of its own —its value is the whole control— and that is the one shape this gate is
+  // for: the menu, the card, the calendar, the grid and the list have a centre that means "choose", and taking that
+  // away would be two changes in one (docs/30, docs/92).
+  if (ui_enters_to_move(L, object) && !ui_field_bool(L, object, "editing", false)) {
     lua_pop(L, 1);
     return false;
   }
@@ -9923,6 +10147,12 @@ bool ui_button_event(const char* kind, uint32_t key) {
     if (current < 0) ui_apply_focus(g_state, targets, count, objects, target);
     ui_activate(g_state, count, objects, target);
   } else {
+    // **A box a person has entered takes the arrows first** (0.116.0): inside a field the two keys are the caret, and a
+    // box that is not entered gives them back to the walk, which is the same rule the slider follows with its value.
+    if (current >= 0 && ui_step_caret(g_state, objects, current, direction)) {
+      lua_settop(g_state, top);
+      return true;
+    }
     // A control that holds a value takes the arrow first and the walk goes on only if it gives it back
     // (docs/30, docs/90).
     if (current >= 0 && ui_step_value(g_state, objects, current, direction)) {
@@ -9950,7 +10180,7 @@ bool ui_has_focusable() {
   FocusList list;
   FocusTarget* targets = list.items;
   const int top = lua_gettop(g_state);
-  const int count = ui_collect_targets(g_state, targets, list.capacity, true);
+  const int count = ui_collect_targets(g_state, targets, list.capacity);
   lua_settop(g_state, top);
   return count > 0;
 }
@@ -9987,7 +10217,9 @@ void ui_draw_and_present(const char* mode) {
 // (docs/30, docs/90).
 void caret_poll() {
   if (g_state == nullptr || g_keyboard_target_ref == LUA_NOREF) return;
-  if (g_ui_ops.keyboard_visible == nullptr || !g_ui_ops.keyboard_visible()) return;
+  // **A block blinks while a box has the focus and not while a band is up** (0.116.0): the caret of a page nobody types
+  // into is still a person's place in the text, and the band is only the letters. The block goes with the focus, which
+  // is why this asks for the target and nothing else (docs/30, docs/90).
   const int64_t now = now_ms();
   if (!g_caret_dirty && (g_caret_next_ms <= 0 || now < g_caret_next_ms)) return;
   if (g_caret_dirty && g_ui_present_count != g_caret_present_mark) {
@@ -10056,12 +10288,12 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   if (g_state == nullptr) return;
   // **A turn with nobody on the glass and nothing held costs nothing**: the panel is read every turn,
   // and walking the whole tree only to find that there is no finger is work the app pays for no reason.
-  if (!down && g_ui_touch_slot < 0) return;
+  if (!down && g_ui_touch_slot < 0 && !g_ui_touch_orphan) return;
   FocusList list;
   FocusTarget* targets = list.items;
   const int top = lua_gettop(g_state);
   // **The finger lands on boxes the dial does not walk** (0.85.2): a line of text is a place to put a caret.
-  const int count = ui_collect_targets(g_state, targets, list.capacity, true);
+  const int count = ui_collect_targets(g_state, targets, list.capacity);
   const int objects = top + 1;
 
   if (!down) {
@@ -10090,6 +10322,16 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       g_ui_swipe_moved = false;
       g_ui_swipe_rest = 0;
     }
+    // **The finger goes up and the contact is over**: the next press is a new one (0.113.0, docs/30).
+    g_ui_touch_orphan = false;
+    lua_settop(g_state, top);
+    return;
+  }
+
+  // **A finger that is still on the glass after its control was given back presses nothing** (0.113.0): the rows of the
+  // swipe are not it and neither is the press of the control the app has built in the place of the one that went, which
+  // would otherwise be armed by a contact that began somewhere else (docs/30, docs/90).
+  if (g_ui_touch_orphan) {
     lua_settop(g_state, top);
     return;
   }
@@ -10102,6 +10344,23 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // only registers it and hears it. A finger that does not reach a whole row spends nothing: the pixels are kept for
     // the next one (docs/30, docs/90).
     if (index >= 0 && (g_ui_swipe_tap_armed || g_ui_swipe_moved)) {
+      // **The rows of a box go to a box that has the dial and that the finger is on** (0.113.0): a control that the app
+      // has taken the focus from —a page built again, a dialog that takes it— or a finger that has walked out of the
+      // frame of the box is a gesture that stops. The rows it had travelled are dropped with it: a window that jumps
+      // when the finger comes back is worse than one that stopped where it was (docs/30, docs/90).
+      lua_rawgeti(g_state, objects, index + 1);
+      const int walked = lua_gettop(g_state);
+      const bool on_the_box = x >= targets[index].x && y >= targets[index].y &&
+                              x < targets[index].x + targets[index].w && y < targets[index].y + targets[index].h;
+      const bool has_the_dial = ui_field_bool(g_state, walked, "focused", false);
+      lua_pop(g_state, 1);
+      if (!on_the_box || !has_the_dial) {
+        g_ui_swipe_tap_armed = false;
+        g_ui_swipe_moved = false;
+        g_ui_swipe_rest = 0;
+        lua_settop(g_state, top);
+        return;
+      }
       const int32_t travel = static_cast<int32_t>(y) - static_cast<int32_t>(g_ui_swipe_y);
       g_ui_swipe_y = y;
       const int32_t rest = static_cast<int32_t>(g_ui_swipe_rest) + travel;
@@ -10157,6 +10416,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     g_ui_touch_generation = targets[hit].generation;
     g_ui_touch_item = targets[hit].item;
     g_ui_touch_inside = true;
+    g_ui_touch_orphan = false;
     lua_rawgeti(g_state, objects, hit + 1);
     const int hit_object = lua_absindex(g_state, -1);
     // **A finger on a dialog picks the button it is on and not the one the dial was on**: the two boxes of a card

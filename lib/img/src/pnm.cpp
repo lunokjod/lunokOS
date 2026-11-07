@@ -109,22 +109,23 @@ Status pnm_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The row of the page is the block of the caller and not the stack** (0.118.0): the file is still read where it lies
+// and what the decoder builds is the row it hands to the sink (docs/75).
 uint32_t pnm_scratch(const uint8_t* data, uint32_t len) {
   (void)data;
   (void)len;
-  return 0;  // a netpbm is read where it lies (docs/30)
+  return kRowBytes;
 }
 
 Status decode_pnm(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
-  (void)scratch;
-  (void)cap;
+  if (scratch == nullptr || cap < kRowBytes) return kNoRoom;
   Header header;
   uint32_t at = 0;
   if (!read_header(data, len, header, at)) return kUnknown;
   const Status status = sane(header);
   if (status != kOk) return status;
 
-  uint8_t packed[(kMaxSide + 1) / 2];
+  uint8_t* packed = scratch;
   Words words{data, len, at};
   // A sample of a raw file is one byte, or two when the greatest value needs them: the format says big endian
   // and the reader widens both to the eight bits a page has (docs/30).

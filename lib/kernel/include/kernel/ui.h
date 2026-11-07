@@ -585,6 +585,22 @@ uint8_t textbox_multiline_line(int16_t slot, uint8_t scale);
 uint16_t textbox_multiline_scroll(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                   int16_t top, int16_t rows);
 
+// ---- the keys of the board inside a box of text (0.116.0) ----
+//
+// **A box a person has entered reads the two keys of the dial as the caret**: the call that moves it is here and not
+// in the app for the same reason the flip of a checkbox is —the arithmetic of a row belongs to the font and the window,
+// and an app that kept its own copy would draw a block somewhere the paint does not— (docs/30, docs/90).
+//
+// `textbox_caret` is the box of one line: **a letter is a code point and not a byte** —the accent of "el meu fitxer"
+// takes two— so a step that landed between them would be a caret inside a letter. The ends are the ends and the
+// answer is always a cursor the box can honour.
+uint16_t textbox_caret(int16_t slot, const char* text, uint16_t cursor, int16_t steps);
+// The box of several lines: **`rows` rows up or down**, counting the rows the glass shows —wrapped or not— and keeping
+// the column as near as the row allows, which is what a person expects of a key that goes down a line. At the first
+// and the last row the caret stays where it is.
+uint16_t textbox_multiline_row(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                               int16_t top, int16_t rows);
+
 // ---- a selector: a field that is chosen and not typed (docs/30, docs/90) ----
 //
 // **A value of a known set does not want a keyboard, it wants a list**, and the list is what a finger is good at. The

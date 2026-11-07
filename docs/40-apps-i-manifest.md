@@ -94,7 +94,8 @@ apps: squares removed from /littlefs/apps/squares, 2 files, 1 folder, 4028 bytes
   "entry": "clock.lua",
   "boards": ["esp32"],
   "description": "The hour, kept by an alarm.",
-  "opens": "txt"
+  "opens": "txt",
+  "splash": "res/clock.png"
 }
 ```
 
@@ -107,12 +108,12 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `boards` | taula de cadenes | **Sí** | 8 noms de 23 B | Les plaques on l'app funciona: el nom d'una placa o el d'una família (`esp32`) |
 | `version` | cadena | No | 15 B | Versió de l'app, text lliure |
 | `opens` | cadena | No | 15 B | L'extensió que aquesta app sap obrir |
+| `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
 | `author`, `description` | cadena | No | — | **No es llegeixen**: hi són al disc i el sistema no les fa servir enlloc encara |
 
-Els camps que aquest document preveia i que **no existeixen al codi** —`icon`, `splash`,
-`permissions`, `mem_kb`— s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la
-placa i els permisos encara no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriuran
-en aquesta taula.
+Els camps que aquest document preveia i que **no existeixen al codi** —`icon`, `permissions`, `mem_kb`—
+`s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara
+no hi són (docs/30). El dia que existeixin, es llegiran aquí i s'escriuran en aquesta taula.
 
 Regles de validació, totes amb error clar i el nom del camp:
 
@@ -146,6 +147,14 @@ Regles de validació, totes amb error clar i el nom del camp:
   l'hi posa, no el troba enlloc i la prova que repassa el repositori ho vigila.
 - `opens` s'accepta amb punt o sense (`"epub"` i `".epub"` són el mateix) i es compara **sense
   distingir majúscules**.
+- **`splash` és una imatge de dins l'app i res més** (0.114.0): el nom s'ha de quedar dins del
+  directori de l'app —un camí absolut o amb `..` es descarta amb una línia al registre— perquè un
+  manifest que apunta fora del que porta és un manifest que menteix. Un nom que hi és però no és
+  cap imatge **no es refuseix aquí**: l'app arrenca igualment i el registre diu per què no s'ha
+  pintat, perquè el dibuix és decoració i una app que no arrenca per una imatge és pitjor que una
+  app sense imatge. La imatge es pinta amb `splash` —la mateixa crida dels moments del sistema,
+  neteja de tot el panell i al mig— just abans que arrenqui l'intèrpret, i la primera pàgina que
+  l'app presenta se l'emporta (docs/30, docs/50).
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
 - Si hi ha un camp `id`, **s'ignora**: l'identificador d'una app és sempre el nom del seu directori,
   i un `id` que digui una altra cosa no es comprova ni es fa servir.

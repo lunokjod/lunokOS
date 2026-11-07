@@ -31,6 +31,16 @@ const char* preference();
 const char* keyboard();
 bool set_keyboard(const char* id);
 
+// **The drawing of the logo the system shows when it comes up** (0.115.0): the word of one of the two boot moments
+// of the splash —`boot` or `boot-alt`—, chosen with `cfg boot <word>` and kept across a reboot like the unit and the
+// keyboard. It is **a word and not a path**: the boot paints before anything else of this system exists, and a path
+// in the settings would be a way to make the board open any file at its first breath (docs/30, docs/50, docs/70).
+const char* boot_splash();
+bool set_boot_splash(const char* word);
+// Whether the word is one of the drawings of the logo this build carries, which is the question both the command
+// and the boot ask and neither answers on its own (docs/30, docs/50).
+bool is_a_boot_word(const char* word);
+
 // Asks for a unit and persists it. `auto` prefers the card and falls back to the flash.
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);

@@ -124,6 +124,10 @@ void tearDown(void) {
   // and in the key-value store, so a later boot cannot bring the other one back (0.93.0, docs/30, docs/70).
   kernel::ui::keyboard_select("qwerty");
   kernel::cfg::set_keyboard("qwerty");
+  // **The drawing of the logo is a setting of the run too** (0.115.0): a test that chose the clipart leaves the
+  // photograph for the next one, in the object and in the store, and a later boot would come up with the other
+  // picture without anybody having asked (docs/30, docs/50, docs/70).
+  kernel::cfg::set_boot_splash("boot");
   // And the bench goes back to the ATOM: one binary is one bench, and a test that was
   // the Matrix would make the next one refuse an app for no reason (docs/85).
   const bool had_card = emu::options().sd_dir != nullptr;
@@ -238,6 +242,20 @@ bool copy_a_face(hal::IStorage* storage, const char* name) {
   storage->mkdir("/res/fonts");
   hal::FileSlot slot;
   if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+  const bool ok = storage->write(slot, bytes, static_cast<uint32_t>(got)) == static_cast<int32_t>(got);
+  storage->close(slot);
+  return ok;
+}
+
+// **A file of the repository, in the disk of this bench**: the suite keeps its own volume, so an app that is a page of
+// `apps/` and not something a test writes by hand comes from there —with the pictures it ships— and not from a copy
+// that goes stale (docs/85).
+bool copy_a_host_file(hal::IStorage* storage, const char* host, const char* disk) {
+  static char bytes[65536];
+  const size_t got = read_host_file(host, bytes, sizeof(bytes));
+  if (got == 0) return false;
+  hal::FileSlot slot;
+  if (!storage->open(disk, hal::OpenMode::kWrite, slot)) return false;
   const bool ok = storage->write(slot, bytes, static_cast<uint32_t>(got)) == static_cast<int32_t>(got);
   storage->close(slot);
   return ok;
@@ -5251,6 +5269,393 @@ void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void
   kernel::boot(hal::platform());
 }
 
+// **The document of the editor scrolls with a finger** (0.113.0): the box of several lines is where the page of the
+// editor lives, and a finger that walks it upwards has to move the window and say the row a person is on. This is the
+// box the owner could not scroll on the board, and the test drives the app of the disk and not a stand-in
+// (docs/30, docs/90, docs/92 §28).
+void test_the_document_of_the_editor_scrolls_with_a_finger(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **The editor of the disk, copied into the disk of the bench**: it is a page of `apps/` and not something this test
+  // writes, so it comes from the repository with its sample (docs/85).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps");
+  storage->mkdir("/apps/editor");
+  storage->mkdir("/apps/editor/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/editor/manifest.json", "/apps/editor/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/editor/editor.lua", "/apps/editor/editor.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/editor/res/notes.txt", "/apps/editor/res/notes.txt"));
+
+  // The editor opens its own sample page, which is long enough to scroll.
+  pump_captured(40, g_out, sizeof(g_out), "run editor");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the sample page is"), g_out);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **A finger that walks up the box**: sixty pixels upwards, which is more than two rows of the document at the size
+  // the editor draws it.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 270),
+                                      static_cast<uint16_t>(view.y + 400)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 270),
+                                        static_cast<uint16_t>(view.y + 400 - 15 * (step + 1))));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  // **The window moved and the app says the row**, which is the number the line under the page shows.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "editor: row "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "editor: row 1 of"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/editor/editor.lua");
+  storage->remove("/apps/editor/manifest.json");
+  storage->remove("/apps/editor/res/notes.txt");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The page of pictures walks its nine families with the controls of the system** (0.118.0): the grid of cells is the
+// menu —the dial walks the cells and the centre picks one—, the box under the picture is read and not written, and the
+// strip of dots says which of the nine is on the glass. The decoders behind the page are the ones that answered the
+// owner's board with `***ERROR*** A stack overflow in task loopTask has been detected` after three pictures: a GIF kept
+// 16 656 bytes of table, string and row in locals against the 7 320 the app task prints free, and it keeps 256 now
+// (docs/75, docs/85, docs/92 §33).
+void test_the_page_of_pictures_walks_its_nine_families(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  // **The app of the disk with the two pictures this test needs**: the nine are decoded when the grid picks them, so the
+  // first one is what a page costs on its own and the second is the proof that a pick reaches the loader.
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps");
+  storage->mkdir("/apps/images");
+  storage->mkdir("/apps/images/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/manifest.json", "/apps/images/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/images.lua", "/apps/images/images.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/res/photo.jpg", "/apps/images/res/photo.jpg"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/res/poster.bmp", "/apps/images/res/poster.bmp"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run images");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: 9 pictures, 1 drawn, 0 failed"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: JPEG 96x72 (1988 bytes)"), g_out);
+
+  // **Three presses of the dial and the second family is on the glass**: the first puts the ring on the box that is read,
+  // the second on the grid, and the third walks the grid one cell —the bench has the Paper's dial, where key 2 is down—.
+  // The centre then picks the cell the dial is on, and the app draws the picture of that family.
+  capture_begin();
+  for (int stop = 0; stop < 3; ++stop) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 of 9"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "BMP"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/images/res/photo.jpg");
+  storage->remove("/apps/images/res/poster.bmp");
+  storage->remove("/apps/images/images.lua");
+  storage->remove("/apps/images/manifest.json");
+
+  // The next test gets the default bench back: the display was this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// How many times a text appears in what an app has printed: a gesture that arrives is a line, and a gesture that does
+// not arrive is the same line not there (0.113.0).
+int times_in(const char* hay, const char* needle) {
+  int times = 0;
+  const size_t step = strlen(needle);
+  for (const char* at = strstr(hay, needle); at != nullptr; at = strstr(at + step, needle)) ++times;
+  return times;
+}
+
+// **The rows of a box go to a box that has the dial** (0.113.0): the app hands the focus to another box from the hook
+// the first swipe wakes, and the finger that keeps walking the first one must not move anything after that. The owner's
+// complaint was a document that did not answer the finger, and the other half of that promise is a gesture that reaches
+// the control the person is on and no other (docs/30, docs/92 §28).
+void test_a_swipe_only_moves_the_box_that_has_the_dial(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char* kApp =
+      "local lines = {}\n"
+      "for i = 1, 40 do lines[i] = 'row ' .. i end\n"
+      "local box = ui.textbox_multiline(300, 200)\n"
+      "box:place(10, 10)\n"
+      "box.scale = 2\n"
+      "box.text = table.concat(lines, '\\n')\n"
+      "box.cursor = 0\n"
+      "box.keyboard = false\n"
+      "local button = ui.button(120, 40)\n"
+      "button:place(10, 260)\n"
+      "box.on_swipe = function(self, rows)\n"
+      "  console.print('swipe ' .. rows .. ' box focused ' .. tostring(self.focused))\n"
+      "  ui.focus(button)\n"
+      "  console.print('handed over ' .. tostring(button.focused) .. ' box ' .. tostring(box.focused))\n"
+      "end\n"
+      "ui.present()\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "handover",
+                           "{\"title\":\"Handover\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run handover");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The finger walks the first box and the hook gives the dial away**: one row of the first swipe, and the three
+  // moves after it are on a box that is not the one the dial is on.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 160)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                        static_cast<uint16_t>(view.y + 160 - 15 * (step + 1))));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "swipe 1 box focused true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "handed over true box false"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "swipe "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "swipe 2"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/handover/app.lua");
+  storage->remove("/apps/handover/manifest.json");
+  storage->remove("/apps/handover");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A swipe that goes out of the box stops where it left it** (0.113.0): the finger that walks off the frame of the
+// control is not walking the control any more, and the rows it had travelled are dropped with it —a window that jumps
+// when the finger comes back is worse than one that stopped where it was— (docs/30, docs/92 §28).
+void test_a_swipe_that_leaves_the_box_stops_where_it_left_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char* kApp =
+      "local lines = {}\n"
+      "for i = 1, 40 do lines[i] = 'row ' .. i end\n"
+      "local box = ui.textbox_multiline(300, 200)\n"
+      "box:place(10, 10)\n"
+      "box.scale = 2\n"
+      "box.text = table.concat(lines, '\\n')\n"
+      "box.cursor = 0\n"
+      "box.keyboard = false\n"
+      "box.on_swipe = function(self, rows)\n"
+      "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top))\n"
+      "end\n"
+      "ui.present()\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "leaver",
+                           "{\"title\":\"Leaver\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run leaver");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **One row inside the box, and then four hundred pixels below it**: the box is at ten to three hundred and ten, so
+  // a finger at four hundred is off the frame and the swipes of the way back are not the box's.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 160)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 145)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 400)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 120)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 60)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "swipe 1 "), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "swipe "), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/leaver/app.lua");
+  storage->remove("/apps/leaver/manifest.json");
+  storage->remove("/apps/leaver");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A box that is given back takes its gesture with it** (0.113.0): the app releases the control the finger is on and
+// builds another one in the same place, and the finger that is still down must not move the new one —the slot it took
+// is the one the gesture was walking—. This is the "app that ends with the finger on the glass" of the paper project,
+// said of one control instead of a whole page (docs/30, docs/92 §28).
+void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char* kApp =
+      "local lines = {}\n"
+      "for i = 1, 40 do lines[i] = 'row ' .. i end\n"
+      "local text = table.concat(lines, '\\n')\n"
+      "local box = ui.textbox_multiline(300, 200)\n"
+      "box:place(10, 10)\n"
+      "box.scale = 2\n"
+      "box.text = text\n"
+      "box.cursor = 0\n"
+      "box.keyboard = false\n"
+      "local fresh = nil\n"
+      "local heard = 0\n"
+      "box.on_swipe = function(self, rows)\n"
+      "  console.print('swipe ' .. rows)\n"
+      "  heard = heard + 1\n"
+      "  if heard == 2 then\n"
+      "    box:release()\n"
+      "    fresh = ui.textbox_multiline(300, 200)\n"
+      "    fresh:place(10, 10)\n"
+      "    fresh.scale = 2\n"
+      "    fresh.text = text\n"
+      "    fresh.keyboard = false\n"
+      "    fresh.on_swipe = function(self, said) console.print('fresh ' .. said) end\n"
+      "    console.print('given back')\n"
+      "    ui.present()\n"
+      "  end\n"
+      "end\n"
+      "ui.present()\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "giver",
+                           "{\"title\":\"Giver\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run giver");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The whole gesture completes**: two rows of the first box, which is the one that is given back, and two more moves
+  // of a finger that has no control any more — it is on the glass over the box the app has just built, and that box is
+  // not pressed by a contact that began on another one (0.113.0, docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 160)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                        static_cast<uint16_t>(view.y + 160 - 15 * (step + 1))));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "given back"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, times_in(g_out, "swipe "), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fresh "), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/giver/app.lua");
+  storage->remove("/apps/giver/manifest.json");
+  storage->remove("/apps/giver");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The quality an app asks for at the present is the quality of the paint** (docs/30, docs/50): a
 // page that must look uniform asks for `gc16` once, and the controls —which ask for `du` on their own—
 // do not leave the ghost of what moved. The mode was read from a stack the root had been pushed on,
@@ -5611,10 +6016,12 @@ void test_the_dial_flips_a_checkbox(void) {
   storage->remove("/apps/tickbox");
 }
 
-// **The arrows move the number of a slider and the walk of the dial stays where the person put it**: the value
-// is the control's own state, so the system changes it and the app is told with `on_change(self, value)` —the
-// same rule a checkbox's check follows—, and at the end of the range the key goes back to the walk so a page
-// with a slider is not a dead end (docs/30, docs/90).
+// **The arrows move the number of a slider the centre has entered**, and the walk of the dial stays where the person
+// put it: the value is the control's own state, so the system changes it and the app is told with
+// `on_change(self, value)` —the same rule a checkbox's check follows—, and at the end of the range the key goes back to
+// the walk so a page with a slider is not a dead end. **Since 0.117.0 having the focus is not enough**: the first key
+// is the walk that puts the ring on the slider, the centre is the door, and the keys are the number from then on
+// (docs/30, docs/92 §32).
 void test_the_dial_moves_the_value_of_a_slider(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -5641,8 +6048,18 @@ void test_the_dial_moves_the_value_of_a_slider(void) {
   pump_captured(20, g_out, sizeof(g_out), "run volume");
   capture_begin();
   pump_turns(20);
-  // Down twice and up once —the bench has the Paper's dial, where key 2 is down—: +10, +20 and back to 10,
-  // which is what proves both directions and not only that a number changed.
+  // **The first key is the walk**: a page nobody has walked has no focus, so the down key puts the ring on the slider
+  // and the number does not move (0.117.0).
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  // The centre enters it, and then down twice and up once —the bench has the Paper's dial, where key 2 is down— are
+  // +10, +20 and back to 10, which is what proves both directions and not only that a number changed.
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(20);
   for (int i = 0; i < 3; ++i) {
     emu::press_key((i < 2) ? 2 : 1, true);
     pump_turns(20);
@@ -5784,6 +6201,27 @@ void test_a_list_turns_its_page_with_the_dial(void) {
 // system that paints the panel outside a page. The picture here is two by two —the top row black and the bottom
 // one white— so the pixels say where it landed and that nothing around it was touched, and a moment whose picture
 // the disk does not carry says so instead of painting a guess (docs/30, docs/50, docs/92).
+// **A BMP of two by two pixels**, twenty-four bits, the rows the other way up: seventy bytes, the top row black and
+// the bottom one white. The splash tests write it on the disk of the bench, which is a volume of its own and does not
+// read the pictures of the build (docs/85).
+const uint8_t kTwoByTwoBmp[] = {
+    66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
+    40, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0,
+    24, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255,
+    255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+// **The same picture the other way up**: the top row white and the bottom one black, so a glass that painted it says
+// which of the two files it read with one number and no guess (0.115.0).
+const uint8_t kTwoByTwoBmpAlt[] = {
+    66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
+    40, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0,
+    24, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0,
+};
+
 void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -5794,14 +6232,7 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
-  // A BMP of two by two pixels, twenty-four bits, the rows the other way up: 70 bytes and the top row black.
-  const uint8_t bmp[] = {
-      66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
-      40, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0,
-      24, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255,
-      255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  };
+  const uint8_t* const bmp = kTwoByTwoBmp;
   // **The bench writes its own pictures**: the disk of the tests is its own copy and what a build carries is not
   // what this volume has, so the folder is made here and the file is this test's (docs/85).
   storage->mkdir("/res");
@@ -5813,7 +6244,7 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
     storage->close(slot);
     return ok;
   };
-  TEST_ASSERT_TRUE(write_picture("/res/splash/probe.bmp", bmp, sizeof(bmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/probe.bmp", bmp, sizeof(kTwoByTwoBmp)));
 
   // **Something of somebody else on the glass, in a corner**: the wash of the splash is the whole panel and not the
   // rectangle of the picture, so this square of ink is gone when the moment has been painted (docs/50).
@@ -5849,7 +6280,7 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
 
   // **A moment is a file with the word of the moment as its name**: the same picture under the word `boot` is the
   // picture of the boot, and the word is what a person uses to put one of their own on the disk.
-  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", bmp, sizeof(bmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", bmp, sizeof(kTwoByTwoBmp)));
   char path[96];
   TEST_ASSERT_TRUE(kernel::splash::path_of(kernel::splash::kBoot, path, sizeof(path)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(path, "boot."), path);
@@ -5865,6 +6296,19 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   TEST_ASSERT_FALSE(kernel::splash::show(kernel::splash::kNone));
   TEST_ASSERT_EQUAL_STRING("no such moment", kernel::splash::last_error());
 
+  // **The six words of the command** (0.114.0): the boot with its two drawings, the two ways down, the charge
+  // and the light sleep. `boot-alt` is a word of its own and not a prefix of `boot`, which is the mistake the
+  // lookup would make if it compared the first letters.
+  TEST_ASSERT_EQUAL_UINT8(6, kernel::splash::count());
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::splash::kind_of("boot"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBootAlt, kernel::splash::kind_of("boot-alt"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kPowerOff, kernel::splash::kind_of("poweroff"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kReboot, kernel::splash::kind_of("reboot"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kCharging, kernel::splash::kind_of("charging"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kSleep, kernel::splash::kind_of("sleep"));
+  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::splash::word(kernel::splash::kBootAlt));
+  TEST_ASSERT_EQUAL_STRING("poweroff", kernel::splash::word(kernel::splash::kPowerOff));
+
   storage->remove("/res/splash/probe.bmp");
   storage->remove("/res/splash/boot.bmp");
   opts = emu::options();
@@ -5872,6 +6316,410 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   opts.display = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
+}
+
+// **An app that names a picture gets it painted before it starts** (0.114.0): the manifest says `splash` with a file
+// inside the app, the system washes the whole glass and paints it in the middle with the same call the moments use
+// —an app cannot paint before it runs—, and the first page it presents takes it away. **An app that names none paints
+// nothing**: the ink of the corner is still there after it has run, which is the half of the promise that a wash would
+// break (docs/30, docs/40).
+void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  // **The picture of the app lives inside the app**: `/apps/splashy/res/start.bmp`, which the manifest names without
+  // the door in front, because a manifest that named the disk would be a manifest about the disk (docs/40).
+  storage->mkdir("/apps/splashy");
+  storage->mkdir("/apps/splashy/res");
+  TEST_ASSERT_TRUE(write_picture("/apps/splashy/res/start.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(add_app(storage, "splashy",
+                           "{\"title\":\"Splashy\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"splash\":\"res/start.bmp\"}",
+                           "console.print('splashy started')\n"));
+  // **The field is read by the same walk that reads the rest of the manifest**, and it is kept as the app wrote it:
+  // relative to the app, which is what lets a copy of the card show its own picture (docs/40, docs/70).
+  kernel::apps::Entry entry;
+  TEST_ASSERT_TRUE(kernel::apps::read("splashy", entry));
+  TEST_ASSERT_EQUAL_STRING("res/start.bmp", entry.splash);
+
+  // Ink in a corner: washing the panel is the whole of it and not the rectangle of the picture, so this square is what
+  // says whether the glass was washed at all (docs/50).
+  hal::ISurface* panel = hal::platform().display();
+  TEST_ASSERT_NOT_NULL(panel);
+  panel->fill_rect(0, 0, 12, 12, 0);
+  TEST_ASSERT_TRUE(panel->flush(hal::UpdateMode::kDu));
+
+  pump_captured(40, g_out, sizeof(g_out), "run splashy");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "splashy started"), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
+  const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+  // **The two pixels of the app's picture in the middle of the glass**, and paper around them: the wash of the splash
+  // took the ink of the corner with it, which is what says the picture was painted by the system and not by the app.
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(static_cast<uint16_t>(at_x + 1), at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(11, 11));
+
+  // **An app that names no picture leaves the glass as it found it**: the ink of the corner survives the run, which is
+  // the other half of the rule.
+  panel->fill_rect(0, 0, 12, 12, 0);
+  TEST_ASSERT_TRUE(panel->flush(hal::UpdateMode::kDu));
+  TEST_ASSERT_TRUE(add_app(storage, "plain",
+                           "{\"title\":\"Plain\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('plain started')\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run plain");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "plain started"), g_out);
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(11, 11));
+
+  // **A name that points out of the app is dropped and the app is still an app**: the picture is decoration, and a
+  // manifest that reaches the rest of the disk is a manifest that says something untrue about itself (docs/40).
+  TEST_ASSERT_TRUE(add_app(storage, "escaper",
+                           "{\"title\":\"Escaper\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"splash\":\"../outside.png\"}",
+                           "console.print('escaper started')\n"));
+  kernel::apps::Entry escaper;
+  TEST_ASSERT_TRUE(kernel::apps::read("escaper", escaper));
+  TEST_ASSERT_EQUAL_STRING("", escaper.splash);
+
+  storage->remove("/apps/splashy/res/start.bmp");
+  storage->remove("/apps/splashy/res");
+  storage->remove("/apps/splashy/app.lua");
+  storage->remove("/apps/splashy/manifest.json");
+  storage->remove("/apps/splashy");
+  storage->remove("/apps/plain/app.lua");
+  storage->remove("/apps/plain/manifest.json");
+  storage->remove("/apps/plain");
+  storage->remove("/apps/escaper/app.lua");
+  storage->remove("/apps/escaper/manifest.json");
+  storage->remove("/apps/escaper");
+
+  // The next test gets the default bench back: the display was this test's.
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The drawing of the logo that comes up is the one the settings say** (0.115.0): `cfg boot <word>` chooses between
+// the two drawings, a word that is not one is refused where it is typed and the one that was there stays, and the boot
+// paints the chosen picture with the same call the command `splash boot` makes —as early as the filesystem and the
+// settings are there, which is before the alarms and the radio— (docs/30, docs/50, docs/70).
+void test_the_boot_paints_the_drawing_the_settings_chose(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  // **The two drawings of the logo, with the two names the boot looks for**: the same picture the other way up, so
+  // the glass says which of the two files was read with one number and no guess.
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
+
+  // **The word is a setting of the system**, asked to the store the way the unit and the keyboard are.
+  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
+  TEST_ASSERT_EQUAL_STRING("boot", kernel::cfg::boot_splash());
+  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot-alt"));
+  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
+  // **A word that is not a drawing of this build is refused, and the one that was there is not lost**: `charging` is
+  // a moment of the splash and it is not the picture of the start of the system.
+  TEST_ASSERT_FALSE(kernel::cfg::set_boot_splash("charging"));
+  TEST_ASSERT_FALSE(kernel::cfg::is_a_boot_word("nothing"));
+  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
+
+  // **The board comes up and the glass says which picture was chosen**: the two pixels of the clipart in the middle
+  // —white over black, the other way up from the picture of `boot`— and paper around them.
+  kernel::boot(hal::platform());
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
+  const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
+
+  // **And the other word paints the other drawing**, which is what makes this a choice and not a coincidence.
+  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
+  kernel::boot(hal::platform());
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
+
+  // **The choice survives a restart**: `cfg::boot` is what a boot reads, so asking it again is the question the next
+  // boot asks, and the answer is the one that was written (docs/30, docs/70).
+  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot-alt"));
+  kernel::cfg::boot(hal::platform());
+  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
+
+  // The setting and the pictures go back, so the tests after this one find the bench as it was.
+  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
+  storage->remove("/res/splash/boot.bmp");
+  storage->remove("/res/splash/boot-alt.bmp");
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A box that is read and not written keeps the caret and never brings a band** (0.116.0): `readonly` is the field of
+// the control the system asks before it puts the keyboard up, and the block is the focus's —a page nobody types into is
+// still a place a person is at—. Both kinds of box carry it, and entering one with the centre is the caret without the
+// letters (docs/30, docs/92).
+void test_a_read_only_box_has_a_caret_and_never_a_band(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "reader",
+                           "{\"title\":\"Reader\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kb = ui.keyboard()\n"
+                           "local lines = ui.textbox_multiline(400, 200)\n"
+                           "lines:place(10, 10)\n"
+                           "lines.text = 'one\\ntwo'\n"
+                           "lines.readonly = true\n"
+                           "lines.on_activate = function(self)\n"
+                           "  console.print('lines entered caret ' .. tostring(self.caret) ..\n"
+                           "    ' band ' .. tostring(kb:visible()))\n"
+                           "end\n"
+                           "ui.focus(lines)\n"
+                           "console.print('lines caret ' .. tostring(lines.caret) ..\n"
+                           "  ' band ' .. tostring(kb:visible()))\n"
+                           "local one = ui.textbox(400, 48)\n"
+                           "one:place(10, 240)\n"
+                           "one.text = 'abc'\n"
+                           "one.readonly = true\n"
+                           "ui.focus(one)\n"
+                           "console.print('one caret ' .. tostring(one.caret) ..\n"
+                           "  ' band ' .. tostring(kb:visible()))\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run reader");
+  // **The block is there and the band is not**, in both kinds of box, and it is still that way after the centre has
+  // entered the box of lines: what the centre adds to a read-only page is the keys walking the caret (docs/30).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "lines caret true band false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one caret true band false"), g_out);
+  // The dial goes back to the box of lines —it is the stop before the field the app focused last— and the centre enters
+  // it: the caret stays and the band does not come (docs/30).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(10);
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "lines entered caret true band false"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/reader/app.lua");
+  storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader");
+}
+
+// **The keys walk the caret of a box the centre has entered** (0.116.0): down and up are one row of the glass —wrapped
+// or not, which is why the arithmetic is the kernel's— and the app hears where the caret went so the line under the page
+// says the row. Before the centre, the same keys walk the dial and the caret does not move: that is the whole point of
+// entering (docs/30, docs/90, docs/92).
+void test_the_keys_walk_the_rows_of_a_box_the_centre_entered(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "walker",
+                           "{\"title\":\"Walker\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox_multiline(300, 200)\n"
+                           "box:place(10, 10)\n"
+                           "box.scale = 2\n"
+                           "box.text = 'one\\ntwo\\nthree'\n"
+                           "box.cursor = 0\n"
+                           "box.readonly = true\n"
+                           "box.on_move = function(self, cursor) console.print('cursor ' .. cursor) end\n"
+                           "ui.focus(box)\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run walker");
+  // **The keys of the walk before the centre**: the caret does not move, because the box has not been entered and the
+  // two keys belong to the dial (docs/30).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "cursor "), g_out);
+
+  // The centre enters the box, and then down is the second row and down again the third: "one\n" is four bytes, so the
+  // caret of the start of the rows is 4 and 8 (docs/30).
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 4"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 8"), g_out);
+
+  // And up goes back a row, which is what makes the two keys a pair and not one.
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(10);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 4"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/walker/app.lua");
+  storage->remove("/apps/walker/manifest.json");
+  storage->remove("/apps/walker");
+}
+
+// **The keys walk the letters of a box of one line the same way** (0.116.0): the same two keys, one letter a press, and
+// a letter is a code point and not a byte (docs/30, docs/92).
+void test_the_keys_walk_the_letters_of_a_line(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "letters",
+                           "{\"title\":\"Letters\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(300, 48)\n"
+                           "box:place(10, 10)\n"
+                           "box.text = 'abc'\n"
+                           "box.cursor = 0\n"
+                           "box.readonly = true\n"
+                           "box.on_move = function(self, cursor) console.print('cursor ' .. cursor) end\n"
+                           "ui.focus(box)\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run letters");
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(10);
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 2"), g_out);
+
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(10);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cursor 1"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/letters/app.lua");
+  storage->remove("/apps/letters/manifest.json");
+  storage->remove("/apps/letters");
+}
+
+// **A box without a frame is a box whose frame is the colour of its inside** (0.116.0): the control paints its frame in
+// `border` and its inside in `background`, and `framed = false` hands the second as the first. A document that is the
+// page has nothing to be framed by, which is what the owner asked for with the editor in his hand (docs/30, docs/92).
+void test_a_box_without_a_frame_leaves_its_edge_in_paper(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "frames",
+                           "{\"title\":\"Frames\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "ui.clear(15)\n"
+                           "local framed = ui.textbox(200, 48)\n"
+                           "framed:place(20, 20)\n"
+                           "framed.text = ''\n"
+                           "local bare = ui.textbox(200, 48)\n"
+                           "bare:place(20, 90)\n"
+                           "bare.text = ''\n"
+                           "bare.framed = false\n"
+                           "local framed_lines = ui.textbox_multiline(200, 100)\n"
+                           "framed_lines:place(300, 20)\n"
+                           "framed_lines.text = 'x'\n"
+                           "local bare_lines = ui.textbox_multiline(200, 100)\n"
+                           "bare_lines:place(300, 140)\n"
+                           "bare_lines.text = 'x'\n"
+                           "bare_lines.framed = false\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run frames");
+  pump_turns(20);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // **The top edge of each box, in the middle of it**: the frame of the control is two pixels of ink there, and a box
+  // that has no frame leaves the paper of the page (docs/30).
+  const auto edge = [glass, &view](uint16_t x, uint16_t y) {
+    return glass->level_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y));
+  };
+  TEST_ASSERT_EQUAL_UINT8(0, edge(120, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, edge(120, 90));
+  TEST_ASSERT_EQUAL_UINT8(0, edge(400, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, edge(400, 140));
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/frames/app.lua");
+  storage->remove("/apps/frames/manifest.json");
+  storage->remove("/apps/frames");
 }
 
 // **The keyboard is the system's and types into the box it was given**: the app says the box, shows the band and
@@ -6342,10 +7190,11 @@ void test_the_caret_blinks_without_the_app(void) {
   storage->remove("/apps/blink");
 }
 
-// **The dial does not stop on a text box** (0.91.0): a box is a target of the finger and the keyboard, not a stop of the
-// walk; a page of one button and one box keeps the button as the only stop and the centre still clicks it. The code now
-// says what docs/30 has said since 0.85.2 (docs/30, docs/90).
-void test_the_dial_does_not_stop_on_a_text_box(void) {
+// **The dial stops on a text box and the centre enters it** (0.116.0, and it was the finger's only since 0.85.2): a board
+// with keys and no touch has to be able to land on a field, and the ring on a field is the caret in it and no band —the
+// band is what entering buys—. This is the shape a slider has with its value, which is what the owner asked for: focus,
+// then the centre to get in (docs/30, docs/90, docs/92).
+void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -6353,15 +7202,42 @@ void test_the_dial_does_not_stop_on_a_text_box(void) {
   TEST_ASSERT_TRUE(add_app(storage, "dialbox",
                            "{\"title\":\"DialBox\",\"version\":\"0.1.0\","
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local kb = ui.keyboard()\n"
                            "local button = ui.button(200, 60)\n"
                            "button:place(20, 20)\n"
                            "button.on_click = function(self) console.print('click button') end\n"
                            "local box = ui.textbox(200, 48)\n"
                            "box:place(20, 140)\n"
+                           // **The band is not up when the ring lands on the field** and it is when the centre gets in:
+                           // the two numbers the page cannot see are printed by the app that can ask (docs/30).
+                           "box.on_focus = function(self, on)\n"
+                           "  console.print('focus box ' .. tostring(on) .. ' band ' .. tostring(kb:visible()))\n"
+                           "end\n"
+                           "box.on_activate = function(self)\n"
+                           "  console.print('enter box band ' .. tostring(kb:visible()))\n"
+                           "end\n"
                            "ui.present('gc16')\n"
                            "while true do sys.delay(20):await() end\n"));
 
   pump_captured(20, g_out, sizeof(g_out), "run dialbox");
+  // The down key walks the dial from the button to the box: the field has the ring and no band.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus box true band false"), g_out);
+  // **The centre is the door**: the box is entered and the band comes with it, and the app hears `on_activate`.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "enter box band true"), g_out);
+  // And the button is still reachable: the same down key walks back to it and the centre clicks it, which is what says
+  // the field did not eat the walk (docs/30).
   capture_begin();
   emu::press_key(2, true);
   pump_turns(10);
@@ -6381,6 +7257,89 @@ void test_the_dial_does_not_stop_on_a_text_box(void) {
   storage->remove("/apps/dialbox/app.lua");
   storage->remove("/apps/dialbox/manifest.json");
   storage->remove("/apps/dialbox");
+}
+
+// **A slider is entered with the centre before its keys are its own** (0.117.0): the owner with the board in his hand,
+// *«Al rebre el focus, els botons continuarán com sempre (canviant focus) s'ha de polsar el botó central per "entrar" al
+// slider i llavors si escollir el valor amb els mateixos dos botons»*. Outside, the two keys walk the dial as always;
+// inside, they are the number; and the centre gives them back and means "leave" and nothing else (docs/30, docs/92).
+void test_a_slider_takes_the_keys_only_after_the_centre(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "knob",
+                           "{\"title\":\"Knob\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local slider = ui.slider(400, 60)\n"
+                           "slider:place(20, 60)\n"
+                           "slider.min = 0\n"
+                           "slider.max = 10\n"
+                           "slider.step = 1\n"
+                           "slider.value = 5\n"
+                           "slider.on_change = function(self, value) console.print('value ' .. value) end\n"
+                           "slider.on_click = function(self)\n"
+                           "  console.print('click slider ' .. tostring(self.editing))\n"
+                           "end\n"
+                           "ui.focus(slider)\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run knob");
+
+  // **The keys walk and the number does not move**: the slider has the ring and it is not entered, so down is the walk
+  // of the dial —which, with one stop, comes back to the same control— and not the value (docs/30).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "value "), g_out);
+
+  // The centre enters it: the app hears the press and `editing` is already true.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click slider true"), g_out);
+
+  // **Inside, the two keys are the number**: down twice is six and then seven, and the app hears each one.
+  capture_begin();
+  for (int i = 0; i < 2; ++i) {
+    emu::press_key(2, true);
+    pump_turns(10);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 6"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 7"), g_out);
+
+  // The centre gives the keys back to the walk, and the same key that moved the number changes nothing now.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click slider false"), g_out);
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "value "), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/knob/app.lua");
+  storage->remove("/apps/knob/manifest.json");
+  storage->remove("/apps/knob");
 }
 
 // **A dialog has two doors and the dial picks one before it presses it**: the chosen door moves with the arrows and
@@ -8002,6 +8961,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
+  RUN_TEST(test_the_document_of_the_editor_scrolls_with_a_finger);
+  RUN_TEST(test_a_swipe_only_moves_the_box_that_has_the_dial);
+  RUN_TEST(test_a_swipe_that_leaves_the_box_stops_where_it_left_it);
+  RUN_TEST(test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows);
   RUN_TEST(test_a_press_reaches_the_app_as_a_hook);
   RUN_TEST(test_three_taps_close_the_app);
   RUN_TEST(test_a_key_reaches_the_app_with_its_number);
@@ -8010,6 +8973,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_walks_the_buttons_of_a_page);
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
+  RUN_TEST(test_the_page_of_pictures_walks_its_nine_families);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
   RUN_TEST(test_a_list_of_entries_places_a_page_of_controls);
   RUN_TEST(test_a_grid_of_entries_places_cells_of_controls);
@@ -8028,13 +8992,20 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
+  RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
+  RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
   RUN_TEST(test_a_keyboard_without_a_target_is_refused);
   RUN_TEST(test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters);
   RUN_TEST(test_the_caret_blinks_without_the_app);
-  RUN_TEST(test_the_dial_does_not_stop_on_a_text_box);
+  RUN_TEST(test_the_dial_stops_on_a_text_box_and_the_centre_enters_it);
+  RUN_TEST(test_a_read_only_box_has_a_caret_and_never_a_band);
+  RUN_TEST(test_the_keys_walk_the_rows_of_a_box_the_centre_entered);
+  RUN_TEST(test_the_keys_walk_the_letters_of_a_line);
+  RUN_TEST(test_a_box_without_a_frame_leaves_its_edge_in_paper);
+  RUN_TEST(test_a_slider_takes_the_keys_only_after_the_centre);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
   RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);

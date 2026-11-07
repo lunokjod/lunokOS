@@ -2713,6 +2713,83 @@ void test_the_window_of_a_box_of_lines_is_the_one_the_app_says(void) {
   ui::release(box);
 }
 
+// **The bar and the window of a box of lines count the rows of the glass and not the breaks of the file** (0.113.0):
+// with `wrap` a line that does not fit the box is two rows —or three—, so the text of such a box is taller than its
+// number of lines: the thumb of the bar is shorter, because there is more to read, and the last window a finger can
+// reach is further down, because the page it walks is the one that is drawn. Without it a wrapped box moved a window
+// that nobody was looking at, which is the reason the owner's document did not answer the finger (docs/30, docs/92 §28).
+void test_the_bar_and_the_window_of_a_box_of_lines_count_the_rows_of_the_glass(void) {
+  fresh_view();
+  int16_t box = -1;
+  // A box of two hundred by a hundred pixels at scale 2: six rows of the fourteen of a letter.
+  TEST_ASSERT_TRUE(ui::create(200, 100, 0, false, box));
+  TEST_ASSERT_TRUE(ui::place(box, 0, 0));
+  // **Ten lines of forty letters**, which are more rows than lines as soon as the box wraps them.
+  const char* text =
+      "The paper waits for the next word\n"
+      "and the hand that writes it is slow\n"
+      "a page that is never quite full\n"
+      "a window that moves with a finger\n"
+      "the bar on the right says how far\n"
+      "the thumb says how much is left\n"
+      "a break says where a person said so\n"
+      "the glass says where the rows fall\n"
+      "and the last one is empty on purpose\n"
+      "because a file ends with a break\n";
+  const uint16_t flat = ui::textbox_multiline_total(box, text, false, 2);
+  const uint16_t wrapped = ui::textbox_multiline_total(box, text, true, 2);
+  // **Ten lines and the empty row their last break makes** (0.108.0): the caret that ends a file is a row of its own.
+  TEST_ASSERT_EQUAL_UINT16(11, flat);
+  // **The same text wrapped is more rows than lines**: forty letters do not fit two hundred pixels at scale 2.
+  TEST_ASSERT_GREATER_THAN(flat, wrapped);
+  const uint16_t fit = ui::textbox_multiline_rows(box, 2);
+  TEST_ASSERT_EQUAL_UINT16(6, fit);
+
+  // **The thumb of the wrapped page is shorter**: the track is the same and there is more text behind it.
+  const auto column_of = [&]() {
+    int column = -1;
+    for (uint16_t x = 170; x < 200 && column < 0; ++x) {
+      int ink = 0;
+      for (uint16_t y = 8; y < 92; ++y) {
+        if (view_level(x, y) == 0) ++ink;
+      }
+      if (ink > 60) column = x;  // the left side of the track is a line of ink from the top to the bottom
+    }
+    return column;
+  };
+  const auto thumb_of = [](int column) {
+    int thumb = 0;
+    for (uint16_t y = 8; y < 92; ++y) {
+      if (view_level(static_cast<uint16_t>(column + 2), y) == 0) ++thumb;
+    }
+    return thumb;
+  };
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, false, 0, 15, 0, 2, 0));
+  const int flat_column = column_of();
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, flat_column, "the box of ten lines has no bar");
+  const int flat_thumb = thumb_of(flat_column);
+  TEST_ASSERT_TRUE(ui::textbox_multiline_draw(box, text, 0, false, true, 0, 15, 0, 2, 0));
+  const int wrap_column = column_of();
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(0, wrap_column, "the box of the wrapped page has no bar");
+  const int wrap_thumb = thumb_of(wrap_column);
+  TEST_ASSERT_GREATER_THAN(0, flat_thumb);
+  TEST_ASSERT_LESS_THAN(flat_thumb, wrap_thumb);
+
+  // **And the last window is the last of the wrapped page**: the finger that walks to the end of it is on the last row
+  // of the glass and not on the tenth line, which is where a box that forgot the wrapping stopped.
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(flat - fit),
+                           ui::textbox_multiline_scroll(box, text, 0, false, 2, 0, 999));
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(wrapped - fit),
+                           ui::textbox_multiline_scroll(box, text, 0, true, 2, 0, 999));
+  // **A finger that goes up from a window already at the end is on the same row**, because the two arithmetic paths
+  // agree on the total: the one of the gesture (`textbox_multiline_scroll`) and the one of the paint (`total`).
+  TEST_ASSERT_EQUAL_UINT16(static_cast<uint16_t>(wrapped - fit),
+                           ui::textbox_multiline_scroll(box, text, 0, true, 2,
+                                                        static_cast<int16_t>(wrapped - fit), 99));
+
+  ui::release(box);
+}
+
 // **The caret of a box of lines is where the cursor is, and the two ends of a row count** (0.84.1): the block of a
 // cursor at zero is the first cell of the first row —it used to be drawn at the end of it, because the letters of a row
 // are counted from one and the fallback that closes a row took every position that was not counted— and the block of a
@@ -3283,6 +3360,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
   RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
   RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);
+  RUN_TEST(test_the_bar_and_the_window_of_a_box_of_lines_count_the_rows_of_the_glass);
   RUN_TEST(test_a_selector_is_a_field_with_a_door_on_its_right);
   RUN_TEST(test_a_band_of_notifications_puts_the_newest_at_the_bottom);
   RUN_TEST(test_a_grid_puts_the_page_where_the_cursor_is);

@@ -151,26 +151,33 @@ Status ico_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The row of the page is the block of the caller** (0.118.0), and a PNG inside an icon takes the block after it: the
+// picture of an icon is a row of two kilobytes whether it is a bitmap or a drawing, and the stack of a task is seven
+// (docs/75).
 uint32_t ico_scratch(const uint8_t* data, uint32_t len) {
   Entry entry;
   if (!read_directory(data, len, entry)) return 0;
-  // A PNG inside an icon needs what a PNG needs; a BMP inside one is read in place (docs/30).
-  if (is_png_entry(data, entry)) return png_scratch(data + entry.at, entry.bytes);
-  return 0;
+  if (is_png_entry(data, entry)) {
+    const uint32_t png = png_scratch(data + entry.at, entry.bytes);
+    return (png == 0) ? 0 : aligned_at(kRowBytes) + png;
+  }
+  return kRowBytes;
 }
 
 Status decode_ico(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
   Entry entry;
   if (!read_directory(data, len, entry)) return kUnknown;
-  if (is_png_entry(data, entry)) return decode_png(data + entry.at, entry.bytes, sink, scratch, cap);
-  (void)scratch;
-  (void)cap;
+  if (scratch == nullptr || cap < kRowBytes) return kNoRoom;
+  if (is_png_entry(data, entry)) {
+    return decode_png(data + entry.at, entry.bytes, sink, scratch + aligned_at(kRowBytes),
+                      cap - aligned_at(kRowBytes));
+  }
   Dib dib;
   if (!read_dib(data, entry, dib)) return kBadData;
   if (dib.width > kMaxSide || dib.height > kMaxSide) return kUnsupported;
   const uint32_t stride = ((dib.width * dib.depth + 31) / 32) * 4;
   if (dib.rows_at > len || stride * dib.height > len - dib.rows_at) return kTruncated;
-  uint8_t packed[(kMaxSide + 1) / 2];
+  uint8_t* packed = scratch;
   for (uint32_t y = 0; y < dib.height; ++y) {
     // An icon is stored from the bottom like a BMP (docs/30).
     const uint8_t* row = data + dib.rows_at + (dib.height - 1 - y) * stride;

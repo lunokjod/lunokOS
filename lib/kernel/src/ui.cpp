@@ -1370,6 +1370,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      textbox_multiline_total,
                                      textbox_multiline_line,
                                      textbox_multiline_scroll,
+                                     textbox_caret,
+                                     textbox_multiline_row,
                                      selector_draw,
                                      notification_bar_draw_for_lua,
                                      notification_bar_card_at,
@@ -3383,6 +3385,71 @@ uint8_t textbox_multiline_line(int16_t slot, uint8_t scale) {
   const int32_t line_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
   if (line_h < 1) return 1;
   return static_cast<uint8_t>((line_h > 255) ? 255 : line_h);
+}
+
+// **The caret one letter back or forward in a box of one line** (0.116.0): the two keys of a board inside a field, which
+// are the same as the two arrows of a slider once the box has been entered. **A letter is a code point and not a byte**,
+// so a step never lands between the two bytes of an accent, and the two ends are the ends: the answer is always a
+// cursor the box can draw (docs/30, docs/90).
+uint16_t textbox_caret(int16_t slot, const char* text, uint16_t cursor, int16_t steps) {
+  if (!live(slot) || steps == 0) return cursor;
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t length = static_cast<int32_t>(strlen(at));
+  int32_t caret = (cursor > length) ? length : static_cast<int32_t>(cursor);
+  while (steps > 0 && caret < length) {
+    ++caret;
+    while (caret < length && (static_cast<uint8_t>(at[caret]) & 0xC0u) == 0x80u) ++caret;
+    --steps;
+  }
+  while (steps < 0 && caret > 0) {
+    --caret;
+    while (caret > 0 && (static_cast<uint8_t>(at[caret]) & 0xC0u) == 0x80u) --caret;
+    ++steps;
+  }
+  return static_cast<uint16_t>(caret);
+}
+
+// **The caret one row up or down in a box of several lines** (0.116.0): the rows are the ones the glass shows, which is
+// why this is here and not in the app —with `wrap` a row and a line are not the same thing— and the column is kept as
+// near as the row allows, half a letter at a time, so a caret at the end of a long row stays at the end of a short one.
+// At the first and the last row the caret stays where it is (docs/30, docs/90).
+uint16_t textbox_multiline_row(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                               int16_t top, int16_t rows) {
+  if (!live(slot) || rows == 0) return cursor;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const font::Face& face = face_of(box.face);
+  const char* at = (text != nullptr) ? text : "";
+  const MultilineLayout layout = multiline_layout(box, at, cursor, wrap, scale, top);
+  int32_t target = layout.cursor_row + rows;
+  if (target < 0) target = 0;
+  if (target > layout.total - 1) target = layout.total - 1;
+  if (target == layout.cursor_row) return cursor;
+  // **The walk is the one of the measure and of the paint**: a second rule here would put the caret on a row nobody
+  // sees, and the row the key lands on is the row a person is looking at (docs/90).
+  int32_t offset = 0;
+  for (int32_t row = 0; row <= target; ++row) {
+    int32_t taken = 0;
+    int32_t caret_x = 0;
+    bool here = false;
+    const int32_t span = row_span(face, at + offset, layout.room, scale, wrap, -1, taken, caret_x, here);
+    if (row == target) {
+      int32_t used = 0;
+      int32_t width = 0;
+      while (used < span) {
+        const int32_t step = advance_of(face, static_cast<uint8_t>(at[offset + used]), scale);
+        // Half a letter: the caret goes to the letter whose middle is nearest the column it came from.
+        if (width + step / 2 > layout.caret_x) break;
+        width += step;
+        ++used;
+      }
+      return static_cast<uint16_t>(offset + used);
+    }
+    offset += taken;
+    if (taken == 0) break;
+  }
+  return cursor;
 }
 
 // **Where the window is left when a finger moves it** (0.88.0): the rows the finger has travelled, added to the window

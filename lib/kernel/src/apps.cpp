@@ -164,6 +164,19 @@ bool load(const char* id, Entry& out) {
       log_printf(pal::kLogWarn, "APPS", "%s declares an opens that is not an extension", id);
     }
   }
+  // **The picture of the app, if it says one** (0.114.0): the name of a file inside the app —`res/logo.png`—
+  // that the system paints before the interpreter starts. A name that is not inside the app is dropped with a
+  // line, because a manifest that points out of its own folder is a manifest that lies about what it carries;
+  // a name that is not a picture is kept here and said when it is painted, which is where the failure is known
+  // (docs/40).
+  char raw_splash[48];
+  if (lunok::json::get_string(text, len, "splash", raw_splash, sizeof(raw_splash))) {
+    if (raw_splash[0] == '/' || strstr(raw_splash, "..") != nullptr) {
+      log_printf(pal::kLogWarn, "APPS", "%s names a splash outside the app", id);
+    } else {
+      snprintf(out.splash, sizeof(out.splash), "%s", raw_splash);
+    }
+  }
   return true;
 }
 

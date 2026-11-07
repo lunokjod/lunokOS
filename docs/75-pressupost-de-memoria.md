@@ -709,3 +709,45 @@ repo: the answer is in /sd/http/apps
 
 O sigui: **amb els mateixos 28 944 B de RAM interna** que abans fallaven, ara el handshake passa, perquè els seus
 blocs grans ja no surten d'aquí.
+
+## La pila dels descodificadors d'imatge, i la pàgina que va petar (0.118.0)
+
+L'amo va portar el log de la placa: `run images`, tres fotos i
+
+```
+***ERROR*** A stack overflow in task loopTask has been detected
+```
+
+La pregunta era directa —«el carregador d'imatges usa PSRAM?»— i la resposta honesta és **sí i no**. El fitxer i el
+bloc de treball ja venien de `pal::extra_memory()` (la PSRAM, docs/75 «La memòria extra»), però **l'estat propi de
+cada descodificador era dins del descodificador**: taules i files en variables locals, que vol dir a la pila de la
+tasca que corre l'app. L'emulador no ho ensenya mai perquè la pila del PC és gran; la tasca de l'app **diu quanta
+n'hi ha lliure en arrencar** (`stack 7320 B free`) i el GIF en demanava el doble i mig.
+
+**Mesurat amb `-fstack-usage`** (`python3 tools/check_stack.py`, 0.118.0, abans i després):
+
+| Funció | Abans | Després |
+|---|---|---|
+| `decode_gif` | **16 656 B** | **256 B** |
+| `decode_jpeg` | **6 432 B** | **912 B** |
+| `jpeg_info` / `jpeg_scratch` | **3 504 B** | **90 B** |
+| `decode_png` | **2 320 B** | **256 B** |
+| `decode_bmp` | **2 288 B** | **240 B** |
+| `decode_ico` | **2 288 B** | **208 B** |
+| `decode_pnm` | **2 256 B** | **208 B** |
+| `inflate::raw` (dins d'un PNG) | 224 B | 224 B |
+
+- **On van anar els bytes**: al bloc que el cridador ja reservava, al darrere del que la imatge demana. Cada família
+  té ara una funció que diu **on** comença el seu estat dins del bloc (`gif_state_at`, `jpeg_state_at`,
+  `png_state_at`, …) i una altra que diu **quant** en fa (`*_state_bytes()`), i la suma entra a `scratch_bytes()`. El
+  contracte és el de sempre i ara es compleix: **el número que respon `scratch_bytes` és el que el descodificador fa
+  servir, i un bloc més petit es refusa amb `kNoRoom`** (`test_a_block_that_is_smaller_than_the_picture_needs_is_refused`).
+- **La fila també hi va**: els sis descodificadors construïen la fila que donen al `RowSink` en una local de
+  `(kMaxSide+1)/2` —2 048 B, la pàgina més ampla possible—. És al bloc, darrere l'estat, alineada a quatre bytes.
+- **I el GIF va deixar de copiar una fila**: la fila comprimida que sortia del LZW era **la mateixa** que la que
+  s'escrivia al bloc, així que la còpia a una local de 2 048 B va desaparèixer.
+- **El sostre que ho vigila**: `tools/check_stack.py` compila una llibreria amb `-fstack-usage` i falla si una funció
+  passa del pressupost (1 024 B per a `lib/img`, que és el que crida la tasca de l'app). Amb `--all --budget 4096`
+  dona el mapa de tot el firmware i les llibreries que necessiten les capçaleres de la placa es **diuen saltades** i
+  no es mesuren (docs/80). El pitjor marc de tot el projecte avui és `kernel::shell::execute`, 2 272 B, a la tasca de
+  la consola.

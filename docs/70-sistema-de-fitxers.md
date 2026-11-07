@@ -332,6 +332,14 @@ hi ha i quins n'hi ha, i `cfg keyboard qwerty` o `cfg keyboard azerty` en tria u
 el que hi havia. No és la cfg d'una app: és del sistema sencer, com la unitat, i per això el `cfg` de la
 consola la mostra amb la resta d'ajustos (docs/30, docs/90).
 
+**I el dibuix del logotip de l'arrencada és el tercer ajust del sistema** (0.115.0): `cfg boot` en dona la
+llista amb la imatge que el disc té per a cada mot —`boot` i `boot-alt`— i marca el que surt ara, i
+`cfg boot boot` o `cfg boot boot-alt` en tria un. Va a l'NVS (`cfg/boot`) i l'arrencada el llegeix **abans de
+pintar res**, que és el motiu de ser d'aquest ajust: el logotip és el primer que es veu i és l'únic que es pot
+triar mirant-lo. És una **paraula** i no un camí —el que es desa és un mot del món de la splash, i un camí
+deixaria que un ajust fes obrir qualsevol fitxer al primer alè de la placa—, i un mot que aquest build no
+té es refusa allà on s'escriu, amb la llista, sense tocar el que hi havia (docs/30, docs/50).
+
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
 que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen

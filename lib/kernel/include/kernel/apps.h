@@ -18,6 +18,11 @@ struct Entry {
   char version[16];
   char entry_file[48];
   char opens[16];  // the extension this app handles, lowercase and without the dot
+  // **The picture the app wants on the glass before it starts** (0.114.0): a file inside the app, written in
+  // the manifest as `"splash": "res/logo.png"`, which the system paints washed whole and in the middle with
+  // the same call the moments use and takes away with the first page the app presents. It is decoration and
+  // not a requirement: an app without one, or with a name that is not a picture, runs all the same (docs/40).
+  char splash[48];
 
   // The boards this app says it runs on, as the manifest writes them. A name is a
   // board (`m5stack-atom-matrix`) or a chip family (`esp32`), and every board of

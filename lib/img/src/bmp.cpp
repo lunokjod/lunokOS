@@ -249,15 +249,17 @@ Status bmp_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The row of the page the decoder builds is the block of the caller and not the stack** (0.118.0): two kilobytes of
+// a task with seven is a fifth of what an app has, and the block is the extra memory of the board (docs/75). The file
+// itself is still read where it lies.
 uint32_t bmp_scratch(const uint8_t* data, uint32_t len) {
   (void)data;
   (void)len;
-  return 0;  // a BMP is read where it lies: a row of it is a row of the file (docs/30)
+  return kRowBytes;
 }
 
 Status decode_bmp(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
-  (void)scratch;
-  (void)cap;
+  if (scratch == nullptr || cap < kRowBytes) return kNoRoom;
   Header header;
   if (!read_header(data, len, header)) return kUnknown;
   const Status status = sane(header);
@@ -266,9 +268,10 @@ Status decode_bmp(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
     const uint32_t need = header.palette_at + header.colours * header.palette_size;
     if (need > len) return kTruncated;
   }
-  // A row of the picture is made in a block of a fixed size —`(width + 1) / 2` bytes, which is the most a
-  // row of a page can be— and the same block serves every row: a BMP is read in place (docs/30, docs/75).
-  uint8_t packed[(kMaxSide + 1) / 2];
+  // A row of the picture is made in the block of the caller —`(width + 1) / 2` bytes, which is the most a row of a
+  // page can be— and the same block serves every row: a BMP is read in place and the row it builds is not on the
+  // stack (0.118.0, docs/30, docs/75).
+  uint8_t* packed = scratch;
   for (uint32_t y = 0; y < static_cast<uint32_t>(header.height); ++y) {
     Row row;
     row_start(row, packed, static_cast<uint16_t>(header.width), static_cast<uint16_t>(y));

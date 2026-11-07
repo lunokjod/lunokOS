@@ -582,6 +582,11 @@ struct UIOps {
   uint8_t (*textbox_multiline_line)(int16_t slot, uint8_t scale);
   uint16_t (*textbox_multiline_scroll)(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                        int16_t top, int16_t rows);
+  // **The keys of the board inside a box of text** (0.116.0): the caret one letter back or forward in a box of one
+  // line, and one row up or down in a box of several —the rows of the glass, wrapped or not— (docs/30, docs/90).
+  uint16_t (*textbox_caret)(int16_t slot, const char* text, uint16_t cursor, int16_t steps);
+  uint16_t (*textbox_multiline_row)(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
+                                    int16_t top, int16_t rows);
   // **A selector** (docs/30, docs/90): a field with the question in the dim tone and the answer in the ink, and the
   // column of the triangle on its right, which is the door. **The value is a word the app resolves** —the chosen option
   // or the one it says "nothing" with— so a field that shows "Hora  09:30" costs one string and not a list, and the only

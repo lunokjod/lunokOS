@@ -115,6 +115,21 @@ const uint32_t kMaxSide = 4096;
 // How many bytes a row of `width` pixels takes (docs/30).
 inline uint32_t row_bytes(uint32_t width) { return (width + 1) / 2; }
 
+// **The working state of a decoder comes out of the block the caller gave, and never out of the stack**
+// (0.118.0): the table of a GIF is twelve kilobytes and the header of a JPEG is three and a half, and the
+// task that runs an app has six or seven kilobytes of stack —`stack 7320 B free` is what the kernel prints
+// before an app starts—, which is why the board answered a page of nine pictures with a stack overflow in
+// `loopTask`. A decoder asks for what it needs in its `*_scratch`, puts its state after the pixels and
+// hands the caller one number (docs/75, docs/85, docs/92).
+//
+// The row of a picture that a decoder builds before it writes it is the widest a page can be, and it is
+// the same size for every family, so it is one constant and not a number per file.
+const uint32_t kRowBytes = (kMaxSide + 1) / 2;
+
+// The first byte of a block after `at` that a struct can start at: the pixels of a decoder are bytes and
+// its tables are words, and a table at an odd address is a fault on a board and a slow read on a PC.
+inline uint32_t aligned_at(uint32_t at) { return (at + 3u) & ~3u; }
+
 }  // namespace detail
 }  // namespace img
 

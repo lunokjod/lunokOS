@@ -1753,7 +1753,185 @@ namespace kernel {
 // **rings of 19 with two pixels of ink** (the left edge at 58 and 59, the paper at 60), a **rod of three rows** (11, 12
 // and 13) and the whole strip **149 pixels** wide, which is 12 + 4 * 32 + 9; the dots tests were re-pointed to the
 // original's numbers and the suite is green (docs/30, docs/92 §27).
-static const char kVersion[] = "0.112.0";
+//
+// 0.113.0 (8/11): **the document of the editor scrolls with a finger, and the gesture of a box of lines is the box's
+// and nobody else's.** The owner: *«No aconsegueixo fer scroll al document de l'Editor»*, and then the four rules he
+// wanted around it: the swipe reaches the control only while it has the focus and only while the finger is inside the
+// frame it draws, a control that is given back unregisters its gesture (an app that is not closed in order leaves no
+// callback behind), and both the bar and the swipe count the rows of the glass, which is what `wrap` decides.
+// What was there: the move branch looked the control up by slot and generation and moved it —it never asked for
+// `focused`, never asked whether the finger was still inside the rectangle, and `release()` and `__gc` left the six
+// gesture globals alive, so a finger could go on moving a slot that already belonged to another control.
+// Now: (1) the focus and the frame are asked at every move and the rows travelled so far are dropped when either fails
+// —a window that jumps when the finger comes back is worse than one that stopped where it was—; (2) `release()` and
+// `__gc` share one forgetter that clears the contact, the gesture and the tap, and the contact is marked **orphan** so
+// the box the app builds in its place is not pressed by a contact that began on the one that went, until the finger is
+// lifted; (3) the box the keyboard was typing into leaves the keyboard without a target; (4) `wrap` was already read
+// by `ui_swipe_by` and by `multiline_layout`, and it now has a test that measures it.
+// **Also found and said**: `ui.focus(box)` does nothing, because `ui.focus` walks the stops of the dial and a box of
+// text is only a stop of the finger (`ui_target_is_focusable`), so an app that wants the dial out of a box has to hand
+// it to a button. It is left as it is, and docs/30 says so.
+// Measured: the editor on the bench with the band up has a page of **540 x 656** and a band of **256** px, and the
+// finger makes the app print `editor: row N of M`; in the kernel test a box of 200 x 100 at scale 2 with ten lines of
+// forty letters has **11 rows** without `wrap` (the ten lines and the empty row of the last break), **more** with it,
+// **6** rows that fit, a **shorter thumb** for the wrapped page and its **last window at total - 6** in both cases.
+// **Pending**: the whole suite has to be run (**458 cases**, five of them new), and the two breaks are written but not
+// proved: taking the focus guard out has to turn the hand-over test red, and taking the orphan mark out has to make
+// the released-box test see the `fresh` box.
+//
+// 0.114.0 (8/11): **the logo, the six moments of the splash and the splash of an app.** The owner: *«El logo de
+// lunokOS ha de ser una lluna plena realista amb la paraula "lunok" dins la lluna i "OS" sobresortint per la dreta de
+// la lluna amb el color invertit (sobre la lluna text negre amb vores blanques) fora de la lluna text blanc amb vores
+// negres. Fes una versió alternativa amb la luna en plan clipart.»*, and then *«en quant a la lluna realista, em
+// refería a una foto amb el fons blanc»*. And the command and the manifest: **`splash` takes `boot`, `boot-alt`,
+// `poweroff`, `reboot`, `sleep`, `charging` or the path of a file, and an app that writes `"splash"` in its manifest
+// gets that picture painted, washed whole, before the interpreter starts.**
+// The logo is one word in two inks: `lunok` over the disc in ink with a paper edge —the moon is a bright grey and the
+// edge is what keeps a letter a letter where a crater is dark— and `OS` outside it in paper with an ink edge, which is
+// what reads on paper. The join of the word is the limb, so it is the moon that separates the two halves, and the edge
+// is **three** pixels: at four it eats the letter and `OS` comes out solid ink (measured: a stem is nine or ten pixels
+// here). `boot.png` is **a photograph** now —NASA's `as11-44-6667`, the full Moon from Apollo 11, a work of the United
+// States government and so in the public domain— cut to its disc and put on the paper of the system; `boot-alt.png`
+// is the same mark with the moon drawn as clipart. `tools/make_splash_images.py` draws both and `reboot.png`, fetches
+// the photograph once into `~/.cache/lunokOS/` and keeps 160 KB of somebody else's picture out of the repository.
+// The moments are the words a person types: `boot`, `boot-alt`, `poweroff` (it was `shutdown`), `reboot`, `charging`
+// and `sleep`, six and not four. `poweroff` and `reboot` are wired to the two commands of the console that stop the
+// board, and the deep sleep paints `poweroff` as it painted `shutdown`. `sleep` still has no picture, which is the
+// case the tests use.
+// And an app may name its own: `"splash": "res/logo.png"` in the manifest, stored in the entry (47 B) and painted by
+// the system —an app cannot paint before it exists— with the same call of the moments, right before `luabind::start`;
+// the first page the app presents takes it away. A name that leaves the app is dropped with a line of the log, and a
+// name that is not a picture is said when it is painted: decoration does not stop an app.
+// Measured: the photograph is 1273 x 1280 and the mark it becomes is 460 x 200 and **18,8 KB**; the emulator and the
+// Paper build with zero warnings. The tests written: the six words in `test_the_splash_paints_a_picture_in_the_middle_
+// of_the_glass` (`count()` is 6 and `kind_of("boot-alt")` is not `boot`) and
+// `test_an_app_that_names_a_picture_has_it_painted_before_it_starts`, which runs an app of the bench and reads the
+// glass: the two pixels of the picture in the middle, paper at the rim, the ink of a corner washed away, and an app
+// without the field that leaves the corner as it was.
+// **Pending**: the whole suite (this turn's tests and the ones of 0.113.0, which have not run yet) and the two
+// pictures seen on the glass, which is what the owner wants to try.
+//
+// 0.115.0 (8/11): **the logo is the first thing a board with a glass says, and the person chooses which drawing.**
+// The owner: *«El logo s'ha de veure a l'iniciar el sistema en cas de que el dispositiu tingui algun tipus de
+// pantalla. Usa la comanda splash boot per mostrar aquest boot splash. La comanda cfg ha de tenir una opció per
+// mostrar "boot" o "boot-alt" al iniciar el sistema. L'splash del boot s'ha d'arrencar el mes aviat possible als
+// dispositius amb pantalla.»*
+// **As early as it can be**: `display::boot` and the splash were in the middle of the boot —after the alarms, the
+// radio, the light, the button, the sensor, the air and the touch— and a person looked at a white glass while all
+// of that happened. They are now right after the mounts (the picture is a file) and the settings (the picture is
+// the one the person chose), and everything else of the hardware runs **while the glass already says lunokOS**. It
+// is the same call the command `splash boot` makes —`splash::show(splash::kind_of(cfg::boot_splash()))`— so there
+// is one way to paint it and not two. A board with no glass answers `no glass` in the debug line, which is the only
+// place that sentence can go.
+// **The choice is a setting of the system**, like the unit and the keyboard: `cfg boot` lists the two drawings with
+// the picture the disk carries for each word and a star on the one that comes up, `cfg boot boot-alt` chooses it,
+// and the word goes to the nvs (`cfg/boot`) so it survives a restart. A word this build does not have is refused
+// where it is typed, with the list, and the one that was there stays. **It is a word and not a path** on purpose:
+// what is stored is a moment of the splash, and a path in the settings would be a way to make the board open any
+// file at its first breath (`cfg::is_a_boot_word` asks the list of moments and not a second list that could drift).
+// Measured on the bench: `[I][CFG] /cfg on sd (asked for sd), keyboard qwerty, boot boot-alt`,
+// `[I][SPLASH] /res/splash/boot-alt.png, 460x200 at 40,380` and then `[I][BOOT] board=m5stack-paper caps=16/19`,
+// which is the splash **before** the line that used to be among the first; the dump shows the clipart in the middle
+// of the panel and paper at the rims, and `cfg boot boot` brings the photograph back. The test
+// `test_the_boot_paints_the_drawing_the_settings_chose` writes two 2 x 2 BMPs —the same picture upside down— under
+// the two names, chooses the word, boots and reads the pixel in the middle of the glass, and refuses `charging`.
+// **Pending**: the whole suite (this turn's test and the ones of 0.113.0 and 0.114.0, which have not run), which is
+// what the owner has to allow.
+//
+// 0.116.0 (8/11): **a box of text a person enters, a caret that is the focus's, and a frame an app can leave out.** The
+// owner: *«Si un control multiline esta en mode read only no s'ha de mostrar el teclat quan el Text multiline reb el
+// focus. El cursor si que hi ha de ser en qualevol cas. El Control Multiline te una vora per defecte, en aquesta app no
+// vull que hi sigui, fes que el control tingui opció per mostrar vora o no. També que el "read only" ha de ser una
+// propietat del control Multiline, que no aixecarà el teclat en cas de rebre focus. El control de text d'una sola linia
+// igual. Quan el control de text d'una sola linia reb el focus, com el control Slider, s'ha de polsar el botó central per
+// "entrar" al control i poder usar els botons físics per avançar el cursor o anar enrrere. El control multiline igual,
+// però amb linies, cada toc dels botons físics puja o baixa una linia. Revisa l'app lua Editor per si els canvis li
+// afecten.»*
+// **The caret was the keyboard's and it is the focus's now**: `caret_poll` did nothing without a band and `kb:hide()`
+// put the block out, which is the opposite of a page that is read —the caret is where the person is, band or not—. Hide
+// hides the letters and not the place, and the block goes when the focus goes.
+// **`readonly` is a field of both boxes** and the system asks it before putting a band up: a box that is read takes no
+// keys, is never overruled by a `kb:show()`, and still has its caret. It is what the editor said with `keyboard = false`
+// before, which threw the block away with the band.
+// **The dial stops on a box of text** —the finger's only since 0.85.2— because entering with the centre needs arriving
+// there first, and a board with keys and no touch had no way in. The ring on a field is the caret and **no band**, which
+// is what the centre buys; `ui.focus(box)` works from here too, which was the limitation 0.113.0 left written.
+// **The centre enters and leaves the box** (`editing`) and inside it the two keys are the caret: one **letter** a press
+// in a box of one line —a letter is a code point and not a byte (`textbox_caret`)— and one **row** a press in a box of
+// several (`textbox_multiline_row`), the rows of the glass and not the lines of the file, keeping the column as near as
+// the row allows. `top` goes back to `-1` on a key, and the app hears `on_move(self, cursor)` before the paint so its
+// own line under the page goes out in the same wash. The arithmetic is the kernel's for the same reason a slider's value
+// is: a row depends on the font and on the window.
+// **`framed = false` is no frame**: the control paints its frame in `border` and its inside in `background`, so luabind
+// hands the second as the first and the paper reaches the edge. A flag and not a fourth colour, because what an app says
+// is "no frame".
+// The editor was looked at and changed: `box.framed = false`, `box.readonly = doc.readonly` and an `on_move` that keeps
+// the row of the line under the page. Measured on the bench: the page of the editor has no frame and the text starts at
+// the edge of the glass, and the emulator and the Paper build with zero warnings.
+// The tests written: `test_the_dial_stops_on_a_text_box_and_the_centre_enters_it` (band off on arrival, on on entering,
+// and the button still reachable), `test_a_read_only_box_has_a_caret_and_never_a_band` (both boxes),
+// `test_the_keys_walk_the_rows_of_a_box_the_centre_entered` (rows 4 and 8 of three lines, and no move before the
+// centre), `test_the_keys_walk_the_letters_of_a_line` and `test_a_box_without_a_frame_leaves_its_edge_in_paper`.
+// **Pending**: the whole suite (these five and the ones of 0.113.0 to 0.115.0, which have not run) and the finger and the
+// dial on the board.
+//
+// 0.117.0 (8/11): **a slider is entered with the centre before its keys are its own.** The owner: *«Quan un slider rep el
+// focus, pujar i baixar amb els botons físics significa continuar amb el funcionament normal del focus. Certs controls
+// s'han d'activar (botó central) per poder-los usar: per pujar o baixar el valor del slider, perdent els botons per
+// canviar el focus. [...] Al rebre el focus, els botons continuarán com sempre (canviant focus) s'ha de polsar el botó
+// central per "entrar" al slider i llavors si escollir el valor amb els mateixos dos botons (amunt/avall). El botó
+// central torna els botons físics al sistema i torna a servir per moure el focus.»*
+// **Until 0.116.0 a slider took the arrows for having the focus** (`ui_step_value`), the rule of the paper project: a
+// control with a value is moved by the keys and gives the key back at the end of its range. On a page with a slider in
+// the middle that meant **there were no walking keys**: the arrows moved the number when the person wanted the control
+// below. Now the focus is the focus and the centre is the door —the same shape the text boxes got in 0.116.0—: outside,
+// up and down walk the dial; the centre enters it (`editing`), the two keys are the number from `step` to `step` with
+// `on_change(self, value)`, and the centre leaves it and gives the keys back. The app hears both presses at
+// `on_click(self)` and can read `self.editing`, and `editing` clears itself when the dial leaves the control, so coming
+// back means saying "enter" again.
+// **The rule is a function and not a case** (`ui_enters_to_move`): what a control has to fulfil to be entered is **to
+// have no action of its own on the centre**. Today it is the slider and nothing else — a menu, a dialog, a calendar, a
+// grid and a list choose something with the centre, and taking that meaning away is another change and not this one.
+// It is written in docs/30 and docs/92 §32 so the list of "controls like the slider" is a decision and not a guess.
+// Measured: the emulator and the Paper build with zero warnings. The test written is
+// `test_a_slider_takes_the_keys_only_after_the_centre` (with the ring on the slider a down key prints no `value`; the
+// centre prints `click slider true`; two downs print `value 6` and `value 7`; the centre prints `click slider false`;
+// and a down after that moves nothing).
+// **Pending**: the whole suite (this test and the ones of 0.113.0 to 0.116.0, which have not run), which is what the
+// owner has to allow, and the slider in the hand on the board.
+// 0.118.0 (8/11): **the stack the board found on a page of pictures, and the images app brought up to the controls of
+// the system.** The owner, with the board in his hand: *«***ERROR*** A stack overflow in task loopTask has been
+// detected»* after three pictures of `run images`, and two questions: *«El carregador d'imatges usa PSRAM?»* and
+// *«Aprofita per modernitzar l'app images amb els controls UI nous i les seves mecàniques.»*
+// **The loader did use the PSRAM and that was not the bug**: the file and the working block came from
+// `pal::extra_memory()` since the pictures were added, but **the state of every decoder was in locals**, which is the
+// stack of the task that runs an app — the one that prints `stack 7320 B free` at boot. A GIF kept the LZW table
+// (12 288 B), its string (4 096 B) and a copy of the row (2 048 B) in one frame: 16 656 B against 7 320, which is a
+// restart and not a warning. Measured with `-fstack-usage` (`python3 tools/check_stack.py`, the table is in docs/75):
+// **`decode_gif` 16 656 → 256 B, `decode_jpeg` 6 432 → 912 B, `jpeg_info`/`jpeg_scratch` 3 504 → 90 B, `decode_png`
+// 2 320 → 256 B, `decode_bmp` 2 288 → 240 B, `decode_ico` 2 288 → 208 B, `decode_pnm` 2 256 → 208 B.** The biggest
+// frame left in the whole firmware is `kernel::shell::execute` at 2 272 B, in the console's task.
+// **Where the bytes went**: into the block the caller already reserved, behind what the picture asks for. Every family
+// has a `*_state_at` that says where its state begins and a `*_state_bytes` that says how much it is, and the sum is
+// what `scratch_bytes()` answers — a number that is now a contract: a block one byte short is `kNoRoom` and nothing is
+// written past it (`test_a_block_that_is_smaller_than_the_picture_needs_is_refused`). The row every decoder hands to
+// its `RowSink` —2 048 B, the widest a page can be— is in the block too, and the GIF stopped copying a row it already
+// had there. `tools/check_stack.py` is the guard: it compiles a library with `-fstack-usage` and fails over a budget
+// (1 024 B for `lib/img`), it says which libraries need the board's headers instead of crashing, and it runs without
+// permission because it executes nothing of the firmware (docs/80).
+// **The images app was one of the old ones** and is a page of controls now: **a grid of nine cells** (`ui.icon_grid`)
+// with the mark of the family and the extension under it —the dial walks the cells, the chosen one is inverted, the
+// one of the dial wears the ring and the centre picks with `on_pick`—, **the numbers and the sentence of the format in
+// a box that is read** (`readonly`, `framed = false`, 0.116.0) which the centre enters so the arrows walk its rows and
+// which never raises the keyboard, **a strip of dots** (`ui.dots`) where there was a `1 / 9` painted with `ui.text`,
+// and **one button**, `quit`: `back` and `next` are gone because the grid is the way. Found with the page in the
+// emulator's hand: at `scale` 3 the cell name `bmp8` was cut to `bm...`, and a grid of five columns gives 103 px of
+// cell, so the names went to `scale` 2, the dense text of the paper (docs/92 §33).
+// Measured: the emulator builds with zero warnings and the page draws in 470x353 with the nine cells and the box of the
+// format under it (the dump of `run images`); the test suite compiles with 467 cases. **Pending**: the whole suite
+// (this turn's two tests and the ones of 0.113.0 to 0.117.0, which have not run), which is what the owner has to
+// allow, and a page of nine pictures in the hand on the board.
+static const char kVersion[] = "0.118.0";
 
 }  // namespace kernel
 

@@ -12,8 +12,10 @@
 -- under it.
 --
 -- **Two controls take the arrows while they have the focus**: the strip of tabs changes its chosen tab, and the
--- slider changes its number. The field is already written when `on_change` arrives, and at the end of the range
--- the key goes back to the walk of the dial, so a page is never stuck on a control that cannot move.
+-- slider changes its number **once the centre has entered it** (0.117.0) —outside it the arrows keep walking the
+-- page, which is what keeps a slider in the middle of a page from eating the way down—. The field is already written
+-- when `on_change` arrives, and at the end of the range the key goes back to the walk of the dial, so a page is never
+-- stuck on a control that cannot move.
 --
 -- Every change washes the page with `gld16`, which cleans and does not blink: a knob that moved is a ghost of the knob
 -- before it, and a tick is not worth four blinks of the page (docs/50, docs/92).
@@ -52,7 +54,8 @@ local bar = ui.progress(10, 26)
 bar.value = 50
 page:add(bar)
 
--- **The slider**: the dial moves it, and the number and its unit are drawn by the control.
+-- **The slider**: the centre enters it and then the dial moves it, and the number and its unit are drawn by the
+-- control (0.117.0: before that, having the focus was enough and the two keys of the page were gone).
 local slider = ui.slider(10, 56)
 slider.value = 30
 slider.min = 0
@@ -95,7 +98,7 @@ end
 page:add(list)
 
 ui.present('gld16')
-console.print('controls: the page is out; the arrows move the tab, the slider and the list')
+console.print('controls: the page is out; the arrows move the tab and the list, and the centre enters the slider')
 
 -- **The page stays while there is somebody on it.** An app that draws and returns leaves the shell in front, and
 -- every key after that goes to the prompt: the controls are on the glass and none of them answers, which is what a

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "kernel/log.h"
+#include "kernel/splash.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
 
@@ -19,6 +20,10 @@ const char kKey[] = "unit";
 // survives a reboot like the unit does. The name is the id of one of the children of `ui`, and `cfg` keeps only the
 // string: which keyboards exist is the UI's to say (docs/30, docs/70).
 const char kKeyboardKey[] = "keyboard";
+// **The picture of the start is a word of the splash** (0.115.0): the two drawings of the logo are two moments, and
+// this only keeps the name of the one the person chose. A word that is not one of them is refused where it is typed,
+// so the boot never paints a guess (docs/30, docs/50).
+const char kBootKey[] = "boot";
 const size_t kNameCap = 12;
 
 hal::IStorage* g_card = nullptr;
@@ -30,6 +35,8 @@ char g_preference[kNameCap] = "auto";
 const char* g_unit = "";
 // The keyboard the person chose, the id of one of the children of `ui`.
 char g_keyboard[kNameCap] = "qwerty";
+// The drawing of the logo shown when the board comes up.
+char g_boot[kNameCap] = "boot";
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -45,6 +52,12 @@ bool remember_keyboard() {
   if (g_nvs == nullptr) return false;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kKeyboardKey, g_keyboard, strlen(g_keyboard));
+}
+
+bool remember_boot() {
+  if (g_nvs == nullptr) return false;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kBootKey, g_boot, strlen(g_boot));
 }
 
 // Picks the unit and tells the VFS where `/cfg` points. The fallback is said out loud:
@@ -102,9 +115,27 @@ void boot(hal::IPlatform& platform) {
       snprintf(g_keyboard, sizeof(g_keyboard), "%s", raw_keyboard);
     }
   }
+
+  // **The drawing of the logo, if the store says one that this build knows**: a word left by an older build —or by
+  // a build with another drawing— falls back to the word `boot` and says so, because a boot that paints nothing out
+  // of a setting nobody can read is a boot that hides a broken setting (docs/30, docs/50, docs/70).
+  char raw_boot[kNameCap] = {0};
+  size_t boot_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kBootKey, raw_boot, sizeof(raw_boot) - 1, boot_len) && boot_len > 0 &&
+        boot_len < sizeof(g_boot)) {
+      raw_boot[boot_len] = '\0';
+      if (is_a_boot_word(raw_boot)) {
+        snprintf(g_boot, sizeof(g_boot), "%s", raw_boot);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "no boot picture '%s' in this build; boot stays", raw_boot);
+      }
+    }
+  }
   apply();
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s",
-             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard);
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s",
+             (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot);
 }
 
 const char* unit() { return g_unit; }
@@ -117,6 +148,24 @@ bool set_keyboard(const char* id) {
   if (id == nullptr || id[0] == '\0' || strlen(id) >= sizeof(g_keyboard)) return false;
   snprintf(g_keyboard, sizeof(g_keyboard), "%s", id);
   return remember_keyboard();
+}
+
+const char* boot_splash() { return g_boot; }
+
+// **The two words that are drawings of the logo**: the splash is the one that says which moments exist, so the
+// question is asked there and not repeated here as a list that could drift (docs/30, docs/50).
+bool is_a_boot_word(const char* word) {
+  if (word == nullptr) return false;
+  const splash::Kind kind = splash::kind_of(word);
+  return kind == splash::kBoot || kind == splash::kBootAlt;
+}
+
+bool set_boot_splash(const char* word) {
+  // **A word that is not a drawing of the logo is refused where it is typed**: the boot has no room to ask anything
+  // and a setting that lands nowhere would be a boot that lies about what it will paint (docs/30, docs/50).
+  if (!is_a_boot_word(word) || strlen(word) >= sizeof(g_boot)) return false;
+  snprintf(g_boot, sizeof(g_boot), "%s", word);
+  return remember_boot();
 }
 
 bool set_unit(const char* name) {

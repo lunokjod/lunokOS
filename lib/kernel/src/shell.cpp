@@ -395,8 +395,10 @@ void print_help(const char* only) {
   help_line("  apps              the apps of the flash and of the card", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
-  help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole", only);
-  help_line("  cfg [auto|sd|littlefs|keyboard [<id>]]  settings: where the apps' cfg lives, and the keyboard", only);
+  help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot, boot-alt,", only);
+  help_line("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
+  help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]  settings: where the apps' cfg lives,", only);
+  help_line("                    the keyboard, and the picture of the boot (boot or boot-alt)", only);
   help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -1072,6 +1074,10 @@ struct RunTarget {
   char title[48];
   char version[16];
   char opens[16];
+  // **The picture of the app, if its manifest names one** (0.114.0): a path inside the app, said with the whole
+  // door in front —`/apps/<id>/res/logo.png`— when it is painted, so the card's copy of an app shows its own
+  // picture and not the flash's (docs/40).
+  char splash[48];
   // The boards the app asks for, and whether this one is among them: the refusal
   // says both things, because being refused by name is not a mystery (docs/40).
   char boards[apps::Entry::kMaxBoards][24];
@@ -1091,6 +1097,7 @@ bool find_entry(const apps::Entry& entry, void* context) {
   memcpy(target->title, entry.title, sizeof(target->title));
   memcpy(target->version, entry.version, sizeof(target->version));
   memcpy(target->opens, entry.opens, sizeof(target->opens));
+  memcpy(target->splash, entry.splash, sizeof(target->splash));
   memcpy(target->boards, entry.boards, sizeof(target->boards));
   target->board_count = entry.board_count;
   target->works_here = entry.works_here;
@@ -1159,6 +1166,24 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   RunTarget target;
   size_t len = 0;
   if (!load_source(id, target, len)) return false;
+
+  // **The app's own picture, before the app** (0.114.0): a manifest that names one gets the whole glass washed
+  // and the image in the middle —the system's `splash` and not a paint of the app's, because an app cannot paint
+  // before it runs— and the first page it presents takes it away. It is skipped for an app that comes back from
+  // a sleep: a resume is not a start. A picture that is not there is a line of the log and nothing else; the app
+  // runs all the same (docs/30, docs/40).
+  if (target.splash[0] != '\0' && !restore) {
+    char root[96];
+    char picture[160];
+    const int made = apps::root_of(id, root, sizeof(root))
+                         ? snprintf(picture, sizeof(picture), "%s/%s", root, target.splash)
+                         : -1;
+    if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
+      if (!splash::show(picture)) {
+        log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
+      }
+    }
+  }
 
   luabind::Boot boot;
   boot.board = platform().id();
@@ -3270,18 +3295,58 @@ void say_keyboards() {
   newline();
 }
 
+// **The two drawings of the logo, with the one that comes up marked** (0.115.0): a person who changes this setting is
+// going to restart the board to see it, so the answer says which picture the disk has for each word —a word with no
+// picture is a boot that paints nothing and says why, and it is better to know it before the restart than after it
+// (docs/30, docs/50).
+void say_boot_pictures() {
+  out("cfg: boot pictures are\r\n");
+  for (uint8_t i = 0; i < splash::count(); ++i) {
+    const splash::Kind kind = splash::at(i);
+    if (kind != splash::kBoot && kind != splash::kBootAlt) continue;
+    const char* name = splash::word(kind);
+    out((strcmp(cfg::boot_splash(), name) == 0) ? "  * " : "    ");
+    out(name);
+    char path[96];
+    if (splash::path_of(kind, path, sizeof(path))) {
+      out("  ");
+      out(path);
+    } else {
+      out("  no picture");
+    }
+    newline();
+  }
+}
+
 bool command_cfg(const char* argument) {
   char words[2][kWordCap];
   size_t count = 0;
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]]\r\n");
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]\r\n");
     return false;
   }
 
   if (count == 2) {
+    // **The drawing of the logo that comes up with the board** (0.115.0): the word is checked against the moments
+    // the splash carries, so a typo is refused here and not discovered at the next restart (docs/30, docs/50).
+    if (strcmp(words[0], "boot") == 0) {
+      if (!cfg::is_a_boot_word(words[1])) {
+        out("cfg: no boot picture '");
+        out(words[1]);
+        out("'\r\n");
+        say_boot_pictures();
+        return false;
+      }
+      const bool kept = cfg::set_boot_splash(words[1]);
+      out("settings: boot ");
+      out(cfg::boot_splash());
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     if (strcmp(words[0], "keyboard") != 0) {
-      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]]\r\n");
+      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]]\r\n");
       return false;
     }
     if (!ui::keyboard_select(words[1])) {
@@ -3300,6 +3365,10 @@ bool command_cfg(const char* argument) {
   }
 
   if (count == 1) {
+    if (strcmp(words[0], "boot") == 0) {
+      say_boot_pictures();
+      return true;
+    }
     if (strcmp(words[0], "keyboard") == 0) {
       out("settings: keyboard ");
       out(ui::keyboard_current());
@@ -3336,6 +3405,9 @@ bool command_cfg(const char* argument) {
   out(")\r\n");
   out("  keyboard: ");
   out(ui::keyboard_current());
+  newline();
+  out("  boot: ");
+  out(cfg::boot_splash());
   newline();
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {
@@ -3544,6 +3616,10 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "reboot") == 0) {
+    // **The picture of the moment goes up before the board goes**: a restart is a
+    // moment a person sees, and the glass it leaves is the one the boot paints over
+    // (docs/50). A board without the picture is a board that restarts all the same.
+    splash::show(splash::kReboot);
     out("restarting...\r\n");
     pal::system().reboot();
     return true;
@@ -3553,6 +3629,10 @@ bool execute(char* line) {
   // is the one of a board that cannot —the ATOMs hold nothing to switch— and the person is told
   // instead of being left in front of a board that did nothing (docs/50).
   if (strcmp(line, "poweroff") == 0) {
+    // **The picture of the moment, and then the supply**: the line is written after
+    // the wash so that what is left on the glass is the goodbye of the system and not
+    // the last page of somebody's app (docs/50).
+    splash::show(splash::kPowerOff);
     out("powering off...\r\n");
     pal::IConsole* console = pal::system().console();
     if (console != nullptr) console->flush();  // the line has to be out before the supply goes

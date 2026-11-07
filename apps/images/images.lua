@@ -9,6 +9,18 @@
 -- `ui.image_info` reads the header and says the family and the size; `ui.image` decodes the file into the canvas row
 -- by row, and the page only decides where it lands and how big. The grey box behind is so that **the transparency
 -- is seen** of the GIF and of the ICO: what is behind is the paper, and over grey it stands out.
+--
+-- **The page is made of controls and not of places** (0.118.0): the nine pictures are a `ui.icon_grid` that the dial
+-- walks and the centre picks, the numbers and the sentence of the format are a **box that is read and not written**
+-- (`readonly`, 0.116.0) which the centre enters so that the arrows walk its rows, and where the page is says a
+-- `ui.dots`. What is left for the app itself is the drawing of the picture in the middle and the grey plate under
+-- it, which is not a control anybody can press.
+--
+-- **A page of pictures is where a stack overflow was found** (0.118.0, the owner's board: `***ERROR*** A stack
+-- overflow in task loopTask has been detected` after three pictures). The loader did use the PSRAM for the file and
+-- for the block —`pal::extra_memory()`—, but the decoders kept their own tables in locals: the table of a GIF is
+-- 12 288 bytes, its string 4 096 and its row 2 048, against the 7 320 the app task prints free. The state of every
+-- decoder is in the caller's block now, and a page of nine pictures is nine small frames (docs/75, docs/85, §33).
 local caps = sys.caps()
 if not caps.display then
   console.print('images: this board has no glass')
@@ -20,15 +32,15 @@ ui.title('Images')
 
 -- **Every file with what it does there**: the name, and the sentence that explains why this format and not another.
 local pictures = {
-  { path = '/res/photo.jpg', why = 'JPEG: a photograph, and the gradients hold' },
-  { path = '/res/poster.bmp', why = 'BMP 24 bits: flat ink, not a byte wasted' },
-  { path = '/res/logo8.bmp', why = 'BMP 8 bits: eight inks and a table' },
-  { path = '/res/cartoon.gif', why = 'GIF: a palette and a transparent corner' },
-  { path = '/res/icon.ico', why = 'ICO: an icon, alpha and all' },
-  { path = '/res/lines.png', why = 'PNG: thin lines, exactly as drawn' },
-  { path = '/res/shades.pgm', why = 'PGM: grey, eight bits, one ink' },
-  { path = '/res/colours.ppm', why = 'PPM: colour, eight bits a channel' },
-  { path = '/res/checks.pbm', why = 'PBM: one bit, ink or paper' },
+  { name = 'photo.jpg', path = '/res/photo.jpg', why = 'JPEG: a photograph, and the gradients hold' },
+  { name = 'poster.bmp', path = '/res/poster.bmp', why = 'BMP 24 bits: flat ink, not a byte wasted' },
+  { name = 'logo8.bmp', path = '/res/logo8.bmp', why = 'BMP 8 bits: eight inks and a table' },
+  { name = 'cartoon.gif', path = '/res/cartoon.gif', why = 'GIF: a palette and a transparent corner' },
+  { name = 'icon.ico', path = '/res/icon.ico', why = 'ICO: an icon, alpha and all' },
+  { name = 'lines.png', path = '/res/lines.png', why = 'PNG: thin lines, exactly as drawn' },
+  { name = 'shades.pgm', path = '/res/shades.pgm', why = 'PGM: grey, eight bits, one ink' },
+  { name = 'colours.ppm', path = '/res/colours.ppm', why = 'PPM: colour, eight bits a channel' },
+  { name = 'checks.pbm', path = '/res/checks.pbm', why = 'PBM: one bit, ink or paper' },
 }
 
 local index = 1
@@ -38,117 +50,157 @@ local leaving = false
 local controls = {}
 -- **A change of focus is a change of state of the page and has to be washed**: the ring is black over white and a
 -- `du` leaves the one from before at a quarter of the ink, which is a grey ring nobody asked for. The turn after the
--- movement paints it with `gc16`, and since the buttons are the only thing that changed, the region that flashes is
--- the row of buttons and not the page (docs/30, docs/50).
+-- movement paints it with `gc16`, and since the controls are the only thing that changed, what flashes is the strip
+-- and the rows and not the picture (docs/30, docs/50).
 local clean = false
 
-local top = 64
-local box_w = view.width - 80
-local box_h = view.height - 340
+local gap = 10
+-- **Where the page is says a strip of dots and not a text**: the ball of the page that is read is twenty-five pixels
+-- and the strip leaves twelve of air under itself, which is the counter of the paper project (0.112.0, docs/92).
+local dots = ui.dots(view.width - 2 * 12, 37)
+dots:place(12, 8)
+dots.pages = #pictures
+dots.current = index
+controls[#controls + 1] = dots
 
-local function info_of(path)
-  local info, err = ui.image_info(path)
-  if info == nil then
-    console.print(string.format('images: %s: %s', path, tostring(err and err.message)))
+-- **The sentence of the format is a box that is read**, and a person enters it with the centre to walk the rows of a
+-- long one: the caret is there and the keyboard never rises (0.116.0). It has no frame, so the paper of the page
+-- reaches its edge and what is on the glass is a paragraph and not a field (docs/30, docs/92).
+local notes_h = 120
+local notes = ui.textbox_multiline(view.width - 2 * 12, notes_h)
+notes.scale = 2
+notes.wrap = true
+notes.readonly = true
+notes.framed = false
+notes.cursor = 0
+notes.top = 0
+notes.text = ''
+controls[#controls + 1] = notes
+
+-- **The nine families are a grid of cells**, which is the control that picks one of nine things on this glass: the
+-- arrows walk the cells, the ring says where the dial is, the chosen cell is inverted, and the centre picks it with
+-- `on_pick`. A pair of buttons called "back" and "next" walked that menu one step at a time and could not say which
+-- of the nine was on the glass (docs/30, docs/90).
+--
+-- Two rows of five cells: the mark of the cell is the one or two letters of the family and the name under it is the
+-- extension of the file, which is what a person reading the list of `/res` sees. A cell costs `icon + 8 + line + 8`
+-- —ninety pixels of the mark, thirty-three of line at scale 3— and nine cells in two rows of five is one page, so
+-- the control draws no footer and needs no page turning (docs/92).
+local cells = {
+  { label = 'jpg', mark = 'J' },
+  { label = 'bmp', mark = 'B' },
+  { label = 'bmp8', mark = '8' },
+  { label = 'gif', mark = 'G' },
+  { label = 'ico', mark = 'I' },
+  { label = 'png', mark = 'P' },
+  { label = 'pgm', mark = 'g' },
+  { label = 'ppm', mark = 'c' },
+  { label = 'pbm', mark = 'b' },
+}
+local grid_h = 250
+local grid = ui.icon_grid(view.width - 2 * 12, grid_h)
+grid.columns = 5
+-- **The dense text of the paper and not the body**: a cell is a hundred and three pixels wide and the name under the
+-- mark is the extension of the file, which is four letters —`bmp8` at scale 3 was cut to `bm...` and a name cut with
+-- three dots is not the name of a format (found on the bench with this page, 0.118.0, docs/92).
+grid.scale = 2
+grid.items = cells
+grid.index = index
+grid.marked = index
+grid.on_pick = function(self, picked)
+  if picked >= 1 and picked <= #pictures then
+    index = picked
+    draw()
   end
-  return info
 end
+controls[#controls + 1] = grid
+
+-- **The button that leaves the page**, which is the one control the paper project gives every page (docs/90).
+local button_h = 72
+local quit = ui.button(view.width - 2 * 12, button_h)
+local quit_label = ui.label(view.width - 2 * 12 - 20, 52)
+quit_label.text = 'quit'
+quit_label.align = 'center'
+quit_label.valign = 'middle'
+quit_label:place(10, 10)
+quit:add(quit_label)
+quit.on_click = function()
+  leaving = true
+  console.print('images: quit pressed, leaving the page')
+end
+quit.on_activate = quit.on_click
+quit.on_focus = function(self, focused)
+  if focused then clean = true end
+end
+controls[#controls + 1] = quit
+
+-- **The places of the page, measured once**: what the controls do not take is the picture's, which is the only thing
+-- the app sets by hand. The three at the foot have their heights and the picture takes the rest, so a board with a
+-- taller glass draws a bigger picture and nothing moves (docs/30).
+local picture_y = 8 + 37 + gap
+local picture_h = view.height - picture_y - (3 * gap) - notes_h - grid_h - button_h - 12
+notes:place(12, picture_y + picture_h + gap)
+grid:place(12, picture_y + picture_h + gap + notes_h + gap)
+quit:place(12, view.height - button_h - 12)
 
 local function bytes_of(path)
   local stat = fs.stat(path)
   return (stat ~= nil and stat.size) or 0
 end
 
-local function draw(i)
-  local picture = pictures[i]
-  local info = info_of(picture.path)
+-- **The picture into its box with its proportion**: the scale is the smaller of the two and the size it is drawn at
+-- is the one of the file times that scale (docs/30).
+local function draw()
+  local picture = pictures[index]
   ui.clear(15)
-  -- **The buttons come back to the page**: `ui.clear` wipes the view and every button is its own canvas, so what has
+  -- **The controls come back to the page**: `ui.clear` wipes the view and every control is its own canvas, so what has
   -- not changed would not be composed again and the page would lose it (docs/30, docs/90).
   for _, control in ipairs(controls) do control:invalidate() end
-  ui.text(40, 12, string.format('%d / %d', i, #pictures), 2, 0)
+  dots.current = index
+  grid.index = index
+  grid.marked = index
+  local info = ui.image_info(picture.path)
   if info == nil then
     failures = failures + 1
-    ui.text(40, top, 'no picture', 2, 0)
-    ui.text(40, top + 60, picture.path, 1, 8)
+    notes.text = string.format('%s\nnot a picture this board reads', picture.path)
+    ui.text(40, picture_y + 40, 'no picture', 2, 0)
     ui.present('gc16')
+    clean = false
     return
   end
-  -- **The picture into the box with its proportion**: the scale is the smaller of the two and the size it is drawn at
-  -- is the one of the file times that scale (docs/30).
-  local scale = math.min(box_w / info.width, box_h / info.height)
+  local box_w = view.width - 2 * 24
+  local scale = math.min(box_w / info.width, picture_h / info.height)
   local w = math.max(1, math.floor(info.width * scale))
   local h = math.max(1, math.floor(info.height * scale))
   local x = math.floor((view.width - w) / 2)
-  local y = top + math.floor((box_h - h) / 2)
+  local y = picture_y + math.floor((picture_h - h) / 2)
   -- **A grey background the size of the drawing**, so that the transparency is seen: what is not of the GIF is the
   -- paper and over grey it stands out what is there and what is not (docs/30).
   ui.rect(x, y, w, h, 11)
 
+  local bytes = bytes_of(picture.path)
   local ok, why = ui.image(x, y, picture.path, w, h)
   if ok == nil then
     failures = failures + 1
     console.print(string.format('images: %s: %s', picture.path, tostring(why and why.message)))
-    ui.text(40, top, 'not drawn', 2, 0)
-    ui.text(40, top + 60, tostring(why and why.message), 1, 8)
+    notes.text = string.format('%s\nnot drawn: %s', picture.path, tostring(why and why.message))
+    ui.text(40, picture_y + 40, 'not drawn', 2, 0)
   else
     shown = shown + 1
     console.print(string.format('images: %s %dx%d (%d bytes) at %dx%d, %d of %d', info.format, info.width,
-      info.height, bytes_of(picture.path), w, h, i, #pictures))
+      info.height, bytes, w, h, index, #pictures))
+    -- **The numbers and the sentence in the box that is read**, and the box walks its rows when the centre enters it:
+    -- a format that needs two lines is a format this page still explains whole (0.116.0).
+    notes.text = string.format('%s  %s  %d x %d  %d B\n%s', picture.name, info.format, info.width, info.height,
+      bytes, picture.why)
   end
-  ui.text(40, view.height - 236, string.format('%s  %d x %d  %d B', info.format, info.width, info.height,
-    bytes_of(picture.path)), 2, 0)
-  ui.text(40, view.height - 196, picture.path, 1, 8)
-  ui.text(40, view.height - 168, picture.why, 1, 0)
+  notes.top = 0
   ui.present('gc16')
   -- The whole page has just come out of a `gc16`: there is no ring pending a wash.
   clean = false
 end
 
-local function step(delta)
-  index = index + delta
-  if index < 1 then index = #pictures end
-  if index > #pictures then index = 1 end
-  draw(index)
-end
-
--- **Three buttons at the foot of the page**: back, quit and next, which with the dial of the board is the same as
--- with a finger (docs/30, docs/90).
-local function make_button(x, width, text, action)
-  local button, err = ui.button(width, 72)
-  if button == nil then
-    console.print(string.format('images: no room for "%s": %s', text, tostring(err and err.message)))
-    return nil
-  end
-  button:place(x, view.height - 84)
-  local label, label_err = ui.label(width - 20, 52)
-  if label == nil then
-    console.print(string.format('images: no room for the label: %s',
-      tostring(label_err and label_err.message)))
-    return nil
-  end
-  label.text = text
-  label.align = 'center'
-  label.valign = 'middle'
-  label:place(10, 10)
-  button:add(label)
-  button.on_click = action
-  button.on_activate = action
-  button.on_focus = function(self, focused)
-    if focused then clean = true end
-  end
-  controls[#controls + 1] = button
-  return button
-end
-
-make_button(30, 150, 'back', function() step(-1) end)
-make_button(205, 140, 'quit', function()
-  leaving = true
-  console.print('images: quit pressed, leaving the page')
-end)
-make_button(view.width - 170, 140, 'next', function() step(1) end)
-
-draw(index)
+draw()
 console.print(string.format('images: %d pictures, %d drawn, %d failed', #pictures, shown, failures))
 
 -- **The app stays and listens**: an app that folds after painting is an app nobody can press. The picture of every
@@ -156,8 +208,8 @@ console.print(string.format('images: %d pictures, %d drawn, %d failed', #picture
 -- —nothing, almost always— and cost no ink (docs/30, docs/90).
 while not leaving do
   -- **The turn after a movement of focus is a wash**: `gc16` is what leaves the ring that arrives sharp and the one
-  -- that goes erased, and only the buttons are in the damage list, so what flashes is the row of buttons
-  -- (docs/30, docs/90).
+  -- that goes erased, and only the controls are in the damage list, so what flashes is the strip, the rows and the
+  -- button and not the picture (docs/30, docs/90).
   ui.present(clean and 'gc16' or nil)
   clean = false
   sys.delay(200):await()

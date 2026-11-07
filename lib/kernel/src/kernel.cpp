@@ -293,6 +293,17 @@ void boot(hal::IPlatform& platform) {
   cfg::boot(platform);
   log_printf(pal::kLogInfo, "VFS", "%u mounts", static_cast<unsigned>(vfs::mount_count()));
 
+  // **The panel and the logo, as early as this system can put them there** (0.115.0): the filesystem is mounted
+  // (the picture is a file) and the settings have been read (the picture is the one the person chose), and
+  // everything that comes after this —the alarms that survived the power cut, the radio, the sensors, the bar—
+  // runs while the glass is already saying lunokOS. It is the same call the command `splash boot` makes, and a
+  // board without a glass answers `no glass` and goes on with the log, which is the only place that sentence can
+  // go (docs/30, docs/50).
+  display::boot(platform);
+  if (!splash::show(splash::kind_of(cfg::boot_splash()))) {
+    log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
+  }
+
   // The alarms that survived the power cut come back before anything else can
   // look at the queue.
   alarms_restore();
@@ -337,16 +348,6 @@ void boot(hal::IPlatform& platform) {
   // The glass, when the board has one: its frames become taps, long presses and drags in the turns
   // of this loop (docs/50).
   touch::boot(platform);
-  // The panel, when the board has one. It is booted and **not polled**: nothing of the system paints,
-  // so there is no turn of this loop that has anything to say to the glass (docs/30, docs/50).
-  display::boot(platform);
-  // **The picture of the moment** (0.111.0): the panel has just come up and this is the one moment the system can
-  // wash it whole and put a picture in the middle of it — nothing else is on the glass yet, and the first page an app
-  // paints comes after this and over it. A build whose disk carries no picture for the boot paints nothing and says
-  // nothing: a splash of a guess is worse than the panel of before (docs/30, docs/50).
-  if (!splash::show(splash::kBoot)) {
-    log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
-  }
   // The bar of the system, which owns the top rows of the glass: the hour, the title of the app in front
   // and the charge (docs/30).
   bar::boot(platform);

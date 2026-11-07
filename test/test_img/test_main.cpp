@@ -174,6 +174,37 @@ void test_every_family_draws_the_same_plan(void) {
   }
 }
 
+// **A block that is smaller than the picture asks for is refused and never written past** (0.118.0): the state of a
+// decoder —the table of a GIF, the header of a JPEG, the row it builds— lives in the block the caller gives, so the
+// number `scratch_bytes` answers is a contract. Before this, a GIF needed 16 656 bytes of the stack and the board
+// answered a page of pictures with an overflow in `loopTask` (docs/75, docs/85, docs/92 §33).
+void test_a_block_that_is_smaller_than_the_picture_needs_is_refused(void) {
+  static uint8_t file[2 << 20];
+  static uint8_t scratch[3 << 20];
+  static uint8_t bits[96 * 48];
+  for (uint32_t i = 0; i < kPlanCount; ++i) {
+    char path[128];
+    snprintf(path, sizeof(path), "test/test_img/data/%s", kPlan[i]);
+    const uint32_t size = read_host(path, file, sizeof(file));
+    TEST_ASSERT_GREATER_THAN_MESSAGE(0, size, path);
+    const uint32_t need = img::scratch_bytes(file, size);
+    // **Every family asks for something now**, because every family builds the row it hands to the sink and keeps
+    // its own state in the same block (0.118.0).
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(1, need, path);
+    Rows rows;
+    rows.bits = bits;
+    rows.stride = 48;
+    rows.width = 96;
+    rows.height = 72;
+    memset(bits, 0xEE, sizeof(bits));
+    img::RowSink sink(rows_sink, &rows);
+    // One byte short: `kNoRoom` and not a picture written over the end of the block.
+    TEST_ASSERT_EQUAL_MESSAGE(img::kNoRoom, img::decode(file, size, sink, scratch, need - 1), path);
+    // And the number it asked for is enough, which is the other half of the contract.
+    TEST_ASSERT_EQUAL_MESSAGE(img::kOk, img::decode(file, size, sink, scratch, need), path);
+  }
+}
+
 // A file of a family this board does not read is refused with the reason and not drawn wrong.
 void test_the_pictures_this_board_does_not_read_say_so(void) {
   static uint8_t file[2 << 20];
@@ -379,6 +410,7 @@ int main(int argc, char** argv) {
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_every_family_draws_the_same_plan);
+  RUN_TEST(test_a_block_that_is_smaller_than_the_picture_needs_is_refused);
   RUN_TEST(test_the_netpbm_family_draws_its_own_pictures);
   RUN_TEST(test_the_pictures_this_board_does_not_read_say_so);
   RUN_TEST(test_a_broken_file_and_a_strange_one_are_told_apart);

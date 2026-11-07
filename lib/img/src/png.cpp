@@ -321,12 +321,17 @@ Status png_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The row of the page is the block of the caller and not the stack** (0.118.0): the picture is inflated at once and
+// the row the decoder builds before it writes it —the widest a page can be— goes after it, aligned (docs/75).
+uint32_t png_state_at(uint32_t inflated) { return aligned_at(inflated); }
+
 uint32_t png_scratch(const uint8_t* data, uint32_t len) {
   Header header;
   if (read_chunks(data, len, header) != kOk) return 0;
   // **A row of a PNG costs its filter byte and its samples**, and the whole picture is inflated at once: the
   // number the caller has to give is the picture as the file describes it (docs/30, docs/75).
-  const uint64_t bytes = static_cast<uint64_t>(header.row_bytes + 1) * header.height;
+  const uint64_t inflated = static_cast<uint64_t>(header.row_bytes + 1) * header.height;
+  const uint64_t bytes = static_cast<uint64_t>(png_state_at(static_cast<uint32_t>(inflated))) + kRowBytes;
   if (bytes > 0xFFFFFFFFu) return 0;
   return static_cast<uint32_t>(bytes);
 }
@@ -337,7 +342,7 @@ Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
   if (read != kOk) return read;
   if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
   const uint32_t need = (header.row_bytes + 1) * header.height;
-  if (scratch == nullptr || cap < need) return kNoRoom;
+  if (scratch == nullptr || cap < png_state_at(need) + kRowBytes) return kNoRoom;
   uint32_t written = 0;
   const inflate::Status status =
       inflate::zlib(data + header.idat_at, header.idat_len, scratch, need, written);
@@ -347,7 +352,7 @@ Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
 
   const uint32_t bpp = static_cast<uint32_t>((header.channels * header.depth + 7) / 8);
   const uint32_t stride = header.row_bytes + 1;
-  uint8_t packed[(kMaxSide + 1) / 2];
+  uint8_t* packed = scratch + png_state_at(need);
   for (uint32_t y = 0; y < header.height; ++y) {
     uint8_t* filter = scratch + y * stride;
     uint8_t* row = filter + 1;

@@ -326,6 +326,25 @@ El pla B que sempre funciona és baixar la velocitat a 115 200 a `boards/<id>.js
 Quan un número d'aquesta llista aparegui en un report, ha de portar la paraula «mesurat a la placa» i
 amb què. Si no, va marcat com a pendent.
 
+## La pila també es mesura abans de pujar res: `tools/check_stack.py` (0.118.0)
+
+Una pila que es passa no la veu ni el compilador ni l'emulador: la veu la placa, i la veu com un reinici
+(`***ERROR*** A stack overflow in task loopTask has been detected`). El compilador, en canvi, sí que pot
+dir **quant gasta cada funció**, i ho fa amb `-fstack-usage`. `tools/check_stack.py` compila una llibreria
+així i falla si una funció passa del pressupost:
+
+```
+python3 tools/check_stack.py                        # lib/img, 1 024 B per funció
+python3 tools/check_stack.py --all --budget 4096    # el mapa de tot el firmware
+```
+
+- **Qui té pressupost estret és `lib/img`**, perquè els seus descodificadors corren a la tasca de l'app
+  (`stack 7320 B free` al log d'arrencada) i una imatge d'un GIF s'enduia 16 656 B (docs/75).
+- **Les llibreries que necessiten les capçaleres de la placa** (`pal_esp32`, `hal_paper`, …) no es poden
+  compilar al PC: l'eina les **diu saltades** i no les mesura, en comptes de petar.
+- **No és una prova i no executa codi del firmware**: compila objectes i llegeix els `.su` que deixa el
+  compilador. Per això es pot córrer sense permís, com `pio run`.
+
 ## Proves que han d'existir abans de la primera fita
 
 - La cua de temporitzadors ordena i programa **només la primera**.

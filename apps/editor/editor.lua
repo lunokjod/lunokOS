@@ -350,6 +350,9 @@ box.wrap = doc.wrap
 -- than the title of a page on purpose —twenty-seven pixels a row is twenty-nine rows of a code file where the size of
 -- the glass would show twenty-two— (docs/30, docs/92).
 box.scale = 3
+-- **The document fills the page and has nothing to be framed by** (0.116.0): the frame of a box is for a field that is a
+-- piece of a page, and this one is the page (docs/30, docs/92).
+box.framed = false
 box:place(0, kBarRow)
 -- **The finger that walks the box moves the window and the bar on the right**: the app registers the gesture with
 -- `on_swipe` and the system does the arithmetic —it writes the `top` of the box and presents the page—, and all that is
@@ -363,7 +366,15 @@ box.on_swipe = function(self, rows)
   local total = self:lines()
   if total ~= nil and total > 0 and self.top ~= nil and self.top >= 0 then
     doc.note = 'row ' .. (self.top + 1) .. ' of ' .. total
+    console.print('editor: ' .. doc.note)
   end
+  say()
+end
+-- **The keys of the board move the caret once the box has been entered** (0.116.0): the centre enters the field and then
+-- the two keys walk it, a row at a time; the app hears where the caret is so the line under the page says the row. It
+-- does not present: the system paints the caret and this page in the same wash (docs/30, docs/90).
+box.on_move = function(self, cursor)
+  doc.cursor = cursor
   say()
 end
 box.on_change = function(self, text)
@@ -415,9 +426,10 @@ end
 -- **The page the editor has when no card is up**: the keyboard types into the box of lines, unless the document is
 -- read-only —and then there is no keyboard, because a read-only page has nothing to type into— (docs/30, docs/90).
 function resume()
-  -- **The box says whether it takes keys** (0.91.0): a read-only page keeps its box scrollable and its finger alive,
-  -- but a finger on it must not bring a keyboard that has nothing to write.
-  box.keyboard = doc.readonly and false or 'alpha'
+  -- **The box is a page to read or a page to write** (0.116.0): `readonly` is the field the system asks before it puts a
+  -- band up, and it keeps the caret —a page nobody types into is still a place a person is at—. Before it, the app had to
+  -- say `keyboard = false` and it lost the block with it.
+  box.readonly = doc.readonly
   if doc.readonly then
     kb:hide()
   else

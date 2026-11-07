@@ -7,6 +7,9 @@
 // whole screen, white before the first pixel is drawn, and every pixel of the frame lands where the file says.
 // An interlaced frame is stored in four passes and is written to that block where it belongs, so the rows that
 // come out are in order whatever the file did (docs/30).
+#include <new>
+#include <string.h>
+
 #include "img_private.h"
 
 namespace img {
@@ -177,13 +180,22 @@ Status gif_info(const uint8_t* data, uint32_t len, Info& out) {
   return kOk;
 }
 
+// **The table of the LZW and the string it builds are in the block of the caller** (0.118.0): twelve kilobytes of
+// table on the stack of the task that runs an app is the overflow the board answered with, and the block is the
+// extra memory of the board —the PSRAM of the Paper— where a picture of a megapixel already lives (docs/75). The
+// state goes after the screen and starts on a word, which is what the two thousand `uint16_t` of the table need.
+uint32_t gif_state_at(uint32_t screen_bytes) { return aligned_at(screen_bytes); }
+
+uint32_t gif_state_bytes() { return static_cast<uint32_t>(sizeof(Lzw) + kMaxCodes); }
+
 uint32_t gif_scratch(const uint8_t* data, uint32_t len) {
   Header header;
   uint32_t at = 0;
   if (!read_header(data, len, header, at)) return 0;
   // The screen of the picture, white before anything is drawn on it, because a frame may be smaller than the
   // screen and what shows around it is paper (docs/30).
-  const uint64_t bytes = static_cast<uint64_t>(row_bytes(header.width)) * header.height;
+  const uint64_t screen = static_cast<uint64_t>(row_bytes(header.width)) * header.height;
+  const uint64_t bytes = static_cast<uint64_t>(gif_state_at(static_cast<uint32_t>(screen))) + gif_state_bytes();
   return (bytes > 0xFFFFFFFFu) ? 0 : static_cast<uint32_t>(bytes);
 }
 
@@ -194,7 +206,8 @@ Status decode_gif(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
   if (header.width == 0 || header.height == 0) return kBadData;
   if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
   const uint32_t screen_bytes = row_bytes(header.width) * header.height;
-  if (scratch == nullptr || cap < screen_bytes) return kNoRoom;
+  const uint32_t state_at = gif_state_at(screen_bytes);
+  if (scratch == nullptr || cap < state_at + gif_state_bytes()) return kNoRoom;
   for (uint32_t i = 0; i < screen_bytes; ++i) scratch[i] = 0xFF;  // the paper
 
   int32_t transparent = -1;
@@ -265,12 +278,18 @@ Status decode_gif(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
     screen.interlaced = (packed & 0x40) != 0;
     screen.transparent = transparent;
 
-    Lzw lzw;
+    // **The table and the string are the block's and not the stack's** (0.118.0): `gif_scratch` counted them, so a
+    // caller that gave the number it was asked for has them, and one that gave less gets `kNoRoom` above (docs/75).
+    // **The table is made where it stands**: the block is the caller's and it was counted for the table, and a
+    // `memset` of the area is all the construction a table of words needs (docs/75).
+    uint8_t* state = scratch + state_at;
+    memset(state, 0, sizeof(Lzw));
+    Lzw& lzw = *reinterpret_cast<Lzw*>(state);
     lzw_reset(lzw, min_size);
     SubBlocks blocks{data, len, cursor.at};
     uint32_t bits = 0;
     uint32_t bit_count = 0;
-    uint8_t string[kMaxCodes];
+    uint8_t* string = scratch + state_at + sizeof(Lzw);
     while (true) {
       while (bit_count < lzw.size) {
         uint8_t byte = 0;
@@ -340,12 +359,11 @@ Status decode_gif(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
   }
   if (!have_frame) return kBadData;
 
-  // The screen is the picture: the rows go out in order, whatever the frame did inside (docs/30).
-  uint8_t packed_row[(kMaxSide + 1) / 2];
+  // The screen is the picture: the rows go out in order, whatever the frame did inside (docs/30). **The screen is
+  // already the shape the sink takes** —a row of `(width + 1) / 2` bytes, one after the other— so the row is given
+  // where it is and not copied: the copy was two kilobytes of stack for a `memcpy` per row (0.118.0).
   for (uint32_t y = 0; y < header.height; ++y) {
-    const uint8_t* row = scratch + y * row_bytes(header.width);
-    for (uint32_t i = 0; i < row_bytes(header.width); ++i) packed_row[i] = row[i];
-    sink.write(sink.ctx, static_cast<uint16_t>(y), packed_row);
+    sink.write(sink.ctx, static_cast<uint16_t>(y), scratch + static_cast<uint32_t>(y) * row_bytes(header.width));
   }
   return kOk;
 }
