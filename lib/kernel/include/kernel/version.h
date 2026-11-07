@@ -3093,7 +3093,34 @@ namespace kernel {
 // middle of the page, the foot of the cover and the pass that leaves it are proven by the code and by the test, not by a
 // photograph of the panel. Of the book, what is still missing with its fitxa in docs/46: **C15** (a page by number),
 // **C11** (the cache of thumbnails, which wants B9) and the foot of the shelf.
-static const char kVersion[] = "0.144.0";
+// 0.145.0 (8/11): **a page by its number, and the menu from the keys** (docs/46, C15 and C4).
+//
+//   - **`Book → Page`**: the list of the pages of the chapter, one row `Page k` for every page the count of the chapter
+//     knows (C5), opened at the page that is on the glass with that row marked. The dial walks the rows, the centre or a
+//     finger opens one, and the reader jumps to **the byte that page starts at** —the table of the count— with the wash,
+//     because a jump of ten pages is not a turn. The number is **walked and not typed**: a field that takes a number
+//     brings the keyboard band, 581 rows of this glass, and walking a list with the two keys is quicker and does not
+//     take the page away (docs/30);
+//   - **it is the same screen as the index**: `open_index` and `open_pages` both build their rows and hand them to
+//     `open_list(head, rows, marked, pick)`, so the two half-pages of the reader are one function and one drawing
+//     (docs/46, C14);
+//   - **the menu from the keys**: a **long press of the centre** opens the menu with the `Book` unfolded —the arrows
+//     only walk the entries of the open title and a title is unfolded by the glass and not by the dial, so a person at
+//     the keys had no menu at all until today— and the second long press folds it. The finger keeps the menu it had: a
+//     long press on the glass opens it with the `View` down. A long press is delivered to the app even when a control
+//     has the dial, because `ui_button_event` only takes `press`;
+//   - **it is app only**: no door, no control and no number of the system changed this turn, and the app is **57 818 B**
+//     of Lua —under the 65 536 B of the source ceiling of 0.143.0—.
+//
+// The app test walks the whole thing with the keys: a long press of the centre, two arrows to `Page`, the centre, two
+// arrows to the second row and the centre again, and the file of positions says the byte of the second page —the same
+// byte the taps reached in the first half of the test—. The suites are still **533 cases**, and
+// `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn: the list of pages and
+// the long press of the centre are proven by the code and by the test, not by a photograph of the panel. Of the book,
+// what is still missing with its fitxa in docs/46: **C11** (the cache of thumbnails, which wants B9) and the foot of
+// the shelf.
+static const char kVersion[] = "0.145.0";
 
 }  // namespace kernel
 

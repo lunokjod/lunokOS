@@ -9930,6 +9930,21 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   press(2);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
 
+  // **The menu is reachable from the keys** (0.145.0, docs/46 C4 and C15): a long press of the centre opens it with the
+  // Book unfolded, the two arrows walk Shelf, Contents and Page, and the centre chooses. **Page** puts up the pages of
+  // the chapter and its second row is the second page of the book — the number is walked and not typed.
+  emu::press_key(0, true);
+  pump_turns(1100);
+  emu::press_key(0, false);
+  pump_turns(120);
+  press(2);  // Shelf -> Contents
+  press(2);  // Contents -> Page
+  press(0);  // the centre chooses Page
+  press(2);  // the list is one page: the arrow goes to the first row
+  press(2);  // and this one to the second
+  press(0);  // the centre opens page 2
+  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
+
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
   TEST_ASSERT_FALSE(kernel::app_running());

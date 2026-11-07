@@ -1019,29 +1019,35 @@ local function go_to_chapter(at)
   show_shelf('the chapter "' .. one.title .. '" cannot be read')
 end
 
--- **The index on the glass** (0.143.0, docs/46 C14): the rows of the book's own index in a `ui.list`, which pages
--- itself and whose rows are controls —the dial walks them and the centre opens one—. The row of the chapter that is
--- open is the marked one and the list opens on the page it is on.
+-- **A row of the pages is a page** (0.145.0, docs/46 C15): the reader goes to the byte that page starts at, which is the
+-- table of the count of the chapter (C5), and it takes the wash because a jump of ten pages is not a turn.
+local function go_to_page(at)
+  local byte = pages[at]
+  if byte == nil then return end
+
+  swallow_tap = sys.time_ms() + 600
+  release_index()
+  cover_mode = false
+  from = byte
+  forget_page()
+  build_page(false)
+end
+
+-- **A list on the glass** (docs/46, C14 and C15): the rows in a `ui.list` that pages itself, each row a control of its
+-- own —the dial walks them and the centre opens one, and a finger opens the row it presses—. The row that is marked is
+-- the one the reader is on and the list opens on its page. It is one function because the index of a book and the pages
+-- of a chapter are the same screen with different rows.
 local kIndexRow = 56
 local kIndexHead = 64
 
-local function open_index()
-  if book == nil then return end
+local function open_list(head, rows, marked, pick)
   release_page()
   release_index()
   page_mode = false
 
-  if #toc == 0 then
-    -- **A book of one chapter has no index and none is invented** (docs/46, C14): the glass goes back to the book and a
-    -- notice says why nothing happened.
-    build_the_book()
-    put_a_notice('This book has no index', 'it has one chapter, so there is nothing to choose')
-    return
-  end
-
   index_head = ui.label(view.w - 40, 48)
   if index_head ~= nil then
-    index_head.text = 'Contents'
+    index_head.text = head
     index_head.scale = 3
     index_head.color = 0
     index_head.background = 15
@@ -1063,17 +1069,17 @@ local function open_index()
   list.text = 0
   list.dim = 8
 
-  -- **The list opens on the page of the chapter that is open**, which is the one row a person wants to see.
-  local rows = height // kIndexRow
-  if rows > 0 then list.page = ((chapter_at - 1) // rows) + 1 end
+  -- **The list opens on the page of the row that is marked**, which is the one a person wants to see.
+  local per_page = height // kIndexRow
+  if per_page > 0 and marked > 0 then list.page = ((marked - 1) // per_page) + 1 end
 
-  for i, one in ipairs(toc) do
+  for i, one in ipairs(rows) do
     local entry = ui.list_entry(view.w - 40, kIndexRow)
     if entry ~= nil then
       entry.background = 15
       entry.border = 0
       entry.separator = true
-      entry.marked = (one.chapter == chapter)
+      entry.marked = (i == marked)
 
       local words = ui.label(view.w - 64, kIndexRow - 8)
       if words ~= nil then
@@ -1088,7 +1094,7 @@ local function open_index()
 
       local at = i
       entry.on_click = function()
-        go_to_chapter(at)
+        pick(at)
       end
       list:add(entry)
     end
@@ -1096,6 +1102,46 @@ local function open_index()
 
   list:place(20, kIndexHead)
   ui.present('gc16')
+end
+
+-- **The index on the glass** (docs/46, C14): the rows of the book's own index, with the chapter that is open marked.
+local function open_index()
+  if book == nil then return end
+  if #toc == 0 then
+    -- **A book of one chapter has no index and none is invented** (docs/46, C14): the glass goes back to the book and a
+    -- notice says why nothing happened.
+    build_the_book()
+    put_a_notice('This book has no index', 'it has one chapter, so there is nothing to choose')
+    return
+  end
+
+  local marked = 0
+  for i = 1, #toc do
+    if toc[i].chapter == chapter then
+      marked = i
+      break
+    end
+  end
+
+  open_list('Contents', toc, marked, go_to_chapter)
+end
+
+-- **And the pages of the chapter, to go to one by number** (0.145.0, docs/46 C15): a row for each page the count of the
+-- chapter knows, opened at the page on the glass. **The number is walked and not typed**: a field that takes a number
+-- brings the keyboard band, which is 581 rows of this glass, and walking a list with the two keys is quicker and does
+-- not take the page away (docs/30).
+local function open_pages()
+  if book == nil then return end
+  if walked < 2 then
+    build_the_book()
+    put_a_notice('There is no page to choose', 'this chapter has one page, or its count has not landed')
+    return
+  end
+
+  local rows = {}
+  for k = 1, walked do rows[k] = { title = 'Page ' .. k, at = k } end
+
+  open_list('Pages', rows, page_index(from), go_to_page)
 end
 
 -- **And it goes back with a long press or a swipe**, the two fingers a menu also answers (docs/90): a tap is the
@@ -1147,7 +1193,9 @@ end
 -- `checked` carries its box, even when it is off (docs/30, docs/90).
 local function menu_items()
   return {
-    { title = 'Book', items = { 'Shelf', 'Contents' } },
+    -- **The Book is Shelf, Contents and Page** (docs/46, C1, C14 and C15): where the books are, which chapter and which
+    -- page of it.
+    { title = 'Book', items = { 'Shelf', 'Contents', 'Page' } },
     { title = 'View', items = {
       { label = 'Full screen', checked = ui.full_screen() },
       { label = 'Dark page', checked = dark },
@@ -1177,8 +1225,10 @@ local function on_menu_pick(title, entry)
   if title == 1 then
     if entry == 1 then
       show_shelf()
-    else
+    elseif entry == 2 then
       open_index()
+    else
+      open_pages()
     end
   elseif entry == 1 then
     -- **The system answers with `on_resize`**, which builds the page in the new box: nothing else is owed here.
@@ -1189,7 +1239,7 @@ local function on_menu_pick(title, entry)
   end
 end
 
-local function open_menu()
+local function open_menu(which)
   if menu ~= nil or book == nil then return end
 
   -- **A menu takes the dial, so the page gives it back** (docs/30, docs/46 C3): a control the dial leaves is not entered
@@ -1201,9 +1251,10 @@ local function open_menu()
   if bar == nil then return end
 
   bar.items = menu_items()
-  -- **The View is the menu that is down**, because it is the one with the two states of this page; the Book is a word a
-  -- finger unfolds and the dial does not leave the entry it is on (docs/90).
-  bar.open = 2
+  -- **The View is the menu that is down when a finger asks for the menu**, because it is the one with the two states of
+  -- this page; the Book is a word a finger unfolds. **From the keys the Book is the one that is down** (0.145.0), because
+  -- the arrows only walk the entries of the open title and a title is unfolded by the glass and not by the dial (docs/90).
+  bar.open = which or 2
   bar.index = 1
   bar.bar_height = kMenuBar
   bar.color = ink_level()
@@ -1327,7 +1378,23 @@ end
 -- before the centre the keys are the walk of the dial, and this page has no control to walk, so they do nothing. A
 -- notice or a menu is a page of its own and takes the keys and the mode with it (docs/46, C3, C4 and C12).
 function on_button(kind, held_ms, key)
-  if kind ~= 'press' or screen == nil or book == nil then return end
+  -- **A book is what the keys are for**, and the lists of it take the keys themselves (docs/46, C14 and C15).
+  if book == nil or index_list ~= nil then return end
+
+  -- **A long press of the centre is the menu** (0.145.0, docs/46 C4), the way a long press on the glass is, and with
+  -- the Book unfolded so the dial can walk it: a person at the keys has no finger to unfold a title with. The second
+  -- long press folds it again.
+  if kind == 'long' then
+    if key ~= 0 then return end
+    if menu ~= nil then
+      close_menu()
+    else
+      open_menu(1)
+    end
+    return
+  end
+
+  if kind ~= 'press' or screen == nil then return end
   if menu ~= nil or notice ~= nil or notice_card ~= nil then return end
 
   if key == 0 then
