@@ -515,6 +515,11 @@ void start_next() {
     if (begin(g_current)) return;
     // The radio refused it. The answer is given in the next turn: the one who
     // asked may still be inside its own call (docs/30).
+    // **And it says which refusal it was** (0.118.10): the driver hands back its own words when it has
+    // them —`the radio did not come up (ESP_ERR_NO_MEM)` is not a busy radio— and `E_BUSY` stays only
+    // for the case of a radio that is really working on something else (docs/30, docs/50).
+    const char* why = g_net->last_error();
+    g_refuse = (why != nullptr && why[0] != '\0') ? why : "E_BUSY";
     g_phase = kRefused;
   }
 }

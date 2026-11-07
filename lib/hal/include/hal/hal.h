@@ -226,6 +226,12 @@ class INet {
   // Scanning the networks around, without waiting for the radio: start it, ask
   // whether it is done in every turn, and then how many it found (docs/50).
   virtual bool wifi_scan_start() = 0;
+  // **Why the last thing asked of the radio was refused**, in the driver's own words when it has them
+  // (0.118.10). `E_BUSY` is the right answer for a radio that is working on something else, and the
+  // wrong one for a radio that never came up —no memory for it, a driver that would not start, a scan
+  // the chip turned down—: they are different faults with different fixes and the board answered the
+  // same four letters to all of them (the ATOM, 8/11) (docs/30, docs/50).
+  virtual const char* last_error() const { return ""; }
   virtual bool wifi_scan_done() = 0;
   virtual uint32_t wifi_scan_count() = 0;
   // One entry of the last finished scan: its name and its signal. True when the

@@ -123,6 +123,11 @@ struct Options {
   int32_t wifi_ms;
   bool wifi_absent;
   bool wifi_fail;
+  // **A radio that refuses and says why** (0.118.10): when it is not nullptr, a scan and a provisioning
+  // are turned down and `last_error()` answers this sentence, which is what a real driver does with the
+  // name of the framework's error. It is how the bench checks that the reason of the hardware reaches
+  // the person at the prompt instead of a `E_BUSY` that hides four different faults (docs/85).
+  const char* refuse_why;
   // How many networks the fake radio sees in a scan. Zero is a board in a field
   // and it is the case that broke the promise: an empty scan answers 0 (docs/85).
   int32_t scan_count;

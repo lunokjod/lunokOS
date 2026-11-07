@@ -2291,6 +2291,27 @@ void test_the_wifi_command_scans_and_lists_the_networks(void) {
   emu::set_options(opts);
 }
 
+// **A refusal says which one it was** (0.118.10): the ATOM answered `E_BUSY` to `wifi scan` and to
+// `provision` while the Paper did both, and `E_BUSY` is four faults under one name —a radio working on
+// something else, a radio that never came up, one with no memory for itself, a scan the chip turned
+// down—. The driver hands its own words back and the prompt prints them instead (docs/30, docs/50).
+void test_a_radio_that_refuses_says_why(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.wifi_absent = false;
+  opts.refuse_why = "the radio did not come up (ESP_ERR_NO_MEM)";
+  emu::set_options(opts);
+
+  pump_captured(300, g_out, sizeof(g_out), "wifi scan");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wifi: the scan failed"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the radio did not come up (ESP_ERR_NO_MEM)"), g_out);
+  // And not the four letters that hid it: `E_BUSY` stays for a radio that is really working on something.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "E_BUSY"), g_out);
+
+  opts.refuse_why = nullptr;
+  emu::set_options(opts);
+}
+
 // A network that does not say its name is still something the radio saw: the list
 // says so instead of skipping it, because a skipped entry is indistinguishable
 // from a scan that returned nothing (docs/50).
@@ -9138,6 +9159,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_alarm_demos_from_the_disk_run);
   RUN_TEST(test_the_wifi_command_scans_and_lists_the_networks);
+  RUN_TEST(test_a_radio_that_refuses_says_why);
   RUN_TEST(test_a_network_with_no_name_is_listed_as_hidden);
   RUN_TEST(test_a_scan_that_finds_nothing_answers_zero);
   RUN_TEST(test_the_wifi_command_adds_and_forgets_a_network);

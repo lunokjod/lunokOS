@@ -117,6 +117,7 @@ Options::Options()
       wifi_ms(300),
       wifi_absent(false),
       wifi_fail(false),
+      refuse_why(nullptr),
       scan_count(1),
       prov_ms(2000),
       prov_ssid("casa"),
@@ -612,9 +613,17 @@ class HostNet : public INet {
 
   bool wifi_scan_start() override {
     if (emu::options().wifi_absent) return false;
+    // A radio that turns the scan down and says why, for the bench of a board whose radio did not come
+    // up (0.118.10, docs/85).
+    if (emu::options().refuse_why != nullptr) return false;
     scanning_ = true;
     scan_started_ms_ = mono_ms();
     return true;
+  }
+
+  // The words of the hardware, when it has them (docs/30): empty is a radio that is really busy.
+  const char* last_error() const override {
+    return (emu::options().refuse_why != nullptr) ? emu::options().refuse_why : "";
   }
 
   bool wifi_scan_done() override {

@@ -58,6 +58,7 @@ fitxer `cfg/console.json` encara no es llegeix.
 | `E_HTTP` | El servidor no hi era, o ha plegat abans d'acabar de respondre |
 | `E_NONET` | La placa no és en cap xarxa: la ràdio no ha pujat, o s'ha perdut |
 | `E_BUSY` | Ja hi ha una operació en curs en aquest recurs, o el **llum és ocupat** amb un moment del sistema (docs/30) |
+| *(les paraules del maquinari)* | Des de la 0.118.10, quan el que ha refusat és un driver i el driver ho sap, **el codi no és `E_BUSY` sinó la seva frase sencera**, amb el nom de l'error del framework i la memòria lliure: `the radio did not come up (ESP_ERR_NO_MEM; 4 120 B free, largest 1 536 B)`. `E_BUSY` queda per al cas de debò —una ràdio ocupada amb una altra feina—, i la resta es poden distingir sense un flaix més (docs/50) |
 | `E_NOTASK` | S'ha cridat `await` fora d'una tasca |
 | `E_NOTFOREGROUND` | **Reservat**: cap crida el torna avui. Dins d'una finestra d'alarma el que passa és que `console.is_foreground()` diu `false` i el que s'escriu a la consola queda al log (docs/60) |
 | `E_BUDGET` | **Reservat**: el pressupost per torn ja existeix i fa cedir l'app (0.90.0), però el matar amb aquest codi després de dos avisos encara no (docs/20, docs/75) |

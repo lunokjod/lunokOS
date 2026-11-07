@@ -2118,7 +2118,19 @@ namespace kernel {
 // driver says it out loud) instead of painting into nothing for ever (docs/50, docs/95).
 // **Pending**: the reading of the two lines on the board (the splash, and the page of `images` after it),
 // the tests of the turn and the commit.
-static const char kVersion[] = "0.118.9";
+// 0.118.10 (8/11): **a radio that refuses says which refusal it was.** The Paper answers `wifi scan` and
+// `provision` and the ATOM answers *«wifi: the scan failed, E_BUSY»* and *«provision: nothing came of
+// it, E_BUSY»*, which is the same four letters for four different faults: a radio working on something
+// else, a radio that never came up, one the chip would not initialise —most likely out of memory, this
+// band has no PSRAM and the radio is initialised lazily on the first command—, and a scan the driver
+// turned down. `INet::last_error()` gives the driver a voice, the esp32 one fills it at every step that
+// can fail, and the kernel hands it to the person instead of `E_BUSY`, with **the free heap and the
+// largest block** next to it: `ESP_ERR_NO_MEM` with 4 KB free is a fragmented heap and not a fault, and
+// the number is what tells them apart without another flash (docs/30, docs/50, docs/75).
+// The bench can reproduce it (`Options::refuse_why`) and the new case is
+// `test_a_radio_that_refuses_says_why`.
+// **Pending**: the ATOM's line, the tests of the turn and the commit.
+static const char kVersion[] = "0.118.10";
 
 }  // namespace kernel
 

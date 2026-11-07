@@ -637,6 +637,26 @@ void http_task(void* argument) {
   vTaskDelete(nullptr);
 }
 
+// **Why the radio refused the last thing asked of it** (0.118.10). It is a pointer to a static buffer and
+// not a `String`: the kernel only ever copies the text into its answer, and a radio that has to allocate
+// in order to say it ran out of memory is a joke with no punchline (docs/30, docs/50).
+const char* g_why = "";
+
+// Says it out loud once, and remembers it for the kernel: the sentence the person reads at the prompt is
+// this one, so it names the step and the framework's own name for the error. **And the two numbers of the
+// memory with it** (0.118.10): `ESP_ERR_NO_MEM` under a radio that would not start is a board with a
+// fragmented heap and not a radio with a fault, and the only way to tell them apart later is to have
+// written down what was free at that moment (docs/50, docs/75).
+bool refuse(const char* what, esp_err_t err) {
+  static char text[128];
+  snprintf(text, sizeof(text), "%s (%s; %u B free, largest %u B)", what, esp_err_to_name(err),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+  g_why = text;
+  hal::logf(pal::kLogWarn, "WIFI", "%s", text);
+  return false;
+}
+
 // The radio. `esp_wifi_connect` does not wait: it starts the association and
 // returns, and the state is asked from the kernel in every turn, so the prompt and
 // the alarms never wait for the access point (docs/30, docs/50).
@@ -645,18 +665,27 @@ class Esp32Net : public INet {
   static bool espWifiReady() {
     static bool ready = false;
     if (ready) return true;
+    g_why = "";
     const esp_err_t netif = esp_netif_init();
-    if (netif != ESP_OK && netif != ESP_ERR_INVALID_STATE) return false;
+    if (netif != ESP_OK && netif != ESP_ERR_INVALID_STATE) return refuse("the network stack did not start", netif);
     const esp_err_t loop = esp_event_loop_create_default();
-    if (loop != ESP_OK && loop != ESP_ERR_INVALID_STATE) return false;
+    if (loop != ESP_OK && loop != ESP_ERR_INVALID_STATE) return refuse("the event loop did not start", loop);
     // Both interfaces are made here, before anything asks for them: the station
     // for the network a person gives, the access point for provisioning. The
     // return of the second call is the existing one when it is already there.
     if (g_sta_netif == nullptr) g_sta_netif = esp_netif_create_default_wifi_sta();
     if (g_ap_netif == nullptr) g_ap_netif = esp_netif_create_default_wifi_ap();
-    if (g_sta_netif == nullptr || g_ap_netif == nullptr) return false;
+    if (g_sta_netif == nullptr || g_ap_netif == nullptr) {
+      // No `esp_err_t` here: the interface is null, which on this chip is a board out of memory.
+      static char text[64];
+      snprintf(text, sizeof(text), "no network interface (out of memory)");
+      g_why = text;
+      hal::logf(pal::kLogWarn, "WIFI", "%s", text);
+      return false;
+    }
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-    if (esp_wifi_init(&config) != ESP_OK) return false;
+    const esp_err_t init = esp_wifi_init(&config);
+    if (init != ESP_OK) return refuse("the radio did not come up", init);
     esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_cb, nullptr,
                                         nullptr);
     esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_cb, nullptr,
@@ -664,11 +693,16 @@ class Esp32Net : public INet {
     // The stored network is this system's business and it keeps its own record, so
     // the driver is not asked to remember anything for us (docs/50).
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) return false;
-    if (esp_wifi_start() != ESP_OK) return false;
+    const esp_err_t mode = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (mode != ESP_OK) return refuse("the radio did not take the station mode", mode);
+    const esp_err_t start = esp_wifi_start();
+    if (start != ESP_OK) return refuse("the radio did not start", start);
     ready = true;
+    g_why = "";
     return true;
   }
+
+  const char* last_error() const override { return g_why; }
 
   bool ntp_start(const char* server) override {
     if (!espWifiReady()) return false;
@@ -774,14 +808,16 @@ class Esp32Net : public INet {
   // prompt (docs/30).
   bool wifi_scan_start() override {
     if (!espWifiReady()) return false;
+    g_why = "";
     fetched_ = false;
     record_count_ = 0;
     g_scan_done = false;
     wifi_scan_config_t config;
     memset(&config, 0, sizeof(config));
-    if (esp_wifi_scan_start(&config, false) != ESP_OK) {
+    const esp_err_t err = esp_wifi_scan_start(&config, false);
+    if (err != ESP_OK) {
       g_scan_done = true;
-      return false;
+      return refuse("the radio turned the scan down", err);
     }
     return true;
   }
@@ -888,7 +924,7 @@ class Esp32Net : public INet {
     // The manager keeps one scheme for its whole life, so the scheme is chosen
     // here and a change brings the old one down first (docs/50).
     const bool ble = (transport == ProvTransport::kBle);
-    if (!manager_for(transport)) return false;
+    if (!manager_for(transport)) return refuse("the provisioning manager did not start", ESP_FAIL);
 
     // The provisioning service announces itself with mDNS: the phone app finds
     // /proto-ver, /prov-session, /prov-config and /prov-scan there. Without mDNS
@@ -915,10 +951,9 @@ class Esp32Net : public INet {
     // the person types the POP in the app, and without it nobody provisions the
     // board, even on an open access point (docs/50).
     const char* proof = (pop != nullptr && pop[0] != '\0') ? pop : "lunokos";
-    if (wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, proof, service_name, nullptr) !=
-        ESP_OK) {
-      return false;
-    }
+    const esp_err_t started =
+        wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_1, proof, service_name, nullptr);
+    if (started != ESP_OK) return refuse("the provisioning service did not start", started);
 
     // mDNS is how the phone finds the service **over the access point**, and it
     // is announced with the access point already up: announcing it before leaves
