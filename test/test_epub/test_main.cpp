@@ -39,6 +39,7 @@ struct Reading {
   bool right_side[kMax];
   epub::Token::Cell cell[kMax];
   bool header[kMax];
+  bool inset[kMax];
   int32_t count;
 };
 
@@ -70,6 +71,7 @@ void read_all(const char* chapter, Reading& out, int32_t from = 0) {
     out.right_side[i] = token.right_side;
     out.cell[i] = token.cell;
     out.header[i] = token.header;
+    out.inset[i] = token.inset;
 
     out.text[i][0] = 0;
     out.block[i][0] = 0;
@@ -124,6 +126,12 @@ static void test_the_block_is_the_one_that_opens_the_word() {
   TEST_ASSERT_EQUAL_STRING("p", reading.block[1]);
   TEST_ASSERT_EQUAL_STRING("Un", reading.text[2]);
   TEST_ASSERT_EQUAL_STRING("li", reading.block[2]);
+  // **A quotation is counted and not named** (0.130.0): the paragraph inside one opens a `p` like any other,
+  // so the block says nothing about the inset and the word carries it. A list item is not inset, and a title
+  // neither.
+  TEST_ASSERT_TRUE_MESSAGE(reading.inset[1], "the word of a quotation is inset");
+  TEST_ASSERT_FALSE(reading.inset[0]);
+  TEST_ASSERT_FALSE(reading.inset[2]);
   // And the names are compared through the one function that does it, which is what a page uses.
   const char* chapter = "<h1>Titol</h1>";
   epub::Tokens reader(chapter, static_cast<int32_t>(strlen(chapter)));

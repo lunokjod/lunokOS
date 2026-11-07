@@ -306,6 +306,7 @@ Tokens::Tokens(const char* data, int32_t size, int32_t from)
       italic_(0),
       sup_(0),
       sub_(0),
+      inset_(0),
       block_len_(0),
       have_block_(false),
       pre_(false),
@@ -345,6 +346,7 @@ void Tokens::start_word(int32_t at) {
   word_bold_ = bold_ > 0;
   word_italic_ = italic_ > 0;
   word_rise_ = static_cast<int8_t>(sup_ > 0 ? -1 : (sub_ > 0 ? 1 : 0));
+  word_inset_ = inset_ > 0;
 
   have_block_ = false;
 }
@@ -523,6 +525,14 @@ void Tokens::handle_tag() {
     return;
   }
 
+  // **The blocks a page insets, counted and not flagged** (0.130.0): a quotation holds paragraphs, and the
+  // paragraph inside one is a `p` like any other, so the block that opened the word says nothing about the
+  // inset. A count, because a book nests a figure in a quotation and a quotation in a definition.
+  if (strcmp(name, "blockquote") == 0 || strcmp(name, "figure") == 0 || strcmp(name, "dd") == 0) {
+    inset_ += closing ? -1 : 1;
+    if (inset_ < 0) inset_ = 0;
+  }
+
   if (is_block_tag(name)) {
     memcpy(block_, name, static_cast<size_t>(n) + 1);
     block_len_ = n;
@@ -618,6 +628,7 @@ bool Tokens::take_word(Token& out) {
   out.bold = word_bold_;
   out.italic = word_italic_;
   out.rise = word_rise_;
+  out.inset = word_inset_;
 
   word_len_ = 0;
   word_block_len_ = 0;

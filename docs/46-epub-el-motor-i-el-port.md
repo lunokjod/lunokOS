@@ -60,7 +60,7 @@ Cada fila és **una cosa que es pot fer i provar tota sola**. «Avui aquí» diu
 |---|---|---|---|---|
 | **A1** | **El contenidor ZIP**: llegir el final del fitxer, el directori central i les capçaleres locals; una entrada `stored` i una de `deflate`; buscar per nom; treure una entrada a un bloc del qui crida; refusar ZIP64, xifrat, mètodes estranys, noms llargs i bombes, cada un amb la seva frase | `zip_archive.cpp` 508 + `storage_zip_source.h` 84 | **Res.** `lib/inflate` té el deflate i el `crc32`, que és mitja feina; `docs/70` diu que el contenidor no hi és | `lib/zip` (~500 línies) + l'adaptador sobre `hal::IStorage` (~80) + proves (~400) |
 | **A2** | **El tokenitzador XHTML** — **fet el 7/11 (0.128.0)**: `lib/epub` (**186 + 805 línies**) i **12 casos** a `test/test_epub` | `epub_html.cpp` 773 | **No hi havia res**: aquí només hi ha `lib/json`, i cap lector d'XML ni d'HTML | Fet: paraules amb el byte, blocs, entitats, `script`/`style`/`head`/comentaris sencers fora, `br`/`hr`, imatges amb costat, `b`/`i`/`sup`/`sub` amb comptador, `<pre>` i els quatre marcadors de taula. **La sortida és d'un byte per codi** (Latin-1), que és el que la cara del llibre i `ttf::glyph_of` volen |
-| **A3** | **El paginador**: salt de línia amb l'avanç de cada glif, l'aire de cada bloc i la seva cara, sagnia de cita/figura/`dd`, peu de figura centrat, imatge flotada amb bandes (les paraules l'envolten), imatge sencera que obre pàgina, `<hr>`, la reixa d'una taula (columnes comptades amb una sonda, fila que no es parteix, capçalera subratllada), i el final de pàgina que diu **el byte** de la pàgina següent | `epub_layout.cpp` 836 | **Res**. El canvas i les mètriques sí que hi són: `ui::canvas_text`, `font_text_width`, `font_line_height` | `lib/epub` part 2 (~700 línies) + proves. **Es reescriu, no es copia**: aquí no hi ha `IFont`/`ICanvas` amb glifs i bitmaps |
+| **A3** | **El paginador** — **fet el 7/11 (0.130.0)**: `lib/epub` part 2 (`page.h` **138 línies**, `page.cpp` **646**) i **12 casos** a `test/test_layout` | `epub_layout.cpp` 836 | **No hi era**. El canvas i les mètriques sí que hi són: `ui::canvas_text`, `font_text_width`, `font_line_height` | Fet, i **reescrit**: aquí no hi ha `IFont`/`ICanvas` amb glifs i bitmaps. Una pàgina surt com un **pla** (paraules amb el seu lloc, regles i caixes de foto) i el nucli la pinta |
 | **A4** | **Els senyals dins d'una línia** — **fet el 7/11 (0.129.0)**: `font::Ink` (negreta, cursiva i salt) a `lib/kernel/src/font.cpp`, `ui::canvas_text_styled` a `lib/kernel/src/ui.cpp` | `epub_layout.cpp` (`drawGlyph`, `drawRun`) | **No hi era**: `canvas_text` pintava una cadena sencera amb una cara i prou | Fet: la **negreta és un píxel més a la dreta** (el glif pintat dues vegades, que és el que fa una cara d'un sol pes), la **cursiva és un biaix fila a fila** (un cinquè de l'altura del glif, de la fila de baix a la de dalt) i el **`sup`/`sub` és un terç de línia amunt i un cinquè avall**, sense fer créixer la línia |
 | **A5** | **El llibre obert**: `open` (mida del fitxer), `chapter(entry)` que infla un capítol a la memòria gran, `member(href)` que resol un `href` relatiu al capítol i guarda **una** imatge en cau, i `layout` que compon o només mesura | `epub_book.cpp` 486 | **Res** | `lib/epub` part 3 + la memòria gran: `pal::extra_memory()` ja hi és i la fa servir el TLS (4 MB al Paper) |
 | **A6** | **El recompte de grisos d'una pàgina composta** (`levels`): es passeja pels píxels i compta quants nivells hi ha, que és el que decideix si la pàgina es pot girar amb `du` o necessita una passada que esborri | `levelsOf()` a `epub_book.cpp` | El concepte hi és (`hal::UpdateMode`, docs/50) però **cap app no pot preguntar-ho d'una pàgina** | Sortirà sol si la pàgina es compon dins d'un canvas de l'app: el nucli ja sap comptar els nivells (`ui::levels_shown`) |
@@ -90,6 +90,33 @@ que vol dir en un llibre dels noranta; els cinc bytes que cp1252 no fa servir s�
 I el que **no** fa, dit aquí perquè ningú el busqui: no llegeix el CSS del llibre, no fa columnes ni
 dreta-a-esquerra, i **un byte que no és UTF-8 es tracta com a Latin-1** (n'hi ha de llibres etiquetats
 d'una manera i escrits d'una altra, i un `é` sol no ha de ser un `?`).
+
+### A3 · Una pàgina és un pla i no un dibuix (7/11, 0.130.0)
+
+El paper componia la pàgina **pintant** dins d'un canvas mentre la maquetava, perquè el seu canvas era d'un
+bit i un glif era un bitmap que hi enganxava. Aquí el text es pinta amb `font::runs` i `ttf`, que són del
+nucli i saben de cares, escales i tinta, o sigui que el paginador calcula **on** i el nucli fa **què**:
+`epub::layout()` omple un `Sheet` (una llista d'`Item` i un **dipòsit de paraules**) i en diu el resultat.
+
+D'això en surten tres coses, i les tres són el motiu:
+
+- **mesurar una pàgina no costa res**: és la mateixa llista i ningú no la camina (B4);
+- **una pàgina es pot provar sense pantalla**: amb un regle de cara que diu que tota lletra fa sis píxels i
+  tota línia deu, l'aritmètica d'una línia i la d'una taula es proven amb llapis (`test/test_layout`, 12 casos);
+- i **la memòria és del qui crida**, com a tot el sistema: la llista i les paraules, perquè una paraula d'un
+  capítol és un tros d'un buffer que no acaba en zero (A7).
+
+Un `Item` és una **paraula** (`x`, `y`, cara, escala i tinta), una **regla** (l'`<hr>` o el subratllat d'una
+capçalera) o la **caixa d'una foto** amb l'`href` al dipòsit. El que el paginador fa amb ells és el del paper
+i amb les seves xifres: la línia es trenca on la paraula no hi cap, l'aire d'un bloc és una fracció de la
+línia del cos (títol 2/3, `li` 1/4, `dt` 1/2, `dd` 1/6), la foto flotada té una banda del 45 % de l'amplada,
+una foto que no hi cap **obre pàgina**, i una taula compta les columnes amb una sonda abans de col·locar la
+primera cel·la.
+
+I **una cosa que el paper no sabia fer**: la sagnia d'una cita. Allà sortia del bloc que obria la paraula, i
+dins d'una cita el bloc és `p` com qualsevol altre, o sigui que `<blockquote><p>…</p></blockquote>` —com
+escriuen els llibres— no sagnava mai. Aquí el tokenitzador **compta** les cites, les figures i les
+definicions i el `Token` porta `inset` (0.130.0).
 
 ### B · La porta de Lua
 
@@ -158,7 +185,7 @@ d'una manera i escrits d'una altra, i un `é` sol no ha de ser un `?`).
 | **1** | **`lib/zip`** (A1) i el seu adaptador | Un zip de joguina fet a mà, un `stored`, un `deflate` de debò, un nom llarg, una entrada xifrada i una de ZIP64 refusades amb la seva frase |
 | **2** | **`lib/epub`, el tokenitzador** (A2) — **fet el 7/11 (0.128.0)** | Paraules amb el byte, blocs, entitats (inclosa `&eacute;` i el rang C1), `script`/`style`/`head` fora, `br`/`hr` (dos seguits), imatges amb els tres costats, `b`/`i`/`sup`/`sub` niats, `<pre>` i les quatre marques de taula: **12 casos** |
 | **3** | **Les cares amb Latin-1 (D3, feta el 7/11) i el text amb èmfasi (D5, fet el 7/11)** | `à` es pinta (fet: 54 px contra 75 px en una línia de prova, i la tinta de l'accent per sobre de la lletra); una negreta és un píxel més ampla i la línia no s'allarga; una cursiva biaixa de la fila de dalt a la de baix; un `sup` puja un terç de línia |
-| **4** | **El paginador** (A3, A4) | Una pàgina de text amb el seu `next`, una imatge flotada amb bandes, una taula de tres columnes, una fila que no es parteix |
+| **4** | **El paginador** (A3) — **fet el 7/11 (0.130.0)** | Les línies amb l'avanç de cada paraula (una cara de regla al test), l'aire de cada bloc i la seva cara, la sagnia de cita, el peu centrat, la imatge flotada amb banda, la que no cabe que obre pàgina, la reixa d'una taula de dues columnes i la capçalera subratllada, el final de pàgina que diu el byte i una pàgina que continua **des d'aquell byte**: 12 casos |
 | **5** | **El llibre** (A5, A6) i `canvas_bitmap` (D4) | Un llibre de joguina obert, un capítol inflat, una pàgina composta en un canvas, `levels` |
 | **6** | **La porta de Lua** (B1–B8) | Les mateixes proves, però des d'un script: `run epub-probe` |
 | **7** | **La pantalla sencera** (D1) | La vista passa a 540 × 960 i la sortida és el gest del sistema |

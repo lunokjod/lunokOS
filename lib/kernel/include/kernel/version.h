@@ -2540,7 +2540,47 @@ namespace kernel {
 // looked at the glass**, which is said out loud because it is the rule of this house: the ink has no door from Lua
 // and no page composes a text with it yet, so the first time it will be seen is with the paginator of the next
 // piece (docs/46, A3), and until then what is measured is rectangles in a test and not a word on the screen.
-static const char kVersion[] = "0.129.0";
+//
+// 0.130.0 (7/11): **the paginator, and a page that is a plan**.
+//
+// The paper composed a page by **painting** into a canvas as it laid it out, because its canvas was one bit and a
+// glyph was a bitmap it blitted. Here a text is `font::runs` and `ttf`, which are the kernel's and know about
+// faces, steps and ink, so the paginator computes **where** and the kernel does **what**: `epub::layout()` fills a
+// `Sheet` —a list of items and a pool of words— and says what came out. Three things come from that, and they are
+// the reason: **measuring a page costs nothing** (it is the same list, walked by nobody, which is what the door of
+// Lua will ask for), **a page can be tried without a screen** (a ruler of a face that says every letter is six
+// pixels and every line ten proves the arithmetic of a line and of a table with a pencil), and **the memory is the
+// caller's**, the list and the words both, because a word of a chapter is a slice of a buffer that is not ended by
+// a zero.
+//
+// An item is a **word** (x, y, face, step and ink), a **rule** (an `<hr>` or the underline of a header) or the
+// **box of a picture** with its href in the pool. And what the paginator does with them is what the paper did, with
+// its own numbers: a line breaks where the word does not fit, the air of a block is a fraction of the line of the
+// body (a title two thirds, an `li` a quarter, a `dt` a half, a `dd` a sixth), a floated picture has a band of
+// **45 per cent** of the width for the words to flow around, a picture that does not fit **opens the page** —a
+// plate is not cut in half—, and a table counts its columns with a probe over the same bytes before the first cell
+// is placed, because the width of a cell is the width of the page divided by columns it does not know yet.
+//
+// **And one thing the paper never did right, which is fixed here**: the inset of a quotation. There the inset came
+// from the block that opened the word, and inside a quotation that block is a `p` like any other, so
+// `<blockquote><p>…</p></blockquote>` —which is how books are written— was never inset, not once, in every book
+// its owner read. The tokenizer now **counts** quotations, figures and definitions and the token carries `inset`.
+// Which is also why the probe of a table starts at one cell and not at zero: the cell being placed is the first.
+//
+// Measured on the bench of the computer: `lib/epub/page.h` is **138 lines** and `page.cpp` **646**, with `-Wall
+// -Wextra -Werror`, and `test/test_layout` has **12 cases**: a paragraph with the place of every word, a line that
+// wraps where the word does not fit, a page that ends at the byte of the word it could not hold and a second page
+// composed from that same byte, a title of its own face and step with the air of a block, a quotation inset and a
+// caption in the middle, a table of two columns with its header underlined, a floated picture and the band it
+// leaves, a picture that does not fit and opens the next page, the ink of a bold and a `sup` travelling to the
+// item, a word wider than the box that is placed anyway, a pool that is full and ends the page at a word, and a
+// sheet with no room that is refused. `pio test -e test --without-testing` builds the **22 suites and 516 cases**
+// with 0 warnings, and `pio run -e emulator` says SUCCESS with 0 warnings.
+// **Pending**: the 516 cases are **not executed** (that wants the owner's word for it); the glass is **still not
+// looked at**, because a page is a plan and nothing paints it yet —the painter is the kernel's and comes with the
+// open book (docs/46, A5 and B3)—; and the next piece is that book: a chapter inflated into the big memory, an
+// `href` resolved against the chapter, and the page the reader shows.
+static const char kVersion[] = "0.130.0";
 
 }  // namespace kernel
 

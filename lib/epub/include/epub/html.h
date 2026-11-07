@@ -76,6 +76,11 @@ struct Token {
   bool bold = false;
   bool italic = false;
   int8_t rise = 0;
+
+  // **The word is inside a quotation, a figure or a definition** (0.130.0): a page insets those and not the
+  // paragraphs they hold, and the block that opened the word cannot say it —the paragraph inside a quotation
+  // opens a `p` like any other—.
+  bool inset = false;
 };
 
 // **The reader of one chapter.** It starts at the byte `from` —which is what a page saves— and walks forward;
@@ -143,6 +148,7 @@ class Tokens {
   bool word_bold_;
   bool word_italic_;
   int8_t word_rise_;
+  bool word_inset_;
 
   // **How deep the reader is inside `b`, `i`, `sup` and `sub`**. A count and not a flag: a book nests them
   // (`<b>saying <i>this</i></b>`) and a flag that one closing tag clears leaves the rest of the paragraph in
@@ -151,6 +157,12 @@ class Tokens {
   int32_t italic_;
   int32_t sup_;
   int32_t sub_;
+
+  // **How deep the word is inside a quotation, a figure or a definition** (0.130.0), counted the same way and
+  // for the same reason: a `<blockquote>` holds paragraphs, and the paragraph inside one is a `p` like any
+  // other. Without this count an inset quote would never be inset, which is how the paper project read every
+  // book that writes `<blockquote><p>…</p></blockquote>`.
+  int32_t inset_;
 
   char block_[16];
   int32_t block_len_;

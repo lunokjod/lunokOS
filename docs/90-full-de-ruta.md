@@ -495,13 +495,14 @@ s'hauria de fer a bocins perquè un callback té un pressupost. O sigui que port
 
 El pla sencer, funcionalitat per funcionalitat i amb l'ordre de les fases, és a
 [`46 · L'EPUB: el motor i el port`](46-epub-el-motor-i-el-port.md). El que cal saber d'aquí estant:
-les dues primeres peces ja hi són —el **ZIP** (7/11, 0.126.0: `lib/zip`, el deflate vingut de
-`lib/inflate`) i el **tokenitzador de l'XHTML** (7/11, 0.128.0: `lib/epub`, 186 + 805 línies i 12
-casos, que surt d'un byte per caràcter)—, el rellotge i el disc també hi són, i les **cares amb
-accents** hi són per a la cara del llibre (7/11, 0.127.0: `à è é ç · « »` es pinten; les tres cares
-del sistema segueixen sent ASCII). El que no hi és i el lector demana és el **paginador** (la pàgina
-composta), el **text amb èmfasi**, la **pantalla sencera** i la mida de l'app (131 161 B contra un
-sostre de 49 152).
+tres de les peces del motor ja hi són —el **ZIP** (7/11, 0.126.0: `lib/zip`), el **tokenitzador de l'XHTML**
+(7/11, 0.128.0: 186 + 805 línies i 12 casos) i el **paginador** (7/11, 0.130.0: 138 + 646 línies i 12
+casos, que treu una pàgina com un pla: paraules amb el seu lloc, regles i caixes de foto)—, la **tinta de
+línia** hi és des de la 0.129.0 (negreta, cursiva i `sup`/`sub` al `lib/kernel/src/font.cpp`), el rellotge i
+el disc també hi són, i les **cares amb accents** hi són per a la cara del llibre (0.127.0: `à è é ç · « »`
+es pinten; les tres cares del sistema segueixen sent ASCII). El que no hi és i el lector demana és **el
+llibre obert** (A5: inflar un capítol a la memòria gran i resoldre un `href`), la **porta de Lua** (B2–B7),
+la **pantalla sencera** i la mida de l'app (131 161 B contra un sostre de 49 152).
 
 ## Fora de la v1
 
