@@ -3445,6 +3445,184 @@ void test_a_button_that_has_the_ring_inverts_what_it_holds(void) {
   kernel::boot(hal::platform());
 }
 
+// **What a control holds is drawn on the face the control leaves behind** (0.106.0), and it is the control's own
+// property and not a list of names inside the draw. A `ui.list_entry` paints its paper in ink when it is the marked one
+// or has the ring, so the label inside it has to be told: before this rule it was left on paper, which on an ink row is
+// a white patch and a word nobody can read.
+void test_an_entry_that_is_marked_inverts_what_it_holds(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "row",
+                           "{\"title\":\"Row\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local e = ui.list_entry(400, 80)\n"
+                           "e:place(40, 40)\n"
+                           "e.background = 15\n"
+                           "e.marked = true\n"
+                           "local w = ui.label(360, 44)\n"
+                           "w.text = 'inside'\n"
+                           "w.scale = 4\n"
+                           "e:add(w)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('row up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run row");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "row up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // The entry is at (40, 40) of the view, which starts under the bar of the system, and the label is at (0, 0) of it:
+  // the paper of the label is the ink of the row, and the word is the paper of that face.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(390, 100), "the label's paper is the ink of the row");
+  int words = 0;
+  for (uint16_t y = 88; y < 132; ++y) {
+    for (uint16_t x = 40; x < 220; ++x) {
+      if (glass->level_at(x, y) == 15) ++words;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, words, "the word of the label is in paper");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/row/app.lua");
+  storage->remove("/apps/row/manifest.json");
+  storage->remove("/apps/row");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The state of a box that cannot be used is the state of everything inside it** (0.106.0), whether the app turned the
+// father off before or after it put the child in, and **a child the app turned off itself is not given back** when the
+// father comes back: the two facts are different and the system keeps them apart.
+void test_a_child_of_a_disabled_control_is_born_disabled(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "off",
+                           "{\"title\":\"Off\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local p = ui.panel(400, 300)\n"
+                           "p:place(20, 20)\n"
+                           "p.disabled = true\n"
+                           "local inside = ui.button(200, 60)\n"
+                           "p:add(inside)\n"
+                           "console.print('inside ' .. tostring(inside.disabled))\n"
+                           // **One added after the father was turned off**: the walk of the field only saw the
+                           // children that were there then, and this is the hole it left.
+                           "local late = ui.button(200, 60)\n"
+                           "p:add(late)\n"
+                           "console.print('late ' .. tostring(late.disabled))\n"
+                           "p.disabled = false\n"
+                           "console.print('back ' .. tostring(inside.disabled) .. ' ' .. tostring(late.disabled))\n"
+                           // **And the one the app turned off itself stays off** when the father comes back.
+                           "inside.disabled = true\n"
+                           "p.disabled = true\n"
+                           "p.disabled = false\n"
+                           "console.print('own ' .. tostring(inside.disabled))\n"
+                           "sys.delay(500):await()\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run off");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "inside true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "late true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back false false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "own true"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/off/app.lua");
+  storage->remove("/apps/off/manifest.json");
+}
+
+// **A control declares whether the dial can land on it** (0.106.0): `focusable` is a field of every control, false by
+// default for the ones that are only a drawing, and a button that says no is out of the walk and cannot be given the
+// ring —which is what the owner asked for: a physical key has to know whom it may focus—.
+void test_a_control_declares_whether_it_takes_the_dial(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "pick",
+                           "{\"title\":\"Pick\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local b = ui.button(200, 60)\n"
+                           "b:place(20, 20)\n"
+                           "b.focusable = false\n"
+                           "local w = ui.label(200, 40)\n"
+                           "w:place(20, 100)\n"
+                           "w.text = 'a stop'\n"
+                           "w.focusable = true\n"
+                           "ui.present('gc16')\n"
+                           // **A button that says no cannot be given the ring**, and a label that says yes can.
+                           "ui.focus(b)\n"
+                           "console.print('button ' .. tostring(b.focused))\n"
+                           "ui.focus(w)\n"
+                           "console.print('label ' .. tostring(w.focused))\n"
+                           "sys.delay(30):await()\n"
+                           // A value of `focusable` that is not true or false is refused, because it is the one
+                           // field that decides whether a person can reach a control.
+                           "local ok, why = pcall(function() w.focusable = 3 end)\n"
+                           "console.print('typo ' .. tostring(ok) .. ' ' .. tostring(why))\n"
+                           "sys.delay(500):await()\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run pick");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "label true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typo false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "true or false"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/pick/app.lua");
+  storage->remove("/apps/pick/manifest.json");
+}
+
+// **The slot of the ring is a slot of the table** (0.106.0): it was an `int8_t`, so from the hundred and twenty-eighth
+// control of a page the comparison never matched and **the ring was invisible**. The table has held thousands since
+// 0.102.0, and this is the number that says so: a page of a hundred and forty buttons takes the ring on the last one.
+void test_the_ring_reaches_a_control_past_the_hundred_and_twenty_seventh(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "many",
+                           "{\"title\":\"Many\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local last = nil\n"
+                           "for i = 1, 140 do\n"
+                           "  local b = ui.button(20, 20)\n"
+                           "  b:place(0, 0)\n"
+                           "  last = b\n"
+                           "end\n"
+                           "ui.focus(last)\n"
+                           "console.print('ring ' .. tostring(last.focused))\n"
+                           "sys.delay(500):await()\n"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run many");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ring true"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/many/app.lua");
+  storage->remove("/apps/many/manifest.json");
+}
+
 // **A control can be disabled: it is drawn in the lighter tone of its theme and it answers nothing** (0.100.0).
 // It is still on the page —a person reads what is not available right now— but its ink falls to its `dim`, it
 // never wears the ring, and it is not a stop of the walk: the dial skips it, the finger does not reach it and the
@@ -7743,6 +7921,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_walks_more_stops_than_the_old_list_held);
   RUN_TEST(test_a_label_and_the_dots_take_no_children);
   RUN_TEST(test_a_button_that_has_the_ring_inverts_what_it_holds);
+  RUN_TEST(test_an_entry_that_is_marked_inverts_what_it_holds);
+  RUN_TEST(test_a_child_of_a_disabled_control_is_born_disabled);
+  RUN_TEST(test_a_control_declares_whether_it_takes_the_dial);
+  RUN_TEST(test_the_ring_reaches_a_control_past_the_hundred_and_twenty_seventh);
   RUN_TEST(test_a_disabled_control_is_drawn_lighter_and_answers_nothing);
   RUN_TEST(test_each_tab_of_a_strip_is_a_stop_of_the_dial);
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);

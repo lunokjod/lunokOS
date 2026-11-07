@@ -1532,6 +1532,13 @@ enfocat és **paper sobre tinta** i no un forat blanc dins d'una caixa negra. Ho
 `sparkline` i `pie`; un `panel` no pinta res i només passa el testimoni. **No ho fa una imatge**, perquè una imatge
 no és un control sinó una crida (`ui.image`).
 
+**I el control que es gira ho diu ell mateix** (0.106.0): el que passa als fills no és una llista de noms dins del
+dibuix, sinó una propietat del control (`button`, `checkbox`, `row` i les entrades de llista i de graella la porten).
+Un control que pinta la seva pròpia cara de tinta quan té el cercle, el dit o la marca **dirigeix els seus fills a
+l'altra cara**; si ja està sobre tinta, l'intercanvi el torna a paper, que és el mateix d'un nivell més avall. Abans
+d'aquesta regla la llista era dins del dibuix i només tenia el botó i la casella, i per això una **entrada marcada
+deixava les seves etiquetes sobre paper**: un pegat blanc damunt la tinta de la fila.
+
 ```lua
 local b = ui.button(400, 80)
 local words = ui.label(360, 44)      -- el pintor del botó no el toca: el dibuixa l'etiqueta
@@ -1563,7 +1570,14 @@ dial, el dit i el teclat (que només s'obre en un quadre que la volta li ha dona
 es pot enfocar, ni prémer amb el dit, ni escriure-hi.
 
 **L'estat baixa als fills**, com a qualsevol sistema: apagar un botó apaga l'etiqueta que porta a dins, i tornar-lo a
-encendre la torna. Un fill que s'hagi d'apagar pel seu compte es diu **després** del pare.
+encendre la torna. I **baixa igual si el fill arriba després** (0.106.0): un control afegit a un pare apagat **neix
+apagat**, perquè sinó el pare es va apagar quan el fill encara no hi era i la pàgina quedava amb un forat per on el
+dial hi entrava.
+
+**Un fill que l'app ha apagat pel seu compte no el torna a encendre el pare** (0.106.0): el sistema guarda de qui ve
+cada `disabled` (`__off_father`), o sigui que tornar a encendre un panell retorna els fills que ell va apagar i deixa
+apagats els que l'app va decidir. Abans, encendre el pare encenia tot el que hi havia a dins i es menjava la decisió de
+l'app.
 
 ```lua
 local save = ui.button(300, kButton)
@@ -1574,6 +1588,39 @@ save.disabled = false         -- torna el dibuix de sempre i la volta hi pot cau
 
 **Escriure `disabled` repinta el control** (i els seus fills), i si el control tenia el dial, el torna: deixar
 l'anella sobre un control que cap tecla no pot tocar és una pàgina que menteix sobre on caurà una pulsació.
+
+### Qui té el focus: `focusable` és de cada control (0.106.0)
+
+**Només un control té el focus, i els fills no el tenen: el dibuixen.** Un botó amb una etiqueta a dins és **una
+parada** del dial —el botó— i l'etiqueta no n'és cap; el que passa és que la cara invertida del botó arriba al fill i
+la paraula surt en paper. La confusió de «qui té el focus aquí» es desfà amb una pregunta sola: **qui és al
+recorregut**, i això ho diu `focusable`, que és un camp de **tots** els controls.
+
+| Control | `focusable` per defecte | Per què |
+|---|---|---|
+| `button`, `checkbox`, `slider`, entrades de llista i de graella | `true` | són el que una persona prem o mou |
+| `tabs`, `list`, `icon_grid`, `menu`, `menu_bar`, `selector`, `notification_bar`, `month`, `dialog`, `textbox`, `textbox_multiline` | `true` | tenen un valor o una pàgina que les fletxes mouen: el dial hi ha de poder caure |
+| `panel`, `row`, `progress`, `sparkline`, `pie`, `dots`, `label`, `ui.canvas`, `ui.control` | `false` | són un dibuix o una cel·la: el control que interessa és el de dins, o cap |
+
+- **`control.focusable = true`** fica qualsevol control al recorregut —una etiqueta, una cel·la d'un `panel`,
+  `ui.control(w, h)`—, i **`= false`** en treu un que hi era de sèrie. És el que fa que un botó físic sàpiga a qui pot
+  donar el focus: la volta, el dit i el centre pregunten el mateix (`ui_target_is_focusable`), i un control que diu
+  `false` no el rep mai de cap de les tres maneres.
+- **`focusable = false` no vol dir apagat**: el control es pinta igual i l'app el pot prémer pel seu compte; el que no
+  fa és entrar al recorregut del sistema.
+- **El valor és `true` o `false` i res més**: un `3` és un error (`a control's focusable is true or false`), perquè és
+  l'únic camp que decideix si una persona pot arribar a un control.
+- **Un control deshabilitat no és enfocable encara que digui `focusable = true`**: el `disabled` mana. I si perd el
+  dial en el moment que s'apaga, el torna, i el primer control enfocable que aparegui el recull.
+- **El focus el col·loca l'app amb `ui.focus(control)`** quan una pàgina s'ha tornat a construir, i no fa res si aquell
+  control no és al recorregut.
+
+```lua
+local b = ui.button(400, 80)
+b.focusable = false           -- es pinta, però la volta no s'hi atura
+local w = ui.label(400, 44)
+w.focusable = true            -- una etiqueta que sí: el centre la prem
+```
 
 **Les entrades d'una barra de menú ja tenien el seu `enabled`** des de 0.68.0, amb el mateix dibuix apagat i salts a
 la volta; ara és el mateix to i la mateixa regla. **Les opcions d'un menú de targeta no**: allà el que no es pot fer

@@ -644,3 +644,54 @@ proves vermelles.
 
 **El que falta**: res de la llista ni de la graella. El que queda de la UI del projecte antic és el que diu
 `docs/90-full-de-ruta.md`.
+
+## 21. Qui té el focus quan un control en porta un altre a dins (0.106.0)
+
+**La pregunta de l'amo** va ser exacta: *«Com es soluciona el focus amb els controls anidats? veig que el UIControl
+amb focus (el color invertit), però els controls fills estan normals (no focused).... No s'hauria de propagar d'alguna
+manera? Només un UIControl te focus, però això fa confús el tema de qui te el focus en un botó amb un label fill
+oi?»*. I la resposta que va demanar: *«fem que el control pugui declarar-se focusable o no (i de pas els botons
+físics podran saber a qui donar focus o no). Si un UIControl està deshabilitat, els seus fills també i un control
+deshabilitat no pot rebre focus.»*
+
+**La resposta curta, que ara és a `docs/30`**: el focus és **d'un** control i no es reparteix; el que es propaga és
+**la cara** on es dibuixa. Un botó amb una etiqueta a dins és una parada del dial —el botó— i l'etiqueta no n'és cap,
+però com que la cara del botó s'ha girat a tinta, el que porta a dins s'ha de dibuixar **sobre tinta**. La pregunta
+«qui té el focus aquí» es desfà preguntant **qui és al recorregut**, i això ho diu `focusable`.
+
+**El que estava malament, i eren tres coses:**
+
+1. **La cara invertida només arribava als fills de dos controls.** El dibuix tenia una llista de noms a dins —
+   `__button` i `__checkbox`— i prou. Un `ui.list_entry` o un `ui.grid_entry` (0.104.0 i 0.105.0) pinten el seu paper
+   de tinta quan són la fila marcada o la que té el cercle, **i no deien res als fills**: una etiqueta dins d'una
+   entrada marcada es pintava amb el seu paper de sempre, o sigui **un pegat blanc damunt la tinta de la fila**. Ara
+   és una propietat del control (`__inverts`, que porten `button`, `checkbox`, `row` i les dues entrades) i el dibuix
+   només la llegeix.
+2. **Un fill que arribava després no s'assabentava que el pare estava apagat.** `ui_set_disabled_below` camina els
+   fills que hi ha **en el moment** d'escriure `disabled`, o sigui que `panel.disabled = true` i després
+   `panel:add(button)` deixava el botó encès i el dial hi entrava. Ara **un fill d'un pare apagat neix apagat**.
+3. **El pare tornava a encendre el que l'app havia apagat.** Apagar i tornar a encendre un panell escrivia `disabled`
+   a tots els fills, i la decisió de l'app sobre un fill desapareixia. Ara el sistema guarda de qui ve cada `disabled`
+   (`__off_father`) i tornar a encendre el pare retorna **els fills que ell va apagar** i deixa com estaven els que
+   l'app va apagar.
+
+**I un quart, que va sortir mirant el focus de prop**: `g_ui_focus_slot` era un **`int8_t`**. Des de 0.102.0 la taula
+de llenços és tan llarga com la memòria (3 276 llocs), o sigui que a partir del control **128** d'una pàgina el lloc
+del dial es desava en un byte amb signe, la comparació amb el lloc del control no coincidia mai i **l'anella era
+invisible**. Ara és un `int16_t`, com el lloc del llenç.
+
+**`focusable`, dit sencer**: és un camp de **tots** els controls (abans només el validaven els botons), val **`true` o
+`false` i res més** —un `3` és un error, perquè és l'únic camp que decideix si una persona pot arribar a un control—,
+i un control **deshabilitat no és enfocable encara que digui `true`**. Els botons físics pregunten el mateix que la
+volta i el dit (`ui_target_is_focusable`), o sigui que un control que diu que no, no el rep de cap de les tres
+maneres.
+
+**Mesurat aquest torn**: la compilació del nucli, del pont i de la suite de proves surt **sense cap avís**; el bolcat
+de l'emulador amb una fila marcada i un botó amb el cercle, tots dos amb una etiqueta a dins, dona **dos blocs de
+tinta amb la paraula en paper** (`--dump`, mirat). **La suite no s'ha executat** (l'amo ho va dir així en el torn
+anterior): les quatre proves noves estan escrites i compilen —
+`test_an_entry_that_is_marked_inverts_what_it_holds`, `test_a_child_of_a_disabled_control_is_born_disabled`,
+`test_a_control_declares_whether_it_takes_the_dial` i
+`test_the_ring_reaches_a_control_past_the_hundred_and_twenty_seventh`— i les trencades que les han de posar vermelles
+són: treure `__inverts` de l'entrada, no heretar el `disabled` a `l_canvas_add`, i tornar `g_ui_focus_slot` a
+`int8_t`.

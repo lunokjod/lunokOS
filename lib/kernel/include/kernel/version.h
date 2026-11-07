@@ -1600,7 +1600,30 @@ namespace kernel {
 // inside. **The suite was not run in this turn** (the owner said not to run anything): the two new tests —
 // `test_a_grid_of_entries_places_cells_of_controls` in test_apps and the box of a cell in test_ui— are written and
 // compile, and the break that has to turn them red is placing every cell inside the frame (docs/30, docs/92 §20).
-static const char kVersion[] = "0.105.0";
+//
+// 0.106.0 (8/11): **who has the focus when a control holds another one.** The owner asked it with the board in his
+// hand: *«veig que el UIControl amb focus (el color invertit), però els controls fills estan normals (no focused).... No
+// s'hauria de propagar d'alguna manera?»*, and asked for the rule: *«fem que el control pugui declarar-se focusable o
+// no ... Si un UIControl està deshabilitat, els seus fills també i un control deshabilitat no pot rebre focus»*. The
+// focus is one control's and is not shared; **what is passed down is the face**: a control that turns its own face to
+// ink while it has the ring, the finger or the mark says so with `__inverts` —`button`, `checkbox`, `row` and the two
+// entries of 0.104.0 and 0.105.0— and what it holds is drawn on ink. Until now the list of names was inside the draw
+// and had only two of them, so **a label inside a marked entry was left on paper: a white patch on the ink of the
+// row**. A child added to a control that is disabled **is born disabled** (`ui_set_disabled_below` only walked the
+// children that were there when the field was written), and a child the app turned off itself is **not given back**
+// when the father comes back (`__off_father` keeps the two facts apart). `focusable` is a field of every control,
+// `true` or `false` and nothing else, and a disabled control is not focusable whatever it says. And a fourth thing
+// found looking at the focus closely: `g_ui_focus_slot` was an `int8_t`, so from the hundred and twenty-eighth control
+// of a page the comparison with the control's slot never matched and **the ring was invisible**; it is an `int16_t`
+// now, as the slot of a canvas is.
+// Measured: the build of the kernel, the bridge and the suite compiles with no warning; the dump of a marked row and a
+// ringed button, each with a label inside, is two ink blocks with the word in paper (`--dump`, looked at). **The suite
+// was not run** (the owner said not to run anything in the turn before): the four new tests are written and compile —
+// an entry that is marked inverts what it holds, a child of a disabled control is born disabled, a control declares
+// whether it takes the dial, and the ring reaches the control past the hundred and twenty-seventh— and the breaks
+// that turn them red are: taking `__inverts` off the entry, not inheriting `disabled` in `l_canvas_add`, and putting
+// `g_ui_focus_slot` back to `int8_t` (docs/30, docs/92 §21).
+static const char kVersion[] = "0.106.0";
 
 }  // namespace kernel
 

@@ -3286,11 +3286,16 @@ struct LuaCanvas {
 // **Who has the focus and what the finger is holding**, per interpreter. It is not in the Lua table
 // because it is the system's state: an app may read `focused` but it does not decide it, and a slot
 // only means something together with the generation that handed it out (docs/30, docs/90).
-int8_t g_ui_focus_slot = -1;
+// **A slot is an `int16_t` and this was an `int8_t`** (0.106.0): since 0.102.0 the table of canvases is as long as
+// the memory holds (3 276 slots measured), so a page of more than a hundred and twenty-seven controls stored the slot
+// of the dial in a signed byte, the comparison with the control's own slot never matched, and **the ring was invisible
+// on every control past the hundred and twenty-seventh**. Found reading the state of the dial while answering the
+// owner's question about the focus of a nested control (docs/30, docs/92).
+int16_t g_ui_focus_slot = -1;
 // Which tab of the strip has the ring, 0 when the ring is on a control of its own.
 uint8_t g_ui_focus_item = 0;
 uint16_t g_ui_focus_generation = 0;
-int8_t g_ui_touch_slot = -1;
+int16_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
 // Which tab of a strip the finger went down on, 0 for a control of its own.
 uint8_t g_ui_touch_item = 0;
@@ -3751,6 +3756,7 @@ bool list_field_valid(lua_State* L, const char* key, int value) {
 // Declared here because a control that goes off has to say so to its children, and that walk lives with the
 // painters further down.
 void ui_set_disabled_below(lua_State* L, int object, bool off, int depth);
+bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value);
 
 int l_canvas_newindex(lua_State* L) {
   lua_getiuservalue(L, 1, 1);
@@ -4087,6 +4093,11 @@ int l_canvas_newindex(lua_State* L) {
     }
   }
   if (key != nullptr && strcmp(key, "focusable") == 0) {
+    // **`focusable` is true or false** (0.106.0): it is the one field that decides whether the dial, the finger and the
+    // middle key can land on a control, so a typo in it is a control nobody can reach and not a value to guess.
+    if (lua_type(L, 3) != LUA_TBOOLEAN) {
+      return luaL_error(L, "a control's focusable is true or false");
+    }
     const bool wanted = lua_toboolean(L, 3) != 0;
     const bool focused = g_ui_focus_slot == canvas->slot &&
                          g_ui_focus_generation == canvas->generation;
@@ -4265,19 +4276,36 @@ void ui_set_disabled_below(lua_State* L, int object, bool off, int depth) {
     if (kid != nullptr) {
       lua_getiuservalue(L, -1, 1);
       if (lua_istable(L, -1)) {
-        lua_pushboolean(L, off ? 1 : 0);
-        lua_setfield(L, -2, "disabled");
-        if (off && g_ui_focus_slot == kid->slot && g_ui_focus_generation == kid->generation) {
-          g_ui_focus_slot = -1;
-          g_ui_focus_generation = 0;
-          g_ui_focus_item = 0;
-          lua_pushboolean(L, 0);
-          lua_setfield(L, -2, "focused");
+        lua_getfield(L, -1, "__off_father");
+        const bool by_father = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+        lua_getfield(L, -1, "disabled");
+        const bool already = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+        // **A child the app turned off itself is not given back by its father** (0.106.0): the father's state is the
+        // state of what it holds, and a child that says `disabled` of its own came from the app and not from here —
+        // `__off_father` is the difference between the two, and it is a field of the system that an app does not
+        // write—. Turning a panel back on gives back the children it took, and leaves the ones the app turned off.
+        if (off || by_father || !already) {
+          lua_pushboolean(L, off ? 1 : 0);
+          lua_setfield(L, -2, "disabled");
+          lua_pushboolean(L, off ? 1 : 0);
+          lua_setfield(L, -2, "__off_father");
+          if (off && g_ui_focus_slot == kid->slot && g_ui_focus_generation == kid->generation) {
+            g_ui_focus_slot = -1;
+            g_ui_focus_generation = 0;
+            g_ui_focus_item = 0;
+            lua_pushboolean(L, 0);
+            lua_setfield(L, -2, "focused");
+          }
+          if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(kid->slot);
+          lua_pop(L, 1);
+          ui_set_disabled_below(L, lua_gettop(L), off, depth + 1);
+          lua_pop(L, 1);  // the child
+          continue;
         }
       }
       lua_pop(L, 1);
-      ui_set_disabled_below(L, lua_gettop(L), off, depth + 1);
-      if (g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(kid->slot);
     }
     lua_pop(L, 1);  // the child
   }
@@ -4448,6 +4476,8 @@ int l_ui_button(lua_State* L) {
   lua_getiuservalue(L, -1, 1);
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "__button");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__inverts");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
@@ -4751,6 +4781,8 @@ int l_ui_checkbox(lua_State* L) {
   lua_getiuservalue(L, -1, 1);
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "__checkbox");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__inverts");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
@@ -5083,6 +5115,8 @@ int l_ui_row(lua_State* L) {
   lua_getiuservalue(L, -1, 1);
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "__row");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__inverts");
   lua_pushstring(L, "");
   lua_setfield(L, -2, "title");
   lua_pushstring(L, "");
@@ -5560,6 +5594,8 @@ int l_ui_entry(lua_State* L, bool separator) {
   lua_getiuservalue(L, -1, 1);
   lua_pushboolean(L, 1);
   lua_setfield(L, -2, "__entry");
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "__inverts");
   lua_pushinteger(L, 15);
   lua_setfield(L, -2, "background");
   lua_pushinteger(L, 0);
@@ -7523,6 +7559,25 @@ int l_canvas_add(lua_State* L) {
   // the father it leaves keeps a stale entry, and the draw skips it because the system has already said
   // that canvas belongs to somebody else (docs/90).
   append_child(L, 1, 2);
+  // **A child of a control that is disabled is born disabled** (0.106.0): the state of a box that cannot be used is the
+  // state of everything inside it, and it has to hold whether the app disabled the box before or after it put the child
+  // in —`ui_set_disabled_below` only walks the children that were there when the field was written—. A control that is
+  // disabled is not a stop of the walk (`ui_target_is_focusable`), so a cell added later to a page that is off is not a
+  // hole a person falls into (docs/30, docs/92).
+  if (ui_field_bool(L, 1, "disabled", false)) {
+    ui_set_field_bool(L, 2, "disabled", true);
+    ui_set_field_bool(L, 2, "__off_father", true);
+    if (g_ui_focus_slot == child->slot && g_ui_focus_generation == child->generation) {
+      g_ui_focus_slot = -1;
+      g_ui_focus_generation = 0;
+      g_ui_focus_item = 0;
+      ui_set_field_bool(L, 2, "focused", false);
+    }
+    ui_set_disabled_below(L, 2, true, 0);
+    if (child->slot >= 0 && g_ui_ops.canvas_invalidate != nullptr) {
+      g_ui_ops.canvas_invalidate(child->slot);
+    }
+  }
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -7574,9 +7629,15 @@ int l_canvas_draw(lua_State* L) {
   // **What the children are drawn on**: the face this control leaves behind. A button (and the box of a checkbox)
   // turns its own face to ink while it has the ring or the finger, so what it holds is drawn on ink; a button that
   // is itself on an ink face turns to paper, which is the same swap one level down (docs/92).
+  // **It is a property of the control and not a list of names here** (0.106.0): a control that paints its own face in
+  // ink while it has the ring, the finger or the mark says so with `__inverts`, and what it holds is drawn on ink. The
+  // button and the box of a checkbox were the only two in a list inside this draw, so a `ui.list_entry` or a
+  // `ui.grid_entry` —which paint their paper in ink when they are marked or focused— left their labels on paper: a white
+  // patch on the ink of the row, which is what the owner saw with the board in his hand (docs/92).
   bool below = inverted;
-  if ((ui_field_bool(L, 1, "__button", false) || ui_field_bool(L, 1, "__checkbox", false)) &&
-      (ui_field_bool(L, 1, "focused", false) || ui_field_bool(L, 1, "pressed", false))) {
+  if (ui_field_bool(L, 1, "__inverts", false) &&
+      (ui_field_bool(L, 1, "focused", false) || ui_field_bool(L, 1, "pressed", false) ||
+       ui_field_bool(L, 1, "marked", false))) {
     below = !inverted;
   }
 
