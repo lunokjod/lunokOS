@@ -683,7 +683,7 @@ void put_rect(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint8_
 // hands out, copied row by row and cut at the canvas and at what the control owes. A picture drawn on a page is a
 // **copy** and not a conversion, which is the whole reason this is thirty lines and not a second reader.
 void put_bitmap(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, const uint8_t* bits,
-                int32_t stride) {
+                int32_t stride, bool dark) {
   if (bits == nullptr || w <= 0 || h <= 0) return;
   if (!clip_to_redraw(canvas, x, y, w, h)) return;
 
@@ -711,7 +711,11 @@ void put_bitmap(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, cons
     for (int32_t column = 0; column < width; ++column) {
       const int32_t at = from_x + column;
       const uint8_t byte = source[at / 2];
-      const uint8_t level = static_cast<uint8_t>(((at & 1) == 0) ? (byte >> 4) : (byte & 0x0F));
+      const uint8_t read = static_cast<uint8_t>(((at & 1) == 0) ? (byte >> 4) : (byte & 0x0F));
+      // **A page with its ink and its paper swapped takes the picture the other way round** (0.137.0, docs/46 C9): the
+      // level of the file is the level of a page that is white, and on a page that is black the paper of a plate has to
+      // be black too or the plate is a hole in the page.
+      const uint8_t level = dark ? static_cast<uint8_t>(15 - read) : read;
       note_level(level);
       uint8_t& target = line[static_cast<uint32_t>(x + column) / 2];
       if (((x + column) & 1) == 0) {
@@ -2152,14 +2156,14 @@ bool canvas_text_styled(int16_t slot, int8_t font, int16_t x, int16_t y, const c
 // **A block of pixels into a canvas** (0.133.0, docs/46 D4): what a page of a book needs for the pictures of the
 // book, and what any app that decodes one already has in its hand.
 bool canvas_bitmap(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits,
-                   uint16_t stride, const char* mode) {
+                   uint16_t stride, const char* mode, bool dark) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached || bits == nullptr || w == 0 || h == 0) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
 
-  put_bitmap(*target.canvas, target.x + x, target.y + y, w, h, bits, stride);
+  put_bitmap(*target.canvas, target.x + x, target.y + y, w, h, bits, stride, dark);
   mark_box(*target.canvas, target.x + x, target.y + y, w, h, chosen);
   close_draw(target);
 

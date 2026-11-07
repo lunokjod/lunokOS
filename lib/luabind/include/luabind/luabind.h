@@ -678,6 +678,10 @@ struct BookStyle {
   // **Measure and do not paint** (0.134.0): the page is laid out and nothing is drawn, which is what counting the
   // pages of a chapter is (docs/46, B4).
   bool measure = false;
+  // **The page with its ink and its paper swapped** (0.137.0, docs/46 C9): the same words in the same places, the ink
+  // white and the paper black, and the plates of the page inverted as they are painted. It is not saved anywhere: it is
+  // how this page is painted now (docs/46, C9).
+  bool dark = false;
   // What comes back.
   int32_t next = 0;
   bool ended = false;

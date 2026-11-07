@@ -1,8 +1,8 @@
--- reader: the app of a book — the shelf, the page, the foot and where you were (docs/46, C1..C13).
+-- reader: the app of a book — the shelf, the page, the foot, the menu and where you were (docs/46, C1..C13).
 --
 -- **The app does not lay out anything.** The engine behind a page is the system's —the zip, the tokenizer, the
 -- paginator and the face— and this file is what a person touches: which book, which page, and the number that says
--- how far in they are (docs/46, §1). Everything else here is the shelf, the two buttons and the file of positions.
+-- how far in they are (docs/46, §1). Everything else here is the shelf, the menu, the foot and the file of positions.
 --
 -- **The position of a book is a chapter and a byte**, not a page number, because a page is as many words as fit a
 -- box of a machine: `epub.page` says the byte the next page starts at and the app keeps it. Going forward is that
@@ -10,9 +10,8 @@
 -- (docs/46, B4) — a chapter of a book is a few dozen pages and walking them is cheaper than keeping a table that
 -- the screen would have to be told about anyway.
 --
--- What it does not do, said here so nobody looks for it: no dark page, no cover and no thumbnails (C11 needs a cache of
--- images and a `save` of a surface), and the chapter is the first one that looks like a chapter until the OPF is read in
--- Lua (C2).
+-- What it does not do, said here so nobody looks for it: no cover and no thumbnails (C11 needs a cache of images and a
+-- `save` of a surface), and the chapter is the first one that looks like a chapter until the OPF is read in Lua (C2).
 
 local caps = sys.caps()
 if not caps.display then
@@ -118,6 +117,14 @@ local from = 0
 local next_at = 0
 local ended = false
 local foot = nil
+-- **The page with its ink and its paper swapped** (0.137.0, docs/46 C9): it is only the page of the book —not the shelf
+-- and not the cover—, it is not saved anywhere, and it says the same words in the same places with the two tones the
+-- other way round. The menu of the View has the switch that turns it (docs/46, C4).
+local dark = false
+
+-- The two tones of a page, which are the two tones of the menu over it: ink and paper, or paper and ink.
+local function ink_level() return dark and 15 or 0 end
+local function paper_level() return dark and 0 or 15 end
 
 local function percent()
   if bytes <= 0 then return 0 end
@@ -135,12 +142,13 @@ end
 local function present_page()
   if screen == nil or book == nil then return end
 
-  screen:clear(15, 'gc16')
+  screen:clear(paper_level(), 'gc16')
   local nxt, done, used, picture = epub.page(screen, from, {
     face = face,
     scale = kBody,
     title_scale = kBody + 1,
     small_scale = kBody - 1,
+    dark = dark,
   })
   if nxt == nil then
     foot.text = 'this page cannot be composed'
@@ -150,6 +158,8 @@ local function present_page()
 
   next_at = nxt
   ended = done
+  foot.color = ink_level()
+  foot.background = paper_level()
   foot.text = string.format('%s   %d%%', title, percent())
   ui.present('gc16')
 
@@ -184,8 +194,8 @@ local function build_page()
     foot.text = ''
     foot.scale = 2
     foot.align = 'left'
-    foot.color = 0
-    foot.background = 15
+    foot.color = ink_level()
+    foot.background = paper_level()
     foot:place(8, kPageH)
   end
 
@@ -307,6 +317,86 @@ local function first_page()
   present_page()
 end
 
+-- **The menu of the reader** (0.137.0, docs/46 C4): a row of words over the page and the card of the one that is
+-- unfolded, and nothing of it is on the page until a person asks for it. That shape is what the page needs: a control
+-- that is always there takes the dial, and then the keys stop turning the page (0.135.0). So the menu is made when it is
+-- asked for and given back when it goes (docs/30, docs/90).
+--
+-- The way in is a **long press** on the page. The ways out are the same long press, a tap outside the row of words and a
+-- swipe: a menu that stays open behind a finger that has moved on is a menu a person has to dismiss twice (docs/90).
+local kMenuBar = 52
+local menu = nil
+
+local function release_menu()
+  if menu ~= nil then
+    menu:release()
+    menu = nil
+  end
+end
+
+-- **What the menus say**: the Book has the Shelf —the Contents will be here when the book gives its real chapters
+-- (C2, C14)— and the View has the whole glass and the dark page, which are the two states of this page. An entry with
+-- `checked` carries its box, even when it is off (docs/30, docs/90).
+local function menu_items()
+  return {
+    { title = 'Book', items = { 'Shelf' } },
+    { title = 'View', items = {
+      { label = 'Full screen', checked = ui.full_screen() },
+      { label = 'Dark page', checked = dark },
+    } },
+  }
+end
+
+local function close_menu()
+  if menu == nil then return end
+  release_menu()
+  -- **The page under the card is drawn again**: the card covered a part of it and a present paints only what changed
+  -- (docs/30).
+  if book ~= nil then
+    build_page()
+  else
+    show_shelf()
+  end
+end
+
+-- **A choice of the menu**, said by the system with the card already folded (docs/90): the title and the entry, counted
+-- from one and in the order of `menu_items`.
+local function on_menu_pick(title, entry)
+  release_menu()
+  if title == 1 then
+    show_shelf()
+  elseif entry == 1 then
+    -- **The system answers with `on_resize`**, which builds the page in the new box: nothing else is owed here.
+    ui.full_screen(not ui.full_screen())
+  else
+    dark = not dark
+    build_page()
+  end
+end
+
+local function open_menu()
+  if menu ~= nil or book == nil then return end
+
+  local bar = ui.menu_bar(kPageW, kPageH)
+  if bar == nil then return end
+
+  bar.items = menu_items()
+  -- **The View is the menu that is down**, because it is the one with the two states of this page; the Book is a word a
+  -- finger unfolds and the dial does not leave the entry it is on (docs/90).
+  bar.open = 2
+  bar.index = 1
+  bar.bar_height = kMenuBar
+  bar.color = ink_level()
+  bar.background = paper_level()
+  bar.dim = 8
+  bar:place(0, 0)
+  bar.on_pick = function(self, which_title, which_entry)
+    on_menu_pick(which_title, which_entry)
+  end
+  menu = bar
+  ui.present('gc16')
+end
+
 -- **A page is turned with a finger or with a key** (0.135.0), and the two say the same three things: a drag to the
 -- left is the page after this one, a drag to the right the one before, and a drag up the beginning of the chapter.
 -- The length is a hand's, and the way that moves more is the way the gesture is: a diagonal is not two pages.
@@ -320,7 +410,29 @@ local function on_gesture()
   if screen == nil or book == nil or touch == nil or touch.gesture == nil then return end
 
   local gesture = touch.gesture()
-  if gesture == nil or gesture.kind ~= 'drag' then return end
+  if gesture == nil then return end
+
+  -- **With a menu up, the finger is the menu's**: a tap below the row of words and a swipe put it away, and neither
+  -- turns the page behind it. The tap that chose an entry was already answered by the system and the menu is gone by the
+  -- time this one arrives (docs/90).
+  if menu ~= nil then
+    local kind = gesture.kind
+    if kind == 'long' or kind == 'drag' then
+      close_menu()
+    elseif kind == 'tap' and (gesture.y or 0) >= kMenuBar then
+      close_menu()
+    end
+    return
+  end
+
+  -- **A long press is the menu**, which is the one gesture that does not fight a page turn: a drag is a page and a tap is
+  -- nothing (docs/46, C3 and C4).
+  if gesture.kind == 'long' then
+    open_menu()
+    return
+  end
+
+  if gesture.kind ~= 'drag' then return end
 
   local dx = gesture.dx or 0
   local dy = gesture.dy or 0
@@ -339,6 +451,8 @@ end
 -- under the bar when three taps give it back —which the system hears and the app does not—. The page of a book is drawn
 -- again in the new box, on the byte it was at: a resize is not a page turn and the position does not move.
 function on_resize(width, height)
+  -- **A new view takes the controls with it** (docs/90): the menu of the page before is a canvas nobody has any more.
+  release_menu()
   use_view(width, height)
   if book ~= nil then
     build_page()
@@ -351,6 +465,9 @@ end
 -- the same order as the fingers. On a board with one key —the ATOM— that key is the middle one and it turns the page.
 function on_button(kind, held_ms, key)
   if kind ~= 'press' or screen == nil or book == nil then return end
+  -- **A key does not turn the page behind a menu**: while the card is up the dial is the system's, and a page that moved
+  -- under a menu would be a page nobody asked for (docs/46, C4).
+  if menu ~= nil then return end
 
   if key == 1 then
     turn_back()

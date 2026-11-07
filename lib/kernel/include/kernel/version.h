@@ -2796,7 +2796,42 @@ namespace kernel {
 // book (C13), the size of the app (D6) and its settings (D7)— with the card of each one in docs/46, because a
 // roadmap that promises what is already done is a person looking for a file that is not there. No code in this
 // commit: `docs/90-full-de-ruta.md` and this line.
-static const char kVersion[] = "0.136.1";
+// 0.137.0 (7/11): **the menu of the reader and the dark page** (docs/46 C4 and C9).
+//
+// The owner, reading the list of what the reader was missing: *«C9 es invertir colors? si es aixó: es farà amb opció al
+// menú de text del C4»*. Yes: the dark page is the page with its ink and its paper swapped, and it lives in the menu, so
+// the two cards are one piece of work.
+//
+//   - **C9, the dark page**: `epub.page(..., {dark = true})` paints the same words in the same places with the ink at 15
+//     and the plates **inverted as they are copied** (`ui::canvas_bitmap` and its `dark`), because the cache of the book
+//     holds the picture as the file says it —paper white— and a white paper on a black page is a hole in the page. The
+//     app clears the canvas to 0 and says the foot in white: the paper of a page is the app's and the ink is the page's
+//     (docs/46, A5). It is **only the page of the book** —not the shelf, not the cover— and it is not saved.
+//   - **C4, the menus**: `Book` (Shelf) and `View` (Full screen, Dark page), with `ui.menu_bar`, and **only while the
+//     menu is open**. That is not a detail: a control that is always on the page takes the dial, and then the keys of
+//     the board stop turning the page — the lesson of 0.135.0. So the menu is made when it is asked for and given back
+//     when it goes, and the page between the two is a page of one canvas and a foot, which is what keeps the keys.
+//   - **A long press is the way in**, and the ways out are the same long press, a tap below the row of words and a
+//     swipe; a key does not turn the page behind a card. The row is 52 rows at the top of the page, the View is the menu
+//     that is down (it is the one with the two states) and the Book is a word a finger unfolds.
+//
+// **One thing of the door of Lua learned something**: `epub.page`'s switches were read as numbers only, so `dark = true`
+// —the way anybody writes a switch— would have done nothing and said nothing. `epub_opt_number` takes a boolean now, and
+// `measure = true` works for the same reason (docs/30).
+//
+// Measured on the bench, looking at the glass: a probe that opens the book, clears its canvas to 0 and asks for
+// `{dark = true}` gives **black paper and white words**, with the plate of the poem inverted (its white paper is black
+// and its lines are white); the same page with the menu over it shows the row `Book View` —with the View inverted, and
+// a black card with white words on the dark page— and the two entries with their boxes, `Full screen` checked. The
+// reader itself is **492 lines** of Lua and still composes its page from row 8 to row 935 with the whole glass.
+// `pio run -e emulator` says SUCCESS with 0 warnings and `pio test -e test --without-testing` builds the **23 suites and
+// 529 cases** with 0 warnings, two of them new in `test_ui` (a bitmap inverted on a dark page and a page of a book
+// painted with the ink it is given).
+// **Pending**: the 529 cases are **not executed** (that wants the owner's word for it); **the long press was not
+// exercised on the glass** —the bench lays no fingers—, so what is proven there is the paint of the menu and of the dark
+// page, and the gesture has to be tried on the board; the Contents of the Book menu waits for the real chapters of the
+// book (C2, C14); and the reader still has no cover, no thumbnails and no count of pages (docs/46, C5, C11).
+static const char kVersion[] = "0.137.0";
 
 }  // namespace kernel
 

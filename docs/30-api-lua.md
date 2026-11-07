@@ -427,9 +427,12 @@ porta del lector: el motor —el zip, el tokenitzador i el paginador— és del 
 | `epub.page(canvas, from, opts)` | maqueta una pàgina des del byte `from` i **la pinta en aquell canvas**; torna `next, ended, used, has_picture` |
 | `epub.close()` | tanca el llibre i torna la memòria |
 
-`opts` és `{face, title_face, small_face, scale, title_scale, small_scale, indent}`, i cada camp té un valor per
-defecte (la cara del sistema i els passos d'una pàgina de llibre). Les cares són **l'objecte que torna
-`ui.load_font`**, no un número.
+`opts` és `{face, title_face, small_face, scale, title_scale, small_scale, indent, measure, dark}`, i cada camp té un
+valor per defecte (la cara del sistema i els passos d'una pàgina de llibre). Les cares són **l'objecte que torna
+`ui.load_font`**, no un número. `measure = true` maqueta i no pinta (per comptar o per anar enrere), i **`dark = true`**
+(0.137.0) pinta **la mateixa pàgina amb la tinta i el paper canviats**: el mateix text als mateixos llocs, la tinta
+blanca i el paper negre —que és el que l'app ha de deixar al canvas amb `cv:clear(0)`— i **les planxes invertides en
+copiar-les** (docs/46, C9).
 
 **La posició de lectura és un byte dins del capítol** i no un número de pàgina: `epub.page` torna `next`, que
 és el byte on comença la pàgina següent. Un lector desa `(capítol, byte)`. Quan `ended` és cert el capítol

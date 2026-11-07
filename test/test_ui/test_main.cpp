@@ -3295,6 +3295,82 @@ void test_the_line_height_of_a_face_is_what_centres_a_text() {
   TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
 }
 
+// **A picture on a dark page is inverted as it is copied** (0.137.0, docs/46 C9): what the book keeps is the picture as
+// the file says it —paper white, ink black— and on a page whose paper is black a plate that kept its white paper would be
+// a hole in the page. The invention costs the pass that copies the pixels and no second decode of the file.
+void test_a_bitmap_on_a_dark_page_comes_inverted() {
+  boot_with_a_panel();
+  ui::attach();
+  TEST_ASSERT_TRUE(ui::clear(0, "gc16"));  // the paper of a dark page
+  int16_t slot = ui::kNoSlot;
+  TEST_ASSERT_TRUE(ui::create(8, 4, -1, true, slot));
+  TEST_ASSERT_TRUE(ui::place(slot, 0, 0));
+  // One row of four pixels, two in a byte: two of level 0 and two of level 15.
+  const uint8_t bits[2] = {0x00, 0xFF};
+  TEST_ASSERT_TRUE(ui::canvas_bitmap(slot, 0, 0, 4, 1, bits, 2, "gc16", true));
+  TEST_ASSERT_TRUE(ui::present());
+  // **The paper of the picture is the paper of the page**: what was black is white and the other way round.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(1, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(2, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(3, 0));
+  // And the same block on a page that is paper keeps the levels of the file, which is the page of every day.
+  TEST_ASSERT_TRUE(ui::canvas_bitmap(slot, 0, 1, 4, 1, bits, 2, "gc16", false));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(0, 1));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 1));
+  ui::release(slot);
+}
+
+// **The page of a book paints with the ink it is given** (0.137.0, docs/46 C9): the level used to be a zero written in
+// `book.cpp` and the dark page is the same page with that level white, so what this asks is that the level of the call
+// reaches the glass and that nothing else of the page changed.
+void test_a_page_of_a_book_paints_with_the_ink_it_is_given() {
+  boot_with_a_panel();
+  ui::attach();
+  int16_t slot = ui::kNoSlot;
+  TEST_ASSERT_TRUE(ui::create(120, 40, -1, true, slot));
+  TEST_ASSERT_TRUE(ui::place(slot, 0, 0));
+
+  epub::Item word = {};
+  word.kind = epub::Item::kWord;
+  word.text = 0;
+  word.x = 4;
+  word.y = 4;
+  word.face = epub::kFaceBody;
+  word.scale = 4;
+  const char words[] = "A";
+
+  // **The dark page**: the paper is black and the ink is white, and the paper of the canvas is the app's —it is the one
+  // that clears it, because the page only puts the ink down (docs/46, A5).
+  TEST_ASSERT_TRUE(ui::canvas_clear(slot, 0, "gc16"));
+  const ui::PageFonts fonts;
+  TEST_ASSERT_TRUE(ui::canvas_book_page(slot, &word, words, 1, fonts, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  bool white_ink = false;
+  for (uint16_t y = 0; y < 40 && !white_ink; ++y) {
+    for (uint16_t x = 0; x < 120 && !white_ink; ++x) {
+      if (view_level(x, y) == 15) white_ink = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(white_ink, "the page of a book did not paint with the ink it was given");
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(119, 39));  // and the paper of the page is the black it was cleared to
+
+  // **And the page of every day** is the same call with the ink at zero: black words on the paper of the canvas.
+  TEST_ASSERT_TRUE(ui::canvas_clear(slot, 15, "gc16"));
+  TEST_ASSERT_TRUE(ui::canvas_book_page(slot, &word, words, 1, fonts, 0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  bool black_ink = false;
+  for (uint16_t y = 0; y < 40 && !black_ink; ++y) {
+    for (uint16_t x = 0; x < 120 && !black_ink; ++x) {
+      if (view_level(x, y) == 0) black_ink = true;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(black_ink, "the page of a book did not paint its ink");
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(119, 39));
+  ui::release(slot);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -3382,6 +3458,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row);
   RUN_TEST(test_a_text_that_ends_in_a_break_has_a_row_for_the_caret);
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
+  RUN_TEST(test_a_bitmap_on_a_dark_page_comes_inverted);
+  RUN_TEST(test_a_page_of_a_book_paints_with_the_ink_it_is_given);
   RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
   RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);
   RUN_TEST(test_the_bar_and_the_window_of_a_box_of_lines_count_the_rows_of_the_glass);

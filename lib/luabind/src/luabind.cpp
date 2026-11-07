@@ -9108,7 +9108,15 @@ void open_libraries(lua_State* L) {
 double epub_opt_number(lua_State* L, int index, const char* field, double fallback) {
   if (!lua_istable(L, index)) return fallback;
   lua_getfield(L, index, field);
-  const double value = lua_isnumber(L, -1) ? static_cast<double>(lua_tonumber(L, -1)) : fallback;
+  // **`true` is one and `false` is zero** (0.137.0): the fields of `epub.page` that are switches —`measure`, and `dark`
+  // since 0.137.0— are written as a boolean by anybody who means it, and a switch that only answers to a number is a
+  // switch that silently does nothing (docs/30, docs/46 C9).
+  double value = fallback;
+  if (lua_isnumber(L, -1)) {
+    value = static_cast<double>(lua_tonumber(L, -1));
+  } else if (lua_isboolean(L, -1)) {
+    value = lua_toboolean(L, -1) ? 1.0 : 0.0;
+  }
   lua_pop(L, 1);
 
   return value;
@@ -9229,6 +9237,9 @@ int l_epub_page(lua_State* L) {
   style.small_scale = static_cast<uint8_t>(epub_opt_number(L, 3, "small_scale", style.small_scale));
   style.indent = static_cast<int16_t>(epub_opt_number(L, 3, "indent", style.indent));
   style.measure = epub_opt_number(L, 3, "measure", 0) != 0;
+  // **The dark page** (0.137.0, docs/46 C9): `dark = true` paints the same page with the ink and the paper swapped, and it
+  // is the app that clears its canvas to black — the level it passes here is the ink (docs/46, A5).
+  style.dark = epub_opt_number(L, 3, "dark", 0) != 0;
 
   if (!g_book_ops.page(slot, from, style)) {
     return push_nil_error(L, "E_INVAL", "that page cannot be composed: no book, no chapter, or no canvas");

@@ -596,7 +596,12 @@ bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
   paint.body = style.body;
   paint.title = style.title;
   paint.small = style.small;
-  if (!ui::canvas_book_page(slot, laid.items, laid.words, laid.count, paint, 0, "gc16")) return false;
+  // **The two tones of the page** (0.137.0, docs/46 C9): a page of a book is ink on paper —level 0 on the white the app
+  // cleared its canvas to— and **the dark page is the same page with the two swapped**, the ink white and the paper
+  // black. The layout does not change at all: the same words in the same places, which is the whole point of a page of a
+  // book in the dark (docs/46, A5).
+  const uint8_t ink = style.dark ? 15 : 0;
+  if (!ui::canvas_book_page(slot, laid.items, laid.words, laid.count, paint, ink, "gc16")) return false;
 
   // **And the pictures last**, because a page never puts a word on top of one: a floated picture makes the words
   // go beside it and a plate makes them go under it, so the order of the paint is not the order of the paper
@@ -608,8 +613,10 @@ bool page_into(int16_t slot, int32_t from, luabind::BookStyle& style) {
     int32_t w = 0;
     int32_t h = 0;
     if (!load_picture(laid.words + item.text, item.w, item.h, w, h)) continue;
+    // **A plate on a dark page is inverted as it is copied** (0.137.0, docs/46 C9): what the cache holds is the picture
+    // as the file says it, with its paper white, and a white paper on a black page is a hole in the page.
     ui::canvas_bitmap(slot, item.x, item.y, static_cast<uint16_t>(w), static_cast<uint16_t>(h), g.picture_pixels,
-                      static_cast<uint16_t>((w + 1) / 2), "gc16");
+                      static_cast<uint16_t>((w + 1) / 2), "gc16", style.dark);
   }
 
   style.count = laid.count;

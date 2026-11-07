@@ -268,8 +268,12 @@ bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, 
 // **A block of pixels into a canvas** (0.133.0, docs/46 D4): four bits a pixel, two of them in a byte with the left
 // one in the high nibble —the packing of the glass, the canvas and `img::decode`—, copied row by row and cut at the
 // canvas. It is what the pictures of a book are painted with, and a picture is a copy and not a conversion.
+//
+// **`dark` is the page with its ink and its paper swapped** (0.137.0, docs/46 C9): every level is copied the other way
+// round, because a plate whose paper is white is a hole in a page that is black. The invention is done while the copy is
+// made, so a picture that comes from the cache of the book costs the same pass and no second decode (docs/46, A5).
 bool canvas_bitmap(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits,
-                   uint16_t stride, const char* mode);
+                   uint16_t stride, const char* mode, bool dark = false);
 
 // ---- a label: one text in the frame of a control (docs/30, docs/90) ----
 //
