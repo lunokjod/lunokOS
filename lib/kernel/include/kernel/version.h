@@ -1474,7 +1474,16 @@ namespace kernel {
 // which says what it is, and not `gallery`.
 // Measured on the bench: 434 native cases green —the one of `ui.focus` presses the centre key with and without the call and
 // sees which button answers—, the app runs in five pages with no error of Lua, and the Paper builds with no warning.
-static const char kVersion[] = "0.97.4";
+// 0.97.5 (7/11): **the environments are named after the boards.** The owner asked for `M5 Atom`, `M5 Atom Matrix`,
+// `M5 Paper`…, and PlatformIO has a rule that makes that name its own: *«the name can contain alphanumeric, underscore,
+// and hyphen characters (a-z, 0-9, -, _)»* —it says so and refuses the build—, so the boards are **`m5-atom`**,
+// **`m5-atom-matrix`**, **`m5-paper`**, **`esp32-devkit`** (a bare module, which is the one that has no name of a
+// product) and **`ttgo-t-koala`** (the LilyGO, which is not an M5). The bench keeps `emulator` and the suite `test`,
+// which are not boards. The five build, the CI and every command of the documentation and the README use the new names,
+// and the directories of the old ones are gone from `build/` (docs/80).
+// Measured: `m5-atom`, `m5-atom-matrix`, `m5-paper`, `esp32-devkit` and `ttgo-t-koala` build (five SUCCESS, from a clean
+// build directory each, 78 to 88 s), 434 native cases green, and `pio project config` reads the seven environments.
+static const char kVersion[] = "0.97.5";
 
 }  // namespace kernel
 

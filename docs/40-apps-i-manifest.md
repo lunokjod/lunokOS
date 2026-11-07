@@ -300,7 +300,7 @@ res més.
 
 | Via | Estat |
 |---|---|
-| `pio run -e atom -t uploadfs` (imatge de `data/`) | És la via de la v1 |
+| `pio run -e m5-atom -t uploadfs` (imatge de `data/`) | És la via de la v1 |
 | Copiar el directori a `/sd/apps/` | Sí: el Paper munta la targeta a `/sd` (docs/50) i `apps` i `run` la busquen abans que la flash (0.86.0) |
 | Baixar-la per Wi-Fi des del prompt | Fora de la v1 |
 

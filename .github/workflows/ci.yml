@@ -96,13 +96,13 @@ jobs:
         run: pio run -e emulator
 
       - name: build atom
-        run: pio run -e atom
+        run: pio run -e m5-atom
 
       - name: build atom_matrix
-        run: pio run -e atom_matrix
+        run: pio run -e m5-atom-matrix
 
       - name: build paper
-        run: pio run -e paper
+        run: pio run -e m5-paper
 
       - name: build esp32
-        run: pio run -e esp32
+        run: pio run -e esp32-devkit

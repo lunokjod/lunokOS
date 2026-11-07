@@ -536,7 +536,7 @@ sensor inercial i el vidre—. Comparteix `hal_esp32` (que és el HAL de la fam�
 que és seu és només la identitat, a `lib/board_esp32/`. El camí d'entrada i de sortida d'una app és la
 consola, i la sortida del llum no té xip que la rebi: `led.play` escriu a un pin que no va enlloc.
 
-Es mesura amb `pio run -e esp32` cada cop que es toca la memòria: **107 008 B de RAM estàtica de
+Es mesura amb `pio run -e esp32-devkit` cada cop que es toca la memòria: **107 008 B de RAM estàtica de
 327 680 (32,7 %) i 2 081 225 B de flash de 3 145 728 (66,2 %)** (2/11). No té fila a la taula de
 capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades el mateix.
 
@@ -1024,7 +1024,7 @@ compartint SCK/MOSI/MISO amb el panell) i **la bateria**, que es llegeix del div
 de prometre-ho. I dues coses estan escrites però **no verificades en aquest maquinari**: que el
 `mv` de la bateria quadri amb un multímetre, i que l'hora segueixi allà després de desendollar-lo.
 
-**Què està provat i què no**: `pio run -e paper` **compila net** (zero avisos propis, docs/75) i el
+**Què està provat i què no**: `pio run -e m5-paper` **compila net** (zero avisos propis, docs/75) i el
 binari que en surt porta la identitat del Paper i cap de les de l'ATOM. **S'ha flashejat i arrenca**
 (31/10 amb la 0.6.0 i l'1/11 amb la 0.10.1): el banner diu `lunokOS <versió>  board m5stack-paper`, el
 prompt respon, `caps` dona **15 de 18** amb bateria i targeta dins (12 de 18 amb la 0.6.0, que encara

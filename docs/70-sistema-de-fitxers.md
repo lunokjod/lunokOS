@@ -662,7 +662,7 @@ Cada **component** del camí compta per separat (cada directori i el fitxer), no
 camí llarg es pot fer amb directoris niats de 32 caràcters o menys, que és com es prova el selector
 d'extensió amb un camí de 100 B (`data/res/this-is-the-first-long-part-here/…`).
 
-**El parany**: `pio run -e atom -t buildfs` (i `uploadfs`) **acaba amb `SUCCESS` encara que hagis
+**El parany**: `pio run -e m5-atom -t buildfs` (i `uploadfs`) **acaba amb `SUCCESS` encara que hagis
 deixat fitxers fora**. El codi de sortida de l'eina és 1 i el seu missatge surt a la consola, però
 PlatformIO no el converteix en error. Per això l'entorn `atom` porta `extra_scripts =
 pre:tools/check_fs_names.py`, que mira `data/` abans de construir la imatge i **fa fallar l'ordre**

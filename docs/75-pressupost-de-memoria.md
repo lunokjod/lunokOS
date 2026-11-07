@@ -99,7 +99,7 @@ dalt.
 Les files que diuen «encara no existeix» no són forats: són components de fites posteriors i es
 mesuren quan es fan. La resta són mides preses del codi i del mapa de l'enllaçador, amb data.
 
-Mesures de l'enllaçador a l'ATOM el 31/10 (`pio run -e atom`), amb Lua 5.4.7, `run`, les promeses i la
+Mesures de l'enllaçador a l'ATOM el 31/10 (`pio run -e m5-atom`), amb Lua 5.4.7, `run`, les promeses i la
 baixada d'una pàgina amb TLS a dins, més el mòdul dels ajustos (`/cfg`), la reescriptura de `/res`, el
 buitat de la consola abans de dormir i la mesura de l'últim despert: **+3 612 B de flash i +40 B de
 RAM** sobre la mesura anterior del mateix dia (2 005 361 B i 92 624 B).
@@ -109,7 +109,7 @@ RAM** sobre la mesura anterior del mateix dia (2 005 361 B i 92 624 B).
 | Flash | **2 020 769 B** de 3 145 728 (64,2 %) — la partició d'aplicació és de 3 MB des del 31/10 |
 | Flash lliure | **1 124 959 B** |
 | RAM estàtica | **93 096 B** de 327 680 (28,4 %) |
-| **Mesurat amb la 0.10.0** (1/11, `pio run -e atom`): és el total d'avui, i el que creix des de la columna del mig d'aquesta secció són el `/rtc`, el `/fram`, el `poweroff`, la memòria extra, els efectes del llum i el sensor d'ambient. L'`atom_matrix` dona **2 020 781 B** i **95 464 B** (29,1 %) | — |
+| **Mesurat amb la 0.10.0** (1/11, `pio run -e m5-atom`): és el total d'avui, i el que creix des de la columna del mig d'aquesta secció són el `/rtc`, el `/fram`, el `poweroff`, la memòria extra, els efectes del llum i el sensor d'ambient. L'`atom_matrix` dona **2 020 781 B** i **95 464 B** (29,1 %) | — |
 | Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`, amb la 0.10.0 i el terra de llavors). **Amb la 0.81.2 i el sostre de 128 KB, el mateix `run hello` a l'ATOM de l'emulador dona 31 655 B de 131 072** — el terra de l'intèrpret és el que ha crescut, no l'app |
 | Pic de l'app `hello` a l'emulador | **31 655 B** de 131 072 (mesurat el 4/11 amb la 0.81.2; eren **14 364 B** de 65 536 amb la 0.10.0, i el que ha pujat és la llibreria d'UI que tot intèrpret registra en arrencar) |
 | Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `run wait` i `mem`) |
@@ -180,7 +180,7 @@ memòria, no aquest número.
 ## El codi d'entrada passa al heap (2/11)
 
 El buffer de 16 384 B era **estàtic**, i el 2/11 es va veure el preu: amb la identitat de la placa del
-mínim a dins del projecte, `pio run -e atom_matrix` va deixar d'enllaçar amb
+mínim a dins del projecte, `pio run -e m5-atom-matrix` va deixar d'enllaçar amb
 
 ```
 region `dram0_0_seg' overflowed by 1184 bytes
@@ -258,7 +258,7 @@ app de debò continua sent el seu heap (docs/75, més amunt), no aquest.
 
 ## La M5 Paper, amb la ràdio heretada (31/10)
 
-`pio run -e paper` del 31/10, amb el que aquesta placa hereta del xip (`esp32_caps()`, `esp32_net()`,
+`pio run -e m5-paper` del 31/10, amb el que aquesta placa hereta del xip (`esp32_caps()`, `esp32_net()`,
 docs/50):
 
 | | |
@@ -412,7 +412,7 @@ el seu propi ±5 %. El que **no** es modela és la instrucció: no hi ha cap Xte
 Lua es cobra a part (`--lua-cpu`, 60 ns per instrucció a 160 MHz, docs/85).
 
 La columna «consum real» no s'inventa mai: es treu de `sys.heap()`, de l'ordre `mem` i del mapa de
-l'enllaçador (`pio run -e atom -t size`), i s'apunta el número i el dia.
+l'enllaçador (`pio run -e m5-atom -t size`), i s'apunta el número i el dia.
 
 ## L'assignador de Lua
 
@@ -624,7 +624,7 @@ mirar quan una app no cap.
 
 1. `mem` al prompt: dona lliure, usat, pic i límit de cada app viva.
 2. `sys.heap()` des de dins de l'app, en els moments que interessin.
-3. `pio run -e atom -t size` per al consum de flash i l'ús de RAM estàtica.
+3. `pio run -e m5-atom -t size` per al consum de flash i l'ús de RAM estàtica.
 4. A l'emulador, `--mem-cap=<KB>` per reproduir el sostre de la placa al PC i veure-hi el pic sense
    haver de flashejar.
 

@@ -4,10 +4,10 @@
 
 | Entorn | Plataforma | Per a què |
 |---|---|---|
-| `atom` | espressif32 + Arduino | El firmware de la placa de proves |
-| `paper` | espressif32 + Arduino, placa pròpia | La M5 Paper (16 MB de flash, PSRAM i un panell e-ink): definició a `boards/m5stack-paper.json`, taula a `partitions_16mb.csv` (docs/50) |
-| `atom_matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
-| `esp32` | espressif32 + Arduino | **La placa del mínim**: un ESP32 de DevKit (`esp32dev`, 4 MB, sense PSRAM), la més corrent que hi ha. No és cap fitxa de cap aparell: és la prova que el sistema cap en el xip pelat (docs/50) |
+| `M5 Atom` | espressif32 + Arduino | El firmware de la placa de proves |
+| `M5 Paper` | espressif32 + Arduino, placa pròpia | La M5 Paper (16 MB de flash, PSRAM i un panell e-ink): definició a `boards/m5stack-paper.json`, taula a `partitions_16mb.csv` (docs/50) |
+| `M5 Atom Matrix` | espressif32 + Arduino | La placa del panell de vint-i-cinc llums: mateix xip, mateixa taula i mateix `board =`, i el que canvia és el `-I` de la identitat (docs/50) |
+| `ESP32 DevKit` | espressif32 + Arduino | **La placa del mínim**: un ESP32 de DevKit (`esp32dev`, 4 MB, sense PSRAM), la més corrent que hi ha. No és cap fitxa de cap aparell: és la prova que el sistema cap en el xip pelat (docs/50) |
 | `emulator` | native | El mateix codi compilat per al PC |
 | `test` | native | Les proves natives (Unity) |
 
@@ -16,7 +16,7 @@
 default_envs = emulator
 boards_dir = boards        ; el Paper no és una placa que la plataforma conegui
 
-[env:atom]
+[env:m5-atom]
 platform = espressif32
 board = m5stack-atom
 framework = arduino
@@ -31,14 +31,14 @@ lib_ignore = hal_emulator, pal_host, board_matrix, board_paper, board_esp32,
              WiFi, WiFiClientSecure, HTTPClient, ESPmDNS, WebServer,
              DNSServer, WiFiProv
 
-[env:atom_matrix]
-extends = env:atom
+[env:m5-atom-matrix]
+extends = env:m5-atom
 build_flags = -std=gnu++11 -Ilib/board_matrix/include
              -DARDUINO_LOOP_STACK_SIZE=16384
 lib_ignore = hal_emulator, pal_host, board_atom, board_paper, board_esp32, …
 ; i les de xarxa, igual
 
-[env:paper]
+[env:m5-paper]
 platform = espressif32
 board = m5stack-paper
 framework = arduino
@@ -49,7 +49,7 @@ build_flags = -std=gnu++11 -Ilib/board_paper/include
 lib_ignore = hal_emulator, pal_host, hal_atom, board_atom, board_matrix, …
 ; hal_esp32 no s'ignora: és el que aquesta placa comparteix amb l'ATOM (docs/50)
 
-[env:esp32]
+[env:esp32-devkit]
 platform = espressif32
 board = esp32dev
 framework = arduino
@@ -143,10 +143,10 @@ l'emulador, el `main()` és a `lib/hal_emulator/`.
 
 ```
 pio run -e emulator        # binari per al PC
-pio run -e atom            # firmware; les proves de flashejar les fa l'amo
-pio run -e atom_matrix     # la placa del panell: 25 llums al mateix GPIO27
-pio run -e esp32           # el mínim: un ESP32 de DevKit, sense res a sobre
-pio run -e tkoala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
+pio run -e m5-atom            # firmware; les proves de flashejar les fa l'amo
+pio run -e m5-atom-matrix     # la placa del panell: 25 llums al mateix GPIO27
+pio run -e esp32-devkit           # el mínim: un ESP32 de DevKit, sense res a sobre
+pio run -e ttgo-t-koala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
 pio test -e test           # proves natives
 ```
 
@@ -163,8 +163,9 @@ Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
 - les **429 proves natives** (`pio test -e test`);
-- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `atom`, `atom_matrix`,
-  `paper`, `esp32` i `tkoala`.
+- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `M5 Atom`, `M5 Atom Matrix`,
+  `M5 Paper`, `ESP32 DevKit` i `TTGO T-Koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), i per
+  això es diuen amb espai i les comandes els han de posar entre cometes: `pio run -e m5-paper`.
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 
@@ -174,8 +175,8 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 
 | Què | Ordre | On va |
 |---|---|---|
-| El firmware | `pio run -e paper -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
-| El disc: les apps i els `res/` | `pio run -e paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/paper` (el `data/` del sistema més les apps d'`apps/`) |
+| El firmware | `pio run -e m5-paper -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
+| El disc: les apps i els `res/` | `pio run -e m5-paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/m5-paper` (el `data/` del sistema més les apps d'`apps/`) |
 
 - **Les apps viuen a `apps/`**, a l'arrel del projecte, i el disc de cada entorn el munta
   `tools/make_disk.py` a **`build/disk/<entorn>`** amb **les apps que el seu manifest nomena**: la placa per

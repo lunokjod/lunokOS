@@ -219,11 +219,11 @@ pio run -e emulator      # binari per al PC
 # el banc es diu la placa que és: --board m5stack-atom (obligatori),
 # m5stack-atom-matrix, m5stack-paper o ttgo-t-koala. `sys.board` respon
 # aquest nom i `sys.emulator` continua cert
-pio run -e atom          # firmware (el puja l'amo, mai una sessió automàtica)
-pio run -e atom_matrix   # la placa del panell: 25 llums al mateix GPIO27
-pio run -e paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
-pio run -e esp32         # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
-pio run -e tkoala        # la LilyGO T-Koala: WROVER-B, 4 MB de PSRAM mapejada, LED i SD
+pio run -e m5-atom          # firmware (el puja l'amo, mai una sessió automàtica)
+pio run -e m5-atom-matrix   # la placa del panell: 25 llums al mateix GPIO27
+pio run -e m5-paper         # la M5 Paper (v1.0 i v1.1): e-ink, 16 MB, PSRAM (docs/50)
+pio run -e esp32-devkit    # el mínim: un ESP32 DevKit de 4 MB, sense PSRAM ni res a sobre
+pio run -e ttgo-t-koala   # la LilyGO T-Koala: WROVER-B, 4 MB de PSRAM mapejada, LED i SD
 pio test -e test         # proves natives
 ```
 
