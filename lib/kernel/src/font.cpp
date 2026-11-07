@@ -853,7 +853,9 @@ const char* load_ttf(const char* text, uint32_t length, ttf::Face& storage, Face
   // **A face of outlines has no cell and no codes of its own**: the size is the body of the file at scale one,
   // the advance is the file's, and every glyph is drawn when a text is drawn (docs/30).
   out.width = 0;
-  out.height = kOutlineBody;
+  // **A line and not the body**: the height of a face is what a page leaves for a line of it, and a line of this face
+  // is `kOutlineLine` pixels per step of `scale` (docs/30).
+  out.height = kOutlineLine;
   out.gap = 0;
   out.first = 0x20;
   out.count = 0;

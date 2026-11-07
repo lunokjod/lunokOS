@@ -14,20 +14,20 @@ namespace bar {
 namespace {
 
 // **The height of the strip, and the size of its letters.** It was 28 rows —a glyph doubled to fourteen and
-// air— and 28 rows with a doubled glyph is a bar that reads only from close up. It is **48 rows with the
-// glyphs at four times** now: nine rows of air, twenty-eight of glyph, nine more and the black line of two at
-// the bottom, which is 9 + 28 + 9 + 2 = 48 (docs/50).
+// air— and 28 rows with a doubled glyph is a bar that reads only from close up. It is **48 rows** now, and the
+// letters are the ones the paper project gives its bar (docs/50, docs/92): **a line of 33 px** —its `fontSmall`—
+// with six rows of air above, six below and the black line of two at the bottom, which is 6 + 33 + 7 + 2 = 48.
 const uint16_t kBarHeight = 48;
 
-// Glyphs at four times their size: five by seven scaled to twenty by twenty-eight, which is what reads on an
-// e-ink glass from an arm's length (docs/50).
-const uint8_t kScale = 4;
+// **`scale` 3 of the face of the system is a line of 33 px**, which is the line the paper project's bar has: `kOutlineLine`
+// is eleven pixels and a title bar is not the place for the text of a page (docs/92).
+const uint8_t kScale = 3;
 // Where the text starts, above and to the left, leaving air at the edges.
 const uint16_t kPaddingX = 12;
 // The air between the hour, the title and the charge: two things that touch are two things nobody can
 // tell apart (docs/30).
 const uint16_t kTitleGap = 8;
-const uint16_t kTextTop = 9;
+const uint16_t kTextTop = 6;
 // The black line under the bar.
 const uint16_t kLineHeight = 2;
 

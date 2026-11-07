@@ -121,9 +121,21 @@ const char* load_pcf(const char* text, uint32_t length, uint8_t* bits, Face& out
 // **A face of outlines** (docs/30): the file is TrueType, `storage` is where this library keeps what it found
 // in it, and the face points at that storage — so both have to live as long as the face does. There is no
 // block of bits: a glyph is drawn when a text is drawn, at the size that text asks for, and the pen moves by
-// the advance of the file. `kOutlineBody` is what one step of `scale` means: a body of eight pixels, so
-// `scale` 3 is a line of twenty-four pixels of body and not a glyph eight times as big.
-const uint8_t kOutlineBody = 8;
+// the advance of the file.
+//
+// **`kOutlineBody` is what one step of `scale` means, and the number is the paper project's** (0.97.2): its dense
+// text is **24 px of body** (`ui24b`), its text is **36** (`ui36b`) and its title is **48** (`ui48b`), because a text
+// of 43 px of line is the one a person reads on this glass without glasses. With a step of nine, `scale` 4 is
+// **36 px of body** —the text of every page— and `scale` 3 is 27, which is the dense size within a pixel. It was eight,
+// and eight made `scale` 4 a body of thirty-two: the words of the whole system were **eleven per cent smaller** than
+// the paper project's, which is what its owner saw on the glass before any drawing of a control (docs/92).
+const uint8_t kOutlineBody = 9;
+
+// **And `kOutlineLine` is the height of a line of one step**, which is not the body: a line of DejaVu Sans Bold is
+// **1,19 times its body** —the paper project measured 43 px of line for a body of 36, and 29 for 24—, so a step of nine
+// is a line of eleven. Everything that asks a face for the height of a line gets this, and a page that leaves room for
+// a label leaves the room of a line (docs/30, docs/92).
+const uint8_t kOutlineLine = 11;
 const char* load_ttf(const char* text, uint32_t length, ttf::Face& storage, Face& out);
 
 // **Whether these bytes are a font of outlines** and not text: a table directory of TrueType (`0x00010000`,

@@ -322,7 +322,8 @@ PER UN»*. La taula de sota és aquesta feina, i cada fila és una lectura del c
 | **`ui.notification_bar`** | pendent | |
 | **`ui.icon_grid`** | pendent | |
 | **`ui.month`**, **`ui.sparkline`**, **`ui.pie`** | pendent | |
-| **el tema** (radi 10, farciments 6/12/18, buit 10 i les altçades sortides de la línia de 43 px) | pendent | |
+| **les mides de la lletra** | **portat** (0.97.2) | un pas de `scale` és **9 px de cos** i **11 px de línia** (`kOutlineBody`/`kOutlineLine`): `scale` 4 = **36 px de cos i 44 de línia**, que és el `ui36b` del vell (36/43); `scale` 3 = 27, el seu text dens és 24; `scale` 5 = 45, el seu títol és 48. I la **barra** a tres passos: línia de **33 px**, el seu `fontSmall` |
+| **el tema** (radi 10, farciments 6/12/18, buit 10) | pendent | |
 | **la barra** | pendent | la línia és de 33 px al vell; aquí en fa 32 dins de 48 files |
 
 **I dues coses que no són cap control i van amb això**: la **lletra** ja és la del vell des de 0.96.0

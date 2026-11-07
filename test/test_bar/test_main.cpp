@@ -134,10 +134,13 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);  // cleans, and does not blink
   // The box: after the hour and its air (12 + "00:00" of 116 + 8) and before the charge and its own (92 + 8 + 12),
   // on the rows of the text and not on the whole strip.
-  TEST_ASSERT_EQUAL_UINT16(136, paint->x);
-  TEST_ASSERT_EQUAL_UINT16(9, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(960 - 136 - (12 + 92 + 8), paint->w);
-  TEST_ASSERT_EQUAL_UINT16(28, paint->h);
+  // **The box is the middle of the bar and not the whole of it**: after the hour and its air —12 and "00:00" of 87 at
+  // three steps of the table of the flash— and before the charge, on the rows of a line of the face that is on the
+  // glass now: twenty-one pixels, which is seven times three with the table of the bits (docs/85).
+  TEST_ASSERT_EQUAL_UINT16(107, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(6, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(764, paint->w);
+  TEST_ASSERT_EQUAL_UINT16(21, paint->h);
   // And the same title again is not a change.
   const uint32_t after = glass().paint_count();
   bar::title("SQUARES");
@@ -165,9 +168,9 @@ static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
   TEST_ASSERT_NOT_NULL(paint);
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
   TEST_ASSERT_EQUAL_UINT16(12, paint->x);
-  TEST_ASSERT_EQUAL_UINT16(9, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(116, paint->w);
-  TEST_ASSERT_EQUAL_UINT16(28, paint->h);
+  TEST_ASSERT_EQUAL_UINT16(6, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(87, paint->w);
+  TEST_ASSERT_EQUAL_UINT16(21, paint->h);
 }
 
 // **The strip is whole when the glass under it moved**: a turn or a new size is not a box, and the whole bar is
@@ -200,20 +203,43 @@ static void test_a_long_title_is_cut_at_its_box() {
   bar::title("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
   bar::poll();
 
-  // The box starts after the hour and its air: 12 of padding, the 116 pixels of "HH:MM" at four times and
-  // 8 of gap; and it stops before the 44 of "--" on the right, with the same air.
-  const uint16_t box_left = 12 + 116 + 8;
-  const uint16_t box_right = 540 - (12 + 44 + 8);
-  bool ink_in_the_box = false;
-  for (uint16_t x = box_left; x < box_right && !ink_in_the_box; ++x) {
-    for (uint16_t y = 9; y < 37 && !ink_in_the_box; ++y) {
-      if (glass().level_at(x, y) == 0) ink_in_the_box = true;
+  // **The hour, the air and the title, found by their ink and not by a number of pixels**: the width of "HH:MM" is the
+  // face's business, and a bar whose face changes is not a broken bar (0.97.2, docs/85). The rows are the ones of the
+  // letters and not the whole strip, because the line at the bottom is ink in every column.
+  const uint16_t text_top = 6;
+  const uint16_t text_bottom = 27;
+  // The hour is the first run of ink and the title the next one, after a hole of the air of the bar: the widths are the
+  // face's business and this way the test does not carry a number that a face change moves.
+  int hour_right = -1;
+  int title_left = -1;
+  int hole = 0;
+  bool in_ink = false;
+  for (uint16_t x = 0; x < 400 && title_left < 0; ++x) {
+    bool ink = false;
+    for (uint16_t y = text_top; y < text_bottom; ++y) {
+      if (glass().level_at(x, y) == 0) {
+        ink = true;
+        break;
+      }
+    }
+    if (ink) {
+      if (in_ink && hole >= 6) {
+        title_left = static_cast<int>(x);
+        break;
+      }
+      in_ink = true;
+      hole = 0;
+      hour_right = static_cast<int>(x);
+    } else if (in_ink) {
+      ++hole;
     }
   }
-  TEST_ASSERT_TRUE(ink_in_the_box);
-  // And between the hour and the box the strip is still white: the title did not run over it.
-  for (uint16_t x = 130; x < box_left; ++x) {
-    for (uint16_t y = 9; y < 37; ++y) {
+  TEST_ASSERT_GREATER_THAN(0, hour_right);
+  // The title starts after the hour and its eight pixels of air.
+  TEST_ASSERT_GREATER_THAN(hour_right + 4, title_left);
+  // And between the two the strip is still paper: the title did not run over the hour.
+  for (uint16_t x = static_cast<uint16_t>(hour_right + 1); x < static_cast<uint16_t>(title_left); ++x) {
+    for (uint16_t y = text_top; y < text_bottom; ++y) {
       TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(x, y));
     }
   }

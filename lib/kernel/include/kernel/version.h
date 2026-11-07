@@ -1440,7 +1440,18 @@ namespace kernel {
 // ESP32 and has no native test**: what proves the change is the board, which with **the same 28 944 B of internal RAM**
 // that failed before now says `[I][HTTP] 0 B for the page, 28944 B of RAM free (26612 in one piece), 3650839 B of
 // extra` and brings **61 folders and 40 251 B of JSON** down (docs/75).
-static const char kVersion[] = "0.97.1";
+// 0.97.2 (7/11): **the text is the size of the paper project.** The face was already its own —DejaVu Sans Bold, read from
+// the disk— and the sizes were not: a step of `scale` was **eight pixels of body**, so the text of every page at `scale` 4
+// was a body of **32** where the original's `ui36b` is **36**, and the height of a line was eight per step where the
+// original's line for that body is **43**. Eleven per cent smaller, in the words whose whole job is to be read: the owner
+// said it in one line —*«el tipus de lletra per defecte no és la mateixa que PaperOS i el mateix tamany»*— and the family
+// was right and the numbers were not (docs/92). A step is **nine** and a line is **eleven**, so `scale` 4 is a body of 36
+// and a line of 44, `scale` 3 is 27 —the original's dense text is 24— and `scale` 5 is 45, near its title of 48. And the
+// **bar** went from four steps to **three**: its letters are a line of **33 px**, which is exactly the `fontSmall` the
+// original puts in a title bar, inside the same 48 rows.
+// Measured on the bench: 433 native cases green, and the pages of the catalogue drawn with `--dump` compare with the
+// captures of the original at the same size (docs/85, docs/92).
+static const char kVersion[] = "0.97.2";
 
 }  // namespace kernel
 

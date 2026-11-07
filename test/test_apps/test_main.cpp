@@ -3048,7 +3048,7 @@ void test_the_gallery_app_shows_every_control_and_turns_its_pages(void) {
   // **Five pages and not eight**, because five is what a strip of tabs holds at the dense size of the paper project:
   // eight columns of a page of five hundred and forty pixels are sixty-seven each and the strip said "T... N... R..."
   // (5/11, the owner on the bench, docs/92).
-  static const char* const kPageNames[5] = {"Text", "Nums", "Rows", "Forms", "Menus"};
+  static const char* const kPageNames[5] = {"Text", "Nums", "Rows", "Form", "Menu"};
   for (int page = 1; page <= 5; ++page) {
     char line[32];
     snprintf(line, sizeof(line), "run gallery %d", page);
@@ -6846,11 +6846,12 @@ void test_the_face_of_the_system_comes_from_the_disk(void) {
   TEST_ASSERT_NULL(kernel::font::system_face().outline);
   TEST_ASSERT_EQUAL_UINT8(7, kernel::font::system_face().height);
 
-  // With the bold face on the disk the next boot takes it, and it is a face of outlines: eight pixels of body per step.
+  // **With the bold face on the disk the next boot takes it**, and it is a face of outlines: **eleven pixels of line per
+  // step**, which is a body of nine —the paper project's text is 36 px of body and a line of 43— (0.97.2, docs/92).
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   kernel::boot(hal::platform());
   TEST_ASSERT_NOT_NULL(kernel::font::system_face().outline);
-  TEST_ASSERT_EQUAL_UINT8(8, kernel::font::system_face().height);
+  TEST_ASSERT_EQUAL_UINT8(11, kernel::font::system_face().height);
 
   // **And the bench is left as it was**: the face is one global of the whole glass, and a test that changed it for the
   // ones after it would be a test that decides what the others measure.

@@ -50,7 +50,7 @@ local kPages = 5
 -- of five letters at the dense size. Eight columns would be sixty-seven pixels each, and a word that does not fit is
 -- cut and not wrapped: the strip said "T... N... R..." and that is not a tab, it is a broken word (found by the owner
 -- on the bench, 5/11, docs/92).
-local kNames = { 'Text', 'Nums', 'Rows', 'Forms', 'Menus' }
+local kNames = { 'Text', 'Nums', 'Rows', 'Form', 'Menu' }
 
 local root = ui.panel(view.width, view.height, 'vertical')
 root:place(0, 0)
@@ -113,7 +113,7 @@ end
 local pages = {}
 
 pages[1] = function()
-  label('label: a window of text, cut with three dots', 24)
+  label('label: text, cut with three dots', 40)
   local row = keep(ui.row(10, 88))
   row.title = 'row'
   row.detail = '124 B'
@@ -142,7 +142,7 @@ pages[1] = function()
 end
 
 pages[2] = function()
-  label('progress: 40 of 100, and one that does not know')
+  label('progress: 40 of 100, and unknown', 40)
   local bar = keep(ui.progress(10, 32))
   bar.value = 40
   local unknown = keep(ui.progress(10, 32))
@@ -162,7 +162,7 @@ pages[2] = function()
 end
 
 pages[3] = function()
-  label('list: rows in pages, and never a scroll')
+  label('list: rows in pages', 40)
   local list = keep(ui.list(10, 80))
   list.weight = 1
   list.row_height = kRow
@@ -174,12 +174,12 @@ pages[3] = function()
     { title = 'Data', detail = '4 096 B', subtitle = 'what the apps wrote' },
   }
   list.on_page = function(self, page) console.print('list page ' .. page) end
-  label('notification_bar: cards with a cross', 26)
+  label('notification_bar: cards', 40)
   local band = keep(ui.notification_bar(10, 150))
   band.scale = body_scale
   band.items = { { title = 'Battery', text = 'low, 20%' }, { title = 'Alarm', text = 'in ten minutes' } }
   band.on_pick = function(self, item) console.print('notice ' .. item.title) end
-  label('month: a calendar of six weeks, always', 26)
+  label('month: six weeks, always', 40)
   local cal = keep(ui.month(10, 250))
   cal.year = 2026
   cal.month = 11
@@ -191,19 +191,19 @@ pages[3] = function()
 end
 
 pages[4] = function()
-  label('textbox: one line, with a caret that blinks alone')
+  label('textbox: one line and a caret', 40)
   local line = keep(ui.textbox(10, 56))
   line.text = 'tap me and the keyboard comes'
   line.cursor = 3
   line.scale = body_scale
-  label('textbox_multiline: the text wraps and a scroll bar', 26)
+  label('textbox_multiline: it wraps', 40)
   local field = keep(ui.textbox_multiline(10, 96))
   field.weight = 1
   field.text = 'A box of several lines: the text wraps, the finger puts the caret where it touches.'
   field.wrap = true
   field.top = -1
   field.scale = body_scale
-  label('selector: a field that is chosen and not typed', 26)
+  label('selector: chosen, not typed', 40)
   local picker = keep(ui.selector(10, 64))
   picker.label = 'Length'
   picker.items = { 'no end', '5 minutes', 'one hour' }
@@ -214,7 +214,7 @@ pages[4] = function()
 end
 
 pages[5] = function()
-  label('menu_bar: a bar of titles and the menu that drops')
+  label('menu_bar: titles and a drop', 40)
   local bar = keep(ui.menu_bar(10, 210))
   bar.scale = body_scale
   bar.items = {
@@ -224,7 +224,7 @@ pages[5] = function()
   bar.open = 1
   bar.index = 1
   bar.on_pick = function(self, title, entry) console.print('menu ' .. title) end
-  label('menu: a card of options, the one of the dial inverted', 26)
+  label('menu: a card of options', 40)
   local menu = keep(ui.menu(10, 120))
   menu.weight = 1
   menu.scale = body_scale
