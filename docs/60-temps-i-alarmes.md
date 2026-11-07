@@ -253,7 +253,7 @@ Com està avui:
 | Peça | Estat |
 |---|---|
 | Rellotge amb època | El que compta és sempre el **del xip**: `gettimeofday` per a l'època i `esp_timer_get_time` per al monòton, amb la marca a la memòria del RTC perquè un son profund no la perdi. Mentre ningú no l'ha posada, `source` és `"none"` i l'època val 0 (el `gettimeofday` de l'ESP32 compta des de l'arrencada i fer-lo passar per època seria mentir). **Al Paper hi ha a sobre la BM8563 amb pila de botó** (`RtcClock`): es llegeix a l'arrencada i **després de cada son que torna**, s'hi escriu a cada `set_epoch` i a cada armat del despert, i mentre ella és la que recorda `source` diu `"rtc"` i l'hora sobreviu a treure el cable. L'emulador: `--now` posa l'època, i des de la 0.59.0 l'hora que el xip recorda **sobreviu entre execucions** —`<state>/clock.bin`, amb el temps que la placa ha estat desendollada comptat— al Paper (`"rtc"`) i als ATOM només amb `--persist` (`"soc"`, que és un reinici i no una placa desendollada); sense cap de les dues, val 0 i diu `"none"` |
-| `time.*` | `now`, `now_ms` i `caps`. Formats, zones i `set` no hi són (docs/30) |
+| `time.*` | `now`, `now_ms`, `utc`, `date`, `tz` i `caps`. Formats, noms de zona i `set` no hi són (docs/30) |
 | Cua única ordenada | `lib/alarms`, 8 entrades de 112 B (896 B). Només la primera s'arma, i `arm_wake` es crida quan canvia la més propera |
 | `alarm.at`/`after`/`cancel`/`list`/`caps` | Hi són. Una app només cancel·la les seves, i el payload és cadena o número fins que hi hagi un codificador JSON |
 | Entrega | `on_alarm(id, payload, {late_ms, missed})` entre dos torns, amb la coroutine suspesa |
@@ -262,6 +262,27 @@ Com està avui:
 | Repeticions | Una diària perduda tres dies arriba **una vegada**, amb `missed = 2` |
 | `persist` | La cua es desa a la NVS amb una **època per línia**, i les vençudes es disparen en arrencar amb el seu `late_ms`. Sense època no s'escriu res |
 | Despert | `can_wake()` és cert a les dues bandes, i a l'ATOM el despert és el temporitzador del RTC i el botó. Una alarma no es pot impedir que es perdi: si no hi ha corrent, es reprodueix en arrencar |
+
+## L'hora de la persona: un desfasament i no una zona (0.125.0)
+
+El xip compta **UTC** —és el que guarden la BM8563 i el RTC del SoC, i el que arriba del NTP— i una persona llegeix
+la seva hora. L'únic número que les uneix és **quants minuts la local va per davant d'UTC**, i viu a `kernel::cfg` com
+qualsevol altre ajust: `cfg tz +01:00` des de la consola, `time.tz('+01:00')` des de Lua, la mateixa clau de la NVS
+(`tz`, escrita com el text que es va teclejar perquè una persona la pugui llegir amb `nvs`) i el mateix parser.
+
+- **`time.utc([t])` és el que compta el xip; `time.date([t])` és el que llegeix la persona**: la segona és la primera
+  amb el desfasament sumat, i amb zero (el valor per defecte) les dues diuen el mateix.
+- **El desfasament va de -14:00 a +14:00** i res més enllà: una hora setze hores per davant és una errata i no un lloc.
+  Un valor desat que no es pot llegir —una build anterior, un text trencat— torna a UTC i ho diu al registre, perquè un
+  rellotge dotze hores desviat en silenci és pitjor que un que no s'ha mogut mai.
+- **No hi ha taula de zones i no se'n inventa cap**: el mapa del món és un megabyte i això dos bytes. Una placa on
+  l'hora canvia dues vegades l'any s'ha de dir el número nou dues vegades l'any, i `cfg tz` ho fa en un segon.
+- **`wday` continua sent 1 per a dilluns a 7 per a diumenge** i la regla dels traspàs continua vivint una sola vegada:
+  `time.utc`/`time.date` demanen el dia de la setmana a `kernel::calendar` i el dia de l'any a `hal::days_from_civil`
+  (docs/30).
+
+Les proves són `test_the_timeclock_of_the_paper_project_keeps_the_day` (l'app que llegeix l'hora, a `test_apps`) i el
+cas del rellotge de `test_calendar`, que ja dona la volta a l'època.
 
 ## El calendari: la regla dels anys de traspàs, una sola vegada (0.75.0)
 

@@ -296,20 +296,57 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 |---|---|---|
 | `time.now()` | enter | Segons des de l'època (UTC) |
 | `time.now_ms()` | enter | Mil·lisegons des de l'època |
-| `time.utc([t])` | taula `{year, month, day, hour, min, sec, wday, yday}` | Per defecte, ara |
-| `time.local([t])` | taula | Aplica la zona de `cfg` |
-| `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` |
-| `time.parse(s, fmt)` | enter o `nil, error` | |
-| `time.set(epoch)` | — | Permís `rtc_set` |
-| `time.tz([cadena])` | cadena | Consulta o fixa la zona (format POSIX) |
+| `time.utc([t])` | taula `{year, month, day, hour, min, sec, wday, yday}` | El moment tal com el compta el xip, o l'`t` que se li dona |
+| `time.date([t])` | taula | El mateix moment **en l'hora de la persona** (`cfg tz`) |
+| `time.tz([offset])` | enter | El desfasament en minuts: es llegeix sol i s'escriu amb un argument |
+| `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` — **encara no hi és** |
+| `time.parse(s, fmt)` | enter o `nil, error` | **Encara no hi és** |
+| `time.set(epoch)` | — | Permís `rtc_set` — **encara no hi és** |
 | `time.sync()` ⏳ | promesa | NTP; requereix xarxa (avui hi ha `net.ntp`, que és el que fa la feina) |
 | `time.caps()` | `{source, synced, wake}` | `source` és `"soc"`, `"rtc"` o `"none"`; `wake` és `"yes"` o `"no"` (si aquesta placa pot armar un despert per a una alarma) |
 
 `time.now()` pot **saltar endavant** quan arriba una sincronització. Per mesurar durades, sempre
 `sys.time_ms()`.
 
-**Avui hi ha** `time.now()`, `time.now_ms()` i `time.caps()`. `utc`, `local`, `format`, `parse`,
-`set`, `tz` i `sync` encara no existeixen: el rellotge dona l'hora i prou (docs/60).
+**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz` i `time.caps()`.
+`format`, `parse`, `set`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el rellotge i cada u la trenca
+com vol (docs/60).
+
+### `time.utc` i `time.date`: el moment en paraules (0.125.0)
+
+Un número no és una data, i **el calendari viu una sola vegada** en aquest sistema (`hal/civil.h` passa d'època a data i
+`kernel/calendar.h` diu quin dia de la setmana és). Aquestes dues crides són la porta perquè una app no hagi de tornar a
+escriure la regla dels anys de traspàs:
+
+```lua
+local t = time.date()          -- l'hora de la persona
+console.print(string.format('%04d-%02d-%02d %02d:%02d', t.year, t.month, t.day, t.hour, t.min))
+console.print('wday ' .. t.wday .. ' yday ' .. t.yday)
+```
+
+- **`wday` és 1 per a dilluns i 7 per a diumenge**, el mateix compte que fa la resta del sistema (docs/60), i `yday`
+  comença a 1 l'u de gener.
+- **`min` i no `minute`**: és el nom del camp, i una taula de vuit camps es llegeix d'un cop d'ull.
+- **`time.date` i no `time.local`**: `local` és una paraula de Lua i `time.local()` ni s'analitza —la mateixa paret que
+  va fer que una alarma digui `in_ms` i no `in`—, i `date` és el nom que el projecte del paper donava a aquesta crida.
+- **Sense desfasament, `time.date()` és `time.utc()`**, que és la veritat d'una placa a qui ningú ha dit on viu.
+
+### `time.tz`: quin desfasament té l'hora de la persona (0.125.0)
+
+El rellotge del xip compta **UTC** i una persona llegeix la seva hora: l'únic número que les uneix és el desfasament, i
+és un ajust del sistema (`cfg tz` a la consola diu i escriu el mateix valor, docs/60).
+
+```lua
+time.tz()          -- els minuts que l'hora local va per davant d'UTC (0 per defecte)
+time.tz('+01:00')  -- el mateix que `cfg tz +01:00`, i torna 60
+time.tz(90)        -- noranta minuts, o sigui +01:30
+```
+
+- **Un text que no és un desfasament es refusa amb `E_INVAL`**, i el parser és el del nucli: la consola i una app
+  accepten les mateixes paraules. **Un número sol és sempre minuts** (`60` fa una hora, `-90` una hora i mitja a l'oest)
+  i la forma `±HH:MM` és la que porta els dos punts: `0130` no vol dir mai una hora i mitja.
+- **No hi ha taula de zones**: això és un desfasament de dos bytes i no el mapa del món, i una placa on l'hora canvia
+  dues vegades l'any s'ha de dir el número nou dues vegades l'any (docs/60).
 
 ## `alarm`
 

@@ -3,6 +3,7 @@
 #include "kernel/cfg.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "kernel/log.h"
@@ -37,6 +38,15 @@ const char kHomeKey[] = "home";
 // the whole name of either half of the door —`squares` and `squares-SD`— and not one byte more.
 const size_t kHomeCap = 40;
 
+// **The hour of the person, which is an offset from the chip's** (0.125.0): the key of the store, and the number the
+// whole system asks for. It is kept as the text the command wrote —`+01:00`— because a person who reads the store
+// with `nvs` has to be able to read what is there (docs/30, docs/60, docs/70).
+const char kTzKey[] = "tz";
+const size_t kTzCap = 8;  // "+01:00" and the null
+// **Fourteen hours either way**, which is every zone the Earth has and a little more: a clock told to be sixteen hours
+// ahead is a typo and not a place.
+const int32_t kTzMaxMinutes = 14 * 60;
+
 hal::IStorage* g_card = nullptr;
 hal::IStorage* g_flash = nullptr;
 hal::IKeyValue* g_nvs = nullptr;
@@ -50,6 +60,8 @@ char g_keyboard[kNameCap] = "qwerty";
 char g_boot[kNameCap] = "boot";
 // The app the board starts by itself, empty for none, and it starts as the build's default (0.119.0).
 char g_home[kHomeCap] = LUNOK_HOME_APP;
+// The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
+int16_t g_tz_minutes = 0;
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -83,6 +95,16 @@ bool remember_home() {
   return g_nvs->set(kNamespace, kHomeKey, value, strlen(value));
 }
 
+// The offset is written as the text the person typed, and never as a binary number: the store is a place people read
+// with the `nvs` command, and a setting that reads as four unreadable bytes is a setting that hides itself (docs/70).
+bool remember_tz() {
+  if (g_nvs == nullptr) return false;
+  char text[kTzCap] = {0};
+  tz_text(text, sizeof(text), g_tz_minutes);
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kTzKey, text, strlen(text));
+}
+
 // Picks the unit and tells the VFS where `/cfg` points. The fallback is said out loud:
 // asking for the card and getting the flash in silence would be the settings moving
 // without anybody deciding it.
@@ -114,6 +136,8 @@ void boot(hal::IPlatform& platform) {
   // **The home app starts at the name the build carries** (0.119.0) and only the store can move it: a second boot
   // of the same object —the tests boot the kernel again— must not inherit the name of the run before.
   snprintf(g_home, sizeof(g_home), "%s", LUNOK_HOME_APP);
+  // The hour starts at UTC for the same reason: a bench that boots twice must not inherit the offset of the run before.
+  g_tz_minutes = 0;
 
   char raw[kNameCap] = {0};
   size_t len = 0;
@@ -177,10 +201,28 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **The hour of the person, if the store says one** (0.125.0): a value that does not parse —a text an older build
+  // wrote, a zone this clock cannot have— falls back to UTC and says so, because a clock silently twelve hours off is
+  // worse than one that never moved (docs/30, docs/60).
+  char raw_tz[kTzCap] = {0};
+  size_t tz_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kTzKey, raw_tz, sizeof(raw_tz) - 1, tz_len) && tz_len > 0 &&
+        tz_len < sizeof(raw_tz)) {
+      raw_tz[tz_len] = '\0';
+      int32_t minutes = 0;
+      if (parse_tz(raw_tz, minutes)) {
+        g_tz_minutes = static_cast<int16_t>(minutes);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "tz '%s' is not an offset; the clock stays on UTC", raw_tz);
+      }
+    }
+  }
   apply();
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s",
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
-             (g_home[0] != '\0') ? g_home : "none");
+             (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60);
 }
 
 const char* unit() { return g_unit; }
@@ -195,8 +237,68 @@ bool set_keyboard(const char* id) {
   return remember_keyboard();
 }
 
-const char* boot_splash() { return g_boot; }
+// **The offset of the hour, and the three calls that read and write it** (0.125.0). The number is kept in the store as
+// text, and the boot puts the default of the build in front of the reading so that a second boot of the same object —the
+// tests — does not inherit what the run before set.
+int16_t tz_minutes() { return g_tz_minutes; }
 
+bool tz_text(char* out, size_t cap, int32_t minutes) {
+  if (out == nullptr || cap < kTzCap) return false;
+  if (minutes > kTzMaxMinutes || minutes < -kTzMaxMinutes) return false;
+  const int32_t magnitude = (minutes < 0) ? -minutes : minutes;
+  snprintf(out, cap, "%c%02d:%02d", (minutes < 0) ? '-' : '+', static_cast<int>(magnitude / 60),
+           static_cast<int>(magnitude % 60));
+  return true;
+}
+
+bool parse_tz(const char* text, int32_t& minutes) {
+  if (text == nullptr || text[0] == '\0') return false;
+  const char* at = text;
+  int32_t sign = 1;
+  if (*at == '+' || *at == '-') {
+    if (*at == '-') sign = -1;
+    ++at;
+  }
+  if (*at == '\0') return false;
+
+  // **A number on its own is a number of minutes, always**: `60` is one hour east, `-90` an hour and a half west and
+  // `-0330` is three hundred and thirty minutes west —printed back as `-05:30`, so a person sees what was understood—.
+  // The `±HH:MM` form is the one with a colon, and a bare number never means hours, because `0130` could be either
+  // and a setting that can be read two ways is a setting that will be.
+  bool digits = true;
+  if (*at == '\0') return false;
+  for (const char* c = at; *c != '\0'; ++c) {
+    if (*c < '0' || *c > '9') {
+      digits = false;
+      break;
+    }
+  }
+  if (digits) {
+    if (strlen(at) > 5) return false;
+    const int32_t value = static_cast<int32_t>(atoi(at));
+    if (value > kTzMaxMinutes) return false;
+    minutes = sign * value;
+    return true;
+  }
+
+  // `H:MM` or `HH:MM`, and the colon is what says the first number is hours.
+  int hours = 0;
+  int mins = 0;
+  if (sscanf(at, "%2d:%2d", &hours, &mins) != 2) return false;
+  if (hours < 0 || hours > 14 || mins < 0 || mins > 59) return false;
+  const int32_t total = hours * 60 + mins;
+  if (total > kTzMaxMinutes) return false;
+  minutes = sign * total;
+  return true;
+}
+
+bool set_tz_minutes(int32_t minutes) {
+  if (minutes > kTzMaxMinutes || minutes < -kTzMaxMinutes) return false;
+  g_tz_minutes = static_cast<int16_t>(minutes);
+  return remember_tz();
+}
+
+const char* boot_splash() { return g_boot; }
 // **The two words that are drawings of the logo**: the splash is the one that says which moments exist, so the
 // question is asked there and not repeated here as a list that could drift (docs/30, docs/50).
 bool is_a_boot_word(const char* word) {

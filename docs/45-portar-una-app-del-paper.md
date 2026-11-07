@@ -5,8 +5,8 @@ viure aquí, amb la mateixa cara. No és una traducció línia per línia: les d
 d'interfície diferents i el que es porta és **la pantalla i el comportament sencers**, amb els
 números de l'original.
 
-Les dues primeres que s'han fet així són `calculator` (0.121.0) i `about` (0.122.0, amb la llista de
-biblioteques a 0.124.0), i tot el que hi ha aquí surt d'haver-les fet.
+Les que s'han fet així són `calculator` (0.121.0), `about` (0.122.0, amb la llista de biblioteques a
+0.124.0) i `timeclock` (0.125.0), i tot el que hi ha aquí surt d'haver-les fet.
 
 ## 1 · Què es llegeix de l'original, abans d'escriure res
 
@@ -144,6 +144,35 @@ De la resta de propietats, el que s'ha de copiar tal com és:
   puja la seva: la calculadora va néixer en 0.1.0 i és a 0.2.0, i `about` va d'0.1.0 a 0.3.0. Una app
   que canvia i es queda amb el mateix número està mentint sobre el que porta.
 - **I la versió del sistema** puja també en el mateix commit (llei 10 del README).
+
+## 6 bis · El port gran: `timeclock` (0.125.0)
+
+`Timeclock` és la primera app portada que **no cap en un fitxer** de l'original: allà eren `pos_launch.lua` (1 187
+línies), `day.lua` (660) i `week.lua` (163), amb els dos mòduls carregats per `files.load()`. Cinc coses que aquest
+port va ensenyar i que valen per al següent:
+
+- **Un mòdul no viatja com a mòdul.** `dofile`, `loadfile` i `load` són `nil` a l'estat d'una app (docs/20), o sigui
+  que `day.lua` i `week.lua` **no es poden carregar**: les tres parts són un sol fitxer de 1 250 línies, amb l'ordre
+  de sempre —dades, dibuix, pàgina— i el capçal de cada part dient de quin fitxer de l'original surt.
+- **El preu de la font es diu al pitjor moment i no a la pàgina.** L'app fa **44 545 B** i el sostre de font de la
+  shell era de 32 768 B (`too big to run`): el sostre és **49 152 B** des d'aquesta versió, i no costa RAM mentre
+  l'app corre perquè el bloc es torna quan el chunk ja està compilat (docs/75). El chunk que queda són **21 578 B**
+  sense noms de depuració.
+- **Dibuixar un gràfic és un `ui.canvas`.** L'original el pintava a `on_draw()`, que aquí no existeix; un canvas amb
+  `on_draw` propi fa la mateixa feina i a sobre té el seu buffer i el seu dany (docs/30). Les quatre tintes
+  (paper 15, graella 11, descans 8, feina 0) hi caben a la mateixa taula de setze grisos.
+- **Una icona de la zona privada d'Unicode no es pot portar.** Les tres tecles de l'original eren glifs U+F04B, U+F04C
+  i U+F04D d'un `keys.pof` propi, i aquest sistema només coneix `lfont`, BDF, PCF i TTF **de l'ASCII imprimible**: les
+  tecles diuen `Start`, `Pause`/`Resume` i `End`, que és el que l'original mateix feia quan li faltava la cara.
+- **L'hora d'una persona no és l'hora del xip**, i això va ser una crida nova del sistema: `time.utc()`, `time.date()`
+  i `time.tz()` amb `cfg tz +01:00` (docs/30, docs/60). Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
+  llegeix, i el desfasament és una cosa que el sistema ha de saber, no cada app.
+
+**I el que sí que es va poder copiar sencer**: el format del fitxer d'apunts (`2026-11-01|09:00:00|S`, només creix,
+el dia es llegeix com el cul del fitxer), el de les notes (un fitxer a part perquè una nota s'edita i una edició és
+una reescriptura), la finestra de feina de 07:00 a 19:00 que retalla cada interval abans de sumar-lo, el dia que es
+pinta (l'últim amb apunts i no avui) i la mitjana dels dies que tenen apunts. Les mides tornen a ser les de l'original
+en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla fa 84 px.
 
 ## 7 · La llista, en ordre
 

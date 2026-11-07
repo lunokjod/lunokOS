@@ -920,6 +920,12 @@ int64_t epoch_ms_or_zero() {
   return (clock != nullptr) ? clock->epoch_ms() : 0;
 }
 
+// **The operations and the two tools of an error are defined further down**, with the rest of the doors of the system:
+// they are named here because a `time` call that needs them comes before them in this file, and the alternative —a
+// second copy of the error table— is the thing this comment is here to prevent (docs/30).
+extern TimeOps g_time_ops;
+int push_nil_error(lua_State* L, const char* code, const char* message);
+
 int l_time_now(lua_State* L) {
   lua_pushinteger(L, static_cast<lua_Integer>(epoch_ms_or_zero() / 1000));
   return 1;
@@ -944,6 +950,105 @@ int l_time_caps(lua_State* L) {
   lua_setfield(L, -2, "wake");
   return 1;
 }
+
+// **The parts of a moment** (0.125.0): the year, the month, the day, the hour, the minute and the second that an hour
+// on the glass is made of, plus the weekday and the day of the year. `time.now()` is a number and a person reads a
+// date, so this is the one translation there is —and it is the system's, because the calendar rule lives once
+// (`hal/civil.h`, `kernel/calendar.h`) and a second copy of it is a second answer (docs/30, docs/60, docs/90).
+//
+// **`wday` is 1 for Monday and 7 for Sunday**, the same count the calendar of this system uses everywhere else, and
+// `yday` starts at 1 on the first of January.
+void push_civil(lua_State* L, int64_t epoch_ms) {
+  int year = 1970;
+  int month = 1;
+  int day = 1;
+  int hour = 0;
+  int minute = 0;
+  int second = 0;
+  hal::epoch_ms_to_civil(epoch_ms, year, month, day, hour, minute, second);
+  lua_createtable(L, 0, 8);
+  lua_pushinteger(L, year);
+  lua_setfield(L, -2, "year");
+  lua_pushinteger(L, month);
+  lua_setfield(L, -2, "month");
+  lua_pushinteger(L, day);
+  lua_setfield(L, -2, "day");
+  lua_pushinteger(L, hour);
+  lua_setfield(L, -2, "hour");
+  lua_pushinteger(L, minute);
+  lua_setfield(L, -2, "min");
+  lua_pushinteger(L, second);
+  lua_setfield(L, -2, "sec");
+  const uint8_t wday = (g_time_ops.weekday_of != nullptr)
+                           ? g_time_ops.weekday_of(static_cast<uint16_t>(year), static_cast<uint8_t>(month),
+                                                   static_cast<uint8_t>(day))
+                           : 0;
+  lua_pushinteger(L, wday);
+  lua_setfield(L, -2, "wday");
+  // **The day of the year is a difference of the calendar the HAL already has**, not a sum of the months written here:
+  // two dates of the same year and one subtraction, and February is nobody's business in this file (docs/60).
+  const int64_t yday = hal::days_from_civil(year, month, day) - hal::days_from_civil(year, 1, 1) + 1;
+  lua_pushinteger(L, static_cast<lua_Integer>(yday));
+  lua_setfield(L, -2, "yday");
+}
+
+// The moment the call is about: the number it was given, or now.
+int64_t moment_ms(lua_State* L, int index) {
+  if (lua_isnumber(L, index)) {
+    return static_cast<int64_t>(lua_tointeger(L, index)) * 1000;
+  }
+  return epoch_ms_or_zero();
+}
+
+// time.utc([epoch]): the moment as the chip counts it, which is UTC (docs/30, docs/60).
+int l_time_utc(lua_State* L) {
+  push_civil(L, moment_ms(L, 1));
+  return 1;
+}
+
+// **time.date([epoch])**: the same moment in the hour of the person, which is the offset `cfg tz` keeps. With no offset
+// set it is `time.utc()`, and that is the truth of a board nobody has told where it lives (docs/30, docs/60).
+//
+// **It is `date` and not `local`** because `local` is a word of Lua and `time.local()` does not even parse —the same
+// wall the `in` of an alarm hit (docs/30)—, and `date` is the name the paper project gave this call, which is one more
+// row of the equivalence table of docs/45 with nothing to explain.
+int l_time_date(lua_State* L) {
+  const int32_t shift = (g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0;
+  push_civil(L, moment_ms(L, 1) + static_cast<int64_t>(shift) * 60000);
+  return 1;
+}
+
+// time.tz([offset]): the offset itself, in minutes —the number the rest of the world calls UTC offset— or the text
+// `+01:00` when an app wants to show it. A call with no argument answers the one that is set; a call with one sets it
+// and answers the new one. **A number of minutes and not a zone name**: this system has no table of the world's zones
+// and does not pretend to (docs/30, docs/60).
+int l_time_tz(lua_State* L) {
+  if (g_time_ops.tz_minutes == nullptr || g_time_ops.set_tz_minutes == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no hour of its own");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    int32_t minutes = 0;
+    if (lua_isnumber(L, 1)) {
+      minutes = static_cast<int32_t>(lua_tointeger(L, 1));
+    } else if (lua_isstring(L, 1) && g_time_ops.parse_tz != nullptr) {
+      // **The text form the settings use**: `+01:00`, `-0330`, `60`. The parser is the kernel's, so an app and the
+      // prompt accept exactly the same words and refuse exactly the same ones (docs/30, docs/60).
+      int32_t parsed = 0;
+      if (!g_time_ops.parse_tz(lua_tostring(L, 1), parsed)) {
+        return push_nil_error(L, "E_INVAL", "that is not an offset: write +01:00, -03:30 or minutes");
+      }
+      minutes = parsed;
+    } else {
+      return push_nil_error(L, "E_INVAL", "the offset is minutes, or a text like +01:00");
+    }
+    if (!g_time_ops.set_tz_minutes(minutes)) {
+      return push_nil_error(L, "E_INVAL", "that is not an offset this clock can have");
+    }
+  }
+  lua_pushinteger(L, g_time_ops.tz_minutes());
+  return 1;
+}
+
 
 // ---------------------------------------------------------------------------
 // alarm: it belongs to the system, not to the machine that asked for it
@@ -1143,6 +1248,7 @@ LedOps g_led_ops = {};      // and led.*
 ImuOps g_imu_ops = {};      // and imu.*
 EnvOps g_env_ops = {};      // and env.*
 ButtonOps g_button_ops = {};  // and button.*
+TimeOps g_time_ops = {};      // and time.tz() / time.local()
 
 int push_nil_error(lua_State* L, const char* code, const char* message) {
   lua_pushnil(L);
@@ -8998,10 +9104,13 @@ void seal_globals(lua_State* L) {
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
   // the one that never goes back (docs/60).
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 6);
   set_function(L, "now", l_time_now);
   set_function(L, "now_ms", l_time_now_ms);
   set_function(L, "caps", l_time_caps);
+  set_function(L, "utc", l_time_utc);
+  set_function(L, "date", l_time_date);
+  set_function(L, "tz", l_time_tz);
   lua_setglobal(L, "time");
 
   // alarm: what the system keeps for the app when the app is not running.
@@ -9623,7 +9732,6 @@ const char* app_id() { return g_app_id; }
 const char* app_path() { return g_app_path; }
 
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
-
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }
 
 void set_power_ops(const PowerOps& ops) { g_power_ops = ops; }
@@ -9636,6 +9744,9 @@ void set_env_ops(const EnvOps& ops) { g_env_ops = ops; }
 
 void set_button_ops(const ButtonOps& ops) { g_button_ops = ops; }
 
+// The hour of the person: `time.local()` and `time.tz()` answer from here, and with no operations installed they answer
+// UTC and `E_UNSUPPORTED`, which is the truth of a system that was not told where it lives (docs/30, docs/60).
+void set_time_ops(const TimeOps& ops) { g_time_ops = ops; }
 // The glass, the same way: the kernel installs it at boot and the three calls of `touch` answer from
 // it (docs/30, docs/50).
 void set_touch_ops(const TouchOps& ops) { g_touch_ops = ops; }

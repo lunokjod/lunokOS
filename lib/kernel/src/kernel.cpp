@@ -311,6 +311,9 @@ void boot(hal::IPlatform& platform) {
   // From here an app may read files: the interpreter gets the VFS through these
   // four operations and never depends on it (docs/70).
   install_fs_ops();
+  // **And the hour of the person beside the disk** (0.125.0): an app that reads a clock reads a date and an hour, and
+  // which hour is the person's is a setting of the system (docs/30, docs/60).
+  install_time_ops();
   net::boot(platform);
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).

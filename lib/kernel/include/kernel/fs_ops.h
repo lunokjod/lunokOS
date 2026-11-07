@@ -9,6 +9,10 @@ namespace kernel {
 // at boot, before any app can run (docs/70).
 void install_fs_ops();
 
+// **The hour of the person, as an offset from the chip's** (0.125.0): `time.local()` and `time.tz()` answer from here,
+// and the weekday of a date is the calendar of this system and not a second copy of the rule (docs/30, docs/60).
+void install_time_ops();
+
 // **A path the way the app that is running sees it**: absolute, with `/res/x` turned into the app's own
 // `apps/<id>/res/x` and `/cfg/x` into `/cfg/<id>/x`, because those two are doors of an app and not disks
 // (docs/70). False when the path is not one an app may name. It is what any kernel call that takes a path

@@ -67,7 +67,13 @@ const size_t kPrintCap = 1024;
 // RAM since 0.56.0: it is asked of the heap and given back the moment the chunk is compiled, so **32 768 B
 // costs 16 KB of heap while an app starts and nothing while it runs** (docs/75). It does not grow again
 // without a number and a paragraph in docs/75.
-const size_t kSourceCap = 32768;
+//
+// **48 KB since 0.125.0**: the port of the paper project's Timeclock is **44 545 B** of Lua —the day, the week, the
+// chart and the page, with the comments that say why each number is what it is— and the 32 KB cap said no to an app
+// that fits the board. What it costs is the moment of the load and nothing after it: the block is freed before the app
+// runs a line, and the chunk the compiler keeps is **21 578 B** stripped (43 499 B with the debug names), which fits the
+// 131 072 B ceiling of an interpreter with its 29 842 B floor to spare (docs/75, measured on the bench).
+const size_t kSourceCap = 49152;
 // **The ceiling of an app's interpreter when the board does not say one**: 131 072 B since 4/11, and it was
 // 65 536 B. The number is measured and not chosen: on an ATOM the interpreter is **29 842 B** before the app
 // has run a line (13 021 of Lua itself, 13 200 of the UI library and the rest the other globals), so a 64 KB
@@ -3391,7 +3397,7 @@ bool command_cfg(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]]\r\n");
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]]\r\n");
     return false;
   }
 
@@ -3439,9 +3445,30 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
-    if (strcmp(words[0], "keyboard") != 0) {
-      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]]\r\n");
+    if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
+      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]]\r\n");
       return false;
+    }
+    // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
+    // time clock that says "07:00 to 19:00" has to mean the seven of the person and not the seven of the quartz
+    // (docs/30, docs/60). `utc` and `none` put it back to zero, which is a real setting and not a cleared one.
+    if (strcmp(words[0], "tz") == 0) {
+      int32_t minutes = 0;
+      if (strcmp(words[1], "utc") == 0 || strcmp(words[1], "none") == 0) {
+        minutes = 0;
+      } else if (!cfg::parse_tz(words[1], minutes)) {
+        out("cfg: '");
+        out(words[1]);
+        out("' is not an offset; write +01:00, -03:30 or a number of minutes\r\n");        return false;
+      }
+      const bool kept = cfg::set_tz_minutes(minutes);
+      char text[8] = {0};
+      cfg::tz_text(text, sizeof(text), minutes);
+      out("settings: tz ");
+      out(text);
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
     }
     if (!ui::keyboard_select(words[1])) {
       out("cfg: no keyboard '");
@@ -3461,6 +3488,16 @@ bool command_cfg(const char* argument) {
   if (count == 1) {
     if (strcmp(words[0], "boot") == 0) {
       say_boot_pictures();
+      return true;
+    }
+    // **The hour the person lives in, and whether it is the chip's own** (0.125.0): the offset is the setting and UTC is
+    // what the clock counts, and the line says which of the two the glass is showing (docs/30, docs/60).
+    if (strcmp(words[0], "tz") == 0) {
+      char text[8] = {0};
+      cfg::tz_text(text, sizeof(text), cfg::tz_minutes());
+      out("settings: tz ");
+      out(text);
+      out((cfg::tz_minutes() == 0) ? " (the clock counts UTC)\r\n" : "\r\n");
       return true;
     }
     // **The app that comes up with the board, and what this board's build says** (0.119.0): the two numbers are the

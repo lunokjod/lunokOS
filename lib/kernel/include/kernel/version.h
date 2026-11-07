@@ -2342,7 +2342,56 @@ namespace kernel {
 // case— and the version of `alarms` as the tree has it, then the middle key opening the first row and Back, so
 // 480 cases stand where they were.
 // **Pending**: the tests of the turn (none executed) and the same line of the ATOM.
-static const char kVersion[] = "0.124.0";
+// 0.125.0 (7/11): **the time clock of the paper project runs here, and the clock learns to say the hour of the person**.
+//
+// The eighth app of the porting plan is the first one that is not a page of controls: `Timeclock` is a day of work kept
+// in a file that only grows, three keys, a list with a note on each mark, and a bar chart of the week behind an eye. The
+// original is `pos_launch.lua` (1 187 lines) + `day.lua` (660) + `week.lua` (163), and the port is one file of
+// **47 507 B** —of which **23 556 B** are the stripped chunk the interpreter keeps— with the data, the chart and the
+// page in the order they are needed and the reason each number is what it is in the comment above it (docs/45 §6 bis).
+//
+// **One file and not three, because an app cannot execute a file here**: `dofile`, `loadfile` and `load` are removed
+// from an app's state on purpose (docs/20), so the two modules of the original cannot be loaded and are not modules any
+// more. And **the source cap of the entry chunk had to grow from 32 768 B to 49 152 B**: the app did not fit, and the
+// cap is a block of the heap that is asked when an app starts and given back the moment the chunk is compiled, so the
+// price is the load and nothing while the app runs (docs/75). The next growth of that number needs its own paragraph
+// and its own measurement. **`keys.pof` is not ported**: the three keys of the original are three glyphs of the private
+// use area, and a face here is ASCII only, so the buttons say `Start`, `Pause`/`Resume` and `End` —the fallback the
+// original carried for a missing face— and the eye says `Week` or `Day`.
+//
+// **And the clock learned the hour of the person**, which is the part that was a call of the system and not an app's
+// business: the chip counts UTC and every hour a person reads is local, so `kernel::cfg` keeps one number —the minutes
+// the local hour is ahead of UTC—, `cfg tz +01:00` writes it, `time.tz('+01:00')` writes the same value, and three calls
+// arrived with it: **`time.utc([t])`** (the moment as the chip counts it), **`time.date([t])`** (the same moment in the
+// hour of the person) and **`time.tz([offset])`**. It is `date` and not `local` because `local` is a word of Lua and
+// `time.local()` does not even parse —the wall the `in` of an alarm hit— and because `date` is the name the paper
+// project gave it, which makes one more row of the equivalence table of docs/45 have nothing to explain. The weekday of
+// a date is `kernel::calendar::weekday_of` through a hook and the day of the year is `hal::days_from_civil`: the rule of
+// the leap years does not get a second copy, which is the thing docs/60 exists to prevent.
+//
+// Measured on the bench (m5stack-paper, the font of the disk, the app on the card, the clock fixed at 2026-11-01
+// 09:00): `run timeclock` prints `timeclock: day 2026-11-01, 0 marks, work 0h 00m, rest 0h 00m, Not started today` and
+// paints **540x912 once**; a day written by hand of four marks reads `work 9h 00m, rest 1h 00m, Day closed at 18:00`
+// and repaints **one region of 500x705** —the controls, not the page—; the eye turns the sheet with **one 540x912** and
+// the chart prints `avg 8h 07m in 4 day(s)` over five bars from Monday to Friday with the scale at 11h, 5h and 0h; the
+// turn back is another 540x912 and says the day again. `time.utc()` at the epoch 1793523600 says
+// **2026-11-01 09:00:00, wday 7, yday 305**, and `time.tz('+01:00')` makes `time.date()` say 10:00 and returns 60;
+// `cfg tz` answers `settings: tz +01:00`, `cfg tz nonsense` is refused with the two forms that are accepted, and the
+// setting survives a second boot (`tz +01:00` in the line of the CFG). The memory of the app is **141 510 B of the
+// 4 194 304 B** of the Paper (`sys.heap()`), peak included, which is why its own manifest still says `esp32`: a board
+// with no glass stops at the first line, before it pays any of it.
+//
+// **The icon travels with its master**, as docs/45 says: `res/icon-source.png` is the 448 x 448 greys a person edits
+// and `tools/make_icon.py` writes the **94 x 94** that `"icon"` names, **2 881 B** —the same three things the paper's
+// `icongen.py` did to it—, and `apps info timeclock` prints `icon        res/icon.png`.
+//
+// `apps/timeclock` is at **0.1.0**, the number a port starts at (docs/45), and the case is
+// `test_the_timeclock_of_the_paper_project_keeps_the_day`: the app says where its controls are (`run timeclock keys`),
+// the test puts the finger on Start, on Pause, on Pause again and on the eye, and it reads the file the marks went to —
+// `2026-11-01|09:00:00|S` and nothing else— so 480 -> **481 cases**.
+// **Pending**: the tests of the turn (none executed), `timeclock` in `custom_apps` (a word in `platformio.ini`, which is
+// the owner's), and the same line of the ATOM.
+static const char kVersion[] = "0.125.0";
 
 }  // namespace kernel
 

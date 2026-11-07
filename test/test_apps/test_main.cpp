@@ -9538,8 +9538,10 @@ int count_libraries_in_the_tree() {
     struct dirent* entry = nullptr;
     while ((entry = readdir(dir)) != nullptr) {
       if (entry->d_name[0] == '.') continue;
-      char manifest[160];
-      snprintf(manifest, sizeof(manifest), "%s/%s/library.json", dir_path, entry->d_name);
+      // A folder of `lib/` is a name of at most sixty-four characters —and one longer than that is not a library this
+      // tree has—, so the name goes in with its own bound and the path has a size the compiler can check.
+      char manifest[192];
+      snprintf(manifest, sizeof(manifest), "%s/%.64s/library.json", dir_path, entry->d_name);
       struct stat info = {};
       if (stat(manifest, &info) == 0) ++count;
     }
@@ -9648,6 +9650,149 @@ void test_the_about_app_lists_the_libraries_of_the_project(void) {
   storage->remove("/apps/about/about.lua");
   storage->remove("/apps/about/manifest.json");
   storage->remove("/apps/about");
+}
+
+// **The time clock of the paper project, key by key** (0.125.0): the two sheets —the day with its three keys and the
+// week behind the eye—, the mark a press writes, the file it writes it to and the hour the clock is set to.
+//
+// The three keys are the app's whole job and they are pressed the way a person presses them: the dial walks the page
+// and the centre of the paper's dial presses what the ring is on, so a page of real controls is walked and not called.
+// The clock is fixed at nine in the morning of a Sunday —inside the work day, and a day whose week is known— so the
+// mark has one hour and not the hour the suite happens to run at (docs/45, docs/85).
+void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  // **Nine in the morning of a Sunday**: inside the work day of this app —07:00 to 19:00— and a day whose week is
+  // known, so the hour of the mark does not depend on when the suite runs (docs/45, docs/85).
+  opts.now_epoch = 1793523600;  // 2026-11-01 09:00:00 UTC
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/timeclock"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/timeclock/timeclock.lua", "/apps/timeclock/timeclock.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/timeclock/manifest.json", "/apps/timeclock/manifest.json"));
+
+  // **The app says where its controls are** when it is asked with `keys`, so the finger of the test goes where the page
+  // drew them and not where a layout of this file guessed they would be (docs/30, docs/85).
+  kernel::log_echo(true);
+  pump_captured(60, g_out, sizeof(g_out), "run timeclock keys");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: three keys"), g_out);
+  // **The day it opens with**: today, with nothing on it, the two numbers at zero and the state read from the marks.
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "timeclock: day 2026-11-01, 0 marks, work 0h 00m, rest 0h 00m, Not started today"), g_out);
+  // The page is washed whole and once: 540x912 is the view of this board under the bar of the system (docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "540x912"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+
+  struct Spot {
+    char name[8];
+    int x;
+    int y;
+  };
+  Spot spots[8] = {};
+  int spot_count = 0;
+  for (const char* at = strstr(g_out, "Timeclock "); at != nullptr && spot_count < 8;
+       at = strstr(at + 1, "Timeclock ")) {
+    char name[8] = {0};
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    if (sscanf(at, "Timeclock %7s %d %d %d %d", name, &x, &y, &w, &h) != 5) continue;
+    snprintf(spots[spot_count].name, sizeof(spots[0].name), "%s", name);
+    spots[spot_count].x = x;
+    spots[spot_count].y = y;
+    ++spot_count;
+  }
+  // The three keys, the eye and the box of the note: five controls, and the row of the list and the chart are the
+  // other two.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(6, spot_count, g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // A control is pressed where the app says it is, and the panel counts in the frame of the page: the point of the view
+  // is the point of the glass plus where the view sits under the bar (docs/30, docs/50).
+  auto press = [&](const char* want) {
+    for (int i = 0; i < spot_count; ++i) {
+      if (strcmp(spots[i].name, want) != 0) continue;
+      if (!panel->finger_down(0, static_cast<uint16_t>(view.x + spots[i].x),
+                              static_cast<uint16_t>(view.y + spots[i].y))) {
+        return false;
+      }
+      pump_turns(60);
+      if (!panel->finger_up(0)) return false;
+      pump_turns(60);
+      return true;
+    }
+    return false;
+  };
+
+  // **The play key opens the day**: a mark of the kind the file names, at the hour of the clock and not at any other.
+  capture_begin();
+  TEST_ASSERT_TRUE(press("start"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: mark Start at 09:00"), g_out);
+
+  // And it is in the file, in the format the paper project writes: one line of twenty-four bytes, the day, the hour
+  // and the kind, and the file only ever grows (docs/45, docs/70).
+  static char marks[256];
+  TEST_ASSERT_TRUE_MESSAGE(read_text(storage, "/data/timeclock/marks.txt", marks, sizeof(marks)),
+                           "the mark of the play key is not on the disk");
+  TEST_ASSERT_EQUAL_STRING("2026-11-01|09:00:00|S\n", marks);
+
+  // **The same key twice is pause and resume**, which is the one thing the middle key does: it says what the day is.
+  capture_begin();
+  TEST_ASSERT_TRUE(press("pause"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: mark Pause at 09:00"), g_out);
+
+  capture_begin();
+  TEST_ASSERT_TRUE(press("pause"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: mark Resume at 09:00"), g_out);
+
+  // **The eye turns the sheet**: the week is read when it is the one that is about to be shown, and it says its five
+  // days and the average of the days that have marks (the Sunday of this clock is not one of them).
+  capture_begin();
+  TEST_ASSERT_TRUE(press("eye"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: week 10/26-10/30, avg 0h 00m in 0 day(s)"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+
+  // And the same control, in the same place, brings the day back —and reads it again, because minutes may have passed
+  // under the chart.
+  capture_begin();
+  TEST_ASSERT_TRUE(press("eye"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timeclock: day 2026-11-01, 3 marks"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+
+  storage->remove("/apps/timeclock/timeclock.lua");
+  storage->remove("/apps/timeclock/manifest.json");
+  storage->remove("/apps/timeclock");
+  storage->remove("/data/timeclock/marks.txt");
+  storage->remove("/data/timeclock/notes.txt");
+  storage->remove("/data/timeclock");
+
+  // The next test gets the default bench back: the glass and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
 }
 
 int main(int argc, char** argv) {  (void)argc;
@@ -9837,6 +9982,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so);
   RUN_TEST(test_the_calculator_of_the_paper_project_adds_with_the_finger);
   RUN_TEST(test_the_about_app_lists_the_libraries_of_the_project);
+  RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
   UNITY_END();
   return 0;
 }

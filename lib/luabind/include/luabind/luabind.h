@@ -93,6 +93,27 @@ struct FileOps {
 // Installs the file operations. Without them fs.* answers E_UNSUPPORTED.
 void set_file_ops(const FileOps& ops);
 
+// **The hour of the person, which is a setting of the system** (0.125.0): the chip counts UTC and every clock a person
+// reads is local, so the kernel keeps one number —the minutes the local hour is ahead of UTC— and this is how the
+// interpreter asks for it and changes it. It is a hook and not a table of zones because a zone table is a megabyte and
+// an offset is two bytes, and because `cfg tz +01:00` from the prompt writes exactly the same value (docs/30, docs/60).
+struct TimeOps {
+  // The minutes east of UTC, as the settings have them.
+  int32_t (*tz_minutes)();
+  // Writes it. False when the number is not a zone the clock could have, or when the store refused.
+  bool (*set_tz_minutes)(int32_t minutes);
+  // **Reads the two ways a person writes an offset** —`+01:00`, `-0330`, `60`— and refuses what is neither. It is the
+  // kernel's own parser and not a second one written here: the prompt and an app have to accept the same words
+  // (docs/30, docs/60).
+  bool (*parse_tz)(const char* text, int32_t& minutes);
+  // **Which weekday a date falls on, 1 for Monday and 7 for Sunday**: the rule of the leap years and the count of
+  // Sakamoto live once in this system (`kernel/calendar.h`), and a second copy written here would be a second answer
+  // that disagrees twice a year (docs/60, docs/90).
+  uint8_t (*weekday_of)(uint16_t year, uint8_t month, uint8_t day);
+};
+
+void set_time_ops(const TimeOps& ops);
+
 // What net.caps() may say. A bit is only promised when the board really has it
 // (docs/30, docs/50).
 enum NetFeature : uint32_t {

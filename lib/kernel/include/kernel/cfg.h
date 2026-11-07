@@ -59,6 +59,24 @@ bool set_home_app(const char* id);
 // False when the name is not one of the three, or when that unit is not mounted.
 bool set_unit(const char* name);
 
+// **The clock of the chip is UTC and a person reads their own hour** (0.125.0): the system keeps the one number that
+// joins them —how many minutes the local hour is ahead of UTC— and `time.local()` applies it, so an app that says
+// "07:00 to 19:00" is saying it in the hour the person is living in and not in the one the quartz counts (docs/30,
+// docs/60). It is a setting of the system and not of an app: `cfg tz +01:00` writes it, `time.tz()` does the same
+// from Lua, and the two read the same value.
+//
+// **It is an offset and not a zone**: this system has no table of the world's zones and does not pretend to, so a
+// board that lives where the hour changes twice a year has to be told the new offset —one command, twice a year—.
+int16_t tz_minutes();
+// Minutes east of UTC, from -14:00 to +14:00. False when the number is not a zone this clock could have.
+bool set_tz_minutes(int32_t minutes);
+// "+01:00", "-03:30" or "+00:00": the way the setting is written in the store and on the glass (seven characters and
+// the null, so `cap` has to be eight).
+bool tz_text(char* out, size_t cap, int32_t minutes);
+// **Reads the two ways a person writes an offset**: `+01:00`, `-0330`, `+1`, `01:00` or a number of minutes on its
+// own (`60`, `-90`). True when `text` is one of them, and then `minutes` holds it.
+bool parse_tz(const char* text, int32_t& minutes);
+
 // The real path of one app's settings, for a person to read: "/sd/cfg/<id>".
 bool dir_for_app(char* out, size_t cap, const char* app);
 

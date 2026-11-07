@@ -1,0 +1,9 @@
+{
+  "title": "Timeclock",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "timeclock.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "A time clock: start, pause and end.\nWork, rests, a note on each mark and the week's chart."
+}
