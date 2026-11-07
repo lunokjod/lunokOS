@@ -27,10 +27,17 @@ ui.title('Library')
 
 -- **The size of the view is read every time the system gives another one** (0.136.0): asking for the whole glass and
 -- giving it back are two of those moments, and a canvas of the size of before is a page with a strip of paper left over.
-local kFoot = 40
--- **The room the dots take at the right of the foot** (docs/46, C5): a ball is 25 pixels and 7 of air, so this is eight of
--- them and the window follows the page that is read when the chapter has more.
-local kDotsW = 264
+--
+-- **The foot is the one of the reader of the paper** (0.138.0, docs/46 C5): **84 rows** —a line across at the top, the
+-- chapter and how far in on the left with the end of the chapter on the right, and under them the strip of the pages of
+-- the chapter— which is the row the text of the book never touches.
+local kFoot = 84
+local kFootLine = 2
+local kFootText = 8
+local kFootRow = 30
+local kFootEnd = 200
+local kStripTop = 44
+local kStripH = 40
 local view = { w = 0, h = 0 }
 local kPageW = 0
 local kPageH = 0
@@ -115,12 +122,19 @@ local books = {}
 local book = nil
 local chapter = nil
 local title = ''
+-- **Which chapter of the book is open, and how many the book has** (0.138.0, docs/46 C5): what the foot says in
+-- `Chapter 3/12` and what the percentage is a share of. The list is the chapters this reader can see —an `.xhtml`,
+-- `.html` or `.htm` that is not inside `META-INF`, in the order of the names—, which is the same answer the system gives
+-- for `epub.first_chapter` until the OPF is read (docs/46, C2).
+local chapter_at = 1
+local chapter_total = 1
 local bytes = 0
 local from = 0
 local next_at = 0
 local ended = false
 local foot = nil
-local dots = nil
+local endmark = nil
+local strip = nil
 
 -- **The pages of a chapter, counted in the background** (0.138.0, docs/46 C5): `measure` lays a page out and paints
 -- nothing, and the walk of a chapter of half a megabyte is more than one turn of the glass, so it is paid a few pages at
@@ -143,9 +157,15 @@ local dark = false
 local function ink_level() return dark and 15 or 0 end
 local function paper_level() return dark and 0 or 15 end
 
+-- **How far in the book the page is**, which is what the foot says (docs/46, C5): the chapters that are behind us and
+-- the share of this one that is read, over the chapters the book has — the same sum the reader of the paper makes, and
+-- the reason the number is of the book and not of the chapter.
 local function percent()
-  if bytes <= 0 then return 0 end
-  return math.floor(from * 100 / bytes + 0.5)
+  if bytes <= 0 or chapter_total <= 0 then return 0 end
+  local p = math.floor(100 * ((chapter_at - 1) + from / bytes) / chapter_total + 0.5)
+  if p < 0 then p = 0 end
+  if p > 100 then p = 100 end
+  return p
 end
 
 -- **The walk of the chapter, a few pages at a time** (0.138.0, docs/46 C5): from zero to the end of the chapter, and
@@ -198,19 +218,82 @@ local function page_index(at)
   return found
 end
 
--- **What the foot says**: the chapter and how many pages it has, or the percentage of the chapter while the count is
--- still walking it —a number is better than a guess and a guess is better than nothing— (docs/46, C5).
+-- **The strip of the pages of the chapter, drawn as the reader of the paper draws it** (0.138.0, docs/46 C5): a ball of
+-- twelve pixels for each page —solid for the one that is read and a ring for the rest— on a rod of one pixel, a window of
+-- fourteen, and **three balls that get smaller at an end the window does not reach**, which is how it says that there are
+-- many more and it cannot draw them. It is drawn in a canvas of the width of the page, so the whole band is one layer and
+-- one region of damage (docs/30, docs/90).
+local kDot = 12
+local kDotGap = 6
+local kWindow = 14
+local kTrail = { 8, 6, 4 }
+
+local function draw_strip()
+  if strip == nil then return end
+  strip:clear(paper_level(), 'du')
+  local total = walked
+  local here = page_index(from)
+  if total < 2 or here < 1 then return end
+
+  local count = math.min(total, kWindow)
+  local first = here - count // 2
+  if first < 1 then first = 1 end
+  if first + count - 1 > total then first = total - count + 1 end
+
+  local width = count * kDot + (count - 1) * kDotGap
+  local left = (kPageW - width) // 2
+  local y = 10
+  local cy = y + kDot // 2
+  local ink = ink_level()
+
+  -- **The rod goes first and the balls on top of it**: what is seen of it is the air between two balls (docs/90).
+  strip:rect(left + kDot // 2, cy - 1, width - kDot, 1, ink)
+  strip:rect(left + kDot // 2, cy, width - kDot, 1, ink)
+
+  local x = left
+  for k = first, first + count - 1 do
+    if k == here then
+      strip:disc(x + kDot // 2, cy, kDot // 2, ink)
+    else
+      strip:circle(x + kDot // 2, cy, kDot // 2, ink)
+    end
+    x = x + kDot + kDotGap
+  end
+
+  -- **The three that say there are more**: smaller and smaller, on the side the window does not reach.
+  if first > 1 then
+    local tx = left - 8
+    for k = 1, #kTrail do
+      local s = kTrail[k]
+      tx = tx - s
+      strip:disc(tx + s // 2, y + (kDot - s) // 2 + s // 2, s // 2, ink)
+      tx = tx - 4
+    end
+  end
+  if first + count - 1 < total or counting then
+    local tx = left + width + 8
+    for k = 1, #kTrail do
+      local s = kTrail[k]
+      strip:disc(tx + s // 2, y + (kDot - s) // 2 + s // 2, s // 2, ink)
+      tx = tx + s + 4
+    end
+  end
+end
+
+-- **What the foot says**: the chapter that is open and how many the book has, how far in the book we are, and —on the
+-- right— the end of the chapter when the page is the last one (docs/46, C5).
 local function say_foot()
   if foot == nil then return end
-  local which = page_index(from)
-  if counting or which == 0 then
-    foot.text = string.format('%s %d%%', title, percent())
-  else
-    foot.text = string.format('%s %d/%d %d%%', title, which, walked, percent())
-  end
-  if dots ~= nil then
-    dots.pages = (walked > 1) and walked or 1
-    dots.current = (which > 0) and which or 1
+  -- **The two words of the separator are a hyphen and not the middle dot of the paper**: the face of the system of this
+  -- build is 95 glyphs of ASCII and the `·` is not one of them (docs/46, D3). A Latin-1 face of the system is a decision
+  -- of the owner and it is written down there.
+  foot.text = string.format('Chapter %d/%d - %d%%', chapter_at, chapter_total, percent())
+  if endmark ~= nil then
+    if ended then
+      endmark.text = (chapter_at >= chapter_total) and 'the end' or 'chapter end'
+    else
+      endmark.text = ''
+    end
   end
 end
 
@@ -219,12 +302,14 @@ local function give_back()
     screen:release()
     screen = nil
   end
-  -- **The foot and the dots are the page's and they go with it** (0.138.0): a label left behind would keep its words on
-  -- the glass of the shelf for ever, because nothing paints over what is not drawn again (docs/30, docs/90).
+  -- **The foot is the page's and it goes with it** (0.138.0): a label left behind would keep its words on the glass of the
+  -- shelf for ever, because nothing paints over what is not drawn again (docs/30, docs/90).
   if foot ~= nil then foot:release() end
   foot = nil
-  if dots ~= nil then dots:release() end
-  dots = nil
+  if endmark ~= nil then endmark:release() end
+  endmark = nil
+  if strip ~= nil then strip:release() end
+  strip = nil
   pages = {}
   walked = 0
   counting = false
@@ -254,6 +339,7 @@ local function present_page()
   foot.color = ink_level()
   foot.background = paper_level()
   say_foot()
+  draw_strip()
   ui.present('gc16')
 
   return true
@@ -273,8 +359,10 @@ local function build_page()
   end
   if foot ~= nil then foot:release() end
   foot = nil
-  if dots ~= nil then dots:release() end
-  dots = nil
+  if endmark ~= nil then endmark:release() end
+  endmark = nil
+  if strip ~= nil then strip:release() end
+  strip = nil
   if book == nil then return false end
 
   screen = ui.canvas(kPageW, kPageH)
@@ -285,26 +373,35 @@ local function build_page()
   screen:place(0, 0)
   if face ~= nil then screen:font(face) end
 
-  -- **The foot is the chapter on the left and the dots of the pages on the right**, and the label is only as wide as
-  -- the room the dots leave (docs/46, C5).
-  foot = ui.label(kPageW - kDotsW - 16, kFoot)
+  -- **The paper of the foot and its line across** (docs/46, C5): the foot is the system's row and not the page's, so the
+  -- app paints it —and on a dark page it is black like the page— before the words and the strip go on it.
+  ui.rect(0, kPageH, kPageW, kFoot, paper_level(), 'du')
+  ui.rect(16, kPageH + kFootLine, kPageW - 32, 1, ink_level(), 'du')
+
+  -- **The chapter on the left and the end of it on the right**, on the first row of the foot.
+  foot = ui.label(kPageW - 32 - kFootEnd, kFootRow)
   if foot ~= nil then
     foot.text = ''
     foot.scale = 2
     foot.align = 'left'
     foot.color = ink_level()
     foot.background = paper_level()
-    foot:place(8, kPageH)
+    foot:place(16, kPageH + kFootText)
   end
 
-  dots = ui.dots(kDotsW, kFoot)
-  if dots ~= nil then
-    dots.pages = 1
-    dots.current = 1
-    dots.level = ink_level()
-    dots.background = paper_level()
-    dots:place(kPageW - kDotsW - 8, kPageH)
+  endmark = ui.label(kFootEnd, kFootRow)
+  if endmark ~= nil then
+    endmark.text = ''
+    endmark.scale = 2
+    endmark.align = 'right'
+    endmark.color = ink_level()
+    endmark.background = paper_level()
+    endmark:place(kPageW - 16 - kFootEnd, kPageH + kFootText)
   end
+
+  -- **And the strip of the pages under them**, in a canvas of the width of the page so the whole band is one layer.
+  strip = ui.canvas(kPageW, kStripH)
+  if strip ~= nil then strip:place(0, kPageH + kStripTop) end
 
   -- **And the chapter is counted from here**, because a page is as many words as fit this box and the box has just been
   -- made (docs/46, C5).
@@ -370,6 +467,21 @@ local function open_book(one)
 
   bytes = n
   title = chapter:match('([^/]+)%.%w+$') or chapter
+  -- **Which chapter of the book this one is, and how many the book has** (0.138.0, docs/46 C5): the foot says
+  -- `Chapter 3/12` and the percentage is a share of the book, so both numbers are of the chapters the reader can see —
+  -- the `.xhtml`, `.html` and `.htm` of the book that are not inside `META-INF`, in the order of the names, which is the
+  -- list `epub.first_chapter` walks until the OPF is read (docs/46, C2).
+  chapter_at = 1
+  chapter_total = 0
+  for i = 1, epub.entries() do
+    local name = epub.name(i)
+    if name ~= nil and not name:find('^META%-INF/') and name:match('%.x?html?$') then
+      chapter_total = chapter_total + 1
+      if name == chapter then chapter_at = chapter_total end
+    end
+  end
+  if chapter_total < 1 then chapter_total = 1 end
+
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end
   remember(one.path, chapter, from)
@@ -604,9 +716,9 @@ end
 
 while true do
   on_gesture()
-  -- **The count of the chapter takes a few pages of every turn** (docs/46, C5), and the foot is written again when it
-  -- has landed: a foot repainted every turn would be ink spent on a number that has not changed (docs/50).
-  if count_some() and not counting then say_foot() end
+  -- **The count of the chapter takes a few pages of every turn** (docs/46, C5), and the strip is drawn again when it
+  -- has landed: a foot painted every turn would be ink spent on a number that has not changed (docs/50).
+  if count_some() and not counting then draw_strip() end
   ui.present()
   sys.delay(50):await()
 end

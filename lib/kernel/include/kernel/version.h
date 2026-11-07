@@ -2867,7 +2867,40 @@ namespace kernel {
 // not the PC—, which is exactly why the count is spread over turns; the strip of the paper project shows fourteen balls
 // and this one eight, because the foot of this reader shares its row with the words of the chapter; and the dots of a
 // chapter of more than 512 pages stop at 512 (docs/46, C5).
-static const char kVersion[] = "0.138.0";
+// 0.138.1 (7/11): **the foot is the one of the reader of the paper, and 0.138.0 had invented its own**.
+//
+// The owner, with the glass in front of him: *«a l'app original el peu de C5 es diferent, perqué no el fas igual?»*. He
+// was right, and the reason it was not is a thing worth writing down: 0.138.0 took the call of the system —`ui.dots`, the
+// **Dots** control of the paper project, balls of 19 and 25 pixels on a strip of 37— and put it at the right of a text of
+// its own. The foot of the reader of the paper is another drawing:
+//
+//   - **84 rows and two bands**: a line across at two rows, `Chapter %d/%d · %d%%` at eight in the face of the app with
+//     the end of the chapter on the right, and the strip of dots **under them**, centred, in a band of its own;
+//   - **the strip is the app's and not the control's**: balls of **12** pixels with **6** of air, a window of **14**, and
+//     at each end the window does not reach, **three balls that get smaller** —8, 6 and 4— which is how it says that there
+//     are many more and it cannot draw them. It is drawn in a canvas of the width of the page, so the whole band is one
+//     layer and one region of damage, which is what the control was for; the numbers are the ones of the paper;
+//   - **`Chapter 1/2` and not `ch01`**: the chapter is counted among the chapters the reader can see —the `.xhtml`,
+//     `.html` and `.htm` of the book that are not inside `META-INF`, in the order of the names, which is the list
+//     `epub.first_chapter` walks until the OPF is read (C2)— and **the percentage is of the book**, not of the chapter:
+//     the chapters behind plus the share of this one, over the chapters there are;
+//   - **and `chapter end` / `the end`** on the right when the page is the last one of the chapter or of the book.
+//
+// **Two limits of this build, said and not hidden**: the separator of the paper is the middle dot `·` and the face of the
+// system is 95 glyphs of ASCII, so the foot says `-` — a Latin-1 face of the system is the owner's decision and it is
+// written in docs/46 D3—; and the `loading...` the paper puts in the foot while a page is being composed is not here,
+// because this system composes the page inside the turn of the app and a word on the glass for thirty milliseconds is ink
+// spent on nothing (the screen of a book that is opening is C8).
+//
+// Measured on the bench, looking at the glass: `la-vaca-cega.epub` says **`Chapter 1/2 - 0%`** with three balls and the
+// first one solid, and the chapter is 3 pages with the taller foot —the page is 876 rows now—; a probe book of 6160 words
+// says **`Chapter 1/1 - 18%`** with a window of **14 balls** —the fifth of them solid— and **three smaller ones** after it,
+// which are the pages the window does not show; the same foot on a dark page is a black band with a white line, white words
+// and white balls, and `chapter end` on the right. The reader is **724 lines** of Lua. `pio run -e emulator` says SUCCESS
+// with 0 warnings and `pio test -e test --without-testing` still builds the 23 suites and 530 cases with 0 warnings.
+// **Pending**: the 530 cases are **not executed**; the `·`; the `loading...`; and the foot of the shelf, which the paper
+// also has and this app does not draw (docs/46, C5).
+static const char kVersion[] = "0.138.1";
 
 }  // namespace kernel
 
