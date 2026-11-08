@@ -4133,7 +4133,26 @@ namespace kernel {
 //     time and a grid that reorders itself when one lands is a grid whose cells jump under the finger;
 //   - and the case that runs the launcher now measures the order of the evidence —the names, then the whole page, then
 //     the first `home: app` line— which is the promise of the two calls. 178 of 178 green.
-static const char kVersion[] = "0.154.0";
+// 0.154.1 (8/11): **the launcher turns its own pages, and the band under the grid is what turns them**. A grid of the
+// system keeps the cells it cannot fit out of sight —the page follows the cell the dial is on, and this page keeps the
+// ring on the cells themselves—, so a disk with more apps than fit showed the first page of them and lost the rest.
+//
+//   - **the page is the launcher's**: only the cells of the page that is on the glass reach the grid, and how many fit is
+//     the grid's own arithmetic read once —the box of a cell, and the twenty-eight pixels a grid taller than a hundred
+//     and sixty keeps at its foot— and never counted by the eye (docs/90);
+//   - **the foot of the page is the band of the pages**: an arrow at each bottom corner and the page it is between them
+//     (`1 / 1` when everything fits, with both arrows `disabled` —drawn, and answered by neither the dial nor a finger,
+//     which is what the system's own state means—), and a press is a wish the loop takes, because a control cannot give
+//     itself back inside its own callback;
+//   - **the build says the page** (`home: page 2 / 3 (6 cells)`): it is the one place a resize, an app that left the page
+//     and an arrow all end on, so the console says which page is on the glass without anybody counting cells;
+//   - measured: on the Paper's page seven apps fit in one page and the band reads `1 / 1`; in a page of 420 by 360 the
+//     eight apps of the case are two pages, a finger on the right arrow says `home: page 2 / 2` and one on the left says
+//     `1 / 2` again;
+//   - and **a view inside a cell of a grid survives the page**: `test_a_canvas_inside_a_cell_of_a_grid_survives_the_page`
+//     paints twice and asks all six pictures whether they are still there, which is what a launcher of badges needs and
+//     what no test said before. 179 of 179 green.
+static const char kVersion[] = "0.154.1";
 
 }  // namespace kernel
 

@@ -230,10 +230,16 @@ Portades i viatjant avui, **cinc** (`home_eink` va a part, a sota):
 
 I a part, **dues que no són ports**:
 
-- **`home_eink`** (`title` *Home*), el llançador: la graella de les apps del disc amb la icona i el nom de
+- **`home_eink`** (`title` *Home*, 0.2.0), el llançador: la graella de les apps del disc amb la icona i el nom de
   cadascuna, i un dit o el centre sobre una cel·la arrenca aquella app. No llista els llançadors —ni a si mateix—,
   i és la pàgina on la persona torna quan l'app que ha obert s'acaba (0.153.0). El seu manifest diu
   `"launcher": true` i la seva icona és el novè dibuix de `tools/icons/` que s'ha fet per a ella (`Home.png`).
+  **Les pàgines són seves** (0.154.1): la graella és un tros dels noms —les cel·les de les altres pàgines no arriben
+  al control, perquè una graella del sistema amaga les que no hi caben i la pàgina no les segueix quan el cercle és
+  a les cel·les— i la banda del peu té dues fletxes i el número de la pàgina (`1 / 1` quan tot hi cap, amb les dues
+  fletxes apagades). La pàgina es torna de dues maneres: el dit a sobre d'una fletxa, o el dial fins a la fletxa i el
+  centre; la volta la fa el bucle de l'app i no el clic, perquè el control que l'ha pres no es pot donar a si mateix
+  mentre corre.
 - **`probe`**, que **no és una pantalla**: és un instrument temporal del banc que repeteix l'arrencada del lector
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.

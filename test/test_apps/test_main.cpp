@@ -4659,8 +4659,12 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
   opts.display = true;
+  // **The finger is one of the ways a launcher is used**, so the bench has a glass that takes one (docs/50).
+  opts.touch = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
@@ -4742,6 +4746,39 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   TEST_ASSERT_NOT_NULL(after);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "home: app alpha Alpha"), g_out);
 
+  // **The band under the grid turns the page** (0.154.1): a page of this launcher is a slice of the names —the cells of
+  // the pages behind the first are never handed to the grid, which is what a grid of the system cannot do for itself—
+  // and the two arrows of the foot of the page are the way from one to the other. A page of this glass holds eight
+  // cells, so a page of four hundred and twenty by three hundred and sixty holds less, and the eight apps of the disk
+  // are more than one page.
+  pump_turns(1500);
+  memset(g_out, 0, sizeof(g_out));
+  TEST_ASSERT_TRUE(kernel::ui::resize(420, 360));
+  pump_turns(80);
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  // **The band is at the foot of the page**: the launcher keeps twenty of margin and fifty-six of band under the grid,
+  // and the arrow that goes forward is the right corner of it. A finger lands in the middle of that button, which is on
+  // the glass under the bar of the system and not under the view (docs/50).
+  const uint16_t band_y = 360 - 20 - 56;
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 420 - 20 - 36, band_y + 28 + 48));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: page 2 /"), g_out);
+  // **And back**, which is the left corner of the same band.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 20 + 36, band_y + 28 + 48));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(200);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: page 1 /"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
+
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
   TEST_ASSERT_FALSE(kernel::app_running());
@@ -4765,6 +4802,72 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   storage->remove("/apps/elsewhere/app.lua");
   storage->remove("/apps/elsewhere/manifest.json");
   storage->remove("/apps/elsewhere");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A canvas inside a cell of a grid is still there after the page is painted** (0.154.1): a launcher draws the badge of
+// an app in a canvas of its own and puts that canvas in a cell, which is what `canvas:image` is for. The page is painted
+// twice —the first time is the page, the second is the one a manifest arriving asks for— and the pictures have to be
+// there both times: one that is quietly gone shows a letter where the badge of an app belongs.
+void test_a_canvas_inside_a_cell_of_a_grid_survives_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "cells",
+                           "{\"title\":\"Cells\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local grid = ui.icon_grid(360, 260)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 3\n"
+                           "local pics = {}\n"
+                           "for i = 1, 6 do\n"
+                           "  local cell = ui.grid_entry(118, 126)\n"
+                           "  cell.background = 15\n"
+                           "  local pic = ui.canvas(72, 72)\n"
+                           "  pic:place(4, 4)\n"
+                           "  pic:clear(15)\n"
+                           "  cell:add(pic)\n"
+                           "  grid:add(cell)\n"
+                           "  pics[i] = pic\n"
+                           "end\n"
+                           "ui.present('gc16')\n"
+                           "console.print('cells up')\n"
+                           "local drawn, why = pics[3]:image(0, 0, '/apps/cells/icon.png', 72, 72)\n"
+                           "console.print('cell 3 picture ' .. tostring(drawn) .. ' ' .. tostring(why and why.message or ''))\n"
+                           "ui.present()\n"
+                           "console.print('cells up two')\n"
+                           "for i = 1, 6 do\n"
+                           "  local caps = pics[i]:caps()\n"
+                           "  console.print('cell ' .. i .. ' alive ' .. tostring(caps ~= nil))\n"
+                           "end\n"
+                           "local later, why2 = pics[4]:image(0, 0, '/apps/cells/icon.png', 72, 72)\n"
+                           "console.print('cell 4 picture ' .. tostring(later) .. ' ' .. tostring(why2 and why2.message or ''))\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/cells/icon.png"));
+
+  pump_captured(200, g_out, sizeof(g_out), "run cells");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cells up two"), g_out);
+  // **Six of them alive after the second page**, and a picture in the third and in the fourth.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 1 alive true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 6 alive true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 3 picture true"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 4 picture true"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/cells/icon.png");
+  storage->remove("/apps/cells/app.lua");
+  storage->remove("/apps/cells/manifest.json");
+  storage->remove("/apps/cells");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -9902,6 +10005,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_bench_is_the_board_it_was_told_to_be);
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
+  RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
