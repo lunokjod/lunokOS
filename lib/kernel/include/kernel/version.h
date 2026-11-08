@@ -3286,7 +3286,35 @@ namespace kernel {
 // the app of the book. **And the app half of this turn has no case of its own**: the sample book carries no face, so the
 // path `manifest → epub.font → the page` is proven by the code and not by a test — the next turn that touches the sample
 // is the one that can add it. A book that declares two faces uses the first (docs/46).
-static const char kVersion[] = "0.150.0";
+// 0.150.1 (8/11): **the suite run for the first time since 0.140, and the first thing it caught was `require`**
+// (docs/46 D6). The owner asked for every test, and this is what came out.
+//
+//   - **a real bug in `require`**: it read the table of `package` with `lua_getfield(L, 1, "loaded")`, and **index 1 of a
+//     function written in C is its first argument**, not the first thing the function pushed. Every table read there was
+//     the module name —a string— and the `lua_setfield` that marked a module as running hit a nil. The function is
+//     rewritten so that **nothing is ever counted from the bottom of the stack**: `package` and `loaded` stay on it and
+//     every read is relative. That is the fix this whole turn is for, and it came out of a test, not of a reading;
+//   - **the interpreter suite is green: 48 of 48**, the four cases of a module included (read once, no value is `true`,
+//     a name that is not there is an error, a module that raises says `part.lua:1:`, and `package` carries no path);
+//   - **the face suite is green: 5 of 5**, the WOFF box included (a table stored and a table compressed by the real zlib,
+//     the sfnt byte by byte, and the three refusals);
+//   - **the book suite is 7 of 8**: `test_a_picture_of_the_book_is_placed` fails on «the page says it holds a picture» and
+//     it is **not** something this turn touched —the picture path, the paginator and `measure_picture` are the same lines
+//     as in 0.133.0—, so it is left named here for the next turn rather than guessed at;
+//   - **and 34 host paths of the test suites pointed at apps the owner has moved to `OLD/apps`**: `handles`, `mtab`,
+//     `heap`, `battery`, `images`, `keys`, `light`, `matrix`, `page`, `showcase`, `sleepy`, `tilt`, `timers`, `later`,
+//     `alarmqueue`, the two fonts of the face suite (`lato-black.ttf`, `lunok-8x8.ttf`) and the rest. They are repointed
+//     at `OLD/apps/...`, which is where the files are, and that alone turned 36 failures of the app suite into runs that
+//     actually test something;
+//   - **the app suite is 149 of 188 and its roots are not the book**: `ntp` and `http` without a radio answer `E_BUSY`
+//     (something is left in flight), `test_every_app_of_the_repository_declares_its_boards` cannot find the apps, and
+//     `test_the_boot_paints_the_drawing_the_settings_chose` **leaves an app running** —after it,
+//     `app_running()` is true and every `cannot start the interpreter` in the suite is that one leak—. The reader, the
+//     shelf and the modules fail there **by cascade and not by their own case**: they are the last tests of the file.
+//
+// **Pending**: `test_book`'s picture case, the leak of the boot-drawing test, the two network cases, the repository-apps
+// case, and the app suite run clean enough to see the reader. The glass has still not been looked at.
+static const char kVersion[] = "0.150.1";
 
 }  // namespace kernel
 

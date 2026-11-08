@@ -9321,24 +9321,24 @@ int l_epub_thumbnail(lua_State* L) {
 const uint32_t kModuleCap = 64u * 1024u;
 
 int l_require(lua_State* L) {
-  const char* name = luaL_checkstring(L, 1);
+  const char* name = luaL_checkstring(L, 1);   // [name]
   if (name[0] == '\0') return luaL_error(L, "require: a module needs a name");
   if (g_file_ops.module_source == nullptr) {
     return luaL_error(L, "require: this build cannot read the files of an app");
   }
 
-  lua_getglobal(L, "package");              // [package]
+  // **Everything below is counted from the top of the stack and not from the bottom**: the arguments of a function
+  // written in C are at 1, so what is at 1 here is the name and not the table of `package` (this cost a turn, 0.150.1).
+  lua_getglobal(L, "package");               // [name, package]
   if (!lua_istable(L, -1)) return luaL_error(L, "require: this app has no package table");
-  lua_getfield(L, -1, "loaded");            // [package, loaded]
-  lua_getfield(L, -1, name);                // [package, loaded, value]
-  if (!lua_isnil(L, -1)) return 1;          // the module of the first time, whatever it was
+  lua_getfield(L, -1, "loaded");             // [name, package, loaded]
+  if (!lua_istable(L, -1)) return luaL_error(L, "require: this app has no loaded table");
+  lua_getfield(L, -1, name);                 // [name, package, loaded, value]
+  if (!lua_isnil(L, -1)) return 1;           // the module of the first time, whatever it was
+  lua_pop(L, 1);                             // [name, package, loaded]
 
-  lua_pop(L, 2);                            // [package]
   char* source = static_cast<char*>(malloc(kModuleCap));
-  if (source == nullptr) {
-    lua_pop(L, 1);
-    return luaL_error(L, "require: no memory for the module '%s'", name);
-  }
+  if (source == nullptr) return luaL_error(L, "require: no memory for the module '%s'", name);
   FsError err = FsError::kOk;
   const int32_t got = g_file_ops.module_source(name, source, kModuleCap, err);
   char chunk[96];
@@ -9349,32 +9349,24 @@ int l_require(lua_State* L) {
   // module that waits forever must not be holding the text of itself (docs/75).
   free(source);
   if (got < 0) {
-    lua_pop(L, 1);
     return luaL_error(L, "require: '%s' is not a file of this app (%s)", name, fs_error_message(err));
   }
-  if (status != LUA_OK) return lua_error(L);  // [package, message]
+  if (status != LUA_OK) return lua_error(L);  // the message of the compiler is the top of the stack
 
   // **The name is marked before it runs**: two modules that require each other answer `true` to each other instead of
   // looping until the interpreter's stack is gone, and the value the module returns replaces the mark below.
-  lua_getfield(L, 1, "loaded");             // [package, chunk, loaded]
-  lua_pushboolean(L, 1);
-  lua_setfield(L, -2, name);                // loaded[name] = true
-  lua_pop(L, 1);                            // [package, chunk]
-
-  lua_pushstring(L, name);                  // [package, chunk, name]
-  lua_call(L, 1, 1);                        // [package, value]
+  lua_pushboolean(L, 1);                     // [name, package, loaded, chunk, true]
+  lua_setfield(L, -3, name);                 // loaded[name] = true, and the true is popped
+  lua_pushstring(L, name);                   // [name, package, loaded, chunk, name]
+  lua_call(L, 1, 1);                         // [name, package, loaded, value]
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
-    lua_pushboolean(L, 1);                  // a module with no value is `true`, as in Lua
-  } else {
-    lua_getfield(L, 1, "loaded");           // [package, value, loaded]
-    lua_pushvalue(L, -2);                   // [package, value, loaded, value]
-    lua_setfield(L, -2, name);              // loaded[name] = value
-    lua_pop(L, 1);                          // [package, value]
+    lua_pushboolean(L, 1);                   // a module with no value is `true`, as in Lua
   }
-  return 1;
+  lua_pushvalue(L, -1);                      // [name, package, loaded, value, value]
+  lua_setfield(L, -3, name);                 // loaded[name] = value
+  return 1;                                  // [.., value]
 }
-
 
 // **The face a book carries inside itself** (0.150.0, docs/46 D6): `epub.font(name)` reads the font entry of the book
 // —a TrueType or a `.woff`, which the kernel opens into the same kind of bytes— and makes a face of it, which is a font

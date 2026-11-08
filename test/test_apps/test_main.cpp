@@ -1900,8 +1900,8 @@ void test_the_heap_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("apps/heap/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/heap/heap.lua", source, sizeof(source)));
+                           read_host_file("OLD/apps/heap/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/heap/heap.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "heap-app", manifest, source, "heap.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run heap-app", g_out, sizeof(g_out)));
@@ -3106,9 +3106,9 @@ void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
   static char manifest[512];
   static char source[16384];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/showcase/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/showcase/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("apps/showcase/showcase.lua", source, sizeof(source)));
+                           read_host_file("OLD/apps/showcase/showcase.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
 
   // **And with no word at all, which is how a person opens it**: `app.args` is a table that exists when `run` carries an
@@ -3999,8 +3999,8 @@ void test_the_centre_presses_the_control_the_dial_is_on(void) {
   TEST_ASSERT_NOT_NULL(storage);
   char manifest[512];
   char source[16384];
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/showcase/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/showcase/showcase.lua", source, sizeof(source)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/showcase/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/showcase/showcase.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
 
   pump_captured(60, g_out, sizeof(g_out), "run showcase 1");
@@ -4049,9 +4049,9 @@ void test_the_page_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/page/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/page/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("apps/page/page.lua", source, sizeof(source)));
+                           read_host_file("OLD/apps/page/page.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "page-app", manifest, source, "page.lua"));
 
   emu::Options opts = emu::options();
@@ -4558,9 +4558,9 @@ void test_the_light_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/light/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/light/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/light/light.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/light/light.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "light-app", manifest, source, "light.lua"));
 
   // It does not end: it is a wheel. The prompt comes back when the system's gesture
@@ -4624,9 +4624,9 @@ void test_the_matrix_app_from_the_disk_paints_the_panel(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/matrix/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/matrix/manifest.json", manifest, sizeof(manifest)));
   const size_t source_len =
-      read_host_file("apps/matrix/matrix.lua", source, sizeof(source));
+      read_host_file("OLD/apps/matrix/matrix.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   // A truncated read is a test that runs half an app and blames the app: the
   // buffer is bigger than the file and the read says how much it took (docs/80).
@@ -5379,10 +5379,10 @@ void test_the_page_of_pictures_walks_its_nine_families(void) {
   storage->mkdir("/apps");
   storage->mkdir("/apps/images");
   storage->mkdir("/apps/images/res");
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/manifest.json", "/apps/images/manifest.json"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/images.lua", "/apps/images/images.lua"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/res/photo.jpg", "/apps/images/res/photo.jpg"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/images/res/poster.bmp", "/apps/images/res/poster.bmp"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/manifest.json", "/apps/images/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/images.lua", "/apps/images/images.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/res/photo.jpg", "/apps/images/res/photo.jpg"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/res/poster.bmp", "/apps/images/res/poster.bmp"));
 
   pump_captured(60, g_out, sizeof(g_out), "run images");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: 9 pictures, 1 drawn, 0 failed"), g_out);
@@ -8172,8 +8172,8 @@ void test_the_keys_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/keys/manifest.json", manifest, sizeof(manifest)));
-  const size_t source_len = read_host_file("apps/keys/keys.lua", source, sizeof(source));
+      0, read_host_file("OLD/apps/keys/manifest.json", manifest, sizeof(manifest)));
+  const size_t source_len = read_host_file("OLD/apps/keys/keys.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
   TEST_ASSERT_TRUE(add_app_file(storage, "keys-app", manifest, source, "keys.lua"));
@@ -8384,9 +8384,9 @@ void test_the_sleepy_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/sleepy/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/sleepy/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/sleepy/sleepy.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/sleepy/sleepy.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "sleepy-app", manifest, source, "sleepy.lua"));
 
   hal::IClock* clock = hal::platform().clock();
@@ -8442,8 +8442,8 @@ void test_the_mtab_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/mtab/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/mtab/mtab.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/mtab/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/mtab/mtab.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "mtab-app", manifest, source, "mtab.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run mtab-app", g_out, sizeof(g_out)));
@@ -8602,9 +8602,9 @@ void test_the_battery_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/battery/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/battery/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/battery/battery.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/battery/battery.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "battery-app", manifest, source, "battery.lua"));
 
   // A board with no gauge: it says so, and it does not say zero volts. The battery is the Paper's,
@@ -8652,9 +8652,9 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // keeps running on purpose after that (its last line waits nine seconds), so it is closed
   // here by hand rather than waited for.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "alarmqueue-app", manifest, source, "alarmqueue.lua"));
   pump_captured(40, g_out, sizeof(g_out), "run alarmqueue-app");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 8 at once"), g_out);
@@ -8672,9 +8672,9 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // The timers: three of them, delivered in order while the app waits, and the app ends by
   // itself inside the turns a test gives it.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/timers/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/timers/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("apps/timers/timers.lua", source, sizeof(source)));
+                           read_host_file("OLD/apps/timers/timers.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "timers-app", manifest, source, "timers.lua"));
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run timers-app", g_out, sizeof(g_out)), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "three timers armed"), g_out);
@@ -8690,8 +8690,8 @@ void test_the_alarm_demos_from_the_disk_run(void) {
   // The one that arms an alarm and leaves: it ends by itself, so this one can be waited for. What
   // it leaves in the queue is taken down here, or it would go off inside the test after this one.
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/later/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("apps/later/later.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/later/manifest.json", manifest, sizeof(manifest)));
+  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/later/later.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "later-app", manifest, source, "later.lua"));
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run later-app", g_out, sizeof(g_out)), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed for"), g_out);
@@ -8969,9 +8969,9 @@ void test_the_handles_demo_app_from_the_disk_runs(void) {
   static char manifest[256];
   static char source[4096];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/handles/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/handles/manifest.json", manifest, sizeof(manifest)));
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/handles/handles.lua", source, sizeof(source)));
+      0, read_host_file("OLD/apps/handles/handles.lua", source, sizeof(source)));
   TEST_ASSERT_TRUE(add_app_file(storage, "handles", manifest, source, "handles.lua"));
 
   TEST_ASSERT_TRUE(run_captured("run handles", g_out, sizeof(g_out)));
@@ -9012,9 +9012,9 @@ void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
   static char manifest[256];
   static char source[8192];
   TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("apps/tilt/manifest.json", manifest, sizeof(manifest)));
+      0, read_host_file("OLD/apps/tilt/manifest.json", manifest, sizeof(manifest)));
   const size_t source_len =
-      read_host_file("apps/tilt/tilt.lua", source, sizeof(source));
+      read_host_file("OLD/apps/tilt/tilt.lua", source, sizeof(source));
   TEST_ASSERT_GREATER_THAN(0, source_len);
   TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
   TEST_ASSERT_TRUE(add_app_file(storage, "tilt-app", manifest, source, "tilt.lua"));
