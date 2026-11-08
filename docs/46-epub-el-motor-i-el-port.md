@@ -168,6 +168,29 @@ definicions i el `Token` porta `inset` (0.130.0).
 | **C15** | **Anar a una pàgina pel número** — **fet el 8/11 (0.145.0)**: `Book → Page` obre **la llista de les pàgines del capítol** (una fila `Page k` per cada pàgina que el comptatge del C5 coneix), oberta a la pàgina que hi ha al vidre i amb aquella fila marcada; el dial les camina, el centre o el dit n'obren una, i el lector salta al **byte on comença** aquella pàgina amb un Rentat (un salt de deu pàgines no és un gir). **El número es camina i no s'escriu**: un camp que pren un número porta la banda del teclat, 581 files d'aquest vidre, i és més lent que una llista (docs/30). I des de la 0.145.0 **el menú s'obre des de les tecles** (un toc llarg del centre, amb el `Book` desplegat) perquè el dial el pugui recórrer | **No hi és al paper** (pas 14) | Fet a l'app; el motor no canvia |
 | **C16** | **La miniatura a la cel·la del prestatge** — **pendent** (8/11, i és l'última cosa que li falta al prestatge): la cel·la d'un llibre ha d'ensenyar **la seva portada llegida del cau** —`.la-vaca-cega.epub.cache.ics`, que ja s'hi escriu des del 0.146.0 (C11)— i no el número `01` d'avui. És el que fa l'app **Files** amb la previsualització d'un fitxer: la icona d'un element és la imatge d'aquell element. **No cal res del sistema**: el cau **és una foto** (`ICS1`, i `ui.image` llegeix un fitxer), i una cel·la d'una `ui.icon_grid` pot ser un control de l'app des de la 0.105.0 (`cells_of_the_kernel = false`, `icon_grid_cell` diu on va) | El prestatge del paper no tenia cel·les: hi havia el nom i la unitat d'un llibre, i la miniatura era per a `Files` | Fet a l'app: el cau i la seva lectura com una foto ja hi són (C11 i `lib/img`); queda la cel·la i el que fa si el cau no hi és (la marca d'avui, `01`) |
 
+**Una portada que no surt diu per què** (8/11, 0.151.20): `book::picture_why()` és la raó per la qual
+`load_picture_named` ha refusat una foto, i n'hi ha set —no hi ha llibre obert, el llibre no porta cap
+entrada amb aquell nom, l'entrada és una carpeta, **l'entrada fa N B i el bloc en fa 262 144**, el flux no
+surt de la seva compressió, el fitxer no és una foto que aquest sistema llegeixi, NxM és més gran que una
+pàgina del vidre, o no hi ha lloc per al fitxer o per als seus píxels—. Arriba a tres llocs: la línia
+`[W][BOOK]`, el refús d'`epub.picture` (que el lector escriu a la consola amb el nom) i el d'`epub.thumbnail`.
+Abans deia `the picture … cannot be read` i prou, que és mitja resposta; el cas que la va fer escriure és la
+portada del `Don quijote`, que el nom ja el diu sencer (`OEBPS/Images/don quijote- cervantes.png`) i que per
+tant havia de ser un dels números i no una endevinalla.
+
+I ho era, tres vegades seguides: la portada fa **1 046 256 B** i el bloc era de **262 144** (0.152.1); després
+va ser el raspall del flux, que era de mig megabyte i no creixia (0.152.2); i la tercera és la que queda
+oberta i és del tot una altra cosa: les dades surten senceres i el que les refusa és el lector de capçaleres de
+`lib/img` (`89504e47 0d0a1a0a` és una **PNG**, o sigui que el fitxer és bo). Amb el llibre obert i res més hi
+ha **2 566 863 B** de PSRAM i la foto en vol uns **2,1 MB** —el fitxer i el flux—, o sigui que hi cap; dins de
+l'app no hi cap encara, perquè el canvas, les dues cares i el llibre ja en tenen una part. Les dues feines que
+queden són, doncs, **que `lib/img` digui quin tros de la PNG no entén** (i l'entengui) i **que una foto d'un
+megabyte es descomprimeixi a trossos** en lloc de demanar un bloc de la seva mida.
+
+**I el que ja no és una endevinalla**: `el bloc d'una cosa és la mida de la cosa` (0.152.1 i 0.152.2) —el
+fitxer d'una foto, els seus píxels i el capítol obert— i el raspall d'un flux creix amb l'entrada, amb el bloc
+nou abans que marxi el vell.
+
 **La icona i l'splash, portats del paper amb la recepta que els va fer** (8/11, 0.151.17): l'app del
 paper portava `icon.icn` (el format d'M5, 4 418 B) i `splash.png` (6 924 B, 420×520), i el que s'ha
 portat és **el dibuix font** i **la recepta**, no els dos fitxers tal com eren:

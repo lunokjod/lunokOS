@@ -857,7 +857,7 @@ void finish_console_line() {
 
 int l_sys_heap(lua_State* L) {
   const size_t free_bytes = (g_alloc.limit > g_alloc.used) ? (g_alloc.limit - g_alloc.used) : 0;
-  lua_createtable(L, 0, 6);
+  lua_createtable(L, 0, 8);
   lua_pushinteger(L, static_cast<lua_Integer>(free_bytes));
   lua_setfield(L, -2, "free");
   lua_pushinteger(L, static_cast<lua_Integer>(g_alloc.used));
@@ -874,6 +874,15 @@ int l_sys_heap(lua_State* L) {
   lua_setfield(L, -2, "extra_total");
   lua_pushinteger(L, static_cast<lua_Integer>(extra.free_bytes));
   lua_setfield(L, -2, "extra_free");
+  // **And what the board's own RAM has left** (0.151.20): not the sum with the extra memory, which is the number that
+  // hid a whole afternoon of `ENOMEM` —the `fopen` of a file answered that with 1,7 MB of PSRAM free while this pool was
+  // empty—. It is the pool the drivers and the file system need, and the floor `pal::kHomeReserveBytes` is what keeps it
+  // (docs/75).
+  const pal::HeapInfo board = pal::system().heap();
+  lua_pushinteger(L, static_cast<lua_Integer>(board.free_bytes));
+  lua_setfield(L, -2, "ram_free");
+  lua_pushinteger(L, static_cast<lua_Integer>(board.largest_free_bytes));
+  lua_setfield(L, -2, "ram_largest");
   return 1;
 }
 
@@ -9283,7 +9292,12 @@ int l_epub_picture(lua_State* L) {
   }
   const char* name = luaL_checkstring(L, 2);
   if (!g_book_ops.picture(slot, name)) {
-    return push_nil_error(L, "E_INVAL", "the book carries no such picture, or there is no memory for it");
+    // **The reason the picture did not come up** (0.151.20): the book may not carry it, it may be bigger than the block
+    // that holds a picture —with both numbers— or it may not be a picture this system reads. One sentence for seven
+    // causes is a sentence that sends a person to guess (docs/46, A5 and C7).
+    const char* why = (g_book_ops.picture_why != nullptr) ? g_book_ops.picture_why()
+                                                         : "the book carries no such picture";
+    return push_nil_error(L, "E_INVAL", why);
   }
 
   lua_pushboolean(L, 1);
@@ -9299,7 +9313,9 @@ int l_epub_thumbnail(lua_State* L) {
   const char* name = luaL_checkstring(L, 1);
   const int32_t max = static_cast<int32_t>(luaL_optinteger(L, 2, 64));
   if (!g_book_ops.thumbnail(name, max)) {
-    return push_nil_error(L, "E_INVAL", "the book carries no such picture, or the cache cannot be written");
+    const char* why = (g_book_ops.picture_why != nullptr) ? g_book_ops.picture_why()
+                                                         : "the cache of the book cannot be written";
+    return push_nil_error(L, "E_INVAL", why);
   }
 
   lua_pushboolean(L, 1);

@@ -147,24 +147,16 @@ EspSystem g_system;
 constexpr uint32_t kExtraCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
 constexpr uint32_t kHomeCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
-// **The floor of the board's own RAM** (0.151.19): a block of an app goes to the chip's internal RAM
-// only while what is left after it stays above this, and to the extra memory after that. The Lua
-// machine of the reader —four files and about 50 KB of code— asks for a hundred and twenty thousand
-// bytes in small tables and strings, and it used to take them from the same pool the file system and
-// the card need for a `FILE` and for a DMA buffer: `fopen` then answered `ENOMEM` with 1,7 MB of PSRAM
-// free and the flash could not be read again until the board was rebooted (measured on the board,
-// 8/11, docs/75). Measured at rest, with no app: **125 464 B** free of the board's RAM and the biggest
-// piece **110 580 B**; sixty-four thousand leaves the drivers room for the pieces they ask for in one
-// block and puts the rest of the app in the slow memory, which is what the slow memory is for.
-constexpr size_t kHomeReserve = 64 * 1024;
-
+// **Where a block goes is `pal::take_from_the_extra`** (0.151.20): the floor of the board's own RAM and the rule
+// that keeps it live in `pal/pal.h` so the bench obeys the same one and a test can hold it. What is here is only
+// the reading of the chip's free bytes.
 class EspExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
     if (bytes == 0) return nullptr;
     // A block that asked for the extra memory goes there first and the board's RAM is the fallback; a
-    // small one goes home only while the home keeps its floor.
-    if (prefer_extra || !room_at_home(bytes)) {
+    // small one goes home only while the home keeps its floor, and to the PSRAM when it would lose it.
+    if (take_from_the_extra(room_at_home(), bytes, prefer_extra)) {
       if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
     }
     if (void* block = heap_caps_malloc(bytes, kHomeCaps)) return block;
@@ -178,7 +170,7 @@ class EspExtraMemory : public IExtraMemory {
       release(block);
       return nullptr;
     }
-    const bool to_extra = prefer_extra || !room_at_home(bytes);
+    const bool to_extra = take_from_the_extra(room_at_home(), bytes, prefer_extra);
     const uint32_t home = to_extra ? kExtraCaps : kHomeCaps;
     if (void* moved = heap_caps_realloc(block, bytes, home)) return moved;
     // The same block in the other home: `heap_caps_realloc` allocates, copies and frees, which is
@@ -193,9 +185,9 @@ class EspExtraMemory : public IExtraMemory {
   // **The free bytes of the board's RAM are read every so many asks and not at every one**: the walk
   // of the heap for each of the thousands of blocks a Lua machine takes would cost more than the block
   // itself, and a floor that is read two hundred and fifty-six blocks late is still a floor.
-  bool room_at_home(size_t bytes) {
+  size_t room_at_home() {
     if ((++asked_ & 0xFFu) == 0u) home_free_ = heap_caps_get_free_size(kHomeCaps);
-    return home_free_ > bytes + kHomeReserve;
+    return home_free_;
   }
 
   size_t asked_ = 0;

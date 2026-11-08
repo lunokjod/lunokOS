@@ -495,9 +495,11 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   `lib/luabind/src/luabind.cpp`. D'aquí cap amunt, `pal::extra_memory()` dona el bloc de la PSRAM; per
   sota, de la RAM interna, que és més ràpida i on mil objectes petit fragmenten mil vegades menys.
   Una app no sap res de tot això: demana memòria i prou.
-- **I la RAM del xip té un terra des de la 0.151.19** (`kHomeReserve`, **64 KB**, a
-  `lib/pal_esp32/src/pal_esp32.cpp`): un bloc petit hi va **només mentre el que en queda després de
-  donar-lo es quedi per sobre del terra**, i si no, va a la PSRAM. El llindar de 4 KB sol no n'hi havia
+- **I la RAM del xip té un terra des de la 0.151.19** (`pal::kHomeReserveBytes`, **64 KB**, i la regla
+  `pal::take_from_the_extra()` a `lib/pal/include/pal/pal.h`, des de la 0.151.20): un bloc petit hi va
+  **només mentre el que en queda després de donar-lo es quedi per sobre del terra**, i si no, va a la
+  PSRAM. **La regla és del PAL i no del xip** perquè el banc l'ha d'obeir igual: `pal_host` enviava cada
+  bloc petit a la casa que li demanaven i un test podia passar al banc on la placa fallava. El llindar de 4 KB sol no n'hi havia
   prou: la màquina de Lua del lector demana uns **120 KB** en taules i cadenes petites, se'ls endú tots
   de la RAM del xip, i el sistema es queda sense el bloc que necessiten el `FILE` d'un fitxer i els
   buffers de DMA de la targeta. Mesurat a la placa: `mem` deia **125 464 B lliures (el tros més gran

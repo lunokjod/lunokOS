@@ -444,7 +444,13 @@ local function show_cover()
 
   cover_mode = true
   screen:clear(15, 'gc16')
-  if not epub.picture(screen, cover) then console.print('reader: the cover cannot be read') end
+  -- **And the system says why a cover did not come up** (0.151.20): the name of it is half the answer, and the other
+  -- half —the book does not carry it, it is bigger than the block of a picture, it is not a picture— is the one that
+  -- tells a person what to do with the book (docs/46, C7).
+  local drawn, why = epub.picture(screen, cover)
+  if not drawn then
+    console.print('reader: the cover cannot be read: ' .. tostring(why and why.message or why))
+  end
 
   foot.color = 0
   foot.background = 15

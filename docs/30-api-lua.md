@@ -141,7 +141,7 @@ funció.
 | `sys.emulator` | booleà | Cert només al PC: diu que la placa de `sys.board` és de mentida |
 | `sys.lua` | cadena | La versió de Lua que porta el sistema |
 | `sys.caps()` | taula de capacitats | Vegeu a dalt |
-| `sys.heap()` | `{free, used, limit, peak, extra_total, extra_free}` | Bytes del pressupost de l'app i, al darrere, la **memòria extra** de la placa (la PSRAM del Paper): `extra_total` és el que la CPU **pot adreçar** (4 MB, no els 8 del full de dades) i `extra_free` el que en queda; tots dos són **zero** en una placa que no en té, que és la veritat i no un error (docs/75) |
+| `sys.heap()` | `{free, used, limit, peak, extra_total, extra_free, ram_free, ram_largest}` | Bytes del pressupost de l'app i, al darrere, la **memòria extra** de la placa (la PSRAM del Paper): `extra_total` és el que la CPU **pot adreçar** (4 MB, no els 8 del full de dades) i `extra_free` el que en queda; tots dos són **zero** en una placa que no en té, que és la veritat i no un error. **`ram_free` i `ram_largest` són la RAM de la placa** (l'altra casa, la que necessiten els drivers i el sistema de fitxers) i no la suma amb la PSRAM: és el número que va explicar un `ENOMEM` de `fopen` amb 1,7 MB de PSRAM lliures, i el terra `pal::kHomeReserveBytes` és el que el manté (0.151.20, docs/75) |
 | `sys.gc("step")` | — | Fa un pas de col·lector |
 | `sys.gc("full")` | — | Col·lecció completa (cara; no es fa servir enmig d'un dibuix) |
 | `sys.gc("count")` | enter | KB en ús |

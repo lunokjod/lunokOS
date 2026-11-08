@@ -37,7 +37,13 @@ const int16_t kWords = 4096;  // the letters and the hrefs of one page
 // **The blocks of a picture**, asked for the first time a book has one: the file as it comes out of the zip and the
 // pixels in the box the page leaves for it. A page of the Paper is 540 × 912 at four bits a pixel, which is the size
 // of the second one, and a picture of a book that does not fit here is not a picture of a page (docs/46, A5).
+//
+// **The block of the file is the size of the entry and not this number** (0.152.1): 256 KB was a guess that refused the
+// cover of `Don quijote` —**1 046 256 B**— with three megabytes of PSRAM free, and the block now grows to what the entry
+// needs the first time it is read. This is the smallest block it starts with, and `kPictureFileMax` is the most this
+// reader will hold for one picture: past that it says so, with both numbers, instead of guessing (docs/46, C7).
 const uint32_t kPictureFileBytes = 256u * 1024u;
+const uint32_t kPictureFileMax = 3u * 1024u * 1024u;
 const uint32_t kPicturePixels = 540u * 960u / 2u;
 
 // **The three faces a page of a book is drawn with** (docs/46, C13): the words, the titles and the caption of a
@@ -111,6 +117,13 @@ bool thumbnail(const char* name, int32_t max);
 const uint32_t kFontFileBytes = 128u * 1024u;
 const uint32_t kFontSfntBytes = 512u * 1024u;
 bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& why);
+
+// **Why the last picture could not be read** (0.151.20, docs/46 A5 and C7): the name of a cover that does not come up is
+// half an answer, and the other half is one of seven things —the book carries no such entry, it is a folder, it is bigger
+// than the block that holds a picture (with both numbers), the stream did not come out, the file is not a picture this
+// system reads, it is bigger than a page of the glass, or there is no room for its pixels—. Never nullptr, so a log line
+// and an app can both say it.
+const char* picture_why();
 
 // **One page of the chapter that is open**, laid out from a byte into a box of that size. A page is a plan (see
 // `epub/page.h`) and it is not painted here: whoever composes it walks the items.

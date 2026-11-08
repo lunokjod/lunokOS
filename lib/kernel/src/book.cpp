@@ -47,7 +47,13 @@ struct State {
   char picture_name[160];
   uint8_t* picture_file = nullptr;
   uint32_t picture_file_bytes = 0;
+  // **The compressed block is as big as the biggest entry this book has needed so far** (0.152.1): a chapter of half a
+  // megabyte is what it was made for, and the cover of `Don quijote` —a megabyte in one entry— did not come out of it.
+  uint32_t packed_bytes = 0;
+  // **The chapter block is the size of the chapter that is open** (0.152.2) and this is how many bytes it has.
+  uint32_t chapter_alloc = 0;
   uint8_t* picture_pixels = nullptr;
+  uint32_t picture_pixels_bytes = 0;
   int32_t picture_width = 0;
   int32_t picture_height = 0;
   bool picture_ready = false;
@@ -151,6 +157,8 @@ void release_blocks() {
   g.packed = nullptr;
   g.table = nullptr;
   g.picture_pixels = nullptr;
+  g.picture_pixels_bytes = 0;
+  g.chapter_alloc = 0;
   g.picture_file = nullptr;
   g.picture_file_bytes = 0;
   g.font_file = nullptr;
@@ -250,10 +258,89 @@ void fit_row(void* ctx, uint16_t y, const uint8_t* packed) {
 // entry, its size from the header, and the pixels in the box the page will leave for it: a page asks for a picture once
 // and looks at it twice —to reserve the room and to paint it— and the second time it is here, which is what the cache is
 // for (docs/46, A5).
+//
+// **And when it cannot be read it says which of the seven reasons it was** (0.151.20): a book whose cover did not come up
+// said only `the picture … cannot be read`, and the name, the size in the zip and the block it wanted are three numbers
+// that send a person to three different places (docs/46, A5 and C7).
+char g_picture_why[96] = "no picture was asked for";
+
+// **Room for a compressed entry** (0.152.1): the block `g.packed` is grown to what the entry needs and kept, because a
+// book that carries one plate of a megabyte would otherwise pay for it at every picture. It never shrinks: the block is
+// the biggest entry this book has asked for, and `kPictureFileMax` is the most this reader will hold.
+// **The word for a zip that said no** (0.152.1): `the stream of the entry did not come out` was true of six different
+// refusals, and two of them want opposite things done to the book (docs/46, A1).
+const char* zip_status_word(zip::Status status) {
+  switch (status) {
+    case zip::kOk:
+      return "ok";
+    case zip::kNotAZip:
+      return "not a zip";
+    case zip::kSplit:
+      return "a zip in volumes";
+    case zip::kZip64:
+      return "zip64";
+    case zip::kDirectory:
+      return "the directory is damaged";
+    case zip::kNoRoom:
+      return "the block is too small";
+    case zip::kBadData:
+      return "the data is damaged";
+    case zip::kEncrypted:
+      return "it is encrypted";
+    case zip::kMethod:
+      return "a compression this reader does not have";
+    case zip::kCrc:
+      return "the checksum does not match";
+  }
+  return "unknown";
+}
+
+// **Room for a chapter** (0.152.2), the same way the picture file gets its own: the block grows to what the chapter needs
+// and is kept for the next one, and `kChapterBytes` is the most this reader will hold for a chapter.
+bool chapter_room(uint32_t bytes) {
+  if (g.chapter != nullptr && g.chapter_alloc >= bytes) return true;
+  if (bytes > kChapterBytes) return false;
+  const uint32_t want = (bytes + 1023u) & ~1023u;
+  uint8_t* fresh = static_cast<uint8_t*>(pal::extra_memory().allocate(want, true));
+  if (fresh == nullptr) return false;
+  if (g.chapter != nullptr) pal::extra_memory().release(g.chapter);
+  g.chapter = fresh;
+  g.chapter_alloc = want;
+  return true;
+}
+
+bool packed_room(uint32_t bytes) {
+  if (g.packed != nullptr && g.packed_bytes >= bytes) return true;
+  if (bytes > kPictureFileMax) return false;
+  const uint32_t want = (bytes + 1023u) & ~1023u;
+  // **The new block comes before the old one goes** (0.152.1): releasing first left the book with no scratch at all when
+  // the bigger one did not fit —two megabytes free and the next chapter would then have answered `kNoRoom`—, which is a
+  // failure that costs more than the picture it was asked for.
+  uint8_t* fresh = static_cast<uint8_t*>(pal::extra_memory().allocate(want, true));
+  if (fresh == nullptr) return false;
+  if (g.packed != nullptr) pal::extra_memory().release(g.packed);
+  g.packed = fresh;
+  g.packed_bytes = want;
+  return true;
+}
+
+void picture_failed(const char* why) {
+  size_t i = 0;
+  for (; why[i] != '\0' && i + 1 < sizeof(g_picture_why); ++i) g_picture_why[i] = why[i];
+  g_picture_why[i] = '\0';
+}
+
 bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t& out_w, int32_t& out_h) {
   out_w = 0;
   out_h = 0;
-  if (!g.open || name == nullptr || name[0] == 0) return false;
+  if (!g.open) {
+    picture_failed("there is no book open");
+    return false;
+  }
+  if (name == nullptr || name[0] == 0) {
+    picture_failed("no picture was asked for");
+    return false;
+  }
 
   if (g.picture_ready && strcmp(name, g.picture_name) == 0) {
     out_w = g.picture_width;
@@ -263,25 +350,74 @@ bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t&
   g.picture_ready = false;
 
   const int32_t index = g.archive.find(name);
-  if (index < 0) return false;
+  if (index < 0) {
+    picture_failed("the book carries no entry with that name");
+    return false;
+  }
 
   const zip::Entry* one = g.archive.at(static_cast<uint16_t>(index));
-  if (one == nullptr || one->dir || one->size > kPictureFileBytes) return false;
+  if (one == nullptr || one->dir) {
+    picture_failed("the entry is a folder");
+    return false;
+  }
+  // **The block is the size of the picture and not a fixed two hundred and fifty-six kilobytes** (0.152.1): the same
+  // lesson the table of the zip learned in 0.151.15, and the cover of `Don quijote` is what taught it again —it is
+  // **1 046 256 B** and it was refused for being bigger than the block, with three megabytes of PSRAM free—. The block
+  // grows to what the entry needs the first time that entry is read, and never shrinks back: a book with one plate of a
+  // megabyte and thirty pages does not pay it thirty times (docs/46, A5 and C7).
+  if (one->size > kPictureFileMax) {
+    snprintf(g_picture_why, sizeof(g_picture_why), "the entry is %lu B and a picture may be %lu B",
+             static_cast<unsigned long>(one->size), static_cast<unsigned long>(kPictureFileMax));
+    return false;
+  }
 
-  if (g.picture_file == nullptr) {
-    g.picture_file = static_cast<uint8_t*>(pal::extra_memory().allocate(kPictureFileBytes, true));
-    if (g.picture_file == nullptr) return false;
-    g.picture_file_bytes = kPictureFileBytes;
+  if (g.picture_file == nullptr || g.picture_file_bytes < one->size) {
+    if (g.picture_file != nullptr) pal::extra_memory().release(g.picture_file);
+    g.picture_file = nullptr;
+    g.picture_file_bytes = 0;
+    // A block of a whole number of kilobytes, so a file of a thousand and one bytes does not buy a walk of the heap for
+    // the next thousand.
+    const uint32_t want = (one->size + 1023u) & ~1023u;
+    g.picture_file = static_cast<uint8_t*>(pal::extra_memory().allocate(want, true));
+    if (g.picture_file == nullptr) {
+      picture_failed("there is no room for the file of the picture");
+      return false;
+    }
+    g.picture_file_bytes = want;
   }
 
   uint32_t written = 0;
-  if (g.archive.extract(static_cast<uint16_t>(index), g.picture_file, g.picture_file_bytes, written, g.packed,
-                        kChapterBytes) != zip::kOk) {
+  // **A stored entry is copied straight into the block and needs no scratch** (`zip::Archive::extract` reads it into the
+  // caller's block and checks its checksum, docs/46 A1): asking for a megabyte of scratch to copy a megabyte of PNG that
+  // is already stored was a megabyte thrown away (0.152.2).
+  if (one->method != 0 && !packed_room(one->packed)) {
+    picture_failed("there is no room for the compressed stream of the picture");
+    return false;
+  }
+  const zip::Status pulled = g.archive.extract(static_cast<uint16_t>(index), g.picture_file, g.picture_file_bytes,
+                                               written, g.packed, g.packed_bytes);
+  if (pulled != zip::kOk) {
+    snprintf(g_picture_why, sizeof(g_picture_why), "the stream of the entry did not come out (%s)",
+             zip_status_word(pulled));
     return false;
   }
 
   img::Info info;
-  if (img::read_info(g.picture_file, written, info) != img::kOk || info.width == 0 || info.height == 0) return false;
+  if (img::read_info(g.picture_file, written, info) != img::kOk || info.width == 0 || info.height == 0) {
+    // **The first eight bytes are the format's own name** (0.152.2): `not a picture this system reads` is true of a PNG
+    // with a colour type it does not have, of a `.png` that is a WebP and of a file that is not a picture at all, and the
+    // three want different things done. Every format this reader knows starts with a signature, and so does every one it
+    // does not (docs/46, A5).
+    if (written >= 8) {
+      snprintf(g_picture_why, sizeof(g_picture_why), "the entry is not a picture this system reads (%02x%02x%02x%02x %02x%02x%02x%02x)",
+               g.picture_file[0], g.picture_file[1], g.picture_file[2], g.picture_file[3], g.picture_file[4],
+               g.picture_file[5], g.picture_file[6], g.picture_file[7]);
+    } else {
+      snprintf(g_picture_why, sizeof(g_picture_why), "the entry is not a picture this system reads (%lu B)",
+               static_cast<unsigned long>(written));
+    }
+    return false;
+  }
 
   int32_t width = info.width;
   int32_t height = info.height;
@@ -293,17 +429,38 @@ bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t&
     width = width * max_h / height;
     height = max_h;
   }
-  if (width <= 0 || height <= 0) return false;
-  if (static_cast<uint32_t>((width + 1) / 2) * static_cast<uint32_t>(height) > kPicturePixels) return false;
+  if (width <= 0 || height <= 0) {
+    picture_failed("the picture came out with no size");
+    return false;
+  }
+  if (static_cast<uint32_t>((width + 1) / 2) * static_cast<uint32_t>(height) > kPicturePixels) {
+    snprintf(g_picture_why, sizeof(g_picture_why), "%ldx%ld is bigger than a page of the glass",
+             static_cast<long>(width), static_cast<long>(height));
+    return false;
+  }
 
-  if (g.picture_pixels == nullptr) {
-    g.picture_pixels = static_cast<uint8_t*>(pal::extra_memory().allocate(kPicturePixels, true));
-    if (g.picture_pixels == nullptr) return false;
+  // **The pixels of the picture are the ones it is going to have** (0.152.2): a cache of sixty-four pixels asked for a
+  // block of a whole page —259 200 B for 2 048— and a book that fills this board's PSRAM with a cover does not have them.
+  const uint32_t need = static_cast<uint32_t>((width + 1) / 2) * static_cast<uint32_t>(height);
+  if (g.picture_pixels == nullptr || g.picture_pixels_bytes < need) {
+    if (g.picture_pixels != nullptr) pal::extra_memory().release(g.picture_pixels);
+    g.picture_pixels = nullptr;
+    g.picture_pixels_bytes = 0;
+    const uint32_t want = (need + 1023u) & ~1023u;
+    g.picture_pixels = static_cast<uint8_t*>(pal::extra_memory().allocate(want, true));
+    if (g.picture_pixels == nullptr) {
+      picture_failed("there is no room for the pixels of the picture");
+      return false;
+    }
+    g.picture_pixels_bytes = want;
   }
 
   // **The scratch of the decoder is the block of the compressed stream**, which is free at this moment: a chapter
   // and a picture of a page are not decoded at once, and the block is the board's either way (docs/46, A7).
-  if (img::scratch_bytes(g.picture_file, written) > kChapterBytes) return false;
+  if (img::scratch_bytes(g.picture_file, written) > g.packed_bytes) {
+    picture_failed("the picture needs more scratch than the block it came in");
+    return false;
+  }
 
   Fit fit;
   fit.target = g.picture_pixels;
@@ -314,7 +471,7 @@ bool load_picture_named(const char* name, int32_t max_w, int32_t max_h, int32_t&
   fit.source_height = info.height;
   fit.last_row = -1;
 
-  if (img::decode(g.picture_file, written, img::RowSink(fit_row, &fit), g.packed, kChapterBytes) != img::kOk) {
+  if (img::decode(g.picture_file, written, img::RowSink(fit_row, &fit), g.packed, g.packed_bytes) != img::kOk) {
     return false;
   }
 
@@ -497,13 +654,11 @@ const char* open(const char* path) {
   // **The blocks come before the table is read**, and the table is the one that says whether this is a book at
   // all: a file that is not one gives everything back.
   g.table = static_cast<zip::Entry*>(pal::extra_memory().allocate(sizeof(zip::Entry) * wanted, true));
-  g.packed = static_cast<uint8_t*>(pal::extra_memory().allocate(kChapterBytes, true));
-  g.chapter = static_cast<uint8_t*>(pal::extra_memory().allocate(kChapterBytes, true));
+  packed_room(kChapterBytes);
   g.items = static_cast<epub::Item*>(pal::extra_memory().allocate(sizeof(epub::Item) * kItems, true));
   g.words = static_cast<char*>(pal::extra_memory().allocate(kWords, true));
 
-  if (g.table == nullptr || g.packed == nullptr || g.chapter == nullptr || g.items == nullptr ||
-      g.words == nullptr) {
+  if (g.table == nullptr || g.packed == nullptr || g.items == nullptr || g.words == nullptr) {
     close();
     return "there is no memory for a book";
   }
@@ -551,9 +706,14 @@ const char* chapter_at(int32_t index, int32_t& bytes) {
   const zip::Entry* one = entry(index);
   if (one == nullptr || one->dir) return nullptr;
 
+  // **The block of a chapter is the size of the chapter** (0.152.2): half a megabyte for every book was a ceiling that
+  // a novel of three-kilobyte chapters paid in full, and the cover of `Don quijote` —two megabytes of file and stream—
+  // did not fit next to it. Same rule as the table of the zip and the file of a picture: the block is the thing.
+  if (!chapter_room(one->size)) return nullptr;
+
   uint32_t written = 0;
-  if (g.archive.extract(static_cast<uint16_t>(index), g.chapter, kChapterBytes, written, g.packed,
-                        kChapterBytes) != zip::kOk) {
+  if (g.archive.extract(static_cast<uint16_t>(index), g.chapter, g.chapter_alloc, written, g.packed,
+                        g.packed_bytes) != zip::kOk) {
     return nullptr;
   }
 
@@ -593,7 +753,7 @@ bool read(const char* name, const char** data, uint32_t& size) {
 
   uint32_t written = 0;
   if (g.archive.extract(static_cast<uint16_t>(index), g.meta, kMetaBytes, written, g.packed,
-                        kChapterBytes) != zip::kOk) {
+                        g.packed_bytes) != zip::kOk) {
     return false;
   }
 
@@ -633,6 +793,8 @@ bool cache_is_whole(const char* path, uint32_t size) {
 
 }  // namespace
 
+const char* picture_why() { return g_picture_why; }
+
 bool thumbnail(const char* name, int32_t max) {
   if (!g.open || g.storage == nullptr || name == nullptr || name[0] == 0) return false;
   if (max <= 0) return false;
@@ -665,7 +827,7 @@ bool thumbnail(const char* name, int32_t max) {
   int32_t width = 0;
   int32_t height = 0;
   if (!load_picture_named(name, max, max, width, height)) {
-    log_printf(pal::kLogWarn, "BOOK", "the picture %s of the book cannot be read", name);
+    log_printf(pal::kLogWarn, "BOOK", "the picture %s of the book cannot be read (%s)", name, picture_why());
     return false;
   }
 
@@ -746,7 +908,7 @@ bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& w
 
   uint32_t written = 0;
   if (g.archive.extract(static_cast<uint16_t>(index), g.font_file, g.font_file_bytes, written, g.packed,
-                        kChapterBytes) != zip::kOk) {
+                        g.packed_bytes) != zip::kOk) {
     why = "the face of the book cannot be taken out of it";
     return false;
   }
@@ -955,6 +1117,7 @@ void bind() {
   ops.page = page_into;
   ops.picture = picture_into;
   ops.thumbnail = thumbnail;
+  ops.picture_why = picture_why;
   ops.font = font;
 
   luabind::set_book_ops(ops);

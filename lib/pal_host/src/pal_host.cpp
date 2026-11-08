@@ -519,12 +519,15 @@ class HostExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
     if (bytes == 0) return nullptr;
-    const uint8_t first = prefer_extra ? kExtra : kHome;
+    // **The same rule as the board** (0.151.20, `pal::take_from_the_extra`): a small block goes home while the
+    // home keeps its floor and to the extra memory when it would lose it. A bench that did otherwise would let a
+    // test pass on a board that fails —which is exactly what this cost to find (docs/75, docs/85).
+    const uint8_t first = take_from_the_extra(home_free(kHome), bytes, prefer_extra) ? kExtra : kHome;
     if (void* block = take(first, bytes)) return block;
     // **The other home before saying no**: a block is a block and the app does not have to know where
     // it lives. On the Paper this is what keeps a small font out of the PSRAM's way and a page of
     // canvas out of the chip's (docs/75).
-    return take(prefer_extra ? kHome : kExtra, bytes);
+    return take((first == kExtra) ? kHome : kExtra, bytes);
   }
 
   void* resize(void* block, size_t bytes, bool prefer_extra) override {
@@ -535,7 +538,7 @@ class HostExtraMemory : public IExtraMemory {
     }
     Chunk* chunk = head_of(block);
     if (chunk->home == kPlain) return plain_resize(block, bytes);
-    const uint8_t want = (prefer_extra ? kExtra : kHome);
+    const uint8_t want = take_from_the_extra(home_free(kHome), bytes, prefer_extra) ? kExtra : kHome;
     if (chunk->home == want) {
       if (void* same = grow(block, bytes)) return same;
       // The home that was asked for is full right here: the same block in the other one, and if that one

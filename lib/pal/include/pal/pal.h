@@ -157,8 +157,28 @@ void delay_us(uint32_t us);
 //
 // It exists so the interpreter does not have to ask which board it is on: it asks for big blocks
 // from here and small ones from the normal heap, and a board without extra memory takes all of them
-// from the normal heap and says zero in `HeapInfo` (docs/75). Nothing here is a policy: the number
-// of bytes and the choice of home come from the caller.
+// from the normal heap and says zero in `HeapInfo` (docs/75).
+
+// **The floor of the board's own RAM, and the rule that keeps it** (0.151.20): a block goes to the chip's
+// RAM only while what is left after it stays above this, and to the extra memory after that. The rule is here
+// and not in a PAL so that the board and the bench obey the same one, and so that a test can hold it.
+//
+// **Why it exists** (measured on the Paper, 8/11): the Lua machine of the reader asks for about 120 KB in
+// small tables and strings, and with every block under 4 KB going home it took the pool the file system needs
+// for a `FILE` and the card for a DMA buffer. `fopen` then answered `ENOMEM` with 1,7 MB of PSRAM free,
+// `ls /littlefs` printed nothing and a read of the card failed with an `ESP_ERR_INVALID_CRC`, until the board
+// was rebooted. `mem` says the board's RAM has **125 464 B free at rest**, so sixty-four thousand leaves the
+// drivers room for the pieces they ask for in one block (docs/75).
+constexpr size_t kHomeReserveBytes = 64 * 1024;
+
+// True when the block should be taken from the extra memory first: the caller asked for it, or the board's own
+// RAM would drop below its floor by giving it away. A block that asked for the extra memory and does not get it
+// falls back home in every PAL, so a board with no PSRAM keeps working exactly as it did.
+inline bool take_from_the_extra(size_t free_home, size_t bytes, bool prefer_extra) {
+  if (prefer_extra) return true;
+  return free_home < bytes + kHomeReserveBytes;
+}
+
 class IExtraMemory {
  public:
   virtual ~IExtraMemory() {}

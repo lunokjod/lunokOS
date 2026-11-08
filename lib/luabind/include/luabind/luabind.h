@@ -725,6 +725,10 @@ struct BookOps {
   // (a `.woff` is opened and becomes one). `data` belongs to the book and is valid until the next read of one of its
   // files; `why` is the sentence of a refusal. The bytes are not a face yet: `ui.load_font` is what makes one of them.
   bool (*font)(const char* name, const uint8_t** data, uint32_t& size, const char*& why);
+  // **Why the last picture could not be read** (0.151.20, docs/46 A5 and C7): the name of a cover that does not come up
+  // is half an answer —the book may not carry it, it may be bigger than the block that holds a picture, or it may be a
+  // file this system does not read— so an app that asks for one can say which. Never nullptr.
+  const char* (*picture_why)();
 };
 
 void set_book_ops(const BookOps& ops);

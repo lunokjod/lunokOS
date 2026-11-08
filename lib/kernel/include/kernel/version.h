@@ -3873,7 +3873,79 @@ namespace kernel {
 //   **Still open, and seen while measuring**: the cover of `Don quijote` is named `OEBPS/Images/don quijote-
 //   cervantes.png` and cannot be read (`[W][BOOK] the picture … cannot be read`), which is the reader resolving an
 //   `href` with a space in it and not this version's business.
-static const char kVersion[] = "0.151.19";
+// 0.152.0 (8/11): **the floor of the board's RAM is a rule of the PAL —so the bench obeys it and a test can hold
+// it— and a picture that does not come up says which of the seven reasons it was**.
+//
+//     - **The rule moved out of the chip and into `pal/pal.h`** (`kHomeReserveBytes`, the same 64 KB, and
+//       `pal::take_from_the_extra(free_home, bytes, prefer_extra)`), and **the bench obeys it too**. It did not before:
+//       `pal_host` sent every small block to the home it was asked for, which is why a test could pass on the bench while
+//       the board failed — and it is exactly what one of the `/data` theories of 0.151.18 did, with a test that passed
+//       over a broken change;
+//     - **`test/test_pal` is the proof, and it is a whole suite because the rule is the PAL's**: the home's free bytes
+//       never cross the floor while a hundred and twenty-eight small blocks are taken (the shape of what the reader
+//       asked for), a board with no extra memory takes everything home —the ATOM must not be refused a block for a floor
+//       it cannot jump over— and a block that asked for the extra memory still pays the slow one. **Broken on purpose by
+//       taking the rule out of `allocate`** (the bench goes back to `prefer_extra ? extra : home`): the first two cases
+//       go red, and they are green again with it. *Not yet run on the board or in the suite when this was written*: the
+//       two runs are the next thing, and if they say otherwise this block is wrong and gets fixed with them;
+//     - **a picture says why**: `book::picture_why()` names the reason `load_picture_named` refused —there is no book
+//       open, the book carries no entry with that name, the entry is a folder, **the entry is N B and the block is
+//       262 144 B**, the stream did not come out, the entry is not a picture this system reads, NxM is bigger than a page
+//       of the glass, there is no room for its file or for its pixels, or its scratch does not fit in the block of a
+//       chapter— and it reaches three places: the `[W][BOOK]` line, `epub.picture`'s refusal (which the reader now prints)
+//       and `epub.thumbnail`'s. **The cover of `Don quijote` that 0.151.19 left open is what this measures next**: the
+//       name it printed, `OEBPS/Images/don quijote- cervantes.png`, is a name this system reads byte for byte, so the
+//       answer is one of the numbers and not a guess;
+//     - **and an app can ask the board's own RAM**, which is why this is a `Y` and not a `Z`: `sys.heap()` carries
+//       `ram_free` and `ram_largest` next to the app's own budget and the extra memory. It is the number that was
+//       invisible —`mem` prints it, and `mem` is a command of the prompt, which an app cannot read while it runs— and it
+//       is what makes the floor checkable from a book, an editor or a test (docs/30, docs/75).
+// 0.152.1 (8/11): **the block of a picture is the size of the picture and not a fixed two hundred and fifty-six
+// kilobytes**.
+//
+//   The cover of `Don quijote` did not come up, and the reason the diagnostic of 0.152.0 made it say is the whole bug:
+//   `the entry is 1046256 B and the block is 262144 B`. The block was a guess and the PSRAM had three megabytes free.
+//   It is the same lesson the table of the zip learned in 0.151.15 —a fixed size that refuses a book for being what it
+//   is— and the same shape of fix: `load_picture_named` asks for what the entry needs, in whole kilobytes, the first
+//   time that entry is read, and keeps the block for the next picture (a book with a plate of a megabyte and thirty
+//   pages does not pay it thirty times). `kPictureFileMax` (**3 MB**) is the most this reader will hold for one picture,
+//   and a picture past it is refused with both numbers in the sentence instead of in silence.
+//
+//   **Measured on the board**, opening `Don_Quijote_de_la_Mancha-Cervantes_Miguel.epub` from the card: the refusal went
+//   from `the entry is 1046256 B and the block is 262144 B` to the next wall, which was the scratch of the stream, and
+//   then to the last one, which is 0.152.2's. **The cover of that book does not come up yet**, and the reason is no
+//   longer a guess.
+//
+// 0.152.2 (8/11): **the block of a chapter and the pixels of a picture are the size of the thing too, and the scratch of
+// a stream grows**.
+//
+//   The three walls the cover of `Don quijote` found, one after another, and all of them the same lesson as 0.151.15 and
+//   0.152.1 —a fixed size that refuses a book for being what it is—:
+//
+//     - **the pixels of a picture**: `kPicturePixels` (259 200 B, a whole page) was asked for even by a cache of
+//       sixty-four pixels, which needs 2 048. The block is now the size the picture is going to have.
+//     - **the block of a chapter**: half a megabyte per book, which a novel of three-kilobyte chapters paid in full and
+//       which left no room for a cover next to it. The block grows to what the chapter needs and is kept for the next
+//       one, and `kChapterBytes` is the most this reader will hold for a chapter.
+//     - **the scratch of the compressed stream**: `g.packed` was made at `kChapterBytes` and never grew, so an entry of
+//       a megabyte answered `kNoRoom`. It now grows to the entry —**the new block comes before the old one goes**: the
+//       first version of this released first and left the book with no scratch at all when the bigger one did not fit,
+//       which is a failure that costs more than the picture it was asked for— and a **stored** entry does not ask for one
+//       at all, because its bytes are copied straight into the caller's block.
+//
+//   **Measured on the board, and where it stops**: with the book open and nothing else, the PSRAM has **2 566 863 B**
+//   free, and the cover needs about **2,1 MB** —1 046 256 B of file and as much of stream— which **fits** there: the
+//   extraction came out whole and the refusal became the last one, `the entry is not a picture this system reads
+//   (89504e47 0d0a1a0a)`. That signature is a **PNG**, so the file is fine and what refuses it is `lib/img`'s header
+//   reader (`read_chunks` in `lib/img/src/png.cpp`): a critical chunk it does not know, or a run of `IDAT` that another
+//   chunk interrupts. **Inside the reader it does not fit yet**: the app holds its canvas, its two faces and the book,
+//   and what is left is not the 2,1 MB the picture wants. So the cover of this book is two things away —`lib/img` has to
+//   read that PNG and say which chunk stopped it, and a picture of a megabyte wants a stream read in pieces instead of a
+//   block of its own size— and neither of them is in this version. The reader opens the book and paints its pages, which
+//   is what a reader is for.
+//
+//   `pio run -e m5-paper`: **2 341 465 B (55,8 %)**, 121 708 B of RAM (2,7 %), no warning.
+static const char kVersion[] = "0.152.2";
 
 }  // namespace kernel
 
