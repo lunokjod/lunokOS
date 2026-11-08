@@ -1134,9 +1134,11 @@ bool find_entry(const apps::Entry& entry, void* context) {
   return false;  // stop the walk: there is nothing else to look for
 }
 
-// Finds the app and reads its entry chunk. It prepares no state: whether the app
-// takes the foreground or is only a window is decided by whoever calls this.
-bool load_source(const char* id, RunTarget& target, size_t& len) {
+// **Where the app is and what its manifest says, with nothing read and no VM**
+// (0.151.17): the picture a start shows is the one the manifest names, so it has
+// to be known *before* anything that costs time begins —the source read and the
+// building of the interpreter both come after it.
+bool find_app(const char* id, RunTarget& target) {
   target.path[0] = '\0';
   target.found = false;
   apps::for_each(id, &find_entry, &target);
@@ -1169,6 +1171,14 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
     newline();
     return false;
   }
+  return true;
+}
+
+// Reads the entry chunk of an app that `find_app` has already found. It is the
+// expensive half of a start —98 304 B of heap and a file read— and it is kept
+// apart from the lookup so that a start can put its picture on the glass first
+// (docs/30, docs/40).
+bool read_source(const RunTarget& target, size_t& len) {
   g_source = static_cast<char*>(malloc(kSourceCap));
   if (g_source == nullptr) {
     out("no memory for the source\r\n");
@@ -1191,10 +1201,63 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   return true;
 }
 
+// **The two halves together, for a caller with nothing to say to the glass in
+// between** (0.151.17): an alarm window is not a start, it shows no picture and
+// it owns no page, so it goes straight to the source (docs/60).
+bool load_source(const char* id, RunTarget& target, size_t& len) {
+  return find_app(id, target) && read_source(target, len);
+}
+
 bool run_app(const char* id, const char* open_path, bool restore = false) {
   RunTarget target;
+  // **Where the app is and what its manifest says, with nothing read yet**
+  // (0.151.17): the picture a start shows is the one the manifest names, and a
+  // start that shows it has to know its name before it pays for the source block
+  // and for the interpreter. Only the lookup happens here —a walk of the listing
+  // and a string copy— and it is also what refuses an app of another board.
+  if (!find_app(id, target)) return false;
+
+  // The app gets a view of its own, white and with nothing pending; the glass is
+  // not touched until it presents (docs/30).
+  ui::attach();
+  // **The app's own picture, before the app is loaded and before the Lua machine
+  // exists** (0.151.17, and 0.114.0 before it): a manifest that names one gets
+  // the whole glass washed and the image in the middle —the system's `splash` and
+  // not a paint of the app's, because an app cannot paint before it runs— and the
+  // first page it presents takes it away. **It goes after `ui::attach()` and not
+  // before**, because the attach washes the glass whole when the page before it
+  // had painted something, and a wash after the picture is a picture nobody ever
+  // sees: that is exactly what the test of this found on the bench, where the
+  // page of the test before had left its ink counted (docs/30, docs/40).
+  // It is skipped for an app that comes back from a sleep: a resume is not a
+  // start. A picture that is not there is a line of the log and nothing else; the
+  // app runs all the same.
+  if (target.splash[0] != '\0' && !restore) {
+    char root[96];
+    char picture[160];
+    const int made = apps::root_of(id, root, sizeof(root))
+                         ? snprintf(picture, sizeof(picture), "%s/%s", root, target.splash)
+                         : -1;
+    if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
+      if (!splash::show(picture)) {
+        log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
+      }
+    }
+  }
+  // And its title goes to the middle of the bar, which is the system's and not
+  // the app's (docs/30).
+  bar::title(target.title);
+
+  // **Now the expensive part**: 98 304 B of heap, a file read and a Lua machine.
   size_t len = 0;
-  if (!load_source(id, target, len)) return false;
+  if (!read_source(target, len)) {
+    // **The view and the bar are already the app's, and the app is not coming**
+    // (0.151.17): the attach and the title happened before this read, so a start
+    // that dies here gives both back, as an app that could not compile does.
+    ui::give_back_the_glass();
+    bar::title("");
+    return false;
+  }
 
   luabind::Boot boot;
   boot.board = platform().id();
@@ -1231,36 +1294,15 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   }
   if (!luabind::start(boot, limit)) {
     drop_source();  // the text was read and nobody is going to compile it
+    // **The view and the bar are already the app's here too** (0.151.17): an
+    // interpreter that does not come up is a start that did not happen.
+    ui::give_back_the_glass();
+    bar::title("");
     error_out("cannot start the interpreter\r\n");
     return false;
   }
   // The app is measured on its own from here (docs/30).
   meter::note_app_start(boot.app_id);
-  // The app gets a view of its own, white and with nothing pending; the glass is not touched until it
-  // presents (docs/30).
-  ui::attach();
-  // **The app's own picture, after the page is attached and before the app runs a line** (0.114.0, moved here by
-  // 0.118.0): a manifest that names one gets the whole glass washed and the image in the middle —the system's `splash`
-  // and not a paint of the app's, because an app cannot paint before it runs— and the first page it presents takes it
-  // away. **It goes after `ui::attach()` and not before**, because the attach washes the glass whole when the page
-  // before it had painted something, and a wash after the picture is a picture nobody ever sees: that is exactly what
-  // the test of this found on the bench, where the page of the test before had left its ink counted (docs/30, docs/40).
-  // It is skipped for an app that comes back from a sleep: a resume is not a start. A picture that is not there is a
-  // line of the log and nothing else; the app runs all the same.
-  if (target.splash[0] != '\0' && !restore) {
-    char root[96];
-    char picture[160];
-    const int made = apps::root_of(id, root, sizeof(root))
-                         ? snprintf(picture, sizeof(picture), "%s/%s", root, target.splash)
-                         : -1;
-    if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
-      if (!splash::show(picture)) {
-        log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
-      }
-    }
-  }
-  // And its title goes to the middle of the bar, which is the system's and not the app's (docs/30).
-  bar::title(target.title);
 
   // The app is compiled and given a task, but not run here: the first turn is
   // the first poll, and from then on the kernel keeps turning (docs/30).

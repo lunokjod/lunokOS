@@ -168,6 +168,26 @@ definicions i el `Token` porta `inset` (0.130.0).
 | **C15** | **Anar a una pàgina pel número** — **fet el 8/11 (0.145.0)**: `Book → Page` obre **la llista de les pàgines del capítol** (una fila `Page k` per cada pàgina que el comptatge del C5 coneix), oberta a la pàgina que hi ha al vidre i amb aquella fila marcada; el dial les camina, el centre o el dit n'obren una, i el lector salta al **byte on comença** aquella pàgina amb un Rentat (un salt de deu pàgines no és un gir). **El número es camina i no s'escriu**: un camp que pren un número porta la banda del teclat, 581 files d'aquest vidre, i és més lent que una llista (docs/30). I des de la 0.145.0 **el menú s'obre des de les tecles** (un toc llarg del centre, amb el `Book` desplegat) perquè el dial el pugui recórrer | **No hi és al paper** (pas 14) | Fet a l'app; el motor no canvia |
 | **C16** | **La miniatura a la cel·la del prestatge** — **pendent** (8/11, i és l'última cosa que li falta al prestatge): la cel·la d'un llibre ha d'ensenyar **la seva portada llegida del cau** —`.la-vaca-cega.epub.cache.ics`, que ja s'hi escriu des del 0.146.0 (C11)— i no el número `01` d'avui. És el que fa l'app **Files** amb la previsualització d'un fitxer: la icona d'un element és la imatge d'aquell element. **No cal res del sistema**: el cau **és una foto** (`ICS1`, i `ui.image` llegeix un fitxer), i una cel·la d'una `ui.icon_grid` pot ser un control de l'app des de la 0.105.0 (`cells_of_the_kernel = false`, `icon_grid_cell` diu on va) | El prestatge del paper no tenia cel·les: hi havia el nom i la unitat d'un llibre, i la miniatura era per a `Files` | Fet a l'app: el cau i la seva lectura com una foto ja hi són (C11 i `lib/img`); queda la cel·la i el que fa si el cau no hi és (la marca d'avui, `01`) |
 
+**La icona i l'splash, portats del paper amb la recepta que els va fer** (8/11, 0.151.17): l'app del
+paper portava `icon.icn` (el format d'M5, 4 418 B) i `splash.png` (6 924 B, 420×520), i el que s'ha
+portat és **el dibuix font** i **la recepta**, no els dos fitxers tal com eren:
+
+| Fitxer aquí | Què és | Mida |
+|---|---|---|
+| `apps/reader/res/icon-source.png` | el dibuix que una persona edita: `OLD/PaperOS/tools/icons/EPUB.png`, escala de grisos | 448×448, **2 818 B** |
+| `apps/reader/res/icon.png` | la icona que nomeja el manifest, feta amb `tools/make_icon.py` | 94×94, **1 760 B** |
+| `apps/reader/res/splash.png` | la composició de `splashgen.py`: la icona a 232 px, una ratlla, `EPUB`, `loading...` i el peu | 420×520, **6 876 B** |
+
+L'`icon.icn` **no s'ha portat**: aquest sistema no llegeix aquell format i el manifest apunta al PNG
+(docs/40). La recepta viatja com a `tools/app_splash.py` —el `splashgen.py` del paper amb la capçalera
+d'aquí— i es torna a fer amb una ordre; **l'única diferència amb l'original és el peu**, que deia
+`PaperOS` i aquí diu `lunokOS` (`--foot PaperOS` el torna a fer igual).
+
+I el sistema **ensenya el dibuix abans de carregar res** (0.151.17): l'arrencada es va partir en dues
+meitats i la imatge va entre elles, perquè abans el `splash` sortia **després** de llegir el fitxer de
+l'app —98 304 B de munt i una lectura— i de construir la màquina de Lua, i mentrestant el vidre no deia
+res. El detall de l'ordre és a docs/40; la pàgina de l'app no canvia, i el lector no en sap res.
+
 ### D · El que el sistema encara no té i l'EPUB demana
 
 | # | Què | Per què l'EPUB el necessita | Mida |

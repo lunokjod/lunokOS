@@ -6104,6 +6104,80 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   kernel::boot(hal::platform());
 }
 
+// **The picture of an app goes up before the app is read and before the Lua machine is built** (0.151.17): a start is
+// two halves —the lookup of the manifest and then the read of the source, 98 304 B of heap and a file— and the picture
+// sits between them, so the glass shows the drawing while the expensive half is paid for. **The measurement is a start
+// that dies in the read**: an app whose entry is too big for the block is listed, gets its picture, and then fails, so
+// the middle of the glass holding the picture is the picture having gone up *before* the read —and the read is before
+// `luabind::start`, so before the machine—. Before the split the read came first and this glass could not be anything
+// but paper (docs/30, docs/40).
+void test_the_picture_of_an_app_goes_up_before_it_is_read(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options glass_opts = emu::options();
+  glass_opts.board = "m5stack-paper";
+  glass_opts.display = true;
+  emu::set_options(glass_opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  storage->mkdir("/apps/halfway");
+  storage->mkdir("/apps/halfway/res");
+  TEST_ASSERT_TRUE(write_picture("/apps/halfway/res/start.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(add_app(storage, "halfway",
+                           "{\"title\":\"Halfway\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"splash\":\"res/start.bmp\"}",
+                           "a\n"));
+  // **An entry of exactly one byte less than the block the shell reads into**: `read_source` refuses it as too big, so
+  // the start dies after the picture and before the interpreter. The bytes are a letter and nothing else, because no
+  // Lua is ever going to see them (docs/20, docs/75).
+  static char kTooBig[98303];
+  memset(kTooBig, 'a', sizeof(kTooBig));
+  TEST_ASSERT_TRUE(write_picture("/apps/halfway/app.lua", reinterpret_cast<const uint8_t*>(kTooBig),
+                                 sizeof(kTooBig)));
+
+  hal::ISurface* panel = hal::platform().display();
+  TEST_ASSERT_NOT_NULL(panel);
+  panel->fill_rect(0, 0, 12, 12, 0);
+  TEST_ASSERT_TRUE(panel->flush(hal::UpdateMode::kDu));
+
+  pump_captured(40, g_out, sizeof(g_out), "run halfway");
+  // **The start failed in the read, and it said so**: the picture is not a promise that the app will run.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "too big to run"), g_out);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
+  const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(static_cast<uint16_t>(at_x + 1), at_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
+  // **And the wash was the picture's and not the corner's luck**: the ink of the corner is gone, which is what says the
+  // panel was cleaned whole before the two pixels went in (docs/50).
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(11, 11));
+
+  storage->remove("/apps/halfway/res/start.bmp");
+  storage->remove("/apps/halfway/res");
+  storage->remove("/apps/halfway/app.lua");
+  storage->remove("/apps/halfway/manifest.json");
+  storage->remove("/apps/halfway");
+
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The drawing of the logo that comes up is the one the settings say** (0.115.0): `cfg boot <word>` chooses between
 // the two drawings, a word that is not one is refused where it is typed and the one that was there stays, and the boot
 // paints the chosen picture with the same call the command `splash boot` makes —as early as the filesystem and the
@@ -9558,6 +9632,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
+  RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);
   RUN_TEST(test_the_splash_waits_for_the_ink_of_the_page_before);
   RUN_TEST(test_a_page_the_panel_refused_is_painted_when_it_can);

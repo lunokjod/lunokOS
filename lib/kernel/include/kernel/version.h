@@ -3746,7 +3746,75 @@ namespace kernel {
 //   taken. A name of a hundred and fifty characters could **not** be tried on the board: the door of `fs` refuses a write
 //   outside the app's own ground, so the long side of this change is arithmetic and not a measurement — said here so it
 //   is not taken for one.
-static const char kVersion[] = "0.151.16";
+// 0.151.17 (8/11): **the picture of an app goes up before the app is loaded and
+// before the Lua machine exists, and the reader brings the icon and the splash of the EPUB of PaperOS**.
+//
+//   The owner asked for two things in one sentence: bring the original artwork
+// over, and show the splash at once.
+//
+//     - **The artwork.** `apps/reader/res/` now holds the drawing a person edits
+//       (`icon-source.png`, 448×448, greys, 2 818 B — it is
+//       `OLD/PaperOS/tools/icons/EPUB.png`), the icon the manifest names
+//       (`icon.png`, 94×94, 1 760 B, made with `tools/make_icon.py`, the same
+//       448→94 step as `calculator` and `about`) and the composed splash
+//       (`splash.png`, 420×520, 6 876 B). The M5 `icon.icn` of that app is
+//       **not** ported: this system does not read that format and the manifest
+//       names the PNG (docs/40);
+//     - **the recipe travels too** (`tools/app_splash.py`, which is PaperOS's
+//       `tools/splashgen.py` with its header and comments brought to this
+//       project): the splash is not a file nobody can say how it was made, it is
+//       one command —`--icon res/icon-source.png --title EPUB --foot lunokOS
+//       --out res/splash.png`— and it draws the same card it drew there: the
+//       icon at 232 px, a rule, the title, `loading...` and a foot. The **only**
+//       difference from the original file is that foot: it said `PaperOS` and
+//       says `lunokOS` here, and `--foot PaperOS` gives the old one back
+//       (docs/40);
+//     - **the order of a start went in two.** `run_app` used to read the app's
+//       source —`malloc(98 304)` and a file read— and build the interpreter
+//       before it looked at the splash, so the picture appeared *after* the most
+//       expensive part of the start and did nothing while the reader (a Lua file
+//       of 100 KB with the fonts of its library behind it) was coming in. The
+//       lookup and the read are now two functions: `find_app` (a walk of the
+//       listing, two string copies and the board check) and `read_source`
+//       (the block and the read). `run_app` finds the app, then does `ui::attach()`,
+//       the picture of the manifest and `bar::title`, and only then reads the
+//       source and starts the VM. A start that dies in the read gives the view
+//       and the bar back, as one that could not compile already did, and an alarm
+//       window keeps `load_source` —the two halves in one call— because a window
+//       is not a start and shows no picture (docs/40).
+//
+//   **The order *inside* the first half is untouched**: `ui::attach()` washes the
+//   glass, and a wash after the picture is a picture nobody sees (0.118.1); what
+//   changed is that the title no longer waits for the interpreter.
+//
+//   **Measured on the board** (Paper, over the serial port, `run reader`): the log
+//   comes in this order —`[I][SPLASH] /apps/reader/res/splash.png, 420x520 at
+//   60,220` with its `blit` and its `paint 0,0 960x540` first, then
+//   `[I][APPS] reader, stack 7488 B free` (the breadcrumb written immediately
+//   before `luabind::start`), then `[I][UI] paint 0,0 540x912` of the shelf. The
+//   drawing is on the glass before the machine exists, and the shelf arrives
+//   after it. `pio run -e m5-paper` is **2 339 557 B / 55,8 % of flash and
+//   121 596 B / 2,7 % of RAM**, with no warning; the firmware and the disk image
+//   were both written to the board and `/apps/reader/res/` holds the three files
+//   (2 818, 1 760 and 6 876 B).
+//
+//   **The proof** is `test_the_picture_of_an_app_goes_up_before_it_is_read` in
+//   `test/test_apps`: an app whose entry is one byte short of the 98 304 B block
+//   is listed, gets its picture, and then dies in the read —the corner ink gone
+//   and the two pixels of its picture in the middle of the glass is the picture
+//   having gone up *before* the read— while
+//   `test_an_app_that_names_a_picture_has_it_painted_before_it_starts` keeps
+//   saying that a start that works still shows it. **Broken on purpose** (the
+//   read moved back above `ui::attach()`, which is the order of 0.151.16): only
+//   that one test goes red (`Expected 15 Was 0`), and it is green again with the
+//   order of this version. The suite is **176 cases, 161 green and 15 red**, and
+//   the 15 are the ones this working tree already has: 14 are red on a clean
+//   checkout of `b14ec0e` too, and the fifteenth —
+//   `test_every_app_of_the_repository_declares_its_boards`— counts the apps of
+//   `apps/` and wants seventeen of them, of which there are six here because the
+//   owner's working tree has the rest deleted and not committed. None of the
+//   fifteen is about this change.
+static const char kVersion[] = "0.151.17";
 
 }  // namespace kernel
 

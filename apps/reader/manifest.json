@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "entry": "reader.lua",
   "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "splash": "res/splash.png",
   "opens": "epub",
   "description": "A book of the disk, read a page at a time: the shelf of every `.epub` of the flash and the card, the page composed by the system with the serif of the words and the sans of the titles, the foot with the chapter and how far in you are, and the position of each book kept as the chapter and the byte. The whole glass, a tap on the right half or a drag to turn the page, a long press for the menu of the View, and a dark page for reading at night."
 }

@@ -32,9 +32,20 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
   - El `.icn` **no es porta**: és el format de quatre bits de l'altra pantalla i aquí no el llegeix
     ningú. El que es pinta aquí és un PNG, i `ui.image` en llegeix i n'escala.
   - El tamany és **94 × 94**, el número del paper (la caixa que el seu menú dona a una icona).
-- **El splash, si en té.** El `splash` d'un manifest d'allà és el mateix camp que el d'aquí: es
-  copia el fitxer a `res/` i es declara amb el nom tal com era. De les vint-i-quatre apps del paper,
-  només l'EPUB en té un.
+- **El `splash` no es copia: es torna a compondre** (0.151.17, i abans es copiava tal com era). De les
+  vint-i-quatre apps del paper, només l'EPUB en tenia un, i el fitxer era el que havia fet
+  `tools/splashgen.py` **a partir del dibuix de la icona**: aquí la recepta és `tools/app_splash.py` i
+  el splash es fa amb una ordre des del màster, no s'arrossega un PNG que ningú sap refer.
+  - `"splash": "res/splash.png"` al manifest, i el fitxer a `res/`.
+  - `python3 tools/app_splash.py --icon apps/<id>/res/icon-source.png --title <Títol> --foot lunokOS
+    --out apps/<id>/res/splash.png` — 420×520, la icona a 232 px, una ratlla, el títol, `loading...` i
+    el peu.
+  - **El peu és el nom del sistema**, i és l'única llibertat: el de PaperOS deia `PaperOS` i aquí diu
+    `lunokOS` (`--foot PaperOS` dona l'original de tornada). La mida no es toca: l'artwork és el mateix
+    i l'aspecte que l'amo va triar allà és el que ha de veure's aquí.
+  - El splash **surt abans de carregar l'app i abans de la màquina de Lua** (0.151.17: l'arrencada té
+    dues meitats i la imatge va entremig, docs/40), o sigui que un PNG de 7 KB es veu molt abans que un
+    lector de 50 KB hagi començat.
 - **La resta de `res/`** es copia sencera quan l'app la fa servir: imatges (`ui.image` en llegeix
   els mateixos formats), dades i fitxers de text.
 - **Un recurs que és codi no viatja com a codi** (0.124.0): `libs.lua`, allà, és un fitxer que el build
@@ -178,12 +189,12 @@ en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla 
 ## 7 · La llista, en ordre
 
 1. Llegir el manifest, l'entry i el `res/` de l'original (i la icona del màster).
-2. Copiar els recursos: `icon-source.png`, la icona feta amb `tools/make_icon.py`, el `splash` si
-   n'hi ha, i la resta de `res/`.
+2. Copiar els recursos: `icon-source.png`, la icona feta amb `tools/make_icon.py`, el `splash`
+   **composat** amb `tools/app_splash.py` si n'hi havia un, i la resta de `res/`.
 3. Escriure l'app amb la **maqueta** de l'original: panells amb el mateix `padding`/`gap`, controls
    amb les mateixes propietats, mides en píxels de línia.
 4. Escriure el manifest: `title`, `author`, `version` (**0.1.0 la primera vegada**), `entry`,
-   `boards`, `icon`, `description`.
+   `boards`, `icon`, `splash` si n'hi ha, `description`.
 5. Fer-la córrer al banc: `--flash build/disk/emulator --sd` l'arbre, i mirar el log i els pintats.
 6. Escriure la prova a `test_apps` i compilar-la (executar-la vol permís, docs/80).
 7. Posar-la a la llista de la placa si hi ha de viatjar (`custom_apps`, docs/70).

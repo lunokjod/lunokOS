@@ -216,6 +216,18 @@ Regles de validació, totes amb error clar i el nom del camp:
   de l'app estigui preparada** (0.118.1: l'`attach` de la vista neteja el vidre quan la pàgina
   anterior hi havia pintat, i pintar abans volia dir una imatge que ningú no arribava a veure), i
   la primera pàgina que l'app presenta se l'emporta (docs/30, docs/50, docs/92 §33).
+- **I des de 0.151.17 la imatge surt abans de carregar l'app i abans de la màquina de Lua**, i no
+  només abans de l'intèrpret: l'arrencada es fa en dos trossos. El primer és `find_app`, que només
+  mira el llistat i llegeix el manifest —dues copies de cadenes i prou—, i és el que diu com es diu
+  la imatge; el segon és `read_source`, que és el que costa (un bloc de 98 304 B del munt i la
+  lectura del fitxer) i va **després** d'`ui::attach()`, del `splash::show` i del títol de la barra.
+  Així el vidre ensenya el dibuix mentre es llegeix l'app i mentre es construeix la màquina, que és
+  el que es veu quan una app triga. L'ordre dins del primer tros és el de sempre —`attach`, imatge,
+  títol— perquè l'`attach` neteja el vidre (0.118.1); el que ha canviat és que el títol de la barra
+  ja no espera l'intèrpret. Si la lectura de l'app falla, la vista i la barra es tornen a donar
+  (`ui::give_back_the_glass()` i `bar::title("")`), perquè ja eren de l'app que no arriba. Una
+  finestra d'alarma (`run_window`) **no** pinta cap imatge: no és una arrencada ni té pàgina pròpia,
+  i fa servir `load_source`, que és els dos trossos junts.
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
 - Si hi ha un camp `id`, **s'ignora**: l'identificador d'una app és sempre el nom del seu directori,
   i un `id` que digui una altra cosa no es comprova ni es fa servir.
@@ -425,8 +437,32 @@ El format `.icn` d'M5 —el que porten les apps de PaperOS, `icon.icn`— **no e
 tenir un fitxer de mostra i, per tant, no es llegeix: un manifest que l'anomeni queda amb un `icon`
 que no dibuixa res, i no passa res més, perquè el dibuix és decoració (docs/30).
 
-Cap de les 61 apps de `apps/` declara `icon` avui, i cap porta una imatge: el camp existeix perquè el
-manifest el pugui dir el dia que la pàgina de les apps es dibuixi.
+**La imatge font mana, i el splash es compon d'ella** (0.151.17): una app que vol imatge porta el
+dibuix que una persona edita a `res/icon-source.png` i en treu el que el manifest nomeja amb
+`tools/make_icon.py` —94×94, la mateixa mida que les altres apps del disc—, i compon el splash amb
+`tools/app_splash.py`, que és el `splashgen.py` de PaperOS portat aquí. Cap de les dues coses es
+dibuixa a mà: es tornen a fer amb una ordre, i la mateixa recepta dona sempre la mateixa imatge.
+
+```
+python3 tools/make_icon.py --png apps/reader/res/icon-source.png \
+    --out apps/reader/res/icon.png
+python3 tools/app_splash.py --icon apps/reader/res/icon-source.png --title EPUB \
+    --foot lunokOS --out apps/reader/res/splash.png
+```
+
+La mida i l'aspecte del splash són els del projecte de paper —420×520, la icona a 232 px, una
+ratlla, el títol, el `loading...` i un peu— perquè l'artwork és el mateix; el peu és el nom del
+sistema on corre, i `--foot PaperOS` torna a donar l'original de PaperOS.
+
+**La primera app amb icona i splash és `reader`** (0.151.17): `res/icon-source.png` és el dibuix
+font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala de grisos, 2 818 B),
+`res/icon.png` n'és la icona de 94×94 (1 760 B) i `res/splash.png` la composició (6 876 B).
+L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
+sistema sap llegir.
+
+`calculator` i `about` segueixen la mateixa convenció amb el seu `res/icon-source.png` i el seu
+`res/icon.png`; cap altra app declara `icon` avui, perquè el camp existeix perquè el manifest el
+pugui dir el dia que la pàgina de les apps es dibuixi.
 
 ## Instal·lació
 
