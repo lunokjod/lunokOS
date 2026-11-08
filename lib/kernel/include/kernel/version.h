@@ -4206,7 +4206,24 @@ namespace kernel {
 //   - the case `test_the_dial_walks_the_controls_of_the_page_in_a_ring` walks three cells and two buttons with the keys
 //     and says the order, the wrap in both directions and that the grid is never a stop; with the phantom put back it
 //     is red (measured). 539 of 539 green.
-static const char kVersion[] = "0.156.1";
+// 0.157.0 (8/11): **the pages of a grid are the grid's, and the launcher has no paginator of its own**. The owner, with
+// the launcher in his hand: *«El Grid de l'app Home te paginador Dots intern o un grid pagina amb un paginador extern? Has
+// creat un paginador manualment? ETS IDIOTA O QUE ET PASSA? usa sempre els UIControls que hi hagin abans de fer-ne un de
+// nou»*.
+//
+//   - **the walk reaches the cells of every page of a grid** (`ui_walk_targets`): a grid keeps the page of the cell its
+//     `index` says, and the cells that are on the other pages are placed out of its frame, so a walk that ignored them
+//     could never leave the first page —a launcher with more apps than fit had no way of reaching the rest—. Now they
+//     are stops: the cell the dial lands on is placed by the grid when the app moves `index`, which is what the
+//     `on_focus` of a cell is for (docs/30, docs/90);
+//   - **`apps/home_eink` lost its paginator**: two `ui.button`s and a `ui.label` under the grid were a control the system
+//     already has. The launcher hands the grid every cell and tells it which one the dial is on; the grid paints its own
+//     footer `N / M` and pages itself. The file went from 430 lines to 334 and the ring of the page is now the cells
+//     alone (docs/30);
+//   - the case `test_the_pages_of_a_grid_follow_the_dial` walks five cells in a box of two and says that the third and
+//     the fifth are reached —the second and the third page— and that the grid is laid out again for each of them; with
+//     the off-page cells out of the walk it is red (measured). 540 of 540 green.
+static const char kVersion[] = "0.157.0";
 
 }  // namespace kernel
 

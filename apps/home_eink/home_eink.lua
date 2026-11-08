@@ -15,10 +15,13 @@
 -- arrives, and the page is laid out again without it. It is not a hidden app: `apps` lists it, `run home_eink` starts
 -- it, and the board comes up inside it (`cfg home home_eink`).
 --
--- **The pages are this launcher's own, and the band under the grid turns them** (0.154.1): a grid of the system puts the
--- cells that do not fit its frame out of sight, so a launcher that handed it every name would show the first page of them
--- and lose the rest. Here a page is a slice of the names —only its cells reach the grid— and the foot of the page holds
--- two arrows and the page it is, which is the one thing a person needs to know where they are and where they can go.
+-- **The pages are the grid's, and its own footer is the paginator** (0.157.0): this file hands over **every** cell —all
+-- the apps of the disk— and the grid keeps the page of the cell the dial is on and paints `N / M` at its foot when there
+-- is more than one. That footer, and the cells of the other pages kept out of sight, are `icon_grid_cells`, the same
+-- arithmetic the paint and the finger use (docs/90); what this file does is tell the control **which cell the dial is
+-- on**, in the `on_focus` of each cell, because that number is the page. **A paginator of its own was a control the
+-- system already has**: two arrows and a number under the grid are gone (the owner, 8/11: *«usa sempre els UIControls
+-- que hi hagin abans de fer-ne un de nou»*).
 --
 -- **A press is a wish and not a switch**: `app.run(id)` answers at once and the kernel does the change after the turn,
 -- because the app that asks is the one the interpreter belongs to (docs/30, docs/90). The second argument is the way
@@ -62,25 +65,11 @@ local kIcon = 72
 local kPad = 4
 
 -- **A row is the box of a cell** and the same number `icon_grid_cells` computes from the icon and the line (docs/90): the
--- launcher needs it to know how many rows a page holds, because the page is the launcher's and it is the launcher that
--- decides which names reach the grid.
+-- cells are the app's and their box is what the picture and the name are placed in.
 local kCellH = kIcon + 8 + kNameLine + 8
 
 local kMargin = 20
 local kTop = 8
-
--- **The band of the pages takes the foot of the page** (0.154.1): the grid cannot paint a paginator under itself, so the
--- room is kept before the grid is made and the grid is given what is left. The height is a target of a finger and not a
--- line of words, and the arrows are at the two corners a hand expects.
-local kPaginator = 56
-local kGap = 10   -- the air between the last row of cells and the band
-local kArrow = 72 -- how wide an arrow is
-
--- **The air a grid keeps at its own foot** (`icon_grid_cells`, docs/90): twenty-eight pixels of a grid taller than a
--- hundred and sixty, for the page the control would say if it were the one paging. This launcher paints its own pages, so
--- the number is taken out of the room a page can use —never given to cells— and the arithmetic below is true either way,
--- because twenty-eight is less than a row.
-local kFoot = 28
 
 -- **The names of the door, the manifests that have arrived, and the queue between the two** (0.154.0). `known` is filled
 -- as the queue runs, and a page laid out again uses it instead of asking the disk a second time.
@@ -91,11 +80,6 @@ local queue = {}
 local head = 1
 local again = false   -- something left the page, so it is laid out again
 local grid = nil
-local band = {}       -- the three controls of the paginator, so the next page can give them back
-local page = 1        -- **the page on the glass** (0.154.1), from one
-local pages = 1
-local per_page = 0    -- how many cells a page of this glass holds, from the box of the grid
-local want_page = nil -- the page a person asked for, taken by the loop and not inside the click of an arrow
 
 -- ------------------------------------------------------------------ the page
 
@@ -104,10 +88,6 @@ local function give_back()
     grid:release()
     grid = nil
   end
-  for i = 1, #band do
-    band[i]:release()
-  end
-  band = {}
   cells = {}
 end
 
@@ -143,7 +123,7 @@ end
 
 -- One cell of the page: the picture, the name and the press. `known[id]` is the manifest when it has arrived and `nil`
 -- while the queue has not asked for it, and the same code draws both, so a cell that gains a name is not a second page.
-local function add_cell(cell_w, cell_h, name_w, id)
+local function add_cell(cell_w, cell_h, name_w, id, index)
   local info = known[id]
   local cell = ui.grid_entry(cell_w, cell_h)
   if cell == nil then return end
@@ -179,86 +159,30 @@ local function add_cell(cell_w, cell_h, name_w, id)
     end
   end
 
+  -- **The page follows the dial** (0.157.0): the grid is the one that pages —its footer says `N / M` and the cells of the
+  -- other pages are out of its frame— and the page it is on is the page of the cell its `index` says. So a cell that
+  -- takes the ring tells the grid where it is and asks it to lay itself out again, and the control does the rest: the
+  -- page turns with the dial and this file has no paginator of its own (docs/30, docs/90).
+  cell.on_focus = function(self, on)
+    if not on then return end
+    grid.index = index
+    grid:invalidate()
+  end
+
   grid:add(cell)
   cells[id] = { cell = cell, picture = picture, name = name }
-end
-
--- **The band of the pages** (0.154.1): an arrow at each side that turns the page and, between them, the page it is and
--- how many there are. An arrow with nowhere to go is `disabled` —drawn, and answered by neither the dial nor a finger—,
--- which is the system's own way of saying «now not this», so a launcher of one page still keeps the band and says so.
---
--- **A press is a wish here too** (docs/30): the click says which page was asked for and the loop lays it out, because an
--- arrow that gave its own control back inside its own callback would be a page drawing into a slot that is already gone.
-local function build_paginator(band_y, width)
-  local function arrow(x, mark, wanted)
-    local button = ui.button(kArrow, kPaginator)
-    if button == nil then return end
-
-    button.background = 15
-    button:place(x, band_y)
-
-    local word = ui.label(kArrow - 8, kNameLine)
-    if word ~= nil then
-      word.text = mark
-      word.scale = kName
-      word.align = 'center'
-      word.color = 0
-      word.background = 15
-      word:place((kArrow - ui.text_width(mark, kName)) // 2, (kPaginator - kNameLine) // 2)
-      button:add(word)
-    end
-
-    button.disabled = (wanted < 1 or wanted > pages)
-    button.on_click = function()
-      want_page = wanted
-    end
-    band[#band + 1] = button
-  end
-
-  arrow(kMargin, '<', page - 1)
-
-  local middle = width - 2 * (kArrow + kGap)
-  if middle > 40 then
-    local number = ui.label(middle, kNameLine)
-    if number ~= nil then
-      number.text = string.format('%d / %d', page, pages)
-      number.scale = kName
-      number.align = 'center'
-      number.color = 0
-      number.background = 15
-      -- **The place of the number is the place of the band**: a child of the page counts from the corner of the page and
-      -- not from the band, and a number a few pixels under the top of the grid is a number nobody sees (found on the
-      -- bench, 8/11: the two arrows came out and the page it is did not).
-      number:place(kMargin + kArrow + kGap, band_y + (kPaginator - kNameLine) // 2)
-      band[#band + 1] = number
-    end
-  end
-
-  arrow(width + kMargin - kArrow, '>', page + 1)
 end
 
 local function build()
   give_back()
 
   local width = view.width - 2 * kMargin
-  local band_y = view.height - kMargin - kPaginator
   local top = kTop
-  local height = band_y - kGap - top
-  if width < 200 or height < kCellH then
+  local height = view.height - top - kMargin
+  if width < 200 or height < 120 then
     console.print('home: the glass is too small for a grid in it')
     return
   end
-
-  -- **The rows of a page, once, from the grid's own arithmetic** (0.154.1, docs/90): a row is the box of a cell and the
-  -- foot of a grid taller than a hundred and sixty pixels keeps `kFoot` for the page the control would say. Because the
-  -- page is this launcher's, the count of them is the launcher's too — and it is what says how many names reach the grid.
-  local rows = (height - ((height > 160) and kFoot or 0)) // kCellH
-  if rows < 1 then rows = 1 end
-  per_page = kColumns * rows
-  pages = (#ids + per_page - 1) // per_page
-  if pages < 1 then pages = 1 end
-  if page > pages then page = pages end
-  if page < 1 then page = 1 end
 
   -- **The page is the app's whole and not the box of its controls** (0.153.1, docs/40): a control paints inside its own
   -- frame, so the air around the grid keeps whatever the glass had —the picture of the boot— if this page does not wash
@@ -273,38 +197,31 @@ local function build()
 
   grid.columns = kColumns
   grid.scale = kName
+  -- **The cell the dial is on, which is also the page the grid is on**: the first one until somebody walks (0.157.0).
+  grid.index = 1
   grid:place(kMargin, top)
 
   local cell_w = width // kColumns
   local name_w = cell_w - 2 * kPad
 
-  -- **The cells of this page and no others** (0.154.1): the first one of the page is `(page - 1) * per_page + 1` of the
-  -- names, and the rest wait for their page. A grid that was handed every name would keep the cells it cannot fit out of
-  -- sight, and with the ring on the cells themselves the page would never follow it.
-  local first = (page - 1) * per_page + 1
-  local last = first + per_page - 1
-  if last > #ids then last = #ids end
-  for i = first, last do
-    add_cell(cell_w, kCellH, name_w, ids[i])
+  -- **Every name is a cell of the grid and the pages are the control's** (0.157.0): the cells that do not fit its frame
+  -- are placed out of sight by the grid and come back when the dial reaches them, and its foot says the page it is
+  -- (`icon_grid_cells`, docs/90). A launcher that handed it one page at a time was a launcher that owned a paginator.
+  for i = 1, #ids do
+    add_cell(cell_w, kCellH, name_w, ids[i], i)
   end
 
-  build_paginator(band_y, width)
-
-  -- **The ring is on the first cell of the page** (0.153.0, docs/30): a page that left the dial outside would answer
-  -- «nothing» to the first press of the middle key, which is the one a person makes. **Of the first cell of the page on
-  -- the glass** (0.154.1): after a page turns, the cell a person came for is the first of it, and the arrows stay a walk
-  -- to the right of the last cell, which is the way a finger and a key both go.
-  --
-  -- **The cells are the stops and the grid is not** (0.156.1): a grid that holds the app's cells is a box, and the walk
-  -- of the dial goes from the last cell of the page to the first one round the controls that are on the glass. It used
-  -- to stop on the grid itself, which paints no ring, and a person read that as the focus leaving the page.
-  if ids[first] ~= nil and cells[ids[first]] ~= nil then
-    ui.focus(cells[ids[first]].cell)
+  -- **The ring is on the first cell** (0.153.0, docs/30): a page that left the dial outside would answer «nothing» to the
+  -- first press of the middle key, which is the one a person makes. **The cells are the stops and the grid is not**
+  -- (0.156.1): a grid that holds the app's cells is a box, and the walk of the dial goes from the last cell to the first
+  -- one round the controls that are on the glass.
+  if ids[1] ~= nil and cells[ids[1]] ~= nil then
+    ui.focus(cells[ids[1]].cell)
   end
 
-  -- **The page says which one it is**, and it says it here because this is the one place that lays a page out: a resize,
-  -- a manifest that took an app off the page and an arrow all end on this line (0.154.1).
-  console.print(string.format('home: page %d / %d (%d cells)', page, pages, math.max(last - first + 1, 0)))
+  -- **What this page can say of itself**: the cells it holds. The page and how many there are is the grid's to say, at
+  -- its foot, and the console says how many names the door answered (0.157.0).
+  console.print(string.format('home: %d cells', #ids))
 
   if #ids == 0 then
     -- **An empty grid says why it is empty** instead of showing nothing: a disk with no app and a page that failed look
@@ -410,16 +327,6 @@ while true do
     again = false
     build()
     painted = true
-  elseif want_page ~= nil then
-    -- **A page turn is a page laid out again, and it comes from here and not from the arrow** (0.154.1): the press is a
-    -- wish, like `app.run`, because the control that took it cannot give itself back while it is running.
-    local target = want_page
-    want_page = nil
-    if target >= 1 and target <= pages and target ~= page then
-      page = target
-      build()
-      painted = true
-    end
   end
 
   if painted then ui.present() end

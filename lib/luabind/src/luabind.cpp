@@ -8687,6 +8687,12 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (!ui_control_alive(canvas)) return;
 
+  // **The cells of a grid are stops even when they are on another page of it** (0.157.0): the promise of a grid is
+  // that **the page follows the cursor**, so the dial has to be able to walk out of the first page into the second —the
+  // cell it lands on is placed on the glass by the grid when the app moves its `index`, which is what the `on_focus` of
+  // a cell is for—. A walk that only saw the cells of the page could never leave it, and a launcher with more apps than
+  // fit had no way of reaching the rest (docs/90, docs/92).
+  const bool in_a_grid = ui_grid_has_cells(L, object);
   const int base = lua_gettop(L);
   lua_getiuservalue(L, object, 1);
   if (!lua_istable(L, -1)) {
@@ -8725,8 +8731,12 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
     const int32_t cx1 = (x1 < clip_x1) ? x1 : clip_x1;
     const int32_t cy1 = (y1 < clip_y1) ? y1 : clip_y1;
     if (cx1 <= cx0 || cy1 <= cy0) {
-      lua_pop(L, 1);
-      continue;
+      // A cell of a grid that is on another page: it is a stop, and the box it has now is the one the grid gave it out
+      // of sight, which is a box no finger can land on (see the note above).
+      if (!in_a_grid) {
+        lua_pop(L, 1);
+        continue;
+      }
     }
 
     if (ui_target_is_focusable(L, -1) && !ui_grid_has_cells(L, -1)) {

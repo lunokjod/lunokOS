@@ -1835,7 +1835,12 @@ El recorregut és **circular sobre els controls de la pàgina**: de l'últim de 
 primer i del primer a l'últim, i per això no hi ha cap tecla que deixi la persona enlloc —ni al
 principi ni al final de la pàgina, que és el que faria una volta que s'aturés als extrems—.
 **La llista de parades és la de la pàgina i no la de l'arbre**: un control el marc del qual cau
-fora del pare no hi és, i per això el cercle no pot marxar a una cosa que no es veu.
+fora del pare no hi és, i per això el cercle no pot marxar a una cosa que no es veu. **L'excepció és
+la cel·la d'una graella** (0.157.0): les cel·les d'una `ui.icon_grid` són parades encara que siguin
+d'una altra pàgina del control, perquè **la pàgina ha de poder seguir el cercle** —la cel·la on cau
+el dial la col·loca la graella quan el seu `index` es mou, i això és el que fa l'`on_focus` de la
+cel·la—. Sense això, una pàgina amb més cel·les que les que hi caben no es podia recórrer mai més
+enllà de la primera.
 
 **Una graella amb les cel·les de l'app a dins és una caixa i no una parada** (0.156.1, i és un
 arranjament demanat amb les paraules de l'amo: *«sembla que et pots sortir per l'esquerra i per la
@@ -1844,6 +1849,14 @@ un fantasma on el cercle podia caure —el cercle era tota la caixa de la graell
 pinta, o sigui que semblava que el focus hagués marxat de la pàgina— i des d'allí la volta seguia
 l'ordre de l'arbre i no el de la pàgina. Una graella amb els `items` de la pròpia control **sí** que
 és una parada: allà les cel·les són del control i `index` les camina.
+
+**Les pàgines d'una graella són de la graella, i el seu peu és el paginador** (0.157.0): `ui.icon_grid`
+pinta `N / M` al seu peu quan hi ha més d'una pàgina —i una marca a cada costat— i deixa fora del marc
+les cel·les de les altres, o sigui que **una app no ha de fer cap paginador**: li diu a la graella on
+és el cercle (`index`) i la graella fa la resta. Això és el que fa el llançador amb l'`on_focus` de
+cada cel·la, i el que abans era una banda de dos botons i un número escrits per l'app (0.154.1) i que
+l'amo va fer treure: *«usa sempre els UIControls que hi hagin abans de fer-ne un de nou»* (8/11).
+`ui.dots` continua sent el control per ensenyar on ets quan la pàgina no és d'una graella.
 
 ### `ui.list` amb entrades: files que són controls (0.104.0)
 

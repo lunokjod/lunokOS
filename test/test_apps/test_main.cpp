@@ -474,7 +474,20 @@ void capture_end(char* out, size_t cap) {
   if (file == nullptr) return;
   const size_t got = fread(out, 1, cap - 1, file);
   out[got] = '\0';
+  // **A capture that did not fit says so** (0.157.0): the end of a console that was cut is missing, and a case that
+  // cannot find a line then looks like an app that did not answer. The marker is at the end of what did fit, because the
+  // beginning of a capture is what most cases read.
+  const bool more = fgetc(file) != EOF;
   fclose(file);
+  if (more) {
+    const char* mark = "\n[this capture was longer than the buffer of the case]\n";
+    const size_t mark_len = strlen(mark);
+    if (got + mark_len < cap) {
+      memcpy(out + got, mark, mark_len + 1);
+    } else {
+      memcpy(out + cap - 1 - mark_len, mark, mark_len + 1);
+    }
+  }
 }
 
 // Turns the kernel without touching the console: for a capture the caller started.
@@ -492,7 +505,11 @@ void pump_turns(int turns) {
 
 // The console of a run, including a QR when provisioning prints one: 37 modules in
 // 19 lines of UTF-8 blocks is a few thousand bytes, so this is not small.
-char g_out[8192];
+// **The console of a capture is read into this**, and **sixty-four kilobytes and not eight** (0.157.0): a case that
+// presses twenty keys of the calculator writes a line of the paint for every press, and eight kilobytes cut the console
+// where the results are —the case passed or failed by how many paints the timer let in, which is the worst kind of red—
+// (found on the 8/11 flaking in a full run of the suite).
+char g_out[65536];
 
 // **What a file of the disk carries**, for a test that says a download landed as it was and not as a name (docs/70).
 bool read_text(hal::IStorage* storage, const char* path, char* out, size_t cap) {
@@ -4746,36 +4763,20 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   TEST_ASSERT_NOT_NULL(after);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "home: app alpha Alpha"), g_out);
 
-  // **The band under the grid turns the page** (0.154.1): a page of this launcher is a slice of the names —the cells of
-  // the pages behind the first are never handed to the grid, which is what a grid of the system cannot do for itself—
-  // and the two arrows of the foot of the page are the way from one to the other. A page of this glass holds eight
-  // cells, so a page of four hundred and twenty by three hundred and sixty holds less, and the eight apps of the disk
-  // are more than one page.
+  // **A resize builds the page again and gives the grid every cell it has** (0.157.0): the pages are the control's, so
+  // what the launcher says of itself is how many names the door answered and not which page is on the glass —that is the
+  // grid's own footer, and the case of the pages below walks it—.
   pump_turns(1500);
-  memset(g_out, 0, sizeof(g_out));
+  capture_begin();
   TEST_ASSERT_TRUE(kernel::ui::resize(420, 360));
   pump_turns(80);
-  emu::Gt911Panel* panel = emu::touch_panel();
-  TEST_ASSERT_NOT_NULL(panel);
-  // **The band is at the foot of the page**: the launcher keeps twenty of margin and fifty-six of band under the grid,
-  // and the arrow that goes forward is the right corner of it. A finger lands in the middle of that button, which is on
-  // the glass under the bar of the system and not under the view (docs/50).
-  const uint16_t band_y = 360 - 20 - 56;
-  capture_begin();
-  TEST_ASSERT_TRUE(panel->finger_down(0, 420 - 20 - 36, band_y + 28 + 48));
-  pump_turns(20);
-  TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(200);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: page 2 /"), g_out);
-  // **And back**, which is the left corner of the same band.
-  capture_begin();
-  TEST_ASSERT_TRUE(panel->finger_down(0, 20 + 36, band_y + 28 + 48));
-  pump_turns(20);
-  TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(200);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: page 1 /"), g_out);
+  // The page is laid out again in the new box: the whole of it is painted, and its line says how many cells the grid has.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 420x"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
+
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 
@@ -4903,6 +4904,87 @@ void test_the_dial_walks_the_controls_of_the_page_in_a_ring(void) {
   storage->remove("/apps/ring/app.lua");
   storage->remove("/apps/ring/manifest.json");
   storage->remove("/apps/ring");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The pages of a grid are the control's, and the dial turns them** (0.157.0): a grid keeps the page of the cell its
+// `index` says and paints `N / M` at its foot when there is more than one, and a cell that takes the ring says which one
+// it is in its `on_focus`. With a box that holds two cells of five, walking with the keys has to reach the third and the
+// fifth —the second and the third page— and the page has to be laid out again with them on the glass. **Before this the
+// walk only saw the cells of the page** and could never leave the first one, which is why a launcher of more apps than
+// fit had no way of reaching the rest.
+void test_the_pages_of_a_grid_follow_the_dial(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "pages",
+                           "{\"title\":\"Pages\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // Two cells a page of a box of three hundred by two hundred, and five cells.
+                           "local grid = ui.icon_grid(300, 200)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 2\n"
+                           "local cells = {}\n"
+                           "for i = 1, 5 do\n"
+                           "  local cell = ui.grid_entry(140, 90)\n"
+                           "  cell.background = 15\n"
+                           "  cell.on_focus = function(self, on)\n"
+                           "    if not on then return end\n"
+                           "    grid.index = i\n"
+                           "    grid:invalidate()\n"
+                           "    console.print('focus cell' .. i)\n"
+                           "  end\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "end\n"
+                           "ui.focus(cells[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('grid up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run pages");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid up"), g_out);
+  // **Four presses forward**: the second cell, and then the cells of the pages behind the first.
+  capture_begin();
+  for (int i = 0; i < 4; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  const char* second = strstr(g_out, "focus cell2");
+  const char* third = strstr(g_out, "focus cell3");
+  const char* fourth = strstr(g_out, "focus cell4");
+  const char* fifth = strstr(g_out, "focus cell5");
+  TEST_ASSERT_NOT_NULL_MESSAGE(second, g_out);
+  // **The third cell is on the second page** and the fifth on the third: reaching them is what the pages of the grid are
+  // for, and the footer of the control is the paginator that says where the person is.
+  TEST_ASSERT_NOT_NULL_MESSAGE(third, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(fourth, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(fifth, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(second < third, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(third < fourth, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(fourth < fifth, g_out);
+  // And the page of the grid was painted again for each of them: a cell of another page is placed on the glass only when
+  // the control lays itself out again.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 20,20 300x200"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  close_any_app();
+  storage->remove("/apps/pages/app.lua");
+  storage->remove("/apps/pages/manifest.json");
+  storage->remove("/apps/pages");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -9284,7 +9366,11 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
       }
       pump_turns(40);
       if (!panel->finger_up(0)) return false;
-      pump_turns(40);
+      // **The lift has to be seen before the next key goes down** (0.157.0): the kernel keeps the last frame of the
+      // finger until the glass has been quiet for thirty milliseconds, and the calculator presses a key on the first
+      // frame that sees a finger and not while it believes one is still there. Forty turns were the edge of that
+      // window and the last key of the case was lost one run in five (found on the 8/11, docs/30, docs/50).
+      pump_turns(90);
       return true;
     }
     return false;
@@ -10107,6 +10193,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
+  RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);
