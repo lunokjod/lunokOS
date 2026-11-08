@@ -38,7 +38,7 @@ struct State {
   uint32_t bytes = 0;  // the size of the file, which is what the zip asks for first
   int32_t chapter_bytes = 0;
   char mount[16];
-  char rel[160];
+  char rel[224];   // a path of the shelf is `/littlefs/epub/…` and the shelf holds 200 characters (0.151.16)
 
   // **The chapter that is open** and the one picture in a cache (docs/46, A5): the name of the chapter, because a
   // picture of a book is named relative to it, and the two blocks of a picture —the file as it comes out of the zip
@@ -347,9 +347,15 @@ bool load_picture(const char* href, int32_t max_w, int32_t max_h, int32_t& out_w
 // A sink of the listing and not a list of files: a folder of a book is a few dozen names and this is the block that
 // holds them (docs/46, C1).
 struct Shelf : hal::ListSink {
-  static const int32_t kMax = 24;
+  // **A shelf of sixty-four books and two hundred characters per path** (0.151.16): this board is used with a card that
+  // carries more than two dozen books and names of a hundred characters, and a book that did not fit was dropped **in
+  // silence** —no line, no error, just a shorter shelf—. Two hundred bytes hold `/littlefs/epub/` (fifteen) and a name of
+  // a hundred and eighty-five, which is more than any of the two file systems accepts. The block is made **once** in the
+  // extra memory (twelve kilobytes) and kept for the session, so a path that was given to an app stays valid.
+  static const int32_t kMax = 64;
+  static const int32_t kPathBytes = 200;
 
-  char names[kMax][64];
+  char (*names)[kPathBytes] = nullptr;
   int32_t count = 0;
   char folder[32];
 
@@ -360,8 +366,8 @@ struct Shelf : hal::ListSink {
     if (dot == nullptr || strcmp(dot, ".epub") != 0) return true;
     if (count >= kMax) return false;
 
-    const int32_t written = snprintf(names[count], sizeof(names[0]), "%s/%s", folder, entry.name);
-    if (written <= 0 || written >= static_cast<int32_t>(sizeof(names[0]))) return true;
+    const int32_t written = snprintf(names[count], kPathBytes, "%s/%s", folder, entry.name);
+    if (written <= 0 || written >= kPathBytes) return true;
     ++count;
 
     return true;
@@ -384,6 +390,13 @@ int32_t books() {
   // The two folders of a book, and a mount that is not there says nothing instead of failing the whole shelf: a
   // board with no card still has the flash (docs/46, C1).
   if (!g_shelf_filled) {
+    // **The shelf's block is taken the first time it is asked for** and kept: a shelf nobody opens costs nothing, and
+    // the paths it hands out have to outlive the call that made them (0.151.16).
+    if (g_shelf.names == nullptr) {
+      g_shelf.names = static_cast<char (*)[Shelf::kPathBytes]>(
+          pal::extra_memory().allocate(sizeof(*g_shelf.names) * Shelf::kMax, true));
+      if (g_shelf.names == nullptr) return 0;
+    }
     g_shelf_filled = true;
     g_shelf.count = 0;
 

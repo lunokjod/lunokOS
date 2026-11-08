@@ -3725,7 +3725,28 @@ namespace kernel {
 //   `epub.open("/littlefs/epub/la-vaca-cega.epub")` answers `true` with **8**. `pio run -e m5-paper` builds with no
 //   warning. The shelf's other limits (24 books, a path of 63 characters) are untouched and are the next thing to raise
 //   if a disk ever needs it.
-static const char kVersion[] = "0.151.15";
+// 0.151.16 (8/11): **the shelf stops dropping books in silence: sixty-four of them, and two hundred characters per path**.
+//
+//   The two limits 0.151.14 named and left standing, raised:
+//
+//     - `Shelf::kMax` **24 → 64** and a path **64 → 200 bytes** (`names[24][64]` was 1 536 B of BSS; the new block is
+//       `64 × 200 = 12 800 B` and it lives in the **extra memory**, taken the first time the shelf is asked for and kept
+//       for the session, because a path handed to an app has to outlive the call that made it);
+//     - two hundred bytes hold `/littlefs/epub/` —fifteen— and a name of a hundred and eighty-five, which is more than
+//       either file system of this board accepts, so nothing a card or the flash can hold is now dropped;
+//     - `g.rel` went from 160 to **224** bytes for the same reason: the reader's own copy of the path had the old ceiling.
+//
+//   **A book that does not fit is still dropped in silence**, and that is the difference between a limit and a bug: with a
+//   path of two hundred characters the drop cannot happen for any name the two file systems hold, which is the whole
+//   point of the number.
+//
+//   **Measured on the board**: `epub.books()` answers the **7** paths whole (`/littlefs/epub/la-vaca-cega.epub`,
+//   `/sd/epub/Trilogía de la fundación by Isaac Asimov.epub`, …), `epub.open("…/100-mejores-obras.epub")` still answers
+//   `true` with **648** entries, and `mem` says `extra memory 3053 of 4095 KB usable` with the shelf's block already
+//   taken. A name of a hundred and fifty characters could **not** be tried on the board: the door of `fs` refuses a write
+//   outside the app's own ground, so the long side of this change is arithmetic and not a measurement — said here so it
+//   is not taken for one.
+static const char kVersion[] = "0.151.16";
 
 }  // namespace kernel
 

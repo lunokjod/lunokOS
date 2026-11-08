@@ -71,6 +71,13 @@ fixes** i un òmnibus de cent obres dins d'un sol `.epub` (`100-mejores-obras.ep
 de quaranta fitxers pagaven els mateixos 128. Amb el comptatge previ, un llibre de 8 entrades demana **1,2 KB** i
 l'òmnibus de **648** en demana **98 KB**, i el sostre (`zip::kMaxEntries`, 4 096) només diu fins on està disposat a
 caminar aquest lector. Mesurat a la placa el 8/11: els dos obren, `epub.entries()` diu 8 i 648.
+
+**I el prestatge ja no deixa llibres fora en silenci** (8/11, 0.151.16): eren **24 llibres de 63 caràcters** de camí
+—`char names[24][64]`, mil cinc-cents bytes a la BSS— i ara són **64 llibres de 200 caràcters**, en un bloc de **12 800 B
+de la memòria extra** que es demana **el primer cop** que algú obre el prestatge i es queda tota la sessió (els camins que
+s'han donat a una app han de viure més que la crida que els va fer). Amb 200 bytes hi caben `/littlefs/epub/` (quinze) i
+un nom de cent vuitanta-cinc, més del que accepta cap dels dos sistemes de fitxers. A la placa: `epub.books()` dona els
+**7** camins sencers i `mem` diu `extra memory 3053 of 4095 KB usable` amb el bloc ja pres.
 | **A7** | **La disciplina de límits i de pila**: sostres declarats (capítol 1 MB, imatge 2 MB, nom 127 B), deflate en un bloc del qui crida (no 32 KB de finestra pròpia), taules del descompressor fora de la pila (el `loopTask` fa 8 KB i el paper va reiniciar la placa dues vegades per això) | tot el `core/` | Aquí el `lib/inflate` ja treballa sobre un bloc del qui crida i sense al·locar | Es manté la regla: **cap funció del motor al·loca**, i els blocs grans van a `extra_memory` |
 
 ### A2 · El que diu el tokenitzador, i les tres taules que són una decisió
