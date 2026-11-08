@@ -130,15 +130,24 @@ void tearDown(void) {
   // photograph for the next one, in the object and in the store, and a later boot would come up with the other
   // picture without anybody having asked (docs/30, docs/50, docs/70).
   kernel::cfg::set_boot_splash("boot");
+  // **And the app the board starts by itself** (0.119.0, found leaking on 8/11): a case that names a home app and then
+  // fails has not cleared it, so the next boot of the bench starts that app —an app running before the case has asked for
+  // one, and every "cannot start the interpreter" after it—. The empty name is no home app, which is the bench's.
+  kernel::cfg::set_home_app(nullptr);
   // And the bench goes back to the ATOM: one binary is one bench, and a test that was
   // the Matrix would make the next one refuse an app for no reason (docs/85).
   const bool had_card = emu::options().sd_dir != nullptr;
   const bool was_another_board = emu::options().board != nullptr;
-  emu::Options opts = emu::options();
-  opts.board = nullptr;
-  opts.sd_dir = nullptr;
-  opts.battery_mv = 0;
-  emu::set_options(opts);
+  // **The bench goes back whole and not field by field** (0.151.0): a case that aborted halfway leaves whatever it had
+  // turned on —`delays`, `ink_refuse`, `display`, `touch`, a card, a battery— and the case after it inherits that. A
+  // glass that refuses paints while an app starts makes the interpreter's own setup raise, and the next case then reads
+  // "cannot start the interpreter" and blames code that is fine: it is the leak that hid a dozen cases for days. What is
+  // kept is only where this suite keeps its disks.
+  const emu::Options was = emu::options();
+  emu::Options fresh;
+  fresh.fs_dir = was.fs_dir;
+  fresh.state_dir = was.state_dir;
+  emu::set_options(fresh);
   // Going back is a boot and not just an option: the hardware the kernel installs —the sensor, the
   // gauge, the light— is the board's, and a kernel that booted as a Paper is a kernel with no light
   // for ever (docs/85).

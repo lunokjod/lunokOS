@@ -3339,7 +3339,30 @@ namespace kernel {
 //
 // **Pending**: the seven red suites, in that order of size, and the glass. This turn did not run a single test of the
 // engine that the red ones cover: it ran the suite, took `OLD` out of it, and wrote down what it found.
-static const char kVersion[] = "0.150.2";
+// 0.151.0 (8/11): **the leak that hid a dozen cases: two settings a case can turn on and not turn off**.
+//
+//   - **the app the board starts by itself** (0.119.0): `test_the_home_app_comes_up_with_the_board` names `comer` as the
+//     home app and fails before it can clear it, so **every boot after it starts that app**. An app running before the
+//     case asked for one is `cannot start the interpreter` for the case, and that message —which reads like a broken
+//     kernel— was the leak. The tear-down now puts the home app back to empty, where it was;
+//   - **and the bench goes back whole**: the tear-down reset three fields of `emu::Options` by hand, so `delays`,
+//     `ink_refuse`, `display` and `touch` stayed on for the next case, and a glass that refuses paints while an app
+//     starts makes the interpreter's own setup raise — the same message again, from the other side. It now builds a
+//     fresh `Options` and keeps only where the suite keeps its disks;
+//   - **what that opened**: the **app suite goes from 38 failures to 14**, and the whole suite from **55 to 31**
+//     (**534 cases, 497 succeeded**). And the reader's own test **runs at last**: it opens the book, turns pages with a
+//     finger and with the keys, and fails on **one** assertion — `tap(100, 400)` from the first page of the first
+//     chapter does not leave `cover = 1` in the file of positions, and the cover is not the problem: it says `cover yes`
+//     in its own log. That is the next thing to look at, not a guess;
+//   - **the fourteen that are left in `test_apps` are not one thing**: `ntp` and `http` without a radio answer `E_BUSY`,
+//     `test_ui_focus_puts_the_dial_where_the_app_says`, `test_an_app_opens_a_list_of_extensions` and
+//     `test_apps_info_shows_the_keys_a_manifest_carries` fail on a `TRUE` that is not; `test_the_home_app_comes_up_with_the_board`
+//     still fails; `about` and `timeclock` print a whole console and then fail on the assertion after it; and the shelf's
+//     foot test fails on its first `TEST_ASSERT_TRUE`, which is a `boot_once` question and not a drawing one.
+//
+// **Pending**: those fourteen, the eight of `test_layout`, the five of `test_font`, and the four single ones. The glass
+// has still not been looked at.
+static const char kVersion[] = "0.151.0";
 
 }  // namespace kernel
 
