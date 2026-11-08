@@ -3314,7 +3314,32 @@ namespace kernel {
 //
 // **Pending**: `test_book`'s picture case, the leak of the boot-drawing test, the two network cases, the repository-apps
 // case, and the app suite run clean enough to see the reader. The glass has still not been looked at.
-static const char kVersion[] = "0.150.1";
+// 0.150.2 (8/11): **the tests no longer reach into `OLD/apps`, and the suite's real state is written down**.
+//
+//   - **fourteen cases of the app suite are gone**: `handles`, `mtab`, `heap`, `battery`, `images`, `keys`, `light`,
+//     `matrix`, `page`, `showcase`, `sleepy`, `tilt`, `timers`, `later` and the two alarm ones ran apps that are **not in
+//     `apps/` any more**, so they were testing nothing —the files the owner moved are untouched—. The app suite is now
+//     **174 cases** instead of 188;
+//   - **the vectors are the suites' own**: the face suite reads `test/test_ttf/res/lunok-8x8.ttf` and
+//     `lato-black.ttf`, and the font suite `test/test_font/res/abcdef-8x8.bdf` and `.pcf`, copied from where the apps
+//     that carried them were. **`grep -rn "OLD/apps" test/` answers nothing**: no test depends on that folder;
+//   - **and the honest map of the suite, run whole (534 cases, 55 failed, 473 succeeded)**: sixteen suites green —
+//     `led`, `battery`, `calendar`, `ttf`, `zip`, `disk`, `inflate`, `json`, `ui`, `orientation`, `luabind`, `qr`,
+//     `line_editor`, `alarms`, `bar`, `shell`— and seven red: **`test_apps` 136/174**, **`test_layout` 8 failures**,
+//     **`test_font` 5**, **`test_book` 1**, **`test_epub` 1**, **`test_touch` 1**, **`test_img` 1**. The numbers of
+//     `test_layout` (`Expected 24 Was 96`, `3 Was 2`) and of `test_font` (`Expected 8 Was 41057872`, `-3 Was 2`) are
+//     the paginator's metrics and a face read as garbage, and **they are not from this session's four commits**: none of
+//     them touched `lib/epub`, `lib/kernel/font.cpp` or the paginator. They were hidden behind the app tests that died
+//     first —the suite had not been executed since 0.140, so a red suite was not known to be red—;
+//   - **in `test_apps` the roots are still not the book**: `ntp` and `http` without a radio answer `E_BUSY`,
+//     `test_every_app_of_the_repository_declares_its_boards` finds no apps, `test_ui_focus_puts_the_dial_where_the_app_says`
+//     and `test_the_splash_waits_for_the_ink_of_the_page_before` get a world another test did not leave as it found it,
+//     and `test_the_boot_paints_the_drawing_the_settings_chose` **leaves an app running** — every `cannot start the
+//     interpreter` after it is that one leak, and the reader, the shelf and the modules are the last tests of the file.
+//
+// **Pending**: the seven red suites, in that order of size, and the glass. This turn did not run a single test of the
+// engine that the red ones cover: it ran the suite, took `OLD` out of it, and wrote down what it found.
+static const char kVersion[] = "0.150.2";
 
 }  // namespace kernel
 

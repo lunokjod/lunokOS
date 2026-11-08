@@ -1891,29 +1891,6 @@ void test_the_extra_memory_is_there_for_any_app(void) {
 // The heap demo of the repository, run from the disk on the board that has the extra memory: it asks
 // for a megabyte, keeps it and gives it back, and the numbers are the app's budget and the PSRAM's
 // (docs/75, docs/95).
-void test_the_heap_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("OLD/apps/heap/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/heap/heap.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "heap-app", manifest, source, "heap.lua"));
-
-  TEST_ASSERT_TRUE(run_captured("run heap-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "limit 4194304 B"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "holding 60000"), g_out);
-  // A megabyte held, and back after dropping it: the block was the app's and not the board's.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "after dropping it"), g_out);
-
-  storage->remove("/apps/heap-app/heap.lua");
-  storage->remove("/apps/heap-app/manifest.json");
-  storage->remove("/apps/heap-app");
-}
 
 // An open file is a handle with a pool behind it: read, write, size and close,
 // and the ninth open is refused because the system has eight (docs/70).
@@ -3091,68 +3068,6 @@ void test_ui_focus_puts_the_dial_where_the_app_says(void) {
 // walks —a page of controls that is **released whole and built again** when the tabs choose another one, children before
 // their father—. If a slot leaked, the second page would build it on top of the first and `ui.create` would start
 // refusing; if the tabs did not take the finger, the page would never turn (docs/30, docs/90).
-void test_the_showcase_app_shows_every_control_and_turns_its_pages(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  // **The glass and the panel are the model's and a test's `Options()` has them off** (docs/85): an app that draws a page
-  // says `this board has no glass` and stops, which is right on a headless band and is not what this test wants to read.
-  emu::Options opts = emu::options();
-  opts.display = true;
-  opts.touch = true;
-  emu::set_options(opts);
-  use_board("m5stack-paper");
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[512];
-  static char source[16384];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/showcase/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("OLD/apps/showcase/showcase.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
-
-  // **And with no word at all, which is how a person opens it**: `app.args` is a table that exists when `run` carries an
-  // argument and not before, so this is the line that says the app does not trust it. It is the one that was missing —
-  // the suite only ever ran `run showcase <n>`— and the one the board found (5/11, the owner: `attempt to index a nil
-  // value (field 'args')`).
-  pump_captured(60, g_out, sizeof(g_out), "run showcase");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 1 Text"), g_out);
-  close_any_app();
-  pump_turns(10);
-  TEST_ASSERT_FALSE(kernel::app_running());
-
-  // **Every page of it, one run each**: the word of `run` is the number of the page, so the five are built without a
-  // finger and each one says which it is —a field the bridge does not carry, a control that refuses the room it is given
-  // or a value out of the range the page needs shows up as the line of an app that died instead of as a page nobody
-  // looked at— (docs/30, docs/90). What a page handed back is worth is `test_ui`'s business: `release` and its cascade
-  // to the children are measured there, and this app is the page that says the system has the controls it says.
-  // **Five pages and not eight**, because five is what a strip of tabs holds at the dense size of the paper project:
-  // eight columns of a page of five hundred and forty pixels are sixty-seven each and the strip said "T... N... R..."
-  // (5/11, the owner on the bench, docs/92).
-  static const char* const kPageNames[5] = {"Text", "Nums", "Rows", "Form", "Menu"};
-  for (int page = 1; page <= 5; ++page) {
-    char line[32];
-    snprintf(line, sizeof(line), "run showcase %d", page);
-    pump_captured(60, g_out, sizeof(g_out), line);
-    TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
-    TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "lua:"), g_out);
-    // **And the page it says it built is the one that was asked for**: the word of `run` is a path and the app reads it
-    // as the number of a page, which is what makes five runs five pages and not the first one five times.
-    char wanted[48];
-    snprintf(wanted, sizeof(wanted), "page %d %s", page, kPageNames[page - 1]);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, wanted), g_out);
-    close_any_app();
-    pump_turns(10);
-    TEST_ASSERT_FALSE(kernel::app_running());
-  }
-
-
-  storage->remove("/apps/showcase/showcase.lua");
-  storage->remove("/apps/showcase/manifest.json");
-  storage->remove("/apps/showcase");
-}
 
 // **A list of entries is a list of controls** (0.104.0): the app builds the rows itself —a `ui.list_entry` with a
 // label, a row of two cells or a box inside— and the list places the ones of the page it is on. The entries of the
@@ -3987,93 +3902,9 @@ void test_a_key_paints_the_ring_the_app_cannot_see(void) {
 // gave the dial, the centre presses it, and the app hears `on_click` and says so. It is the whole way a person
 // uses the showcase —dial, press, answer— and the one the board had to make before this test existed (docs/30,
 // docs/92).
-void test_the_centre_presses_the_control_the_dial_is_on(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  emu::Options opts = emu::options();
-  opts.board = "m5stack-paper";
-  opts.display = true;
-  emu::set_options(opts);
-  kernel::boot(hal::platform());
-
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-  char manifest[512];
-  char source[16384];
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/showcase/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/showcase/showcase.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "showcase", manifest, source, "showcase.lua"));
-
-  pump_captured(60, g_out, sizeof(g_out), "run showcase 1");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
-  // **The dial starts on the strip** (0.99.0): the tabs are the first stops of the page and the first one opens
-  // lit, so the walk has to come out of the strip before anything of the page can be pressed — five tabs, and the
-  // next arrow is the button of the page— and then the centre is the button's.
-  capture_begin();
-  pump_turns(10);
-  for (int i = 0; i < 5; ++i) {
-    emu::press_key(2, true);
-    pump_turns(20);
-    emu::press_key(2, false);
-    pump_turns(20);
-  }
-  emu::press_key(0, true);
-  pump_turns(20);
-  emu::press_key(0, false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  // **The word is the one the app wrote in `on_click`**, and it is read from the capture that holds the press:
-  // the page answered the key on its own and nobody asked the app to present again.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pressed button"), g_out);
-
-  kernel::shell::close_app();
-  pump_captured(5, nullptr, 0);
-  TEST_ASSERT_FALSE(kernel::app_running());
-  storage->remove("/apps/showcase/showcase.lua");
-  storage->remove("/apps/showcase/manifest.json");
-  storage->remove("/apps/showcase");
-
-  opts = emu::options();
-  opts.board = nullptr;
-  opts.display = false;
-  emu::set_options(opts);
-  kernel::boot(hal::platform());
-}
 
 // The demo app that downloads a page is a file in the repository, so it is run
 // here: an example that stops working is a lie in the documentation.
-void test_the_page_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/page/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("OLD/apps/page/page.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "page-app", manifest, source, "page.lua"));
-
-  emu::Options opts = emu::options();
-  opts.wifi_absent = false;
-  opts.wifi_ms = 100;
-  opts.http_fake = true;
-  opts.http_ms = 50;
-  opts.http_status = 200;
-  opts.http_body = "l'exemple de la pagina";
-  emu::set_options(opts);
-  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
-  pump_captured(400, g_out, sizeof(g_out), "wifi add casa secret");
-
-  TEST_ASSERT_TRUE(run_captured("run page-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fetching https://example.com/"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "status 200 (22 bytes)"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "l'exemple de la pagina"), g_out);
-
-  storage->remove("/apps/page-app/page.lua");
-  storage->remove("/apps/page-app/manifest.json");
-  storage->remove("/apps/page-app");
-}
 
 // A page asked for with a place to go: memory holds nothing, the file has the page, and the shell says
 // where it went (docs/30, docs/70).
@@ -4550,175 +4381,11 @@ void test_the_air_is_read_from_the_board_that_has_it(void) {
 // The demo app of the light is a file in the repository, so it is run here: a wheel
 // that never ends on its own, a press that steps the brightness and the system's
 // gesture to leave (docs/30).
-void test_the_light_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/light/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/light/light.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "light-app", manifest, source, "light.lua"));
-
-  // It does not end: it is a wheel. The prompt comes back when the system's gesture
-  // closes it, so this runs it and takes turns instead of waiting for it.
-  pump_captured(40, g_out, sizeof(g_out), "run light-app");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a colour wheel"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the wheel ended on its own");
-  const uint32_t turned = emu::led_frames();
-  TEST_ASSERT_TRUE_MESSAGE(turned > 0, "the light was never painted");
-
-  // One press goes up a step: the brightest channel of the colour is the step's
-  // value, and the light keeps turning. The press and the release are **one**
-  // capture: the app hears the press between the two pumps, and a second capture
-  // would truncate the first one and look at an empty window.
-  capture_begin();
-  emu::press_button(true);
-  pump_turns(20);
-  emu::press_button(false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "brightness 4 of 20"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(emu::led_frames() > turned, "the wheel stopped");
-  uint8_t bright = emu::led_red();
-  if (emu::led_green() > bright) bright = emu::led_green();
-  if (emu::led_blue() > bright) bright = emu::led_blue();
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(4, bright, "the light did not take the step");
-
-  // Three taps are the way out, and the light the app took goes with it.
-  capture_begin();
-  for (int tap = 0; tap < 2; ++tap) {
-    emu::press_button(true);
-    pump_turns(10);
-    emu::press_button(false);
-    pump_turns(10);
-  }
-  capture_end(nullptr, 0);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "three taps did not close it");
-  pump_captured(20, g_out, sizeof(g_out));
-  TEST_ASSERT_EQUAL_UINT32(0, emu::led_red() + emu::led_green() + emu::led_blue());
-
-  storage->remove("/apps/light-app/light.lua");
-  storage->remove("/apps/light-app/manifest.json");
-  storage->remove("/apps/light-app");
-}
 
 // The Matrix app of the repository, run on the fake panel: twenty-five lights painted
 // one by one with a hue that walks around them, which is the one thing the app of the
 // single light cannot say, and the whole panel given back when it goes (docs/30,
 // docs/50).
-void test_the_matrix_app_from_the_disk_paints_the_panel(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  // The app says it runs on the Matrix, and the bench is told to be one: on the PC as
-  // on the glass, an app of another board is refused before a VM is built (docs/85).
-  emu::Options opts = emu::options();
-  opts.board = "m5stack-atom-matrix";
-  emu::set_options(opts);
-
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[8192];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/matrix/manifest.json", manifest, sizeof(manifest)));
-  const size_t source_len =
-      read_host_file("OLD/apps/matrix/matrix.lua", source, sizeof(source));
-  TEST_ASSERT_GREATER_THAN(0, source_len);
-  // A truncated read is a test that runs half an app and blames the app: the
-  // buffer is bigger than the file and the read says how much it took (docs/80).
-  TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
-  TEST_ASSERT_TRUE(add_app_file(storage, "matrix-app", manifest, source, "matrix.lua"));
-
-  // It does not end: it is a wheel. The prompt comes back when the system's gesture
-  // closes it, so this runs it and takes turns instead of waiting for it.
-  pump_captured(40, g_out, sizeof(g_out), "run matrix-app");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a colour wheel around 25 lights"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the wheel ended on its own");
-
-  // The panel is painted light by light and it is not one colour: that is what makes
-  // it the Matrix and not the Lite (docs/50). Every light has something to say —a
-  // board that painted only the first one would leave twenty-four dark and only a
-  // weaker test would believe it— and two lights a quarter of the wheel apart cannot
-  // come out the same.
-  uint8_t r0 = 0, g0 = 0, b0 = 0;
-  for (uint32_t light = 0; light < 25; ++light) {
-    uint8_t r = 0, g = 0, b = 0;
-    TEST_ASSERT_TRUE(emu::led_pixel(light, r, g, b));
-    TEST_ASSERT_TRUE_MESSAGE(r > 0 || g > 0 || b > 0,
-                             "a light of the panel was never painted");
-    if (light == 0) {
-      r0 = r;
-      g0 = g;
-      b0 = b;
-    }
-  }
-  uint8_t r12 = 0, g12 = 0, b12 = 0;
-  TEST_ASSERT_TRUE(emu::led_pixel(12, r12, g12, b12));
-  TEST_ASSERT_TRUE_MESSAGE(r0 != r12 || g0 != g12 || b0 != b12,
-                           "the whole panel was painted with one colour");
-  // The twenty-fifth light exists and the twenty-sixth does not: the count of the
-  // identity is what sizes the panel (docs/50).
-  TEST_ASSERT_TRUE(emu::led_pixel(24, r0, g0, b0));
-  TEST_ASSERT_FALSE(emu::led_pixel(25, r0, g0, b0));
-
-  // One press goes up a step, like the app of one light: the brightest channel of a
-  // light of the panel is the step's value. One capture for the whole press, for the
-  // same reason as `light` above.
-  capture_begin();
-  emu::press_button(true);
-  pump_turns(20);
-  emu::press_button(false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "brightness 4 of 20"), g_out);
-  uint8_t r = 0, g = 0, b = 0;
-  TEST_ASSERT_TRUE(emu::led_pixel(7, r, g, b));
-  uint8_t bright = r;
-  if (g > bright) bright = g;
-  if (b > bright) bright = b;
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(4, bright, "the panel did not take the step");
-
-  // Three taps are the way out, and a panel the app painted goes with it: **every**
-  // light and not only the first one (docs/30, docs/75).
-  capture_begin();
-  for (int tap = 0; tap < 2; ++tap) {
-    emu::press_button(true);
-    pump_turns(10);
-    emu::press_button(false);
-    pump_turns(10);
-  }
-  capture_end(nullptr, 0);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "three taps did not close it");
-  pump_captured(20, g_out, sizeof(g_out));
-  for (uint32_t light = 0; light < 25; ++light) {
-    TEST_ASSERT_TRUE(emu::led_pixel(light, r, g, b));
-    TEST_ASSERT_TRUE_MESSAGE(r == 0 && g == 0 && b == 0,
-                             "a light of the panel outlived its app");
-  }
-
-  storage->remove("/apps/matrix-app/matrix.lua");
-  storage->remove("/apps/matrix-app/manifest.json");
-  storage->remove("/apps/matrix-app");
-
-  // An index the panel does not have is refused and said, instead of painting some
-  // other square: a picture that lands one light off is a picture that lies
-  // (docs/30).
-  TEST_ASSERT_TRUE(add_app(storage, "offpanel",
-                           "{\"title\":\"Off panel\",\"version\":\"0.1.0\","
-                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           "local ok, err = led.pixel(25, 1, 2, 3)\n"
-                           "console.print('pixel 25 ' .. tostring(ok) .. ' ' .. "
-                           "tostring(err and err.code))\n"));
-  TEST_ASSERT_TRUE(run_captured("run offpanel", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pixel 25 nil E_INVAL"), g_out);
-  storage->remove("/apps/offpanel/app.lua");
-  storage->remove("/apps/offpanel/manifest.json");
-  storage->remove("/apps/offpanel");
-}
 
 // What makes an app an app **of this board**: the boards it lists, and the chip
 // family, which every board of it accepts. The discard happens in `apps::load()`,
@@ -5364,61 +5031,6 @@ void test_the_document_of_the_editor_scrolls_with_a_finger(void) {
 // owner's board with `***ERROR*** A stack overflow in task loopTask has been detected` after three pictures: a GIF kept
 // 16 656 bytes of table, string and row in locals against the 7 320 the app task prints free, and it keeps 256 now
 // (docs/75, docs/85, docs/92 §33).
-void test_the_page_of_pictures_walks_its_nine_families(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  emu::Options opts = emu::options();
-  opts.board = "m5stack-paper";
-  opts.display = true;
-  emu::set_options(opts);
-  kernel::boot(hal::platform());
-
-  // **The app of the disk with the two pictures this test needs**: the nine are decoded when the grid picks them, so the
-  // first one is what a page costs on its own and the second is the proof that a pick reaches the loader.
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-  storage->mkdir("/apps");
-  storage->mkdir("/apps/images");
-  storage->mkdir("/apps/images/res");
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/manifest.json", "/apps/images/manifest.json"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/images.lua", "/apps/images/images.lua"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/res/photo.jpg", "/apps/images/res/photo.jpg"));
-  TEST_ASSERT_TRUE(copy_a_host_file(storage, "OLD/apps/images/res/poster.bmp", "/apps/images/res/poster.bmp"));
-
-  pump_captured(60, g_out, sizeof(g_out), "run images");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: 9 pictures, 1 drawn, 0 failed"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "images: JPEG 96x72 (1988 bytes)"), g_out);
-
-  // **One press of the dial and the second family is on the glass**: the page starts with the ring on the grid of cells
-  // (the app asks for it with `ui.focus`), so a down key walks the cells from the first one to the second —the bench has
-  // the Paper's dial, where key 2 is down— and the centre picks the cell the dial is on.
-  capture_begin();
-  emu::press_key(2, true);
-  pump_turns(20);
-  emu::press_key(2, false);
-  pump_turns(20);
-  emu::press_button(true);
-  pump_turns(20);
-  emu::press_button(false);
-  pump_turns(40);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 of 9"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "BMP"), g_out);
-
-  kernel::shell::close_app();
-  pump_captured(5, nullptr, 0);
-  TEST_ASSERT_FALSE(kernel::app_running());
-  storage->remove("/apps/images/res/photo.jpg");
-  storage->remove("/apps/images/res/poster.bmp");
-  storage->remove("/apps/images/images.lua");
-  storage->remove("/apps/images/manifest.json");
-
-  // The next test gets the default bench back: the display was this test's.
-  opts = emu::options();
-  opts.board = nullptr;
-  opts.display = false;
-  emu::set_options(opts);
-  kernel::boot(hal::platform());
-}
 
 // How many times a text appears in what an app has printed: a gesture that arrives is a line, and a gesture that does
 // not arrive is the same line not there (0.113.0).
@@ -8162,78 +7774,6 @@ void test_the_board_says_where_its_keys_are(void) {
 
 // The example of the keys, from the disk: the sides step a number and a key that
 // stays down steps again, which is what a keyboard does (docs/30, docs/90).
-void test_the_keys_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  // The demo prints the three keys of the dial, so the bench is the board that has them (docs/50).
-  use_board("m5stack-paper");
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[8192];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/keys/manifest.json", manifest, sizeof(manifest)));
-  const size_t source_len = read_host_file("OLD/apps/keys/keys.lua", source, sizeof(source));
-  TEST_ASSERT_GREATER_THAN(0, source_len);
-  TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
-  TEST_ASSERT_TRUE(add_app_file(storage, "keys-app", manifest, source, "keys.lua"));
-
-  // It is a loop, so it takes turns instead of ending on its own (docs/30).
-  pump_captured(20, g_out, sizeof(g_out), "run keys-app");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "keys: 3"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "value 0"), g_out);
-  TEST_ASSERT_TRUE(kernel::app_running());
-
-  // The key at the top of the face goes up one and the one at the bottom goes
-  // down one: the function comes from the place on the board and not from the
-  // number of the key (docs/30). Both are done before any long hold, so the
-  // number is known.
-  // A press has to last longer than the app's own turn: it wakes every 40 ms, so a key
-  // that goes down and up in 20 ms can be a key it never sees (a finger never goes below
-  // 50 ms, docs/50). Sixty turns are still well under the half second of the repeat.
-  capture_begin();
-  emu::press_key(1, true);
-  pump_turns(60);
-  emu::press_key(1, false);
-  pump_turns(60);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 1"), g_out);
-
-  capture_begin();
-  emu::press_key(2, true);
-  pump_turns(60);
-  emu::press_key(2, false);
-  pump_turns(60);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "down 0"), g_out);
-
-  // And held down it repeats: the first repeat comes half a second later, so
-  // holding for most of a second is two more steps at least. How many exactly
-  // depends on the frames, so the test asks for the two that it knows.
-  capture_begin();
-  emu::press_key(1, true);
-  pump_turns(900);
-  emu::press_key(1, false);
-  pump_turns(20);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 2"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "up 3"), g_out);
-
-  // Three taps of the middle key are the way out, and they are the system's.
-  capture_begin();
-  for (int tap = 0; tap < 3 && kernel::app_running(); ++tap) {
-    emu::press_button(true);
-    pump_turns(10);
-    emu::press_button(false);
-    pump_turns(10);
-  }
-  capture_end(nullptr, 0);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the middle key did not close the app");
-
-  storage->remove("/apps/keys-app/keys.lua");
-  storage->remove("/apps/keys-app/manifest.json");
-  storage->remove("/apps/keys-app");
-}
 
 void test_an_app_asks_for_the_processor_speed(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -8376,39 +7916,6 @@ void test_an_app_sleeps_deeply_and_comes_back_where_it_was(void) {
 
 // The demo app that sleeps is a file in the repository, so it is run here: an
 // example that stops working is a lie in the documentation.
-void test_the_sleepy_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/sleepy/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/sleepy/sleepy.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "sleepy-app", manifest, source, "sleepy.lua"));
-
-  hal::IClock* clock = hal::platform().clock();
-  TEST_ASSERT_NOT_NULL(clock);
-  TEST_ASSERT_TRUE(clock->set_epoch_ms(1767225600000LL));
-
-  TEST_ASSERT_TRUE_MESSAGE(run_captured("run sleepy-app", g_out, sizeof(g_out)), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "first run, nothing saved yet"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "saved after sleep 1"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "wakes without restarting"), g_out);
-
-  // The board boots again and the app reads what it left on the disk.
-  capture_begin();
-  kernel::power::restore_session();
-  pump_turns(60);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "back after the sleep, it kept: 1"), g_out);
-
-  storage->remove("/apps/sleepy-app/sleepy.lua");
-  storage->remove("/apps/sleepy-app/manifest.json");
-  storage->remove("/apps/sleepy-app");
-}
 
 // A failing app says why once and then where. Saying why twice made a mistake in
 // an app read like two mistakes (seen on the board, 30/10).
@@ -8434,35 +7941,6 @@ void test_a_failing_app_says_its_error_once(void) {
 
 // The demo app that asks what is mounted is a file in the repository too, and it
 // is run here: it is what a person types on the board to see the room (docs/70).
-void test_the_mtab_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/mtab/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/mtab/mtab.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "mtab-app", manifest, source, "mtab.lua"));
-
-  TEST_ASSERT_TRUE(run_captured("run mtab-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts: 8"), g_out);
-  // The RTC memory is a file of the chip: a mount of its own, writable, and not a filesystem. Its
-  // room is its size and all of it is free, because nothing is allocated out of raw memory and
-  // counting entries there would be a number that means nothing (docs/70).
-  char rtc_line[64];
-  snprintf(rtc_line, sizeof(rtc_line), "/rtc rtc rw  %u of %u B free",
-           static_cast<unsigned>(emu::kRtcRamBytes), static_cast<unsigned>(emu::kRtcRamBytes));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, rtc_line), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs rw  "), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "of 917504 B free"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs ro  unknown (E_UNSUPPORTED)"), g_out);
-
-  storage->remove("/apps/mtab-app/mtab.lua");
-  storage->remove("/apps/mtab-app/manifest.json");
-  storage->remove("/apps/mtab-app");
-}
 
 // The dump command of the shell, native C++ and not an app: the memory is read as hex and as text, a
 // byte that cannot be printed is a dot, and the empty tail is not printed at all (docs/50, docs/70).
@@ -8594,114 +8072,10 @@ void test_the_root_lists_the_memories_as_files(void) {
 
 // The battery demo of the repository, run from the disk: the two paths are the point,
 // because a board that cannot say is not a board that says zero (docs/30, docs/50).
-void test_the_battery_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/battery/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/battery/battery.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "battery-app", manifest, source, "battery.lua"));
-
-  // A board with no gauge: it says so, and it does not say zero volts. The battery is the Paper's,
-  // so the bench has to be one of those or it would be a board answering for hardware it has not
-  // got (docs/50, docs/85).
-  emu::Options opts = emu::options();
-  opts.board = "m5stack-paper";
-  opts.battery_mv = 0;
-  emu::set_options(opts);
-  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "does not know its battery"), g_out);
-
-  // And a cell at 3,9 V: the measurement, the curve and the bar.
-  opts.battery_mv = 3900;
-  emu::set_options(opts);
-  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "3900 mV, 70 %"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "charging: the board cannot tell"), g_out);
-
-  // And the same number on an ATOM is a board with no gauge at all, which is the other path.
-  opts.board = "m5stack-atom";
-  emu::set_options(opts);
-  TEST_ASSERT_TRUE(run_captured("run battery-app", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "does not know its battery"), g_out);
-  opts.board = nullptr;
-  emu::set_options(opts);
-
-  storage->remove("/apps/battery-app/battery.lua");
-  storage->remove("/apps/battery-app/manifest.json");
-  storage->remove("/apps/battery-app");
-}
 
 // The alarm demos of the repository, run from the disk: the queue the system keeps and the
 // timers an app arms. A demo that stops working is a lie in the documentation (docs/40), and
 // these two are the ones that show the queue of `lib/alarms` and the clock behind it.
-void test_the_alarm_demos_from_the_disk_run(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-
-  // The queue: what this board allows, three armed, one cancelled and the gap closed. The app
-  // keeps running on purpose after that (its last line waits nine seconds), so it is closed
-  // here by hand rather than waited for.
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/alarmqueue/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/alarmqueue/alarmqueue.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "alarmqueue-app", manifest, source, "alarmqueue.lua"));
-  pump_captured(40, g_out, sizeof(g_out), "run alarmqueue-app");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alarms: 8 at once"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed "), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancelling "), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, ": true"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "queue without the middle one"), g_out);
-  kernel::shell::close_app();
-  // The two that were left are the test's now: they would fire inside the next one.
-  alarms::reset();
-  storage->remove("/apps/alarmqueue-app/alarmqueue.lua");
-  storage->remove("/apps/alarmqueue-app/manifest.json");
-  storage->remove("/apps/alarmqueue-app");
-
-  // The timers: three of them, delivered in order while the app waits, and the app ends by
-  // itself inside the turns a test gives it.
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/timers/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0,
-                           read_host_file("OLD/apps/timers/timers.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "timers-app", manifest, source, "timers.lua"));
-  TEST_ASSERT_TRUE_MESSAGE(run_captured("run timers-app", g_out, sizeof(g_out)), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "three timers armed"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 400 ms"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 800 ms"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "timer 1200 ms"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "without stopping anything"), g_out);
-
-  storage->remove("/apps/timers-app/timers.lua");
-  storage->remove("/apps/timers-app/manifest.json");
-  storage->remove("/apps/timers-app");
-
-  // The one that arms an alarm and leaves: it ends by itself, so this one can be waited for. What
-  // it leaves in the queue is taken down here, or it would go off inside the test after this one.
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/later/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(0, read_host_file("OLD/apps/later/later.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "later-app", manifest, source, "later.lua"));
-  TEST_ASSERT_TRUE_MESSAGE(run_captured("run later-app", g_out, sizeof(g_out)), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "armed for"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "leaving: the queue keeps it"), g_out);
-  alarms::reset();
-
-  storage->remove("/apps/later-app/later.lua");
-  storage->remove("/apps/later-app/manifest.json");
-  storage->remove("/apps/later-app");
-}
 
 // The maths between a date and an epoch: no hardware in it, and it is where a leap year can
 // go wrong without anybody noticing for four years (docs/50).
@@ -8961,119 +8335,10 @@ void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
 
 // The demo app that shows handles by hand is a file in the repository, so it is
 // run here: an example that stops working is a lie in the documentation.
-void test_the_handles_demo_app_from_the_disk_runs(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[4096];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/handles/manifest.json", manifest, sizeof(manifest)));
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/handles/handles.lua", source, sizeof(source)));
-  TEST_ASSERT_TRUE(add_app_file(storage, "handles", manifest, source, "handles.lua"));
-
-  TEST_ASSERT_TRUE(run_captured("run handles", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "opened for writing: file (open)"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "closed: file (closed)"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "line one"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rest 8 bytes, at 8"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "holding 8 handles"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ninth nil E_NO_HANDLES"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "after closing all: file (open)"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "missing nil E_NOENT"), g_out);
-
-  storage->remove("data/handles/handles.txt");
-  storage->remove("data/handles");
-  storage->remove("/apps/handles/handles.lua");
-  storage->remove("/apps/handles/manifest.json");
-  storage->remove("/apps/handles");
-}
 
 // The sensor of the band is a fake (docs/85), so a reading can be tried on the PC:
 // this walks the whole path, from the app to the fake chip and back, and the light
 // of the panel follows what it says (docs/30, docs/50).
-void test_the_tilt_app_of_the_disk_follows_the_sensor(void) {
-  TEST_ASSERT_TRUE(boot_once());
-  // The level is the Matrix's app and it says so, so the bench has to be one (docs/85).
-  use_board("m5stack-atom-matrix");
-  emu::Options opts = emu::options();
-  opts.imu_fail = false;
-  opts.imu_ax = 0.0f;
-  opts.imu_ay = 0.0f;
-  opts.imu_az = 1.0f;
-  opts.imu_celsius = 24.5f;
-  emu::set_options(opts);
-
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
-
-  static char manifest[256];
-  static char source[8192];
-  TEST_ASSERT_GREATER_THAN(
-      0, read_host_file("OLD/apps/tilt/manifest.json", manifest, sizeof(manifest)));
-  const size_t source_len =
-      read_host_file("OLD/apps/tilt/tilt.lua", source, sizeof(source));
-  TEST_ASSERT_GREATER_THAN(0, source_len);
-  TEST_ASSERT_LESS_THAN(sizeof(source) - 1, source_len);
-  TEST_ASSERT_TRUE(add_app_file(storage, "tilt-app", manifest, source, "tilt.lua"));
-
-  // A level does not end: the prompt comes back with the system's gesture, so this
-  // runs it and takes turns instead of waiting for it (docs/30).
-  pump_captured(30, g_out, sizeof(g_out), "run tilt-app");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tilt 0.00 0.00 g  24.5 C"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the level ended on its own");
-
-  // Level is the middle light and only the middle light: the panel has to show
-  // where gravity pulls, and a bubble left behind is a bubble that lies.
-  uint8_t lit = 0;
-  for (uint32_t light = 0; light < 25; ++light) {
-    uint8_t r = 0, g = 0, b = 0;
-    TEST_ASSERT_TRUE(emu::led_pixel(light, r, g, b));
-    if (r > 0 || g > 0 || b > 0) {
-      TEST_ASSERT_EQUAL_UINT32_MESSAGE(12, light, "the bubble was not in the middle");
-      lit = r;
-    }
-  }
-  TEST_ASSERT_TRUE_MESSAGE(lit > 0, "the middle light was never painted");
-
-  // Stood on its side: a whole g on the x axis moves the bubble to the right edge
-  // one frame later, and the numbers move with it.
-  opts.imu_ax = 1.0f;
-  emu::set_options(opts);
-  capture_begin();
-  pump_turns(250);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tilt 1.00 0.00 g"), g_out);
-  uint8_t r = 0, g = 0, b = 0;
-  TEST_ASSERT_TRUE(emu::led_pixel(14, r, g, b));
-  TEST_ASSERT_TRUE_MESSAGE(r > 0 || g > 0 || b > 0, "the bubble did not move");
-  TEST_ASSERT_TRUE(emu::led_pixel(12, r, g, b));
-  TEST_ASSERT_TRUE_MESSAGE(r == 0 && g == 0 && b == 0, "two bubbles at once");
-
-  // Three taps are the way out, and the panel goes dark with the app (docs/30).
-  // Three and not two: the gesture counts presses and this app has had none yet.
-  capture_begin();
-  for (int tap = 0; tap < 3; ++tap) {
-    emu::press_button(true);
-    pump_turns(10);
-    emu::press_button(false);
-    pump_turns(10);
-  }
-  capture_end(nullptr, 0);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "three taps did not close it");
-  pump_captured(20, g_out, sizeof(g_out));
-  for (uint32_t light = 0; light < 25; ++light) {
-    TEST_ASSERT_TRUE(emu::led_pixel(light, r, g, b));
-    TEST_ASSERT_TRUE_MESSAGE(r == 0 && g == 0 && b == 0,
-                             "a light of the panel outlived its app");
-  }
-
-  storage->remove("/apps/tilt-app/tilt.lua");
-  storage->remove("/apps/tilt-app/manifest.json");
-  storage->remove("/apps/tilt-app");
-}
 
 // A sensor that is not there is an error and not a number: an app cannot be left
 // believing it read 0 g and is level (docs/30). The board without a sensor says
@@ -10169,15 +9434,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_boot_is_not_part_of_the_clocks_error);
   RUN_TEST(test_a_file_is_read_whatever_its_size);
   RUN_TEST(test_an_app_opens_files_and_the_ninth_is_refused);
-  RUN_TEST(test_the_handles_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_mtab_demo_app_from_the_disk_runs);
   RUN_TEST(test_the_hexdump_command_shows_the_bytes_of_the_rtc_memory);
   RUN_TEST(test_the_fram_is_one_file_of_its_bytes);
   RUN_TEST(test_the_root_lists_the_memories_as_files);
   RUN_TEST(test_the_extra_memory_is_there_for_any_app);
-  RUN_TEST(test_the_heap_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_battery_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_alarm_demos_from_the_disk_run);
   RUN_TEST(test_the_wifi_command_scans_and_lists_the_networks);
   RUN_TEST(test_a_radio_that_refuses_says_why);
   RUN_TEST(test_a_network_with_no_name_is_listed_as_hidden);
@@ -10199,8 +9459,6 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_http_without_a_network_is_refused);
   RUN_TEST(test_a_page_on_a_radio_that_is_still_up);
   RUN_TEST(test_an_app_downloads_a_page);
-  RUN_TEST(test_the_page_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_showcase_app_shows_every_control_and_turns_its_pages);
   RUN_TEST(test_ui_focus_puts_the_dial_where_the_app_says);
   RUN_TEST(test_the_http_command_writes_where_it_is_told);
   RUN_TEST(test_the_http_command_refuses_a_place_that_is_not_there);
@@ -10214,9 +9472,6 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_changes_the_system_moments);
   RUN_TEST(test_led_play_refuses_what_it_cannot_do);
   RUN_TEST(test_the_air_is_read_from_the_board_that_has_it);
-  RUN_TEST(test_the_light_demo_app_from_the_disk_runs);
-  RUN_TEST(test_the_matrix_app_from_the_disk_paints_the_panel);
-  RUN_TEST(test_the_tilt_app_of_the_disk_follows_the_sensor);
   RUN_TEST(test_a_sensor_that_does_not_answer_is_said);
   RUN_TEST(test_an_app_belongs_to_the_boards_it_declares);
   RUN_TEST(test_a_manifest_without_boards_is_not_an_app);
@@ -10241,7 +9496,6 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_walks_the_buttons_of_a_page);
   RUN_TEST(test_the_dial_flips_a_checkbox);
   RUN_TEST(test_the_dial_moves_the_value_of_a_slider);
-  RUN_TEST(test_the_page_of_pictures_walks_its_nine_families);
   RUN_TEST(test_a_panel_arranges_the_page_and_the_dial_changes_the_tab);
   RUN_TEST(test_a_list_of_entries_places_a_page_of_controls);
   RUN_TEST(test_a_grid_of_entries_places_cells_of_controls);
@@ -10256,7 +9510,6 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_disabled_control_is_drawn_lighter_and_answers_nothing);
   RUN_TEST(test_each_tab_of_a_strip_is_a_stop_of_the_dial);
   RUN_TEST(test_a_key_paints_the_ring_the_app_cannot_see);
-  RUN_TEST(test_the_centre_presses_the_control_the_dial_is_on);
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
@@ -10286,11 +9539,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_selector_opens_the_list_the_app_puts_up);
   RUN_TEST(test_the_cross_of_a_notice_dismisses_the_newest);
   RUN_TEST(test_a_grid_walks_its_cells_and_pages_itself);
-  RUN_TEST(test_the_keys_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_asks_for_the_processor_speed);
   RUN_TEST(test_a_light_sleep_comes_back_with_the_clock_moved);
   RUN_TEST(test_an_app_sleeps_deeply_and_comes_back_where_it_was);
-  RUN_TEST(test_the_sleepy_demo_app_from_the_disk_runs);
   RUN_TEST(test_an_app_writes_the_file_the_prompt_named_and_no_other);
   RUN_TEST(test_a_big_file_is_read_in_chunks);
   RUN_TEST(test_a_failing_app_says_its_error_once);

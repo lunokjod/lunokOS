@@ -82,7 +82,7 @@ const char* pcf_file(uint32_t& length) {
   static char bytes[4096];
   static uint32_t stored = 0;
   if (stored == 0) {
-    stored = read_file("apps/font-pcf/res/abcdef-8x8.pcf", bytes, sizeof(bytes));
+    stored = read_file("test/test_font/res/abcdef-8x8.pcf", bytes, sizeof(bytes));
   }
   length = stored;
   return bytes;
@@ -397,7 +397,7 @@ static void test_a_pcf_becomes_the_same_face_as_its_bdf() {
   TEST_ASSERT_EQUAL_UINT16(53, kernel::font::width(from_pcf, "ABCDEF", 1));  // 6 * 8 + 5 gaps
 
   static char bdf[4096];
-  const uint32_t bdf_length = read_file("apps/font-bdf/res/abcdef-8x8.bdf", bdf, sizeof(bdf));
+  const uint32_t bdf_length = read_file("test/test_font/res/abcdef-8x8.bdf", bdf, sizeof(bdf));
   TEST_ASSERT_GREATER_THAN(0, bdf_length);
   static uint8_t bdf_bits[kernel::font::kFaceBytes];
   kernel::font::Face from_bdf = kernel::font::system_face();
