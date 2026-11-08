@@ -93,6 +93,8 @@ Status decode_gif(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
 Status decode_jpeg(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 Status decode_pnm(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 Status decode_ico(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
+// **The cache of this system** (0.146.0, docs/46 C11): a picture that is already in the packing of the glass.
+Status decode_ics(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 
 uint32_t bmp_scratch(const uint8_t* data, uint32_t len);
 uint32_t png_scratch(const uint8_t* data, uint32_t len);
@@ -100,6 +102,7 @@ uint32_t gif_scratch(const uint8_t* data, uint32_t len);
 uint32_t jpeg_scratch(const uint8_t* data, uint32_t len);
 uint32_t pnm_scratch(const uint8_t* data, uint32_t len);
 uint32_t ico_scratch(const uint8_t* data, uint32_t len);
+uint32_t ics_scratch(const uint8_t* data, uint32_t len);
 
 Status bmp_info(const uint8_t* data, uint32_t len, Info& out);
 Status png_info(const uint8_t* data, uint32_t len, Info& out);
@@ -107,6 +110,7 @@ Status gif_info(const uint8_t* data, uint32_t len, Info& out);
 Status jpeg_info(const uint8_t* data, uint32_t len, Info& out);
 Status pnm_info(const uint8_t* data, uint32_t len, Info& out);
 Status ico_info(const uint8_t* data, uint32_t len, Info& out);
+Status ics_info(const uint8_t* data, uint32_t len, Info& out);
 
 // A picture that is wider or taller than a page can be is not a picture this board draws, and the sum of
 // the two is a number that has to fit in the arithmetic of the decoders: 4096 is the ceiling of a page and

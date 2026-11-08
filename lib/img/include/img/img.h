@@ -74,6 +74,18 @@ Status read_info(const uint8_t* data, uint32_t len, Info& out);
 // `height - 1`, and a picture whose rows are all read is `kOk` (docs/30).
 Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 
+// **The cache of this system, written** (0.146.0, docs/46 C11): `ICS1`, the width and the height as two little-endian
+// words and the rows of a picture two pixels a byte, the left one in the high nibble — the same bytes `decode` reads
+// back, which is the whole point of a cache: one app writes the face of a book and the next one draws it (docs/30).
+//
+// A **width that is not even** is written one column wider and the last pixel of every row is paper, because two pixels
+// share a byte and a reader that trusted an odd header would read every row after the first a nibble off. The three
+// calls are the header, one row and the size of the whole file, so a writer that has the picture a row at a time —a
+// decoder of this same library, a thumbnail being scaled— never holds the file in memory (docs/75).
+uint32_t ics_bytes(uint16_t width, uint16_t height);
+void ics_header(uint16_t width, uint16_t height, uint8_t out[8]);
+uint32_t ics_row(uint16_t width, const uint8_t* row, uint8_t* out, uint32_t cap);
+
 }  // namespace img
 
 #endif  // LUNOK_IMG_IMG_H

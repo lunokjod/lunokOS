@@ -3120,7 +3120,38 @@ namespace kernel {
 // the long press of the centre are proven by the code and by the test, not by a photograph of the panel. Of the book,
 // what is still missing with its fitxa in docs/46: **C11** (the cache of thumbnails, which wants B9) and the foot of
 // the shelf.
-static const char kVersion[] = "0.145.0";
+// 0.146.0 (8/11): **the cache of the book, beside the book** (docs/46, C11).
+//
+//   - **`ICS1` is a picture of this system and not a private trick of the reader** (docs/30): `lib/img` read it and now
+//     it **writes** it too (`ics_bytes`, `ics_header`, `ics_row`), because the cache one app leaves is a photo for the
+//     next one. The width is written always even —two pixels share a byte— and an odd picture is padded one column wider
+//     with **paper** in the last nibble, not with the nibble a decoder happened to leave there, which was a black stripe
+//     down the side of a thumbnail;
+//   - **the file is `.<the book's own file name>.cache.ics`**, in the folder of the book: `.la-vaca-cega.epub.cache.ics`
+//     beside `.la-vaca-cega.epub`. The point in front is what keeps it out of a shelf listing and the name of the book is
+//     what makes a folder of thirty books readable. The cover of the sample (300 × 400) is **48 × 64**, so the file is the
+//     8 B of the header and 64 rows of 24 B: **1 544 B**;
+//   - **the system writes it and not the app**, because an app cannot write beside a book (docs/46, C6): the door is
+//     `epub.thumbnail(name[, max])` —`max` 64 by default, 256 at the most— and `book::thumbnail` builds the path, scales
+//     from the block of the pictures and writes **a row at a time** through a line of 128 B, so the cache is never a file
+//     in the memory of the board;
+//   - **three rules of the paper and one of this turn**: a cache that is there **and whole** is not written again (the
+//     size of the file has to be the one its own two words of the header say, so a cache cut in the middle by a power
+//     that went off is written again, and a write that fails **removes** what it left instead of leaving half a picture
+//     there); the room is asked **before** the picture is scaled (under 8 KB free, no cache: it is a courtesy beside a
+//     book and not the book); and the app asks inside a `pcall`, once per book opened and not at every page. **Nothing of
+//     B9**: no surface is saved and `ui.image_save` is still not there;
+//   - **the app is the caller**: six comment lines and one call in `open_book`, **58 296 B** of Lua under the 65 536 B of
+//     the source ceiling. Nothing else of the reader changed.
+//
+// The cache goes round in two places: the image suite writes one with `ics_header` and `ics_row` and reads it back —the
+// odd picture padded with paper, a file cut in the middle refused as `kTruncated` and a header of an odd width as bad
+// data—, and the app test opens the book and then reads `/epub/.la-vaca-cega.epub.cache.ics` as a picture of 48 × 64.
+// The suites are **534 cases**, and `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn. And the cache is not a
+// thumbnail yet: the shelf still draws its books as words, so this turn leaves the file that the app which draws them
+// will read. Of the book, what is still missing with its fitxa in docs/46: the foot of the shelf.
+static const char kVersion[] = "0.146.0";
 
 }  // namespace kernel
 

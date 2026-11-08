@@ -22,6 +22,7 @@
 #include "emu/options.h"
 #include "emu/surface.h"
 #include "hal/hal.h"
+#include "img/img.h"
 #include "json/json.h"
 #include "kernel/apps.h"
 #include "kernel/cfg.h"
@@ -9842,6 +9843,22 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // **And the cover decodes**: a picture that cannot be read leaves its page in paper and says so in the log.
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: the cover cannot be read"), g_out);
 
+  // **And the cache of the book is beside the book, hidden and with its name** (docs/46, C11):
+  // `.<name>.epub.cache.ics` in the folder of the `.epub`, an `ICS1` of the cover scaled to 64 pixels —48 × 64 for the
+  // cover of the sample— that this library reads back as a picture.
+  static uint8_t cache[4096];
+  hal::FileSlot cache_slot;
+  TEST_ASSERT_TRUE_MESSAGE(storage->open("/epub/.la-vaca-cega.epub.cache.ics", hal::OpenMode::kRead, cache_slot),
+                           "the cache of the book is not beside the book");
+  const int32_t cache_len = storage->read(cache_slot, cache, sizeof(cache));
+  storage->close(cache_slot);
+  TEST_ASSERT_GREATER_THAN(8, cache_len);
+  img::Info cache_info;
+  TEST_ASSERT_EQUAL_INT(0, static_cast<int>(img::read_info(cache, static_cast<uint32_t>(cache_len), cache_info)));
+  TEST_ASSERT_EQUAL_STRING("ICS1", cache_info.format);
+  TEST_ASSERT_EQUAL_UINT16(48, cache_info.width);
+  TEST_ASSERT_EQUAL_UINT16(64, cache_info.height);
+
   const char* path = "/data/reader/reading.txt";
   char where[256] = {0};
   // **The line of a position is `path TAB chapter TAB byte TAB cover`** (docs/46, C6 and C7): the byte is the third
@@ -9953,6 +9970,7 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   storage->remove("/apps/reader/reader.lua");
   storage->remove("/apps/reader/manifest.json");
   storage->remove("/apps/reader");
+  storage->remove("/epub/.la-vaca-cega.epub.cache.ics");
   storage->remove("/epub/la-vaca-cega.epub");
   storage->remove("/epub");
   storage->remove("/data/reader/reading.txt");

@@ -7,6 +7,7 @@
 #include "hal/hal.h"
 #include "img/img.h"
 #include "kernel/font.h"
+#include "kernel/log.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
@@ -549,6 +550,108 @@ bool read(const char* name, const char** data, uint32_t& size) {
   return true;
 }
 
+// **The room a cache may take on a flash before it is not worth writing**: a thumbnail of 256 × 256 is 32 KB at the
+// most and the one of a book is a few kilobytes, so eight is the line under which the flash has other things to do
+// (docs/46, C11).
+const uint64_t kThumbRoom = 8u * 1024u;
+
+// **The cache of a book, beside the book** (0.146.0, docs/46 C11): the cover scaled to `max` pixels on its longest side
+// and written as an `ICS1` in the folder of the book —hidden, with the name of the book inside it— so that whoever lists
+// the folder has the face of the book without opening it. Three rules of the paper are kept because they are right: a
+// cache that is already there is not written again (it is a write on the flash and the book has not changed), the room
+// is asked **before** the picture is scaled, and a flash that cannot say how much room it has is a flash to try anyway.
+namespace {
+
+// **A cache that is there and whole is what spares the write**: the size of a row and the size of the file come from
+// the same two words of the header, so a file of the right size is one this system finished writing, and one that was
+// cut in the middle —a power that went off— is written again (docs/46, C11).
+bool cache_is_whole(const char* path, uint32_t size) {
+  hal::FileSlot slot;
+  if (!g.storage->open(path, hal::OpenMode::kRead, slot)) return false;
+  uint8_t head[8];
+  const int32_t got = g.storage->read(slot, head, sizeof(head));
+  g.storage->close(slot);
+  if (got != static_cast<int32_t>(sizeof(head)) || memcmp(head, "ICS1", 4) != 0) return false;
+
+  const uint16_t width = static_cast<uint16_t>(head[4] | (head[5] << 8));
+  const uint16_t height = static_cast<uint16_t>(head[6] | (head[7] << 8));
+  if (width == 0 || height == 0 || (width & 1u) != 0) return false;
+  return static_cast<uint32_t>(img::ics_bytes(width, height)) == size;
+}
+
+}  // namespace
+
+bool thumbnail(const char* name, int32_t max) {
+  if (!g.open || g.storage == nullptr || name == nullptr || name[0] == 0) return false;
+  if (max <= 0) return false;
+  if (max > kThumbMax) max = kThumbMax;
+
+  // **The path of the cache**: the folder of the book and `.` + its name + `.cache.ics`, which is the name this system
+  // has always given a cache and what hides it from a shelf (docs/46, C11).
+  char path[200];
+  const char* slash = strrchr(g.rel, '/');
+  if (slash == nullptr) return false;
+  const int32_t folder = static_cast<int32_t>(slash - g.rel) + 1;
+  const int32_t written = snprintf(path, sizeof(path), "%.*s.%s.cache.ics", folder, g.rel, slash + 1);
+  if (written <= 0 || written >= static_cast<int32_t>(sizeof(path))) return false;
+
+  hal::Stat there;
+  if (g.storage->stat(path, there) && there.type == hal::NodeType::kFile && there.size >= 9 &&
+      cache_is_whole(path, there.size)) {
+    log_printf(pal::kLogInfo, "BOOK", "the cache of the book is already at %s", path);
+    return true;
+  }
+
+  uint64_t total = 0;
+  uint64_t free_bytes = 0;
+  if (g.storage->space(total, free_bytes) && free_bytes < kThumbRoom) {
+    log_printf(pal::kLogInfo, "BOOK", "no room for the cache of %s (%u B free)", path,
+               static_cast<unsigned>(free_bytes));
+    return true;
+  }
+
+  int32_t width = 0;
+  int32_t height = 0;
+  if (!load_picture_named(name, max, max, width, height)) {
+    log_printf(pal::kLogWarn, "BOOK", "the picture %s of the book cannot be read", name);
+    return false;
+  }
+
+  hal::FileSlot slot;
+  if (!g.storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+
+  uint8_t header[8];
+  img::ics_header(static_cast<uint16_t>(width), static_cast<uint16_t>(height), header);
+  bool ok = g.storage->write(slot, header, static_cast<uint32_t>(sizeof(header))) ==
+            static_cast<int32_t>(sizeof(header));
+
+  // **A row at a time**: the picture of a cache is in the block of the book and the file does not have to be in memory
+  // to be written (docs/46, C11). The line is half a thumbnail at the widest, which is a hundred and twenty-eight bytes.
+  uint8_t line[kThumbMax / 2];
+  const uint32_t stride = static_cast<uint32_t>((width + 1) / 2);
+  for (int32_t y = 0; ok && y < height; ++y) {
+    const uint32_t bytes = img::ics_row(static_cast<uint16_t>(width), g.picture_pixels + y * stride, line,
+                                        static_cast<uint32_t>(sizeof(line)));
+    if (bytes == 0) {
+      ok = false;
+      break;
+    }
+    ok = g.storage->write(slot, line, static_cast<int32_t>(bytes)) == static_cast<int32_t>(bytes);
+  }
+  g.storage->close(slot);
+
+  if (ok) {
+    log_printf(pal::kLogInfo, "BOOK", "the cache of the book is written at %s, %dx%d", path, width, height);
+  } else {
+    // **Half a cache is not a cache**: a flash that filled up in the middle of the write leaves the beginning of a
+    // picture there, and it would be read as an `ICS1` that is cut. It goes, and the next open tries again (docs/46, C11).
+    g.storage->remove(path);
+    log_printf(pal::kLogWarn, "BOOK", "the cache of the book cannot be written at %s", path);
+  }
+
+  return ok;
+}
+
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out) {
   out.count = 0;
   out.ended = false;
@@ -715,6 +818,7 @@ void bind() {
   ops.book_at = book_at;
   ops.page = page_into;
   ops.picture = picture_into;
+  ops.thumbnail = thumbnail;
 
   luabind::set_book_ops(ops);
 }

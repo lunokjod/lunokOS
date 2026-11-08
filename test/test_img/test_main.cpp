@@ -403,6 +403,62 @@ void test_the_info_of_a_picture_on_the_volume(void) {
   TEST_ASSERT_EQUAL_STRING("there is no such picture", reason);
 }
 
+// **The cache of this system goes round** (0.146.0, docs/46 C11): `ics_header` and `ics_row` write the `ICS1` this
+// library reads back, the row of an odd picture is written one column wider with paper in the last nibble —and not with
+// the nibble a decoder left there, which is black—, a file cut in the middle of the write says so and a header of an odd
+// width is a file of a writer that did not follow the rule.
+void test_a_cache_is_written_and_read_back(void) {
+  struct Copied {
+    uint8_t rows[8][8];
+    uint16_t count;
+  };
+  struct Sink {
+    static void row(void* ctx, uint16_t y, const uint8_t* packed) {
+      Copied* into = static_cast<Copied*>(ctx);
+      if (y >= 8) return;
+      memcpy(into->rows[y], packed, sizeof(into->rows[0]));
+      into->count = static_cast<uint16_t>(y + 1);
+    }
+  };
+
+  uint8_t file[64];
+  const uint8_t rows[2][2] = {{0x01, 0x23}, {0x45, 0x67}};
+  TEST_ASSERT_EQUAL_UINT32(12, img::ics_bytes(4, 2));
+  img::ics_header(4, 2, file);
+  uint32_t at = 8;
+  for (int y = 0; y < 2; ++y) at += img::ics_row(4, rows[y], file + at, sizeof(file) - at);
+  TEST_ASSERT_EQUAL_UINT32(12, at);
+
+  img::Info info;
+  TEST_ASSERT_EQUAL_INT(0, static_cast<int>(img::read_info(file, at, info)));
+  TEST_ASSERT_EQUAL_STRING("ICS1", info.format);
+  TEST_ASSERT_EQUAL_UINT16(4, info.width);
+  TEST_ASSERT_EQUAL_UINT16(2, info.height);
+  TEST_ASSERT_EQUAL_UINT8(4, info.depth);
+
+  Copied copied = {};
+  TEST_ASSERT_EQUAL_INT(
+      0, static_cast<int>(img::decode(file, at, img::RowSink(Sink::row, &copied), nullptr, 0)));
+  TEST_ASSERT_EQUAL_UINT16(2, copied.count);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(rows[0], copied.rows[0], 2));
+  TEST_ASSERT_EQUAL_INT(0, memcmp(rows[1], copied.rows[1], 2));
+
+  // **Five pixels are a byte and a half**: the file is written six wide and the last pixel is paper.
+  uint8_t odd[16];
+  const uint8_t odd_row[3] = {0x12, 0x34, 0xAB};  // the low nibble of the last byte is what a decoder left
+  TEST_ASSERT_EQUAL_UINT32(11, img::ics_bytes(5, 1));
+  img::ics_header(5, 1, odd);
+  TEST_ASSERT_EQUAL_UINT32(3, img::ics_row(5, odd_row, odd + 8, sizeof(odd) - 8));
+  TEST_ASSERT_EQUAL_UINT8(0xAF, odd[10]);
+  TEST_ASSERT_EQUAL_INT(0, static_cast<int>(img::read_info(odd, 11, info)));
+  TEST_ASSERT_EQUAL_UINT16(6, info.width);
+
+  // Cut in the middle of a row, and a header that says an odd width.
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(img::kTruncated), static_cast<int>(img::read_info(file, 11, info)));
+  file[4] = 5;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(img::kBadData), static_cast<int>(img::read_info(file, 12, info)));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -420,5 +476,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_every_family_reaches_the_canvas);
   RUN_TEST(test_a_picture_that_cannot_be_read_says_why);
   RUN_TEST(test_the_info_of_a_picture_on_the_volume);
+  RUN_TEST(test_a_cache_is_written_and_read_back);
   return UNITY_END();
 }

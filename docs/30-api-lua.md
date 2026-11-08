@@ -426,6 +426,7 @@ porta del lector: el motor —el zip, el tokenitzador i el paginador— és del 
 | `epub.chapter(name)` | **infla** aquest capítol i en diu quants bytes té |
 | `epub.read(name)` | **una fitxa petita del llibre sencera** (`META-INF/container.xml`, l'OPF, l'índex, un full d'estil): els bytes, o `nil` i el motiu (0.142.0). El bloc és del llibre —es demana la primera vegada i fa 64 KB— i la porta en fa una còpia a una cadena de Lua |
 | `epub.picture(canvas, name)` | **una foto del llibre al canvas, pel seu nom sencer dins del llibre** (`OEBPS/img/cover.png`) i **centrada**: `true`, o `nil` i el motiu (0.144.0). És la portada: el nom ja ve resolt de l'OPF i no d'un capítol, i **la foto conserva el seu paper** (no s'inverteix a la pàgina fosca; docs/46, C7 i C9) |
+| `epub.thumbnail(name[, max])` | **el cau del llibre, escrit al costat del llibre** (0.146.0): la foto `name` escalada a `max` píxels pel costat més llarg (`64` si no es diu, i 256 com a sostre) i desada com un `ICS1` en un fitxer amagat amb el nom del llibre a dins, `.<fitxer del llibre>.cache.ics` (`/epub/.la-vaca-cega.epub.cache.ics`). Torna `true` quan el cau hi és —escrit ara, ja hi era o no hi ha espai per a ell— i `nil` i el motiu quan la foto no es pot llegir. **L'escriu el sistema perquè una app no escriu al costat del llibre** (docs/46, C11), **no el reescriu si ja hi és** i **pregunta l'espai abans d'escalar**; llegeix el cau qui vulgui, perquè és una foto d'aquest sistema |
 | `epub.page(canvas, from, opts)` | maqueta una pàgina des del byte `from` i **la pinta en aquell canvas**; torna `next, ended, used, has_picture` |
 | `epub.close()` | tanca el llibre i torna la memòria |
 
@@ -940,7 +941,10 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   filtres), **JPEG** (base i seqüencial estès, amb qualsevol factor de mostreig i marcadors de reinici),
   **BMP** (1, 4, 8, 16, 24 i 32 bits, amb paleta o sense, de dalt o de baix), **GIF** (87a i 89a, la primera
   imatge, LZW, transparència i entrellaçat), **ICO** (una imatge de BMP o un PNG a dins) i la família
-  **netpbm** (`PBM`, `PGM` i `PPM`, en text i en cru). El que no es llegeix es diu amb un codi i no es dibuixa
+  **netpbm** (`PBM`, `PGM` i `PPM`, en text i en cru). I **`ICS1`**, la mena de fitxer d'un cau d'aquest sistema
+  (quatre bits per píxel, l'amplada sempre parell): el cau d'un llibre que escriu `epub.thumbnail` es llegeix
+  aquí com qualsevol altra foto, que és el que fa que una app deixi una miniatura i una altra la pugui pintar
+  (0.146.0). El que no es llegeix es diu amb un codi i no es dibuixa
   malament: un PNG entrellaçat (Adam7), un JPEG progressiu o aritmètic, un JPEG de quatre components (CMYK) i
   un BMP comprimit amb RLE són `E_UNSUPPORTED`; un fitxer que diu ser una imatge i no ho és, `E_IO`; un de més
   gran de dos megabytes o una imatge de més de 4 096 píxels per costat, `E_INVAL`/`E_NOSPC`.

@@ -708,6 +708,8 @@ struct BookOps {
   // **A picture of the book on a canvas** (0.144.0, docs/46 C7): the cover, by its whole name inside the book, in the
   // middle of the canvas and with its own paper.
   bool (*picture)(int16_t slot, const char* name);
+  // **The cache of the book beside the book** (0.146.0, docs/46 C11): the cover scaled and written as an `ICS1`.
+  bool (*thumbnail)(const char* name, int32_t max);
 };
 
 void set_book_ops(const BookOps& ops);

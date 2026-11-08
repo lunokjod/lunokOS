@@ -45,6 +45,10 @@ bool is_pnm(const uint8_t* data, uint32_t len) {
   return len >= 2 && data[0] == 'P' && data[1] >= '1' && data[1] <= '6';
 }
 
+// **The cache of this system** (0.146.0, docs/46 C11): four letters that are nobody else's, and the rows are already the
+// packing of the glass.
+bool is_ics(const uint8_t* data, uint32_t len) { return starts_with(data, len, "ICS1", 4); }
+
 }  // namespace
 
 namespace detail {
@@ -121,6 +125,7 @@ uint32_t scratch_bytes(const uint8_t* data, uint32_t len) {
   if (is_ico(data, len)) return detail::ico_scratch(data, len);
   if (is_bmp(data, len)) return detail::bmp_scratch(data, len);
   if (is_pnm(data, len)) return detail::pnm_scratch(data, len);
+  if (is_ics(data, len)) return detail::ics_scratch(data, len);
   return 0;
 }
 
@@ -150,6 +155,9 @@ Status read_info(const uint8_t* data, uint32_t len, Info& out) {
   } else if (is_pnm(data, len)) {
     matched = true;
     status = detail::pnm_info(data, len, out);
+  } else if (is_ics(data, len)) {
+    matched = true;
+    status = detail::ics_info(data, len, out);
   }
   if (!matched) return kUnknown;
   return (status == kUnknown) ? kBadData : status;
@@ -180,6 +188,9 @@ Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* s
   } else if (is_pnm(data, len)) {
     matched = true;
     status = detail::decode_pnm(data, len, sink, scratch, cap);
+  } else if (is_ics(data, len)) {
+    matched = true;
+    status = detail::decode_ics(data, len, sink, scratch, cap);
   }
   if (!matched) return kUnknown;
   return (status == kUnknown) ? kBadData : status;

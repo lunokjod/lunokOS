@@ -95,6 +95,14 @@ const char* chapter_at(int32_t index, int32_t& bytes);
 const uint32_t kMetaBytes = 64u * 1024u;
 bool read(const char* name, const char** data, uint32_t& size);
 
+// **The cache of a book, written beside the book** (0.146.0, docs/46 C11): the picture `name` —the cover— scaled to
+// `max` pixels on its longest side and written as an `ICS1` next to the `.epub`, hidden and with the name of the book
+// inside it, so whoever lists the folder has the face of the book without opening it. **A cache that is already there
+// is not written again** and a flash with no room is not written on: both of those are `true`, because there is nothing
+// to come back to. `false` is a picture that cannot be read or a write that did not finish.
+const int32_t kThumbMax = 256;
+bool thumbnail(const char* name, int32_t max);
+
 // **One page of the chapter that is open**, laid out from a byte into a box of that size. A page is a plan (see
 // `epub/page.h`) and it is not painted here: whoever composes it walks the items.
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out);

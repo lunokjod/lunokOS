@@ -9290,6 +9290,22 @@ int l_epub_picture(lua_State* L) {
   return 1;
 }
 
+// **The cache of a book, beside the book** (0.146.0, docs/46 C11): the cover scaled to `max` pixels and written as an
+// `ICS1` in the folder of the `.epub`, hidden. `true` when the cache is there —or when the flash has no room for it,
+// because a book whose cache cannot be written is not a book to try again at every page— and `nil` and the reason when
+// the picture cannot be read.
+int l_epub_thumbnail(lua_State* L) {
+  if (g_book_ops.thumbnail == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  const char* name = luaL_checkstring(L, 1);
+  const int32_t max = static_cast<int32_t>(luaL_optinteger(L, 2, 64));
+  if (!g_book_ops.thumbnail(name, max)) {
+    return push_nil_error(L, "E_INVAL", "the book carries no such picture, or the cache cannot be written");
+  }
+
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9350,7 +9366,7 @@ void seal_globals(lua_State* L) {
 
   // epub: a book of the disk, a chapter of it and a page of the chapter painted in
   // a canvas of the app (docs/46, A5 and B3).
-  lua_createtable(L, 0, 9);
+  lua_createtable(L, 0, 11);
   set_function(L, "open", l_epub_open);
   set_function(L, "books", l_epub_books);
   set_function(L, "close", l_epub_close);
@@ -9360,6 +9376,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "chapter", l_epub_chapter);
   set_function(L, "read", l_epub_read);
   set_function(L, "picture", l_epub_picture);
+  set_function(L, "thumbnail", l_epub_thumbnail);
   set_function(L, "page", l_epub_page);
   lua_setglobal(L, "epub");
 

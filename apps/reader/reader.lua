@@ -885,6 +885,11 @@ local function open_book(one)
   chapter_list = chapters
   toc = book_toc
   cover = book_cover
+  -- **The cache of the book, beside the book** (0.146.0, docs/46 C11): the cover scaled to 64 pixels and written as an
+  -- `ICS1` —a hidden `.la-vaca-cega.epub.cache.ics` beside the `.epub`— so that whoever lists the folder has the face of
+  -- the book without opening it. It is asked once when the book opens and not at every page, and it is guarded: a cache
+  -- is a courtesy beside a book and not the book.
+  if cover ~= nil then pcall(epub.thumbnail, cover, 64) end
 
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end
