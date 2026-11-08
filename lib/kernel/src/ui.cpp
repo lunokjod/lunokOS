@@ -1545,7 +1545,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      keyboard_visible,
                                      keyboard_height,
                                      luabind::ui_keyboard_typed,
-                                     image,
+                                     image_on_canvas,
                                      image_info,
                                      menu_draw_for_lua,
                                      menu_hit_for_lua,
@@ -1655,9 +1655,17 @@ bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, co
 
 // **The picture of the app's own view**, which is what `ui.image` draws on: the same call a control gets,
 // with the root as the canvas (docs/30).
-bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
-           const char*& code, const char*& reason) {
+bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode, const char*& code,
+           const char*& reason) {
   return canvas_image(0, x, y, w, h, path, mode, code, reason);
+}
+
+// **And the same picture in a canvas that is not the page** (0.153.0): what `canvas:image` asks for, and the reason a
+// launcher needs it —the icon of an app drawn inside the cell of a grid, which is a canvas of the app's own—. One
+// primitive and two doors, so a picture cannot be drawn one way on the page and another in a control (docs/30).
+bool image_on_canvas(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+                     const char*& code, const char*& reason) {
+  return canvas_image(slot, x, y, w, h, path, mode, code, reason);
 }
 
 bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {

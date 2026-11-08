@@ -124,6 +124,29 @@ void test_non_numeric_value_is_not_an_integer(void) {
   TEST_ASSERT_FALSE(lunok::json::get_int(text, sizeof(text) - 1, "mem_kb", value));
 }
 
+// **A boolean is the word and nothing else** (0.153.0): the `launcher` of a manifest is `true` or `false`, and a reader
+// that took the first four letters of `trueish` or read `"yes"` as a value would make an app say what it does not
+// (docs/40).
+void test_reads_a_boolean(void) {
+  const char yes[] = "{\"launcher\": true}";
+  const char no[] = "{\"launcher\": false}";
+  const char spaced[] = "{\"launcher\" :  true , \"title\": \"A\"}";
+  const char word[] = "{\"launcher\": \"true\"}";
+  const char prefix[] = "{\"launcher\": trueish}";
+  bool value = false;
+  TEST_ASSERT_TRUE(lunok::json::get_bool(yes, sizeof(yes) - 1, "launcher", value));
+  TEST_ASSERT_TRUE(value);
+  TEST_ASSERT_TRUE(lunok::json::get_bool(no, sizeof(no) - 1, "launcher", value));
+  TEST_ASSERT_FALSE(value);
+  TEST_ASSERT_TRUE(lunok::json::get_bool(spaced, sizeof(spaced) - 1, "launcher", value));
+  TEST_ASSERT_TRUE(value);
+  // A value that is not the word is not a boolean, and the caller can tell it from nothing being said.
+  TEST_ASSERT_FALSE(lunok::json::get_bool(word, sizeof(word) - 1, "launcher", value));
+  TEST_ASSERT_FALSE(lunok::json::get_bool(prefix, sizeof(prefix) - 1, "launcher", value));
+  TEST_ASSERT_TRUE(lunok::json::has_key(word, sizeof(word) - 1, "launcher"));
+  TEST_ASSERT_FALSE(lunok::json::has_key(yes, sizeof(yes) - 1, "splash"));
+}
+
 void test_apps_alias_resolves_inside_the_backend(void) {
   mount_a_disk_with_apps();
   hal::IStorage* storage = nullptr;
@@ -201,6 +224,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_key_text_inside_a_value_is_not_a_key);
   RUN_TEST(test_reads_an_integer);
   RUN_TEST(test_non_numeric_value_is_not_an_integer);
+  RUN_TEST(test_reads_a_boolean);
   RUN_TEST(test_apps_alias_resolves_inside_the_backend);
   RUN_TEST(test_root_mount_strips_its_prefix);
   RUN_TEST(test_parent_segments_are_refused);

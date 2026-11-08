@@ -170,5 +170,34 @@ bool get_int(const char* text, size_t len, const char* key, long& out) {
   return true;
 }
 
+// **A word and not a prefix of one** (0.153.0): `trueish` is not `true`, and a value that is not a boolean is refused
+// instead of being read as one — the caller that wants to know whether a manifest says it is a launcher has to be able
+// to tell "it says false" from "it says nothing this layer understands" (docs/40).
+bool ends_the_word(const char* text, size_t len, size_t i) {
+  if (i >= len) return true;
+  const char c = text[i];
+  return c == ',' || c == '}' || c == ']' || c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+bool has_key(const char* text, size_t len, const char* key) {
+  if (text == nullptr || key == nullptr) return false;
+  return find_value(text, len, key) < len;
+}
+
+bool get_bool(const char* text, size_t len, const char* key, bool& out) {
+  if (text == nullptr || key == nullptr) return false;
+  const size_t i = find_value(text, len, key);
+  if (i >= len) return false;
+  if (i + 4 <= len && memcmp(text + i, "true", 4) == 0 && ends_the_word(text, len, i + 4)) {
+    out = true;
+    return true;
+  }
+  if (i + 5 <= len && memcmp(text + i, "false", 5) == 0 && ends_the_word(text, len, i + 5)) {
+    out = false;
+    return true;
+  }
+  return false;
+}
+
 }  // namespace json
 }  // namespace lunok

@@ -232,6 +232,12 @@ bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
                   const char* mode, const char*& code, const char*& reason);
 
 // The same on the app's own view, which is what `ui.image` is (docs/30).
+// **The same picture drawn in a canvas that is not the page** (0.153.0): what `canvas:image` asks for, and what a
+// launcher uses to put the icon of an app inside the cell of a grid. `ui::image` is this call with the page as its
+// canvas (docs/30).
+bool image_on_canvas(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+                     const char*& code, const char*& reason);
+
 bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
            const char*& code, const char*& reason);
 

@@ -101,6 +101,45 @@ struct FileOps {
 // Installs the file operations. Without them fs.* answers E_UNSUPPORTED.
 void set_file_ops(const FileOps& ops);
 
+// **The door of the apps, as an app asks for it** (0.153.0): a launcher has to know what is on the disk, and the
+// system is the one that knows it —`/apps` is the door of `kernel::apps`, with the two disks together, the board filter
+// and the manifest already read—. Walking `/apps` from Lua and reading a manifest per folder would be a second reader
+// of the same file, and the second one is the one that goes wrong (docs/30, docs/40).
+struct AppInfo {
+  char id[40];
+  char title[48];
+  // **The picture, ready for `canvas:image`**: the path the disk answers for the icon of the app
+  // (`/apps/<id>/res/icon.png`), or empty when its manifest names none (docs/40).
+  char icon[96];
+  bool launcher;    // the app says `"launcher": true`: a launcher's grid does not list it
+  bool on_card;     // which half of the door answered
+  bool works_here;  // false when the app names another board: it is listed, and starting it is refused with the reason
+};
+
+// Return false to stop the walk.
+typedef bool (*AppVisitor)(const AppInfo& info, void* context);
+
+struct AppsOps {
+  // Walks the door of the apps, one manifest at a time. False when there is no door at all.
+  bool (*each)(AppVisitor visitor, void* context);
+};
+
+void set_apps_ops(const AppsOps& ops);
+
+// **Starting another app from an app** (0.153.0): what a launcher does when a finger presses a picture. It is a wish
+// and not a switch —the app that asks is the one the interpreter belongs to, so closing it inside the call would
+// destroy the state the call is running in—. The kernel takes the wish after the turn: the app in front goes away with
+// its goodbye hooks and the one asked for comes up in its place. Until then `app.run` has answered `true` and nothing
+// has happened yet, which is what the docs promise (docs/30, docs/90).
+struct AppOps {
+  // False with a reason when there is no such app, when it names another board, or when it is the app that asks.
+  // **`back` is the page the person comes back to**: true means the app that asked is started again when the one it
+  // opened ends, which is what a launcher wants and the only way back on a board with three keys (docs/30, docs/90).
+  bool (*run)(const char* id, bool back, char* why, size_t why_cap);
+};
+
+void set_app_ops(const AppOps& ops);
+
 // **The hour of the person, which is a setting of the system** (0.125.0): the chip counts UTC and every clock a person
 // reads is local, so the kernel keeps one number —the minutes the local hour is ahead of UTC— and this is how the
 // interpreter asks for it and changes it. It is a hook and not a table of zones because a zone table is a megabyte and
@@ -563,10 +602,11 @@ struct UIOps {
   bool (*keyboard_visible)();
   uint16_t (*keyboard_height)();
   void (*keyboard_typed)(int code);
-  // **A picture on a canvas**: the file, where it lands, the size it is drawn at —zero is the size of the
-  // file— and the quality. `reason` says why when it is false, because "it did not draw" is not an answer a
-  // person can use (docs/30).
-  bool (*image)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+  // **A picture on a canvas** (0.153.0): the file, where it lands, the size it is drawn at —zero is the size of the
+  // file— and the quality. `slot` is the canvas it goes into, and `0` is the page: a launcher draws the icon of an app
+  // inside the cell of a grid, which is a canvas of its own, and `ui.image` is the same call with the page as its
+  // canvas (docs/30). `reason` says why when it is false, because "it did not draw" is not an answer a person can use.
+  bool (*image)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
                 const char*& code, const char*& reason);
   // The family, the size and the depth of a picture, without drawing it (docs/30).
   bool (*image_info)(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,

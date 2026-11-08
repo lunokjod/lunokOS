@@ -4649,6 +4649,172 @@ void test_the_bench_is_the_board_it_was_told_to_be(void) {
   storage->remove("/apps/panelish");
 }
 
+// **The launcher of the glass** (0.153.0): the app of `apps/home_eink` on a real disk, reading the door of the apps and
+// nothing else. It lists what the door presents —and not itself, and not another launcher—, it counts the apps of
+// another board in its line instead of the grid, it says the one whose picture does not come up, and **a press of the
+// centre starts the app of the first cell**: the first cell is the one the dial is born on, and the app that is opened
+// ends by itself, which is where the page has to come back.
+void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **The launcher of the repository and not a copy of it**: its manifest, its script and its picture, because what is
+  // under test is the file that ships (docs/45).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  // **Two apps to list**, of which one has the picture of an app and the other has none: the page has to say the second
+  // once, because an empty cell and a broken picture look the same on the glass (docs/30).
+  TEST_ASSERT_TRUE(add_app(storage, "alpha",
+                           "{\"title\":\"Alpha\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"icon\":\"res/icon.png\"}",
+                           "console.print('alpha here')\n"
+                           "sys.delay(300):await()\n"
+                           "console.print('alpha bye')\n"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/alpha/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/alpha/res/icon.png"));
+  TEST_ASSERT_TRUE(add_app(storage, "bravo",
+                           "{\"title\":\"Bravo\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('bravo here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  // **Another launcher and an app of another board**: neither is on the grid, and the second is counted in the line.
+  TEST_ASSERT_TRUE(add_app(storage, "other_launcher",
+                           "{\"title\":\"Other\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"launcher\":true}",
+                           "console.print('other here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "elsewhere",
+                           "{\"title\":\"Elsewhere\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"m5stack-atom-matrix\"]}",
+                           "console.print('elsewhere here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(200, g_out, sizeof(g_out), "run home_eink");
+  // The list is the door's, one line per cell, and **neither the launcher that is asking nor the other launcher is on
+  // it**; the app of another board is counted and not drawn (docs/30, docs/40).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: app alpha Alpha"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: app bravo Bravo"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app home_eink"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app other_launcher"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app elsewhere"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, ", 1 left out"), g_out);
+  // **The picture of the one that has one is drawn and the other is said**, once, in the console.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: bravo has no picture"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: alpha has no picture"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
+
+  // **A press of the centre is a click on the first cell**, which is the control the dial is born on.
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(80);
+  emu::press_button(false);
+  pump_turns(600);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: alpha"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alpha here"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "alpha bye"), g_out);
+  // **And the page the person comes back to is the launcher** (0.153.0): the app that asked for `alpha` is started again
+  // when `alpha` ends, which is the whole reason `app.run` takes a second argument (docs/30, docs/90).
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("home_eink", kernel::shell::app_id(), g_out);
+  const char* after = strstr(g_out, "alpha bye");
+  TEST_ASSERT_NOT_NULL(after);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "home: app alpha Alpha"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  storage->remove("/apps/alpha/res/icon.png");
+  storage->remove("/apps/alpha/res");
+  storage->remove("/apps/alpha/app.lua");
+  storage->remove("/apps/alpha/manifest.json");
+  storage->remove("/apps/alpha");
+  storage->remove("/apps/bravo/app.lua");
+  storage->remove("/apps/bravo/manifest.json");
+  storage->remove("/apps/bravo");
+  storage->remove("/apps/other_launcher/app.lua");
+  storage->remove("/apps/other_launcher/manifest.json");
+  storage->remove("/apps/other_launcher");
+  storage->remove("/apps/elsewhere/app.lua");
+  storage->remove("/apps/elsewhere/manifest.json");
+  storage->remove("/apps/elsewhere");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **`app.run` answers with the reason** (0.153.0): a launcher that presses a picture and gets nothing has to be able to
+// say why, and the three ways it can be wrong are the system's to say —the app that asks for itself, an id that is not
+// on the disk, and an app that names another board—. Nothing is started here: the page stays where it was.
+void test_app_run_says_why_it_cannot_start_an_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "nosy",
+                           "{\"title\":\"Nosy\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local ok, why = app.run('nosy')\n"
+                           "console.print('self ' .. tostring(ok) .. ' ' .. tostring(why and why.code) .. ' ' ..\n"
+                           "                tostring(why and why.message))\n"
+                           "local ok2, why2 = app.run('nothing')\n"
+                           "console.print('none ' .. tostring(ok2) .. ' ' .. tostring(why2 and why2.message))\n"
+                           "local ok3, why3 = app.run('elsewhere')\n"
+                           "console.print('board ' .. tostring(ok3) .. ' ' .. tostring(why3 and why3.message))\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "elsewhere",
+                           "{\"title\":\"Elsewhere\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"m5stack-atom-matrix\"]}",
+                           "console.print('elsewhere here')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(120, g_out, sizeof(g_out), "run nosy");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "self nil E_INVAL that is the app that is asking"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "none nil there is no such app on this disk"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+      strstr(g_out, "board nil elsewhere runs on another board and this one is m5stack-paper"), g_out);
+  // Nothing was started by any of the three, and the app that asked is still the one in front.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "elsewhere here"), g_out);
+  TEST_ASSERT_EQUAL_STRING("nosy", kernel::shell::app_id());
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/nosy/app.lua");
+  storage->remove("/apps/nosy/manifest.json");
+  storage->remove("/apps/nosy");
+  storage->remove("/apps/elsewhere/app.lua");
+  storage->remove("/apps/elsewhere/manifest.json");
+  storage->remove("/apps/elsewhere");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // Every app of the repository says which boards it runs on, and none of them names
 // the bench: the bench is not a board, it is told which one it is, so writing
 // `emulator` in a list is a name no board would ever answer (docs/40, docs/85).
@@ -4665,7 +4831,8 @@ void test_the_bench_is_the_board_it_was_told_to_be(void) {
 // and says so in its own description: **an id goes out of this list in the same commit as the app** (docs/40, docs/45).
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
-  static const char* const kMustShip[] = {"about", "calculator", "editor", "probe", "reader", "timeclock"};
+  static const char* const kMustShip[] = {"about", "calculator", "editor", "home_eink", "probe", "reader",
+                                          "timeclock"};
   static char text[1024];
   bool ship_seen[sizeof(kMustShip) / sizeof(kMustShip[0])] = {false};
   const uint32_t kMust = sizeof(kMustShip) / sizeof(kMustShip[0]);
@@ -9720,6 +9887,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_lua_command_opens_the_interpreter);
   RUN_TEST(test_an_app_for_another_board_is_listed_and_refused);
   RUN_TEST(test_the_bench_is_the_board_it_was_told_to_be);
+  RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
+  RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);

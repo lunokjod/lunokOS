@@ -230,6 +230,16 @@ bool load(const char* id, Entry& out) {
       memmove(out.opens_arg, start, strlen(start) + 1);
     }
   }
+  // **Whether the app is a launcher of its own** (0.153.0): `"launcher": true` is what keeps a launcher out of another
+  // launcher's grid, and an app that says it is still an app —listed, run, and the handler of what it opens—. A value
+  // that is neither `true` nor `false` is left out with a line instead of being guessed: `"launcher": "yes"` is not a
+  // boolean and reading it as one would make a manifest say what it does not (docs/40).
+  bool launcher = false;
+  if (lunok::json::get_bool(text, len, "launcher", launcher)) {
+    out.launcher = launcher;
+  } else if (lunok::json::has_key(text, len, "launcher")) {
+    log_printf(pal::kLogWarn, "APPS", "%s has a launcher that is not true or false", id);
+  }
   // **Who wrote the app and what it is** (0.120.0): decoration, so nothing is refused here —a manifest without them is
   // still an app— and a text longer than its room is cut, which is what docs/40 promises. `\n` is kept, because the
   // descriptions of PaperOS are two lines and `apps info` prints them as two.

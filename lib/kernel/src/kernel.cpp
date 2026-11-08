@@ -315,6 +315,9 @@ void boot(hal::IPlatform& platform) {
   // **And the hour of the person beside the disk** (0.125.0): an app that reads a clock reads a date and an hour, and
   // which hour is the person's is a setting of the system (docs/30, docs/60).
   install_time_ops();
+  // **The door of the apps, for a launcher** (0.153.0): `apps.list` and `app.run` are the two calls a launcher is made
+  // of, and they are the door's and not a second reader of the manifests (docs/30, docs/40).
+  apps::install_apps_ops();
   net::boot(platform);
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).

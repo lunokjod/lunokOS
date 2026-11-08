@@ -213,7 +213,12 @@ en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla 
 d'aquest sistema. Les 60 carpetes que `apps/` tenia abans del 8/11 es van esborrar perquè no venien d'allà, i
 l'esborrat és al commit de la 0.152.6 amb el número del davant.
 
-Portades i viatjant avui, **cinc**:
+**L'excepció és el llançador** (0.153.0): `home_eink` no ve del projecte del paper perquè allà el menú d'inici és
+**del sistema** —una pantalla en C++ del nucli, no una app de Lua— i aquí és una app, amb les seves crides
+(`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
+tingui una de Lua es compara amb aquesta.
+
+Portades i viatjant avui, **cinc** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -223,9 +228,15 @@ Portades i viatjant avui, **cinc**:
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
 
-I a part, `probe`, que **no és una pantalla**: és un instrument temporal del banc que repeteix l'arrencada del
-lector per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la
-llista de la prova al mateix commit.
+I a part, **dues que no són ports**:
+
+- **`home_eink`** (`title` *Home*), el llançador: la graella de les apps del disc amb la icona i el nom de
+  cadascuna, i un dit o el centre sobre una cel·la arrenca aquella app. No llista els llançadors —ni a si mateix—,
+  i és la pàgina on la persona torna quan l'app que ha obert s'acaba (0.153.0). El seu manifest diu
+  `"launcher": true` i la seva icona és el novè dibuix de `tools/icons/` que s'ha fet per a ella (`Home.png`).
+- **`probe`**, que **no és una pantalla**: és un instrument temporal del banc que repeteix l'arrencada del lector
+  per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
+  de la prova al mateix commit.
 
 Les **dinou** que falten, i que són la cua d'aquesta feina: `2048`, `Agenda`, `Banner`, `Battery`, `Clock`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,

@@ -54,6 +54,10 @@ struct Entry {
   // still an app of the disk —`apps` lists it and says what it needs— but it is not
   // one this board can run (docs/40).
   bool works_here;
+  // **An app that is a launcher of its own** (0.153.0): the manifest says `"launcher": true` and a launcher's grid does
+  // not list it. It is still an app —`apps` shows it, `run` starts it, it opens the files it handles— and the system
+  // does not guess it from a title or an id: the app says it (docs/30, docs/40).
+  bool launcher;
   // **Which half of the door answered** (0.88.20): the same id may sit on both disks and the door presents them apart, so
   // the listing says which of the two it read (docs/40).
   bool on_card;
@@ -116,6 +120,12 @@ bool extension_of(const char* path, char* out, size_t cap);
 // that does not name this board. A caller that does not need the answer can use
 // `for_each`, which walks the directory and skips those (docs/40).
 bool read(const char* id, Entry& out);
+
+// **The door as the interpreter sees it** (0.153.0): the list `apps.list()` draws and the wish `app.run` makes. It is
+// installed once, at boot, and it lives here because the door is what knows what an app is: the walk merges the two
+// disks, skips a folder that is not an app and reads the manifest, and a launcher doing that from Lua would be a second
+// reader of the same file (docs/30, docs/40).
+void install_apps_ops();
 
 // The first app (in directory order) that declares "opens" for ext. When more
 // than one does, matches says how many; the caller decides what to say.

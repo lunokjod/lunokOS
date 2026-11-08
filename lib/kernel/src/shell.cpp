@@ -1318,7 +1318,12 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
     bar::title("");
     return false;
   }
+  // **The app is in front from the moment its first line runs** (0.153.0): the first turn of its entry is a turn like the
+  // ones that come after, and an app that asks for another one from its own first lines —`app.run` in the start of a
+  // launcher is exactly that— must not be answered "no app is in front" by a system that is running it.
+  g_app_alive = true;
   if (!luabind::poll()) {  // it never waited: it is already over
+    g_app_alive = false;
     const int code = luabind::exit_code();
     luabind::stop();
     // **An app that ends in its first turn is an app that ended** (0.136.0, docs/46 D1): same two lines as an app that
@@ -1332,7 +1337,6 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
     }
     return true;
   }
-  g_app_alive = true;
   // The light says nothing about an app being in front: it is on the console, and a
   // light that is on costs milliamps (docs/30, docs/75).
   return true;
@@ -3284,6 +3288,60 @@ bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
 
+// **The app another app asked for** (0.153.0): `app.run` writes it and the end of the turn takes it. It is one name and
+// not a queue: a launcher starts one app per press, and a second wish in the same turn is refused where it is asked, in
+// the words a person reads (docs/30, docs/90).
+namespace {
+char g_run_wanted[40] = {0};
+// **The app to come back to** (0.153.0): the launcher that asked for another one and wants it back when that one ends,
+// which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
+// the app that asked handed the glass over for good (docs/30, docs/90).
+char g_run_back[40] = {0};
+bool g_run_wanted_back = false;  // whether the app that asked wants the glass back when the other one ends
+}  // namespace
+
+bool ask_run(const char* id, bool back, char* why, size_t why_cap) {
+  if (id == nullptr || id[0] == '\0') {
+    snprintf(why, why_cap, "%s", "an app with no name");
+    return false;
+  }
+  if (strlen(id) >= sizeof(g_run_wanted)) {
+    snprintf(why, why_cap, "%s", "a name longer than an app of this system has");
+    return false;
+  }
+  if (!g_app_alive) {
+    snprintf(why, why_cap, "%s", "no app is in front to ask for another one");
+    return false;
+  }
+  if (g_run_wanted[0] != '\0') {
+    snprintf(why, why_cap, "%s", "an app was asked for already in this turn");
+    return false;
+  }
+  snprintf(g_run_wanted, sizeof(g_run_wanted), "%s", id);
+  g_run_wanted_back = back;
+  return true;
+}
+
+// **The page the person comes back to** (0.153.0): the app that asked for the one that has just stopped being in front is
+// started again. It is a function because there are two ways for an app to stop on its own —it ends, or three presses of
+// a key ask it to— and a launcher that comes back in one of the two is a launcher that works half the time (docs/90).
+bool start_the_one_that_asked() {
+  if (g_run_back[0] == '\0') return false;
+  char back_to[sizeof(g_run_back)];
+  snprintf(back_to, sizeof(back_to), "%s", g_run_back);
+  g_run_back[0] = '\0';
+  return run_app(back_to, nullptr);
+}
+
+bool app_run_wanted(char* out, size_t cap, bool& back) {
+  if (g_run_wanted[0] == '\0') return false;
+  if (out != nullptr && cap > 0) snprintf(out, cap, "%s", g_run_wanted);
+  back = g_run_wanted_back;
+  g_run_wanted[0] = '\0';
+  g_run_wanted_back = false;
+  return true;
+}
+
 void close_app() {
   if (!g_app_alive) return;
   // The colour the app took goes with it, and it goes **off** and not back to some
@@ -3299,6 +3357,11 @@ void close_app() {
   luabind::call_hook("on_close");
   luabind::stop();
   g_app_alive = false;
+  // **A wish dies with the app that wished it**: an app that asked for another one and was closed by something else
+  // —three escapes, a raise, its own end— must not leave the name behind for the next app to be replaced by
+  // (0.153.0, docs/30).
+  g_run_wanted[0] = '\0';
+  g_run_wanted_back = false;
   // **An app that took the whole glass gives it back when it goes** (0.136.0, docs/46 D1): the bar of the system and the
   // view of every app come back here, so the page that comes next —or the console— is not left without its hour, and the
   // system is not left with a view nobody asked for (docs/30).
@@ -3383,14 +3446,47 @@ bool poll_app() {
   // its goodbye hooks (docs/30 and docs/40).
   if (luabind::exit_requested()) {
     close_app();
+    // **And the page the person came from takes the glass back** (0.153.0): the three presses that close an app are the
+    // way out of a launcher's app on a board with no keyboard, so they end where they started and not at a prompt.
+    if (start_the_one_that_asked()) return g_app_alive;
     prompt();
     return false;
   }
-  if (luabind::poll()) return true;
+  if (luabind::poll()) {
+    // **The app another app asked for comes up here** (0.153.0): `app.run` is a wish and the end of the turn is where it
+    // is carried out, because the app that asked is the one the interpreter belongs to —closing it inside the call
+    // would destroy the state the call is running in—. The launcher goes away with its goodbye hooks, which is what
+    // `close_app` does, and the one it asked for comes up in its place; a start that fails leaves the prompt, because
+    // the app that asked is already gone (docs/30, docs/90).
+    char wanted[sizeof(g_run_wanted)];
+    bool back = false;
+    if (app_run_wanted(wanted, sizeof(wanted), back)) {
+      // The app that asked is the one that goes away, and **it leaves its name behind when it wants the glass back**:
+      // the wish is set after `close_app`, which clears whatever an app that is going away was holding (0.153.0).
+      char asked_by[sizeof(g_run_back)];
+      snprintf(asked_by, sizeof(asked_by), "%s", app_id());
+      close_app();
+      if (back) snprintf(g_run_back, sizeof(g_run_back), "%s", asked_by);
+      if (!run_app(wanted, nullptr)) prompt();
+      return g_app_alive;
+    }
+    return true;
+  }
   const int code = luabind::exit_code();
   const bool died = luabind::failed();
   luabind::stop();
   g_app_alive = false;
+  // **The app that asked for this one gets the glass back** (0.153.0): a launcher opens an app and is the page the person
+  // comes back to when they close it, which is the whole reason `app.run` remembers who asked. It is started before the
+  // report of how this one ended, so the page a person sees is the launcher and not the prompt of a board with no
+  // keyboard (docs/30, docs/90).
+  if (g_run_back[0] != '\0') {
+    ui::give_back_the_glass();
+    bar::title("");
+    if (start_the_one_that_asked()) return g_app_alive;
+    prompt();
+    return false;
+  }
   // **However the app ended, the view of the system comes back** (0.136.0, docs/46 D1): an app that asked for the whole
   // glass and died —a mistake in its Lua, a reset of the interpreter— would otherwise leave the bar away and the page of
   // a stranger on the glass, with no way back for the person in front of it (docs/30).

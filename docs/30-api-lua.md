@@ -188,6 +188,21 @@ Dues regles:
 - **Un nom desconegut no es pot ignorar.** Si `sys.board` no és cap dels que l'app entén, ho diu i
   surt; no es queda provant maquinari a cegues.
 
+## `apps`
+
+**La porta de les apps, per a un llançador** (0.153.0). El sistema és qui sap què hi ha al disc —`/apps` és la porta de
+`kernel::apps`, amb els dos discs junts, el filtre de la placa i el manifest ja llegit (docs/40)—, i una app que ho
+llegís caminant `/apps` seria un segon lector del mateix fitxer.
+
+| Crida | Torna | Notes |
+|---|---|---|
+| `apps.list()` | taula | Un element per app, en l'ordre de la porta: `{id, title, icon, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `launcher` és el `"launcher": true` del manifest; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar |
+
+**El que no hi és**: les apps d'una altra placa **surt a la llista** (una app que hi és i no es pot arrencar és una cosa que
+una persona ha de poder veure i entendre), i l'app que és un llançador **surt** amb `launcher` a `true`: el filtre és de
+qui dibuixa la graella, no de la porta. `home_eink` és el llançador d'aquest sistema i és el primer client d'aquesta
+crida.
+
 ## `app`
 
 | Crida | Torna | Notes |
@@ -197,11 +212,12 @@ Dues regles:
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
+| `app.run(id[, back])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més |
 | `app.raise()` | — | Demana passar a primer pla (només té sentit dins d'una finestra d'alarma) |
 | `app.save(t)` ⏳ | — | Desa una taula petita a `/data/<id>/state.json` |
 | `app.restore()` ⏳ | taula o `nil` | Recupera el que va desar `app.save` |
 
-Avui hi ha `app.id`, `app.args`, `app.info()` i `app.exit`; la resta encara no, i cridar-les dona
+Avui hi ha `app.id`, `app.args`, `app.info()`, `app.exit` i `app.run`; la resta encara no, i cridar-les dona
 «attempt to call a nil value». On van: `app.save`/`app.restore` a **M4** (necessiten escriure al disc
 i un escriptor de JSON), i `app.spawn`/`app.raise` quan una app els demani. Tot plegat és a
 `docs/90`.
@@ -1146,6 +1162,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 | `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
 | `cv:resize(w, h)` | `true` o `nil, error` | **Una altra mida** per a un control que no té píxels propis (un panel, una etiqueta, una caixa de text): la mesura del grup; el que la necessita és un `on_resize` que torna a col·locar la pàgina (0.84.0). Un canvas **amb buffer** la refusa: els seus píxels són un bloc demanat amb una mida, i una altra mida és un altre canvas |
 | `cv:rect`, `cv:frame`, `cv:line`, `cv:circle`, `cv:disc`, `cv:text` | `true` o `nil, error` | Les mateixes primitives que la vista, dibuixades al canvas propi |
+| `cv:image(x, y, path[, w[, h[, mode]]])` | `true` o `nil, error` | **Una imatge d'un fitxer, dins d'aquest canvas** (0.153.0): és el que fa servir el llançador per posar la icona d'una app dins la cel·la de la graella, i és `ui.image` amb el canvas propi com a destí i no la pàgina. El camí és el que una app pot llegir (docs/70), i `/apps/<id>/res/icon.png` ho és: un manifest és públic |
 | `cv:add(fill)` | `true` o `nil, error` | El fill passa a estar **dins** d'aquest canvas, i és l'últim (la capa del davant). Un canvas té **un sol pare** |
 | `cv:draw()` | `true` si ha dibuixat, `false` si no hi havia res | **Es dibuixa ell i després pregunta als fills**, en l'ordre en què es van afegir. **Si no té cap canvi, no fa res** |
 | `cv:invalidate([x, y, w, h])` | `true` o `nil, error` | «Ha canviat el que ensenyo». Amb una caixa, **això** és el que s'ha de pintar; sense, tot el canvas |

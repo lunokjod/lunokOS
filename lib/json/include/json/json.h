@@ -43,6 +43,17 @@ Strings get_strings(const char* text, size_t len, const char* key, char out[][kS
 // Same for a number with no fractional part.
 bool get_int(const char* text, size_t len, const char* key, long& out);
 
+// **And for `true` or `false`** (0.153.0): a manifest says `"launcher": true` and that is a boolean, not a word and not
+// a number —reading it as either would be this layer guessing what the writer meant—. False when the key is absent or
+// its value is neither of the two words, so a manifest that writes `"launcher": "yes"` is not silently a launcher
+// (docs/40).
+bool get_bool(const char* text, size_t len, const char* key, bool& out);
+
+// **Whether the key is there at all** (0.153.0): `get_bool` answers false for "it says nothing" and for "it says
+// something that is not a boolean", and a caller that has to say which of the two to a person needs this one
+// (docs/40).
+bool has_key(const char* text, size_t len, const char* key);
+
 }  // namespace json
 }  // namespace lunok
 

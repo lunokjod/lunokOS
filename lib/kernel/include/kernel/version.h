@@ -4060,7 +4060,47 @@ namespace kernel {
 // `Example.png`, which is the drawing to start one from and not an app. `Paint` has none because the original carries
 // none —its `manifest.json` has no `icon` and the folder has no `res/`—, so its icon, if a person wants one, is drawn
 // and not searched for.
-static const char kVersion[] = "0.152.8";
+// 0.153.0 (8/11): **the launcher**: an app of Lua that lists the apps of the disk and starts the one a finger presses,
+// and the three calls of the system it is made of. The suite is **178 of 178**.
+//
+//   - **`apps.list()`** (`luabind`, `kernel/apps_ops.cpp`): the door of the apps handed to Lua as a table per app —
+//     `{id, title, icon, launcher, card, works_here}`—, with the icon already a path the disk answers
+//     (`/apps/<id>/res/icon.png`). The launcher does not walk `/apps` or parse a manifest: the door already merges the
+//     two disks, refuses a folder that is not an app and says which board it needs, and a second reader of the same
+//     file is the one that goes wrong the day the format changes (docs/30, docs/40);
+//   - **`app.run(id[, back])`**: the wish to start another app, carried out **after the turn**. It cannot be a switch
+//     inside the call —the app that asks is the one the interpreter belongs to, so closing it there would destroy the
+//     state the call is running in—; the shell takes the name in `poll_app`, closes the app in front with its goodbye
+//     hooks and starts the one asked for. **`back` is the way back** and is true unless the app says otherwise: the app
+//     that asked is started again when the one it opened ends **or when three keys close it**, which is the only way
+//     back on a board whose only way out of an app is a key (docs/30, docs/90);
+//   - **an app is in front from its first line** (`shell.cpp`, `run_app`): `g_app_alive` is set before the first turn
+//     of the entry and not after it, because a launcher that asks for another app in its own first lines was answered
+//     «no app is in front» by the system that was running it. A window of an alarm still is not in front, so a window
+//     cannot ask for an app;
+//   - **`canvas:image(x, y, path[, w[, h[, mode]]])`**: a picture inside a control and not on the page, which is what a
+//     cell of a grid needs. It is the same primitive as `ui.image` —`ui::image_on_canvas` with the page as its canvas
+//     for the one and the control's slot for the other— so a picture cannot be drawn one way on the page and another in
+//     a control (docs/30);
+//   - **`"launcher": true` in a manifest** (`kernel::apps::Entry::launcher`, `json::get_bool` and `json::has_key`): what
+//     keeps a launcher out of another launcher's grid. It is the app's own declaration and the system does not guess it
+//     from a title or an id, and a value that is not `true` or `false` is left out with a line instead of being read as
+//     one (docs/40);
+//   - **the app `home_eink`** (`apps/home_eink`, title *Home*): the grid of `ui.icon_grid` with a cell per app —the
+//     picture in a canvas, the name under it—, **sorted by name** because the order of a directory is the order of the
+//     disk and a page whose cells move between two boots is a page a person cannot learn, and **the ring on the first
+//     cell** because a grid is a stop of the dial before its cells are and the first press of the middle key has to do
+//     something. An app without a picture, an app of another board and the launchers are said in the console, one line
+//     each, which is also what a test reads (docs/45 §8, docs/85);
+//   - **its icon is drawn for it**: `tools/icons/Home.png`, 448 × 448 grey, nine rounded squares with the ink and the
+//     stroke of the other drawings of the folder, and `res/icon.png` is the 94 × 94 that `tools/make_icon.py` makes of
+//     it;
+//   - and **two cases**, one that runs the launcher of the repository on a disk with two apps, another launcher and an
+//     app of another board —and presses the centre, sees the app start, end, and the launcher come back— and one that
+//     pins the three reasons `app.run` refuses with. Broken on purpose: with the way back not remembered the first goes
+//     red with `Expected 'home_eink' Was ''`, and with `app.run` refusing everything it goes red with
+//     `home: alpha cannot start`.
+static const char kVersion[] = "0.153.0";
 
 }  // namespace kernel
 

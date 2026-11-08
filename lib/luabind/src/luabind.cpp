@@ -1251,6 +1251,8 @@ int l_alarm_caps(lua_State* L) {
 const size_t kFsWindow = 512;
 
 FileOps g_file_ops = {};  // every operation starts absent: install_fs_ops() fills them
+AppsOps g_apps_ops = {};  // the door of the apps and the wish to start one, filled by the kernel (0.153.0)
+AppOps g_app_ops = {};
 NetOps g_net_ops = {};    // same rule: without them net.* answers E_UNSUPPORTED
 PowerOps g_power_ops = {};  // and power.* too
 LedOps g_led_ops = {};      // and led.*
@@ -1853,6 +1855,77 @@ int l_fs_open(lua_State* L) {
   file->handle = handle;
   luaL_getmetatable(L, kFileMeta);
   lua_setmetatable(L, -2);
+  return 1;
+}
+
+// ---------------------------------------------------------------------------------------------
+// apps: the door of the apps, and the wish to start one (0.153.0, docs/30 and docs/40)
+// ---------------------------------------------------------------------------------------------
+
+// **The list a launcher draws**: one table per app, built as the walk of the door hands them in, so nothing of the size
+// of the list lives in C —the door loads one manifest at a time and this copies it into the interpreter's heap, which is
+// the memory the app was given— (docs/75).
+struct AppList {
+  lua_State* L;
+  int array;  // absolute index of the array being filled
+  int count;
+};
+
+bool add_app(const AppInfo& info, void* context) {
+  AppList* list = static_cast<AppList*>(context);
+  lua_State* L = list->L;
+  lua_createtable(L, 0, 6);
+  lua_pushstring(L, info.id);
+  lua_setfield(L, -2, "id");
+  lua_pushstring(L, info.title);
+  lua_setfield(L, -2, "title");
+  lua_pushstring(L, info.icon);
+  lua_setfield(L, -2, "icon");
+  lua_pushboolean(L, info.launcher ? 1 : 0);
+  lua_setfield(L, -2, "launcher");
+  lua_pushboolean(L, info.on_card ? 1 : 0);
+  lua_setfield(L, -2, "card");
+  lua_pushboolean(L, info.works_here ? 1 : 0);
+  lua_setfield(L, -2, "works_here");
+  ++list->count;
+  lua_rawseti(L, list->array, list->count);
+  return true;  // the walk goes on: the app is the one that says when it has enough
+}
+
+// apps.list(): **every app of the door**, in the order the door presents them. The fields are what a launcher needs and
+// no more —the id to start it, the name a person reads, the picture to press, whether it is a launcher of its own—, and
+// `card` and `works_here` are there because a grid that shows an app this board cannot run has to say so (docs/30).
+int l_apps_list(lua_State* L) {
+  if (g_apps_ops.each == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no door of the apps");
+  }
+  lua_createtable(L, 0, 0);
+  AppList list = {L, lua_gettop(L), 0};
+  if (!g_apps_ops.each(&add_app, &list)) {
+    lua_settop(L, 0);
+    return push_nil_error(L, "E_UNSUPPORTED", "the door of the apps did not answer");
+  }
+  return 1;
+}
+
+// app.run(id): **the wish to start another app**, which the kernel carries out at the end of the turn (docs/30, docs/90).
+// It answers true and nothing has happened yet; the reason of a refusal is the system's, because the system is the one
+// that knows whether the app is there, whether it runs on this board and whether it is the app that is asking.
+int l_app_run(lua_State* L) {
+  const char* id = luaL_checkstring(L, 1);
+  // **`app.run(id[, back])`**: `back` is true unless the app says otherwise, because an app that opens another one is
+  // the page the person expects to come back to —a launcher, a menu, a shelf— and a handover with no way back is the
+  // one that needs to be asked for (docs/30, docs/90).
+  const bool back = (lua_gettop(L) >= 2) ? (lua_toboolean(L, 2) != 0) : true;
+  if (g_app_ops.run == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system cannot start another app");
+  }
+  char why[96];
+  why[0] = '\0';
+  if (!g_app_ops.run(id, back, why, sizeof(why))) {
+    return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "that app cannot be started");
+  }
+  lua_pushboolean(L, 1);
   return 1;
 }
 
@@ -3195,7 +3268,7 @@ int l_ui_image(lua_State* L) {
   }
   const char* code = nullptr;
   const char* reason = nullptr;
-  if (!g_ui_ops.image(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+  if (!g_ui_ops.image(0, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
                       static_cast<uint16_t>(h), path, mode, code, reason)) {
     return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
                           (reason != nullptr) ? reason : "the picture was not drawn");
@@ -7374,6 +7447,35 @@ int l_canvas_clear(lua_State* L) {
   return 1;
 }
 
+// **canvas:image(x, y, path[, w[, h[, mode]]])** (0.153.0): the picture of `ui.image` drawn in a canvas of the app and
+// not on the page, which is what a launcher needs —the icon of an app inside the cell of a grid—. The canvas is composed
+// into its father like what is drawn on it with `rect` or `text`, and only the box it touched is owed (docs/30, docs/90).
+int l_canvas_image(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  if (g_ui_ops.image == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  const char* path = luaL_checkstring(L, 4);
+  const lua_Integer w = luaL_optinteger(L, 5, 0);
+  const lua_Integer h = luaL_optinteger(L, 6, 0);
+  const char* mode = luaL_optstring(L, 7, nullptr);
+  if (x < 0 || y < 0 || x > 4096 || y > 4096 || w < 0 || h < 0 || w > 4096 || h > 4096) {
+    return push_nil_error(L, "E_INVAL", "a picture is up to 4096 pixels a side");
+  }
+  const char* code = nullptr;
+  const char* reason = nullptr;
+  if (!g_ui_ops.image(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                      static_cast<uint16_t>(h), path, mode, code, reason)) {
+    return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
+                          (reason != nullptr) ? reason : "the picture was not drawn");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 int l_canvas_rect(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
@@ -8169,6 +8271,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "circle", l_canvas_circle);
   set_function(L, "disc", l_canvas_disc);
   set_function(L, "text", l_canvas_text);
+  set_function(L, "image", l_canvas_image);
   set_function(L, "font", l_canvas_font);
   set_function(L, "add", l_canvas_add);
   set_function(L, "box", l_checkbox_box);
@@ -9724,7 +9827,13 @@ void seal_globals(lua_State* L) {
   }
   set_function(L, "exit", l_app_exit);
   set_function(L, "info", l_app_info);
+  set_function(L, "run", l_app_run);
   lua_setglobal(L, "app");
+
+  // apps: **the door of the apps** (0.153.0), which is what a launcher draws (docs/30, docs/40).
+  lua_createtable(L, 0, 1);
+  set_function(L, "list", l_apps_list);
+  lua_setglobal(L, "apps");
 }
 
 // Prints whatever an app threw: a string, or a {code, message} table.
@@ -10096,6 +10205,8 @@ const char* app_id() { return g_app_id; }
 const char* app_path() { return g_app_path; }
 
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
+void set_apps_ops(const AppsOps& ops) { g_apps_ops = ops; }
+void set_app_ops(const AppOps& ops) { g_app_ops = ops; }
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }
 
 void set_power_ops(const PowerOps& ops) { g_power_ops = ops; }

@@ -57,6 +57,14 @@ void close_app();
 // app is started in its place (docs/60).
 bool raise_app(const char* id);
 
+// **An app asks for another one** (0.153.0): what `app.run` does from Lua, and the switch happens after the turn —the app
+// in front goes away with its goodbye hooks and the one asked for comes up in its place—, because the app that asked is
+// the one the interpreter belongs to and closing it inside the call would destroy the state the call is running in.
+// False with a reason when there is nothing to ask right now; the name is taken at most once per turn (docs/30, docs/90).
+// `back` is what a launcher wants: the app that asked is started again when the one it opened ends, which is the only
+// way back to a page on a board whose only way out of an app is a key (docs/30, docs/90).
+bool ask_run(const char* id, bool back, char* why, size_t why_cap);
+
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args so it knows to read what it saved (docs/90).
 bool restore_app(const char* id, const char* path);

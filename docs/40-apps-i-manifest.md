@@ -137,8 +137,9 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `description` | cadena | No | 159 B | Què és l'app; dues línies amb `\n` si cal (0.120.0) |
 | `opens` | cadena | No | 8 extensions d'11 B | Les extensions que aquesta app sap obrir, separades per espais (0.120.0) |
 | `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
-| `icon` | cadena | No | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0) |
+| `icon` | cadena | No | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30) |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
+| `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina |
 
 Els camps que aquest document preveia i que **no existeixen al codi** —`permissions`, `mem_kb`—
 s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara
