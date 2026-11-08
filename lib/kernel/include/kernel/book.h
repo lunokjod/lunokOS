@@ -103,6 +103,16 @@ bool read(const char* name, const char** data, uint32_t& size);
 const int32_t kThumbMax = 256;
 bool thumbnail(const char* name, int32_t max);
 
+// **The face a book carries inside itself** (0.150.0, docs/46 D6): the bytes of a TrueType font, either because the
+// file of the book is one or because it was a `.woff` and the box has been opened. `data` is a block of the book and
+// stays valid until the next call that reads one of its files; `why` says what went wrong when the answer is false —the
+// book carries no such file, a `wOF2` (Brotli, which this system does not have), a face of more than 128 KB or a table
+// that does not come out of its compression. What the face is *made of* is `ui.load_font`'s business: here there are
+// bytes and nothing else (docs/46, D6).
+const uint32_t kFontFileBytes = 128u * 1024u;
+const uint32_t kFontSfntBytes = 512u * 1024u;
+bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& why);
+
 // **One page of the chapter that is open**, laid out from a byte into a box of that size. A page is a plan (see
 // `epub/page.h`) and it is not painted here: whoever composes it walks the items.
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out);

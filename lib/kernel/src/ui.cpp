@@ -1484,6 +1484,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      begin_draw,
                                      end_draw,
                                      font_load,
+                                     font_load_bytes,
                                      font_release,
                                      font_info,
                                      canvas_set_font,
@@ -6414,6 +6415,57 @@ const uint32_t kFontFileBytes = 131072;
 
 }  // namespace
 
+// **A face out of text, which is where both doors end** (0.150.0, docs/46 D6): the file of an app and the face a book
+// carries differ in where the bytes came from and in nothing else. `text` is a block of `length + 1` bytes with its
+// terminator, and the face keeps it when it is a face of outlines —its glyphs are contours inside those bytes, so the
+// block *is* the face (docs/30)— and gives it back when it is a table of bits.
+int8_t face_from_text(char* text, uint32_t length, const char*& reason) {
+  reason = nullptr;
+  // A free slot first: a face that cannot be kept is not worth reading the text for.
+  int16_t slot = -1;
+  for (uint8_t i = 0; i < kMaxFaces; ++i) {
+    if (!g_faces[i].in_use) {
+      slot = static_cast<int8_t>(i);
+      break;
+    }
+  }
+  if (slot < 0) {
+    pal::extra_memory().release(text);
+    reason = "there is no room for another face";
+    return -1;
+  }
+
+  LoadedFace& made = g_faces[slot];
+  if (font::looks_like_ttf(text, length)) {
+    const char* outline_why = font::load_ttf(text, length, made.outline, made.face);
+    if (outline_why == nullptr) {
+      made.file = text;
+      made.bits = nullptr;
+      made.in_use = true;
+      return slot;
+    }
+    pal::extra_memory().release(text);
+    reason = outline_why;
+    return -1;
+  }
+  uint8_t* bits = static_cast<uint8_t*>(pal::extra_memory().allocate(font::kFaceBytes, true));
+  if (bits == nullptr) {
+    pal::extra_memory().release(text);
+    reason = "there is no memory for the glyphs";
+    return -1;
+  }
+  const char* why = font::load_any(text, length, bits, made.face);
+  pal::extra_memory().release(text);
+  if (why != nullptr) {
+    pal::extra_memory().release(bits);
+    reason = why;
+    return -1;
+  }
+  made.bits = bits;
+  made.in_use = true;
+  return slot;
+}
+
 int8_t font_load(const char* path, const char*& reason) {
   reason = nullptr;
   if (path == nullptr) {
@@ -6436,18 +6488,6 @@ int8_t font_load(const char* path, const char*& reason) {
     reason = "a font file is up to a hundred and twenty-eight kilobytes";
     return -1;
   }
-  // A free slot first: a face that cannot be kept is not worth reading the file for.
-  int16_t slot = -1;
-  for (uint8_t i = 0; i < kMaxFaces; ++i) {
-    if (!g_faces[i].in_use) {
-      slot = static_cast<int8_t>(i);
-      break;
-    }
-  }
-  if (slot < 0) {
-    reason = "there is no room for another face";
-    return -1;
-  }
   // **The text of the file and the glyphs are two blocks of the app's memory**, and the text is given back
   // as soon as it has been read: what a face keeps is the glyphs (docs/30, docs/75).
   void* text = nullptr;
@@ -6468,37 +6508,38 @@ int8_t font_load(const char* path, const char*& reason) {
     reason = "the file could not be read";
     return -1;
   }
-  // **A TrueType file is a face of outlines and not a table of bits** (docs/30): the file is what the face is
-  // made of, so it stays in the app's memory and the block of glyphs is never allocated for it.
-  LoadedFace& made = g_faces[slot];
-  if (font::looks_like_ttf(as_text, static_cast<uint32_t>(read))) {
-    const char* outline_why = font::load_ttf(as_text, static_cast<uint32_t>(read), made.outline, made.face);
-    if (outline_why == nullptr) {
-      made.file = as_text;
-      made.bits = nullptr;
-      made.in_use = true;
-      return slot;
-    }
-    pal::extra_memory().release(text);
-    reason = outline_why;
+  return face_from_text(as_text, static_cast<uint32_t>(read), reason);
+}
+
+// **And a face from bytes** (0.150.0, docs/46 D6): a book carries its own face inside itself and the kernel has already
+// taken it out of the zip, so what is left is a copy —the block of the book is given to the next file it reads— and the
+// same door as the file. **Half a megabyte is the ceiling of a face of a book**: the fonts of a book are between fifty
+// and three hundred kilobytes, and a whole family is past this and is not a face a page needs (docs/75).
+const uint32_t kFaceFromBytes = 512u * 1024u;
+
+int8_t font_load_bytes(const uint8_t* data, uint32_t length, const char*& reason) {
+  reason = nullptr;
+  if (data == nullptr || length == 0) {
+    reason = "there is no face to read";
     return -1;
   }
-  uint8_t* bits = static_cast<uint8_t*>(pal::extra_memory().allocate(font::kFaceBytes, true));
-  if (bits == nullptr) {
-    pal::extra_memory().release(text);
-    reason = "there is no memory for the glyphs";
+  if (length > kFaceFromBytes) {
+    reason = "a face of a book is up to half a megabyte";
     return -1;
   }
-  const char* why = font::load_any(as_text, static_cast<uint32_t>(read), bits, made.face);
-  pal::extra_memory().release(text);
-  if (why != nullptr) {
-    pal::extra_memory().release(bits);
-    reason = why;
+  void* text = nullptr;
+  {
+    meter::Scope scope(meter::kExtraAlloc);
+    text = pal::extra_memory().allocate(static_cast<size_t>(length) + 1, true);
+  }
+  if (text == nullptr) {
+    reason = "there is no memory for the face";
     return -1;
   }
-  made.bits = bits;
-  made.in_use = true;
-  return slot;
+  char* as_text = static_cast<char*>(text);
+  memcpy(as_text, data, length);
+  as_text[length] = '\0';
+  return face_from_text(as_text, length, reason);
 }
 
 bool font_release(int8_t handle) {

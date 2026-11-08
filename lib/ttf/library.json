@@ -1,9 +1,16 @@
 {
   "name": "ttf",
   "version": "0.1.0",
-  "description": "TrueType outlines read the way a page needs them: the tables of a font, the glyph of a code, and the outline of that glyph drawn at the size it is asked for (docs/30).",
+  "description": "TrueType outlines read the way a page needs them: the tables of a font, the glyph of a code, and the outline of that glyph drawn at the size it is asked for. Since 0.150.0 it also opens the box a face travels in, a WOFF of a book (docs/46, D6).",
+  "license": "MIT",
   "build": {
     "srcDir": "src",
-    "includeDir": "include"
-  }
+    "includeDir": "include",
+    "flags": ["-Wall", "-Wextra", "-Werror"]
+  },
+  "dependencies": {
+    "inflate": "*"
+  },
+  "frameworks": "*",
+  "platforms": "*"
 }

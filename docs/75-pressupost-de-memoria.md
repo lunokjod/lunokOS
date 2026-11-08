@@ -223,6 +223,23 @@ mòdul espera. O sigui que el cost és **un bloc gros mentre un mòdul s'està l
 sostre i no hi ha text de mòduls guardat al costat de l'app. Un text que omple el bloc es refusa (`E_TOOBIG`),
 perquè un text que hi arriba pot ser un text que s'ha tallat.
 
+## La cara d'un llibre, i els seus dos blocs (8/11, 0.150.0)
+
+Una cara que el llibre porta dins seu demana **dos blocs temporals** i **un de permanents**, i cap dels tres és del codi
+de l'app:
+
+| Bloc | Mida | Quant viu |
+|---|---|---|
+| el fitxer de la lletra, com surt del zip | **128 KB** (`kFontFileBytes`, el sostre d'una lletra de llibre) | fins al `close` del llibre, i es torna a fer servir a cada `font` |
+| el seu sfnt, quan era un `.woff` | fins a **512 KB** (`kFontSfntBytes`, el `totalSfntSize` de la capça) | ídem, i només s'obre quan un llibre en porta un |
+| la cara que el sistema dibuixa | el fitxer sencer d'un TTF d'outlines, o la taula de glifs | mentre el llibre és obert: **és una de les tres places de cara de l'app** (docs/30) |
+
+O sigui que un llibre amb una lletra de 60 KB en un `.woff` costa uns **60 KB de fitxer, 150 KB de sfnt i 150 KB de cara**
+mentre és obert, i res quan es tanca: els blocs del llibre es tornen al `close` i la cara es dona amb `font:release()`
+quan l'app obre un altre llibre o torna al prestatge. Al Paper (4 MB de memòria extra) és un terç del que hi cap; a
+l'ATOM no hi cap i el refús és net —«there is no room for the face of the book»— i el llibre es llegeix amb la lletra del
+disc.
+
 ## El lector en quatre fitxers, i el sostre a 96 KB (8/11, 0.149.0)
 
 La decisió de docs/46 **D6** presa de les dues bandes alhora, que és com la va demanar l'amo:

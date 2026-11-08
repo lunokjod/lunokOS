@@ -453,6 +453,9 @@ struct UIOps {
   // and the one the app's own view uses. `handle` -1 is the font of the system, and a handle that was given
   // back is refused instead of read.
   int8_t (*font_load)(const char* path, const char*& reason);
+  // **A face from bytes** (0.150.0, docs/46 D6): the same table of faces filled from a block the caller has, which is
+  // what a face a book carries inside itself is. The block is copied, so the caller may give it back at once.
+  int8_t (*font_load_bytes)(const uint8_t* data, uint32_t length, const char*& reason);
   bool (*font_release)(int8_t handle);
   bool (*font_info)(int8_t handle, uint8_t& width, uint8_t& height, uint8_t& gap, uint16_t& glyphs);
   bool (*canvas_set_font)(int16_t slot, int8_t handle);
@@ -718,6 +721,10 @@ struct BookOps {
   bool (*picture)(int16_t slot, const char* name);
   // **The cache of the book beside the book** (0.146.0, docs/46 C11): the cover scaled and written as an `ICS1`.
   bool (*thumbnail)(const char* name, int32_t max);
+  // **The face a book carries inside itself** (0.150.0, docs/46 D6): the bytes of the font entry `name`, as an sfnt
+  // (a `.woff` is opened and becomes one). `data` belongs to the book and is valid until the next read of one of its
+  // files; `why` is the sentence of a refusal. The bytes are not a face yet: `ui.load_font` is what makes one of them.
+  bool (*font)(const char* name, const uint8_t** data, uint32_t& size, const char*& why);
 };
 
 void set_book_ops(const BookOps& ops);

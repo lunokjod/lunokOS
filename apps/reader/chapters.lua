@@ -57,6 +57,10 @@ local function chapters_of_book()
   local toc = {}
   local toc_from = 'none'
   local cover_href = nil
+  -- **The faces the book carries** (0.150.0, docs/46 D6), in the order the manifest declares them: the first is the body
+  -- and the second the titles, which is what a book with two faces means. The hrefs come out joined below, when the
+  -- folder of the OPF is known.
+  local fonts = {}
 
   local container = epub.read('META-INF/container.xml')
   local opf_path = container and (container:match('full%-path%s*=%s*"([^"]+)"') or
@@ -72,9 +76,28 @@ local function chapters_of_book()
       for tag in opf:gmatch('<item%s[^>]*>') do
         local a = attributes(tag)
         if a.id ~= nil and a.href ~= nil then items[a.id] = a end
+        -- **A face of the book is an `item` a manifest knows** (0.150.0, docs/46 D6): the media type of EPUB 2 and of
+        -- EPUB 3 for a font, or the extension of its file, which is what a book of the nineties writes.
+        if a.href ~= nil then
+          local kind = (a['media-type'] or ''):lower()
+          local file = a.href:lower()
+          if kind == 'application/vnd.ms-opentype' or kind == 'application/font-sfnt' or kind == 'font/ttf' or
+             kind == 'font/otf' or kind == 'application/font-woff' or kind == 'font/woff' or kind == 'font/woff2' or
+             file:match('%.ttf$') or file:match('%.otf$') or file:match('%.woff2?$') then
+            fonts[#fonts + 1] = a.href
+          end
+        end
       end
 
       local base = opf_path:match('^(.*/)') or ''
+      -- **And an href that is not in the book is not a face**: the manifest of a book lists files a reader may never
+      -- see, and a name the zip does not carry is a `require` of nothing (docs/46, D6).
+      local kept = {}
+      for i = 1, #fonts do
+        local href = join_path(base, fonts[i])
+        if known[href] then kept[#kept + 1] = href end
+      end
+      fonts = kept
       for tag in opf:gmatch('<itemref%s[^>]*>') do
         local a = attributes(tag)
         local it = (a.idref ~= nil) and items[a.idref] or nil
@@ -196,7 +219,7 @@ local function chapters_of_book()
     toc_from = 'spine'
   end
 
-  return spine, title, toc, toc_from, cover_href
+  return spine, title, toc, toc_from, cover_href, fonts
 end
 
 M.chapters_of_book = chapters_of_book

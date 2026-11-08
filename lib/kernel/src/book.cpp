@@ -11,6 +11,7 @@
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
 #include "pal/pal.h"
+#include "ttf/ttf.h"
 
 namespace kernel {
 namespace book {
@@ -50,6 +51,13 @@ struct State {
   int32_t picture_width = 0;
   int32_t picture_height = 0;
   bool picture_ready = false;
+
+  // **The face a book carries** (0.150.0, docs/46 D6): the file as it comes out of the zip and, when that file is a
+  // `.woff`, the sfnt the box has become. The second only exists when a book needs it, and both go back with the book.
+  uint8_t* font_file = nullptr;
+  uint32_t font_file_bytes = 0;
+  uint8_t* font_sfnt = nullptr;
+  uint32_t font_sfnt_bytes = 0;
 };
 
 State g;
@@ -125,6 +133,8 @@ bool looks_like_chapter(const char* name) {
 // Everything the book took, given back. It is what a failed `open` does too, so a book that is not a book leaves
 // the extra memory as it found it.
 void release_blocks() {
+  if (g.font_sfnt != nullptr) pal::extra_memory().release(g.font_sfnt);
+  if (g.font_file != nullptr) pal::extra_memory().release(g.font_file);
   if (g.picture_pixels != nullptr) pal::extra_memory().release(g.picture_pixels);
   if (g.picture_file != nullptr) pal::extra_memory().release(g.picture_file);
   if (g.words != nullptr) pal::extra_memory().release(g.words);
@@ -143,6 +153,10 @@ void release_blocks() {
   g.picture_pixels = nullptr;
   g.picture_file = nullptr;
   g.picture_file_bytes = 0;
+  g.font_file = nullptr;
+  g.font_file_bytes = 0;
+  g.font_sfnt = nullptr;
+  g.font_sfnt_bytes = 0;
   g.picture_width = 0;
   g.picture_height = 0;
   g.picture_ready = false;
@@ -652,6 +666,90 @@ bool thumbnail(const char* name, int32_t max) {
   return ok;
 }
 
+// **The face a book carries inside itself** (0.150.0, docs/46 D6): the font entry `name` as an sfnt, whether the file
+// of the book already is one or it is a `.woff` that has to be opened table by table first. It is `read` with a bigger
+// block and a different question: the app is given the bytes, and making a face out of them is the UI's business.
+//
+// **Two hundred and fifty-six kilobytes is more than any book's face**, and the sfnt of a woff is the bigger of the
+// two: the compressions of a font are between a third and a half. A face that does not fit is refused with its own
+// sentence, because an app has to be able to tell that from a book that carries no font at all.
+bool font(const char* name, const uint8_t** data, uint32_t& size, const char*& why) {
+  size = 0;
+  why = nullptr;
+  if (data == nullptr) {
+    why = "there is nowhere to put the face of the book";
+    return false;
+  }
+  *data = nullptr;
+  if (!g.open || name == nullptr || name[0] == 0) {
+    why = "the book is not open";
+    return false;
+  }
+
+  const int32_t index = g.archive.find(name);
+  if (index < 0) {
+    why = "the book carries no such file";
+    return false;
+  }
+  const zip::Entry* one = g.archive.at(static_cast<uint16_t>(index));
+  if (one == nullptr || one->dir || one->size > kFontFileBytes) {
+    why = "the face of the book is bigger than a hundred and twenty-eight kilobytes";
+    return false;
+  }
+
+  if (g.font_file == nullptr) {
+    g.font_file = static_cast<uint8_t*>(pal::extra_memory().allocate(kFontFileBytes, true));
+    if (g.font_file == nullptr) {
+      why = "there is no room for the face of the book";
+      return false;
+    }
+    g.font_file_bytes = kFontFileBytes;
+  }
+
+  uint32_t written = 0;
+  if (g.archive.extract(static_cast<uint16_t>(index), g.font_file, g.font_file_bytes, written, g.packed,
+                        kChapterBytes) != zip::kOk) {
+    why = "the face of the book cannot be taken out of it";
+    return false;
+  }
+
+  // **A WOFF2 is not a WOFF**: it is Brotli and a different table model, and this system has no Brotli, so it is said
+  // instead of being read wrongly (docs/46, D6).
+  if (ttf::is_woff2(g.font_file, written)) {
+    why = "the face of the book is a WOFF2, and this reader has no Brotli";
+    return false;
+  }
+  if (!ttf::is_woff(g.font_file, written)) {
+    // An sfnt, or bytes that are not a font at all: the UI is the one that says so, and it says it with its reason.
+    *data = g.font_file;
+    size = written;
+    return true;
+  }
+
+  const uint32_t need = ttf::woff_sfnt_size(g.font_file, written);
+  if (need == 0 || need > kFontSfntBytes) {
+    why = "the face of the book is bigger than half a megabyte once it is open";
+    return false;
+  }
+  if (g.font_sfnt == nullptr) {
+    g.font_sfnt = static_cast<uint8_t*>(pal::extra_memory().allocate(kFontSfntBytes, true));
+    if (g.font_sfnt == nullptr) {
+      why = "there is no room for the face of the book";
+      return false;
+    }
+    g.font_sfnt_bytes = kFontSfntBytes;
+  }
+
+  uint32_t got = 0;
+  if (!ttf::woff_to_sfnt(g.font_file, written, g.font_sfnt, g.font_sfnt_bytes, got)) {
+    why = "the face of the book is damaged";
+    return false;
+  }
+  *data = g.font_sfnt;
+  size = got;
+  return true;
+}
+
 bool page(int32_t from, int32_t width, int32_t height, const epub::Style& style, const Fonts& fonts, Page& out) {
   out.count = 0;
   out.ended = false;
@@ -819,6 +917,7 @@ void bind() {
   ops.page = page_into;
   ops.picture = picture_into;
   ops.thumbnail = thumbnail;
+  ops.font = font;
 
   luabind::set_book_ops(ops);
 }

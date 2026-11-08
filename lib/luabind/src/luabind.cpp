@@ -9375,6 +9375,29 @@ int l_require(lua_State* L) {
   return 1;
 }
 
+
+// **The face a book carries inside itself** (0.150.0, docs/46 D6): `epub.font(name)` reads the font entry of the book
+// —a TrueType or a `.woff`, which the kernel opens into the same kind of bytes— and makes a face of it, which is a font
+// object like the one `ui.load_font` answers: the app gives it to `epub.page` as `face` or `title_face` and gives it back
+// with `font:release()`. **The three faces of an app are shared between the two doors** (docs/30): a book's face takes
+// one of the three slots, so an app that reads two faces of the disk and one of a book has no room for a fourth.
+int l_epub_font(lua_State* L) {
+  if (g_book_ops.font == nullptr) return push_nil_error(L, "E_STATE", "this build carries no reader");
+  if (g_ui_ops.font_load_bytes == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this build carries no faces");
+  const char* name = luaL_checkstring(L, 1);
+
+  const uint8_t* bytes = nullptr;
+  uint32_t size = 0;
+  const char* why = nullptr;
+  if (!g_book_ops.font(name, &bytes, size, why)) {
+    return push_nil_error(L, "E_INVAL", (why != nullptr) ? why : "the book carries no such face");
+  }
+  const char* reason = nullptr;
+  const int8_t handle = g_ui_ops.font_load_bytes(bytes, size, reason);
+  if (handle < 0) return push_nil_error(L, "E_INVAL", (reason != nullptr) ? reason : "that is not a face");
+  return push_font(L, handle);
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9445,7 +9468,7 @@ void seal_globals(lua_State* L) {
 
   // epub: a book of the disk, a chapter of it and a page of the chapter painted in
   // a canvas of the app (docs/46, A5 and B3).
-  lua_createtable(L, 0, 11);
+  lua_createtable(L, 0, 12);
   set_function(L, "open", l_epub_open);
   set_function(L, "books", l_epub_books);
   set_function(L, "close", l_epub_close);
@@ -9456,6 +9479,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "read", l_epub_read);
   set_function(L, "picture", l_epub_picture);
   set_function(L, "thumbnail", l_epub_thumbnail);
+  set_function(L, "font", l_epub_font);
   set_function(L, "page", l_epub_page);
   lua_setglobal(L, "epub");
 

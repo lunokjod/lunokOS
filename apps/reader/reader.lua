@@ -88,6 +88,11 @@ if face == nil then
 end
 local title_face = ui.load_font('/fonts/dejavusans-latin1.ttf')
 if title_face == nil then title_face = face end
+-- **The face of a book and the face of the disk** (0.150.0, docs/46 D6): the serif of the disk is what this reader reads
+-- with until a book carries its own, and the face of a book takes one of the three slots of the app while it is open and
+-- goes back when the book does. `disk_face` is kept so that closing a book gives the letter of the disk back.
+local disk_face = face
+local book_face = nil
 
 
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
@@ -361,6 +366,13 @@ local function give_back()
   cover = nil
   cover_mode = false
   notice.release()
+  -- **And the face of the book goes back with it** (0.150.0, docs/46 D6): a face is one of the three slots of an app, and
+  -- the letter of the disk is what the shelf and the next book start with.
+  if book_face ~= nil then
+    book_face:release()
+    book_face = nil
+  end
+  face = disk_face
 end
 
 local function present_page(wash, silent)
@@ -563,7 +575,7 @@ local function open_book(one)
     return false
   end
 
-  local list, book_title, book_toc, toc_from, book_cover = chapters.chapters_of_book()
+  local list, book_title, book_toc, toc_from, book_cover, book_fonts = chapters.chapters_of_book()
   local where = library.positions()[one.path]
   local which = (where ~= nil) and where.chapter or list[1]
   local n = (which ~= nil) and epub.chapter(which) or nil
@@ -602,6 +614,20 @@ local function open_book(one)
   -- the book without opening it. It is asked once when the book opens and not at every page, and it is guarded: a cache
   -- is a courtesy beside a book and not the book.
   if cover ~= nil then pcall(epub.thumbnail, cover, 64) end
+  -- **The face the book carries inside itself** (0.150.0, docs/46 D6): the first font its manifest declares is the body.
+  -- A book with two is a book whose titles have their own letter, and the three slots of an app are three: the disk keeps
+  -- two and the book takes the third. If the face cannot be read, the serif of the disk reads the book and the log says
+  -- which of the two it was.
+  if #book_fonts > 0 then
+    local got, made = pcall(epub.font, book_fonts[1])
+    if got and made ~= nil then
+      book_face = made
+      face = book_face
+      console.print('reader: the face of the book is ' .. book_fonts[1])
+    else
+      console.print('reader: the face of the book cannot be read')
+    end
+  end
 
   from = (where ~= nil) and where.byte or 0
   if from >= bytes then from = 0 end

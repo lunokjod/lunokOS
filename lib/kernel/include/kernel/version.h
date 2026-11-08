@@ -3255,7 +3255,38 @@ namespace kernel {
 // **Pending**: the cases are **not executed** and **the glass has not been looked at**, as the owner asked for the end
 // of the app of the book. And this refactor's only proof today is that every file compiles and that the calls are the
 // ones they were: it is the app test that will confirm it when it runs.
-static const char kVersion[] = "0.149.0";
+// 0.150.0 (8/11): **the face a book carries inside itself** (docs/46, the first programme of the owner's list).
+//
+//   - **`lib/ttf` opens a WOFF** (new `woff.cpp`): a `.woff` is an sfnt in a box —a header of 44 bytes, a directory of
+//     twenty per table and the tables themselves zlib-compressed— and what comes out is the sfnt the TrueType reader
+//     already knows: the offset table with its three bisection numbers, one record of sixteen bytes per table, the tables
+//     padded to four bytes with zeros. A table that does not pay for compressing says the same length twice and is copied
+//     as it is. **WOFF2 is refused by name**: it is Brotli and this system has no Brotli, and a face read wrongly is worse
+//     than a face not read;
+//   - **`book::font(name)`** takes the entry out of the zip into a block of **128 KB** and gives back the sfnt —the file
+//     itself when it already is one, the opened box when it was a `.woff`, in a block of up to **512 KB** asked for the
+//     first time a book needs it—, with a sentence for each way it cannot: the book carries no such file, a `WOFF2`, a
+//     face too big, a table that does not come out of its compression, no room;
+//   - **`ui::font_load_bytes`** is the third door to the same table of three faces: `font_load`'s body has become
+//     `face_from_text` and the two doors end there, one with a block read from a file and one with a block a book gave.
+//     The block is **copied**, because the book's block is given to the next file it reads. And the door of Lua is
+//     **`epub.font(name)`**, which answers a font object like `ui.load_font` (docs/30);
+//   - **the app asks for it**: `chapters.lua` takes the `item` of the manifest whose media type is a font or whose file
+//     ends in `.ttf`, `.otf`, `.woff` or `.woff2`, joined against the OPF's folder and kept only when the book really
+//     carries it; the first one is the **body** of the page, and the serif of the disk is back when the book closes, so a
+//     face of a book is one of the three slots only while that book is open. A book with two faces uses the first: three
+//     slots, two for the disk, and the second face of a book would need a fourth.
+//
+// Two cases prove the engine: the face suite opens a box of two tables —one stored and one compressed by the real
+// zlib— and checks the sfnt byte by byte against what it has to be, and refuses a block too small, a box cut in the
+// middle and bytes that are not a box; the book suite writes a book with a `.woff`, a plain file and a `WOFF2`, and
+// checks that the first comes out as its sfnt, the second as it is, and the third with the word `WOFF2` in its reason.
+// The suites are now **542 cases**, and `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at**, as the owner asked for the end of
+// the app of the book. **And the app half of this turn has no case of its own**: the sample book carries no face, so the
+// path `manifest → epub.font → the page` is proven by the code and not by a test — the next turn that touches the sample
+// is the one that can add it. A book that declares two faces uses the first (docs/46).
+static const char kVersion[] = "0.150.0";
 
 }  // namespace kernel
 

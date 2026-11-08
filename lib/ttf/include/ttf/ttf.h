@@ -82,6 +82,17 @@ Status render(const Face& face, uint16_t glyph, uint16_t px, uint8_t* rows, uint
 // How many edges the last `render` flattened, for the tests and for the log of a page that took too long.
 uint32_t edges_used();
 
+// ---- and the face in a box (0.150.0, docs/46 D6) ----
+//
+// **A face that a book carries inside itself**: a `.woff` is an sfnt compressed table by table, and opening it here
+// gives the same kind of bytes a face of the disk has. `woff_sfnt_size` says how big the sfnt will be —0 when the
+// bytes are not a woff— and `woff_to_sfnt` writes it into a block of the caller's; then `open` reads it like any other
+// font. **WOFF2 is not read**: it is Brotli, and this system has no Brotli (docs/46, D6).
+bool is_woff(const uint8_t* data, uint32_t length);
+bool is_woff2(const uint8_t* data, uint32_t length);
+uint32_t woff_sfnt_size(const uint8_t* data, uint32_t length);
+bool woff_to_sfnt(const uint8_t* data, uint32_t length, uint8_t* out, uint32_t cap, uint32_t& written);
+
 }  // namespace ttf
 
 #endif  // LUNOK_TTF_TTF_H

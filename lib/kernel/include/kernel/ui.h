@@ -778,6 +778,11 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
 // string an app shows.
 const uint8_t kMaxFaces = 3;
 int8_t font_load(const char* path, const char*& reason);
+// **A face from bytes** (0.150.0, docs/46 D6): what a face a book carries inside itself needs, because its bytes came
+// out of the zip and not out of a file of the app. The block is copied, so the caller may give it back at once, and the
+// face that comes out is a handle like the one `font_load` answers —it counts in the same three and is released the same
+// way— (docs/30).
+int8_t font_load_bytes(const uint8_t* data, uint32_t length, const char*& reason);
 bool font_release(int8_t handle);
 // What a face says of itself: how big a glyph is, the space between two, and how many codes it carries. **A
 // face of outlines has no cell**, so `width` is zero and the count is what the file says it has —a font of a

@@ -516,7 +516,8 @@ seus **ajustos** (D7). **L'índex (C14) hi és des del 0.143.0**, **la portada c
 a una pàgina pel número (C15) des del 0.145.0** i **el peu del prestatge des del 0.147.0**. I el
 **cau de miniatures (C11) des del 0.146.0**: la portada escalada a 64 píxels al costat del llibre, escrita pel
 sistema i llegida com una foto més. **I el que ve darrere, decidit l'amo el 8/11**: els **tipus de lletra incrustats**
-del llibre (TTF i WOFF), la **maquetació fixa**, **SVG** com a imatge i, al final de tot, **els catorze forats** de
+del llibre (**fets el 8/11, 0.150.0**: `epub.font`, el WOFF obert taula per taula i la cara del llibre a la pàgina),
+la **maquetació fixa**, **SVG** com a imatge i, al final de tot, **els catorze forats** de
 maquetació; i les portes de `zip` (**B7** i **B8**) perquè una altra app —un **navegador d'arxius**— pugui obrir un `.zip`.
 I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el sostre d'un fitxer a **98 304 B**
 (0.149.0), amb el lector partit en **quatre fitxers** —`reader.lua` **49 215 B**, `chapters.lua`, `notice.lua` i

@@ -222,11 +222,14 @@ mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mi
 
 - **DRM** (Adobe, LCP): no és compressió, és un altre problema. Es refusa per nom, com al paper.
 - **ZIP64**: un llibre que el necessita no cap en aquesta placa.
-- **Els tipus de lletra incrustats de l'EPUB** (TTF/WOFF a dins del llibre): **es fan** (decisió de l'amo, 8/11).
-  Aquí una cara es carrega d'un fitxer del disc i n'hi ha tres, i el paper tampoc no els fa servir, però un llibre que
-  porta la seva lletra és un llibre que es llegeix com el va compondre qui el va fer. Les dues peces de sota ja hi són:
-  `lib/inflate` té el **zlib** que porta un `.woff` i `ttf::open` obre una cara **d'un bloc de memòria** i no d'un
-  fitxer, o sigui que el que falta és el **contenidor de WOFF** (recompondre un sfnt) i la porta que dona la cara a l'app.
+- **Els tipus de lletra incrustats de l'EPUB** — **fets el 8/11 (0.150.0)**: el llibre que porta la seva lletra es llegeix
+  amb la seva lletra. El camí sencer: `lib/ttf` obre el **WOFF** (la capça de 44 bytes, el directori de vint per taula i
+  les taules **zlib** que es recomponen en un sfnt, amb el `totalSfntSize` com a sostre), `kernel::book::font` treu
+  l'entrada del zip i diu **per què** no pot quan no pot (un `WOFF2` és Brotli i aquí no n'hi ha, una cara de més de
+  128 KB, una taula que no surt de la seva compressió), `ui::font_load_bytes` en fa una cara de les tres de l'app, i la
+  porta és `epub.font(name)`. A l'app, `chapters.lua` treu del manifest els `item` de tipus lletra i el primer és el
+  **cos**; la lletra del disc torna quan el llibre es tanca. **El que queda dit i no fet**: un llibre que en declara dues
+  només fa servir la primera, perquè les tres places de cara d'una app són tres i el disc en vol dues (docs/30, docs/75).
 - **L'EPUB de maquetació fixa** (`fixed-layout`): **es fa** (8/11), després dels tipus de lletra. La pàgina d'un llibre
   així és una imatge amb una mida i no un text que es reparteix, o sigui que canvia el motor de la pàgina i no el lector.
 - **SVG** com a imatge: **es fa** (8/11), després de la maquetació fixa. No el llegeix cap dels dos sistemes i és un

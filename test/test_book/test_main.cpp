@@ -475,6 +475,96 @@ static void test_a_small_file_of_the_book_comes_out_whole() {
   TEST_ASSERT_NULL(data);
 }
 
+// **A woff of one stored table**, written here: the box a face travels in is a header of 44 bytes, a directory of twenty
+// bytes per table and the tables themselves, and a table that does not pay for compressing says the same length twice —
+// which needs no compressor in the test and is a real woff, not a drawing of one (docs/46, D6).
+uint32_t make_woff(uint8_t* out, const char* data, uint32_t len) {
+  const uint32_t total = 12 + 16 + ((len + 3) & ~3u);  // the sfnt it will become: one table
+  uint32_t at = 0;
+  const char tag[4] = {'T', 'E', 'S', 'T'};
+  auto u32 = [&](uint32_t value) {
+    for (int i = 3; i >= 0; --i) out[at++] = static_cast<uint8_t>((value >> (8 * i)) & 0xFF);
+  };
+  auto u16 = [&](uint16_t value) {
+    out[at++] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    out[at++] = static_cast<uint8_t>(value & 0xFF);
+  };
+  const char signature[4] = {'w', 'O', 'F', 'F'};
+  memcpy(out + at, signature, 4);
+  at += 4;
+  u32(0x00010000);          // flavor
+  u32(44 + 20 + len);       // the length of the file
+  u16(1);                   // one table
+  u16(0);                   // reserved
+  u32(total);               // totalSfntSize
+  u16(1);
+  u16(0);
+  u32(0);
+  u32(0);
+  u32(0);
+  u32(0);
+  u32(0);
+  memcpy(out + at, tag, 4);  // the directory
+  at += 4;
+  u32(44 + 20);             // where the table is
+  u32(len);                 // packed length, the same as the plain one: stored
+  u32(len);
+  u32(0);                   // the checksum, which this reader copies and does not check
+  memcpy(out + at, data, len);
+  at += len;
+  while (at % 4 != 0) out[at++] = 0;
+  return at;
+}
+
+// **The face a book carries inside itself** (0.150.0, docs/46 D6): an entry of the book that is a font comes out as the
+// bytes of an sfnt —a `.woff` opened table by table, a TrueType file as it is— and the three ways it does not are three
+// sentences: a book that carries no such file, a `WOFF2`, and a face bigger than the block of the book.
+static void test_the_face_a_book_carries_comes_out_of_it() {
+  TEST_ASSERT_TRUE(boot());
+
+  uint8_t woff[128];
+  const uint32_t woff_len = make_woff(woff, "abcdefgh", 8);
+
+  Zip zip;
+  zip.add("mimetype", "application/epub+zip");
+  zip.add("OEBPS/ch1.xhtml", kChapterOne);
+  zip.add_bytes("OEBPS/fonts/book.woff", woff, static_cast<int32_t>(woff_len));
+  zip.add("OEBPS/fonts/plain.ttf", "not a font, eight");
+  zip.add("OEBPS/fonts/two.woff2", "wOF2 with nothing behind it");
+  zip.finish();
+  TEST_ASSERT_TRUE(write_file("/epub/faces.epub", zip.bytes, zip.len));
+  TEST_ASSERT_NULL_MESSAGE(kernel::book::open("/littlefs/epub/faces.epub"), "a book with faces");
+
+  // **The woff becomes the sfnt it carries**: an offset table of one table, its record, and the eight bytes as they were.
+  const uint8_t* bytes = nullptr;
+  uint32_t size = 0;
+  const char* why = nullptr;
+  TEST_ASSERT_TRUE(kernel::book::font("OEBPS/fonts/book.woff", &bytes, size, why));
+  TEST_ASSERT_NULL(why);
+  TEST_ASSERT_EQUAL_UINT32(36, size);   // 12 of the offset table, 16 of the record and the 8 of the table
+  TEST_ASSERT_EQUAL_UINT8(0x00, bytes[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x01, bytes[1]);
+  TEST_ASSERT_EQUAL_UINT8('T', bytes[12]);
+  TEST_ASSERT_EQUAL_UINT8('E', bytes[13]);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(bytes + 28, "abcdefgh", 8));
+
+  // **A file that is already an sfnt comes out as it is**: this reader does not touch what it does not have to open.
+  TEST_ASSERT_TRUE(kernel::book::font("OEBPS/fonts/plain.ttf", &bytes, size, why));
+  TEST_ASSERT_EQUAL_UINT32(17, size);
+  TEST_ASSERT_EQUAL_INT(0, memcmp(bytes, "not a font, eight", 17));
+
+  // **And the refusals say which one they are**: a name the book does not carry, a WOFF2 —which is Brotli and this
+  // system has no Brotli— and a face that does not fit.
+  TEST_ASSERT_FALSE(kernel::book::font("OEBPS/fonts/none.ttf", &bytes, size, why));
+  TEST_ASSERT_NOT_NULL(why);
+  TEST_ASSERT_EQUAL_STRING("the book carries no such file", why);
+  TEST_ASSERT_FALSE(kernel::book::font("OEBPS/fonts/two.woff2", &bytes, size, why));
+  TEST_ASSERT_NOT_NULL(why);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(why, "WOFF2"), why);
+  kernel::book::close();
+}
+
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -485,5 +575,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_picture_of_the_book_is_placed);
   RUN_TEST(test_a_file_that_is_not_a_book_says_why);
   RUN_TEST(test_a_small_file_of_the_book_comes_out_whole);
+  RUN_TEST(test_the_face_a_book_carries_comes_out_of_it);
   return UNITY_END();
 }
