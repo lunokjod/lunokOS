@@ -3646,7 +3646,44 @@ namespace kernel {
 //   `platformio.ini` — the owner's file, left as he had it plus that name, and to be taken out when this is over.
 //
 //   **Measured**: `pio run -e m5-paper` builds and the disk image carries `apps/probe` (checked with `ls`).
-static const char kVersion[] = "0.151.12";
+// 0.151.13 (8/11): **the glass of the board: `storage()` took the panel's CS away from the SPI controller**.
+//
+//   Found with the board in my hands, over the USB serial port and the interpreter of the shell (`lua`), in one session
+//   and without a single flash:
+//
+//     ui.rect(4,4,40,40,0,"gc16") ui.present("gc16")      -- the glass takes it
+//     ui.load_font("/fonts/dejavuserif-latin1.ttf")       -- and its paint
+//     ui.load_font("/fonts/dejavusans-latin1.ttf")        -- and its paint
+//     epub.books()                                        -- 7 books
+//     ui.rect(...) ui.present("gc16")                     -- **ffff: the panel stopped answering**
+//
+//   `epub.books()` and nothing else. It is the only thing in that list that calls `hal::IPlatform::storage()`, which on
+//   the Paper was this:
+//
+//     IStorage* storage(const char* mount) override {
+//       ...
+//       deselect_panel();            // GPIO15 as a plain output, driven high
+//
+//   And `deselect_panel()` —GPIO15 written as a plain GPIO output— **takes the pad away from the SPI controller**, which is
+//   the panel's CS. From that moment the panel is never selected again: its reads come back `ffff`, every paint is
+//   accepted and shown nowhere, and only a reboot brings it back. **`caps()` has been guarded against exactly this since
+//   0.118.9** (`if (!panel_joined_) deselect_panel();`, with the sentence *«from that moment the panel is never selected
+//   again»* written next to it) and **this call was not**. `epub.books()` asks for the storage of the flash **and** of the
+//   card, so the first thing the reader does —open its shelf— left the glass dead; and the shell's `ls` never did it
+//   because it goes through `vfs`, which resolves the storage **once**, at mount time, when the panel had not joined yet.
+//
+//   That is the whole afternoon: the mode, the wait, the order, the disk, the size of the page, the whole glass of the
+//   app — none of it was the cause. It was one missing `if`.
+//
+//   **Measured on the board** after the fix, over the serial port: `epub.books()` answers 7 and **two paints after it go
+//   up** (`LUTAFSR 0000`, `engine status read`, `paint 0,496 92x40`), and `run reader` paints its shelf and its page with
+//   no `ffff` at all. The driver's guards of 0.151.2 to 0.151.11 stay: they are true on their own (the busy line and the
+//   engine's register are not the same question) and they are what turned this into a legible failure instead of a frozen
+//   board.
+//
+//   `apps/probe` stays in the tree as the tool that found it; the image does not carry it (`custom_apps` of
+//   `platformio.ini` is as the owner had it). It is run by adding the name to that list.
+static const char kVersion[] = "0.151.13";
 
 }  // namespace kernel
 

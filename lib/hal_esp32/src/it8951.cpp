@@ -939,9 +939,18 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
       // whole page keeps the line of busy low for a second and a register read has to wait for it, and a read that came
       // back empty is asked again (0.151.8).
       if ((now - started) > timeout_ms) {
+        // **The reason the read gave is said before it is thrown away** (0.151.13): the message here used to overwrite it
+        // and the board was left with "the register was not read" for a panel whose line of busy had been low for three
+        // seconds. `why_` is the read's own sentence —"busy stayed low", "bus refused the prefix"— and the level of the
+        // line is the other half of it (measured 8/11, docs/50).
+        const char* read_why = why_;
+        hal::logf(pal::kLogWarn, "PANEL", "LUTAFSR was not read in %u ms (%s; busy reads %d)",
+                  static_cast<unsigned>(now - started), read_why,
+                  gpio_get_level(static_cast<gpio_num_t>(pins_.busy)));
+        // **And a panel that has held its line of busy low for three seconds is not painting, it is stuck**: the way back
+        // for a controller that does not answer is the rail, the same one `revive()` gives a panel that answers `ffff`.
+        silent_ = true;
         why_ = "the register of the engine was not read";
-        hal::logf(pal::kLogWarn, "PANEL", "LUTAFSR was not read in %u ms (%s)",
-                  static_cast<unsigned>(now - started), why_);
         return false;
       }
       vTaskDelay(pdMS_TO_TICKS(5));
@@ -994,6 +1003,10 @@ ISurface* esp32_it8951(const It8951Pins& pins) {
   asked = true;
   static It8951 chip(pins);
   const bool there = chip.begin();
+  // The level of the line of busy at the moment the controller was armed, which is the only other thing that can be said
+  // about a panel that does not answer (0.151.13, docs/50).
+  hal::logf(pal::kLogInfo, "PANEL", "busy reads %d %s the handshake",
+            gpio_get_level(static_cast<gpio_num_t>(pins.busy)), there ? "after" : "without");
   // Said out loud once, like the sensor and the glass: it is the only way to know what this controller
   // answered without a scope (docs/50, docs/95).
   hal::logf(pal::kLogInfo, "PANEL", "%s%s", chip.profile(), there ? "" : " (no panel)");

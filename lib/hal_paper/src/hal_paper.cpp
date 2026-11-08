@@ -364,9 +364,13 @@ class PaperPlatform : public IPlatform {
     if (mount != nullptr && strcmp(mount, "/fram") == 0) {
       return esp32_fram(esp32_i2c(kI2cSdaPin, kI2cSclPin));
     }
-    // Whoever mounts first can come before `caps()`, and the panel has to be out of the
-    // way before a single byte goes down those wires (see above).
-    deselect_panel();
+    // Whoever mounts first can come before `caps()`, and the panel has to be out of the way before a single byte goes down
+    // those wires (see above). **And once the panel is a device of the bus it is not deselected again** (0.151.13): this
+    // line wrote GPIO15 as a plain output, which takes the pad away from the SPI controller —the panel is never selected
+    // again, its reads come back `ffff` and every paint is accepted and shown nowhere—. `caps()` was guarded against
+    // exactly this in 0.118.9 and this call was not: `epub.books()` asks for the storage of the flash **and** of the card,
+    // so opening the shelf of the reader left the glass dead for ever (measured on the board, 8/11, docs/50).
+    if (!panel_joined_) deselect_panel();
     IStorage* flash = esp32_storage(mount, kDataPartition);
     return (flash != nullptr) ? flash : esp32_sd(mount, kSdPins);
   }
