@@ -158,6 +158,14 @@ class It8951 : public ISurface {
   // flag of the controller does not come down by itself on this panel, so the wait is this number and the BUSY line
   // (docs/50, docs/95).
   uint32_t ink_ms_ = 0;
+  // **What the panel said of itself about that same paint** (0.151.3): how long its BUSY line stayed low after
+  // `DPY_AREA`, measured and not supposed. It is the ceiling the next wait uses when it is longer than the table's own
+  // number, because a whole-page `gc16` of this panel is not the 450 ms of the maker's row — the board said so by
+  // dying when a second page was loaded over it (docs/50).
+  uint32_t measured_ms_ = 0;
+  // Whether the last paint covered half the glass or more: only such a paint is allowed to raise `measured_ms_`, so a
+  // blinking caret never makes the next page wait for a page's ink (0.151.3).
+  bool last_wide_ = false;
   // Why the last step that failed did fail. The handshake already reported four different faults
   // under one sentence and each one cost a flash to tell apart (measured on the board, 1/11).
   const char* why_ = "";

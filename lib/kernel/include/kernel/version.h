@@ -3413,7 +3413,42 @@ namespace kernel {
 //   **Measured**: `pio test -e test --without-testing` builds the 23 suites with no warning; `pio run -e m5-paper`
 //   builds the firmware with no warning (2 338 113 B of flash, 55,7 %). **Pending**: the firmware is not flashed and no test has
 //   been run; the 31 failing cases of 0.151.0 are untouched.
-static const char kVersion[] = "0.151.2";
+// 0.151.3 (8/11): **the glass of the reader was killed by the order of three accesses, and the mode had nothing to do with it**.
+//
+//   The board ran the firmware of 0.151.2 and its log said the guard fired —`a a2 of 0,0 540x960 is the whole glass, and it
+//   goes up as a gc16`— and then the panel died anyway, on the paint after it. So the `du` was not the killer, and that
+//   theory of mine is retracted in `docs/50` where it was written. What the log shows is this:
+//
+//   - `flush()` **read `LUTAFSR`, cleared it and read it again before waiting** for the paint before it to be over. The
+//     first three SPI accesses of a paint therefore fell **while the paint before it was still moving ink**;
+//   - a controller that is running `DPY_AREA` does not answer on MISO, and those reads come back `ffff`;
+//   - the driver read `ffff` as "the panel stopped answering" and did what it does for a deaf panel: **it cut the rail**,
+//     in the middle of the panel's own waveform. It never came back from that, the three `kReviveTries` were spent and
+//     `dead_` left the glass with nobody able to paint until a restart.
+//
+//   That is why it hit the reader and the splash and no other app: they are the only two that paint **whole pages back to
+//   back**, and a whole page is the only thing that leaves the engine running long enough for the next paint to find it
+//   working.
+//
+//   **Fixed in the driver, and all of it is a measure so the wrong call cannot be made** (`it8951.cpp`):
+//     - `wait_paint()` goes **first**, before the panel is spoken to at all: it uses the BUSY line and the mode's own time
+//       and no SPI;
+//     - **a `ffff` does not buy a rail cycle**: it is asked twice more, 250 ms apart (`kSilentTries`, `kSilentPauseMs`), so
+//       a controller that is only busy answers again and the board is not killed;
+//     - **the wait is measured and not supposed**: `wait_paint()` measures how long BUSY stayed low after `DPY_AREA`, and
+//       when the paint covered half the glass or more that number becomes the minimum of the next one —it can only grow,
+//       and a blinking caret never touches it—, said in the log as `the panel held busy %u ms for a page (the table says
+//       %u)`;
+//     - and the 0.151.2 guard stays: `arm()` does not believe an all-`ffff` device info, and a `du`/`du4`/`a2` of seven
+//       eighths of the glass or more goes up as a `gc16` (that one is about ghosting and the partial waveform, not about
+//       the dead panel).
+//
+//   **A paint with nothing marked no longer waits** for somebody else's ink either: the check went to the top of `flush`.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 417 B of flash (55,8 %). **Pending**: flash it and run
+//   `run reader` — the log has to say `the panel held busy <n> ms for a page (the table says 450)` and no `ffff`. The
+//   suites are untouched (31 failing cases of 0.151.0), and the driver half has no host test: it only exists on the board.
+static const char kVersion[] = "0.151.3";
 
 }  // namespace kernel
 

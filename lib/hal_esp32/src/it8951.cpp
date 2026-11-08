@@ -137,6 +137,13 @@ const uint32_t kBusyTimeoutMs = 3000;
 // is not there (measured on the board, 8/11).
 const uint16_t kMaxGlassSide = 4096;
 
+// **How many more times a `ffff` is asked about before the rail is cycled, and how long apart** (0.151.3). A controller
+// that is running a paint and one that is gone answer the same thing on MISO, and the answer to the second —cut the
+// power— is what kills the first one for good. Two questions, a quarter of a second each, and a panel that is only
+// busy is back (measured on the board, 8/11, docs/50).
+const uint8_t kSilentTries = 2;
+const uint32_t kSilentPauseMs = 250;
+
 void pin_output(int pin, int level) {
   gpio_config_t out = {};
   out.pin_bit_mask = 1ULL << pin;
@@ -495,6 +502,9 @@ bool It8951::revive() {
   mark(0, 0, width_, height_);
   painted_ms_ = 0;
   ink_ms_ = 0;
+  // A panel that has just been re-armed has been measured as nothing: its first page says what it takes (0.151.3).
+  measured_ms_ = 0;
+  last_wide_ = false;
   return true;
 }
 
@@ -599,11 +609,31 @@ bool It8951::flush(UpdateMode mode) {
     why_ = "the panel is not up";
     return false;
   }
+  // **What is sent is what changed, and nothing else.** With nothing marked there is nothing to paint and
+  // the whole page is left alone: a page nobody asked to be repainted is exactly what this system must not
+  // do (docs/30, docs/50). And it is asked **first**, because a present with no damage must not wait for the ink of
+  // somebody else's page (0.151.3).
+  if (!dirty_) {
+    // Nothing was marked, so nothing is sent: it is said because a page that nobody painted and a page with no damage
+    // look the same on the glass (0.118.6, docs/50).
+    hal::logf(pal::kLogDebug, "PANEL", "a paint was asked with nothing marked");
+    return true;
+  }
   // **One paint at a time.** The controller starts one engine per `DPY_AREA` and the maker's driver asks
   // for the previous one to be over before asking for the next (`CheckAFSR`); a second command sent
   // while the first is still moving ink is at best ignored. A present that carries two qualities is two
   // paints, so the wait belongs here and only here —the first one never waits, and the ink of the last
   // one is still asked about with `idle()` and never waited on (docs/30, docs/50).
+  //
+  // **And it is asked before the panel is spoken to at all** (0.151.3). The order was the other way round —a `LUTAFSR`
+  // read, a clear and another read, and only then the wait—, which means that the first three accesses of a paint
+  // happened **while the paint before it was still moving its ink**. A controller that is running `DPY_AREA` does not
+  // answer on MISO: those reads come back `ffff`. The driver read that as *«the panel stopped answering»* and did what
+  // it does for a deaf panel: **it cut the rail**, in the middle of the panel's own waveform. The panel never came back
+  // from that, and the board was left with a glass nobody could paint — the reader and the splash both (measured on the
+  // board, 8/11, docs/50, docs/92 §33). `wait_paint` uses the BUSY line and the mode's own time and no SPI at all, so
+  // it is safe to ask first and it is the only thing that can be asked safely.
+  if (!wait_paint(kPaintTimeoutMs)) return false;
   // **The flag of the engine is acknowledged before the new paint and not only read** (0.118.5): this controller sets it
   // when it starts a paint and never takes it down by itself, and the maker's code clears it with a write of 1. Read
   // and not written, it stayed up for ever and refused every paint after the first of a boot —which is the board that
@@ -614,39 +644,49 @@ bool It8951::flush(UpdateMode mode) {
   // prints— and it is the only moment this driver can tell a page nobody sees from a controller that
   // has stopped listening. `ffff` and not `0000`: the first is a MISO nobody drives and the second one
   // held low, and the board has shown both in the log of a boot (measured 7/11, docs/95).
+  //
+  // **And it is only believed once the engine has been waited for**: a `ffff` read while our own paint is moving is a
+  // controller that is busy and not one that is gone, and the reaction to the second must never be the reaction to the
+  // first (0.151.3).
   if (flag_before == 0xFFFF) {
     if (dead_) {
       why_ = "the panel does not answer";
       return false;
     }
-    if (!revive()) {
-      ++revive_fails_;
-      if (revive_fails_ >= kReviveTries) {
-        dead_ = true;
-        hal::logf(pal::kLogWarn, "PANEL", "the panel stopped answering and did not come back after %u tries",
-                  static_cast<unsigned>(revive_fails_));
-      }
-      why_ = "the panel stopped answering";
-      return false;
+    // **The rail is the destructive move, so one `ffff` does not buy it** (0.151.3). A controller that is busy and one
+    // that is gone answer the same thing, and this driver's answer to the second —cut the power and start again— cost
+    // the board its glass when the panel was only busy: *«no pinta res de res al eink i després ningú pot tocar la
+    // pantalla fins al reinici»* (measured 8/11, docs/50). It is asked twice more, with a pause, and only a panel that
+    // is still silent after that is brought back.
+    for (uint8_t again = 0; again < kSilentTries && flag_before == 0xFFFF; ++again) {
+      vTaskDelay(pdMS_TO_TICKS(kSilentPauseMs));
+      flag_before = read_register(kRegLutAfsr);
     }
-    revive_fails_ = 0;
-    hal::logf(pal::kLogWarn, "PANEL", "the panel had stopped answering; the rail was cycled and it is back: %s",
-              profile_);
-    flag_before = read_register(kRegLutAfsr);
+    if (flag_before == 0xFFFF) {
+      if (!revive()) {
+        ++revive_fails_;
+        if (revive_fails_ >= kReviveTries) {
+          dead_ = true;
+          hal::logf(pal::kLogWarn, "PANEL", "the panel stopped answering and did not come back after %u tries",
+                    static_cast<unsigned>(revive_fails_));
+        }
+        why_ = "the panel stopped answering";
+        return false;
+      }
+      revive_fails_ = 0;
+      hal::logf(pal::kLogWarn, "PANEL", "the panel had stopped answering; the rail was cycled and it is back: %s",
+                profile_);
+      flag_before = read_register(kRegLutAfsr);
+      // A rail cycle that leaves the words at `ffff` has not brought anything back, and painting after it is painting
+      // where nobody listens (0.151.2).
+      if (flag_before == 0xFFFF) {
+        why_ = "the panel stopped answering";
+        return false;
+      }
+    }
   }
   clear_engine_flag();
   const uint16_t flag_after = read_register(kRegLutAfsr);
-  if (!wait_paint(kPaintTimeoutMs)) return false;
-  // **What is sent is what changed, and nothing else.** With nothing marked there is nothing to paint and
-  // the whole page is left alone: a page nobody asked to be repainted is exactly what this system must not
-  // do (docs/30, docs/50).
-  if (!dirty_) {
-    // Nothing was marked, so nothing is sent: it is said because a page that nobody painted and a page with no damage
-    // look the same on the glass (0.118.6, docs/50).
-    hal::logf(pal::kLogDebug, "PANEL", "a paint was asked with nothing marked");
-    return true;
-  }
-
   // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
   uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
   uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
@@ -731,6 +771,9 @@ bool It8951::flush(UpdateMode mode) {
   if (!command(kCmdDisplayArea, display, 7)) return false;
   painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   ink_ms_ = ink_ms_of(mode);
+  // **A page is waited for as long as it really takes** (0.151.3): half the glass or more is a page, and only a page is
+  // allowed to raise the measured ceiling the next paint waits for (docs/50).
+  last_wide_ = (static_cast<uint32_t>(w) * h >= (static_cast<uint32_t>(native_width_) * native_height_) / 2u);
   dirty_ = false;
   // **Every paint says what it sent** (0.118.6): the splash of the boot goes up and the page of an app does not, and the
   // two go through this same call — so the only way to tell them apart is to write down the five words of `DPY_AREA`
@@ -893,7 +936,13 @@ bool It8951::engine_over() {
   if (gpio_get_level(static_cast<gpio_num_t>(pins_.busy)) == 0) return false;
   // And **the time the ink of this mode takes**, which is the maker's own number: the flag of the controller does not
   // come down by itself, so waiting for it is waiting for ever (measured on the board, 8/11, docs/92 §33).
-  return since >= ink_ms_;
+  //
+  // **And whatever the panel itself took the last time it was asked for a page this big** (0.151.3): the maker's row is
+  // a lower bound the board has already broken once, and a paint that starts while the one before it is still moving
+  // its ink is how the panel of the Paper stopped answering for good. The number only ever grows, and only a paint of
+  // half the glass or more is allowed to grow it, so a blinking caret never pays for a page (docs/50).
+  const uint32_t need = (measured_ms_ > ink_ms_) ? measured_ms_ : ink_ms_;
+  return since >= need;
 }
 
 bool It8951::idle() {
@@ -904,8 +953,24 @@ bool It8951::idle() {
 bool It8951::wait_paint(uint32_t timeout_ms) {
   if (!ready_) return false;
   const uint32_t started = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  // **When the panel stopped saying it was busy**, which is the one measurement this driver can take of its own ink:
+  // the moment the BUSY line went high. It is what `measured_ms_` keeps, and the reason the next page of the same size
+  // is waited for as long as this one really took (0.151.3, docs/50).
+  uint32_t busy_until = 0;
   for (;;) {
-    if (engine_over()) return true;
+    if (engine_over()) {
+      const uint32_t ended = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+      const uint32_t took = (busy_until != 0 ? busy_until : ended) - painted_ms_;
+      if (last_wide_ && took > measured_ms_) {
+        measured_ms_ = took;
+        hal::logf(pal::kLogInfo, "PANEL", "the panel held busy %u ms for a page (the table says %u)",
+                  static_cast<unsigned>(took), static_cast<unsigned>(ink_ms_));
+      }
+      return true;
+    }
+    if (gpio_get_level(static_cast<gpio_num_t>(pins_.busy)) != 0 && busy_until == 0) {
+      busy_until = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    }
     const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     if ((now - started) > timeout_ms) {
       // **And if this ever happens it is said**, because it is a paint that is still moving ink after three seconds and

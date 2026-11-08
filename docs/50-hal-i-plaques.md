@@ -990,39 +990,57 @@ tres girs en surten, i no queda cap número per endevinar.
 És a dir: **17 de les 19 capacitats**, i l'única que falta a aquesta placa és `imu`, que no hi és.
 | Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
 
-### El vidre deixa de contestar: `ffff` no és una placa que ha tornat (8/11, mesurat)
+### El vidre deixa de contestar: qui li talla el corrent és el driver (8/11, mesurat)
 
 El lector d'EPUB va deixar la Paper **amb el vidre mort**: no pintava res de res i, a partir d'aquell moment, cap altra
-app no podia pintar fins a reiniciar. El log de la placa diu exactament el que va passar:
+app no podia pintar fins a reiniciar («després del reader ningú pot tocar la pantalla fins al reinici»). El mateix amb
+el *splash*.
+
+La segona tirada de la placa, amb el guard que convertia la `du` en `gc16` ja posat, va ensenyar que **la qualitat no
+hi tenia res a veure**: el log diu `a a2 of 0,0 540x960 is the whole glass, and it goes up as a gc16`, la pintada surt
+com a `mode 2`… i el panell mor igual, a la pintada següent:
 
 ```
-[I][UI] paint 0,0 540x960 mode 7              <- la rentada de tota la pàgina en `du`
-[D][PANEL] blit 0,0 540x960 of a line of 270 B
-[I][PANEL] engine flag 0000 -> 0000 -> 0000
-[I][PANEL] paint 0,0 960x540 mode 7 at 0x1236e0 (page 0,0 540x960, 540 rows of 480 B)
+[I][UI] paint 0,0 540x960 mode 7
+[D][UI] a a2 of 0,0 540x960 is the whole glass, and it goes up as a gc16
+[I][PANEL] paint 0,0 960x540 mode 2 at 0x1236e0 (page 0,0 540x960, 540 rows of 480 B)
 [I][UI] paint 0,0 540x960 mode 2
-[W][PANEL] the panel had stopped answering; the rail was cycled and it is back:
-           540x960 turned 270 (glass 65535x65535), image at 0xffffffff, words ffff ffff f
+[W][UI] the glass refused a page (0,0 540x960, gc16): the panel stopped answering
 ```
 
-Dues coses, i totes dues són errors meus:
+El que va matar el vidre és **l'ordre de les coses dins de `flush()`**, i és un error meu en tres actes:
 
-1. **Una `du` no pot cobrir tota la pàgina.** La forma d'ona de dos nivells és una ona *parcial*; aquest controlador
-   deixa de contestar al bus quan se li demana la pàgina sencera amb ella, i des d'aquell moment tot el que torna és
-   `ffff`. El nucli **converteix en `gc16` qualsevol `du`, `du4` o `a2` que cobreixi set vuitens del vidre o més**
-   (`ui.cpp`, `paint()`), i el lector demana `gc16` a la seva rentada de prestatge: una pàgina així és una rentada, i
-   una rentada és `gc16`. El llindar és generós a posta, perquè un bloc de text que ocupa gairebé tota la vista i el
-   rellotge de la barra segueixin sent `du`.
-2. **`ffff` no és una placa que ha tornat.** Després del cicle de rail, `read_words` «va bé» i torna vint paraules
-   `ffff`; el driver les va creure i va fer `glass 65535x65535`, `image at 0xffffffff`, `arm()` va dir que sí i el
-   driver va seguir carregant cada pàgina a una adreça que no existeix —amb la pintada «acceptada» i el vidre sense
-   canviar mai. Ara `arm()` **refusa** una informació de dispositiu tota a `ffff`, una geometria més gran que
-   `kMaxGlassSide` (4 096) i una imatge a `0xffffffff`: `revive()` torna fals, el rail es reintenta i el comptador de
-   `kReviveTries` arriba a dir la veritat al log. Un controlador que no és al bus ho ha de dir **aquí** i no pas tres
-   pintades més tard.
+1. `flush()` **llegia `LUTAFSR`, l'esborrava i el tornava a llegir abans d'esperar** que la pintada anterior acabés.
+   O sigui que els tres primers accessos SPI d'una pintada queia **mentre la pintada anterior encara movia tinta**.
+2. Un controlador que està corrent `DPY_AREA` no contesta pel MISO, i aquelles lectures tornen `ffff`.
+3. El driver llegia `ffff` com «el panell ha deixat de contestar» i feia el que fa amb un panell sord: **li tallava el
+   corrent**. Amb la seva pròpia forma d'ona a mig fer. D'aquí no va tornar: la resta de lectures són `ffff`, els tres
+   intents de `kReviveTries` s'exhaureixen i `dead_` deixa el vidre sense pintar per a tothom.
 
-La mateixa parella d'errors és la que va deixar el *splash* penjat («amb l'splash també passava»): el que mata el
-vidre és el segon error, i el primer li dona l'ocasió.
+Per això passava amb el lector i amb el *splash* i amb cap altra app: són els dos únics que pinten **pàgines senceres
+seguides**, i una pàgina sencera és l'única cosa que deixa el motor engegat prou temps perquè la pintada següent el
+trobi treballant.
+
+El que hi ha ara, i tot és al driver (`it8951.cpp`):
+
+- **`wait_paint()` va el primer**, abans de tocar el controlador: fa servir la línia BUSY i el temps del mode i **cap
+  SPI**.
+- **Un `ffff` no compra un cicle de rail.** Abans de tallar el corrent es pregunta dues vegades més, amb 250 ms entremig
+  (`kSilentTries`, `kSilentPauseMs`): un controlador que només està enfeinat torna a contestar i la placa no es mata.
+- **El temps d'espera es mesura, no se suposa.** `wait_paint()` mesura quants mil·lisegons ha estat BUSY avall el panell
+  després de `DPY_AREA`, i si la pintada cobria **mitja pàgina o més** aquell número passa a ser el mínim de la
+  següent —només pot créixer, i un cursor que parpelleja no el toca—. Es diu al log: `the panel held busy %u ms for a
+  page (the table says %u)`. La fila del fabricant (450 ms per a `gc16`) és un mínim, i la placa ja l'ha trencada un
+  cop.
+- **`arm()` no creu un `ffff`** (0.151.2): una informació de dispositiu tota a `ffff`, una geometria més gran que
+  `kMaxGlassSide` (4 096) o una imatge a `0xffffffff` són «no hi ha panell», i `revive()` torna fals en comptes de
+  fer veure que l'ha recuperat.
+
+I una regla que es queda encara que no fos la culpable: **una `du` no cobreix tota la pàgina**. La forma d'ona de dos
+nivells és *parcial* i una pàgina sencera és una rentada; el nucli converteix en `gc16` qualsevol `du`, `du4` o `a2`
+que cobreixi set vuitens del vidre o més (`ui.cpp`, `paint()`), i el lector demana `gc16` a la seva rentada de
+prestatge. El llindar és generós a posta, perquè un bloc de text que omple la vista i el rellotge de la barra
+segueixin sent `du`.
 
 ### Apagar-se de debò: el son profund d'aquesta placa no és un son
 
