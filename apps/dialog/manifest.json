@@ -1,8 +1,0 @@
-{
-  "title": "Dialog",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "dialog.lua",
-  "boards": ["esp32"],
-  "description": "A card over the page with a message that wraps and two doors: the dial walks them, the centre presses one, and a finger picks the one it is on."
-}

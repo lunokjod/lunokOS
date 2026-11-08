@@ -1,8 +1,0 @@
-{
-  "title": "Echo",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "echo.lua",
-  "boards": ["esp32"],
-  "description": "Asks for a line and says it back. The keyboard is the app's while it runs."
-}

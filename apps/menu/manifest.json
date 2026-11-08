@@ -1,8 +1,0 @@
-{
-  "title": "Menu",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "menu.lua",
-  "boards": ["esp32"],
-  "description": "A contextual menu: touching a note opens the card of options where the finger is, the one this build cannot do is hidden and takes no room, and the dial walks the ones that are there."
-}

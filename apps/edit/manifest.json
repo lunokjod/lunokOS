@@ -1,9 +1,0 @@
-{
-  "title": "Edit",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "edit.lua",
-  "boards": ["esp32"],
-  "opens": "txt",
-  "description": "A modal text editor, the vim way, for the serial port and the console: h j k l, i a o, x dd yy p, u, /search, :w :q. The file named by the prompt is the one it opens and the one it saves. This one is the terminal\u2019s; `run editor` is the same job on the glass, with menus."
-}

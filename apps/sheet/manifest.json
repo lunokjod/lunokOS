@@ -1,8 +1,0 @@
-{
-  "title": "Sheet",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "sheet.lua",
-  "boards": ["esp32"],
-  "description": "Every glyph of the font of the system inside its own cell, with the code under every tenth one."
-}

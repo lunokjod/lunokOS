@@ -1,8 +1,0 @@
-{
-  "title": "Timers",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "timers.lua",
-  "boards": ["esp32"],
-  "description": "Three timers at once, and the proof that an app that waits does not stop the kernel."
-}

@@ -1,8 +1,0 @@
-{
-  "title": "Wait",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "wait.lua",
-  "boards": ["esp32"],
-  "description": "Waits a moment between two lines: an app that sleeps without freezing the system."
-}

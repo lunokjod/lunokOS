@@ -1,8 +1,0 @@
-{
-  "title": "Keys",
-  "author": "@lunokjod",
-  "version": "0.2.0",
-  "entry": "keys.lua",
-  "boards": ["m5stack-atom", "m5stack-atom-matrix", "m5stack-paper"],
-  "description": "The keys of the board on the console, by position: the sides step a number, a held key repeats like a keyboard, and three taps of the middle one close the app."
-}

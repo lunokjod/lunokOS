@@ -1,8 +1,0 @@
-{
-  "title": "Font pcf",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "font-pcf.lua",
-  "boards": ["esp32"],
-  "description": "A face loaded from a PCF, the binary form of a BDF, drawn at two sizes beside the font of the system."
-}

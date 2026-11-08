@@ -1,8 +1,0 @@
-{
-  "title": "Clock",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "clock.lua",
-  "boards": ["esp32"],
-  "description": "The hour and one alarm, so a board can be checked by hand: the alarm is armed two seconds ahead."
-}

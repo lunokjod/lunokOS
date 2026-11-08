@@ -1,8 +1,0 @@
-{
-  "title": "Handles",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "handles.lua",
-  "boards": ["esp32"],
-  "description": "The open-file side of the system by hand: write through a handle, read it back three ways, seek, and hold eight."
-}

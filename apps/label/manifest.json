@@ -1,8 +1,0 @@
-{
-  "title": "Label",
-  "author": "@lunokjod",
-  "version": "0.2.0",
-  "entry": "label.lua",
-  "boards": ["esp32"],
-  "description": "A gallery of labels: four faces, four sizes, both alignments, cuts with dots, the sixteen levels and the draws a label does not do."
-}

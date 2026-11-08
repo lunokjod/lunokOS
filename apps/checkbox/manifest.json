@@ -1,8 +1,0 @@
-{
-  "title": "Checkboxes",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "checkbox.lua",
-  "boards": ["esp32"],
-  "description": "Five UICheckboxes: the words beside the box, the dial flipping them, a row the walk of the system skips, a dark row, and a line that counts what is on."
-}

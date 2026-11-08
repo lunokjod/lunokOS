@@ -1,8 +1,0 @@
-{
-  "title": "Scratch",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "scratch.lua",
-  "boards": ["esp32"],
-  "description": "Writes, reads back and lists its own ground, and ends by trying to write outside it."
-}

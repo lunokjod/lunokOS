@@ -1,8 +1,0 @@
-{
-  "title": "Form",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "form.lua",
-  "boards": ["esp32"],
-  "description": "Two fields that are chosen and not typed: the dial or a finger opens the list the app puts up, the choice is written in the field, and a band at the bottom says what was set."
-}

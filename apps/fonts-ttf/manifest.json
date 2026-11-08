@@ -1,8 +1,0 @@
-{
-  "title": "Fonts ttf",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "fonts-ttf.lua",
-  "boards": ["esp32"],
-  "description": "DejaVu Sans, Serif, Sans Mono and Bold —cut down to the printable ascii— drawn on one page at three sizes: real faces of outlines, three at a time, with one face given back to make room for the fourth."
-}

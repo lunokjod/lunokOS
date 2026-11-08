@@ -1,8 +1,0 @@
-{
-  "title": "Air",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "air.lua",
-  "boards": ["esp32"],
-  "description": "How warm and how wet the room is, once every two seconds. The example of `env.read()`."
-}

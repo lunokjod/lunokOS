@@ -1,8 +1,0 @@
-{
-  "title": "Panel",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "panel.lua",
-  "boards": ["esp32"],
-  "description": "A test page on the e-ink panel: does the picture arrive, are the sixteen levels the right way round, how long does the paint take."
-}

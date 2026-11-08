@@ -1,8 +1,0 @@
-{
-  "title": "Sleepy",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "sleepy.lua",
-  "boards": ["esp32"],
-  "description": "Goes to a deep sleep and comes back where it was, with what it saved before going down."
-}

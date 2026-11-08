@@ -1,8 +1,0 @@
-{
-  "title": "Matrix",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "matrix.lua",
-  "boards": ["m5stack-atom-matrix"],
-  "description": "Colour ramps that move across the twenty-five lights of the ATOM Matrix panel: the button sets the brightness and a long press is the next ramp. Three taps or three ESC to leave."
-}

@@ -1,8 +1,0 @@
-{
-  "title": "Demo",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "demo.lua",
-  "boards": ["esp32"],
-  "description": "Colours, a wait and a line from the keyboard: the three things an app can do here."
-}

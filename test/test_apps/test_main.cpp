@@ -4654,15 +4654,29 @@ void test_the_bench_is_the_board_it_was_told_to_be(void) {
 // `emulator` in a list is a name no board would ever answer (docs/40, docs/85).
 // A manifest that forgot the list would still be caught here, because no list is not
 // "every board" (docs/40).
+//
+// **And the apps the board carries have to be among the ones audited** (0.152.6): the guard used to be a floor on
+// the count —seventeen—, which said nothing about *which* app was missing and was a number of a set that is being
+// made again. The set of this repository is the twenty-four apps of the paper project (`OLD/PaperOS/data/app`:
+// `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`, `FRAM`, `Files`, `ImageViewer`,
+// `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`, `Snake`, `Tamagotchi`, `Tetris`,
+// `Timeclock` and `2048`), ported one by one, and `reader` is the port of `EPUB`. The ids below are the ones
+// `platformio.ini` carries on the Paper (`custom_apps`) plus `probe`, which is a temporary instrument of the bench
+// and says so in its own description: **an id goes out of this list in the same commit as the app** (docs/40, docs/45).
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
+  static const char* const kMustShip[] = {"about", "calculator", "editor", "probe", "reader", "timeclock"};
   static char text[1024];
+  bool ship_seen[sizeof(kMustShip) / sizeof(kMustShip[0])] = {false};
+  const uint32_t kMust = sizeof(kMustShip) / sizeof(kMustShip[0]);
+  bool found_the_folder = false;
   uint32_t seen = 0;
   for (size_t p = 0; p < sizeof(kParents) / sizeof(kParents[0]); ++p) {
     char dir_path[256];
     snprintf(dir_path, sizeof(dir_path), "%sapps", kParents[p]);
     DIR* dir = opendir(dir_path);
     if (dir == nullptr) continue;
+    found_the_folder = true;
     struct dirent* item = nullptr;
     while ((item = readdir(dir)) != nullptr) {
       if (item->d_name[0] == '.') continue;
@@ -4686,13 +4700,20 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
         TEST_ASSERT_TRUE_MESSAGE(strcmp(boards[i], "emulator") != 0, item->d_name);
       }
       ++seen;
+      for (uint32_t m = 0; m < kMust; ++m) {
+        if (strcmp(item->d_name, kMustShip[m]) == 0) ship_seen[m] = true;
+      }
     }
     closedir(dir);
     break;
   }
-  // Eighteen apps ship today: a directory that was not found would pass every
-  // check above by not running any of them.
-  TEST_ASSERT_TRUE_MESSAGE(seen >= 17, "the apps of the repository were not found");
+  // A folder that was not found would pass every check above by not running any of them, and so would a folder
+  // that is there but empty.
+  TEST_ASSERT_TRUE_MESSAGE(found_the_folder, "the apps of the repository were not found");
+  TEST_ASSERT_TRUE_MESSAGE(seen > 0, "the folder of the apps of the repository is empty");
+  for (uint32_t m = 0; m < kMust; ++m) {
+    TEST_ASSERT_TRUE_MESSAGE(ship_seen[m], kMustShip[m]);
+  }
 }
 
 // The store answers how full it is in **entries**, which is the number that says whether the

@@ -1,8 +1,0 @@
-{
-  "title": "Polite",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "polite.lua",
-  "boards": ["esp32"],
-  "description": "Says goodbye: declares the three hooks of the life cycle so the order they are called in can be seen."
-}

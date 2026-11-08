@@ -199,3 +199,36 @@ en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla 
 6. Escriure la prova a `test_apps` i compilar-la (executar-la vol permís, docs/80).
 7. Posar-la a la llista de la placa si hi ha de viatjar (`custom_apps`, docs/70).
 8. Pujar la versió del sistema i escriure el commit amb els números mesurats.
+
+## 8 · El conjunt d'apps, i què hi ha portat (8/11)
+
+**Les apps d'aquest repositori són les del projecte del paper, portades d'una en una.** El conjunt és el de
+`OLD/PaperOS/data/app`, que té **24** carpetes, i no se n'inventa cap altra: una app que no hi és no és una app
+d'aquest sistema. Les 60 carpetes que `apps/` tenia abans del 8/11 es van esborrar perquè no venien d'allà, i
+l'esborrat és al commit de la 0.152.6 amb el número del davant.
+
+Portades i viatjant avui, **cinc**:
+
+| Original | Id aquí | Versió |
+|---|---|---|
+| `About` | `about` | 0.1.0 |
+| `Calculator` | `calculator` | 0.1.0 |
+| `Editor` | `editor` | 0.1.0 |
+| `EPUB` | `reader` | 0.1.0 |
+| `Timeclock` | `timeclock` | 0.1.0 |
+
+I a part, `probe`, que **no és una pantalla**: és un instrument temporal del banc que repeteix l'arrencada del
+lector per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la
+llista de la prova al mateix commit.
+
+Les **dinou** que falten, i que són la cua d'aquesta feina: `2048`, `Agenda`, `Banner`, `Battery`, `Clock`,
+`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
+`Snake`, `Tamagotchi` i `Tetris`.
+
+La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
+`apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app
+que la placa porta (el `custom_apps` de `platformio.ini`) desapareix, el cas es posa vermell i diu quin id falta.
+
+**Una conseqüència que es tanca sola**: aquest document, `docs/40`, `docs/50` i `docs/90` nomenen apps de la
+llista d'abans (per exemple `clock`, `battery` o `checkbox`) com a exemples. Cada nom torna a ser cert quan la
+seva app es porta; el que no es fa és inventar-se l'app perquè el text quedi bé.

@@ -1,8 +1,0 @@
-{
-  "title": "Controls",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "controls.lua",
-  "boards": ["esp32"],
-  "description": "A page of the controls the system draws: a progress bar that fills, a slider the dial moves, and three rows of a list, the third of them the chosen one."
-}

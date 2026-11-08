@@ -1,8 +1,0 @@
-{
-  "title": "Ghost",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "ghost.lua",
-  "boards": ["esp32"],
-  "description": "Eight quick paints of the same block and then a clean one: the page that stays."
-}

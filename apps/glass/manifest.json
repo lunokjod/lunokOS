@@ -1,8 +1,0 @@
-{
-  "title": "Glass",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "glass.lua",
-  "boards": ["esp32"],
-  "description": "What the touch panel has under the finger, and the shapes the system makes out of it."
-}

@@ -1,8 +1,0 @@
-{
-  "title": "Trend",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "trend.lua",
-  "boards": ["esp32"],
-  "description": "A sparkline of a window of samples, the same chart with two series where one is a part of the total, and a pie of three slices: all three drawn by the system from a table of numbers."
-}

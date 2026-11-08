@@ -1,8 +1,0 @@
-{
-  "title": "Cost",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "cost.lua",
-  "boards": ["esp32"],
-  "description": "What the board costs, measured where it runs: the disk, the glass, the gauge and the panel."
-}

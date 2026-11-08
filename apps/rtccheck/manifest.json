@@ -1,8 +1,0 @@
-{
-  "title": "RTC check",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "rtccheck.lua",
-  "boards": ["esp32"],
-  "description": "Where the hour comes from, what can wake the board, and a sleep it has to come back from, measured."
-}

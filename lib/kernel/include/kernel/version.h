@@ -4023,7 +4023,24 @@ namespace kernel {
 //   `apps/` and this working tree has six, because 136 files of `apps/` are deleted and not committed (the owner's
 //   working tree: `git status` says so). Restoring them, or committing the deletion and lowering the number, is his
 //   call and not a line to change behind his back.
-static const char kVersion[] = "0.152.5";
+// 0.152.6 (8/11): **the sixty apps that were not the paper project's are gone, and the audit of the manifests names
+// the ones that ship**. The suite is **176 of 176**.
+//
+//   - **the app set of this repository is the twenty-four apps of `OLD/PaperOS/data/app`**, ported one by one, and the
+//     sixty folders `apps/` had were not from there: they are deleted, and the deletion is this commit's (136 files).
+//     Five ports fly today —`about`, `calculator`, `editor`, `reader` (which is `EPUB`) and `timeclock`— plus `probe`,
+//     a temporary instrument of the bench that says in its own description that it is not a screen and is not meant to
+//     stay. The nineteen that are left are the queue, and they are named in docs/45 §8 with the ids and the state;
+//   - **the guard of that audit was a count** (`seen >= 17`), which said nothing about *which* app was missing and was
+//     the number of a set that is being made again —it was red for six apps and would have gone green again for six
+//     wrong ones if a folder had been renamed to a duplicate—. It is now the list of ids that have to be in `apps/`,
+//     and a folder that is not found and a folder that is there but empty are asked apart. Broken on purpose (the id
+//     `clock` added to the list, an app that does not exist yet) it goes red with the message `clock`, and that is the
+//     measurement of the change;
+//   - and **the documents that name apps of the old list are not rewritten to say nothing**: `docs/40`, `docs/50`,
+//     `docs/90` and this one use `clock`, `battery` or `checkbox` as examples, and each name becomes true again when
+//     its app is ported. What is not done is inventing the app so the sentence looks right (docs/45 §8).
+static const char kVersion[] = "0.152.6";
 
 }  // namespace kernel
 
