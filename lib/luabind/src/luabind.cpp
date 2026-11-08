@@ -8657,6 +8657,26 @@ int ui_tabs_items(lua_State* L, int object) {
   return (count > 0) ? count : 0;
 }
 
+// **A grid with the app's own cells in it is a box and not a stop** (0.156.1): the stops are the cells it holds, and the
+// grid as a stop of its own was a phantom the dial could land on —the ring was the whole box of the grid, which the
+// control does not paint, so it looked like the ring had left the page and the walk went on from there in the order of
+// the tree instead of round the page (the owner: *«sembla que et pots sortir per l'esquerra i per la dreta amb el
+// focus»*, 8/11)—. A grid of its own items is still a stop, because there the cells are the control's and `index`
+// walks them (docs/90, docs/92).
+bool ui_grid_has_cells(lua_State* L, int object) {
+  object = lua_absindex(L, object);
+  if (!ui_field_bool(L, object, "__icon_grid", false)) return false;
+  lua_getiuservalue(L, object, 1);
+  bool cells = false;
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "children");
+    cells = lua_istable(L, -1) && lua_rawlen(L, -1) > 0;
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  return cells;
+}
+
 // Walks the tree the drawing walks: the children of the app, in their order, cut at the frame of
 // their fathers. A control is a target when it is a button or when the app said `focusable`; a label
 // inside a button is not one, which is what makes the button the thing a person lands on.
@@ -8709,7 +8729,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       continue;
     }
 
-    if (ui_target_is_focusable(L, -1)) {
+    if (ui_target_is_focusable(L, -1) && !ui_grid_has_cells(L, -1)) {
       // **A strip of tabs is one stop per tab** (0.99.0): the arrows walk into the strip and from one tab to the
       // next, out of it at either end, and the centre chooses the tab the ring is on. One stop for the whole strip
       // made the arrows change the tab instead of moving the dial, which is the owner's complaint of 7/11 and what
@@ -10814,6 +10834,10 @@ bool ui_button_event(const char* kind, uint32_t key) {
       lua_settop(g_state, top);
       return true;
     }
+    // **The page is a ring** (0.156.1): the last control of the glass goes on to the first and the first back to the
+    // last, so a key never leaves the page —there is nowhere to leave to, and a walk that stopped at the end would be a
+    // key that does nothing—. What the list holds is what is **on** the glass: a control cut out of its father's frame
+    // is not in it (see `ui_walk_targets`), so the ends of the ring are the ends of the page (docs/30, docs/92).
     target = (current >= 0) ? (current + direction + count) % count : (direction > 0 ? 0 : count - 1);
     ui_apply_focus(g_state, targets, count, objects, target);
     // The ring the app cannot see: the key was taken here, so the paint of where the dial went is here too.

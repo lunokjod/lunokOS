@@ -4810,6 +4810,107 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   kernel::boot(hal::platform());
 }
 
+// **The page is a ring and every stop of it is a control a person can see** (0.156.1): the dial goes from the last
+// control of the glass to the first and from the first back to the last, and **a grid with the app's own cells in it
+// is a box and not a stop** —it was a phantom the ring could land on, where nothing was ringed and the walk went on in
+// the order of the tree, which the owner read as the focus leaving the page (his words of 8/11: *«sembla que et pots
+// sortir per l'esquerra i per la dreta amb el focus»*)—.
+void test_the_dial_walks_the_controls_of_the_page_in_a_ring(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "ring",
+                           "{\"title\":\"Ring\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // **The hook says only where the ring arrives**, which is the half of it that a page
+                           // reads: it is called with `true` on the control it lands on and `false` on the one it
+                           // leaves (docs/30).
+                           "local function tag(what)\n"
+                           "  return function(self, on)\n"
+                           "    if on then console.print('focus ' .. what) end\n"
+                           "  end\n"
+                           "end\n"
+                           "local grid = ui.icon_grid(300, 420)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 2\n"
+                           "grid.on_focus = function(self, on)\n"
+                           "  if on then console.print('focus the grid') end\n"
+                           "end\n"
+                           "local cells = {}\n"
+                           "for i = 1, 3 do\n"
+                           "  local cell = ui.grid_entry(140, 90)\n"
+                           "  cell.background = 15\n"
+                           "  cell.on_focus = tag('cell' .. i)\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "end\n"
+                           "local left = ui.button(90, 50)\n"
+                           "left:place(20, 500)\n"
+                           "left.on_focus = tag('left')\n"
+                           "local right = ui.button(90, 50)\n"
+                           "right:place(140, 500)\n"
+                           "right.on_focus = tag('right')\n"
+                           "ui.focus(cells[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('ring up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run ring");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ring up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **Five presses forward**: the three cells, the two buttons of the foot and back to the first cell.
+  capture_begin();
+  for (int i = 0; i < 5; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  const char* second = strstr(g_out, "focus cell2");
+  const char* third = strstr(g_out, "focus cell3");
+  const char* first_button = strstr(g_out, "focus left");
+  const char* second_button = strstr(g_out, "focus right");
+  const char* wrapped = (second_button != nullptr) ? strstr(second_button, "focus cell1") : nullptr;
+  TEST_ASSERT_NOT_NULL_MESSAGE(second, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(third, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(first_button, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(second_button, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(second < third, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(third < first_button, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(first_button < second_button, g_out);
+  // **And the ring comes back to the first control of the page**: the last one goes on to the first.
+  TEST_ASSERT_NOT_NULL_MESSAGE(wrapped, g_out);
+  // **The grid is never a stop**: a ring on the whole box of the grid is a ring nobody sees.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "focus the grid"), g_out);
+
+  // **And the other way round**: from the first control the key before it is the last of the page.
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus right"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/ring/app.lua");
+  storage->remove("/apps/ring/manifest.json");
+  storage->remove("/apps/ring");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A canvas inside a cell of a grid is still there after the page is painted** (0.154.1): a launcher draws the badge of
 // an app in a canvas of its own and puts that canvas in a cell, which is what `canvas:image` is for. The page is painted
 // twice —the first time is the page, the second is the one a manifest arriving asks for— and the pictures have to be
@@ -10005,6 +10106,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_bench_is_the_board_it_was_told_to_be);
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
+  RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_the_store_says_how_full_it_is);

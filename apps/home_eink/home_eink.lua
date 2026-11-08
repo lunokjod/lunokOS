@@ -290,11 +290,14 @@ local function build()
 
   build_paginator(band_y, width)
 
-  -- **The ring is on the first cell of the page** (0.153.0, docs/30): a grid is a stop of the dial of its own —the arrows
-  -- fall on it before they walk its cells—, so a launcher that left the dial outside would answer «nothing» to the first
-  -- press of the middle key, which is the one a person makes. **Of the first cell of the page on the glass** (0.154.1):
-  -- after a page turns, the cell a person came for is the first of it, and the arrows stay a walk to the right of the
-  -- last cell, which is the way a finger and a key both go.
+  -- **The ring is on the first cell of the page** (0.153.0, docs/30): a page that left the dial outside would answer
+  -- «nothing» to the first press of the middle key, which is the one a person makes. **Of the first cell of the page on
+  -- the glass** (0.154.1): after a page turns, the cell a person came for is the first of it, and the arrows stay a walk
+  -- to the right of the last cell, which is the way a finger and a key both go.
+  --
+  -- **The cells are the stops and the grid is not** (0.156.1): a grid that holds the app's cells is a box, and the walk
+  -- of the dial goes from the last cell of the page to the first one round the controls that are on the glass. It used
+  -- to stop on the grid itself, which paints no ring, and a person read that as the focus leaving the page.
   if ids[first] ~= nil and cells[ids[first]] ~= nil then
     ui.focus(cells[ids[first]].cell)
   end

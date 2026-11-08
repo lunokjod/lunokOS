@@ -4192,7 +4192,21 @@ namespace kernel {
 //     inherited the finger of the case before them, and the page of that bench is 960 high because it is turned;
 //   - what the cases said of the two homes of memory was written before the floor of 64 KB (0.151.20): the case of
 //     the ceilings now says that the floor decides **the order and not the refusal** (docs/75).
-static const char kVersion[] = "0.156.0";
+// 0.156.1 (8/11): **the page is a ring, and a box is not a stop**. The owner, with the launcher in his hand: *«el focus
+// ha de saber quin és el primer i l'últim control de la vista per tornar a començar des del control de l'altre punta
+// (moviment circular). Sembla que et pots sortir per l'esquerra i per la dreta amb el focus»*.
+//
+//   - **the phantom stop was the grid**: `ui.icon_grid` is `focusable` by default, which is right for a grid of its own
+//     items —there the cells are the control's and `index` walks them— and wrong for a grid that holds the app's cells,
+//     where the stops are the cells. The ring landed on the whole box of the grid, the control paints no ring for that,
+//     and the walk then went on in the order of the tree: a person reads that as the focus leaving the page. Measured
+//     on the bench with the launcher: eleven stops for ten cells, and the eleventh was `icon grid 500x818 at 20,8`;
+//   - **the ends of the ring are the ends of the page** and the walk wraps (`(current + direction + count) % count`),
+//     which it already did —what it lacked was a list without phantoms in it—, so no key leaves the page at either end;
+//   - the case `test_the_dial_walks_the_controls_of_the_page_in_a_ring` walks three cells and two buttons with the keys
+//     and says the order, the wrap in both directions and that the grid is never a stop; with the phantom put back it
+//     is red (measured). 539 of 539 green.
+static const char kVersion[] = "0.156.1";
 
 }  // namespace kernel
 

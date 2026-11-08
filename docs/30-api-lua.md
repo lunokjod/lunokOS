@@ -1829,6 +1829,22 @@ rebut la tecla. Una pàgina els controls de la qual no tenen cap `on_click` resp
 di res quan es prem, i això és una app muda i no un sistema que no respon. L'app de mostra ho
 ensenya: cada control que dona al dial escriu què s'ha premut a la línia de baix.
 
+### La pàgina és un anell, i el que no es veu no és una parada (0.156.1)
+
+El recorregut és **circular sobre els controls de la pàgina**: de l'últim de la pàgina es passa al
+primer i del primer a l'últim, i per això no hi ha cap tecla que deixi la persona enlloc —ni al
+principi ni al final de la pàgina, que és el que faria una volta que s'aturés als extrems—.
+**La llista de parades és la de la pàgina i no la de l'arbre**: un control el marc del qual cau
+fora del pare no hi és, i per això el cercle no pot marxar a una cosa que no es veu.
+
+**Una graella amb les cel·les de l'app a dins és una caixa i no una parada** (0.156.1, i és un
+arranjament demanat amb les paraules de l'amo: *«sembla que et pots sortir per l'esquerra i per la
+dreta amb el focus»*). Les parades són les cel·les que porta, i la graella com a parada pròpia era
+un fantasma on el cercle podia caure —el cercle era tota la caixa de la graella, que el control no
+pinta, o sigui que semblava que el focus hagués marxat de la pàgina— i des d'allí la volta seguia
+l'ordre de l'arbre i no el de la pàgina. Una graella amb els `items` de la pròpia control **sí** que
+és una parada: allà les cel·les són del control i `index` les camina.
+
 ### `ui.list` amb entrades: files que són controls (0.104.0)
 
 **Una llista de dades és el camí curt i una llista d'entrades és el complet.** Fins a 0.103.0 una llista només podia
