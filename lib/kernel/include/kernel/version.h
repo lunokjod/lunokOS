@@ -3177,7 +3177,30 @@ namespace kernel {
 // **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn. Of the book, what is
 // still missing with its fitxa in docs/46: **the thumbnail drawn in a cell of the shelf** —the cache of a book is
 // written beside it since 0.146.0 and nothing reads it back for a cell yet— and the size of the app (D6).
-static const char kVersion[] = "0.147.0";
+// 0.147.1 (8/11): **the plan says what is left, and one of its rows was wrong** (docs/46, docs/90). No line of code
+// changed: the suites are the same **535 cases**, and `pio test -e test --without-testing` builds the 23 with **0
+// warnings**.
+//
+//   - **A1 was stale and it lied**: it said the container of a book was not in this system while `lib/zip` has been
+//     here since the port —`Source`/`Entry`/`Archive`, **293 + 109 lines** and **7 cases** in `test/test_zip`—. The row
+//     now says what the container is: the deflate is `lib/inflate`, `stored` decompresses nothing, **nothing
+//     allocates** (the table of entries and the chapter's block belong to the caller, and the only block of its own is
+//     the window of the closing record, static and not on the stack), and what it refuses has its word — `kNotAZip`,
+//     `kSplit`, `kZip64`, `kDirectory`, `kNoRoom`, `kBadData`, `kEncrypted`, `kMethod` and `kCrc`;
+//   - **the order of what is left is the owner's, of 8/11**, and it is written in §6 of docs/46 so that no turn invents
+//     it: the **embedded fonts** of the book (TTF and WOFF) first, then the **fixed layout**, then **SVG** as a picture,
+//     and **the fourteen layout holes at the very end** (*«en parlarem al acabar tot això»*);
+//   - **B7 and B8 are wanted after all**: the reader does not need the two doors of the zip —`epub.read` carries the
+//     `container.xml` and the OPF— but another app does, and the example the owner gave is a **browser of files**
+//     opening a `.zip`, so the two rows stop being a question and become work. **D7** (`prefs` of an app) is accepted;
+//   - **and the thumbnail of the shelf has a fitxa of its own (C16)**: what was missing there is the **cell**, not the
+//     file —the cache is written beside the book since 0.146.0 and no cell reads it back—, which is what the app of the
+//     files does with the preview of a file: the icon of a thing is a picture of that thing. **Nothing of the system is
+//     needed**: the cache is a picture and a cell of a grid can be a control of the app since 0.105.0.
+//
+// **Pending**: as before, the cases are **not executed** and **the glass has not been looked at**; the owner asks for
+// those at the end of the app of the book and not now.
+static const char kVersion[] = "0.147.1";
 
 }  // namespace kernel
 
