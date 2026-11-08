@@ -3522,7 +3522,30 @@ namespace kernel {
 //   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 193 B of flash (55,7 %). **Pending**: flash it. The log
 //   of a paint is now `engine status %04x after the paint` —a non-zero status is an engine that took the command— and no
 //   `ffff` may appear. The suites are untouched.
-static const char kVersion[] = "0.151.6";
+// 0.151.7 (8/11): **the wait was in the wrong place: the register reads zero until the engine has started**.
+//
+//   The board ran 0.151.6 and said the thing that settles it, in its own words: `engine status 0000 after the paint`. A
+//   `LUTAFSR` read right after `DPY_BUF_AREA` is a **zero** — the engine has not marked itself busy yet — so the
+//   `CheckAFSR` this driver had put **at the top of the paint** read that zero, answered "the engine is idle", and did
+//   not wait at all. The second page of the reader then went out on top of the first one, and the controller stopped
+//   answering: the same `ffff`, from a different mistake of mine.
+//
+//   `M5EPD_Driver` has the wait **after the image is loaded and `LD_IMG_END` has closed it, right before
+//   `DPY_BUF_AREA`** (`WritePartGram4bpp` → `UpdateArea`: `CheckAFSR()` then the seven words). That is where it is now:
+//   the load of a page is two hundred milliseconds of SPI, and by the end of it the engine before has said what it is.
+//
+//   And a floor, because a small paint loads in a millisecond: **a paint of ours that went out less than
+//   `kEngineStartMs` (50 ms) ago is not over, whatever the register says** — the guard of 0.19.2, moved from the BUSY
+//   pin to the register. It is a floor and not a measurement, and it can only make the answer later.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 233 B of flash (55,7 %). **Pending**: flash it; the
+//   reader's two paints of the whole glass must both go up, one after the other, and no `ffff` may appear.
+//
+//   **And on the app that "must be doing something wrong"**: it is not. The reader asks for the whole glass and paints it
+//   —a legal thing, the same one the splash does at boot— and it is the only app that paints **pages** back to back
+//   instead of strips under the bar. What the system has to guarantee is that a paint that big cannot break the glass,
+//   and that guarantee only exists in one place: the driver, which is where it was missing (docs/50).
+static const char kVersion[] = "0.151.7";
 
 }  // namespace kernel
 

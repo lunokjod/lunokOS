@@ -1040,14 +1040,20 @@ El que hi ha ara, i tot és al driver (`it8951.cpp`):
 ### El driver del fabricant mana: `LUTAFSR == 0`, i `LD_IMG_END` (8/11, 0.151.6)
 
 El `M5EPD` oficial és al disc (`OLD/PaperOS/.pio/libdeps/m5stack-paper/M5EPD`) i la seva seqüència d'una pintada és
-aquesta, sense res més:
+aquesta, sense res més, **i en aquest ordre**:
 
-1. `CheckAFSR()`: **llegeix `LUTAFSR` i espera que valgui zero**, tres segons com a molt (`M5EPD_Driver.cpp:308`);
-2. `SetTargetMemoryAddr`: `LIS_HIGH` i després `LIS_LOW`;
-3. `LD_IMG_AREA` (0x0021) amb cinc paraules: format, x, y, w, h;
-4. els píxels, en paraules de 32 bits amb el CS baix;
-5. **`LD_IMG_END` (0x0022)**, que tanca la càrrega;
+1. `SetTargetMemoryAddr`: `LIS_HIGH` i després `LIS_LOW`;
+2. `LD_IMG_AREA` (0x0021) amb cinc paraules: format, x, y, w, h;
+3. els píxels, en paraules de 32 bits amb el CS baix;
+4. **`LD_IMG_END` (0x0022)**, que tanca la càrrega (`WritePartGram4bpp`);
+5. **`CheckAFSR()`**: llegeix `LUTAFSR` i espera que valgui zero, tres segons com a molt (`M5EPD_Driver.cpp:308`);
 6. `DPY_BUF_AREA` (0x0037) amb set paraules: x, y, w, h, mode i l'adreça de la imatge (baixa, alta).
+
+**La posició del `CheckAFSR` és el detall que faltava** (0.151.7): va **després de la càrrega i just abans de la comanda
+de pintar**, no al començament. Un `LUTAFSR` llegit un mil·lisegon després d'un `DPY_AREA` val **zero**, perquè el motor
+encara no s'ha marcat com a ocupat —ho diu el log de la placa: `engine status 0000 after the paint`—, i una espera que es
+pregunta al començament de la pintada no espera res. La càrrega d'una pàgina és de dos-cents mil·lisegons d'SPI, i al
+final ja diu què és.
 
 El meu driver feia **1 amb el pin BUSY i una taula de mil·lisegons** en comptes del registre. La placa va dir com
 d'equivocat era: el pin deia que una pàgina trigava 1052 ms, després 3000 (un temps esgotat), després 2613 — tres

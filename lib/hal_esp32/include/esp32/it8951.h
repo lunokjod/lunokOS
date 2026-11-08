@@ -116,6 +116,9 @@ class It8951 : public ISurface {
   // How many times in a row it has been tried and failed, and whether the driver has given up on it.
   // Whether the last wait saw the panel answer nothing at all (`ffff`), which is the one thing a rail cycle is for.
   bool silent_ = false;
+  // **When the last paint of ours went out** (0.151.7): a `LUTAFSR` read a moment after it is a zero that means nothing yet
+  // —the engine has not marked itself busy—, and it is the only thing this number is for (docs/50).
+  uint32_t painted_ms_ = 0;
   // **The way back for a controller that answers `ffff` and for nothing else** (0.151.3).
   bool bring_back();
   uint8_t revive_fails_ = 0;

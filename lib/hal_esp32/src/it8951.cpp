@@ -88,6 +88,13 @@ const uint32_t kPixelChunkBytes = 2000;
 // which is more than the two of a `init` (docs/50).
 const uint32_t kPaintTimeoutMs = 3000;
 
+// **A zero in `LUTAFSR` is not an answer until the engine has had time to mark itself busy** (0.151.7, the guard of
+// 0.19.2 on the register instead of on the BUSY pin). The board read the register as zero a millisecond after a
+// `DPY_AREA` —`engine status 0000 after the paint`— with more than a second of ink still to come, and a paint that
+// believes that zero sends the next page on top of a running engine. It is a floor and not a measurement: nobody has
+// timed how long the engine takes to say it is busy, and it can only make the answer later (docs/50).
+const uint32_t kEngineStartMs = 50;
+
 // **How many times a panel that stopped answering is brought back before the driver gives up on it**
 // (0.118.9). Three and not one, because the rail cycle of a `power_on` takes a second of the driver's
 // time and a controller that is deaf for a moment is not a controller that is gone; and not ten,
@@ -472,6 +479,8 @@ bool It8951::revive() {
   if (!back) return false;
   dirty_ = false;
   mark(0, 0, width_, height_);
+  // A panel that has just been re-armed has no paint of ours in flight (0.151.7).
+  painted_ms_ = 0;
   return true;
 }
 
@@ -623,15 +632,8 @@ bool It8951::flush(UpdateMode mode) {
     hal::logf(pal::kLogDebug, "PANEL", "a paint was asked with nothing marked");
     return true;
   }
-  // **One paint at a time, and the engine says when it is done** (0.151.6): the maker's own order, `CheckAFSR` —poll
-  // `LUTAFSR` until it reads zero, three seconds at most— and then the target address, `LD_IMG_AREA`, the rows,
-  // `LD_IMG_END` and `DPY_BUF_AREA`. Nothing of it is a guess about how long the ink takes: the register is the engine's
-  // own answer, and the maker's driver asks it and nothing else (docs/50).
-  if (!wait_paint(kPaintTimeoutMs)) {
-    // A panel that did not answer at all is the one case with a way back —the rail— and it is not taken while the panel
-    // is merely painting (0.151.3).
-    if (!silent_ || !bring_back()) return false;
-  }
+  // **One paint at a time**: the order is the maker's —`SetTargetMemoryAddr`, `LD_IMG_AREA`, the rows, `LD_IMG_END`, and
+  // only then `CheckAFSR` and `DPY_BUF_AREA` (0.151.7)—. The wait is **not** here: see the comment where it is.
   // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
   uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
   uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
@@ -713,7 +715,20 @@ bool It8951::flush(UpdateMode mode) {
   uint16_t display[7] = {nx0, ny0, w, h, static_cast<uint16_t>(mode),
                          static_cast<uint16_t>(memory_ & 0xFFFF),
                          static_cast<uint16_t>((memory_ >> 16) & 0xFFFF)};
+  // **The engine, exactly where the maker asks it** (0.151.7): `M5EPD_Driver::UpdateArea` calls `CheckAFSR` after the
+  // image has been loaded and `LD_IMG_END` has closed it, immediately before `DPY_BUF_AREA`. **Where it is asked is the
+  // whole point**: `LUTAFSR` read a millisecond after a `DPY_AREA` is a **zero**, because the engine has not marked
+  // itself busy yet —the board says it in its own log, `engine status 0000 after the paint`— so a wait that is asked at
+  // the top of the paint does not wait at all, and the second page goes out on top of the first one, which is what the
+  // controller of this panel does not survive. The load of a page is two hundred milliseconds of SPI, and by the end of
+  // it the engine before has said what it is (docs/50).
+  if (!wait_paint(kPaintTimeoutMs)) {
+    // A panel that did not answer at all is the one case with a way back —the rail— and it is not taken while the panel
+    // is merely painting (0.151.3).
+    if (!silent_ || !bring_back()) return false;
+  }
   if (!command(kCmdDisplayArea, display, 7)) return false;
+  painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   dirty_ = false;
   // **Every paint says what it sent** (0.118.6): the splash of the boot goes up and the page of an app does not, and the
   // two go through this same call — so the only way to tell them apart is to write down the five words of `DPY_AREA`
@@ -875,6 +890,12 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
   const uint32_t started = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   silent_ = false;
   for (;;) {
+    const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    // **A paint of ours that went out a moment ago is not over, whatever the register says** (0.151.7).
+    if (painted_ms_ != 0 && (now - painted_ms_) < kEngineStartMs) {
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
     const uint16_t status = read_register(kRegLutAfsr);
     if (status == 0) return true;
     // **`ffff` is a panel that is not answering**, and it is said here so the paint above can bring the rail back
@@ -884,7 +905,6 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
       why_ = "the panel stopped answering";
       return false;
     }
-    const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     if ((now - started) > timeout_ms) {
       // **And if this ever happens it is said**: it is an engine that has not stopped after three seconds, which no mode
       // of this panel takes, and the maker's own driver gives up at the same number (docs/50).
