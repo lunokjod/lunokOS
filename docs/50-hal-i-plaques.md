@@ -1029,9 +1029,10 @@ El que hi ha ara, i tot és al driver (`it8951.cpp`):
   (`kSilentTries`, `kSilentPauseMs`): un controlador que només està enfeinat torna a contestar i la placa no es mata.
 - **El temps d'espera es mesura, no se suposa.** `wait_paint()` mesura quants mil·lisegons ha estat BUSY avall el panell
   després de `DPY_AREA`, i si la pintada cobria **mitja pàgina o més** aquell número passa a ser el mínim de la
-  següent —només pot créixer, i un cursor que parpelleja no el toca—. Es diu al log: `the panel held busy %u ms for a
-  page (the table says %u)`. La fila del fabricant (450 ms per a `gc16`) és un mínim, i la placa ja l'ha trencada un
-  cop.
+  següent —només pot créixer, i un cursor que parpelleja no el toca, perquè **només s'aplica a les pintades que estan
+  esperant una pàgina** (0.151.4: la primera versió el va aplicar a tot i el sistema va quedar a un quadre per segon)—.
+  Es diu al log: `the panel held busy %u ms for a page (the table says %u)`.
+  **Mesurat el 8/11 amb la 0.151.3: una pàgina sencera té la tinta 1051 ms**, no els 450 de la fila del fabricant.
 - **`arm()` no creu un `ffff`** (0.151.2): una informació de dispositiu tota a `ffff`, una geometria més gran que
   `kMaxGlassSide` (4 096) o una imatge a `0xffffffff` són «no hi ha panell», i `revive()` torna fals en comptes de
   fer veure que l'ha recuperat.

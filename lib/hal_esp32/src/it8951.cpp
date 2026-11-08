@@ -938,10 +938,11 @@ bool It8951::engine_over() {
   // come down by itself, so waiting for it is waiting for ever (measured on the board, 8/11, docs/92 §33).
   //
   // **And whatever the panel itself took the last time it was asked for a page this big** (0.151.3): the maker's row is
-  // a lower bound the board has already broken once, and a paint that starts while the one before it is still moving
-  // its ink is how the panel of the Paper stopped answering for good. The number only ever grows, and only a paint of
-  // half the glass or more is allowed to grow it, so a blinking caret never pays for a page (docs/50).
-  const uint32_t need = (measured_ms_ > ink_ms_) ? measured_ms_ : ink_ms_;
+  // a lower bound the board has already broken —a full page of the Paper held BUSY **1051 ms**, and the table says 450—
+  // and a paint that starts while the one before it is still moving its ink is how this panel stopped answering for
+  // good. **It only applies when the paint being waited for was a page**: a caret, a clock and a strip of the bar take
+  // the mode's own time, or every blink of the shell would wait a second for a page it is not painting (0.151.4).
+  const uint32_t need = (last_wide_ && measured_ms_ > ink_ms_) ? measured_ms_ : ink_ms_;
   return since >= need;
 }
 

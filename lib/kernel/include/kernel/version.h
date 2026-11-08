@@ -3448,7 +3448,25 @@ namespace kernel {
 //   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 417 B of flash (55,8 %). **Pending**: flash it and run
 //   `run reader` — the log has to say `the panel held busy <n> ms for a page (the table says 450)` and no `ffff`. The
 //   suites are untouched (31 failing cases of 0.151.0), and the driver half has no host test: it only exists on the board.
-static const char kVersion[] = "0.151.3";
+// 0.151.4 (8/11): **the panel said what a page costs —1051 ms, not 450— and the driver made every paint pay it**.
+//
+//   The board booted 0.151.3 with no `ffff` at all, which is the good news: the order of `flush()` was the bug and it is
+//   gone. And it said the number this driver had been guessing:
+//
+//     [I][PANEL] the panel held busy 1051 ms for a page (the table says 450)
+//
+//   **A whole page of the Paper takes 1051 ms of ink, not the 450 ms of the maker's row.** Every wait for a page after
+//   the first one was therefore cutting a waveform that had 600 ms left to run — which is what the panel was dying of.
+//
+//   But the measure was wired wrong: `engine_over()` used it for **every** paint, so after the splash each repaint of the
+//   bar and every turn of the shell waited a whole second for ink that was not theirs (1 frame per second, and the shell
+//   that does not come up healthy). It now applies **only when the paint being waited for covered half the glass or
+//   more**: a page waits the measured 1051 ms, a caret or the clock of the bar takes the mode's own time (0.151.4).
+//
+//   **Pending**: flash it again; `run reader` has to open the shelf and the book. If the glass still says the boot logo and
+//   the bar and nothing else, that is what a healthy boot of this system looks like on the bench too (the logo stays until
+//   an app paints), and what is wrong is something else — the serial log is the only witness then.
+static const char kVersion[] = "0.151.4";
 
 }  // namespace kernel
 
