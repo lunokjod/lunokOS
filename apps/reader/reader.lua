@@ -103,7 +103,15 @@ local book_face = nil
 local shelf_read = false
 local books = library.shelf_of()
 shelf_read = true
-ui.full_screen(true)
+
+-- **The whole glass is asked for only when `kFullGlass` says so** (0.151.10): asking for it makes the system **re-make the
+-- canvas** and wash the whole page before the app draws a single pixel, so the start of this app is **two paints of the
+-- whole glass** — the system's wash and its own page — and it is the only app of the disk that does that; every app that
+-- works lives under the bar in a view of 540x912. The board has left the panel silent in that second paint in every run
+-- since 0.151.1 (docs/50). **Set to `true` again when the driver can take it**: with `false` the reader paints exactly
+-- like the apps that do not break the glass, and the bar keeps its forty-eight rows.
+local kFullGlass = false
+if kFullGlass then ui.full_screen(true) end
 ui.title('Library')
 
 

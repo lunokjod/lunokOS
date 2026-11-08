@@ -3591,7 +3591,25 @@ namespace kernel {
 //
 //   **Measured**: `pio run -e m5-paper` builds with no warning, the disk image carries the new `apps/reader/reader.lua`
 //   (checked with `diff`), 2 338 741 B of flash (55,8 %). **Pending**: flash it and run `run reader`.
-static const char kVersion[] = "0.151.9";
+// 0.151.10 (8/11): **the reader paints like the apps that work: under the bar, and the whole glass is a switch**.
+//
+//   The owner is right and I was not: **other apps read the disk and paint, and nothing happens**. So the disk is not the
+//   trigger by itself, and 0.151.9's theory —disk traffic inside a page's waveform— is not enough to explain it.
+//
+//   What no other app of the disk does, and this one does at its very start, is **ask for the whole glass**: that makes the
+//   kernel re-make the root canvas and **wash the whole page before the app has drawn anything**, so the start of the
+//   reader is **two paints of the whole glass**, the system's and its own, one right after the other. Every app that works
+//   lives in a view of 540x912 under the bar, and its page is one paint.
+//
+//   So `kFullGlass` (a constant at the top of the app, `false` now) keeps the reader under the bar: same drawing code, same
+//   foot, the bar keeps its forty-eight rows, and the sequence of paints is the one of the apps that do not break the glass.
+//   Set it to `true` again the day the driver can take the whole glass — and that day will be measured, not assumed.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning and the disk image carries the new
+//   `apps/reader/reader.lua` (checked with `diff`). **Pending**: flash it and run `run reader`. If the panel holds, the
+//   culprit is the whole-glass view (the re-make plus two full-page paints) and it is a kernel question, not an app one.
+//   If it does not hold, what is left of the app is the page it draws, and that is where the next measurement goes.
+static const char kVersion[] = "0.151.10";
 
 }  // namespace kernel
 
