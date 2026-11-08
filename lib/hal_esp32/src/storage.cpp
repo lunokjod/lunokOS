@@ -4,12 +4,14 @@
 // gets the name explicitly. Handles come from a fixed pool: opening a file never
 // allocates (docs/75).
 #include <LittleFS.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
 #include "esp32/storage.h"
 #include "hal/hal.h"
+#include "hal/log.h"
 
 namespace hal {
 namespace {
@@ -93,18 +95,42 @@ class Esp32Fs : public IStorage {
 
   bool open(const char* rel, OpenMode mode, FileSlot& slot) override {
     int32_t free_index = -1;
+    uint32_t in_use = 0;
     for (size_t i = 0; i < kMaxFiles; ++i) {
-      if (!g_used[i]) {
+      if (g_used[i]) {
+        ++in_use;
+      } else if (free_index < 0) {
         free_index = static_cast<int32_t>(i);
-        break;
       }
     }
-    if (free_index < 0) return false;
+    if (free_index < 0) {
+      // **Eight files is the pool and the ninth is refused here** (docs/70): said
+      // with the path, because an app that cannot open a file has no other way of
+      // knowing that the reason was this pool and not the disk.
+      logf(pal::kLogWarn, "FS", "no free handle for %s (%u of %u open)", rel,
+           static_cast<unsigned>(in_use), static_cast<unsigned>(kMaxFiles));
+      return false;
+    }
 
     char path[kPathCap];
     fs_path(rel, path, sizeof(path));
+    errno = 0;
     g_files[free_index] = LittleFS.open(path, mode_name(mode));
-    if (!g_files[free_index]) return false;
+    if (!g_files[free_index]) {
+      // **The core says `fopen(...) failed` and nothing else** (0.151.18), and the
+      // three reasons behind it send a person to three different places: the file
+      // is not there, the file system has no room, or the chip could not give the
+      // `FILE`. **The heap here is the board's own RAM and not the sum with the
+      // PSRAM** (0.151.19): the number that explained a whole afternoon of
+      // `ENOMEM` was the first one, and `esp_get_free_heap_size()` counted the
+      // extra memory in and said a megabyte and a half (docs/75).
+      logf(pal::kLogWarn, "FS",
+           "cannot open %s for %s: errno %d, %u of %u open, %u B of board RAM, %u B of psram", path,
+           mode_name(mode), errno, static_cast<unsigned>(in_use), static_cast<unsigned>(kMaxFiles),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+      return false;
+    }
 
     g_used[free_index] = true;
     slot.impl = &g_files[free_index];

@@ -654,7 +654,7 @@ L'exemple de mà és `run page` (`apps/page/`), que baixa una pàgina i n'enseny
 | `fs.read(path[, max])` | cadena o `nil, error` | El fitxer sencer, o com a molt `max` bytes |
 | `fs.read_at(path, offset, len)` | cadena o `nil, error` | Accés aleatori sense obrir |
 | `fs.write(path, data)` | enters | Escriu sencers (temporal + reanomenar) |
-| `fs.data([sub])` | cadena | `/data/<id>/` o un camí a dins seu |
+| `fs.data([sub])` | cadena | `/data/<id>` (sense barra final, que és el que diu el codi) o `/data/<id>/<sub>` amb un nom a dins |
 | `fs.cfg([unitat])` | taula o `nil, error` | `{unit, dir}`: on van els ajustos d'aquesta app. Amb `"auto"`, `"sd"` o `"littlefs"` els mou (docs/70) |
 
 **Avui hi ha** `fs.open`, `fs.list`, `fs.stat`, `fs.read`, `fs.read_at`, `fs.write`, `fs.mkdir`,

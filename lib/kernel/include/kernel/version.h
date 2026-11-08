@@ -3814,7 +3814,66 @@ namespace kernel {
 //   `apps/` and wants seventeen of them, of which there are six here because the
 //   owner's working tree has the rest deleted and not committed. None of the
 //   fifteen is about this change.
-static const char kVersion[] = "0.151.17";
+// 0.151.18 (8/11): **a file that will not open says why**.
+//
+//   The owner asked why the reader cannot open `la vaca cega`. From the prompt the book opens —`epub.open` answers
+//   `true`, `epub.entries()` **8**, and `epub.thumbnail('OEBPS/img/cover.png', 64)` writes
+//   `epub/.la-vaca-cega.epub.cache.ics` at `48x64`— and inside the app it opens too, with the page on the glass; what
+//   failed was two **writes**, and the core said only `fopen(...) failed`, which is the same line for a file that is
+//   not there, a disk with no room and a chip that cannot give the `FILE`.
+//
+//   `Esp32Fs::open` now says which: `[W][FS] cannot open <path> for <mode>: errno <n>, <u> of 8 open, <bytes> B of
+//   heap`, and the refusal of the pool of eight files has a line of its own with the path, which it never had. That
+//   line is what answered the question in 0.151.19 (`errno 12` with a pool of one of eight).
+//
+//   **A wrong answer of this version, kept here because it cost a turn**: I first believed the cause was a missing
+//   folder —the image carries no `/data`, since `mklittlefs` drops an empty one— and changed `write_atomic` to make
+//   it. The test written to prove it **passed with that code broken on purpose**, because `write_atomic` already
+//   called `make_dirs()` before opening the temporary file, exactly as `mkdir` and `open` did. The change and its test
+//   are not here: nothing about the folders was wrong. What the code keeps from this version is the diagnostic.
+//
+// 0.151.19 (8/11): **the board's own RAM keeps a floor, and the app's blocks go to the extra memory when it would lose
+// it**.
+//
+//   This is the answer to the owner's two questions —why `la vaca cega` would not open, and then why `Don quijote` would
+//   not either— and it is one bug, not two.
+//
+//     - **What the board said**, with the diagnostic of 0.151.18 in: `[W][FS] cannot open
+//       /epub/.la-vaca-cega.epub.cache.ics for r: errno 12, 1 of 8 open, 1709479 B of heap`. `errno 12` is `ENOMEM`,
+//       our pool held **one** file of eight, and the heap it printed was the sum with the PSRAM. The number that
+//       mattered was the other one: `mem` says the board's own RAM has **125 464 B free at rest, the biggest piece
+//       110 580 B**, and `EspExtraMemory` sent every Lua block under **4 KB** home to that same pool;
+//     - **the consequence**, and it was not only the reader: after **any** app had run, `ls /littlefs` printed nothing
+//       and every `fopen` on the flash answered `ENOMEM` until the board was rebooted, while the card still listed. The
+//       Lua machine of the reader asks for about **120 KB** in small tables and strings, and the file system, the card
+//       and the panel need that pool for a `FILE` and for DMA buffers — which is also why a read of the card failed
+//       with `sdmmc_read_blocks failed (257)`, `ESP_ERR_INVALID_CRC`: a buffer that was not there;
+//     - **the fix.** A block goes to the board's RAM only while what is left after it stays above `kHomeReserve`
+//       (**64 KB**, `lib/pal_esp32/src/pal_esp32.cpp`), and to the PSRAM after that; the free bytes are read every
+//       two hundred and fifty-six asks and not at every one, because a walk of the heap per block would cost more than
+//       the block. A block that asked for the extra memory still tries there first, and a board with no PSRAM falls
+//       back home as it always did, so the ATOM is untouched.
+//
+//   **Measured on the board, after the fix** (Paper, over the serial port):
+//
+//     - `open /littlefs/epub/la-vaca-cega.epub` → `[I][BOOK] the cache of the book is already at
+//       epub/.la-vaca-cega.epub.cache.ics`, `[D][FS] write 54 B in 40 ms`, `reader: La vaca cega, 2 chapter(s),
+//       index 2 (ncx), cover yes` and the page on the glass — **no `fopen` refusal at all**;
+//     - `ls /littlefs/data/reader` → `reading.txt 54`: **the position of the book is saved again**, which the flash
+//       could not do at all before this version;
+//     - `open /sd/epub/Don_Quijote_de_la_Mancha-Cervantes_Miguel.epub` → `reader: El ingenioso hidalgo Don Quijote de
+//       la Mancha, 56 chapter(s), index 53 (ncx), cover yes` and **no `sdmmc_read_blocks failed`**;
+//     - `pio run -e m5-paper`: **2 339 921 B of flash (55,8 %)**, 121 596 B of RAM (2,7 %), no warning.
+//
+//   **Not measured, and said so**: the free bytes of the board's RAM **while an app is alive**, because the prompt does
+//   not answer while an app owns the console. The floor of 64 KB is therefore a reasoned number —the drivers ask in
+//   pieces of one and four kilobytes and the floor has to survive the pieces— and not a measured one; the constant is
+//   one line to change the day a measurement says otherwise.
+//
+//   **Still open, and seen while measuring**: the cover of `Don quijote` is named `OEBPS/Images/don quijote-
+//   cervantes.png` and cannot be read (`[W][BOOK] the picture … cannot be read`), which is the reader resolving an
+//   `href` with a space in it and not this version's business.
+static const char kVersion[] = "0.151.19";
 
 }  // namespace kernel
 

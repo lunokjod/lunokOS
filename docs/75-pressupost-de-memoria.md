@@ -495,6 +495,20 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   `lib/luabind/src/luabind.cpp`. D'aquí cap amunt, `pal::extra_memory()` dona el bloc de la PSRAM; per
   sota, de la RAM interna, que és més ràpida i on mil objectes petit fragmenten mil vegades menys.
   Una app no sap res de tot això: demana memòria i prou.
+- **I la RAM del xip té un terra des de la 0.151.19** (`kHomeReserve`, **64 KB**, a
+  `lib/pal_esp32/src/pal_esp32.cpp`): un bloc petit hi va **només mentre el que en queda després de
+  donar-lo es quedi per sobre del terra**, i si no, va a la PSRAM. El llindar de 4 KB sol no n'hi havia
+  prou: la màquina de Lua del lector demana uns **120 KB** en taules i cadenes petites, se'ls endú tots
+  de la RAM del xip, i el sistema es queda sense el bloc que necessiten el `FILE` d'un fitxer i els
+  buffers de DMA de la targeta. Mesurat a la placa: `mem` deia **125 464 B lliures (el tros més gran
+  110 580 B)** amb el prompt, i després d'arrencar una app `fopen` responia `ENOMEM` amb 1,7 MB de
+  PSRAM lliures, `ls /littlefs` no llistava res i una lectura de la targeta fallava amb un error de
+  CRC (`sdmmc_read_blocks failed (257)`) fins a reiniciar la placa. Amb el terra, el lector obre els dos
+  llibres i torna a desar la posició. **Els bytes lliures amb una app viva no estan mesurats** (el
+  prompt no contesta mentre una app té la consola): el número de 64 KB és raonat i és una constant.
+- **Els bytes lliures d'aquest terra es llegeixen cada 256 peticions i no a cada una**: passejar pel
+  munt per a cada un dels milers de blocs que demana una màquina de Lua costaria més que el bloc, i un
+  terra que es llegeix dues-centes cinquanta-sis peticions tard és igualment un terra.
 - **Si la casa preferida és plena, es prova l'altra abans de dir que no**. Un bloc pot viure a
   qualsevol de les dues, i la PSRAM plena no és un error de l'app.
 - **El sostre d'una app al Paper és la PSRAM mapejada** (`heap_limit_kb` = 4 096 KB), perquè el que
