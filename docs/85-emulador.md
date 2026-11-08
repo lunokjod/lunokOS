@@ -931,3 +931,13 @@ fitxer que queda és l'última pantalla de la tirada. És la manera de mirar qu�
 no té finestra: `run showcase 3` amb `--dump /tmp/p3.pgm` i el PGM es converteix amb qualsevol eina (amb Python,
 `PIL.Image.open('/tmp/p3.pgm').save('/tmp/p3.png')`). No canvia res del que el banc simula; encén el vidre com ho fa
 `--gui` i prou.
+
+**`--dump` no és mai el que hi ha a la pila (8/11).** `emu::Options` és una estructura plana, sense constructor, i
+fins a l'0.151.1 no tenia cap valor per defecte: un `emu::Options opts;` era el que hi hagués a la pila, i un `dump`
+escombraries és un PGM del vidre **escrit a un nom de fitxer escombraries a cada pintada**. Amb els 540×960 del
+Paper, cada fitxer fa exactament 518 415 octets (15 de capçalera i 518 400 de píxels), i se'n van ajuntar més de
+quaranta a l'arrel del projecte en una tarda de proves: cinc fitxers de prova que deien `emu::Options opts;` i la
+línia del `tearDown` que en deia `emu::Options fresh;`. Ara **cada camp té el seu valor per defecte** (`nullptr`,
+`0`, `false`, que és el que ja tenia el global `g_options`, que s'inicialitza a zero, així que res no es comporta
+diferent) i tot lloc que en declara un ho diu amb claus (`emu::Options opts{};`). El banc ja ho tapava des del
+principi: `parse()` posa `opts.dump = nullptr` abans de mirar els arguments.

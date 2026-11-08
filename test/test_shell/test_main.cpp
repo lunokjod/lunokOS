@@ -136,7 +136,7 @@ void ensure_booted() {
   char volume[128];
   snprintf(volume, sizeof(volume), "%s/littlefs", g_root);
   make_dirs(volume);
-  emu::Options opts;
+  emu::Options opts{};
   opts.fs_dir = g_root;
   emu::set_options(opts);
   pal::init();

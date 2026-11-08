@@ -178,7 +178,7 @@ bool boot() {
   make_dirs(g_root);
   make_dirs(flash);
 
-  emu::Options opts;
+  emu::Options opts{};
   opts.fs_dir = g_root;
   emu::set_options(opts);
 

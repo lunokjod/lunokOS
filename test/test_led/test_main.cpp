@@ -63,7 +63,7 @@ bool boot_once() {
   snprintf(fs_dir, sizeof(fs_dir), "%s/littlefs", root());
   make_dirs(root());
   make_dirs(fs_dir);
-  emu::Options opts;
+  emu::Options opts{};
   opts.fs_dir = root();
   emu::set_options(opts);
   // The boot reads the light before anything else can fail: a disk that is not there is a

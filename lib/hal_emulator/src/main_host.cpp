@@ -733,7 +733,7 @@ int run_script(const char* path, uint32_t& shown_frames) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  emu::Options opts;
+  emu::Options opts{};
   bool want_help = false;
   if (!parse(argc, argv, opts, want_help)) {
     fprintf(stderr, "bad options; try --help\n");

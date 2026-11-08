@@ -3362,7 +3362,27 @@ namespace kernel {
 //
 // **Pending**: those fourteen, the eight of `test_layout`, the five of `test_font`, and the four single ones. The glass
 // has still not been looked at.
-static const char kVersion[] = "0.151.0";
+// 0.151.1 (8/11): **a bench that cannot write rubbish: `emu::Options` has a default in every one of its 35 plain fields**.
+//
+// The root of the repository filled with more than forty files of exactly **518 415 bytes** — a PGM of the glass (15-byte
+// header plus 540x960 pixels) — whose names were raw stack bytes. The writer was not a mystery: a commit of the glass
+// writes the picture whenever `emu::options().dump != nullptr` (`emu_surface.cpp:362`), and `emu::Options` is a plain
+// struct with no constructor, so **`emu::Options opts;` was whatever the stack had**. Five test files said it that way
+// (test_apps, test_book, test_json, test_led, test_shell) and the `tearDown` of the app suite did too
+// (`emu::Options fresh;`, added in 0.151.0 — my line, and the one that made it worse). A garbage `dump` is a garbage
+// file name, written once per paint.
+//
+// Fixed where it comes from: all 35 plain fields of the struct have a default now (`nullptr`, `0`, `false`), which is
+// **exactly what the global `g_options` already was** — it is zero-initialised — so no behaviour changes and no
+// declaration of it can come out as rubbish again; and every declaration that exists says so with braces
+// (`emu::Options opts{};`) so the next reader sees the danger. The bench itself was already safe: `parse()` sets
+// `opts.dump = nullptr` before it looks at the arguments. It is written in `docs/85` next to `--dump`.
+//
+// **Measured**: `pio test -e test --without-testing` builds all 23 suites with **no warning**; the tree has no file left
+// whose name is not printable ASCII (only the accented EPUB under `OLD/PaperOS/tests/`, which is a real name).
+// **Pending**: the suites themselves, untouched — the 31 failing cases of 0.151.0 are where they were, and the glass
+// still has not been looked at.
+static const char kVersion[] = "0.151.1";
 
 }  // namespace kernel
 

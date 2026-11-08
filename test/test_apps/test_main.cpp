@@ -144,7 +144,10 @@ void tearDown(void) {
   // "cannot start the interpreter" and blames code that is fine: it is the leak that hid a dozen cases for days. What is
   // kept is only where this suite keeps its disks.
   const emu::Options was = emu::options();
-  emu::Options fresh;
+  // **With its braces**: `emu::Options fresh;` is a plain struct with no constructor, so it is whatever the stack had —
+  // and a garbage `dump` in it is a picture of the glass written to a garbage file name on every paint, which is how the
+  // root of the repository filled with 518 KB files on 8/11. Every field has a default now (docs/85), and this says so.
+  emu::Options fresh{};
   fresh.fs_dir = was.fs_dir;
   fresh.state_dir = was.state_dir;
   emu::set_options(fresh);
@@ -283,7 +286,7 @@ bool boot_once() {
 
   // The kernel boots on a disk of its own, so nothing of the real emulator is
   // touched and the app set is the one written here.
-  emu::Options opts;
+  emu::Options opts{};
   opts.fs_dir = root();
   emu::set_options(opts);
 
@@ -514,6 +517,27 @@ void close_any_app() {
 }
 
 }  // namespace
+
+// **The bench's options start empty** (0.151.1): `emu::Options` is a plain struct with no constructor, and a `dump`
+// that is not nullptr is a picture of the glass —518 415 bytes of it— written to whatever name it holds, once per
+// paint. An uninitialised one filled the root of the repository with files on 8/11 (docs/85). The defaults are the
+// guard; this is the case that says the guard is still there. It needs no boot: it is the struct, nothing else.
+void test_the_options_of_the_bench_start_empty(void) {
+  const emu::Options one{};
+  TEST_ASSERT_NULL(one.dump);
+  TEST_ASSERT_NULL(one.fs_dir);
+  TEST_ASSERT_NULL(one.state_dir);
+  TEST_ASSERT_NULL(one.flash_dir);
+  TEST_ASSERT_NULL(one.sd_dir);
+  TEST_ASSERT_NULL(one.board);
+  TEST_ASSERT_EQUAL_INT32(0, one.baud);
+  TEST_ASSERT_EQUAL_INT32(0, one.ink);
+  TEST_ASSERT_FALSE(one.display);
+  TEST_ASSERT_FALSE(one.touch);
+  TEST_ASSERT_FALSE(one.delays);
+  TEST_ASSERT_FALSE(one.ink_refuse);
+  TEST_ASSERT_FALSE(one.persist);
+}
 
 // The plainest app there is: it starts, it writes, it ends, and the shell is back.
 void test_an_app_runs_and_writes(void) {
@@ -9077,6 +9101,7 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
 // turns a text page over a text page is a `du` —mode 1 of the panel— and a page that comes after one with a plate takes
 // the wash (docs/50).
 void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
+  remove("/tmp/dbg-keys.txt");
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
@@ -9207,6 +9232,13 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // **The keys of the board are the page's only after the centre enters it** (0.141.0, docs/46 C3): the gate the slider
   // has. Before the centre the arrows are the walk of the dial, and this page carries no control to walk, so nothing
   // moves; after it, up goes back and down goes forward.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the reader died before the keys");
+  TEST_ASSERT_NOT_NULL_MESSAGE(hal::platform().input(), "the bench has no keys at all");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3, (int)hal::platform().input()->count(), "the paper has three keys");
+  emu::press_key(2, true);
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().input()->pressed(2), "the bench did not see the key go down");
+  emu::press_key(2, false);
+  TEST_ASSERT_FALSE_MESSAGE(hal::platform().input()->pressed(2), "the bench did not see the key come up");
   auto press = [&](int key) {
     emu::press_key(key, true);
     pump_turns(60);
@@ -9217,8 +9249,10 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
 
   press(0);  // the centre enters the page
+  capture_begin();
   press(2);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), g_out);
   press(1);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, byte_of(), where);
 
@@ -9393,6 +9427,7 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_the_options_of_the_bench_start_empty);
   RUN_TEST(test_an_app_runs_and_writes);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);
   RUN_TEST(test_the_exit_code_reaches_the_shell);

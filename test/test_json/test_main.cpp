@@ -52,7 +52,7 @@ void mount_a_disk_with_apps(void) {
     char volume[128];
     snprintf(volume, sizeof(volume), "%s/littlefs", root);
     make_dirs(volume);
-    emu::Options opts;
+    emu::Options opts{};
     opts.fs_dir = root;
     emu::set_options(opts);
     if (hal::IStorage* storage = hal::platform().storage("/littlefs")) storage->mkdir("/apps");
