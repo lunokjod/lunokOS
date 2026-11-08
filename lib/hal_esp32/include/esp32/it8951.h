@@ -166,6 +166,10 @@ class It8951 : public ISurface {
   // Whether the last paint covered half the glass or more: only such a paint is allowed to raise `measured_ms_`, so a
   // blinking caret never makes the next page wait for a page's ink (0.151.3).
   bool last_wide_ = false;
+  // **Whether a paint of ours went out and has not been measured yet** (0.151.5): `painted_ms_` only means something
+  // while this is up, and a failed attempt that never reached `DPY_AREA` must not be timed against a paint of minutes
+  // ago (measured on the board, 8/11).
+  bool painted_pending_ = false;
   // Why the last step that failed did fail. The handshake already reported four different faults
   // under one sentence and each one cost a flash to tell apart (measured on the board, 1/11).
   const char* why_ = "";

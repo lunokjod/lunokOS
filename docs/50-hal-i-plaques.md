@@ -1037,6 +1037,26 @@ El que hi ha ara, i tot és al driver (`it8951.cpp`):
   `kMaxGlassSide` (4 096) o una imatge a `0xffffffff` són «no hi ha panell», i `revive()` torna fals en comptes de
   fer veure que l'ha recuperat.
 
+### El que encara no se sap (8/11, i és el que toca mesurar)
+
+En tres tirades seguides el vidre mor **entre les dues pintades de l'arrencada d'una app**: la rentada de tota la pàgina
+puja (el panell l'accepta), l'app arrenca, i la pintada següent troba `ffff` **abans d'enviar res**. Entre aquestes dues
+pintades el lector fa exactament dues coses pesades: camina els llibres (`epub.books`, que passa per la **flash i la
+targeta**) i carrega **dues cares** de `/fonts`. Cap pintada nostra s'està movent en aquell moment, i tot i així el
+controlador deixa de contestar: o es reinicia, o perd l'alimentació.
+
+Els candidats, per ordre: **la targeta SD, que comparteix el bus SPI amb el panell** (i que es llegeix just en aquell
+moment), i les dues cares. L'experiment que ho separa és de dos minuts i no necessita res més que la placa:
+
+1. `splash boot` — una pàgina sencera i cap app: ha de pujar.
+2. `ls /epub` — camina la flash i la targeta i no pinta res.
+3. `splash boot` una altra vegada — si ara el vidre no contesta, la culpa és de la targeta; si puja, no ho és.
+4. I `run reader` un cop **amb la targeta fora** del slot (`/cfg` cau a la flash i el lector arrenca igual).
+
+Mentrestant, el que sí que està arreglat (0.151.5) és que un vidre mort **no costa res**: `flush()` el refusa abans
+d'esperar, `engine_over()` diu que no hi ha tinta en moviment, i la frase d'una pàgina refusada es diu **una vegada
+mentre no canviï el motiu** — abans, cada volta del sistema pagava tres segons i escopia la mateixa advertència.
+
 I una regla que es queda encara que no fos la culpable: **una `du` no cobreix tota la pàgina**. La forma d'ona de dos
 nivells és *parcial* i una pàgina sencera és una rentada; el nucli converteix en `gc16` qualsevol `du`, `du4` o `a2`
 que cobreixi set vuitens del vidre o més (`ui.cpp`, `paint()`), i el lector demana `gc16` a la seva rentada de

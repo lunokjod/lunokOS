@@ -556,6 +556,12 @@ bool g_owed_paint = false;
 // asked for again in the middle of the paint that is asking for it.
 bool g_painting = false;
 
+// **The sentence of a refused page is said once while it does not change** (0.151.5): a glass that is gone refuses every
+// paint, and one warning per turn is a console nobody can read —the board of 8/11 filled a screen with the same line
+// while the panel was being asked the same question three seconds at a time—. The reason is part of the sentence, so a
+// reason that changes is said again.
+char g_last_refusal[96] = {0};
+
 bool paint_root() {
   if (g_painting) return false;
   g_painting = true;
@@ -571,11 +577,15 @@ bool paint_root() {
     // **And it is said out loud** (0.118.4): a page that does not go up is the difference between an app that works and
     // an app that runs with a dead glass, and the sentence of the panel is the only thing that tells the four reasons
     // apart. One line per paint, not per turn, because the retry would otherwise fill the console (docs/50, docs/92).
-    log_printf(pal::kLogWarn, "UI", "the glass refused a page (%u,%u %ux%u, %s): %s",
-               static_cast<unsigned>(root().x + region.x), static_cast<unsigned>(root().y + region.y),
-               static_cast<unsigned>(region.w), static_cast<unsigned>(region.h),
-               (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4) ? "du" : "gc16",
-               display::last_error());
+    const char* why = display::last_error();
+    if (why == nullptr) why = "";
+    if (g_last_refusal[0] == '\0' || strcmp(g_last_refusal, why) != 0) {
+      snprintf(g_last_refusal, sizeof(g_last_refusal), "%s", why);
+      log_printf(pal::kLogWarn, "UI", "the glass refused a page (%u,%u %ux%u, %s): %s",
+                 static_cast<unsigned>(root().x + region.x), static_cast<unsigned>(root().y + region.y),
+                 static_cast<unsigned>(region.w), static_cast<unsigned>(region.h),
+                 (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4) ? "du" : "gc16", why);
+    }
     // The refused one stays, and it stays in its own order: `kept` never passes `i`, so this is a copy in place.
     root().damage[kept++] = region;
   }

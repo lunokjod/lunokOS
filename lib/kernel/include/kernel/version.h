@@ -3466,7 +3466,33 @@ namespace kernel {
 //   **Pending**: flash it again; `run reader` has to open the shelf and the book. If the glass still says the boot logo and
 //   the bar and nothing else, that is what a healthy boot of this system looks like on the bench too (the logo stays until
 //   an app paints), and what is wrong is something else — the serial log is the only witness then.
-static const char kVersion[] = "0.151.4";
+// 0.151.5 (8/11): **a glass that is gone costs nothing, and the measurements stop lying — the trigger is still unknown**.
+//
+//   The board of 0.151.4 said three things. The first is that the panel dies **between the two paints of the app's own
+//   start**: `run reader`, the wash of the whole glass goes up (`paint 0,0 960x540 mode 2 … 540 rows of 480 B`, accepted
+//   by the panel), the app runs, and the next paint finds `ffff` before it sends anything. That has now happened in three
+//   runs and in the same place, which is a measurement and not a theory. The second is that everything after that was
+//   worse than it had to be: a dead glass made every turn wait three seconds and printed the same warning for ever.
+//   The third is that my own instrument was lying: `the panel held busy 2613 ms … 5739 ms` is the time since the last
+//   paint that went out, not a paint at all.
+//
+//   Fixed here, and nothing of it is about the trigger:
+//     - `flush()` refuses a `dead_` panel **first**, before the wait, so a gone glass costs nothing per turn;
+//     - `engine_over()` answers "the ink is over" when the panel is dead, so the kernel does not keep asking;
+//     - **only a paint that reached `DPY_AREA` is measured** (`painted_pending_`), and a measurement is capped by the
+//       paint timeout, so the log cannot say `held busy 5739 ms` about a panel that painted nothing;
+//     - the sentence of a refused page is said **once while the reason does not change**, instead of one warning per
+//       turn.
+//
+//   **What is still open, said plainly**: between those two paints the app lists the books (`epub.books`, which walks the
+//   flash **and the card**) and loads two faces from `/fonts` — and the panel goes `ffff` with no paint of ours moving.
+//   So the panel is being reset or losing its supply during the app's start, and the candidates are the card on the bus
+//   it shares with the panel and the two faces. The next step is an experiment on the board and not another guess:
+//   `splash boot` (a whole page, no app), then `ls /epub` (the card, no paint), then `splash boot` again — and `run
+//   reader` once with the card out of the slot.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 501 B of flash (55,8 %). No test run.
+static const char kVersion[] = "0.151.5";
 
 }  // namespace kernel
 

@@ -505,6 +505,7 @@ bool It8951::revive() {
   // A panel that has just been re-armed has been measured as nothing: its first page says what it takes (0.151.3).
   measured_ms_ = 0;
   last_wide_ = false;
+  painted_pending_ = false;
   return true;
 }
 
@@ -605,8 +606,15 @@ void It8951::blit(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t*
 }
 
 bool It8951::flush(UpdateMode mode) {
+  // **A panel that has stopped answering is not asked again, and above all it is not waited for** (0.151.5): the wait of
+  // a paint is up to three seconds, and a glass that is gone was costing the whole system three seconds of every turn
+  // —the board ran, and the shell crawled— while the answer could not change (measured on the board, 8/11).
   if (!ready_ || image_ == nullptr) {
     why_ = "the panel is not up";
+    return false;
+  }
+  if (dead_) {
+    why_ = "the panel does not answer";
     return false;
   }
   // **What is sent is what changed, and nothing else.** With nothing marked there is nothing to paint and
@@ -771,6 +779,7 @@ bool It8951::flush(UpdateMode mode) {
   if (!command(kCmdDisplayArea, display, 7)) return false;
   painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   ink_ms_ = ink_ms_of(mode);
+  painted_pending_ = true;
   // **A page is waited for as long as it really takes** (0.151.3): half the glass or more is a page, and only a page is
   // allowed to raise the measured ceiling the next paint waits for (docs/50).
   last_wide_ = (static_cast<uint32_t>(w) * h >= (static_cast<uint32_t>(native_width_) * native_height_) / 2u);
@@ -927,6 +936,9 @@ void It8951::clear_engine_flag() {
 }
 
 bool It8951::engine_over() {
+  // **A glass that is gone has no ink moving** (0.151.5): saying `no` for ever keeps the kernel asking every turn and
+  // paying a wait it can never win. The paint itself already refused (docs/50).
+  if (dead_) return true;
   if (!ready_) return false;
   const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   // The engine has not had the time to mark itself busy yet: the guard of 0.19.2, and it is not a measurement (docs/50).
@@ -961,11 +973,18 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
   for (;;) {
     if (engine_over()) {
       const uint32_t ended = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
-      const uint32_t took = (busy_until != 0 ? busy_until : ended) - painted_ms_;
-      if (last_wide_ && took > measured_ms_) {
-        measured_ms_ = took;
-        hal::logf(pal::kLogInfo, "PANEL", "the panel held busy %u ms for a page (the table says %u)",
-                  static_cast<unsigned>(took), static_cast<unsigned>(ink_ms_));
+      // **Only a paint that went out is measured** (0.151.5): with `painted_ms_` left where the last good paint put it,
+      // every failed attempt "measured" the time since that paint and the log said `held busy 5739 ms` about a panel that
+      // had not painted anything (measured on the board, 8/11).
+      if (painted_pending_) {
+        uint32_t took = (busy_until != 0 ? busy_until : ended) - painted_ms_;
+        if (took > kPaintTimeoutMs) took = kPaintTimeoutMs;
+        painted_pending_ = false;
+        if (last_wide_ && took > measured_ms_) {
+          measured_ms_ = took;
+          hal::logf(pal::kLogInfo, "PANEL", "the panel held busy %u ms for a page (the table says %u)",
+                    static_cast<unsigned>(took), static_cast<unsigned>(ink_ms_));
+        }
       }
       return true;
     }
