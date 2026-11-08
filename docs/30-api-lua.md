@@ -190,18 +190,24 @@ Dues regles:
 
 ## `apps`
 
-**La porta de les apps, per a un llançador** (0.153.0). El sistema és qui sap què hi ha al disc —`/apps` és la porta de
-`kernel::apps`, amb els dos discs junts, el filtre de la placa i el manifest ja llegit (docs/40)—, i una app que ho
+**La porta de les apps, per a un llançador** (0.153.0, i 0.154.0 amb els noms i el manifest separats). El sistema és qui
+sap què hi ha al disc —`/apps` és la porta de `kernel::apps`, amb els dos discs junts (docs/40)—, i una app que ho
 llegís caminant `/apps` seria un segon lector del mateix fitxer.
 
 | Crida | Torna | Notes |
 |---|---|---|
-| `apps.list()` | taula | Un element per app, en l'ordre de la porta: `{id, title, icon, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `launcher` és el `"launcher": true` del manifest; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar |
+| `apps.list()` | taula de cadenes | **Els noms de la porta i res més**: un `id` per app, en l'ordre que el disc els dona. **No obre cap manifest**, o sigui que és el que un llançador pot ensenyar de seguida —el nom amb una icona genèrica— i el que arriba abans que el disc tregui res |
+| `apps.info(id)` | taula o `nil, error` | **El manifest d'aquella app**, llegit quan l'app ho demana: `{id, title, icon, launcher, card, works_here}`. `icon` és **el camí que el disc contesta** (`/apps/<id>/res/icon.png`), o `""` si el manifest no en nomena cap; `launcher` és el `"launcher": true`; `card` diu de quin disc ha sortit i `works_here` si aquesta placa la pot arrencar. El no diu per què (`E_INVAL`): un nom que la porta no té, o un manifest que aquest sistema no llegeix |
+
+**Per què són dues crides i no una** (0.154.0): una pàgina que espera tots els manifests i totes les imatges abans
+d'ensenyar res arriba tard, i una app lenta o un manifest trencat atura les altres. Amb les dues, el llançador dibuixa
+els noms de cop i va demanant el manifest d'una app per torn: cada cel·la passa del nom del disc i una lletra a la icona i
+el nom de debò, i les que no es poden llegir queden amb el que se'n sap.
 
 **El que no hi és**: les apps d'una altra placa **surt a la llista** (una app que hi és i no es pot arrencar és una cosa que
-una persona ha de poder veure i entendre), i l'app que és un llançador **surt** amb `launcher` a `true`: el filtre és de
-qui dibuixa la graella, no de la porta. `home_eink` és el llançador d'aquest sistema i és el primer client d'aquesta
-crida.
+una persona ha de poder veure i entendre, i `apps.info` ho diu amb `works_here`), i l'app que és un llançador **surt**
+amb `launcher` a `true`: el filtre és de qui dibuixa la graella, no de la porta. `home_eink` és el llançador d'aquest
+sistema i és el primer client d'aquestes dues crides.
 
 ## `app`
 

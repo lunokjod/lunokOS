@@ -120,8 +120,14 @@ struct AppInfo {
 typedef bool (*AppVisitor)(const AppInfo& info, void* context);
 
 struct AppsOps {
-  // Walks the door of the apps, one manifest at a time. False when there is no door at all.
-  bool (*each)(AppVisitor visitor, void* context);
+  // **The ids of the door and nothing else** (0.154.0): a walk of `/apps` that opens no manifest, because a launcher
+  // draws the ids and a placeholder first and asks for the rest one app at a time —a page that waits for every
+  // manifest and every picture before it shows anything is a page that arrives late and, if one app is slow, never—
+  // (docs/30, docs/40).
+  bool (*ids)(AppVisitor visitor, void* context);
+  // **The manifest of one app**, read when the app that asked wants it. False with a reason when the door does not
+  // know that id or its manifest is not one this system reads.
+  bool (*info)(const char* id, AppInfo& out, char* why, size_t why_cap);
 };
 
 void set_apps_ops(const AppsOps& ops);

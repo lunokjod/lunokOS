@@ -4697,23 +4697,31 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
                            "console.print('elsewhere here')\n"
                            "while true do sys.delay(20):await() end\n"));
 
-  pump_captured(200, g_out, sizeof(g_out), "run home_eink");
-  // The list is the door's, one line per cell, and **neither the launcher that is asking nor the other launcher is on
-  // it**; the app of another board is counted and not drawn (docs/30, docs/40).
+  // **A turn per app in the queue and fifty milliseconds between turns**: the ten names of this disk are read in about
+  // a second of the bench's time, so the capture has to be longer than the queue and not as long as one page.
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  // **The page arrives before its pictures** (0.154.0): the names of the door are said first, the whole glass is painted
+  // with a placeholder in every cell, and only then does the queue read the manifests —one app per turn— and say the
+  // name a person reads for each. The order of the two in the console is the whole point of the two calls.
+  const char* ids_said = strstr(g_out, " ids: ");
+  const char* whole_page = strstr(g_out, "paint 0,0 540x912");
+  const char* first_app = strstr(g_out, "home: app ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(ids_said, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(whole_page, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(first_app, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(ids_said < whole_page, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(whole_page < first_app, g_out);
+  // The queue read the manifest of the two apps that are apps of this board, and **the launcher that is asking was never
+  // asked for** —its own name leaves the list before anything is read— and the other launcher and the app of another
+  // board are taken out when their manifest says so (docs/30, docs/40).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: app alpha Alpha"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: app bravo Bravo"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app home_eink"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app other_launcher"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: app elsewhere"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, ", 1 left out"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: other_launcher is a launcher"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: elsewhere needs another board"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: home_eink"), g_out);
   // **The picture of the one that has one is drawn and the other is said**, once, in the console.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: bravo has no picture"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: alpha has no picture"), g_out);
-  // **The page is the whole glass and not the box of the grid** (0.153.1): a launcher that only paints the cells leaves
-  // the picture of the boot around them, and that is what the bench showed when this app was first run on the disk of
-  // the board —a page of `20,8 500x884`—. The wash of the page is what makes the first present a whole one, and the
-  // system promotes it to a `gc16` (docs/40, docs/50).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 

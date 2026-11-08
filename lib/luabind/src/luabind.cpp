@@ -1871,9 +1871,50 @@ struct AppList {
   int count;
 };
 
-bool add_app(const AppInfo& info, void* context) {
+// **The list is a list of names** (0.154.0): what the door presents is an id and nothing else has been read, so the
+// table is a table of strings —the cheapest thing a launcher can draw and the only thing that is true before a manifest
+// is opened—.
+bool add_id(const AppInfo& info, void* context) {
   AppList* list = static_cast<AppList*>(context);
-  lua_State* L = list->L;
+  ++list->count;
+  lua_pushstring(list->L, info.id);
+  lua_rawseti(list->L, list->array, list->count);
+  return true;
+}
+
+
+// apps.list(): **the ids of the door**, in the order the door presents them, and no manifest read (0.154.0). A launcher
+// draws these first —the id as the name and a placeholder picture— and then asks for one app at a time with
+// `apps.info`, so the page is up before the first manifest is opened and one app that is slow does not hold the others
+// (docs/30, docs/40).
+int l_apps_list(lua_State* L) {
+  if (g_apps_ops.ids == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no door of the apps");
+  }
+  lua_createtable(L, 0, 0);
+  AppList list = {L, lua_gettop(L), 0};
+  if (!g_apps_ops.ids(&add_id, &list)) {
+    lua_settop(L, 0);
+    return push_nil_error(L, "E_UNSUPPORTED", "the door of the apps did not answer");
+  }
+  return 1;
+}
+
+// apps.info(id): **the manifest of one app**, as the door reads it. The answer is the table a launcher draws —the name a
+// person reads, the picture to press, whether it is a launcher of its own and whether this board can run it—, and the
+// reason for a no is the system's, because a launcher that cannot say why a cell is empty is a launcher a person
+// cannot use (docs/30).
+int l_apps_info(lua_State* L) {
+  const char* id = luaL_checkstring(L, 1);
+  if (g_apps_ops.info == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no door of the apps");
+  }
+  AppInfo info = {};
+  char why[96];
+  why[0] = '\0';
+  if (!g_apps_ops.info(id, info, why, sizeof(why))) {
+    return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "that app cannot be read");
+  }
   lua_createtable(L, 0, 6);
   lua_pushstring(L, info.id);
   lua_setfield(L, -2, "id");
@@ -1887,24 +1928,6 @@ bool add_app(const AppInfo& info, void* context) {
   lua_setfield(L, -2, "card");
   lua_pushboolean(L, info.works_here ? 1 : 0);
   lua_setfield(L, -2, "works_here");
-  ++list->count;
-  lua_rawseti(L, list->array, list->count);
-  return true;  // the walk goes on: the app is the one that says when it has enough
-}
-
-// apps.list(): **every app of the door**, in the order the door presents them. The fields are what a launcher needs and
-// no more —the id to start it, the name a person reads, the picture to press, whether it is a launcher of its own—, and
-// `card` and `works_here` are there because a grid that shows an app this board cannot run has to say so (docs/30).
-int l_apps_list(lua_State* L) {
-  if (g_apps_ops.each == nullptr) {
-    return push_nil_error(L, "E_UNSUPPORTED", "this system has no door of the apps");
-  }
-  lua_createtable(L, 0, 0);
-  AppList list = {L, lua_gettop(L), 0};
-  if (!g_apps_ops.each(&add_app, &list)) {
-    lua_settop(L, 0);
-    return push_nil_error(L, "E_UNSUPPORTED", "the door of the apps did not answer");
-  }
   return 1;
 }
 
@@ -9831,8 +9854,9 @@ void seal_globals(lua_State* L) {
   lua_setglobal(L, "app");
 
   // apps: **the door of the apps** (0.153.0), which is what a launcher draws (docs/30, docs/40).
-  lua_createtable(L, 0, 1);
+  lua_createtable(L, 0, 2);
   set_function(L, "list", l_apps_list);
+  set_function(L, "info", l_apps_info);
   lua_setglobal(L, "apps");
 }
 

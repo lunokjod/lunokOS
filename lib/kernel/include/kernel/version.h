@@ -4113,7 +4113,27 @@ namespace kernel {
 // picture`). The master `tools/icons/Editor.png` was in the repository all along: it is copied to `res/icon-source.png`
 // and `tools/make_icon.py` makes the 94 × 94 `res/icon.png` the manifest now names (docs/45). Found on the board, running
 // the launcher and reading its own log over the serial port.
-static const char kVersion[] = "0.153.2";
+// 0.154.0 (8/11): **the page arrives before its pictures**. `apps.list()` and `apps.info(id)` are two calls and not one,
+// and the launcher is a queue.
+//
+//   - **`apps.list()` is the names of the door and opens no manifest** (`kernel/apps_ops.cpp`, a walk of `/apps` through
+//     the VFS, which is the door's own listing): what a launcher can draw at once, and the only thing that is true before
+//     a single file is read. **`apps.info(id)`** is that manifest, one app at a time, with the reason in the system's
+//     words when it cannot be read;
+//   - **why**: one page that waited for every manifest and every picture arrived late —the board spent seconds before the
+//     first pixel— and one app whose picture could not be read held up the ones behind it. Now the grid is up with a
+//     **generic picture** —a box with the first letter of the name, drawn by the app and not shipped as a file, so a cell
+//     whose picture fails keeps the letter and not a hole— and the queue fills in the real name and the real picture one
+//     cell at a time, measured on the board and on the bench: `paint 0,0 540x912` (the whole page) and then one
+//     `158x96` per cell as each manifest lands;
+//   - the queue takes **one app per turn** and the page is only laid out again when an app has to leave it (a launcher of
+//     its own, an app of another board), which is once and at the end; an app whose manifest cannot be read keeps its name
+//     and its letter and says so;
+//   - **the order of the page is the order of the names**, decided once before the first cell: the titles arrive one at a
+//     time and a grid that reorders itself when one lands is a grid whose cells jump under the finger;
+//   - and the case that runs the launcher now measures the order of the evidence —the names, then the whole page, then
+//     the first `home: app` line— which is the promise of the two calls. 178 of 178 green.
+static const char kVersion[] = "0.154.0";
 
 }  // namespace kernel
 
