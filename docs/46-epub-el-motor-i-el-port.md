@@ -200,7 +200,7 @@ mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mi
    (0.149.0), i el lector partit en **quatre fitxers** (`reader.lua` 49 215 B, `chapters.lua`, `notice.lua` i
    `library.lua`). El que queda és, si calgués, l'estat compartit en una taula (docs/75).
 2. **Com torna la pàgina** (D2): un objecte superfície o compondre dins d'un canvas de l'app.
-3. **La pantalla sencera** (D1): **feta el 7/11 (0.136.0)** — l'app la demana amb `ui.full_screen(true)`, tres tocs la desfan i els sent el sistema, i el lector la té en obrir (`apps/reader`), o sigui que la decisió que quedava era com es torna i la prengué l'amo.
+3. **La pantalla sencera** (D1): **feta el 7/11 (0.136.0)** — l'app la demana amb `ui.full_screen(true)`, tres tocs la desfan i els sent el sistema. **El lector no la demana en obrir** (corregit el 8/11, 0.151.11): és l'entrada `Full screen` del menú del llibre (C4), com al lector del paper, i l'arrencada viu sota la barra com qualsevol altra app. Demanar-la a l'arrencada feia que el sistema refés el canvas i rentés tota la pàgina abans que l'app hagués dibuixat res, i l'inici del lector eren **dues pintades de tot el vidre seguides** — la segona deixava el panell mut (mesurat el 8/11, docs/50).
 4. **Els accents** (D3): **decidit el 7/11 (0.127.0)**: la cara del llibre és llatina i les tres del sistema
    no s'han tocat, perquè canviar-les canvia el que veu tothom i no fa falta per al lector. Si l'amo les vol
    llatines, és una ordre d'eina per cada fitxer (`tools/ttf_latin1.py`).

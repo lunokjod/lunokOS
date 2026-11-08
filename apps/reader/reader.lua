@@ -37,14 +37,15 @@ if not caps.display then
   return
 end
 
--- **The whole glass** (0.136.0, docs/46 D1): a page of a book is a page and the strip of the system takes forty-eight
--- rows of it. The app asks for the glass here and the system answers with `on_resize`, which is a hook the app already
--- knows; three taps on the glass give the bar back and the same hook says so again.
+-- **The whole glass is the person's choice and not this app's** (0.151.11, docs/46 D1 and C4): the bar of the system
+-- keeps its forty-eight rows at start-up like in every other app, and asking for all of it is the **`Full screen` entry
+-- of the menu of the book** — `ui.full_screen(not ui.full_screen())` when it is picked —, which is where the original
+-- reader of the paper has it. Asking for it here, before the app has drawn a single pixel, made the system re-make the
+-- canvas and wash the whole page, and the start of this app was **two paints of the whole glass** in a row: the second
+-- one left the panel of the board silent in every run since 0.151.1 (measured 8/11, docs/50).
 --
--- **But not yet** (0.151.9): asking for the whole glass makes the system wash it, and a wash of the whole glass holds its
--- waveform for more than a second. The two faces and the shelf of books are read from the disk **before** that wash, with
--- the glass still, because disk traffic while that ink is moving is what left the panel of the board silent (measured
--- 8/11, docs/50). It goes right after the faces, below.
+-- The two faces and the list of the shelf are read from the disk **before the first paint** (0.151.9), with the glass
+-- still: a page of this glass moves ink for more than a second, and the disk has no business in the middle of it.
 
 -- **The size of the view is read every time the system gives another one** (0.136.0): asking for the whole glass and
 -- giving it back are two of those moments, and a canvas of the size of before is a page with a strip of paper left over.
@@ -104,14 +105,6 @@ local shelf_read = false
 local books = library.shelf_of()
 shelf_read = true
 
--- **The whole glass is asked for only when `kFullGlass` says so** (0.151.10): asking for it makes the system **re-make the
--- canvas** and wash the whole page before the app draws a single pixel, so the start of this app is **two paints of the
--- whole glass** — the system's wash and its own page — and it is the only app of the disk that does that; every app that
--- works lives under the bar in a view of 540x912. The board has left the panel silent in that second paint in every run
--- since 0.151.1 (docs/50). **Set to `true` again when the driver can take it**: with `false` the reader paints exactly
--- like the apps that do not break the glass, and the bar keeps its forty-eight rows.
-local kFullGlass = false
-if kFullGlass then ui.full_screen(true) end
 ui.title('Library')
 
 

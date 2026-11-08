@@ -3609,7 +3609,24 @@ namespace kernel {
 //   `apps/reader/reader.lua` (checked with `diff`). **Pending**: flash it and run `run reader`. If the panel holds, the
 //   culprit is the whole-glass view (the re-make plus two full-page paints) and it is a kernel question, not an app one.
 //   If it does not hold, what is left of the app is the page it draws, and that is where the next measurement goes.
-static const char kVersion[] = "0.151.10";
+// 0.151.11 (8/11): **the reader does not ask for the whole glass: that is the `Full screen` entry of the book's menu**.
+//
+//   The owner's correction, and it is exact: in the reader of the paper, full screen is one entry of the text menu, it is
+//   not something the app asks for when it opens, and much less from the main menu. `apps/reader/reader.lua` asked for it
+//   at the top of the file since 0.136.0 and **that is mine and it was wrong** — the constant I put in 0.151.10 to switch
+//   it off was me inventing a knob for a mistake instead of reading what the app was supposed to do.
+//
+//   It is gone: at start-up the reader lives under the bar (540x912) like every other app, and the whole glass is asked
+//   for when the person picks `Full screen` in the menu of the book (`on_menu_pick`, which already did
+//   `ui.full_screen(not ui.full_screen())` and is untouched). `docs/46` (D1, item 3) is corrected: it said the reader had
+//   it on open, which is exactly the sentence that made the mistake look like a feature.
+//
+//   What that removes from the start of the app is the thing the board could not take: the kernel re-making the canvas and
+//   **washing the whole page before the app had drawn a single pixel**, i.e. two paints of the whole glass in a row.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning and the disk image carries the new
+//   `apps/reader/reader.lua` (checked with `diff`). **Pending**: flash it and run `run reader`.
+static const char kVersion[] = "0.151.11";
 
 }  // namespace kernel
 
