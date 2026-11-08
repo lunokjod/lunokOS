@@ -7462,8 +7462,8 @@ void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
 // **The app the settings call home comes up with the board** (0.119.0): `cfg home <id>` keeps the name in the board's
 // own store, a boot reads it and starts that app instead of leaving a person at the prompt —which is what every board
 // did until now— and `cfg home none` puts the prompt back. The default of a board comes from the build
-// (`LUNOK_HOME_APP` in `platformio.ini`, empty in every environment of this tree), so what this measures is the
-// setting and the boot that honours it (docs/30, docs/40).
+// (`LUNOK_HOME_APP` in `platformio.ini`: empty in the environments of this suite, the launcher on the Paper and on the
+// bench since 0.155.0), so what this measures is the setting and the boot that honours it (docs/30, docs/40).
 void test_the_home_app_comes_up_with_the_board(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");

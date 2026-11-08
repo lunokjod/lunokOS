@@ -4152,7 +4152,24 @@ namespace kernel {
 //   - and **a view inside a cell of a grid survives the page**: `test_a_canvas_inside_a_cell_of_a_grid_survives_the_page`
 //     paints twice and asks all six pictures whether they are still there, which is what a launcher of badges needs and
 //     what no test said before. 179 of 179 green.
-static const char kVersion[] = "0.154.1";
+// 0.155.0 (8/11): **the bench comes up in a window and in the launcher**, which is the owner's ask —*«que l'emulador
+// arrenqui amb el paràmetre --gui i l'app per defecte home_eink»*— and two things of `platformio.ini` plus the one it
+// needed in the bench.
+//
+//   - **`LUNOK_GUI_BY_DEFAULT`** makes a run open the glass in a window without being asked, and **`--no-gui`** is the
+//     new flag that takes it away. **A demand and a default are not the same thing**: `--gui` asked for by hand still
+//     refuses `--no-delay` and `--no-ink` and still refuses a board with no glass and no key, and the default —which
+//     nobody asked for— steps aside with a line and the run goes on. Without that, every script of this project that
+//     says `--no-delay` would have stopped working the day the window became the default;
+//   - `LUNOK_HOME_APP` is `home_eink` in the environment of the bench and the disk of that build carries it
+//     (`custom_apps = home_eink`), because an app that is not on the disk the bench reads is a boot that lands on the
+//     prompt. **No test is touched**: the suite has its own environment, its own disk and its home app empty;
+//   - measured on this machine: `run` without arguments says `gui: the page 540x960 is in a window at half, one pixel of
+//     the window is 2 of the page` and `gui: the 3 keys of the board are a column on the right of the page`, and then
+//     `home: page 1 / 1 (2 cells)` (the two apps of the card of this bench, which is a directory that exists);
+//     `--no-delay` says `gui: no window, --no-delay is a bench without the times of the hardware` and runs; and
+//     `--gui --no-delay` is refused with the sentence it always had. 179 of 179 green.
+static const char kVersion[] = "0.155.0";
 
 }  // namespace kernel
 

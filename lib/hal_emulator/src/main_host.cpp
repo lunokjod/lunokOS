@@ -152,7 +152,12 @@ void usage() {
   printf("  --script <file>   batch mode: run and exit\n");
   printf("  --display         the glass of the board, which is there by itself: 960x540, four bits\n");
   printf("  --no-display      no glass at all: the console only, and no buffer of the page\n");
+#ifdef LUNOK_GUI_BY_DEFAULT
+  printf("  --gui             that glass in a window (SDL2 or X11), which this build opens by itself\n");
+#else
   printf("  --gui             that glass in a window (SDL2 or X11), painted as the panel is painted\n");
+#endif
+  printf("  --no-gui          no window at all: the console and, with --dump, the page in a file\n");
   printf("  --gui-scale <1..4>  page pixels per pixel of the window: 2 is the page at half\n");
   printf("                    (without it, the smallest scale that fits the screen)\n");
   printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
@@ -201,6 +206,13 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   bool no_touch = false;
   bool ask_display = false;
   bool ask_touch = false;
+  // **The window is what this build comes up with** (0.155.0): `LUNOK_GUI_BY_DEFAULT` in `platformio.ini` makes a
+  // run open the glass in a window without being asked, and `--no-gui` is how the run that wants the console alone
+  // takes it away. **A demand and a default are not the same thing**: what `--gui` asked for refuses what cannot be
+  // (`--no-delay`, `--no-ink`, a board with no glass and no key), and the default, which nobody asked for, steps
+  // aside with a line so that a script that says `--no-delay` still runs (docs/85).
+  bool gui_asked = false;
+  bool no_gui = false;
   // **No picture of the page unless the run asks for one**, which is what the rest of these start as well: a
   // binary that writes files nobody asked for is a bench that surprises whoever runs it (docs/85).
   opts.dump = nullptr;
@@ -282,9 +294,16 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--gui") == 0) {
       // **A window with the glass in it**, and the glass with it: a window of nothing is not a window
-      // (docs/85).
+      // (docs/85). It is a demand, and the default of the build is not (see `gui_asked`).
       opts.gui = true;
       opts.display = true;
+      gui_asked = true;
+      continue;
+    }
+    if (strcmp(arg, "--no-gui") == 0) {
+      // **No window at all**: the console, and the page in a file when `--dump` asks for one. It is the run of a
+      // measure, and what a build that comes up with a window needs to be quiet again (docs/85).
+      no_gui = true;
       continue;
     }
     if (strcmp(arg, "--gui-scale") == 0) {
@@ -566,9 +585,16 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // the bench of an ATOM still has the button a person presses (docs/85).
   opts.display = memory.glass && !no_display;
   opts.touch = memory.touch && !no_touch;
+#ifdef LUNOK_GUI_BY_DEFAULT
+  if (!no_gui) opts.gui = true;
+#endif
   if (opts.gui && !opts.display && memory.keys == 0) {
-    fprintf(stderr, "--gui: %s has no glass and no key, so there is no window to open\n", memory.name);
-    return false;
+    if (gui_asked) {
+      fprintf(stderr, "--gui: %s has no glass and no key, so there is no window to open\n", memory.name);
+      return false;
+    }
+    fprintf(stderr, "gui: %s has no glass and no key, so this run has no window\n", memory.name);
+    opts.gui = false;
   }
 
   // The defaults of the **binary**, and only of the binary: a test builds its own options and
@@ -626,13 +652,24 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // what a board costs, so it needs both the waits and the ink: a glass that switches pixels and
   // charges nothing is a picture of a board that does not exist (docs/85).
   opts.delays = !no_delay;
+  // **What cannot be a window goes, in the order a run asked for it**: a run that says `--no-delay` and not `--gui`
+  // is a measure of the model and keeps its console; a run that says `--gui` and `--no-delay` is a contradiction and
+  // is told so (docs/85).
   if (opts.gui && no_delay) {
-    fprintf(stderr, "--gui needs the times of the hardware: a window is for watching what a board costs\n");
-    return false;
+    if (gui_asked) {
+      fprintf(stderr, "--gui needs the times of the hardware: a window is for watching what a board costs\n");
+      return false;
+    }
+    fprintf(stderr, "gui: no window, --no-delay is a bench without the times of the hardware\n");
+    opts.gui = false;
   }
   if (opts.gui && opts.ink < 0 && opts.display) {
-    fprintf(stderr, "--gui needs the ink of the glass: --no-ink paints a page no panel has\n");
-    return false;
+    if (gui_asked) {
+      fprintf(stderr, "--gui needs the ink of the glass: --no-ink paints a page no panel has\n");
+      return false;
+    }
+    fprintf(stderr, "gui: no window, --no-ink paints a page no panel has\n");
+    opts.gui = false;
   }
   // **The glass of a run moves ink unless the run says it does not**: a paint takes what the quality
   // takes and leaves what it leaves. Instant and perfect is the bench of the tests, which is where the
