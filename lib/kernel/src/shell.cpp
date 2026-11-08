@@ -77,9 +77,17 @@ const size_t kPrintCap = 1024;
 // **64 KB since 0.143.0**: the reader of EPUB of this system is **49 710 B** of Lua —the shelf, the page, the foot, the
 // menu, the index and the two faces— and the 48 KB cap said no to an app that fits the board. The block is the heap's
 // and it is given back before the app runs a line (0.56.0), so 64 KB are **32 KB of heap while an app starts and
-// nothing while it runs**. docs/46 D6 still asks for a decision between a much bigger ceiling and a `require` for the
-// apps; this is a step that unblocks the reader, not that decision (docs/75).
-const size_t kSourceCap = 65536;
+// nothing while it runs**.
+//
+// **96 KB since 0.149.0, and this *is* the decision of docs/46 D6**: an app may now be **more than one file** —`require`
+// reads each of them into a block of its own (0.148.0)— and the ceiling of **one** file goes up as well, because the
+// reader still has a page, its count and its foot in a single chunk and the next three things it wants (the faces of
+// the book, the fixed layout and SVG) all add lines to it. **98 304 B** is three halves of 64 KB: the reader's own file
+// is **49 215 B** and the room left is **49 089 B**, which is more than the whole app is today. What it costs is the
+// moment of the load and nothing after it —the block is given back before the app runs a line— and the board that has
+// to carry it is the one with the smallest heap: on the ATOM the free heap is **338 864 B** measured (docs/95), so the
+// block is a quarter of it while an app starts. The whole app is now **4 files / 64 411 B** (docs/75, docs/46 D6).
+const size_t kSourceCap = 98304;
 // **The ceiling of an app's interpreter when the board does not say one**: 131 072 B since 4/11, and it was
 // 65 536 B. The number is measured and not chosen: on an ATOM the interpreter is **29 842 B** before the app
 // has run a line (13 021 of Lua itself, 13 200 of the UI library and the rest the other globals), so a 64 KB

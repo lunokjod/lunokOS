@@ -511,15 +511,16 @@ tons), **l'error com a avís** (C12) i les **dues cares del llibre** (C13: un se
 dues amb Latin-1) ja hi són. I el 0.142.0 **l'OPF llegit de debò** (C2: `META-INF/container.xml` → OPF → `dc:title` i
 l'`spine`, amb `epub.read` i la porta del ZIP, B6), que és el que diu el títol del llibre i **l'ordre dels seus
 capítols**. El que no hi és i el lector demana, amb la seva fitxa a docs/46: la **miniatura del prestatge** (C16) —la cel·la d'un llibre amb la seva portada llegida del cau, el que fa l'app Files amb la
-previsualització d'un fitxer: el cau ja s'escriu des del 0.146.0 (C11) i encara no el llegeix cap cel·la— i **la mida de l'app** (60 930 B contra un sostre de font de 65 536, D6) amb els
+previsualització d'un fitxer: el cau ja s'escriu des del 0.146.0 (C11) i encara no el llegeix cap cel·la—, amb els
 seus **ajustos** (D7). **L'índex (C14) hi és des del 0.143.0**, **la portada com a estat (C7) des del 0.144.0**, **anar
 a una pàgina pel número (C15) des del 0.145.0** i **el peu del prestatge des del 0.147.0**. I el
 **cau de miniatures (C11) des del 0.146.0**: la portada escalada a 64 píxels al costat del llibre, escrita pel
 sistema i llegida com una foto més. **I el que ve darrere, decidit l'amo el 8/11**: els **tipus de lletra incrustats**
 del llibre (TTF i WOFF), la **maquetació fixa**, **SVG** com a imatge i, al final de tot, **els catorze forats** de
 maquetació; i les portes de `zip` (**B7** i **B8**) perquè una altra app —un **navegador d'arxius**— pugui obrir un `.zip`.
-I el 8/11 la meitat de **D6** ja hi és: **`require`** (0.148.0), o sigui que una app pot ser més d'un fitxer i el
-lector pot créixer sense tornar a tocar el sostre de 65 536 B que li queda just a sota (60 930 B).
+I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el sostre d'un fitxer a **98 304 B**
+(0.149.0), amb el lector partit en **quatre fitxers** —`reader.lua` **49 215 B**, `chapters.lua`, `notice.lua` i
+`library.lua`, **64 411 B** en total—, o sigui **49 089 B** de marge al fitxer més gran.
 
 ## Fora de la v1
 

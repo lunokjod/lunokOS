@@ -1,8 +1,13 @@
--- reader: the app of a book — the shelf, the page, the foot, the menu and where you were (docs/46, C1..C13).
+-- reader: the app of a book — the shelf, the page, the foot, the menu and where you were (docs/46, C1..C16).
 --
 -- **The app does not lay out anything.** The engine behind a page is the system's —the zip, the tokenizer, the
 -- paginator and the face— and this file is what a person touches: which book, which page, and the number that says
 -- how far in they are (docs/46, §1). Everything else here is the shelf, the menu, the foot and the file of positions.
+--
+-- **It is four files since 0.149.0** (docs/46, D6): `library` is where the books are and where each one was left,
+-- `chapters` reads the `container.xml`, the OPF and the index of a book, `notice` is the band and the card that say
+-- what went wrong, and this one is the page, its count, its foot and the hands that turn it. They are read with
+-- `require` from the folder the app was installed in.
 --
 -- **The position of a book is a chapter and a byte**, not a page number, because a page is as many words as fit a
 -- box of a machine: `epub.page` says the byte the next page starts at and the app keeps it. Going forward is that
@@ -15,10 +20,18 @@
 -- (C8), what the page will cost is decided from the tones the two pages have (C10), a book that will not open is a
 -- notice on the shelf and not a line of the console (C12), and the words and the titles have a face each (C13).
 --
--- What it does not do, said here so nobody looks for it: no cover and no thumbnails (C11 needs a cache of images and a
--- `save` of a surface), and the chapter is the first one that looks like a chapter until the OPF is read in Lua (C2).
+-- What it does not do, said here so nobody looks for it: **the cells of the shelf are words and not pictures** —the
+-- cache of a book is written beside it since 0.146.0 (C11) and no cell reads it back yet (C16); the cache is for the app
+-- that will draw it—.
 
 local caps = sys.caps()
+-- **The app is more than one file** (0.149.0, docs/46 D6): `require` reads these from the folder the app was installed
+-- in and runs each of them once. `library` is where the books are and where each one was left, `chapters` reads the OPF
+-- and the index of a book, and `notice` is the band and the card that say what went wrong. What is left here is the
+-- page, its count, its foot and the hands that turn it.
+local library = require('library')
+local chapters = require('chapters')
+local notice = require('notice')
 if not caps.display then
   console.print('reader: this board has no glass')
   return
@@ -59,6 +72,11 @@ do
   use_view(now.width, now.height)
 end
 
+-- **And the notice is told where the glass is** (0.149.0): it draws the band at the bottom of the view and the card in
+-- the middle of it, and the table `view` is the same one `use_view` changes, so a view the system gives later reaches the
+-- module without another call (docs/46, D1).
+notice.set_view(view)
+
 -- **The two faces of the book** (0.140.0, docs/46 C13): the serif of the words and the sans of the titles, both on the
 -- disk and both with the letters of Latin-1. A disk without the sans reads the titles in the serif, and a disk with
 -- neither reads the book in the face of the system — the page is the same page with the letters this machine has. The
@@ -71,255 +89,6 @@ end
 local title_face = ui.load_font('/fonts/dejavusans-latin1.ttf')
 if title_face == nil then title_face = face end
 
--- **The position of each book**, kept by the app: one line per book with the path, the chapter and the byte
--- (docs/46, C6). A file that cannot be written is a lost position and not a lost book.
--- **The positions live in the app's own data** and not beside the book: an app of this system writes in its own
--- folder and reads the rest of the machine, which is the rule that keeps one app out of another's papers
--- (docs/30, docs/70). The day the system gives an app a writable shelf, this line is the one that changes.
-local kReading = (function()
-  local ok, folder = pcall(fs.data)
-  if ok and type(folder) == 'string' and folder ~= '' then return folder .. '/reading.txt' end
-  return '/data/reading.txt'
-end)()
-
-local function positions()
-  local out = {}
-  local ok, data = pcall(fs.read, kReading)
-  if not ok or type(data) ~= 'string' then return out end
-
-  for line in data:gmatch('[^\n]+') do
-    local path, chapter, byte, on_cover = line:match('^(.-)\t(.-)\t(%d+)\t?(%d*)$')
-    if path ~= nil then
-      out[path] = {chapter = chapter, byte = tonumber(byte) or 0, cover = (on_cover == '1')}
-    end
-  end
-
-  return out
-end
-
-local function remember(path, chapter, byte, on_cover)
-  local kept = positions()
-  kept[path] = {chapter = chapter, byte = byte, cover = (on_cover == true)}
-
-  local lines = {}
-  for one, where in pairs(kept) do
-    lines[#lines + 1] = string.format('%s\t%s\t%d\t%d', one, where.chapter, where.byte, where.cover and 1 or 0)
-  end
-  table.sort(lines)
-
-  pcall(fs.write, kReading, table.concat(lines, '\n') .. '\n')
-end
-
--- **The shelf is the reader's** and not the file system of the app (docs/46, C1): the folder of the books is the
--- system's, and an app that could walk the flash would be an app with a key to every room. `epub.books` answers the
--- paths and the app makes the title out of the name of the file.
-local function shelf_of()
-  local out = {}
-  local ok, paths = pcall(epub.books)
-  if not ok or type(paths) ~= 'table' then return out end
-
-  for _, path in ipairs(paths) do
-    local name = path:match('([^/]+)%.epub$')
-    if name ~= nil then out[#out + 1] = { path = path, title = name } end
-  end
-
-  return out
-end
-
--- **The attributes of one tag of an XML file**: `id="c1" href="ch01.xhtml"` in a table. The OPF of a book is a
--- list of tags with attributes and nothing else this reader needs, so a pattern over a tag is the reader of the OPF
--- (docs/46, C2).
-local function attributes(tag)
-  local out = {}
-  for key, value in tag:gmatch('([%w:%-]+)%s*=%s*"([^"]*)"') do out[key] = value end
-  for key, value in tag:gmatch("([%w:%-]+)%s*=%s*'([^']*)'") do out[key] = value end
-  return out
-end
-
--- **A file of the book named inside another one**, with `..` and `.` taken out: the OPF lives in `OEBPS/` and its
--- `href`s are relative to that folder, while the zip knows nothing but the whole name (docs/46, C2).
-local function join_path(folder, href)
-  local parts = {}
-  for piece in (folder .. href):gmatch('[^/]+') do
-    if piece == '..' then
-      if #parts > 0 then table.remove(parts) end
-    elseif piece ~= '.' then
-      parts[#parts + 1] = piece
-    end
-  end
-  return table.concat(parts, '/')
-end
-
--- **A label of the index as words** (docs/46, C14): the tags out, the entities a title uses decoded and the spaces
--- squeezed, because a `nav` of EPUB 3 writes its labels in XHTML and a `toc.ncx` writes plain text.
-local function clean_label(text)
-  text = text:gsub('<[^>]->', '')
-  text = text:gsub('&nbsp;', ' '):gsub('&lt;', '<'):gsub('&gt;', '>'):gsub('&quot;', '"'):gsub('&amp;', '&')
-  text = text:gsub('%s+', ' ')
-  return text:gsub('^%s+', ''):gsub('%s+$', '')
-end
-
--- **The ceiling of an index**: a book of a thousand chapters has an index of a thousand rows, and the list of the
--- reader is the one that pages itself (docs/46, C14).
-local kMaxIndex = 128
-
--- **The chapters of the book, in the order they are read** (0.142.0, docs/46 C2): `META-INF/container.xml` names the
--- OPF, the OPF names every file of the book and its spine says the order — which is the order of the book and not the
--- order of the names. When the OPF cannot be read, the `.xhtml`, `.html` and `.htm` outside `META-INF`, sorted by name,
--- which is what the reader has done since the first day. It also says the title of the book and its index.
-local function chapters_of_book()
-  local known = {}
-  for i = 1, epub.entries() do
-    local name = epub.name(i)
-    if name ~= nil then known[name] = true end
-  end
-
-  local spine = {}
-  local title = nil
-  local toc = {}
-  local toc_from = 'none'
-  local cover_href = nil
-
-  local container = epub.read('META-INF/container.xml')
-  local opf_path = container and (container:match('full%-path%s*=%s*"([^"]+)"') or
-                                  container:match("full%-path%s*=%s*'([^']+)'"))
-  if opf_path ~= nil then
-    opf_path = opf_path:gsub('^/', '')
-    local opf = epub.read(opf_path)
-    if opf ~= nil then
-      local said = opf:match('<dc:title[^>]*>([^<]*)</dc:title>') or opf:match('<title[^>]*>([^<]*)</title>')
-      if said ~= nil and said ~= '' then title = said end
-
-      local items = {}
-      for tag in opf:gmatch('<item%s[^>]*>') do
-        local a = attributes(tag)
-        if a.id ~= nil and a.href ~= nil then items[a.id] = a end
-      end
-
-      local base = opf_path:match('^(.*/)') or ''
-      for tag in opf:gmatch('<itemref%s[^>]*>') do
-        local a = attributes(tag)
-        local it = (a.idref ~= nil) and items[a.idref] or nil
-        if it ~= nil then
-          local href = join_path(base, it.href)
-          if known[href] then spine[#spine + 1] = href end
-        end
-      end
-
-      -- **The cover of the book** (0.144.0, docs/46 C7): EPUB 2 names it with `<meta name="cover" content="id">`,
-      -- EPUB 3 marks the item with `properties="cover-image"`, and a book that has neither usually carries "cover" in
-      -- the id or in the file name. It is only a cover if the entry is really in the book.
-      if cover_href == nil then
-        local meta = opf:match('<meta[^>]*name%s*=%s*"cover"[^>]*>')
-        if meta ~= nil then
-          local id = attributes(meta).content
-          local it = (id ~= nil) and items[id] or nil
-          if it ~= nil and it.href ~= nil then cover_href = join_path(base, it.href) end
-        end
-      end
-      if cover_href == nil then
-        for _, item in pairs(items) do
-          if item.href ~= nil and item.properties ~= nil and item.properties:find('cover%-image') then
-            cover_href = join_path(base, item.href)
-            break
-          end
-        end
-      end
-      if cover_href == nil then
-        for _, item in pairs(items) do
-          local id = (item.id or ''):lower()
-          local href = (item.href or ''):lower()
-          local kind = (item['media-type'] or ''):lower()
-          if kind:sub(1, 6) == 'image/' and (id:find('cover', 1, true) or href:find('cover', 1, true)) then
-            cover_href = join_path(base, item.href)
-            break
-          end
-        end
-      end
-      if cover_href ~= nil and not known[cover_href] then cover_href = nil end
-
-      -- **The index the book declares** (0.143.0, docs/46 C14): EPUB 3 leaves a `nav` in an XHTML file of its own and
-      -- EPUB 2 a `toc.ncx` with a `navPoint` per entry. The two end in a label and an href that is turned into a
-      -- chapter of the spine, with its `#fragment` dropped — an entry lands on the first page of its chapter, which
-      -- is what this reader can do.
-      local nav_href, ncx_href = nil, nil
-      for _, item in pairs(items) do
-        local href = item.href or ''
-        local kind = (item['media-type'] or ''):lower()
-        if nav_href == nil and item.properties ~= nil and item.properties:find('nav', 1, true) then
-          nav_href = join_path(base, href)
-        end
-        if ncx_href == nil and (kind == 'application/x-dtbncx+xml' or href:lower():match('%.ncx$')) then
-          ncx_href = join_path(base, href)
-        end
-      end
-
-      local function chapter_of(target)
-        local file = join_path(base, (target:gsub('#.*$', '')))
-        for i = 1, #spine do
-          if spine[i] == file then return i end
-        end
-        return nil
-      end
-
-      local function add_entry(label, target)
-        if #toc >= kMaxIndex then return end
-        local at = chapter_of(target)
-        if at == nil then return end
-        -- **Two entries in the same file land on the same page**: the index keeps the first one, the chapter itself.
-        if #toc > 0 and toc[#toc].at == at then return end
-        local words = clean_label(label)
-        if words == '' then return end
-        toc[#toc + 1] = { title = words, chapter = spine[at], at = at }
-      end
-
-      if nav_href ~= nil and known[nav_href] then
-        local src = epub.read(nav_href)
-        if src ~= nil then
-          local nav = src:match('<nav[^>]-toc.->(.-)</nav>') or src
-          for href, label in nav:gmatch('<a%s[^>]-href%s*=%s*"([^"]+)"[^>]*>(.-)</a>') do
-            add_entry(label, href)
-          end
-        end
-        if #toc > 0 then toc_from = 'nav' end
-      end
-
-      if #toc == 0 and ncx_href ~= nil and known[ncx_href] then
-        local src = epub.read(ncx_href)
-        if src ~= nil then
-          for label, target in
-            src:gmatch('<text[^>]*>([^<]*)</text>%s*</navLabel>%s*<content%s[^>]-src%s*=%s*"([^"]+)"') do
-            add_entry(label, target)
-          end
-        end
-        if #toc > 0 then toc_from = 'ncx' end
-      end
-    end
-  end
-
-  if #spine == 0 then
-    local out = {}
-    for name in pairs(known) do
-      if not name:find('^META%-INF/') and name:match('%.x?html?$') then out[#out + 1] = name end
-    end
-    table.sort(out)
-    spine = out
-  end
-
-  -- **A book that declares no index gets one made of its chapters** (docs/46, C14): it is not the index the author
-  -- wrote, it is the one that lets chapter thirty of eighty be reached. The name is the number and not the title —
-  -- reading a title means inflating every chapter of the book when it is opened, and a book keeps one chapter in
-  -- memory.
-  if #toc == 0 and #spine > 1 then
-    local most = (#spine < kMaxIndex) and #spine or kMaxIndex
-    for k = 1, most do
-      toc[k] = { title = 'Chapter ' .. k, chapter = spine[k], at = k }
-    end
-    toc_from = 'spine'
-  end
-
-  return spine, title, toc, toc_from, cover_href
-end
 
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
 -- never hidden (docs/30, docs/90).
@@ -541,73 +310,6 @@ local function say_foot()
   end
 end
 
--- **What went wrong is a notice of the system** (0.140.0, docs/46 C12): a book that will not open, a chapter with no
--- words this reader can read, a page that cannot be composed. The band says it on the glass and the card of the notice
--- opens the whole sentence when it is touched, because a sentence cut at the edge of a card is a sentence nobody read.
--- Nothing of this is saved: the band of an app lives in the app's memory and goes with the page (docs/30, docs/90).
-local notice = nil
-local notice_card = nil
--- **A band whose last card went is released in the turn after** (docs/90): a band with no card is a control that still
--- takes the dial, and a page that stops turning with the keys under a notice nobody can see is a bug of the notice.
-local notice_gone = false
-
-local function release_notice()
-  notice_gone = false
-  if notice_card ~= nil then
-    notice_card:release()
-    notice_card = nil
-  end
-  if notice ~= nil then
-    notice:release()
-    notice = nil
-  end
-end
-
-local function show_error(headline, text)
-  if notice_card ~= nil then notice_card:release() end
-  notice_card = ui.dialog(math.min(kPageW - 40, 500), math.min(320, view.h - 80))
-  if notice_card == nil then return end
-
-  notice_card.title = headline
-  notice_card.text = text
-  notice_card.accept = 'Close'
-  -- **The one door is the good one**: a card that says what happened has nothing to cancel, and an empty `cancel` is
-  -- how a card is left with a single door across its width (docs/30, docs/90).
-  notice_card.cancel = ''
-  notice_card.emphasis = 2
-  notice_card:place(20, 120)
-  notice_card.on_accept = function(self)
-    self:release()
-    notice_card = nil
-    ui.present('gc16')
-  end
-  notice_card.on_cancel = notice_card.on_accept
-  ui.present('gc16')
-end
-
-local function put_a_notice(headline, text)
-  release_notice()
-  local band = math.min(240, view.h - 40)
-  notice = ui.notification_bar(kPageW, band)
-  if notice == nil then return end
-
-  notice.items = { { title = headline, text = text } }
-  notice.scale = 3
-  notice:place(0, view.h - band)
-  -- **The cross dismisses and the card opens the whole sentence** (docs/30, docs/90): the list is the app's and the
-  -- control keeps none of it.
-  notice.on_close = function(self, item)
-    table.remove(self.items, item)
-    self.items = self.items
-    if #self.items == 0 then notice_gone = true end
-    ui.present('gc16')
-  end
-  notice.on_pick = function(self, item)
-    local one = self.items[item]
-    show_error(headline, (one ~= nil and one.text) or text)
-  end
-  ui.present('gc16')
-end
 
 -- **The page and its foot go back together** (docs/30): a canvas, two labels and the strip of the balls, which are
 -- the four things a page of a book is made of here. The count of the chapter stays: the index gives the page back and
@@ -658,7 +360,7 @@ local function give_back()
   page_mode = false
   cover = nil
   cover_mode = false
-  release_notice()
+  notice.release()
 end
 
 local function present_page(wash, silent)
@@ -681,7 +383,7 @@ local function present_page(wash, silent)
   if nxt == nil then
     -- **A page that cannot be composed is a notice and not a line of the console** (0.140.0, docs/46 C12): the person
     -- is looking at the glass, and the card of the notice has the whole sentence when it is touched.
-    put_a_notice('This page cannot be composed', 'the book is open and this page is not: turn it or go to the shelf')
+    notice.put('This page cannot be composed', 'the book is open and this page is not: turn it or go to the shelf')
     return false
   end
 
@@ -728,7 +430,7 @@ local function show_cover()
 end
 
 local function forget_page()
-  if chapter ~= nil and book ~= nil then remember(book.path, chapter, from, cover_mode) end
+  if chapter ~= nil and book ~= nil then library.remember(book.path, chapter, from, cover_mode) end
 end
 
 -- **The page of the book, built again when the view changes size** (0.136.0, docs/46 D1): a canvas of the new size, the
@@ -861,14 +563,14 @@ local function open_book(one)
     return false
   end
 
-  local chapters, book_title, book_toc, toc_from, book_cover = chapters_of_book()
-  local where = positions()[one.path]
-  local which = (where ~= nil) and where.chapter or chapters[1]
+  local list, book_title, book_toc, toc_from, book_cover = chapters.chapters_of_book()
+  local where = library.positions()[one.path]
+  local which = (where ~= nil) and where.chapter or list[1]
   local n = (which ~= nil) and epub.chapter(which) or nil
-  if n == nil and chapters[1] ~= nil and which ~= chapters[1] then
+  if n == nil and list[1] ~= nil and which ~= list[1] then
     -- **A chapter the book does not carry any more** —the file was replaced under a saved position—: the book opens
     -- at its first chapter and the position of this one starts again (docs/46, C6).
-    which = chapters[1]
+    which = list[1]
     n = epub.chapter(which)
   end
   if n == nil then
@@ -887,12 +589,12 @@ local function open_book(one)
   -- **Which chapter of the book is open, and how many the book has** (0.142.0, docs/46 C2 and C5): the spine of the
   -- OPF is the order of the book, and the names sorted are what a book without an OPF falls back to.
   chapter_at = 1
-  for i = 1, #chapters do
-    if chapters[i] == which then chapter_at = i end
+  for i = 1, #list do
+    if list[i] == which then chapter_at = i end
   end
-  chapter_total = (#chapters > 0) and #chapters or 1
+  chapter_total = (#list > 0) and #list or 1
 
-  chapter_list = chapters
+  chapter_list = list
   toc = book_toc
   cover = book_cover
   -- **The cache of the book, beside the book** (0.146.0, docs/46 C11): the cover scaled to 64 pixels and written as an
@@ -906,7 +608,7 @@ local function open_book(one)
   -- **The cover is a state that is saved with the position** (docs/46, C7): a book opened where it was left on its
   -- cover is on its cover again.
   local on_cover = (where ~= nil) and where.cover == true
-  remember(one.path, chapter, from, on_cover)
+  library.remember(one.path, chapter, from, on_cover)
 
   -- **What the book is, said in the log** (docs/46, C2, C7 and C14): the title of its OPF, how many chapters the spine
   -- says, where its index came from and whether it has a cover — the three things a reader that had to fall back to the
@@ -993,7 +695,7 @@ function show_shelf(why)
   end
 
   ui.title('Library')
-  books = shelf_of()
+  books = library.shelf_of()
 
   -- **The shelf is paper from edge to edge** (0.147.0): a book read in the dark leaves a black page on the glass, and the
   -- margins around the grid and the air above the foot are rows that neither the grid nor the foot paints — without this
@@ -1011,7 +713,7 @@ function show_shelf(why)
     end
     screen = empty
     ui.present('gc16')
-    if why ~= nil then put_a_notice('The book would not open', why) end
+    if why ~= nil then notice.put('The book would not open', why) end
     return
   end
 
@@ -1037,7 +739,7 @@ function show_shelf(why)
 
   screen = grid
   ui.present('gc16')
-  if why ~= nil then put_a_notice('The book would not open', why) end
+  if why ~= nil then notice.put('The book would not open', why) end
 end
 
 -- **A chapter of the open book, from a byte** (0.143.0, docs/46 C14): the index lands here, and it is the same three
@@ -1055,7 +757,7 @@ local function open_chapter(href, byte)
   for i = 1, #chapter_list do
     if chapter_list[i] == href then chapter_at = i end
   end
-  remember(book.path, chapter, from)
+  library.remember(book.path, chapter, from)
 
   return build_page(true)
 end
@@ -1165,7 +867,7 @@ local function open_index()
     -- **A book of one chapter has no index and none is invented** (docs/46, C14): the glass goes back to the book and a
     -- notice says why nothing happened.
     build_the_book()
-    put_a_notice('This book has no index', 'it has one chapter, so there is nothing to choose')
+    notice.put('This book has no index', 'it has one chapter, so there is nothing to choose')
     return
   end
 
@@ -1188,7 +890,7 @@ local function open_pages()
   if book == nil then return end
   if walked < 2 then
     build_the_book()
-    put_a_notice('There is no page to choose', 'this chapter has one page, or its count has not landed')
+    notice.put('There is no page to choose', 'this chapter has one page, or its count has not landed')
     return
   end
 
@@ -1364,7 +1066,7 @@ local function on_gesture()
 
   -- **And with a notice up the finger is the notice's**: the band and its card are the last word on the glass, and a tap
   -- that opens or dismisses them is not a page turn (0.140.0, docs/46 C12).
-  if notice ~= nil or notice_card ~= nil then return end
+  if notice.up() then return end
 
   -- **A long press is the menu**, which is the one gesture that does not fight a page turn: a drag is a page and a tap is
   -- a page too (docs/46, C3 and C4).
@@ -1449,7 +1151,7 @@ function on_button(kind, held_ms, key)
   end
 
   if kind ~= 'press' or screen == nil then return end
-  if menu ~= nil or notice ~= nil or notice_card ~= nil then return end
+  if menu ~= nil or notice.up() then return end
 
   if key == 0 then
     page_mode = not page_mode
@@ -1487,8 +1189,8 @@ while true do
 
   -- **And a notice whose last card was dismissed goes now**: the turn that heard the cross is not the one that takes
   -- the control away (docs/90).
-  if notice_gone then
-    release_notice()
+  if notice.gone() then
+    notice.release()
     ui.present('gc16')
   end
 

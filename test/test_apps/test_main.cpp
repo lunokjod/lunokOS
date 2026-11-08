@@ -9820,6 +9820,11 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   TEST_ASSERT_TRUE(storage->mkdir("/apps/reader"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/reader.lua", "/apps/reader/reader.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/manifest.json", "/apps/reader/manifest.json"));
+  // **And its three modules** (0.149.0, docs/46 D6): the reader is `require`s of `library`, `chapters` and `notice`,
+  // and a disk with only the entry would run an app whose first line raises.
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/library.lua", "/apps/reader/library.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/chapters.lua", "/apps/reader/chapters.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/notice.lua", "/apps/reader/notice.lua"));
   // **The book and the two faces of the book are the ones of the repository** (docs/46, C13): a page that reads its
   // words in the serif and its titles in the sans.
   TEST_ASSERT_TRUE(storage->mkdir("/epub"));
@@ -9834,6 +9839,9 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // The page takes the whole glass (docs/46, D1).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole glass: the view is 540x960"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+  // **And its four files are on the disk** (0.149.0, docs/46 D6): the reader asks for `library`, `chapters` and
+  // `notice` before it draws anything, and a module that is not there says `require:` in the log.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "require:"), g_out);
   // **And the serif was on the disk**: a book read in the face of the system says so, and this test wants the two faces.
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "reader: no serif face"), g_out);
   // **The title and the spine are the book's, from its OPF** (docs/46, C2): the sample says its own title and the two
@@ -9969,6 +9977,9 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
 
   storage->remove("/apps/reader/reader.lua");
   storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader/library.lua");
+  storage->remove("/apps/reader/chapters.lua");
+  storage->remove("/apps/reader/notice.lua");
   storage->remove("/apps/reader");
   storage->remove("/epub/.la-vaca-cega.epub.cache.ics");
   storage->remove("/epub/la-vaca-cega.epub");
@@ -10045,6 +10056,11 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
   TEST_ASSERT_TRUE(storage->mkdir("/apps/reader"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/reader.lua", "/apps/reader/reader.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/manifest.json", "/apps/reader/manifest.json"));
+  // **And its three modules** (0.149.0, docs/46 D6): the reader is `require`s of `library`, `chapters` and `notice`,
+  // and a disk with only the entry would run an app whose first line raises.
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/library.lua", "/apps/reader/library.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/chapters.lua", "/apps/reader/chapters.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/notice.lua", "/apps/reader/notice.lua"));
   TEST_ASSERT_TRUE(storage->mkdir("/epub"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/epub/la-vaca-cega.epub", "/epub/la-vaca-cega.epub"));
 
@@ -10084,6 +10100,9 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
 
   storage->remove("/apps/reader/reader.lua");
   storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader/library.lua");
+  storage->remove("/apps/reader/chapters.lua");
+  storage->remove("/apps/reader/notice.lua");
   storage->remove("/apps/reader");
   storage->remove("/epub/.la-vaca-cega.epub.cache.ics");
   storage->remove("/epub/la-vaca-cega.epub");

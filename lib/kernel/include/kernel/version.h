@@ -3228,7 +3228,34 @@ namespace kernel {
 // **Pending**: the cases are **not executed** and **the glass has not been looked at**, as the owner asked for the end
 // of the app of the book. And the half of D6 that is left is the ceiling of **one** file, which is decided when the
 // reader reaches it.
-static const char kVersion[] = "0.148.0";
+// 0.149.0 (8/11): **D6 decided from both sides**: the ceiling of one file goes up and the reader is four files
+// (docs/46 D6, docs/75).
+//
+//   - **`kSourceCap` 65 536 -> 98 304 B**: an app may be more than one file since 0.148.0, and the ceiling of **one**
+//     file goes up as well because the reader still has its page, its page count and its foot in a single chunk and the
+//     three things it wants next —the faces of the book, the fixed layout and SVG— all add lines to it. The cost is the
+//     same as always and for the same reason: the block is the heap's and it is given back before the app runs a line,
+//     so 96 KB are the biggest block an app's start asks for and nothing while it runs. The board with the least heap
+//     is the ATOM, with **338 864 B** free measured, and the block is a quarter of it during the start;
+//   - **the reader is four files**, and only the pieces that could leave without sharing the app's state did:
+//     `chapters.lua` (**204 lines, 8 722 B**: the `container.xml`, the OPF, the `nav` and the `toc.ncx`), `library.lua`
+//     (**68 lines, 2 865 B**: the shelf and the position of each book) and `notice.lua` (**90 lines, 3 609 B**: the band
+//     and the card, with their own state, so the reader asks `up()` and `gone()` and never holds a control it did not
+//     make). `reader.lua` is **1 203 lines and 49 215 B** with **101 locals** in its main chunk —it was 113— and 39
+//     functions. The whole app is **1 565 lines and 64 411 B**;
+//   - **what is NOT split, and why it is written down**: the page, its count, the strip of balls, the foot, the two
+//     lists and the menu share the app's state —the book, the byte, the table of pages, the running count, the key
+//     mode—, and moving them means a state table that every one of those lines has to read. That is a change to do
+//     **with the tests running** and not blind, so it is left as its own turn for the day the 49 089 B of room run out;
+//   - **the app's tests learned the modules**: both of them put the four files on their own disk, and the reader's test
+//     now also fails if the log says `require:`, which is what a module that is not there answers.
+//
+// The suites are **540 cases** —no case was added: the reader's own test is the proof, since a missing module would stop
+// the page from ever being built— and `pio test -e test --without-testing` builds the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at**, as the owner asked for the end
+// of the app of the book. And this refactor's only proof today is that every file compiles and that the calls are the
+// ones they were: it is the app test that will confirm it when it runs.
+static const char kVersion[] = "0.149.0";
 
 }  // namespace kernel
 

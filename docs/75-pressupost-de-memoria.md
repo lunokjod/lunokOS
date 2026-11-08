@@ -18,6 +18,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb l'app `demo` (colors, espera i lectura) |
 | Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **131 072 B** mentre `heap_limit_kb()` no digui un altre número (era 65 536 fins a la 0.81.2, vegeu la secció del terra) |
 | Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (131 072 B) mentre la placa no en digui un altre |
+| **Sostre del codi d'una app** | `kSourceCap` a `lib/kernel/src/shell.cpp` | **98 304 B** des de la 0.149.0, i era **65 536 B** des de la 0.143.0. És el sostre d'**un fitxer**: una app pot ser més d'un amb `require` (0.148.0) i cada mòdul té el seu bloc |
 | **Terra de l'intèrpret** | Mesurat a l'ATOM de l'emulador, 4/11, amb `sys.heap()` en arrencar una app | **29 842 B** abans que l'app corri una línia: 13 021 de Lua i les seves llibreries, 13 200 de la llibreria d'UI (canvas, teclat, cares) i 3 600 dels altres globals. És el que una app **no** pot fer servir del seu sostre |
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
 | Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
@@ -221,6 +222,29 @@ torna **abans que el mòdul corri una línia**: el chunk ja té les seves cadene
 mòdul espera. O sigui que el cost és **un bloc gros mentre un mòdul s'està llegint** i res més: no hi ha un segon
 sostre i no hi ha text de mòduls guardat al costat de l'app. Un text que omple el bloc es refusa (`E_TOOBIG`),
 perquè un text que hi arriba pot ser un text que s'ha tallat.
+
+## El lector en quatre fitxers, i el sostre a 96 KB (8/11, 0.149.0)
+
+La decisió de docs/46 **D6** presa de les dues bandes alhora, que és com la va demanar l'amo:
+
+- **el lector és quatre fitxers**: `reader.lua` (l'entrada i la pàgina: **1 203 línies i 49 215 B**, **101 locals** al
+  chunk principal i 39 funcions), `chapters.lua` (**204 línies, 8 722 B**: el `container.xml`, l'OPF, el `nav` i el
+  `toc.ncx`), `library.lua` (**68 línies, 2 865 B**: el prestatge i la posició de cada llibre) i `notice.lua`
+  (**90 línies, 3 609 B**: la banda i la targeta de l'avís, amb el seu estat). Total **1 565 línies i 64 411 B**, i el
+  fitxer més gran baixa de 60 930 a **49 215**;
+- **i `kSourceCap` passa de 65 536 a 98 304 B**, perquè el que queda a l'entrada —la pàgina, el seu comptatge i el
+  peu— encara és un chunk i les tres coses que vénen hi afegeixen línies. El marge d'un fitxer és ara **49 089 B**, més
+  que tota l'app d'avui.
+
+El preu és el mateix d'abans i pel mateix motiu: el bloc és del heap i es torna abans que l'app corri una línia, o
+sigui que **96 KB són el bloc més gran que demana un arrencament d'app i res mentre corre**. La placa amb menys heap és
+l'ATOM, amb **338 864 B** lliures mesurats, i el bloc n'és una quarta part durant l'arrencada.
+
+**El que no s'ha partit, i per què**: la pàgina, el comptatge de pàgines, la tira de boles, el peu, les llistes i el
+menú **comparteixen l'estat de l'app** (el llibre, el byte, la taula de pàgines, el compte corregut, el mode de les
+tecles…), i tocar-los vol dir passar aquest estat a una taula que tots llegeixin i escriure `S.` a cada línia de
+l'app. És un canvi que s'ha de fer **amb les proves corrent**, no a cegues, i per això queda com a feina pròpia si mai
+cal: avui el marge és de 49 089 B i no cal.
 
 ## Un bloc que no creix no es queda sense lloc (4/11)
 

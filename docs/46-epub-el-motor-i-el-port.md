@@ -163,7 +163,7 @@ definicions i el `Token` porta `inset` (0.130.0).
 | **D3** | **Cares amb accents** — **resolt el 7/11 (0.127.0)**: el dibuix d'un text preguntava a la cara només pels codis per sota de `0x7F` i ara li pregunta per **qualsevol byte**; la cara del llibre és `/fonts/dejavuserif-latin1.ttf` (**23 856 B, 232 glifs**) | Un llibre en català és ple de `à è í ò ú ç · « » — …`; tota la canonada de text és d'**un byte per caràcter** (`ttf::glyph_of(face, uint8_t code)`) | Fet amb `tools/ttf_latin1.py`, que retalla el DejaVu Serif i **aplana els glifs fets de peces** (el lector refusa un glif muntat de trossos: 55 glifs compostos, el més gran de 85 punts i 5 contorns). Queda el tokenitzador convertint UTF-8 → un byte (fase 2); les **tres cares del sistema segueixen sent ASCII** |
 | **D4** | **Pintar un bloc de píxels en un canvas** — **fet el 7/11 (0.133.0)**: `ui::canvas_bitmap(slot, x, y, w, h, bits, stride, mode)`, quatre bits per píxel, que és el que `img::decode` i el canvas parlen | Les imatges del llibre surten del ZIP a la memòria i `canvas_image` llegeix un **fitxer** | Fet: una foto és una **còpia** i no una conversió |
 | **D5** | **El text amb èmfasi** (A4) — **fet el 7/11 (0.129.0)**: `font::Ink` a les dues canonades del text (outlines i bits) i `canvas_text_styled` | Negreta i cursiva són a la llista de funcionalitats del paper | Fet a `lib/kernel/src/font.cpp` i `lib/kernel/src/ui.cpp`; quatre casos a `test/test_font` compten els rectangles |
-| **D6** | **La mida de l'app**: 3 959 línies i **131 161 B** (100 499 B sense comentaris) contra un sostre de font de **49 152 B**, i `load`/`dofile` són `nil`. **Mig resolt el 8/11 (0.148.0)**: hi ha **`require`** —una app en més d'un fitxer, cada un amb el seu chunk i el seu sostre—, o sigui que el lector pot créixer sense tornar a tocar el sostre | L'app no hi cap i no es pot partir en mòduls | La meitat de `require` feta (`require(name)` + `package.loaded`, a `lib/luabind` i amb la política del nom al nucli, docs/70). Queda **la decisió del sostre** per a una app d'un sol fitxer: avui **60 930 B** de 65 536 |
+| **D6** | **La mida de l'app** — **resolta el 8/11 (0.148.0 i 0.149.0) de les dues bandes**: **`require`** (0.148.0, una app en més d'un fitxer, cada un amb el seu chunk i el seu sostre, amb la política del nom al nucli) **i el sostre d'un fitxer a 98 304 B** (0.149.0, era 65 536); **el lector és quatre fitxers** —`reader.lua` **49 215 B** i **101 locals**, `chapters.lua` 8 722, `notice.lua` 3 609 i `library.lua` 2 865, o sigui **64 411 B** en total i el més gran amb **49 089 B** de marge— | L'app no hi cap i no es pot partir en mòduls | Fet: `require(name)` + `package.loaded` a `lib/luabind`, la política a `fs_ops.cpp`, i `kSourceCap` a 98 304. **El que no s'ha partit** (i per què) és a docs/75: la pàgina, el comptatge, el peu, les llistes i el menú comparteixen l'estat de l'app i partir-los vol dir una taula d'estat que toca cada línia —feina d'un torn propi, amb les proves corrent, si mai cal— |
 | **D7** | **Els ajustos d'una app** (`prefs`) | El paper hi desa l'últim llibre i la unitat | Un fitxer a `/cfg` de l'app: res de sistema. **Acceptat per l'amo el 8/11** |
 
 ## 4 · Els dos maquinari, i les dues màquines de Lua
@@ -196,10 +196,9 @@ mesurats. Les fases 1 a 6 no toquen l'app; la 8 és la que té el problema de mi
 
 ## 6 · Les decisions que són de l'amo
 
-1. **La mida de les apps** (D6): el sostre de font puja a ~160 KB o les apps guanyen `require`. Sense
-   això la fase 8 no cap. **La meitat de `require` ja hi és (8/11, 0.148.0)**: una app pot ser més
-   d'un fitxer; el que queda és si el sostre d'**un** fitxer puja també, i això es decideix quan el
-   lector arribi a 65 536 B (avui en té 60 930).
+1. **La mida de les apps** (D6): **resolta el 8/11** — `require` (0.148.0) i el sostre d'un fitxer a **98 304 B**
+   (0.149.0), i el lector partit en **quatre fitxers** (`reader.lua` 49 215 B, `chapters.lua`, `notice.lua` i
+   `library.lua`). El que queda és, si calgués, l'estat compartit en una taula (docs/75).
 2. **Com torna la pàgina** (D2): un objecte superfície o compondre dins d'un canvas de l'app.
 3. **La pantalla sencera** (D1): **feta el 7/11 (0.136.0)** — l'app la demana amb `ui.full_screen(true)`, tres tocs la desfan i els sent el sistema, i el lector la té en obrir (`apps/reader`), o sigui que la decisió que quedava era com es torna i la prengué l'amo.
 4. **Els accents** (D3): **decidit el 7/11 (0.127.0)**: la cara del llibre és llatina i les tres del sistema
