@@ -4107,7 +4107,13 @@ namespace kernel {
 // a page and not a box, and with it the first present is `paint 0,0 540x912`, which the system promotes to a `gc16`
 // (docs/50). The case that runs the launcher now asks for that whole paint, and broken on purpose —the wash out— it goes
 // red with the box in the capture.
-static const char kVersion[] = "0.153.1";
+// 0.153.2 (8/11): **the editor has its badge**, which the launcher showed as an empty cell. `apps/editor/res/` had the
+// notes of the app and no picture, and its manifest named none —the port of `Editor` forgot the one file `docs/45 §2` asks
+// for—, so the grid of `home_eink` had a cell with a name and no icon and said so in the console (`home: editor has no
+// picture`). The master `tools/icons/Editor.png` was in the repository all along: it is copied to `res/icon-source.png`
+// and `tools/make_icon.py` makes the 94 × 94 `res/icon.png` the manifest now names (docs/45). Found on the board, running
+// the launcher and reading its own log over the serial port.
+static const char kVersion[] = "0.153.2";
 
 }  // namespace kernel
 
