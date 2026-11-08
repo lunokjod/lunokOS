@@ -3626,7 +3626,27 @@ namespace kernel {
 //
 //   **Measured**: `pio run -e m5-paper` builds with no warning and the disk image carries the new
 //   `apps/reader/reader.lua` (checked with `diff`). **Pending**: flash it and run `run reader`.
-static const char kVersion[] = "0.151.11";
+// 0.151.12 (8/11): **a probe app: the start-up of the reader in stages, and a small square after each one**.
+//
+//   0.151.11 made the moment of the death sharper than ever and it is not a paint: with no whole-glass request, the first
+//   paint of the reader found the panel silent at **5530 ms after the last one** — the bar's —, so the panel died while the
+//   app was loading, with nothing of ours in the air. What the reader does between the shell giving it a view and its
+//   first page is: `require` of its three modules (flash), two `ui.load_font` from `/fonts` (flash), and `epub.books`
+//   (flash **and** the card).
+//
+//   `apps/probe/` (temporary, and named as such in its manifest) does exactly that work in four stages and, after each one,
+//   paints a 40x40 square and presents it:
+//
+//     probe: 0 nothing / 1 requires ok / 2 first face true / 3 second face true / 4 books N / probe: done
+//
+//   The log of a run of `run probe` says which stage came last and whether the glass still answered after it. It is the
+//   measurement the seven logs of this afternoon could not give, and it costs a boot.
+//
+//   **The Paper's image carries it because of one line that is not committed**: `custom_apps = ...,probe` in
+//   `platformio.ini` — the owner's file, left as he had it plus that name, and to be taken out when this is over.
+//
+//   **Measured**: `pio run -e m5-paper` builds and the disk image carries `apps/probe` (checked with `ls`).
+static const char kVersion[] = "0.151.12";
 
 }  // namespace kernel
 
