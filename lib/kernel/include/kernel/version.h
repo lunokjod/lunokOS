@@ -3545,7 +3545,30 @@ namespace kernel {
 //   —a legal thing, the same one the splash does at boot— and it is the only app that paints **pages** back to back
 //   instead of strips under the bar. What the system has to guarantee is that a paint that big cannot break the glass,
 //   and that guarantee only exists in one place: the driver, which is where it was missing (docs/50).
-static const char kVersion[] = "0.151.7";
+// 0.151.8 (8/11): **the read that failed was answering "the panel is gone", and it was cutting the rail of a busy panel**.
+//
+//   0.151.7 failed in the same place, and the reason is a mistake of the same family as all the others: **one number for
+//   two questions**. `read_register()` answered a value whatever happened, so a read that never reached the controller
+//   came back as a number; when that number was made `ffff` (0.151.6) a **failed read** became indistinguishable from a
+//   **silent panel**, and the answer to a silent panel in this driver is to cut its rail. The reader paints the whole
+//   glass twice when it starts; the second paint asks for the register a millisecond after the first one has gone out, the
+//   bus is still occupied by the load of the second page, the read fails, the rail is cut — on a panel that was working.
+//
+//   Three things now, and each of them is a guarantee and not a hope:
+//     - **`read_register(reg, value)` says whether it read at all**; a failed read is a retry of the wait and never a
+//       rail cycle. Only a *successful* read of `ffff` is silence, and silence needs three of them;
+//     - **the wait has a floor, and the floor of a page is the measured time of a page**: the board said 1051 and 1052 ms
+//       for a whole page, twice, so the driver starts a page at 1050 ms and can only grow it from what the panel itself
+//       reports (`a page held the engine %u ms`). A page that arrives a millisecond after another one now **cannot** load
+//       its image into an engine that is still reading the one before — which is what the log of every run was showing;
+//     - **the wait is asked twice**: before the image load and again before `DPY_BUF_AREA` (the maker's place), and
+//       `idle()` asks with the same floor, so nothing in the system looks at a page that has just started.
+//
+//   And a line that is the question this driver has never been able to answer with data: `LUTAFSR %04x %u ms after the
+//   paint`, once per paint.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 741 B of flash (55,8 %). **Pending**: flash it.
+static const char kVersion[] = "0.151.8";
 
 }  // namespace kernel
 

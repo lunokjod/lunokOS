@@ -1072,6 +1072,25 @@ lectura), els codis (0x0021, 0x0022, 0x0034, 0x1224), el format de píxel (`B_EN
 0x0001, 2300), el registre d'escriptura empaquetada, l'adreça de la imatge (0x001236E0), l'SPI a 10 MHz en mode 0 i el
 BUSY actiu baix.
 
+### Una lectura que falla no és un panell que call (8/11, 0.151.8)
+
+`read_register()` tornava un número passés el que passés, i quan aquell número es va fer `ffff` (0.151.6) una **lectura
+fallida** es va tornar indistingible d'un **panell que no contesta** — i la resposta d'aquest driver a un panell que no
+contesta és **tallar-li el corrent**. El lector pinta el vidre sencer dues vegades en arrencar; la segona pintada demana
+el registre un mil·lisegon després que la primera hagi sortit, el bus encara està ocupat per la càrrega de la segona
+pàgina, la lectura falla, i el corrent es talla a un panell que estava bé.
+
+Ara:
+
+- **`read_register(reg, value)` diu si ha llegit**. Una lectura fallida és un reintent de l'espera i **mai** un cicle de
+  rail. Només una lectura amb èxit que valgui `ffff` és silenci, i el silenci vol **tres** lectures així;
+- **l'espera té un terra, i el terra d'una pàgina és el temps mesurat d'una pàgina**: la placa va dir **1051 i 1052 ms**
+  per a una pàgina sencera, dues vegades. El driver comença amb 1050 ms i només el pot fer créixer amb el que el panell
+  diu de si mateix (`a page held the engine %u ms`). Una pàgina que arriba un mil·lisegon després d'una altra **no pot**
+  carregar la imatge dins d'un motor que encara llegeix l'anterior;
+- **l'espera es pregunta dues vegades**: abans de carregar la imatge i abans de `DPY_BUF_AREA` (el lloc del fabricant),
+  i `idle()` pregunta amb el mateix terra.
+
 ### El que encara no se sap (8/11, i és el que toca mesurar)
 
 En tres tirades seguides el vidre mor **entre les dues pintades de l'arrencada d'una app**: la rentada de tota la pàgina

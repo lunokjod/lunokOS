@@ -334,15 +334,18 @@ bool It8951::write_register(uint16_t reg, uint16_t value) {
   return command(kCmdRegWrite, args, 2);
 }
 
-uint16_t It8951::read_register(uint16_t reg) {
+// **A read that did not happen is not a value** (0.151.8). This function used to answer with a number whatever happened,
+// and its callers had two questions to tell apart —"the engine is idle" and "the panel is not answering"— with one
+// answer: a failed read was `ffff`, `ffff` was read as silence, and silence was answered by **cutting the rail of the
+// panel**. That is how a bus that was merely busy ended up killing the glass (measured 8/11). Now the caller is told
+// whether there is a value at all, and `why_` says why there is not (docs/50).
+bool It8951::read_register(uint16_t reg, uint16_t& value) {
   const uint16_t args[1] = {reg};
   uint16_t answer[1] = {0};
-  // **A register that was not read is `ffff` and not zero** (0.151.6): zero is an answer —it is what `LUTAFSR` says
-  // when no engine is running— and a command that never went out was being taken for "the engine is idle", which is the
-  // one mistake this driver cannot afford (the maker's `CheckAFSR` breaks on a zero, docs/50).
-  if (!command(kCmdRegRead, args, 1)) return 0xFFFF;
-  if (!read_words(answer, 1)) return 0xFFFF;
-  return answer[0];
+  if (!command(kCmdRegRead, args, 1)) return false;
+  if (!read_words(answer, 1)) return false;
+  value = answer[0];
+  return true;
 }
 
 bool It8951::begin() {
@@ -481,6 +484,7 @@ bool It8951::revive() {
   mark(0, 0, width_, height_);
   // A panel that has just been re-armed has no paint of ours in flight (0.151.7).
   painted_ms_ = 0;
+  last_wide_ = false;
   return true;
 }
 
@@ -589,12 +593,15 @@ bool It8951::bring_back() {
     why_ = "the panel does not answer";
     return false;
   }
-  uint16_t status = read_register(kRegLutAfsr);
-  for (uint8_t again = 0; again < kSilentTries && status == 0xFFFF; ++again) {
+  uint16_t status = 0;
+  bool read = read_register(kRegLutAfsr, status);
+  for (uint8_t again = 0; again < kSilentTries && read && status == 0xFFFF; ++again) {
     vTaskDelay(pdMS_TO_TICKS(kSilentPauseMs));
-    status = read_register(kRegLutAfsr);
+    read = read_register(kRegLutAfsr, status);
   }
-  if (status != 0xFFFF) return true;
+  // **A read that failed is not a panel that is gone**: nothing is cycled for it, the paint is simply refused and the
+  // next one asks again (0.151.8).
+  if (!read || status != 0xFFFF) return true;
   if (!revive()) {
     ++revive_fails_;
     if (revive_fails_ >= kReviveTries) {
@@ -607,7 +614,9 @@ bool It8951::bring_back() {
   }
   revive_fails_ = 0;
   hal::logf(pal::kLogWarn, "PANEL", "the panel had stopped answering; the rail was cycled and it is back: %s", profile_);
-  return read_register(kRegLutAfsr) != 0xFFFF;
+  uint16_t after = 0;
+  if (!read_register(kRegLutAfsr, after)) return true;  // it answered a question, and that is a panel that is there
+  return after != 0xFFFF;
 }
 
 bool It8951::flush(UpdateMode mode) {
@@ -632,8 +641,15 @@ bool It8951::flush(UpdateMode mode) {
     hal::logf(pal::kLogDebug, "PANEL", "a paint was asked with nothing marked");
     return true;
   }
-  // **One paint at a time**: the order is the maker's —`SetTargetMemoryAddr`, `LD_IMG_AREA`, the rows, `LD_IMG_END`, and
-  // only then `CheckAFSR` and `DPY_BUF_AREA` (0.151.7)—. The wait is **not** here: see the comment where it is.
+  // **The engine is waited for twice, and the first one is what the maker cannot teach** (0.151.8): the maker loads the
+  // image and *then* waits, which is safe on a bench where the next page comes from a person's finger. Here the next page
+  // can arrive **one millisecond** after the last one —the reader paints the whole glass twice when it starts—, and a
+  // load of 259 200 bytes into an image the running engine is reading is what this controller does not survive. So the
+  // wait is asked **before the load** as well, with the floor below it (`kEngineStartMs`), and it is asked again before
+  // `DPY_BUF_AREA` the way the maker asks it (docs/50).
+  if (!wait_paint(kPaintTimeoutMs)) {
+    if (!silent_ || !bring_back()) return false;
+  }
   // The rectangle that changed, **in the frame the app drew in**, in whole nibbles.
   uint16_t x0 = static_cast<uint16_t>(dirty_x0_ & ~1u);
   uint16_t x1 = static_cast<uint16_t>((dirty_x1_ + 1) & ~1u);
@@ -729,6 +745,9 @@ bool It8951::flush(UpdateMode mode) {
   }
   if (!command(kCmdDisplayArea, display, 7)) return false;
   painted_ms_ = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+  asked_ = false;
+  // **A paint of half the glass or more is a page**, and only a page raises the floor of the next wait (0.151.8).
+  last_wide_ = (static_cast<uint32_t>(w) * h >= (static_cast<uint32_t>(native_width_) * native_height_) / 2u);
   dirty_ = false;
   // **Every paint says what it sent** (0.118.6): the splash of the boot goes up and the page of an app does not, and the
   // two go through this same call — so the only way to tell them apart is to write down the five words of `DPY_AREA`
@@ -738,9 +757,10 @@ bool It8951::flush(UpdateMode mode) {
   // **And what the engine says of itself** (0.118.8): the register right after `DPY_BUF_AREA`. A controller that accepts
   // the command answers with a status that is not zero; one that ignores it leaves it at zero, and a page nobody sees is
   // told apart from a page that is coming (docs/50, docs/92 §33).
-  const uint16_t status_after = read_register(kRegLutAfsr);
+  uint16_t status_after = 0;
+  const bool status_read = read_register(kRegLutAfsr, status_after);
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
-            "engine status %04x after the paint", static_cast<unsigned>(status_after));
+            "engine status %s after the paint", status_read ? "read" : "not read");
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
             "paint %u,%u %ux%u mode %u at 0x%06x (page %u,%u %ux%u, %u rows of %u B)",
             static_cast<unsigned>(nx0), static_cast<unsigned>(ny0), static_cast<unsigned>(w),
@@ -877,7 +897,17 @@ bool It8951::engine_over() {
   if (!ready_) return false;
   // A glass that is gone has nothing in flight, and saying `no` for ever keeps the kernel asking every turn (0.151.5).
   if (dead_) return true;
-  return read_register(kRegLutAfsr) == 0;
+  // **The same floor the paint waits for** (0.151.8): a page that went out a moment ago is not over because the register
+  // has not been marked yet, and `idle()` is asked by the kernel every turn (docs/50).
+  if (painted_ms_ != 0) {
+    const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if ((now - painted_ms_) < (last_wide_ ? measured_ms_ : kEngineStartMs)) return false;
+  }
+  uint16_t status = 0;
+  // A read that failed says nothing about the engine, and saying "over" is the safe answer for a question that only
+  // decides whether to look again (0.151.8).
+  if (!read_register(kRegLutAfsr, status)) return true;
+  return status == 0;
 }
 
 bool It8951::idle() {
@@ -889,15 +919,53 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
   if (!ready_) return false;
   const uint32_t started = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
   silent_ = false;
+  asked_ = false;
+  // **How long the paint of ours that is being waited for cannot be over yet** (0.151.8): a small one is the floor of the
+  // engine starting, and a **page** is the measured time of a page —the board said 1051 and 1052 ms, twice— because a
+  // register read 50 ms after a whole page has started is a zero that means nothing, and the page before is still moving
+  // ink. The number only ever grows, and it only grows from a page (docs/50).
+  const uint32_t floor = last_wide_ ? measured_ms_ : kEngineStartMs;
   for (;;) {
     const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    // **A paint of ours that went out a moment ago is not over, whatever the register says** (0.151.7).
-    if (painted_ms_ != 0 && (now - painted_ms_) < kEngineStartMs) {
+    if (painted_ms_ != 0 && (now - painted_ms_) < floor) {
       vTaskDelay(pdMS_TO_TICKS(5));
       continue;
     }
-    const uint16_t status = read_register(kRegLutAfsr);
-    if (status == 0) return true;
+    uint16_t status = 0;
+    const bool first = (painted_ms_ != 0) && !asked_;
+    asked_ = true;
+    if (!read_register(kRegLutAfsr, status)) {
+      // **The bus did not take the question**, which is not the same as a panel that is not answering: the ink of a
+      // whole page keeps the line of busy low for a second and a register read has to wait for it, and a read that came
+      // back empty is asked again (0.151.8).
+      if ((now - started) > timeout_ms) {
+        why_ = "the register of the engine was not read";
+        hal::logf(pal::kLogWarn, "PANEL", "LUTAFSR was not read in %u ms (%s)",
+                  static_cast<unsigned>(now - started), why_);
+        return false;
+      }
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
+    if (first) {
+      // **What the register says, and how long after our own paint it said it** (0.151.8): the board has only ever shown
+      // `0000` there, read a millisecond after `DPY_BUF_AREA`, and whether the engine ever marks itself busy is the one
+      // number this driver has never seen (docs/50).
+      hal::logf(pal::kLogDebug, "PANEL", "LUTAFSR %04x %u ms after the paint", static_cast<unsigned>(status),
+                static_cast<unsigned>(now - painted_ms_));
+    }
+    if (status == 0) {
+      // **The panel measured itself again**: how long this paint held the engine, which is what the next page of the same
+      // size will be waited for (0.151.8).
+      if (last_wide_ && painted_ms_ != 0) {
+        const uint32_t took = now - painted_ms_;
+        if (took < kPaintTimeoutMs && took > measured_ms_) {
+          measured_ms_ = took;
+          hal::logf(pal::kLogInfo, "PANEL", "a page held the engine %u ms", static_cast<unsigned>(took));
+        }
+      }
+      return true;
+    }
     // **`ffff` is a panel that is not answering**, and it is said here so the paint above can bring the rail back
     // (0.151.2, docs/95).
     if (status == 0xFFFF) {

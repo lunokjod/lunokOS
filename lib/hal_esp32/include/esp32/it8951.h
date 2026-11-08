@@ -98,7 +98,9 @@ class It8951 : public ISurface {
   // The read itself, with the bus already locked by the caller (docs/50).
   bool read_while_holding(void* device, uint16_t* words, uint32_t count);
   bool write_register(uint16_t reg, uint16_t value);
-  uint16_t read_register(uint16_t reg);
+  // **Whether the register was read at all** (0.151.8): a failed read is not a value, and a caller that cannot tell them
+  // apart cuts the rail of a panel that is only busy (docs/50).
+  bool read_register(uint16_t reg, uint16_t& value);
   bool wait_busy(uint32_t timeout_ms);
   // Whether the engine of the controller has nothing in flight **and the last paint has had the time to
   // start**: the one question `idle()` and `wait_paint` both ask (docs/50).
@@ -119,6 +121,15 @@ class It8951 : public ISurface {
   // **When the last paint of ours went out** (0.151.7): a `LUTAFSR` read a moment after it is a zero that means nothing yet
   // —the engine has not marked itself busy—, and it is the only thing this number is for (docs/50).
   uint32_t painted_ms_ = 0;
+  // Whether the register has been asked once for this paint, so the one line that says its value and its age is not
+  // repeated in every poll of the wait (0.151.8).
+  bool asked_ = false;
+  // **How long a page of this glass takes**, measured by this driver on this board: 1051 ms and 1052 ms, twice, on 8/11
+  // (the splash page and the one after it). It is the floor the paint after a page is waited for, so a page that arrives a
+  // millisecond after another one cannot load its image into an engine that is still reading the one before (0.151.8).
+  uint32_t measured_ms_ = 1050;
+  // Whether the paint being waited for covered half the glass or more, which is what makes it a page (0.151.8).
+  bool last_wide_ = false;
   // **The way back for a controller that answers `ffff` and for nothing else** (0.151.3).
   bool bring_back();
   uint8_t revive_fails_ = 0;
