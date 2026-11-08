@@ -59,7 +59,11 @@ const uint16_t kMaxName = 128;
 
 // The entries of a book are its chapters and its pictures: a thousand is a book of a thousand files,
 // and the table is the caller's, so this is a ceiling and not a promise of memory.
-const uint16_t kMaxEntries = 1024;
+//
+// **The ceiling went up and the memory did not** (0.151.15): a book no longer takes a table of this size, it takes one of
+// the size the book says it has —`entries_in` below—, so a bigger ceiling only says what this reader is willing to walk.
+// Four thousand entries are an omnibus of a hundred works inside one file, which is a thing a person puts on a card.
+const uint16_t kMaxEntries = 4096;
 
 // **One entry of the central directory**, all of it copied out of the record: the name is the key, the
 // two sizes and the checksum are what an extraction is verified against, and `local` is where the
@@ -78,6 +82,11 @@ struct Entry {
 // **A zip open over a source.** The source has to stay alive while this is open: the local headers
 // and the streams are still there to be read.
 struct Archive {
+  // **How many entries there are**, with no table and no memory: the caller asks this first and then
+  // takes a table of exactly that size (0.151.15). It answers the same refusals as `open` about the
+  // container itself.
+  static Status entries_in(const Source& source, uint16_t& count);
+
   // Reads the closing record and the central directory and fills the table. `count` says how many
   // entries came out, and the table is filled from zero up to `cap`.
   Status open(const Source& source, Entry* table, uint16_t cap, uint16_t& count);

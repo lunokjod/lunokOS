@@ -3705,7 +3705,27 @@ namespace kernel {
 //       hundred works) does not open because of it. Raising it costs `sizeof(zip::Entry) * kEntries` of the extra memory
 //       on **every** open — 128 is about 11 KB and 2048 would be about 180 KB — or the table can be made the size the
 //       archive says it has, which is the right fix and a bigger one.
-static const char kVersion[] = "0.151.14";
+// 0.151.15 (8/11): **the zip table is the size of the book and not a fixed 128**.
+//
+//   The owner took the second of the two options 0.151.14 left open, and it is the one that costs nothing: the book is
+//   asked how many entries it carries **before** any memory is taken, and the table is exactly that.
+//
+//   - `zip::Archive::entries_in(source, count)` reads the record that closes the zip and answers the count, making the
+//     same refusals as `open` about the container itself (`kNotAZip`, `kSplit`, `kZip64`, `kDirectory`). The walk that
+//     finds that record moved out of `open` into `closing_record()` so both questions use one code;
+//   - `book::open` asks it, refuses a book with nothing in it and one past `zip::kMaxEntries`, and then takes a table of
+//     the size the book said. `kEntries` (128, in `book.h`) is gone: `zip::kMaxEntries` went to **4 096** and is only
+//     what this reader is willing to walk, because the memory taken is now the book's own size;
+//   - and the smaller books got cheaper, which is the part nobody asked for and everybody gets: 8 entries are **1,2 KB**
+//     of the extra memory instead of 19 KB, and the omnibus of a hundred works is **648 entries, 98 KB**, taken only
+//     while it is open.
+//
+//   **Measured on the board** over the serial port, after the fix: `epub.open("/sd/epub/100-mejores-obras.epub")` answers
+//   `true` and `epub.entries()` **648** (it answered `nil` and an error before), and
+//   `epub.open("/littlefs/epub/la-vaca-cega.epub")` answers `true` with **8**. `pio run -e m5-paper` builds with no
+//   warning. The shelf's other limits (24 books, a path of 63 characters) are untouched and are the next thing to raise
+//   if a disk ever needs it.
+static const char kVersion[] = "0.151.15";
 
 }  // namespace kernel
 

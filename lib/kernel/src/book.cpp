@@ -459,9 +459,31 @@ const char* open(const char* path) {
   // its size is the backend's business, while a zip asks for the length of the file before it asks anything else.
   g.bytes = info.size;
 
+  g.source.ctx = &g;
+  g.source.size = file_size;
+  g.source.read_at = file_read_at;
+
+  // **The table is the size the book says it has** (0.151.15): a fixed one refused an omnibus of a hundred works because
+  // another book has forty files, and it spent the same memory on the forty. The book is asked how many entries it
+  // carries, and the ceiling is only what this reader is willing to walk (`zip::kMaxEntries`).
+  uint16_t wanted = 0;
+  const zip::Status about = zip::Archive::entries_in(g.source, wanted);
+  if (about != zip::kOk) {
+    close();
+    return reason_of(about);
+  }
+  if (wanted == 0) {
+    close();
+    return "the book has nothing in it";
+  }
+  if (wanted > zip::kMaxEntries) {
+    close();
+    return "the book has more files than this reader walks";
+  }
+
   // **The blocks come before the table is read**, and the table is the one that says whether this is a book at
   // all: a file that is not one gives everything back.
-  g.table = static_cast<zip::Entry*>(pal::extra_memory().allocate(sizeof(zip::Entry) * kEntries, true));
+  g.table = static_cast<zip::Entry*>(pal::extra_memory().allocate(sizeof(zip::Entry) * wanted, true));
   g.packed = static_cast<uint8_t*>(pal::extra_memory().allocate(kChapterBytes, true));
   g.chapter = static_cast<uint8_t*>(pal::extra_memory().allocate(kChapterBytes, true));
   g.items = static_cast<epub::Item*>(pal::extra_memory().allocate(sizeof(epub::Item) * kItems, true));
@@ -473,12 +495,8 @@ const char* open(const char* path) {
     return "there is no memory for a book";
   }
 
-  g.source.ctx = &g;
-  g.source.size = file_size;
-  g.source.read_at = file_read_at;
-
   uint16_t count = 0;
-  const zip::Status status = g.archive.open(g.source, g.table, kEntries, count);
+  const zip::Status status = g.archive.open(g.source, g.table, wanted, count);
   if (status != zip::kOk) {
     close();
     return reason_of(status);

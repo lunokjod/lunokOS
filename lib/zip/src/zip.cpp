@@ -62,21 +62,10 @@ bool read_exact(const Source& source, uint32_t offset, uint8_t* dst, uint32_t le
 
 }  // namespace
 
-Status Archive::open(const Source& source, Entry* table, uint16_t cap, uint16_t& count) {
-  count = 0;
-  count_ = 0;
-  table_ = table;
-
-  if (source.size == nullptr || source.read_at == nullptr) return kBadData;
-
-  const int64_t size = source.size(source.ctx);
-  if (size < static_cast<int64_t>(kEndSize)) return kNotAZip;
-
-  const uint32_t total = static_cast<uint32_t>(size);
-  if (total > 0x7FFFFFFFu) return kZip64;  // a reader of 32-bit offsets does not walk a bigger file
-
-  // **The closing record, found from the end.** The window walks backwards and overlaps by one record,
-  // so a record that falls between two windows is seen whole in one of them.
+// **Where the record that closes the zip starts**, or -1 when there is none. The walk goes backwards from the end, a
+// window at a time, and a record is the one whose comment lands exactly at the end of the file; it is here and not inside
+// `open` because two questions need it now: filling a table, and **how big the table has to be** (0.151.15, docs/46).
+int64_t closing_record(const Source& source, uint32_t total) {
   int64_t end = -1;
   uint32_t from = total;
 
@@ -86,7 +75,7 @@ Status Archive::open(const Source& source, Entry* table, uint16_t cap, uint16_t&
     const uint32_t want = (from < sizeof(g_window)) ? from : static_cast<uint32_t>(sizeof(g_window));
     const uint32_t at = from - want;
 
-    if (!read_exact(source, at, g_window, want)) return kBadData;
+    if (!read_exact(source, at, g_window, want)) return -1;
 
     // Every position where a record could start inside this window. The record ends at the end of
     // the file —its comment is the last thing in the zip—, and that is the whole of the test.
@@ -112,6 +101,63 @@ Status Archive::open(const Source& source, Entry* table, uint16_t cap, uint16_t&
     from = at + kEndSize - 1;
   }
 
+  return end;
+}
+
+// **How many entries the book says it has, without a table** (0.151.15): the caller asks this first and takes a table of
+// that size, so a book of a hundred works inside one file is not refused because another book has forty files. The
+// refusals are the ones `open` makes, because they are about the container and not about the table (docs/46).
+Status Archive::entries_in(const Source& source, uint16_t& count) {
+  count = 0;
+  if (source.size == nullptr || source.read_at == nullptr) return kBadData;
+
+  const int64_t size = source.size(source.ctx);
+  if (size < static_cast<int64_t>(kEndSize)) return kNotAZip;
+
+  const uint32_t total = static_cast<uint32_t>(size);
+  if (total > 0x7FFFFFFFu) return kZip64;
+
+  const int64_t end = closing_record(source, total);
+  if (end < 0) return kNotAZip;
+
+  uint8_t record[kEndSize];
+  if (!read_exact(source, static_cast<uint32_t>(end), record, kEndSize)) return kBadData;
+
+  const uint16_t disk = le16(record + 4);
+  const uint16_t directory_disk = le16(record + 6);
+  const uint16_t entries_here = le16(record + 8);
+  const uint16_t entries_total = le16(record + 10);
+  const uint32_t directory_size = le32(record + 12);
+  const uint32_t directory_at = le32(record + 16);
+
+  if (disk != 0 || directory_disk != 0) return kSplit;
+  if (entries_here == 0xFFFFu || entries_total == 0xFFFFu || directory_size == 0xFFFFFFFFu ||
+      directory_at == 0xFFFFFFFFu) {
+    return kZip64;
+  }
+  if (entries_here != entries_total) return kDirectory;
+  if (static_cast<uint64_t>(directory_at) + directory_size > total) return kDirectory;
+
+  count = entries_total;
+  return kOk;
+}
+
+Status Archive::open(const Source& source, Entry* table, uint16_t cap, uint16_t& count) {
+  count = 0;
+  count_ = 0;
+  table_ = table;
+
+  if (source.size == nullptr || source.read_at == nullptr) return kBadData;
+
+  const int64_t size = source.size(source.ctx);
+  if (size < static_cast<int64_t>(kEndSize)) return kNotAZip;
+
+  const uint32_t total = static_cast<uint32_t>(size);
+  if (total > 0x7FFFFFFFu) return kZip64;  // a reader of 32-bit offsets does not walk a bigger file
+
+  // **The closing record, found from the end.** The window walks backwards and overlaps by one record,
+  // so a record that falls between two windows is seen whole in one of them.
+  const int64_t end = closing_record(source, total);
   if (end < 0) return kNotAZip;
 
   uint8_t record[kEndSize];

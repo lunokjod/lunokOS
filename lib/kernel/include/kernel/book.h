@@ -32,7 +32,6 @@ namespace book {
 // book is a few hundred kilobytes and a file of a book is a few dozen entries, so these are ceilings and not
 // promises, and a book that does not fit says so instead of taking the whole of the extra memory.
 const uint32_t kChapterBytes = 512u * 1024u;
-const uint16_t kEntries = 128;
 const int16_t kItems = 256;   // the words and the rules of one page
 const int16_t kWords = 4096;  // the letters and the hrefs of one page
 // **The blocks of a picture**, asked for the first time a book has one: the file as it comes out of the zip and the
