@@ -1037,6 +1037,35 @@ El que hi ha ara, i tot és al driver (`it8951.cpp`):
   `kMaxGlassSide` (4 096) o una imatge a `0xffffffff` són «no hi ha panell», i `revive()` torna fals en comptes de
   fer veure que l'ha recuperat.
 
+### El driver del fabricant mana: `LUTAFSR == 0`, i `LD_IMG_END` (8/11, 0.151.6)
+
+El `M5EPD` oficial és al disc (`OLD/PaperOS/.pio/libdeps/m5stack-paper/M5EPD`) i la seva seqüència d'una pintada és
+aquesta, sense res més:
+
+1. `CheckAFSR()`: **llegeix `LUTAFSR` i espera que valgui zero**, tres segons com a molt (`M5EPD_Driver.cpp:308`);
+2. `SetTargetMemoryAddr`: `LIS_HIGH` i després `LIS_LOW`;
+3. `LD_IMG_AREA` (0x0021) amb cinc paraules: format, x, y, w, h;
+4. els píxels, en paraules de 32 bits amb el CS baix;
+5. **`LD_IMG_END` (0x0022)**, que tanca la càrrega;
+6. `DPY_BUF_AREA` (0x0037) amb set paraules: x, y, w, h, mode i l'adreça de la imatge (baixa, alta).
+
+El meu driver feia **1 amb el pin BUSY i una taula de mil·lisegons** en comptes del registre. La placa va dir com
+d'equivocat era: el pin deia que una pàgina trigava 1052 ms, després 3000 (un temps esgotat), després 2613 — tres
+números per a la mateixa pàgina. **El pin BUSY puja abans que el motor hagi acabat**, i per això el `LD_IMG_AREA` següent
+queia a sobre d'un motor que encara llegia la imatge: així és com aquest controlador deixa de contestar.
+
+I dues coses més que eren dolentes pel mateix motiu:
+
+- el driver **escrivia un 1 a `LUTAFSR` abans de cada pintada** (0.118.5) perquè «la bandera no baixava mai»: no baixava
+  perquè el motor no acabava mai. El fabricant només la llegeix, i ara aquí també;
+- `read_register()` tornava **zero** quan la comanda no sortia, i zero és exactament el que llegeix «el motor està aturat».
+  Ara torna `ffff`, que és la frase que la resta del driver entén.
+
+Tot el que ja coincidia amb el fabricant, paraula per paraula: els prefixos (0x6000 comanda, 0x0000 dada, 0x1000
+lectura), els codis (0x0021, 0x0022, 0x0034, 0x1224), el format de píxel (`B_ENDIAN`, 4 bpp, rotació 0), el VCOM (0x0039,
+0x0001, 2300), el registre d'escriptura empaquetada, l'adreça de la imatge (0x001236E0), l'SPI a 10 MHz en mode 0 i el
+BUSY actiu baix.
+
 ### El que encara no se sap (8/11, i és el que toca mesurar)
 
 En tres tirades seguides el vidre mor **entre les dues pintades de l'arrencada d'una app**: la rentada de tota la pàgina

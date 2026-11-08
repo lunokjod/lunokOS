@@ -3492,7 +3492,37 @@ namespace kernel {
 //   reader` once with the card out of the slot.
 //
 //   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 501 B of flash (55,8 %). No test run.
-static const char kVersion[] = "0.151.5";
+// 0.151.6 (8/11): **the driver now asks the engine the way the maker's own driver asks it** — `M5EPD` was read, not guessed.
+//
+//   The owner's order was to read the official M5Paper library instead of guessing again, and it is in the tree:
+//   `OLD/PaperOS/.pio/libdeps/m5stack-paper/M5EPD`. What it says, and what this driver was doing:
+//
+//   - **the engine is `LUTAFSR == 0`** (`M5EPD_Driver::CheckAFSR`: a loop on that register, three seconds at most, run
+//     before every `DPY_BUF_AREA`). This driver was asking the **BUSY pin** and a table of millisecond guesses instead,
+//     and the board said how wrong that is: "busy" reported a page taking 1052 ms, then 3000 (a timeout), then 2613, for
+//     the same page. **The BUSY pin goes high before the engine is done**, so the next `LD_IMG_AREA` was landing on top of
+//     an engine that was still reading the image — which is how the controller of this panel stops answering;
+//   - **the order is**: `CheckAFSR` → `SetTargetMemoryAddr` (high, then low) → `LD_IMG_AREA` → the rows → `LD_IMG_END` →
+//     `DPY_BUF_AREA` with seven words (the last two, the image address). The `LD_IMG_END` was already there; the wait was
+//     the missing one;
+//   - **the flag is read, never written**: the maker's driver does not clear `LUTAFSR`, and this one wrote 1 to it before
+//     every paint (0.118.5) because the flag "never came down" — it never came down because the engine never finished.
+//     That write is gone;
+//   - `read_register()` returned **0** when the command did not go out, and 0 is exactly what "the engine is idle" reads
+//     like. It returns `ffff` now, which is the sentence the rest of the driver understands;
+//   - the pins, the prefixes (0x6000 command, 0x0000 data, 0x1000 read), the opcodes (0x0021, 0x0022, 0x0034, 0x1224),
+//     the pixel format (`B_ENDIAN`, 4 bpp, rotate 0), the VCOM (0x0039, 0x0001, 2300), the pack-write register and the
+//     image address (0x001236E0) were all already the maker's numbers, word for word. The SPI at 10 MHz, mode 0, and BUSY
+//     active low too.
+//
+//   **What went out of the driver**: `ink_ms_of()`, `kEngineStartMs`, `measured_ms_`, `last_wide_`, `painted_pending_`,
+//   `painted_ms_`, `ink_ms_` and `clear_engine_flag()` — the whole machinery of guessing how long ink takes, which existed
+//   to answer a question the controller answers by itself.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 193 B of flash (55,7 %). **Pending**: flash it. The log
+//   of a paint is now `engine status %04x after the paint` —a non-zero status is an engine that took the command— and no
+//   `ffff` may appear. The suites are untouched.
+static const char kVersion[] = "0.151.6";
 
 }  // namespace kernel
 

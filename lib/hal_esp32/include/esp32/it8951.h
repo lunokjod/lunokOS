@@ -103,10 +103,6 @@ class It8951 : public ISurface {
   // Whether the engine of the controller has nothing in flight **and the last paint has had the time to
   // start**: the one question `idle()` and `wait_paint` both ask (docs/50).
   bool engine_over();
-  // **The flag of the LUT engine, cleared the way the maker's code clears it** (0.118.4): a write of 1 to `LUTAFSR`.
-  // Read only and never written, a flag that stayed up left the glass without a single paint for ever (docs/50,
-  // docs/92 §33).
-  void clear_engine_flag();
   void power_on();
   // **Joining the bus and arming the controller are two steps and not one** (0.118.9): the first one
   // happens once in the life of the driver, and the second one is what a panel that has stopped
@@ -118,6 +114,10 @@ class It8951 : public ISurface {
   // because the image belongs to the app and not to the controller (0.118.9, docs/95).
   bool revive();
   // How many times in a row it has been tried and failed, and whether the driver has given up on it.
+  // Whether the last wait saw the panel answer nothing at all (`ffff`), which is the one thing a rail cycle is for.
+  bool silent_ = false;
+  // **The way back for a controller that answers `ffff` and for nothing else** (0.151.3).
+  bool bring_back();
   uint8_t revive_fails_ = 0;
   bool dead_ = false;
   // The rectangle the app drew, in the frame of the glass it belongs to (docs/50).
@@ -151,25 +151,6 @@ class It8951 : public ISurface {
   uint16_t dirty_x1_ = 0;
   uint16_t dirty_y1_ = 0;
   bool dirty_ = false;
-  // When the last paint was asked for, in the board's milliseconds: it is what says that a paint cannot
-  // be over yet, because the engine has not had the time to mark itself busy (docs/50).
-  uint32_t painted_ms_ = 0;
-  // **How long the ink of the last paint takes**, from the mode it asked for and the maker's own table (0.118.5): the
-  // flag of the controller does not come down by itself on this panel, so the wait is this number and the BUSY line
-  // (docs/50, docs/95).
-  uint32_t ink_ms_ = 0;
-  // **What the panel said of itself about that same paint** (0.151.3): how long its BUSY line stayed low after
-  // `DPY_AREA`, measured and not supposed. It is the ceiling the next wait uses when it is longer than the table's own
-  // number, because a whole-page `gc16` of this panel is not the 450 ms of the maker's row — the board said so by
-  // dying when a second page was loaded over it (docs/50).
-  uint32_t measured_ms_ = 0;
-  // Whether the last paint covered half the glass or more: only such a paint is allowed to raise `measured_ms_`, so a
-  // blinking caret never makes the next page wait for a page's ink (0.151.3).
-  bool last_wide_ = false;
-  // **Whether a paint of ours went out and has not been measured yet** (0.151.5): `painted_ms_` only means something
-  // while this is up, and a failed attempt that never reached `DPY_AREA` must not be timed against a paint of minutes
-  // ago (measured on the board, 8/11).
-  bool painted_pending_ = false;
   // Why the last step that failed did fail. The handshake already reported four different faults
   // under one sentence and each one cost a flash to tell apart (measured on the board, 1/11).
   const char* why_ = "";
