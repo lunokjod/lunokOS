@@ -4040,7 +4040,22 @@ namespace kernel {
 //   - and **the documents that name apps of the old list are not rewritten to say nothing**: `docs/40`, `docs/50`,
 //     `docs/90` and this one use `clock`, `battery` or `checkbox` as examples, and each name becomes true again when
 //     its app is ported. What is not done is inventing the app so the sentence looks right (docs/45 §8).
-static const char kVersion[] = "0.152.6";
+// 0.152.7 (8/11): **the masters of the icons enter the repository, and the two things the working tree was still
+// keeping out are said**. No code changed: this is the tree, and the suite is the same 176 of 176.
+//
+//   - **`tools/icons/` is in git** (24 files, `2048.png` to `Timeclock.png`, 134 063 B, each one a 448 × 448 grey
+//     PNG). They are the drawings a person edits, one for each app of the paper project, and `docs/45` has named them
+//     as **the first thing a port reads** since it was written — line 19 of the table— while the folder lived only
+//     beside `OLD/`, which is ignored ("leftovers of an older layout, kept next to the repository and never built").
+//     The copy here is identical to `OLD/PaperOS/tools/icons/`, measured with `diff -r`, and `tools/make_icon.py` is
+//     what turns a master into the `res/icon.png` an app carries (docs/45 §2);
+//   - **`.gitignore` says what the tree has**: `OLD/` was already there, and the owner's `DevelNotes.md` joins it —
+//     the notes are his and not the project's, and a note that shows up as `??` every time is a note that gets
+//     committed by accident one day—. The file ends with a break like the rest of the repository;
+//   - and **the title of the reader is his**: `Reader` → `EPUB reader`, which is the port of `EPUB` (docs/45 §8). No
+//     case of the suite reads a title, the id is still `reader`, and the manifest keeps what the port owes: `version`
+//     0.1.0, `entry`, `boards`, `icon`, `splash`, `opens` and a description of what the app does.
+static const char kVersion[] = "0.152.7";
 
 }  // namespace kernel
 

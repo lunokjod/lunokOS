@@ -1,5 +1,5 @@
 {
-  "title": "Reader",
+  "title": "EPUB reader",
   "author": "@lunokjod",
   "version": "0.1.0",
   "entry": "reader.lua",
