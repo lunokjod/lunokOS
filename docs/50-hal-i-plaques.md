@@ -1091,6 +1091,21 @@ Ara:
 - **l'espera es pregunta dues vegades**: abans de carregar la imatge i abans de `DPY_BUF_AREA` (el lloc del fabricant),
   i `idle()` pregunta amb el mateix terra.
 
+### El disc es llegeix amb el vidre quiet (8/11, 0.151.9)
+
+Els set logs d'aquesta tarda tenen tots el mateix moment de la mort: **la pintada que falla és sempre la primera que ve
+després que l'app hagi llegit el disc**. Les cares de `/fonts` (flash) i el camí dels llibres (`epub.books`, flash **i
+targeta**) es llegeixen mentre la rentada de tota la pàgina encara té la forma d'ona en marxa —més d'un segon—, i la
+pintada següent troba el controlador en `ffff`. A l'arrencada, en canvi, entre el splash i la barra no hi ha cap lectura,
+i tot va bé.
+
+Per això el lector ara fa la feina lenta **abans** de demanar el vidre sencer: les dues cares, la llista de llibres, i
+aleshores `ui.full_screen(true)` i la pàgina. L'`on_resize` que arriba després no torna a tocar el disc (`shelf_read`).
+
+Això és la hipòtesi amb més evidència que tenim i **no està provada**: si el vidre aguanta amb el lector endreçat, la
+causa és aquesta i la regla ha de passar al nucli (cap lectura de disc mentre `display::idle()` sigui fals després d'una
+pintada gran); si no aguanta, el següent pas és l'SPI: qui té el bus i el CS entre `give_bus()` i la lectura següent.
+
 ### El que encara no se sap (8/11, i és el que toca mesurar)
 
 En tres tirades seguides el vidre mor **entre les dues pintades de l'arrencada d'una app**: la rentada de tota la pàgina

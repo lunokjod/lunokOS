@@ -3568,7 +3568,30 @@ namespace kernel {
 //   paint`, once per paint.
 //
 //   **Measured**: `pio run -e m5-paper` builds with no warning, 2 338 741 B of flash (55,8 %). **Pending**: flash it.
-static const char kVersion[] = "0.151.8";
+// 0.151.9 (8/11): **the paint that dies is always the first one after the app reads the disk**.
+//
+//   Seven logs of this afternoon, read together, have one thing in common and it is not the mode, the wait, the read or
+//   the size: **the paint that finds `ffff` is the first one after the app has touched the disk**. In 0.151.8 the panel
+//   went silent between the wash of the whole glass and the shelf's page, and what happens in that gap is `ui.load_font`
+//   twice (from `/fonts`, on the flash) and `epub.books` (the flash **and the card**). At boot, between the splash and the
+//   bar, there is no disk traffic at all, and every paint goes up.
+//
+//   So the ink is moving —a page of this glass holds its waveform for more than a second, `a page held the engine
+//   1051/1131 ms`— while the disk is read. That is the shape of the failure: disk traffic on a bus the panel shares, or a
+//   supply that sags under both, while the controller is driving a whole-page waveform.
+//
+//   The reader now does the slow work **before** it asks for the whole glass: the two faces, the list of the shelf, and
+//   only then `ui.full_screen(true)` and the page — the `on_resize` that follows does not touch the disk again
+//   (`shelf_read`). The page is painted after the disk is quiet, which is what the boot does by accident.
+//
+//   **This is a hypothesis with evidence and it is not proven.** If the glass holds with the reader ordered this way, the
+//   cause is the overlap and the rule belongs in the kernel (no disk read while `display::idle()` is false after a big
+//   paint). If it does not hold, the next step is the SPI layer: who owns the bus and the CS between `give_bus()` of a
+//   paint and the next register read.
+//
+//   **Measured**: `pio run -e m5-paper` builds with no warning, the disk image carries the new `apps/reader/reader.lua`
+//   (checked with `diff`), 2 338 741 B of flash (55,8 %). **Pending**: flash it and run `run reader`.
+static const char kVersion[] = "0.151.9";
 
 }  // namespace kernel
 

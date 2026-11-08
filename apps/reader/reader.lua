@@ -40,8 +40,11 @@ end
 -- **The whole glass** (0.136.0, docs/46 D1): a page of a book is a page and the strip of the system takes forty-eight
 -- rows of it. The app asks for the glass here and the system answers with `on_resize`, which is a hook the app already
 -- knows; three taps on the glass give the bar back and the same hook says so again.
-ui.full_screen(true)
-ui.title('Library')
+--
+-- **But not yet** (0.151.9): asking for the whole glass makes the system wash it, and a wash of the whole glass holds its
+-- waveform for more than a second. The two faces and the shelf of books are read from the disk **before** that wash, with
+-- the glass still, because disk traffic while that ink is moving is what left the panel of the board silent (measured
+-- 8/11, docs/50). It goes right after the faces, below.
 
 -- **The size of the view is read every time the system gives another one** (0.136.0): asking for the whole glass and
 -- giving it back are two of those moments, and a canvas of the size of before is a page with a strip of paper left over.
@@ -94,11 +97,19 @@ if title_face == nil then title_face = face end
 local disk_face = face
 local book_face = nil
 
+-- **The disk is read while the glass is still** (0.151.9): the faces above and the shelf here, and only then the whole
+-- glass and its page. `shelf_read` says the list is the one read before the first paint, so `show_shelf` does not go to
+-- the card again on top of the ink it has just asked for.
+local shelf_read = false
+local books = library.shelf_of()
+shelf_read = true
+ui.full_screen(true)
+ui.title('Library')
+
 
 -- What is on the page, and the two screens are two different sets of controls: a screen is built and given back,
 -- never hidden (docs/30, docs/90).
 local screen = nil
-local books = {}
 local book = nil
 local chapter = nil
 local title = ''
@@ -726,7 +737,10 @@ function show_shelf(why)
   end
 
   ui.title('Library')
-  books = library.shelf_of()
+  -- **The first shelf is the list read before the first paint** (0.151.9); the ones after it go to the disk again, which
+  -- is fine: by then the page they replace has been on the glass for a while.
+  if not shelf_read then books = library.shelf_of() end
+  shelf_read = false
 
   -- **The shelf is paper from edge to edge** (0.147.0): a book read in the dark leaves a black page on the glass, and the
   -- margins around the grid and the air above the foot are rows that neither the grid nor the foot paints — without this
