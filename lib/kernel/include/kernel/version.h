@@ -3683,7 +3683,29 @@ namespace kernel {
 //
 //   `apps/probe` stays in the tree as the tool that found it; the image does not carry it (`custom_apps` of
 //   `platformio.ini` is as the owner had it). It is run by adding the name to that list.
-static const char kVersion[] = "0.151.13";
+// 0.151.14 (8/11): **a book of the flash could not be opened: the path had two slashes in it**.
+//
+//   The board said it in one line: `VFSFileImpl(): fopen(/littlefs//epub/la-vaca-cega.epub) failed`. `book::open` splits
+//   `/littlefs/epub/x.epub` into the unit and the rest, and copied the rest **with its leading slash**; every storage of
+//   this system builds `<mount>/<rel>`, so that slash became a second one. **littlefs answers no to `//`**, so every book
+//   of the flash was unreadable — the only book this disk carries — while FATFS swallowed it on the card, which is why
+//   the shelf looked fine and the card's books opened. `vfs::resolve` skips the slashes (`while (*rest == '/') ++rest;`)
+//   and that is exactly why `ls /littlefs/epub` always worked and `epub.open` did not.
+//
+//   Fixed in the same place and the same way: the relative path loses its leading slash when it is kept.
+//
+//   **Measured on the board** over the serial port, with the interpreter of the shell: `epub.open("/littlefs/epub/
+//   la-vaca-cega.epub")` answers `true` and `epub.entries()` 8, and `epub.open("/sd/epub/Don_Quijote…epub")` answers
+//   `true` too. `run reader` paints its shelf with no `fopen` failure at all.
+//
+//   **Two limits that this turn found and did not change**, said with their numbers:
+//     - the shelf holds **24 books** and a path of **63 characters** (`Shelf` in `book.cpp`); a longer name is dropped in
+//       silence;
+//     - a book's zip table holds **`kEntries` = 128** entries, and `100-mejores-obras.epub` (231 MB, an omnibus of a
+//       hundred works) does not open because of it. Raising it costs `sizeof(zip::Entry) * kEntries` of the extra memory
+//       on **every** open — 128 is about 11 KB and 2048 would be about 180 KB — or the table can be made the size the
+//       archive says it has, which is the right fix and a bigger one.
+static const char kVersion[] = "0.151.14";
 
 }  // namespace kernel
 

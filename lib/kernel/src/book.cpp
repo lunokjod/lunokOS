@@ -436,9 +436,16 @@ const char* open(const char* path) {
   memcpy(g.mount, path, static_cast<size_t>(mount_len));
   g.mount[mount_len] = 0;
 
-  const size_t rel_len = strlen(second);
+  // **The relative path loses its leading slash** (0.151.14): every storage of this system builds `<mount>/<rel>`, so the
+  // slash that is part of the path became a second one — `/littlefs//epub/la-vaca-cega.epub` — and littlefs answered
+  // `fopen failed` for every book of the flash, while FATFS happened to swallow it on the card and only the flash's book
+  // was unreadable. `vfs::resolve` skips the slashes exactly like this, which is why `ls /littlefs/epub` always worked and
+  // `epub.open` did not (measured on the board, 8/11, docs/70).
+  const char* rel = second;
+  while (*rel == '/') ++rel;
+  const size_t rel_len = strlen(rel);
   if (rel_len >= sizeof(g.rel)) return "the name of the book is too long";
-  memcpy(g.rel, second, rel_len + 1);
+  memcpy(g.rel, rel, rel_len + 1);
 
   hal::IStorage* storage = hal::platform().storage(g.mount);
   if (storage == nullptr) return "that unit is not mounted";
