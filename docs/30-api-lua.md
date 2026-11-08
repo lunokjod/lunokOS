@@ -12,6 +12,30 @@ Aquest és el contracte entre una app i el sistema. Tot el que no hi és, no exi
 - Els mòduls són **globals plans** (`sys`, `time`, `alarm`…). No hi ha cap taula `lunok.` que els
   envolti: ocupa més memòria i no aporta res.
 
+### `require(name)`: una app en més d'un fitxer (0.148.0)
+
+`require('shelf')` llegeix **`shelf.lua` de la carpeta on es va instal·lar l'app** i el corre **una vegada**;
+el valor que torna és el mateix a cada `require` següent amb aquell nom, i un mòdul que no torna res val
+`true`. El que queda carregat és a **`package.loaded`**, que és l'única cosa que té la taula `package` —
+**no hi ha `package.path`, ni `cpath`, ni searchers, ni preload**—.
+
+- **El nom**: `require('pages/chapter')` és `pages/chapter.lua`, dins de la mateixa app. No pot pujar
+  (`..`), no pot començar per `/` i **no porta punts**; el nucli és qui ho comprova, perquè és qui sap on és
+  l'app (docs/70).
+- **El mòdul no és cap porta al disc**: només arriba a la carpeta d'aquella app, i `load`, `loadfile` i
+  `dofile` segueixen sent `nil` (docs/20).
+- **El motiu és la mida**: cada mòdul és un chunk amb el seu sostre de codi i els seus 200 locals, o sigui
+  que una app de mil cinc-centes línies pot créixer (docs/46, D6).
+- **Errors**: un nom que no és cap fitxer, un nom que surt de l'app i un mòdul que peta són un **error de
+  Lua** (es poden agafar amb `pcall`); el d'un mòdul que peta diu el nom del fitxer i la línia
+  (`part.lua:1: boom`).
+
+```lua
+local shelf = require('shelf')     -- llegeix shelf.lua i el desa a package.loaded.shelf
+local again = require('shelf')     -- el mateix valor, sense tornar a llegir res
+assert(shelf == again)
+```
+
 ## Què hi ha avui (30/10)
 
 El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:

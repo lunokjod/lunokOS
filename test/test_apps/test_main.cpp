@@ -9985,6 +9985,46 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   kernel::boot(hal::platform());
 }
 
+// **An app can be more than one file** (0.148.0, docs/46 D6): `require('part')` reads `part.lua` from the folder the
+// app was installed in —the flash, here—, runs it once and hands back what it returned; and a name that climbs out of
+// that folder is refused, so a module of another app is not something an app can reach by asking for it.
+void test_an_app_reads_its_own_modules_and_no_one_elses(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "split",
+                           "{\"title\":\"Split\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local part = require('part')\n"
+                           "local again = require('part')\n"
+                           "console.print('split: ' .. part.word .. ', same ' .. tostring(again == part))\n"
+                           "console.print('climb: ' .. tostring(pcall(require, '../other/secret')))\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/split/part.lua", "return { word = 'half' }"));
+  // Another app with a file of its own: the climb above names it, and what this proves is that it is never read.
+  TEST_ASSERT_TRUE(add_app(storage, "other",
+                           "{\"title\":\"Other\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('other must not run')\n"));
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/other/secret.lua", "return { word = 'secret' }"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run split");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "split: half, same true"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "other must not run"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "climb: false"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/split/part.lua");
+  storage->remove("/apps/split/app.lua");
+  storage->remove("/apps/split/manifest.json");
+  storage->remove("/apps/split");
+  storage->remove("/apps/other/secret.lua");
+  storage->remove("/apps/other/app.lua");
+  storage->remove("/apps/other/manifest.json");
+  storage->remove("/apps/other");
+}
+
 // **The shelf has the foot of a page** (0.147.0, docs/46 C1): the band of 84 rows at the bottom of the glass with the
 // paper of the page, the line across its top, the books it has on the left and what the centre does on the right. **No
 // strip of balls**: the grid of cells already says which page it is on at the bottom of its own box (docs/30, docs/90),
@@ -10247,6 +10287,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
   RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
+  RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   UNITY_END();
   return 0;
 }

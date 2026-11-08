@@ -244,6 +244,16 @@ memòria sense mapa ni claus, i el format el posa l'app que hi escriu (docs/50).
 `cat /rtc` des del prompt i amb `fs.read`/`fs.open` des d'una app, i per escriure-hi hi ha el mànec
 (`fs.open` + `write`) o `fs.write` **des de la 0.65.1**.
 
+**Els mòduls d'una app són a la carpeta de l'app** (8/11, 0.148.0): `require('shelf')` llegeix
+`shelf.lua` de la mateixa carpeta on es va instal·lar l'app —la flash, o la targeta si hi és— i no
+és un camí que l'app escrigui, perquè **l'app no sap on és** i el nucli sí (`apps::root_of`, la
+mateixa funció que dona `/res/`). El nom el comprova el nucli i no l'intèrpret: **pot portar `/`
+per una carpeta dins de l'app** (`require('pages/chapter')` és `pages/chapter.lua`), **no pot
+pujar** (`..`), **no pot començar per `/`** i **no porta punts** —un punt seria el nom d'un fitxer
+amb punt en una lectura de Lua i una carpeta en una altra, i una sola regla escrita val més que dues
+d'endevinades—. Un mòdul no és cap porta nova al disc: **el nom no surt de la carpeta d'aquella app**,
+o sigui que els fitxers d'una altra app no s'hi arriben (docs/20, docs/46 D6).
+
 **`fs.write` sobre una memòria crua va al lloc i no a un temporal** (0.65.1): `/rtc` i `/fram` són *un*
 fitxer cadascun i no hi ha `/fram/x.tmp` on escriure per després reanomenar, o sigui que el camí del mig
 donava `E_NOENT` —el `no such file or directory` que veia `run hexedit /fram` en desar (4/11). El que fa ara

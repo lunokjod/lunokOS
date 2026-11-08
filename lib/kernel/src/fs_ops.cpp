@@ -710,6 +710,65 @@ bool file_close(int32_t handle, luabind::FsError& err) {
   return true;
 }
 
+// **A module of the app that is running** (0.148.0, docs/46 D6): `require('shelf')` is `shelf.lua` in the folder the
+// app was installed in —the flash, or the card when it was installed there, which is the same `root_of` the run and
+// `/res` use, so the app and its files can never disagree— and nowhere else.
+//
+// **The name is checked here and not in the interpreter**, because this is where every other path is checked: no
+// climbing (`..`), no unit and no dot, and `/` is a folder of the app, so `require('pages/chapter')` is
+// `pages/chapter.lua`. A dot is refused because `require('a.b')` would be the name of a file with a dot in it in one
+// reading of Lua and a folder in another, and one rule that is written is worth two that are guessed (docs/30).
+int32_t module_source(const char* name, char* buf, uint32_t cap, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  if (name == nullptr || name[0] == '\0' || name[0] == '/' || buf == nullptr || cap == 0) {
+    err = luabind::FsError::kInval;
+    return -1;
+  }
+
+  const size_t name_len = strlen(name);
+  if (name[name_len - 1] == '/' || strstr(name, "//") != nullptr) {
+    err = luabind::FsError::kInval;
+    return -1;
+  }
+  for (size_t i = 0; i < name_len; ++i) {
+    const char c = name[i];
+    const bool plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
+                       c == '-' || c == '/';
+    if (!plain) {
+      err = luabind::FsError::kInval;
+      return -1;
+    }
+  }
+
+  const char* app = ground_app();
+  if (app[0] == '\0') {
+    err = luabind::FsError::kInval;
+    return -1;
+  }
+  char root[96];
+  if (!apps::root_of(app, root, sizeof(root))) snprintf(root, sizeof(root), "%s/%s", kApps, app);
+
+  char full[192];
+  const int written = snprintf(full, sizeof(full), "%s/%s.lua", root, name);
+  if (written <= 0 || static_cast<size_t>(written) >= sizeof(full)) {
+    err = luabind::FsError::kTooBig;
+    return -1;
+  }
+
+  size_t len = 0;
+  if (!vfs::read_file(full, buf, cap, len)) {
+    err = luabind::FsError::kNoEnt;
+    return -1;
+  }
+  // **A module that fills the block is refused**: the read stops at the ceiling of a module, and a text that reaches
+  // it may be a text that was cut in half (docs/46, D6).
+  if (len >= cap) {
+    err = luabind::FsError::kTooBig;
+    return -1;
+  }
+  return static_cast<int32_t>(len);
+}
+
 }  // namespace
 
 // The mounts, filled straight from the VFS: /littlefs is mounted four times over
@@ -825,6 +884,7 @@ void install_fs_ops() {
   ops.cfg_unit = &cfg_unit;
   ops.cfg_set_unit = &cfg_set_unit;
   ops.cfg_dir = &cfg_dir;
+  ops.module_source = &module_source;
   luabind::set_file_ops(ops);
 }
 

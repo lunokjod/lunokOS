@@ -214,6 +214,14 @@ mou.
 El que **no** és: la decisió de docs/46 D6, que vol triar entre un sostre molt més gran i un `require` per a les apps.
 El chunk del lector i el cost d'aquest pas al banc **no s'han mesurat** i queden a docs/95.
 
+## El bloc d'un mòdul (8/11, 0.148.0)
+
+`require` llegeix un mòdul dins un bloc **de 65 536 B** —el mateix sostre que el codi d'entrada d'una app— i el
+torna **abans que el mòdul corri una línia**: el chunk ja té les seves cadenes i el text no ha de viure mentre el
+mòdul espera. O sigui que el cost és **un bloc gros mentre un mòdul s'està llegint** i res més: no hi ha un segon
+sostre i no hi ha text de mòduls guardat al costat de l'app. Un text que omple el bloc es refusa (`E_TOOBIG`),
+perquè un text que hi arriba pot ser un text que s'ha tallat.
+
 ## Un bloc que no creix no es queda sense lloc (4/11)
 
 El heap del banc (`pal_host`, `HostExtraMemory`) té **dues cases** com la placa: la RAM del xip i la memòria

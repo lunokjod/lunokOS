@@ -88,6 +88,14 @@ struct FileOps {
   bool (*cfg_set_unit)(const char* unit, FsError& err);
   // The real directory this app's settings land in, for showing: "/sd/cfg/<id>".
   int32_t (*cfg_dir)(char* out, size_t cap, FsError& err);
+
+  // **The source of a module of the app that is running** (0.148.0, docs/46 D6): the text of `<name>.lua`, read from
+  // the folder the app was installed in —the flash, or the card when it was installed there, and the app never learns
+  // which— and from nowhere else. `name` is the one `require` was given: relative, with `/` for a folder inside the
+  // app, and it may not climb (`..`), start at a unit or carry a dot — a module is a file of the app and its name is
+  // the name of that file (docs/30, docs/70). Answers how many bytes it wrote into `buf`, or -1 with `err` saying why
+  // — and `kTooBig` when the text does not fit, because half a module is not a module.
+  int32_t (*module_source)(const char* name, char* buf, uint32_t cap, FsError& err);
 };
 
 // Installs the file operations. Without them fs.* answers E_UNSUPPORTED.

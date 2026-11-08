@@ -9306,6 +9306,75 @@ int l_epub_thumbnail(lua_State* L) {
   return 1;
 }
 
+// ---- require: an app in more than one file (0.148.0, docs/46 D6) ----
+//
+// **An app is one file until it is not.** `require('shelf')` reads `shelf.lua` from the folder the app was installed
+// in and runs it the first time it is asked; the value it returns is the answer of every later `require` of that name,
+// which is what `package.loaded` means in Lua. And the reason it exists is the room: **a module is a chunk of its
+// own**, with its own ceiling of source (`kModuleCap`) and its own two hundred locals, so a reader of fifteen hundred
+// lines has somewhere to grow that is not the main chunk of the app (docs/46, D6).
+//
+// What it is not is a search path: there is no `package.path`, no `package.cpath`, no searcher and no preload —the
+// table `package` holds one field, `loaded`— because a module is a file of the app's own folder, named by the name
+// that was given, and the kernel is the one that refuses a name which climbs, starts at a unit or carries a dot
+// (docs/30, docs/70). And `load`, `loadfile` and `dofile` stay sealed: an app still cannot open a file and call it.
+const uint32_t kModuleCap = 64u * 1024u;
+
+int l_require(lua_State* L) {
+  const char* name = luaL_checkstring(L, 1);
+  if (name[0] == '\0') return luaL_error(L, "require: a module needs a name");
+  if (g_file_ops.module_source == nullptr) {
+    return luaL_error(L, "require: this build cannot read the files of an app");
+  }
+
+  lua_getglobal(L, "package");              // [package]
+  if (!lua_istable(L, -1)) return luaL_error(L, "require: this app has no package table");
+  lua_getfield(L, -1, "loaded");            // [package, loaded]
+  lua_getfield(L, -1, name);                // [package, loaded, value]
+  if (!lua_isnil(L, -1)) return 1;          // the module of the first time, whatever it was
+
+  lua_pop(L, 2);                            // [package]
+  char* source = static_cast<char*>(malloc(kModuleCap));
+  if (source == nullptr) {
+    lua_pop(L, 1);
+    return luaL_error(L, "require: no memory for the module '%s'", name);
+  }
+  FsError err = FsError::kOk;
+  const int32_t got = g_file_ops.module_source(name, source, kModuleCap, err);
+  char chunk[96];
+  snprintf(chunk, sizeof(chunk), "@%s.lua", name);
+  // A module of no bytes is a chunk that does nothing and not a missing file: only a refusal of the kernel is an error.
+  const int status = (got >= 0) ? luaL_loadbuffer(L, source, static_cast<size_t>(got), chunk) : LUA_ERRSYNTAX;
+  // The chunk has its own copies of its strings by now, and the block is given back **before** the module runs: a
+  // module that waits forever must not be holding the text of itself (docs/75).
+  free(source);
+  if (got < 0) {
+    lua_pop(L, 1);
+    return luaL_error(L, "require: '%s' is not a file of this app (%s)", name, fs_error_message(err));
+  }
+  if (status != LUA_OK) return lua_error(L);  // [package, message]
+
+  // **The name is marked before it runs**: two modules that require each other answer `true` to each other instead of
+  // looping until the interpreter's stack is gone, and the value the module returns replaces the mark below.
+  lua_getfield(L, 1, "loaded");             // [package, chunk, loaded]
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, name);                // loaded[name] = true
+  lua_pop(L, 1);                            // [package, chunk]
+
+  lua_pushstring(L, name);                  // [package, chunk, name]
+  lua_call(L, 1, 1);                        // [package, value]
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_pushboolean(L, 1);                  // a module with no value is `true`, as in Lua
+  } else {
+    lua_getfield(L, 1, "loaded");           // [package, value, loaded]
+    lua_pushvalue(L, -2);                   // [package, value, loaded, value]
+    lua_setfield(L, -2, name);              // loaded[name] = value
+    lua_pop(L, 1);                          // [package, value]
+  }
+  return 1;
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9315,6 +9384,16 @@ void seal_globals(lua_State* L) {
   lua_setglobal(L, "loadfile");
   lua_pushnil(L);
   lua_setglobal(L, "load");
+
+  // **`require` is a door with a policy and not a loader** (0.148.0, docs/46 D6): it reads a module of the app's own
+  // folder and nothing else, and `package` is a table with `loaded` in it and no search path at all. A module is
+  // named by the app and read by the kernel; an app still cannot open a file and call it.
+  lua_createtable(L, 0, 1);
+  lua_newtable(L);
+  lua_setfield(L, -2, "loaded");
+  lua_setglobal(L, "package");
+  lua_pushcfunction(L, &l_require);
+  lua_setglobal(L, "require");
 
   lua_pushcfunction(L, &l_print);
   lua_setglobal(L, "print");

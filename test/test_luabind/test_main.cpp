@@ -202,12 +202,34 @@ bool fake_space(const char* path, uint64_t& total, uint64_t& free_bytes, luabind
   return true;
 }
 
+// **The modules of a fake app** (0.148.0, docs/46 D6): what the kernel would hand `require` for a name, and how many
+// times it was asked — the second `require` of a name must not come here at all.
+const char* g_part_source = nullptr;
+int g_part_asked = 0;
+
+int32_t fake_module_source(const char* name, char* buf, uint32_t cap, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  ++g_part_asked;
+  if (g_part_source == nullptr || strcmp(name, "part") != 0) {
+    err = luabind::FsError::kNoEnt;
+    return -1;
+  }
+  const size_t len = strlen(g_part_source);
+  if (len >= cap) {
+    err = luabind::FsError::kTooBig;
+    return -1;
+  }
+  memcpy(buf, g_part_source, len);
+  return static_cast<int32_t>(len);
+}
+
 void install_fake_fs(bool with_mounts = false) {
   luabind::FileOps ops = {};
   ops.read_at = &fake_read_at;
   ops.size = &fake_size;
   ops.is_dir = &fake_is_dir;
   ops.list = &fake_list;
+  ops.module_source = &fake_module_source;
   if (with_mounts) {
     ops.mounts = &fake_mounts;
     ops.space = &fake_space;
@@ -215,6 +237,8 @@ void install_fake_fs(bool with_mounts = false) {
   luabind::set_file_ops(ops);
   g_read_calls = 0;
   g_biggest_read = 0;
+  g_part_source = nullptr;
+  g_part_asked = 0;
 }
 
 }  // namespace
@@ -455,6 +479,64 @@ void test_there_is_no_way_to_load_a_file(void) {
   pal::init();
   TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
   TEST_ASSERT_TRUE(run("assert(dofile == nil and loadfile == nil and load == nil)"));
+  luabind::stop();
+}
+
+// **A module runs once and the name answers with what it gave** (0.148.0, docs/46 D6): the second `require` of a name
+// does not touch the kernel at all, and `package.loaded` is where the value lives — that is Lua's own rule and it is
+// what makes a module a module.
+void test_a_module_is_read_once_and_the_name_remembers_it(void) {
+  pal::init();
+  install_fake_fs();
+  g_part_source = "return { n = 41 }";
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local a = require('part')\n"
+                       "local b = require('part')\n"
+                       "assert(a.n == 41, 'the module did not run')\n"
+                       "assert(a == b, 'the second require built another one')\n"
+                       "assert(package.loaded.part == a, 'the name is not kept')"));
+  TEST_ASSERT_EQUAL_INT(1, g_part_asked);
+  luabind::stop();
+}
+
+// **A module with no value is `true`** and a module that is not there is an error the app can catch, not a silent
+// `nil`: an app that asks for a file it does not have has to find out (docs/30).
+void test_a_module_with_no_value_is_true_and_a_missing_one_says_so(void) {
+  pal::init();
+  install_fake_fs();
+  g_part_source = "local x = 1";
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("assert(require('part') == true, 'no value is true')\n"
+                       "assert(package.loaded.part == true)\n"
+                       "local ok, why = pcall(require, 'nope')\n"
+                       "assert(not ok, 'a module that is not there did not fail')\n"
+                       "assert(tostring(why):find('nope') ~= nil, tostring(why))"));
+  TEST_ASSERT_EQUAL_INT(2, g_part_asked);  // `part` once and `nope` once
+  luabind::stop();
+}
+
+// **A module that dies says where**, with its own name and line, and the app can catch it like any other error: the
+// chunk is compiled with the name of the file, so the message is `part.lua:1:` and not a buffer number.
+void test_a_module_that_raises_says_its_name_and_its_line(void) {
+  pal::init();
+  install_fake_fs();
+  g_part_source = "error('boom')";
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local ok, why = pcall(require, 'part')\n"
+                       "assert(not ok, 'the module did not fail')\n"
+                       "assert(tostring(why):find('part.lua:1:') ~= nil, tostring(why))"));
+  luabind::stop();
+}
+
+// **And `package` is a table with one field**: no search path and no loader, because a module is a file of the app and
+// the kernel names it — a `package.path` would be a promise this system cannot keep (docs/30).
+void test_package_carries_no_search_path(void) {
+  pal::init();
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("assert(type(package) == 'table')\n"
+                       "assert(type(package.loaded) == 'table')\n"
+                       "assert(package.path == nil and package.cpath == nil)\n"
+                       "assert(package.preload == nil and package.searchers == nil)"));
   luabind::stop();
 }
 
@@ -908,6 +990,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fs_read_at_and_a_missing_file);
   RUN_TEST(test_fs_stat_and_list);
   RUN_TEST(test_there_is_no_way_to_load_a_file);
+  RUN_TEST(test_a_module_is_read_once_and_the_name_remembers_it);
+  RUN_TEST(test_a_module_with_no_value_is_true_and_a_missing_one_says_so);
+  RUN_TEST(test_a_module_that_raises_says_its_name_and_its_line);
+  RUN_TEST(test_package_carries_no_search_path);
   RUN_TEST(test_sys_delay_suspends_and_resumes_the_app);
   RUN_TEST(test_a_settled_promise_answers_at_once);
   RUN_TEST(test_and_then_passes_the_value_on);

@@ -3200,7 +3200,35 @@ namespace kernel {
 //
 // **Pending**: as before, the cases are **not executed** and **the glass has not been looked at**; the owner asks for
 // those at the end of the app of the book and not now.
-static const char kVersion[] = "0.147.1";
+// 0.148.0 (8/11): **`require`: an app in more than one file** (docs/46 D6, docs/20, docs/30, docs/70).
+//
+//   - **the door**: `require('shelf')` reads `shelf.lua` from the folder the app was installed in —the flash, or the
+//     card when it was installed there, through the same `apps::root_of` that `/res` uses— and runs it **once**; the
+//     name answers the value of that first run to every later `require`, and a module that returns nothing is `true`.
+//     What is loaded lives in `package.loaded`, which is the **only** field of `package`: there is no `package.path`,
+//     no `cpath`, no searcher and no preload, because a module is a file of the app and the kernel is what names it;
+//   - **the name is checked in the kernel and not in the interpreter**, where every other path is checked: `/` is a
+//     folder inside the app (`require('pages/chapter')` is `pages/chapter.lua`), and a name that climbs (`..`), starts
+//     at a unit, carries a dot or repeats a slash is `E_INVAL`. A module of another app is therefore not something an
+//     app can ask for, and `load`, `loadfile` and `dofile` stay sealed: this is a door with a policy and not a loader;
+//   - **the module's text lives in a block of 65 536 B** (`kModuleCap`, the ceiling of an app's source) which is
+//     **given back before the module runs a line**, so a module that waits forever does not hold its own text; a text
+//     that fills the block is refused as `E_TOOBIG` instead of being run by halves;
+//   - **and the reason it exists is room**: a module is a chunk of its own, with its own ceiling of source and its own
+//     **200 locals**. The reader of the book is **1 501 lines, 60 930 B and 113 locals** in its main chunk —87 left—
+//     and that wall comes before the size wall. **This turn moves nothing of the app**: the reader is the same one
+//     file, and splitting it is a turn of its own.
+//
+// The proof is in two places: the interpreter suite reads a fake module and checks that it runs once, that the second
+// `require` does not touch the kernel, that no value is `true`, that a missing name and a module that raises are
+// errors with the name of the file and the line, and that `package` carries no path; and the app suite runs a real app
+// of two files on the disk and watches it read `part.lua`, not read it twice, and **fail to climb** into another
+// app's folder (`../other/secret`). The suites are now **540 cases**, and `pio test -e test --without-testing` builds
+// the 23 with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at**, as the owner asked for the end
+// of the app of the book. And the half of D6 that is left is the ceiling of **one** file, which is decided when the
+// reader reaches it.
+static const char kVersion[] = "0.148.0";
 
 }  // namespace kernel
 

@@ -76,8 +76,8 @@ Els que s'obren, i **només** aquests (`open_libraries` a `lib/luabind/src/luabi
 | `string` | Sí |
 | `math` | Sí (`math.random` sense llavor fixada pel nucli, vegeu «Determinisme») |
 | `utf8` | Sí |
-| `os`, `io`, `package`, `debug` | **No hi són**: ni `os.time`, ni `io.write`, ni `require`. El temps el dona `time.*`, la consola `console.*`/`term.*`, i els fitxers `fs.*` (docs/30) |
-| mòduls en C, binaris precompilats | **No hi són**: `dofile`, `loadfile` i `load` es posen a `nil` |
+| `os`, `io`, `package`, `debug` | **No hi són**: ni `os.time`, ni `io.write`. El temps el dona `time.*`, la consola `console.*`, i els fitxers `fs.*` (docs/30). `package` hi és **des del 0.148.0 com una taula amb un sol camp, `loaded`**, i no té ni `path` ni `cpath` ni searchers: `require` és una porta i no un carregador (vegeu «Sandbox») |
+| mòduls en C, binaris precompilats | **No hi són**: `dofile`, `loadfile` i `load` es posen a `nil`, i cap `.so` no es pot obrir |
 
 ## Sandbox
 
@@ -85,9 +85,19 @@ Cada app s'executa amb un `_ENV` propi:
 
 - Només hi ha els globals de la llibreria base que no permeten escapar-se'n, els mòduls de la taula
   de `30 · API` i les funcions que l'app declari.
-- `dofile`, `loadfile` i `load` **no hi són** (es posen a `nil`): una app és un sol fitxer.
-- **No hi ha `require`** perquè la llibreria `package` no s'obre. Dues apps que vulguin el mateix codi
-  el dupliquen: és el preu de l'aïllament, i amb apps de pocs KB surt bé.
+- `dofile`, `loadfile` i `load` **no hi són** (es posen a `nil`): una app no pot obrir un fitxer i cridar-lo.
+- **`require` hi és des del 0.148.0 i és una porta amb política, no un carregador** (docs/46, D6):
+  `require('shelf')` llegeix **`shelf.lua` de la carpeta on es va instal·lar l'app** —el flaix o la targeta, i l'app
+  no ho sap mai—, el corre **una vegada** i desa el que torna a `package.loaded`; el nom respon el mateix valor a
+  cada `require` següent i un mòdul sense valor és `true`. **El nom no pot pujar (`..`), no pot començar per `/` i no
+  porta punts**: `/` és una carpeta dins de l'app (`require('pages/chapter')` és `pages/chapter.lua`), i el qui ho
+  comprova és el nucli, que és qui sap on és l'app. **No hi ha camí de cerca**, ni `package.path`, ni mòduls en C, i
+  `load`/`loadfile`/`dofile` segueixen a `nil`.
+  El motiu és **l'espai**: cada mòdul és un chunk propi, amb el seu sostre de codi i els seus **200 locals**, i una
+  app de mil cinc-centes línies (el lector d'EPUB) no ha de capsolar-ho tot al chunk principal. Un mòdul que no hi
+  cap al bloc de 64 KB es refusa sencer (`E_TOOBIG`) i no es corre a mitges.
+- **Dos mòduls que es demanen l'un a l'altre no pengen**: el nom es marca com a carregat **abans** de córrer el
+  mòdul, o sigui que es responen `true` en comptes de recórrer la pila de l'intèrpret fins a esgotar-la.
 - `print` va a la consola de l'app (no a l'stdout del nucli).
 
 ## Pressupostos
