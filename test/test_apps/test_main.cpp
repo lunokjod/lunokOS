@@ -4709,6 +4709,11 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   // **The picture of the one that has one is drawn and the other is said**, once, in the console.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: bravo has no picture"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "home: alpha has no picture"), g_out);
+  // **The page is the whole glass and not the box of the grid** (0.153.1): a launcher that only paints the cells leaves
+  // the picture of the boot around them, and that is what the bench showed when this app was first run on the disk of
+  // the board —a page of `20,8 500x884`—. The wash of the page is what makes the first present a whole one, and the
+  // system promotes it to a `gc16` (docs/40, docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
 

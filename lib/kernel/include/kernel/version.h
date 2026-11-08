@@ -4100,7 +4100,14 @@ namespace kernel {
 //     pins the three reasons `app.run` refuses with. Broken on purpose: with the way back not remembered the first goes
 //     red with `Expected 'home_eink' Was ''`, and with `app.run` refusing everything it goes red with
 //     `home: alpha cannot start`.
-static const char kVersion[] = "0.153.0";
+// 0.153.1 (8/11): **the launcher's page is the whole glass and not the box of its grid**. Found by running the app on the
+// disk of the board and looking at the picture it left: the grid is a control and a control paints inside its own frame,
+// so the air around it kept the picture of the boot —the launcher went up as `paint 20,8 500x884`, a box of white with
+// the drawing of the start around it—. `ui.clear(15)` before building the page is what docs/40 asks of every app that is
+// a page and not a box, and with it the first present is `paint 0,0 540x912`, which the system promotes to a `gc16`
+// (docs/50). The case that runs the launcher now asks for that whole paint, and broken on purpose —the wash out— it goes
+// red with the box in the capture.
+static const char kVersion[] = "0.153.1";
 
 }  // namespace kernel
 

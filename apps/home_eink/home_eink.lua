@@ -123,6 +123,14 @@ local function build()
     return
   end
 
+  -- **The page is the app's whole and not the box of its controls** (0.153.0, docs/40): a control paints inside its own
+  -- frame, so the air around the grid keeps whatever the glass had —the picture of the boot— if this page does not wash
+  -- it. The wash is also what makes the first present a whole page and not a box of it (docs/50).
+  -- **The page is the app's whole and not the box of its controls** (0.153.0, docs/40): a control paints inside its own
+  -- frame, so the air around the grid keeps whatever the glass had —the picture of the boot— if this page does not wash
+  -- it. The wash is also what makes the first present a whole page and not a box of it (docs/50).
+  ui.clear(15)
+
   grid = ui.icon_grid(width, height)
   if grid == nil then
     console.print('home: there is no room for the grid of the apps')
