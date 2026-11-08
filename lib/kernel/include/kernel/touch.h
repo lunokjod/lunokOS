@@ -57,6 +57,13 @@ bool take_gesture(Gesture& out);
 // before it keep the order they had (docs/30, docs/46 D1).
 bool take_gesture_of(const char* kind, Gesture& out);
 
+// **A pinch that comes from big to small** (0.163.0): the system hears this one because it means «close» in every
+// app —a page that is left has to be heard by the system, or every app has to implement the gesture and one of them
+// will forget— so it is taken out of the queue the way the three taps are. **The other pinches stay where they are**:
+// one that pulls the fingers apart, or one that comes back by less than `min_px`, is the app's and it reads it with
+// `touch.gesture()` (docs/30, docs/46 D1).
+bool take_pinch_in(int16_t min_px, Gesture& out);
+
 }  // namespace touch
 }  // namespace kernel
 

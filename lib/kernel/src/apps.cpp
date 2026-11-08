@@ -54,6 +54,37 @@ bool comes_from_the_card(const char* name) {
   return vfs::unit_of(storage) == meter::kUnitSd;
 }
 
+// **The mark of a redirected id** (0.164.0): the same character `vfs.cpp` calls `kRedirect`, which is the one that
+// resolves `/apps/*<folder>` to the disk the plain copy is not on. It is written twice because the two files are two
+// layers —the door reads the mark to name the app, the filesystem to find it— and neither of them includes the other
+// (docs/40, docs/70).
+const char kRedirectMark = '*';
+
+// **The word of a unit, as the name of a redirected app carries it** (0.164.0): `Editor-SD` is the card's copy and
+// `Editor-Littlefs` the flash's, and the word is the unit's name as a person says it and not the mount point's.
+const char* unit_word(bool on_card) { return on_card ? "SD" : "Littlefs"; }
+
+// **The word is read from the name and not only written into it** (0.166.2): the owner's rule is that an id with a mark
+// in front is resolved by looking at the last word behind a dash of the app's name —*«si l'id porta asterisc davant, has
+// de mirar l'última paraula amb guió del nom de l'app "Editor-SD"»*—, so a name that already says `SD` or `Littlefs`
+// decides the unit by itself: it keeps that word and is not given a second one, and when it says one disk and the door
+// answered the other the two are named in the log instead of one of them being hidden (docs/40, docs/70).
+bool name_says_unit(const char* name, bool& on_card) {
+  const size_t len = strlen(name);
+  for (uint32_t i = 0; i < 2; ++i) {
+    const bool card = (i == 0);
+    const char* word = unit_word(card);
+    const size_t word_len = strlen(word);
+    // A dash of its own in front of the word, and something behind it: `-SD` is the word and `SD` alone is a name.
+    if (len < word_len + 2) continue;
+    if (name[len - word_len - 1] != '-') continue;
+    if (strcmp(name + len - word_len, word) != 0) continue;
+    on_card = card;
+    return true;
+  }
+  return false;
+}
+
 // A band answers to a set of board names (one on a chip, the ones it stands in for on
 // the bench) and to a chip family. An app runs here when its `boards` list names one
 // of them, or the family (docs/40, docs/50).
@@ -145,6 +176,30 @@ bool load(const char* id, Entry& out) {
   if (!lunok::json::get_string(text, len, "title", out.title, sizeof(out.title))) {
     log_printf(pal::kLogWarn, "APPS", "%s has no title", id);
     return false;
+  }
+  // **A redirected app says which unit it is from at the end of its name** (0.164.0): the id `*editor` is the copy the
+  // door presented with a mark, and its name is `Editor-SD` —a person reads a name and not a path, and the mark alone
+  // does not say where the copy is—. **And a name that already says it is believed** (0.166.2): the word is read first
+  // and written only when the name has none, so a manifest titled `Editor-SD` stays `Editor-SD` instead of gaining a
+  // second word, and a name that disagrees with the disk the door answered is said in the log (docs/40, docs/70).
+  if (id[0] == kRedirectMark) {
+    const bool from_disk = comes_from_the_card(id);
+    bool said = from_disk;
+    if (name_says_unit(out.title, said)) {
+      out.on_card = said;
+      if (said != from_disk) {
+        log_printf(pal::kLogWarn, "APPS", "%s is named %s and the door answered the other disk", id, out.title);
+      }
+    } else {
+      out.on_card = from_disk;
+      const char* word = unit_word(out.on_card);
+      const size_t title_len = strlen(out.title);
+      const size_t word_len = strlen(word);
+      if (title_len + word_len + 2 <= sizeof(out.title)) {
+        out.title[title_len] = '-';
+        memcpy(out.title + title_len + 1, word, word_len + 1);
+      }
+    }
   }
   if (!lunok::json::get_string(text, len, "entry", out.entry_file, sizeof(out.entry_file))) {
     log_printf(pal::kLogWarn, "APPS", "%s has no entry", id);
@@ -452,6 +507,31 @@ bool find_for_extension(const char* ext, Entry& out, uint32_t& matches) {
   matches = search.matches;
   return matches > 0;
 }
+
+// **The views of the app in front** (0.163.0): the number of pages the app has put on top of its first one, and
+// nothing else. It is one byte for the whole system because there is one app in front at a time, and it is zero for
+// an app that never says anything —which is the whole of the apps that have not been taught to say it, and they are
+// then apps that a pinch closes entirely, which is the old behaviour and the one their page asks for (docs/30).
+namespace {
+uint8_t g_views = 0;
+}  // namespace
+
+uint8_t views() { return g_views; }
+
+uint8_t view_push() {
+  // **A stack that stops at the ceiling it has**: an app that pushes a hundred pages has a bug, and a byte that
+  // wraps would take it back to «no views» and close it with a pinch. The ceiling is the sixteen of a small page and
+  // it is said instead of wrapped (docs/30).
+  if (g_views < 0xFF) ++g_views;
+  return g_views;
+}
+
+uint8_t view_pop() {
+  if (g_views > 0) --g_views;
+  return g_views;
+}
+
+void reset_views() { g_views = 0; }
 
 }  // namespace apps
 }  // namespace kernel

@@ -189,27 +189,38 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 | Què | Ordre | On va |
 |---|---|---|
 | El firmware | `pio run -e m5-paper -t upload` | la partició `app0`, 4 MB (`partitions_16mb.csv`) |
-| El disc: els `res/` del sistema | `pio run -e m5-paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/m5-paper` (**el sistema sol**: `res/`, `http/` i `data/`, 13 fitxers i 79 288 B mesurats el 8/11) |
+| El disc: els `res/` del sistema | `pio run -e m5-paper -t uploadfs` | la partició `littlefs`, 11,9 MB, amb el contingut de `build/disk/m5-paper` (**el sistema sol**: `res/`, `http/` i `data/`, **16 fitxers i 130 217 B** mesurats el 8/11) |
 
 - **La imatge d'una placa no porta apps** (0.118.3, l'amo: *«cap placa ha de contenir apps al littlefs al
   flashejar»*): el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** amb el `data/`
-  del sistema i res més. L'única excepció és la Paper, que en nomena tres (`custom_apps = editor,controls,images`,
-  **29 fitxers i 181 618 B**). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
+  del sistema i res més. L'única excepció és la Paper, que en nomena **set** (`custom_apps =
+  editor,calculator,about,timeclock,reader,home_eink,shell`, **34 fitxers i 278 127 B** mesurats el 8/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
   id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que nomenen la placa per l'id o per
   la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i llavors cada app del disc és
   **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves proves escriuen al
   disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
-- **El banc tampoc no en porta** (0.88.2): el disc del banc és el sistema sol i `run` no coneix cap nom fins
-  que una app hi arriba com hi arriba a una placa —`repo install <app>`, o una targeta pròpia amb `--sd`—. És
-  el que fa que `apps` en un banc acabat de fer digui `no apps`, i el que fa que provar una app instal·lada
-  sigui provar el que la placa faria (docs/70, docs/85).
-- **Si un build en demana massa, ho diu i no perd fitxers en silenci.** Mesurat el 8/11 amb blocs de 4 KB i
-  la partició de 1 441 792 B de les quatre plaques de 4 MB: la imatge amb tot `apps/` (148 fitxers, 418 720 B
-  al PC) **deixa 2 fitxers fora**, i `make_disk` refusa l'ordre `-t buildfs`/`-t uploadfs` en comptes
-  d'escriure una imatge curta que PlatformIO donaria per bona —tres blocs per fitxer, que és el costat prudent
-  dels 2,25 a 2,5 mesurats—. Amb vuit apps la imatge és de **29 fitxers i 90 182 B** i hi cap de sobres. Les
-  dues sortides són portar-ne menys (`custom_apps`) o una partició `littlefs` més gran (docs/70).
-- **Una placa flashejada amb la imatge del sistema no té cap app**: `apps` surt buit, `run hello` diu que no
+- **El banc sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
+  `emulator` diu `custom_apps_in_disk = yes` i, com que el banc no té placa, el filtre de `make_disk` les
+  hi deixa passar totes —**8 apps, 39 fitxers, 305 615 B** mesurats el 8/11— i les posa **enllaçades**, o
+  sigui que el banc llegeix el que hi ha a `apps/` i no una còpia. Fins avui en portava una, el llançador, i
+  `apps` en un banc acabat de fer deia `no apps`; ara diu vuit noms i la graella del llançador té vuit cel·les.
+  Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
+  (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
+- **Si un build en demana massa, ho diu i no perd fitxers en silenci.** `make_disk` munta la imatge amb
+  `mklittlefs` —la mateixa partició de la taula, pàgina de `0x100` i bloc de `0x1000`— i, si l'eina deixa
+  fitxers fora, **refusa l'ordre** `-t buildfs`/`-t uploadfs` en comptes d'escriure una imatge curta que
+  PlatformIO donaria per bona (el guard és `check_it_fits`, a `tools/make_disk.py`). A cada build la línia ho
+  diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
+  **`this disk does not fit`** amb quants en queden fora i quins noms.
+  **El que hi ha avui, mesurat el 8/11**: `apps/` són **39 fitxers i 305 615 B**, i el `data/` del sistema
+  **16 fitxers i 130 217 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: amb la Shell
+  dins, el 8/11 va escriure *`build/disk/emulator is 438116 B in 56 files, 8 apps`* i *`build/disk/m5-paper is 410534 B
+  in 50 files, 7 apps`*, i les dues imatges hi caben (la Paper, en la partició de 1 441 792 B). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
+  dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 35) i s'ha retirat: el que queda
+  d'aquella mesura és el guard, que és cert, i no els números. La raó per la qual cap placa no en porta no és
+  la mida sinó la decisió de l'amo i el fet que una imatge amb apps es queda vella (docs/70).
+
+- **Una placa flashejada amb la imatge del sistema no té cap app**: `apps` surt buit, `run reader` diu que no
   la troba, i això no és cap error del sistema. Les apps hi arriben amb `repo install <id>` o amb una targeta
   (docs/40). El `data/` del sistema sí que s'hi ha de pujar quan canvia: `res/`, els tipus de lletra de la
   barra i el teixit de la splash viatgen aquí.

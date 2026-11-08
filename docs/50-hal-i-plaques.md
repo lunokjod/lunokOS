@@ -852,6 +852,21 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   queda al vidre—, `gc16` neteja a canvi de quatre ensurts i `a2` deixa dos setzens del que hi havia. És la
   regla que el projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar és `gld16`
   (docs/92). La franja sencera amb `gc16` queda per al que la fa nova sencera: el boot i un gir de pàgina.
+- **I quan el vidre queda net sota seu, s'ha de dir** (0.164.3): una imatge de l'arrencada de l'app
+  (`splash::show`) renta **tot** el vidre —la franja amb ell— i la barra, que només es pinta quan canvia
+  alguna cosa seva, després no sabia que l'hora i la càrrega havien desaparegut: el títol nou repintava la
+  **caixa del títol** i prou. Per això el sistema demana un `bar::refresh()` (una pintada sencera de la
+  franja, `gc16`) **just després d'una imatge que ha rentat el vidre** —la de l'app a `run_app` i la que
+  algú demana amb l'ordre `splash`— i **en tornar de la pantalla sencera** (`ui::make_view`). **Els moments
+  que baixen la placa no el demanen**: el `poweroff`, el `reboot` i la son pinten la seva imatge i la barra
+  no ha de tornar-hi fins a la propera arrencada.
+- **I la imatge s'ha d'acabar de moure abans que la placa se'n vagi** (0.165.1): `splash::show` espera la tinta
+  que es movia **abans** de la seva imatge i després demana un `gc16` de tot el panell, que és mig segon de
+  tinta. Un `reboot` que talla la placa on la crida l'ha trobada deixa el vidre amb la pàgina d'abans: el que
+  va veure l'amo era la imatge «massa tard, i no es veu». `splash::wait()` dona un torn al panell —el
+  conductor pren l'ordre de la pintada al torn següent— i després espera `idle()` amb el sostre que el splash
+  ja tenia, perquè un panell que no contesta no ha de retenir una placa. El demanen els **tres moments que
+  baixen la placa**: `reboot`, `poweroff` i el son profund (docs/50).
 - **El text és una font de 5 × 7 píxels** (`lib/kernel/font.cpp`), escalada al doble i dibuixada amb un
   rectangle per tirada horitzontal i no un per píxel: 295 bytes de taula i cap decodificador. **Només
   majúscules**: una minúscula es dibuixa com la seva majúscula, que és el que feia una barra de títol
@@ -1007,6 +1022,20 @@ com a `mode 2`… i el panell mor igual, a la pintada següent:
 [I][UI] paint 0,0 540x960 mode 2
 [W][UI] the glass refused a page (0,0 540x960, gc16): the panel stopped answering
 ```
+
+**I des de la 0.158.0 la línia diu el nom de la qualitat i no només el número** (8/11, demanat per l'amo):
+aquella tirada es va haver de llegir amb `mode 2` i la capçalera al costat, i això és una cosa que el log no ha
+de fer-te fer. Ara `hal::mode_name` (`lib/hal/include/hal/hal.h`) és l'única taula dels noms i la fan servir el
+panell, la UI i l'emulador, i les tres línies es llegeixen soles:
+
+```
+[I][UI] paint 0,0 540x960 mode 3 gl16
+[I][PANEL] paint 0,0 960x540 mode 3 gl16 at 0x1236e0 (page 0,0 540x960, 540 rows of 480 B)
+[W][UI] the glass refused a page (12,486 516x120, du): the previous paint did not finish
+```
+
+El número s'hi queda perquè és el que viatja a la comanda del controlador (`DPY_BUF_AREA`, vegeu més avall) i
+el nom és el que es llegeix.
 
 El que va matar el vidre és **l'ordre de les coses dins de `flush()`**, i és un error meu en tres actes:
 

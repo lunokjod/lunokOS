@@ -66,11 +66,21 @@ struct Row {
   uint16_t width;
   uint16_t at;
   uint16_t y;  // which row of the picture this is, for the dither
+
+  // **The mask of the picture, when the caller asked for one** (0.169.0): one nibble a pixel, `15` for a pixel that is
+  // there and `0` for one the picture leaves to whatever is under it. It is a row of the caller's and not of this library,
+  // and it is `nullptr` for a caller that does not want it —which is every caller that does not ask, and that is how the
+  // memory of a mask is paid only by an app that uses one— (docs/30, docs/75).
+  uint8_t* alpha;
 };
 
 void row_start(Row& row, uint8_t* bytes, uint16_t width, uint16_t y);
 // One pixel, already a level of the sixteen the panel has (docs/50).
 void row_put(Row& row, uint8_t level);
+// **The alpha of the pixel that is about to be put** (0.169.0), a level of the same sixteen: `row_put_alpha` says whether the
+// pixel is there and `row_put` says what colour it has. It goes **before** the colour, because the colour is what moves the
+// row on, and a mask nobody asked for is not written at all —one branch and no memory— (docs/30, docs/75).
+void row_put_alpha(Row& row, uint8_t alpha);
 // One pixel of colour, dithered to a level (docs/30).
 void row_put_rgb(Row& row, uint8_t r, uint8_t g, uint8_t b);
 // One pixel of grey, dithered to a level.
@@ -88,7 +98,10 @@ uint8_t level_of(uint8_t grey, uint16_t x, uint16_t y);
 // **The four decoders and what each one needs**: every one of them answers `kUnknown` when the signature is
 // not its own, so the dispatcher tries them in order and never has to know more than the first bytes.
 Status decode_bmp(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
-Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
+// **`mask` is where the picture's own transparency is said** (0.169.0): a row of nibbles a pixel, `15` where the picture is
+// and `0` where it leaves what is under it. A caller that does not ask gives `nullptr` and pays nothing (docs/30).
+Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap,
+                  const RowSink* mask = nullptr);
 Status decode_gif(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 Status decode_jpeg(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
 Status decode_pnm(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);

@@ -29,12 +29,22 @@ altre camí: el llistat, el `run` i els fitxers propis d'una app (`/res/`) hi pa
 directori real d'una unitat. L'ordre és la flash primer i la targeta després.
 
 **Un nom que els dos discs tenen es presenta dues vegades.** `<id>` és la còpia de la flash i
-**`<id>-SD`** la de la targeta —el sufix és literalment `-SD`—, o sigui que les dues es poden llegir
-i córrer per separat: `run squares` corre l'app de la flash i `run squares-SD` la de la targeta, i
+**`*<id>`** la de la targeta —**l'asterisc és la marca d'una app redirigida**—, o sigui que les dues es poden llegir
+i córrer per separat: `run squares` corre l'app de la flash i `run *squares` la de la targeta, i
 el `res/` de cadascuna surt del seu disc. És el que fa que instal·lar una app que ja ve al firmware
 sigui una actualització que es pot comparar amb l'original en lloc d'un reemplaçament cec, i que
-treure la targeta esborri el nom amb sufix i deixi el de la flash. Un id que només és en un dels
-dos discs es troba igualment, sense sufix.
+treure la targeta esborri el nom amb la marca i deixi el de la flash. Un id que només és en un dels
+dos discs es troba igualment, sense marca.
+
+**La marca i la unitat són dues coses i cadascuna viu al seu lloc** (0.164.0): **l'asterisc va davant de
+l'id** —`*editor`— i **la paraula de la unitat va al final del nom** —`Editor-SD`, o `Editor-Littlefs`
+si la còpia fos la de la flash—. Les dues es fan servir per coses diferents: **l'id és un camí**
+—`/apps/*editor/res/icon.png` ha d'existir, o el llançador no pot pintar la imatge d'aquella cel·la— i
+el nom és el que **una persona llegeix** a la graella del llançador i a la barra del sistema. Abans
+d'això el sufix anava a l'id (`editor-SD`) i el camí de la imatge era el d'una carpeta que cap disc té:
+el llançador deia `editor-SD has no picture` i la cel·la sortia amb la lletra del placeholder (trobat al
+banc el 8/11). El sistema resol la marca amb la mateixa pregunta que fa el llistat —quina còpia és la
+que **no** és la simple—, o sigui que el nom i el camí no es poden contradir mai.
 
 **La targeta només es camina si hi és** (0.87.1): la pregunta és al muntatge de `/sd` i no a una
 carpeta, o sigui que una placa sense targeta —o amb una que el sistema no ha pogut muntar— no paga
@@ -59,7 +69,7 @@ app al disc i cap rastre d'ella—. La política és aquí i no al disc: una app
 ensenyar no s'ha de poder llistar per cap altre camí.
 
 El camí d'una app és el que diu **`apps::root_of()`**, i és **sempre la porta**: `/apps/<id>`, tant
-si l'app és de la flash (`/apps/squares`) com si és de la targeta (`/apps/squares-SD`). El que respon
+si l'app és de la flash (`/apps/squares`) com si és de la targeta (`/apps/*squares`). El que respon
 darrere el resol la VFS, i el disc que ha contestat es diu amb `Entry::on_card` —el `[card]` del
 llistat— i no amb un camí, perquè `/littlefs` sencer és el disc del sistema i no és d'una app
 (docs/70). Els **discs** sencers, `/littlefs/apps` i `/sd/apps`, només surten al missatge de
@@ -72,7 +82,7 @@ l'API de continguts de GitHub és el que diu quins fitxers té cada carpeta i de
 (docs/30, docs/70, docs/75).
 
 **`apps remove <id>` esborra l'app** (0.89.0), i el nom és el que surt al llistat: `squares` per a la
-còpia de la flash i `squares-SD` per a la de la targeta, o sigui que una de les dues còpies se'n va i
+còpia de la flash i `*squares` per a la de la targeta, o sigui que una de les dues còpies se'n va i
 l'altra es queda —i quan la de la flash ja no hi és, la de la targeta perd el sufix—. Se'n va **la
 carpeta de l'app i res més**: el que ha deixat a `/data/<id>` i a `/cfg/<id>` és el seu passat i no
 l'app, i qui ho vulgui esborrar ha de dir aquell camí. Una carpeta de `/apps` que no porta
@@ -139,7 +149,7 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
 | `icon` | cadena | No | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30) |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
-| `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina |
+| `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **Des de la 0.163.0 també és la pàgina que un pessic no tanca**: el gest de tancar és del sistema i ho pregunta aquí, perquè una placa que es quedés sense cap pàgina s'hauria d'anar a buscar amb un cable (docs/30) |
 
 Els camps que aquest document preveia i que **no existeixen al codi** —`permissions`, `mem_kb`—
 s'ignoren com qualsevol camp desconegut: el sostre de memòria és el de la placa i els permisos encara

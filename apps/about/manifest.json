@@ -1,9 +1,11 @@
 {
   "title": "About",
   "author": "@lunokjod",
-  "version": "0.3.0",
+  "version": "0.5.1",
   "entry": "about.lua",
-  "boards": ["esp32"],
+  "boards": [
+    "esp32"
+  ],
   "icon": "res/icon.png",
-  "description": "Who is behind this, and what this system is made of: the libraries of `lib/`, each one with its version, its folder, its licence and the sentence it says about itself. Tap one to see its own page, More for the next ones, and Back to come home."
+  "description": "Who is behind this, and what this system is made of: the libraries of `lib/`, each one with its version, its folder, its licence and the sentence it says about itself. The list pages itself with a row of dots and a slide, so a library is never behind a sentence: tap one to see its own page, and Back \u2014or a pinch, or three presses, or three taps\u2014 to come home."
 }

@@ -409,5 +409,21 @@ bool take_gesture_of(const char* kind, Gesture& out) {
   return false;
 }
 
+bool take_pinch_in(int16_t min_px, Gesture& out) {
+  if (min_px <= 0) return false;
+  for (uint8_t i = 0; i < g_queue_count; ++i) {
+    if (g_queue[i].kind == nullptr || strcmp(g_queue[i].kind, "pinch") != 0) continue;
+    // **Big to small is the one that closes**: positive is apart —it is how every map and every photo app reads
+    // it—, so the gesture that comes back is the one whose `spread` is under zero by `min_px` pixels. A pinch that
+    // does not come back that far, or that opens, is left in the queue for the app (docs/30).
+    if (g_queue[i].spread > static_cast<int16_t>(-min_px)) continue;
+    out = g_queue[i];
+    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
+    --g_queue_count;
+    return true;
+  }
+  return false;
+}
+
 }  // namespace touch
 }  // namespace kernel

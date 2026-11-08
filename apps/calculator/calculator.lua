@@ -88,12 +88,23 @@ local keys = {}       -- one table a key: {x, y, w, h, label, action}
 
 -- The labels, the operation and the width. `span` is how many columns a key covers: the zero is double,
 -- as it is on every calculator, and that is what leaves room for the point and equals in the same row.
+--
+-- **The same four signs as the original** (0.158.0): the keypad of `pos_launch.lua` of PaperOS is
+-- `{"C"}, {"←", "back"}, {"±", "neg"}, {"÷", "/"}` and `{"×", "*"}` in the second row, and the
+-- comment of that file says why: «the glyphs are the ones the bitmap font carries (`tools/fontgen.py`): the
+-- arrows, the plus-minus, the multiplication and the division signs are all there». The text of this system
+-- is **one byte a character** and not UTF-8, so a sign is `string.char` and never the letter itself in this
+-- file —the three Latin-1 ones are `0xD7`, `0xF7` and `0xB1`, and the arrow is `0x81`, one of the five codes
+-- Windows-1252 leaves empty— (docs/30, docs/92 §34).
+local kTimes, kDivide = string.char(0xD7), string.char(0xF7)
+local kPlusMinus, kArrow = string.char(0xB1), string.char(0x81)
+
 local Rows = {
-  {{'C', 'clear'}, {'<', 'back'}, {'+/-', 'neg'}, {'/', '/'}},
-  {{'7', 'd'},     {'8', 'd'},    {'9', 'd'},     {'*', '*'}},
-  {{'4', 'd'},     {'5', 'd'},    {'6', 'd'},     {'-', '-'}},
-  {{'1', 'd'},     {'2', 'd'},    {'3', 'd'},     {'+', '+'}},
-  {{'0', 'd', 2},  {'.', 'dot'},  {'=', '='}},
+  {{'C', 'clear'}, {kArrow, 'back'}, {kPlusMinus, 'neg'}, {kDivide, '/'}},
+  {{'7', 'd'},     {'8', 'd'},       {'9', 'd'},          {kTimes, '*'}},
+  {{'4', 'd'},     {'5', 'd'},       {'6', 'd'},          {'-', '-'}},
+  {{'1', 'd'},     {'2', 'd'},       {'3', 'd'},          {'+', '+'}},
+  {{'0', 'd', 2},  {'.', 'dot'},     {'=', '='}},
 }
 
 -- Where every key is, and where the number is, for this view. Built again only when the room changes:
@@ -148,7 +159,9 @@ end
 
 -- ----------------------------------------------------------- the arithmetic
 
-local Symbols = {['+'] = '+', ['-'] = '-', ['*'] = 'x', ['/'] = '/'}
+-- **The display shows the sign and not the letter of the action**, which is the `Symbols` table of the
+-- original (`["*"] = "×"`, `["/"] = "÷"`): an operation is read as a sign on the paper calculator.
+local Symbols = {['+'] = '+', ['-'] = '-', ['*'] = kTimes, ['/'] = kDivide}
 
 -- A number, the way the glass shows it.
 local function fmt_number(n)
@@ -327,6 +340,22 @@ end
 
 -- ------------------------------------------------------------------- the page
 
+-- **The three keys that are not a figure have a grey of their own** (0.158.0, asked for by the owner): `C`
+-- clears, the arrow eats the last digit and `=` closes the sum, and the four operations keep the light grey
+-- the paper project gave them. The two numbers are in one place each so the page is changed here and not in
+-- the loop: `12` is the original's (`draw.rect(k.x, k.y, k.w, k.h, 12)` of `pos_launch.lua`) and `8` is the
+-- darker level the three actions wear, which reads at a glance where the eye has to press (docs/50, docs/90).
+-- And a key of the dark level **wears white letters**: black on grey 8 is a label somebody has to look for.
+local kOperatorGrey, kActionGrey = 12, 8
+
+--- The grey a key is filled with, or nil when the key is paper and only has its frame.
+local function key_grey(action)
+  if action == 'clear' or action == 'back' or action == '=' then return kActionGrey end
+  if is_operator(action) then return kOperatorGrey end
+
+  return nil
+end
+
 -- **The display box and nothing else**: the waiting operation above and the number below, big and to the
 -- right. It is what a key press paints, and it is white inside its frame before it does.
 local function draw_display()
@@ -361,13 +390,15 @@ local function draw_page()
   ui.frame(disp.x, disp.y, disp.w, disp.h)
   draw_display()
 
-  -- The keypad. The operators and equals carry a grey of their own so the shape of the calculator is read
-  -- before the labels are.
+  -- The keypad. A key that is not a figure carries a grey of its own so the shape of the calculator is read
+  -- before the labels are: the four operations the light one of the original and `C`, the arrow and `=` the
+  -- dark one (`key_grey`).
   for i = 1, #keys do
     local k = keys[i]
+    local grey = key_grey(k.action)
 
-    if is_operator(k.action) or k.action == '=' then
-      ui.rect(k.x, k.y, k.w, k.h, 12)
+    if grey ~= nil then
+      ui.rect(k.x, k.y, k.w, k.h, grey)
     end
 
     ui.frame(k.x, k.y, k.w, k.h)
@@ -375,7 +406,12 @@ local function draw_page()
     local lw = ui.text_width(k.label, kTitle)
     local lh = ui.line_height(kTitle)
 
-    ui.text(math.floor(k.x + (k.w - lw) / 2), math.floor(k.y + (k.h - lh) / 2), k.label, kTitle, 0)
+    -- **The label is white on a dark key and black everywhere else** (0.158.0): the three keys of
+    -- `kActionGrey` are the ones the eye has to find on the page, and a black letter over grey 8 is a
+    -- letter that has to be looked for (docs/50, docs/90).
+    local ink = (grey == kActionGrey) and 15 or 0
+
+    ui.text(math.floor(k.x + (k.w - lw) / 2), math.floor(k.y + (k.h - lh) / 2), k.label, kTitle, ink)
   end
 end
 
@@ -397,6 +433,12 @@ if app.args ~= nil and app.args.path == 'keys' then
   -- that the page cannot come out smaller without a number saying so (docs/30, docs/92).
   console.print(string.format('Calculator sizes %d %d %d %d', kSmall * ui.line_height(1),
     kBody * ui.line_height(1), kTitle * ui.line_height(1), kBig * ui.line_height(1)))
+
+  -- **The four signs, measured on the face that is loaded** (0.158.0): a width of zero is a byte with no
+  -- picture on this face, so a key that would paint a blank square says so in a number here instead of
+  -- waiting for somebody to look at the glass (docs/30).
+  console.print(string.format('Calculator symbols %d %d %d %d', ui.text_width(kDivide, kTitle),
+    ui.text_width(kTimes, kTitle), ui.text_width(kPlusMinus, kTitle), ui.text_width(kArrow, kTitle)))
 
   for i = 1, #keys do
     local k = keys[i]

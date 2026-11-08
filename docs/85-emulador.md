@@ -41,6 +41,21 @@ entén; si no, amb espais i retrocessos, o sigui que el terminal de la placa i u
 fan el mateix amb mitjans diferents (docs/30, docs/75). Al prompt `lua>`, **Ctrl+D** tanca la sessió
 de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descarta.
 
+**I al prompt del shell, `exit`, `logout` i Ctrl+D tanquen la sessió** (8/11, 0.158.0, demanat per l'amo), i
+**què vol dir tancar ho diu la consola i no el shell** —`IConsole::virtual_terminal`, que el banc encén des de
+`main_host` amb `pal::set_virtual_terminal(true)`—:
+
+- **En un port sèrie**, que és la consola d'una placa, **la sessió no es tanca de veritat**: no hi ha ningú a
+  l'altre costat que pengi el fil i és l'única porta d'un sistema sense vidre. El sistema diu `logout: the
+  session is closed; press Enter to open a new one`, la línia que s'estigués escrivint es descarta, **el que
+  arriba no és cap línia** —ni una lletra, ni una fletxa— i **l'Enter obre una sessió nova** (`login: a new
+  session`) i la consola torna a començar. És el que fa un *getty*.
+- **En un terminal virtual**, que és la consola del banc —un programa d'un PC que algú ha arrencat i pot
+  penjar—, **la sessió es tanca de debò**: la línia es diu, el port s'escorre (`flush`) i **l'execució
+  s'atura**, que al banc és el mateix que fa `poweroff`.
+
+**Ctrl+D al prompt del shell** és el mateix que `exit`; al de `lua` segueix volent dir «surt de l'intèrpret».
+
 **`help` amb una comanda és l'ajuda d'aquella comanda** (0.88.1): `help repo` són les tres línies de `repo` i cap
 altra, `help repo install` és la d'aquella sintaxi, i un mot que només és el començament d'una comanda no ho és
 —`help pow` respon `no such command: pow` i diu on és la llista sencera— (docs/30).
@@ -155,17 +170,22 @@ printf 'run echo\n' > /tmp/s.txt
 que les proves acaben d'escriure. `/littlefs` és `data/` i prou —`/littlefs/res` és `data/res`—, i el que una
 app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.gitignore`.
 
-**El banc no porta cap app** (0.88.2): ni a la flash ni a la targeta. El seu disc és el sistema —`res/`,
-`http/` i `data/`, que és el que una app hi escriu— i el slot de la targeta és buit fins que algú hi posa
-una targeta, o sigui que un banc acabat de fer diu `no apps` a `apps` i `no such app` a `run`. Una app hi
-arriba com arriba a una placa: **`repo install <app>`** (que la baixa a `/sd/apps`, i al banc això vol
-dir una targeta), o una targeta pròpia amb `--sd <dir>`. I com que el directori no hi és, **`/apps` no
-és ni un muntatge**: `ls /` i `mounts` no ensenyen una porta que no porta enlloc.
+**El banc porta totes les apps d'`apps/`** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*). Fins avui en
+portava una —el llançador, que és l'app amb què arrenca i que ha de ser al disc que llegeix— i la resta quedava
+fora, o sigui que un banc acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
+`run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que el banc **no té placa**, el filtre de
+`tools/make_disk.py` les hi posa totes: **8 carpetes, 39 fitxers, 305 615 B** mesurats el 8/11 a `apps/` (about,
+calculator, editor, home_eink, probe, reader, shell i timeclock) i **56 fitxers i 438 116 B** d'imatge segons la línia
+del mateix `make_disk` (`build/disk/emulator is 438116 B in 56 files, 8 apps`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
+banc el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i
+una app nova a `apps/` hi és amb un `pio run -e emulator` i sense tocar cap línia de configuració. Les plaques no
+són així i no poden ser-ho: la seva imatge és el sistema sol, i la Paper nomena les seves set perquè 4 MB de
+LittleFS no hi caben (docs/70).
 **I durant el desenvolupament la targeta és el propi repositori** (0.118.3, quan la imatge de les plaques va
 deixar de portar apps): `--sd .` posa `apps/` de l'arrel a `/sd/apps` i el banc executa el que hi ha al
 repositori sense copiar res ni refer el disc —`--flash build/disk/m5-paper --sd .` i `run images` arrenca
-l'app del dia—. És el camí per provar una app al banc sense passar per `repo install` ni per `custom_apps`
-(docs/70).
+l'app del dia—. És el camí per provar una app al banc quan el disc que es llegeix és el d'una placa, que no en
+porta cap (`repo install` i una targeta pròpia amb `--sd <dir>` són els altres dos, docs/70).
 A part del disc hi ha les memòries que **no són un volum**, i totes viuen en un sol directori
 (`--state emulator`, per defecte):
 

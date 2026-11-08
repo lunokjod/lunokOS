@@ -72,7 +72,14 @@ Status read_info(const uint8_t* data, uint32_t len, Info& out);
 // Decodes the whole picture. `scratch` is the block `scratch_bytes` asked for; a decoder that needs more
 // than it has says `kNoRoom` and not a wrong picture. The sink is called once per row from zero to
 // `height - 1`, and a picture whose rows are all read is `kOk` (docs/30).
-Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap);
+// **The transparency of a picture, when the caller wants it** (0.169.0): `mask` is asked for a row of `(width + 1) / 2`
+// bytes **before** the colours of that row, one nibble a pixel, `15` where the picture has a pixel and `0` where it leaves
+// whatever is under it. Only the families that carry a transparency give it —a PNG of any of its kinds and its palette—;
+// a picture of a family without one is drawn as if everything were there, and a caller that does not ask gives `nullptr`
+// and pays not one byte for a feature it does not use (docs/30, docs/75). The row the sink is given belongs to the caller
+// and is only good until the next row.
+Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap,
+              const RowSink* mask = nullptr);
 
 // **The cache of this system, written** (0.146.0, docs/46 C11): `ICS1`, the width and the height as two little-endian
 // words and the rows of a picture two pixels a byte, the left one in the high nibble — the same bytes `decode` reads

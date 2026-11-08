@@ -118,6 +118,9 @@ void install_apps_ops() {
 
   luabind::AppOps app_ops = {};
   app_ops.run = &lua_run;
+  app_ops.views = &views;
+  app_ops.push_view = &view_push;
+  app_ops.pop_view = &view_pop;
   luabind::set_app_ops(app_ops);
 }
 

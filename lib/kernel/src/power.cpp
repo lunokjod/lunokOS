@@ -366,6 +366,9 @@ bool sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
   // the last page of an app that is no longer there. A light sleep is a nap and paints nothing: the board keeps what
   // it has and is back in a moment (docs/30, docs/50, docs/92).
   if (mode == hal::SleepMode::kDeep) splash::show(splash::kPowerOff);
+  // **And the ink of the picture is over before the chip stops** (0.165.1): the deep sleep cuts the clocks where the call
+  // found them, so a picture asked for and not waited on is a picture that nobody sees (docs/50).
+  if (mode == hal::SleepMode::kDeep) splash::wait();
   const bool back = g_power->sleep(mode, until);
   if (!back) return false;
   // A board that answers slept lightly (or is the emulator): what it was told is

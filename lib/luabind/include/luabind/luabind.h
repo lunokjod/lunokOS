@@ -132,6 +132,32 @@ struct AppsOps {
 
 void set_apps_ops(const AppsOps& ops);
 
+// **A session of the shell for an app** (0.159.0): the shell is the system's and not the wire's, so an app can ask
+// for one and talk to it through three pipes —the lines in, the answers out and the complaints out— with no console
+// in the middle, no prompt and no echo. It is a table of function pointers and not a dependency: `luabind` never
+// includes the kernel (docs/20, docs/30).
+//
+// `open` answers a handle, one based, or zero with the reason in `why`. `read` and `read_error` answer the bytes they
+// took and never more than they were given; `dropped` is the bytes that did not fit the pipes, because an app that
+// stops reading must not stop the shell (docs/30, docs/75).
+struct ShellOps {
+  uint8_t (*open)(char* why, size_t why_cap);
+  void (*close)(uint8_t id);
+  bool (*write)(uint8_t id, const char* data, size_t len);
+  size_t (*read)(uint8_t id, char* out, size_t cap);
+  size_t (*read_error)(uint8_t id, char* out, size_t cap);
+  uint32_t (*dropped)(uint8_t id);
+};
+
+void set_shell_ops(const ShellOps& ops);
+
+// **Where an app's console words go** (0.160.0): `run x &` starts an app with its stdin, stdout and stderr **detached
+// from the session that started it**, so its `print` cannot land on a prompt somebody is typing at. The kernel says
+// which of the two it is —the terminal, or the sink it installs, which is the log— and there is no thread anywhere:
+// the app is polled by the same turn of the kernel as always (docs/30, docs/50).
+void set_console_attached(bool attached);
+void set_console_away(void (*write)(const char* text, size_t len));
+
 // **Starting another app from an app** (0.153.0): what a launcher does when a finger presses a picture. It is a wish
 // and not a switch —the app that asks is the one the interpreter belongs to, so closing it inside the call would
 // destroy the state the call is running in—. The kernel takes the wish after the turn: the app in front goes away with
@@ -142,9 +168,21 @@ struct AppOps {
   // **`back` is the page the person comes back to**: true means the app that asked is started again when the one it
   // opened ends, which is what a launcher wants and the only way back on a board with three keys (docs/30, docs/90).
   bool (*run)(const char* id, bool back, char* why, size_t why_cap);
+  // **The views of the app in front** (0.163.0): how many pages it has on top of its first one, and the two calls that
+  // move that number. They are the kernel's counter and not the app's, because a pinch means the same wish in every
+  // app and an app that had to keep the number itself is an app that can get it wrong (docs/30, docs/46).
+  uint8_t (*views)();
+  uint8_t (*push_view)();
+  uint8_t (*pop_view)();
 };
 
 void set_app_ops(const AppOps& ops);
+
+// **The system went back one view** (0.163.0): `on_back(depth)` is called between turns, like `on_resize` and the
+// other hooks, with **the number of views the app has left** —zero is «the only page the app has», which is where a
+// pinch does not come back to but closes the app—. False when the app has no such hook, and an app that pushes views
+// and does not listen is an app whose glass stays on the page it left (docs/30).
+bool call_back(uint8_t depth);
 
 // **The hour of the person, which is a setting of the system** (0.125.0): the chip counts UTC and every clock a person
 // reads is local, so the kernel keeps one number —the minutes the local hour is ahead of UTC— and this is how the
@@ -431,6 +469,11 @@ struct UIOps {
   bool (*pixel)(uint16_t x, uint16_t y, uint8_t level, const char* mode);
   // nullptr is "each region with the quality it was drawn with" (docs/30).
   bool (*present)(const char* mode);
+  // **The pending regions with one quality and each in its own box** (0.168.1): what the system asks for when it has
+  // changed two controls of the page —a ring that comes and a ring that goes— because merging them would also paint the
+  // air between them (docs/30, docs/50). The quality is the byte of `hal::UpdateMode`, which this library does not name
+  // (it includes no HAL) and the kernel turns back into its own.
+  bool (*present_each)(uint8_t mode);
   bool (*idle)();
   // Another size for the view. The system answers by making a new canvas and calling `on_resize`, and
   // an app that asks for one it cannot have is told no (docs/30).
@@ -566,6 +609,13 @@ struct UIOps {
   // tab that will answer is drawn inverted, as the paper project does (`TabStrip::draw()`, 0.99.0, docs/92).
   bool (*tabs_draw)(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                     uint8_t text, uint8_t background, uint8_t scale);
+  // **The same strip with a cross on every tab** (0.161.0): a tab that can be closed, and the two hits that say which
+  // tab a finger landed on and which cross it pressed. The geometry is the system's, so an app does not work out the
+  // columns and a finger lands where the glass painted (docs/30, docs/90).
+  bool (*tabs_draw_closeable)(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+                              uint8_t text, uint8_t background, uint8_t scale);
+  uint8_t (*tabs_close_at)(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
+  uint8_t (*tabs_tab_at)(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
   bool (*dots_draw)(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background);
   // **A list** (docs/30, docs/90): how many rows fit in a frame of that height and how many pages the items make
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the
@@ -612,7 +662,10 @@ struct UIOps {
   // file— and the quality. `slot` is the canvas it goes into, and `0` is the page: a launcher draws the icon of an app
   // inside the cell of a grid, which is a canvas of its own, and `ui.image` is the same call with the page as its
   // canvas (docs/30). `reason` says why when it is false, because "it did not draw" is not an answer a person can use.
-  bool (*image)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+  // **`mask` is the picture's own transparency** (0.169.0): false draws the white of a PNG's alpha over the canvas, true
+  // leaves those pixels as they are, which is what an app that puts a picture over something other than paper wants
+  // (docs/30). A caller that does not ask pays nothing for it —the decoder skips the work and no row is made—.
+  bool (*image)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode, bool mask,
                 const char*& code, const char*& reason);
   // The family, the size and the depth of a picture, without drawing it (docs/30).
   bool (*image_info)(const char* path, char* format, size_t format_cap, uint16_t& width, uint16_t& height,
@@ -669,6 +722,10 @@ struct UIOps {
   uint8_t (*textbox_multiline_line)(int16_t slot, uint8_t scale);
   uint16_t (*textbox_multiline_scroll)(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                        int16_t top, int16_t rows);
+  // **The box of the block the last draw put down** (0.168.2), in the control's own pixels: the caret blinks twice a
+  // second and a blink is that block and nothing else, so the system that turns it asks for this rectangle instead of
+  // dirtying the whole box of the text (docs/30, docs/90).
+  bool (*textbox_caret_box)(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
   // **The keys of the board inside a box of text** (0.116.0): the caret one letter back or forward in a box of one
   // line, and one row up or down in a box of several —the rows of the glass, wrapped or not— (docs/30, docs/90).
   uint16_t (*textbox_caret)(int16_t slot, const char* text, uint16_t cursor, int16_t steps);
@@ -935,6 +992,10 @@ bool call_alarm(const alarms::Entry& entry, int64_t late_ms);
 // that says !!exit while the app is not reading one. Whoever drives the loop is
 // the one that closes the app.
 bool exit_requested();
+
+// **The wish is taken and the app stays** (0.163.1): a way out that found a view on top of the page is a way out that
+// went back one page, and the wish is spent on it —without this the next turn would close the app anyway— (docs/30).
+void clear_exit_request();
 
 size_t used_bytes();
 size_t peak_bytes();

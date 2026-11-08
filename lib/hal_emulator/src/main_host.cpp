@@ -798,6 +798,10 @@ int main(int argc, char** argv) {
   // The console is a terminal, but the board it stands for talks over a UART at 115200 baud: the
   // bytes are handed over at that speed, not all at once (docs/85).
   pal::set_console_baud(static_cast<uint32_t>(opts.delays ? opts.baud : 0));
+  // **This console is a virtual terminal and a board's is a serial port** (0.158.0): a program on a PC is a session
+  // somebody started, and `exit`, `logout` and Ctrl+D end it; a UART cannot be hung up and there the session says so
+  // and waits for an Enter (docs/30, docs/85).
+  pal::set_virtual_terminal(true);
   // **A block of the extra memory is not free either**: the board's allocator walks its free lists and
   // the PC's answers at once, and a block that changes home is copied through the PSRAM's bus, so the
   // bench is told what both cost when it is paying the times of the hardware (docs/85).

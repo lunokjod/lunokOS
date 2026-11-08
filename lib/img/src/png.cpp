@@ -227,6 +227,7 @@ void one_row(const Header& header, const uint8_t* data, const uint8_t* row, Row&
       if (header.had_trns && index < header.trns_len) {
         alpha = data[header.trns_at + index];
       }
+      row_put_alpha(out, static_cast<uint8_t>(alpha / 17));
       if (alpha == 0) {
         row_put(out, 15);  // transparent is the paper
         continue;
@@ -255,6 +256,7 @@ void one_row(const Header& header, const uint8_t* data, const uint8_t* row, Row&
       uint32_t alpha = 255;
       if (header.channels == 2) alpha = row[(first + 1) * 2];
       if (header.channels == 4) alpha = row[(first + 3) * 2];
+      row_put_alpha(out, static_cast<uint8_t>(alpha / 17));
       if (alpha == 0) {
         row_put(out, 15);
         continue;
@@ -292,6 +294,7 @@ void one_row(const Header& header, const uint8_t* data, const uint8_t* row, Row&
     const uint8_t b8 = to_byte(b, depth);
     const uint8_t a8 = (header.channels == 1 || header.channels == 3) ? static_cast<uint8_t>(alpha)
                                                                       : to_byte(alpha, depth);
+    row_put_alpha(out, static_cast<uint8_t>(a8 / 17));
     if (a8 == 0) {
       row_put(out, 15);
       continue;
@@ -331,18 +334,27 @@ uint32_t png_scratch(const uint8_t* data, uint32_t len) {
   // **A row of a PNG costs its filter byte and its samples**, and the whole picture is inflated at once: the
   // number the caller has to give is the picture as the file describes it (docs/30, docs/75).
   const uint64_t inflated = static_cast<uint64_t>(header.row_bytes + 1) * header.height;
-  const uint64_t bytes = static_cast<uint64_t>(png_state_at(static_cast<uint32_t>(inflated))) + kRowBytes;
+  // **Two rows and not one** (0.169.0): the colours of a row and, when the caller asks for the picture's transparency, the
+  // mask of the same row. It is asked for here whether or not the mask is wanted, because `scratch_bytes` is what the caller
+  // allocates before it knows what it will ask —2 KB of its block and not of the firmware's data— (docs/75).
+  const uint64_t bytes = static_cast<uint64_t>(png_state_at(static_cast<uint32_t>(inflated))) + 2u * kRowBytes;
   if (bytes > 0xFFFFFFFFu) return 0;
   return static_cast<uint32_t>(bytes);
 }
 
-Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
+Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap,
+                  const RowSink* mask) {
   Header header;
   const Status read = read_chunks(data, len, header);
   if (read != kOk) return read;
   if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
   const uint32_t need = (header.row_bytes + 1) * header.height;
-  if (scratch == nullptr || cap < png_state_at(need) + kRowBytes) return kNoRoom;
+  // **Two rows after the state when a mask is asked for** (0.169.0): the colours and the transparency of the same row, one
+  // after the other, in the block the caller gave —a decoder's memory lives in the caller's scratch and never in the static
+  // data of the firmware, which is what the DRAM of the Paper answered with an overflow of 1 064 bytes when the mask row
+  // was a `static` here— (docs/75).
+  const uint32_t rows = (mask != nullptr) ? 2u * kRowBytes : kRowBytes;
+  if (scratch == nullptr || cap < png_state_at(need) + rows) return kNoRoom;
   uint32_t written = 0;
   const inflate::Status status =
       inflate::zlib(data + header.idat_at, header.idat_len, scratch, need, written);
@@ -359,9 +371,15 @@ Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
     const uint8_t* up = (y > 0) ? scratch + (y - 1) * stride + 1 : nullptr;
     unfilter(filter[0], row, up, header.row_bytes, bpp);
     Row out;
+    // **The mask of this row, when the caller asked for one** (0.169.0): the same row of the picture, one nibble a pixel,
+    // filled by `one_row` as it goes and given to the caller **before** the colours, so a reader that draws as it reads
+    // has it in its hand when the pixels arrive (docs/30).
+    uint8_t* mask_row = (mask != nullptr) ? (packed + kRowBytes) : nullptr;
+    out.alpha = mask_row;
     row_start(out, packed, static_cast<uint16_t>(header.width), static_cast<uint16_t>(y));
     one_row(header, data, row, out);
     row_end(out);
+    if (mask != nullptr) mask->write(mask->ctx, static_cast<uint16_t>(y), mask_row);
     sink.write(sink.ctx, static_cast<uint16_t>(y), packed);
   }
   return kOk;

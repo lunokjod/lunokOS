@@ -43,10 +43,15 @@ except ImportError:  # pragma: no cover - the message is the point
     sys.stderr.write("fonttools is not installed: pip install fonttools\n")
     sys.exit(2)
 
-# **The two sets.** `latin1` is the one a book needs; `ascii` is the one the system's own faces are,
-# kept here so that one command makes either and the two are the same road.
+# **The three sets.** `latin1` is the one a book needs; `ascii` is the one the system's own faces were, kept
+# here so that one command makes either and the two are the same road; `signs` is the ascii plus the marks a
+# page of this system writes that are not letters —the plus-minus, the times and the divide of a calculator's
+# keypad, and the arrows with the backspace—, which is what a face of the system has to carry for an app to be
+# able to paint the sign of a key instead of a word. The paper project's faces carried them for the same
+# reason: `tools/fontgen.py` of PaperOS cooked `0x2190` to `0x2193` with the letters (docs/30, docs/92 §34).
 ASCII = "U+0020-007E"
 LATIN1 = "U+0020-00FF,U+2013,U+2014,U+2018-201D,U+2026,U+2022,U+00A0"
+SIGNS = ASCII + ",U+00B1,U+00D7,U+00F7,U+2190-2193,U+232B"
 
 # What `lib/ttf` accepts, and the numbers are the reader's: a glyph of more points or contours than
 # this is refused with `kBadData` and the page would lose it.
@@ -92,7 +97,7 @@ def main():
     parser = argparse.ArgumentParser(description="A Latin-1 face with its pieces flattened")
     parser.add_argument("--ttf", required=True, help="the font to read")
     parser.add_argument("--out", help="where the face is written (not needed with --check)")
-    parser.add_argument("--set", choices=("latin1", "ascii"), default="latin1",
+    parser.add_argument("--set", choices=("latin1", "ascii", "signs"), default="latin1",
                         help="which characters the face keeps (default: latin1)")
     parser.add_argument("--check", action="store_true",
                         help="do not write: say whether the file could be made")
@@ -102,7 +107,7 @@ def main():
         parser.error("--out is needed to write the face")
 
     # 1. The subset, with the same recipe the project already uses for the faces it ships.
-    kept = LATIN1 if args.set == "latin1" else ASCII
+    kept = {"latin1": LATIN1, "ascii": ASCII, "signs": SIGNS}[args.set]
 
     # The subsetter says out loud which tables it does not know how to cut —a table of a timestamp,
     # in this font—, and that is not this tool's business: the face is tried on the glass.

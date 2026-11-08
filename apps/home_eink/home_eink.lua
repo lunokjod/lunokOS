@@ -55,12 +55,15 @@ local function scale_for(line_px)
   return scale
 end
 
-local kName = scale_for(22)
+local kName = scale_for(33)
 local kNameLine = kName * ui.line_height(1)
 
 -- **The box of a cell, in the arithmetic of `icon_grid_cells`** (docs/90): three columns make a cell wide enough for a
 -- name, and the icon is the seventy-two pixels the grid gives a mark when the cell is not narrow.
-local kColumns = 3
+local kColumns = 2
+-- **The box of a picture is what the kernel computes for the cell** (0.166.1): a grid makes a mark as wide as its cell
+-- minus the padding, and the app has to ask for exactly that or the picture sits small inside a big box. It is worked out
+-- in `build()` because it depends on the width of the view.
 local kIcon = 72
 local kPad = 4
 
@@ -184,6 +187,14 @@ local function build()
     return
   end
 
+  -- **The mark of a cell is as wide as the cell allows and no more than the system draws** (0.166.1): the same
+  -- arithmetic `icon_grid_cells` does, with the padding of ten and the ceiling of a hundred and twenty, so the picture
+  -- the app makes is the box the grid has for it (docs/30, docs/90).
+  kIcon = (width // kColumns) - 20
+  if kIcon > 72 then kIcon = 72 end
+  if kIcon < 24 then kIcon = 24 end
+  kCellH = kIcon + 8 + kNameLine + 8
+
   -- **The page is the app's whole and not the box of its controls** (0.153.1, docs/40): a control paints inside its own
   -- frame, so the air around the grid keeps whatever the glass had —the picture of the boot— if this page does not wash
   -- it. The wash is also what makes the first present a whole page and not a box of it (docs/50).
@@ -304,12 +315,27 @@ end
 
 console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
 
+-- **The size of the page that is on the glass** (0.168.3): a call of `on_resize` that says the size the page already has is
+-- not another view, and building again for it would throw away the canvases of the cells that are already on the glass —
+-- seven pictures of 72 x 72 at four bits are 18 144 B and a whole-page paint, for nothing—. **What this guard does not fix,
+-- and it is written here so nobody believes it does**: the lost pictures of a launcher. Those were measured in a run where
+-- the app was started **twice** —`lunokOS` boots its home app and the bench asked for it again with `--run home_eink`— and
+-- the log of it says `[I][APPS] home_eink` twice; started once, the page is built once (measured, 8/11) (docs/30, docs/50).
+local page_w = 0
+local page_h = 0
+
 build()
+page_w = view.width
+page_h = view.height
 
 -- **The system gave the app another view** (0.153.0, docs/30): the whole glass when the person asks for it from the bar
 -- and the glass under the bar when three taps give it back. The page is built again in the new box, with the manifests
--- that have already arrived, and the queue goes on where it was.
+-- that have already arrived, and the queue goes on where it was. **And a call that says the size the page already has is
+-- not another view**: rebuilding for it throws away the canvases of the cells that are already on the glass (0.168.3).
 function on_resize(width, height)
+  if width == page_w and height == page_h then return end
+  page_w = width
+  page_h = height
   view = { width = width, height = height }
   build()
 end
@@ -329,6 +355,12 @@ while true do
     painted = true
   end
 
-  if painted then ui.present() end
+  -- **The page goes up as the cells come** (0.166.1): one present per cell, right after its picture, because a single
+  -- present of the whole page when the queue was over was tried and measured wrong —it lands before the cells arrive, so
+  -- the last pictures of the grid stay unwritten— and what the owner asked for is that the cell the system has just
+  -- filled is the one that goes to the glass (docs/30, docs/50).
+  if painted then
+    ui.present('gc16')
+  end
   sys.delay(50):await()
 end

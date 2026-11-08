@@ -336,10 +336,17 @@ namespace {
 // convention a page of a book is written in —the tokenizer of `lib/epub` turns `&#150;` into one byte and a
 // file saved as CP1252 carries the same byte, and until now the face answered «no such glyph» and the mark
 // vanished— (docs/30, docs/46 A2). Zero is a code the standard does not give a picture to, and it stays a gap.
+//
+// **The five codes Windows-1252 leaves empty are the arrows and the backspace** (0.158.0): 0x81 is ←,
+// 0x8D is →, 0x8F is ↑, 0x90 is ↓ and 0x9D is ⌫. **A text here is one byte a character** (docs/30), and the
+// paper project wrote its arrows as UTF-8 —its faces were indexed by code point, `src/gfx/text.cpp` decodes
+// the string first— so a `←` of `U+2190` had somewhere to live. A byte does not, and these five are the room
+// no file can ever mean: CP1252 does not assign them, so a face that carries them paints the arrow a keypad
+// asks for and no text of a book changes by one mark (docs/30, docs/92 §34).
 const uint16_t kC1ToUnicode[32] = {
-    0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
-    0x2039, 0x0152, 0,      0x017D, 0,      0,      0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
-    0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178};
+    0x20AC, 0x2190, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+    0x2039, 0x0152, 0x2192, 0x017D, 0x2191, 0x2193, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
+    0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x232B, 0x017E, 0x0178};
 
 }  // namespace
 

@@ -38,6 +38,7 @@
 #include "kernel/font.h"
 #include "kernel/ui.h"
 #include "kernel/vfs.h"
+#include "kernel/version.h"
 #include "pal/pal.h"
 #include "pal_host.h"
 
@@ -1304,11 +1305,13 @@ void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   storage->remove("/apps/sdreader");
 }
 
-// **The same app on the two disks is listed twice and each one runs** (0.88.20): `/apps` is the one door of the apps and
-// it presents the copy of the flash as `twice` and the copy of the card as `twice-SD`, instead of one of them
+// **The same app on the two disks is listed twice and each one runs** (0.164.0, and 0.88.20 before it): `/apps` is the
+// one door of the apps and it presents the copy of the flash as `twice` and the copy of the card as **`*twice`** —the
+// mark of a redirect, with the word of its unit at the end of the name, `Card twice-SD`— instead of one of them
 // disappearing behind the other. `root_of` answers the door for either of them, the disk that answers is the one the door
-// resolved —which is what `[card]` says in the listing—, and an app's own `res/` follows the same name to the same disk
-// (docs/40, docs/70).
+// resolved —which is what `[card]` says in the listing—, and an app's own `res/` follows the same name to the same disk.
+// **The mark is a folder that exists**: `/apps/*twice/res/...` is the card's `res/`, which is what the launcher asks for
+// when it draws the picture of a cell and what `-SD` on the id could never answer (docs/40, docs/70).
 void test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -1342,15 +1345,31 @@ void test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD(void)
   char root[96];
   TEST_ASSERT_TRUE(kernel::apps::root_of("twice", root, sizeof(root)));
   TEST_ASSERT_EQUAL_STRING("/apps/twice", root);
-  TEST_ASSERT_TRUE(kernel::apps::root_of("twice-SD", root, sizeof(root)));
-  TEST_ASSERT_EQUAL_STRING("/apps/twice-SD", root);
+  TEST_ASSERT_TRUE(kernel::apps::root_of("*twice", root, sizeof(root)));
+  TEST_ASSERT_EQUAL_STRING("/apps/*twice", root);
 
-  // **The list names both**: the two titles, and the one of the card carries the suffix and says it is the card's
-  // (docs/40).
+  // **The door names the copy with the word of its unit and keeps the mark in the id** (0.164.0): the id is what runs and
+  // what a path is built from, and the name is what a person reads.
+  kernel::apps::Entry found = {};
+  TEST_ASSERT_TRUE(kernel::apps::read("*twice", found));
+  TEST_ASSERT_EQUAL_STRING("*twice", found.id);
+  TEST_ASSERT_EQUAL_STRING("Card twice-SD", found.title);
+  TEST_ASSERT_TRUE_MESSAGE(found.on_card, "the redirected copy is the card's");
+
+  // **And the picture the launcher asks for is a path that answers** (0.164.0): it is the same file the app reads itself,
+  // asked through the id the door presented, which is the whole bug the shell app taught the launcher on 8/11.
+  char said[64] = {0};
+  size_t said_len = 0;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::vfs::read_file("/apps/*twice/res/which.txt", said, sizeof(said) - 1, said_len),
+                           "/apps/*twice/res is the card's res");
+  TEST_ASSERT_EQUAL_STRING("card-res\n", said);
+
+  // **The list names both**: the two names, and the one of the card carries the word of its unit and says it is the
+  // card's (docs/40).
   pump_captured(20, g_out, sizeof(g_out), "apps");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Flash twice"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Card twice"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "twice-SD"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Card twice-SD"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "*twice"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[card]"), g_out);
 
   // **And each name runs its own copy**, with its own `res/`.
@@ -1358,7 +1377,7 @@ void test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD(void)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "res flash-res"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
-  TEST_ASSERT_TRUE(run_captured("run twice-SD", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("run *twice", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "res card-res"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
@@ -1369,19 +1388,80 @@ void test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD(void)
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: nadie_ha_vist_aquesta"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps are in /apps"), g_out);
 
-  // **The card out of the slot takes the `-SD` name with it**: the flash app is still there and still runs (docs/70).
+  // **The card out of the slot takes the redirected id with it**: the flash app is still there and still runs (docs/70).
   card->remove("/apps/twice/res/which.txt");
   card->remove("/apps/twice/res");
   card->remove("/apps/twice/app.lua");
   card->remove("/apps/twice/manifest.json");
   card->remove("/apps/twice");
-  TEST_ASSERT_TRUE(run_captured("run twice-SD", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: twice-SD"), g_out);
+  TEST_ASSERT_TRUE(run_captured("run *twice", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no such app: *twice"), g_out);
   TEST_ASSERT_TRUE(run_captured("run twice", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
 
   storage->remove("apps/twice/res/which.txt");
   storage->remove("apps/twice/res");
+  storage->remove("/apps/twice/app.lua");
+  storage->remove("/apps/twice/manifest.json");
+  storage->remove("/apps/twice");
+}
+
+// **A name that already says which unit it is from keeps its word** (0.166.2): the rule the owner gave is that an id with
+// a mark in front is read by the last word behind a dash of the app's name —`Editor-SD` is the card's copy—, so a card app
+// titled `Twice-SD` is not renamed `Twice-SD-SD`, and one titled `Twice-Littlefs` while it lives on the card keeps the
+// name it was given and says in the log that the door answered the other disk: the name is what a person reads and
+// hiding the disagreement would be the lie (docs/40, docs/70).
+void test_a_name_that_already_says_its_unit_keeps_its_word(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+  card->mkdir("/apps");
+
+  TEST_ASSERT_TRUE(add_app(storage, "twice",
+                           "{\"title\":\"Flash twice\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           "console.print('from the flash')\n"));
+  // The card's copy says the word of its own unit, which is the one the door would have written by itself.
+  TEST_ASSERT_TRUE(add_app(card, "twice",
+                           "{\"title\":\"Card twice-SD\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           "console.print('from the card')\n"));
+
+  kernel::apps::Entry found = {};
+  TEST_ASSERT_TRUE(kernel::apps::read("*twice", found));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("Card twice-SD", found.title, "a name is not given a second word");
+  TEST_ASSERT_TRUE_MESSAGE(found.on_card, "the word of the name and the disk agree");
+
+  // **And a name that disagrees with the disk keeps its word** (0.166.2): the last word behind a dash is the unit the
+  // name says, and the log says the door answered the other one instead of the two being silently mixed.
+  TEST_ASSERT_TRUE(add_app(card, "twice",
+                           "{\"title\":\"Card twice-Littlefs\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           "console.print('from the card')\n"));
+  TEST_ASSERT_TRUE(kernel::apps::read("*twice", found));
+  TEST_ASSERT_EQUAL_STRING("Card twice-Littlefs", found.title);
+  TEST_ASSERT_FALSE_MESSAGE(found.on_card, "the word of the name decides which unit the name says");
+
+  // **A word alone is not a word**: `SD` without a dash in front of it is the name of an app and says nothing about a
+  // disk, so the door keeps naming it after the disk it answered from.
+  TEST_ASSERT_TRUE(
+      add_app(card, "twice",
+              "{\"title\":\"Card SD\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+              "console.print('from the card')\n"));
+  TEST_ASSERT_TRUE(kernel::apps::read("*twice", found));
+  TEST_ASSERT_EQUAL_STRING("Card SD-SD", found.title);
+  TEST_ASSERT_TRUE(found.on_card);
+
+  card->remove("/apps/twice/app.lua");
+  card->remove("/apps/twice/manifest.json");
+  card->remove("/apps/twice");
   storage->remove("/apps/twice/app.lua");
   storage->remove("/apps/twice/manifest.json");
   storage->remove("/apps/twice");
@@ -6576,6 +6656,24 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(11, 11));
 
+  // **And the build says which one it is, in the corner** (0.165.0): the picture of this case is 2 × 2 black pixels in the
+  // middle of a white panel, so any ink in the bottom right corner is the stamp and nothing else. It is drawn at scale 2
+  // of the face of the system with a margin of sixteen pixels, and it is the one text a splash draws (docs/30, docs/50).
+  int stamp_ink = 0;
+  for (uint16_t y = static_cast<uint16_t>(glass->height() - 60); y < glass->height(); ++y) {
+    for (uint16_t x = static_cast<uint16_t>(glass->width() - 300); x < glass->width(); ++x) {
+      if (glass->level_at(x, y) == 0) ++stamp_ink;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(100, stamp_ink, "the version stamp is in the corner");
+
+  // **And the strip of the system is back over the picture** (0.164.3): the splash washes the whole panel —the bar with
+  // it— and the bar paints itself only when something of it changes, so what the title did after the picture was the box
+  // of the title and not the strip, and the hour and the battery stayed erased. The line under the strip is ink and the
+  // paper of it is paper: that is the bar and not the wash of the splash (docs/30, docs/50).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(200, 47), "the line under the bar is back");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(200, 10), "and the paper of the strip");
+
   // **The app is put away before the next one**, and the wash that leaves the glass clean is the system's: that is what
   // makes the next half of this test mean something (docs/30, docs/90).
   kernel::shell::close_app();
@@ -9284,6 +9382,16 @@ void test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so(
 // repaints the display box and not the page**, which the log says with the size of the region painted.
 void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   TEST_ASSERT_TRUE(boot_once());
+
+  // **The face of the board is on this bench's disk for this case** (0.158.0): the keys carry the four signs
+  // of the original —`←`, `±`, `÷`, `×`— and the five by seven of the flash carries the printable ASCII, so
+  // a sign there would be a hole and a key that looks broken. The suite's disk has no face of its own ("the
+  // bench's disk carries no font", the case of the face of the system), so it is copied here and the boot of
+  // this case is the one that loads it (docs/30, docs/85).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
   // **The glass and the panel are of the model and a test's `Options()` has them off** (docs/85): an app
   // that needs a glass says so and stops, which is right on a headless bench and is not what this reads.
   emu::Options opts = emu::options();
@@ -9296,9 +9404,8 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
+  TEST_ASSERT_NOT_NULL_MESSAGE(kernel::font::system_face().outline, "the face of the disk is loaded");
 
-  hal::IStorage* storage = hal::platform().storage("/littlefs");
-  TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(storage->mkdir("/apps/calculator"));
   // **The app that ships is the app the test runs** (docs/85): the two files come from the repository and
   // not from a copy that goes stale.
@@ -9317,8 +9424,10 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   // **The four sizes are the paper project's, measured in pixels of line** (0.121.0): `small` 33, `body` 43,
   // `title` 57 and `big` 82 (`lib/gfx/fonts/fonts.h` of PaperOS). The port was written in steps of the face
   // first and the page came out noticeably smaller than the original; the sizes are asked in pixels now, and
-  // what a step of this bench's face gives is within one step (six pixels here, where a step is seven) of the
-  // four numbers. A page that lost one step is a page that fails this line (docs/30, docs/92).
+  // the face of the disk answers in whole steps —**eleven pixels of line per step**, so the four come out
+  // 33, 44, 55 and 77 and the worst is five pixels off, which is what an outline face can do and the bitmap
+  // faces of the paper project, baked at 33, 43, 57 and 82, could not— (docs/30, docs/92 §34). A page that
+  // lost one step is a page that fails this line.
   const int wanted[4] = {33, 43, 57, 82};
   int got[4] = {0, 0, 0, 0};
   const char* sizes = strstr(g_out, "Calculator sizes ");
@@ -9339,6 +9448,18 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   };
   Spot spots[24] = {};
   int spot_count = 0;
+  // **The four signs are written by the face that is loaded and a number says so** (0.158.0): the labels of
+  // the keypad are `÷`, `×`, `±` and `←`, three of them Latin-1 and the arrow one of the five codes
+  // Windows-1252 leaves empty, and a face without one of them paints a blank key. The width of the four is
+  // asked of the app, so a zero here is a red test and not something somebody has to see on the glass
+  // (docs/30).
+  const char* signs = strstr(g_out, "Calculator symbols ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(signs, g_out);
+  int sign_w[4] = {0, 0, 0, 0};
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(signs, "Calculator symbols %d %d %d %d", &sign_w[0], &sign_w[1],
+                                          &sign_w[2], &sign_w[3]),
+                                g_out);
+  for (int i = 0; i < 4; ++i) TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, sign_w[i], signs);
   for (const char* at = strstr(g_out, "Calculator key "); at != nullptr && spot_count < 24;
        at = strstr(at + 1, "Calculator key ")) {
     char label[8] = {0};
@@ -9410,7 +9531,7 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   capture_begin();
   TEST_ASSERT_TRUE(press("C"));
   TEST_ASSERT_TRUE(press("8"));
-  TEST_ASSERT_TRUE(press("/"));
+  TEST_ASSERT_TRUE(press("\xF7"));  // the divide key carries `÷`, as on the paper calculator
   TEST_ASSERT_TRUE(press("0"));
   TEST_ASSERT_TRUE(press("="));
   TEST_ASSERT_TRUE(press("2"));
@@ -9418,16 +9539,17 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   TEST_ASSERT_TRUE(press("2"));
   TEST_ASSERT_TRUE(press("="));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 8 / 0 = Error"), g_out);
+  // The line is read as the paper calculator writes it: the sign and not the letter of the operation.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 8 \xF7" " 0 = Error"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 2 + 2 = 4"), g_out);
 
-  // The point, the backspace and the sign.
+  // The point, the backspace, the sign and the times.
   capture_begin();
   TEST_ASSERT_TRUE(press("C"));
   TEST_ASSERT_TRUE(press("1"));
   TEST_ASSERT_TRUE(press("2"));
   TEST_ASSERT_TRUE(press("3"));
-  TEST_ASSERT_TRUE(press("<"));
+  TEST_ASSERT_TRUE(press("\x81"));  // the arrow of the backspace (`←`, the code CP1252 leaves empty)
   TEST_ASSERT_TRUE(press("="));
   TEST_ASSERT_TRUE(press("C"));
   TEST_ASSERT_TRUE(press("5"));
@@ -9438,14 +9560,20 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   TEST_ASSERT_TRUE(press("="));
   TEST_ASSERT_TRUE(press("C"));
   TEST_ASSERT_TRUE(press("5"));
-  TEST_ASSERT_TRUE(press("+/-"));
+  TEST_ASSERT_TRUE(press("\xB1"));  // the sign key carries `±`
   TEST_ASSERT_TRUE(press("+"));
   TEST_ASSERT_TRUE(press("1"));
+  TEST_ASSERT_TRUE(press("="));
+  TEST_ASSERT_TRUE(press("C"));
+  TEST_ASSERT_TRUE(press("6"));
+  TEST_ASSERT_TRUE(press("\xD7"));  // the times key carries `×`
+  TEST_ASSERT_TRUE(press("7"));
   TEST_ASSERT_TRUE(press("="));
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 12 = 12"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 5.5 + 1 = 6.5"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: -5 + 1 = -4"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Calculator: 6 \xD7" " 7 = 42"), g_out);
 
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
@@ -9455,6 +9583,11 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   storage->remove("/apps/calculator/calculator.lua");
   storage->remove("/apps/calculator/manifest.json");
   storage->remove("/apps/calculator");
+
+  // **The bench is left as it was found**: the face of the system is one global of the glass, and a case that
+  // left the bold face behind would decide what the cases after it measure (docs/30).
+  kernel::font::set_system_face(nullptr);
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
 }
 
 // **How many libraries the tree carries**: a folder of `lib/` with a `library.json` in it is a library, and that is
@@ -9530,7 +9663,11 @@ void test_the_about_app_lists_the_libraries_of_the_project(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "m5stack-paper"), g_out);
   // And the rows are the libraries, alphabetically, each with its version.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, first_row), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "about: cover page 1 of "), g_out);
+  // **The rows are the entries of a list and there is no paginator of the app** (0.166.0): every library is a row of
+  // the list —the ones that do not fit a page are placed out of its frame by the control— and the line the app used to
+  // print of its own pages is gone; what says where the person is is the foot of the list (docs/30).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "about: cover page"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " rows in a list of "), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
   // **The page is washed whole and once**: 540x912 is the view of this board under the bar of the system, and a
   // cover that painted only the box of its panel would leave the drawing of the boot around it (docs/50).
@@ -9848,7 +9985,7 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   capture_end(g_out, sizeof(g_out));
   const int third = byte_of();
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(second, third, where);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);
 
   // **A tap on the left half is the page before this one**, twice back to the byte zero.
   TEST_ASSERT_TRUE(tap(100, 400));
@@ -10075,6 +10212,262 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
   kernel::boot(hal::platform());
 }
 
+// **The Shell app is the shell of the system in the glass** (0.162.0): the page on which a board with a pen and no
+// keyboard can still type a line. What is measured from here is the half of it that belongs to the kernel —**the app
+// that ships opens a session of the shell and not an interpreter of its own**— and that the session answers with what
+// the shell answers: the line written into it is a command and the version of the kernel comes back.
+//
+// The page itself —the menu of File, the tabs and the cross— is a page of controls, and a control that is drawn is
+// not a control that can be read from a test (`test_the_each_tab_of_a_strip_is_a_stop_of_the_dial` and the cases of
+// the box are the ones that read the strip); what this case holds is that the app is a client of the shell and not a
+// second shell (docs/30, docs/85).
+void test_the_shell_app_is_a_page_with_a_session_of_the_shell(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The glass and the panel of the model, because an app that needs a glass says so and stops.
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  // **The app that ships is the app the test runs**: the two files come from the repository and not from a copy
+  // that goes stale.
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/shell"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/shell/shell.lua", "/apps/shell/shell.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/shell/manifest.json", "/apps/shell/manifest.json"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run shell");
+  TEST_ASSERT_EQUAL_STRING("shell", kernel::shell::app_id());
+
+  // **One tab is one session**: the ids of a session are one based and zero is the console, so the first session of
+  // an app is the first tab of its page. A page that never asked for one is a page with an empty box.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::session_open(1), "the page opened a session");
+
+  // And it is the shell that answers: `version` is a command of the shell and what comes back is the version of the
+  // kernel, so a session that were anything else would not answer this line.
+  TEST_ASSERT_TRUE(kernel::shell::session_write(1, "version\n", 8));
+  char said[256] = {0};
+  kernel::shell::session_read(1, said, sizeof(said) - 1);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, kernel::kVersion), said);
+
+  // **A session left open by an app that went away is a session nobody reads**, and the second tab of the page would
+  // be refused with `E_BUSY`. `exit` is how a shell is left and it closes the session whatever the page does next
+  // (docs/30).
+  TEST_ASSERT_TRUE(kernel::shell::session_write(1, "exit\n", 5));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::session_open(1), "the session was left open");
+
+  kernel::shell::close_app();
+  storage->remove("/apps/shell/shell.lua");
+  storage->remove("/apps/shell/manifest.json");
+  storage->remove("/apps/shell");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A pinch from big to small closes** (0.163.0). The gesture is the system's and it has three wishes in it: an app
+// with views on top of its first one gives the last of them back and hears `on_back(depth)`; an app on its only page
+// is closed; and a launcher is not, because a board with no page at all is a board a person reaches with a cable.
+//
+// The pinch is made the way a person makes it: two fingers eighty pixels either side of the middle of the page, four
+// steps of fifteen pixels each coming back, and the first one that leaves the glass is where the pair says what it did
+// (`pinch`, with `spread` at minus a hundred and twenty). What the test measures is the two numbers the system reads
+// —`apps::views()`— and the app that is still there and the one that is gone (docs/30, docs/46).
+void test_a_pinch_from_big_to_small_goes_back_and_then_closes(void) {
+  TEST_ASSERT_TRUE(boot_once());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // An app with one view on top of its only page, and the hook that puts the page below it back.
+  static const char kPage[] =
+      "local depth = app.view_push()\n"
+      "console.print('pinchy view ' .. depth)\n"
+      "function on_back(left) console.print('pinchy back ' .. left) end\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "pinchy",
+                           "{\"title\":\"Pinchy\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kPage));
+  // And a launcher, which is the page that cannot be closed.
+  TEST_ASSERT_TRUE(add_app(storage, "stay",
+                           "{\"title\":\"Stay\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],\"launcher\":true}",
+                           "console.print('stay up')\nwhile true do sys.delay(20):await() end\n"));
+
+  pump_captured(20, g_out, sizeof(g_out), "run pinchy");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pinchy view 1"), g_out);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::apps::views());
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  const uint16_t mid_x = static_cast<uint16_t>(view.x + view.width / 2);
+  const uint16_t mid_y = static_cast<uint16_t>(view.y + view.height / 2);
+
+  // **Two fingers that come together**: eighty pixels either side of the middle, down to twenty, in four steps of
+  // fifteen —a hundred and twenty of `spread`, which is twice the sixty the system asks for— and the pair only says
+  // what it did when the first of them leaves the glass.
+  auto pinch = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(mid_x - 80), mid_y));
+    TEST_ASSERT_TRUE(panel->finger_down(1, static_cast<uint16_t>(mid_x + 80), mid_y));
+    pump_turns(10);
+    for (int step = 0; step < 4; ++step) {
+      const uint16_t gap = static_cast<uint16_t>(80 - 15 * (step + 1));
+      TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(mid_x - gap), mid_y));
+      TEST_ASSERT_TRUE(panel->finger_move(1, static_cast<uint16_t>(mid_x + gap), mid_y));
+      pump_turns(10);
+    }
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(10);
+    TEST_ASSERT_TRUE(panel->finger_up(1));
+    pump_turns(10);
+  };
+
+  // **The view goes and the app stays**: the number the system reads drops to zero and the app is told, which is what
+  // puts the page below it back on the glass.
+  capture_begin();
+  pinch();
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, kernel::apps::views(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pinchy back 0"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the first pinch took a view and not the app");
+
+  // **And the second one is the app**, because there is nothing left on top of its only page.
+  capture_begin();
+  pinch();
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the second pinch closed the app");
+
+  // **A launcher does not close**: the gesture is taken and refused with a line, and the page is still there.
+  pump_captured(20, g_out, sizeof(g_out), "run stay");
+  TEST_ASSERT_TRUE(kernel::app_running());
+  capture_begin();
+  pinch();
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a launcher stays where it is");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "is a launcher: a pinch does not close it"), g_out);
+
+  // **And the middle key goes by the same road** (0.163.1): its three taps on an app with a view give the view back and
+  // keep the app, and only the next three close it. The page of this case has no control on it, so the middle key
+  // counts taps and is not an Enter (docs/30).
+  kernel::shell::close_app();
+  pump_captured(20, g_out, sizeof(g_out), "run pinchy");
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::apps::views());
+
+  auto three_taps = [&]() {
+    for (int tap = 0; tap < 3; ++tap) {
+      emu::press_button(true);
+      pump_turns(10);
+      emu::press_button(false);
+      pump_turns(10);
+    }
+  };
+
+  capture_begin();
+  three_taps();
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, kernel::apps::views(), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button: three taps, back one view"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "three taps took a view and not the app");
+
+  capture_begin();
+  three_taps();
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "button: three taps, closing the app"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the second three taps closed the app");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/pinchy/app.lua");
+  storage->remove("/apps/pinchy/manifest.json");
+  storage->remove("/apps/pinchy");
+  storage->remove("/apps/stay/app.lua");
+  storage->remove("/apps/stay/manifest.json");
+  storage->remove("/apps/stay");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A strip that closes its tabs draws its crosses** (0.163.2): `closeable = true` is a field the painter has to read
+// **while the fields table is still on the stack**. It was read after the pops —on whatever was under it— and every
+// app with a strip that can be closed died on its first present with `attempt to index a boolean value`, which is
+// what the shell app did on the bench on 8/11. The case runs a page with two tabs and a cross and asks for the
+// present; a page that dies leaves no `present true` in the log (docs/30, docs/46).
+void test_a_strip_that_closes_its_tabs_draws_its_crosses(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  static const char kApp[] =
+      "local v = ui.caps()\n"
+      "local s = ui.tabs(v.width - 40, 60)\n"
+      "s:place(20, 20)\n"
+      "s.items = { 'One', 'Two' }\n"
+      "s.closeable = true\n"
+      "console.print('strip ready')\n"
+      "console.print('present ' .. tostring(ui.present('gc16')))\n"
+      "while true do sys.delay(50):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "strip",
+                           "{\"title\":\"Strip\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run strip");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "strip ready"), g_out);
+  // **The present goes through the painter of the crosses**: a strip whose tabs can be closed is drawn by the call
+  // that paints them, and the answer is `true` when the glass took the page.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "present true"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the page with a strip stayed up");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/strip/app.lua");
+  storage->remove("/apps/strip/manifest.json");
+  storage->remove("/apps/strip");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **`LUNOK_TEST=<name>` runs one case** (0.152.5): the suite is a minute long, and hunting one red case at a
 // time meant a minute for every question asked of it. Unity has no filter of its own, so the one `RUN_TEST` it
 // gives is replaced here by one that asks the environment first; without the variable every case runs as before
@@ -10125,6 +10518,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_settings_of_an_app_go_behind_the_door_of_cfg);
   RUN_TEST(test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it);
   RUN_TEST(test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD);
+  RUN_TEST(test_a_name_that_already_says_its_unit_keeps_its_word);
   RUN_TEST(test_a_manifest_of_nine_boards_says_it_names_too_many);
   RUN_TEST(test_the_door_of_the_apps_puts_the_card_and_the_flash_together);
   RUN_TEST(test_the_door_of_the_apps_presents_no_folder_that_is_not_an_app);
@@ -10275,6 +10669,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
   RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
+  RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
+  RUN_TEST(test_a_pinch_from_big_to_small_goes_back_and_then_closes);
+  RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   UNITY_END();
   return 0;

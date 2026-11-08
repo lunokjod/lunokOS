@@ -187,7 +187,8 @@ seu avanç) i porten **216 glifs** —ASCII, Latin-1 i els accents que falten—
 **El camí que sí que hi ha és el `.ttf`**, i és el mateix tipus de lletra: el lector de contorns del nucli
 és **proporcional com les cares velles** (avanç per glif, no cel·la fixa), dibuixa a qualsevol mida
 (`scale` és el cos en vuitens: **3 = 24 px, 4 = 32, 5 = 40, 6 = 48, 9 = 72**), i el DejaVu Sans Bold
-retallat a l'ASCII imprimible són **8 548 B** —la meitat dels 15 878 B d'un sol cos vell, i serveix per a
+retallat a l'ASCII imprimible eren **8 548 B** —avui **9 416 B**, que hi porten els signes d'una tecla i les
+fletxes (§34)—, la meitat dels 15 878 B d'un sol cos vell, i serveix per a
 tots—. Per això la integració ha estat portar les cares de DejaVu a `/fonts` com a una sola còpia per a
 totes les apps, i no traduir `font_*.h` (3/11, 0.68.0; docs/30, docs/70).
 
@@ -1350,3 +1351,64 @@ imatge que no és la que ensenya i al vidre hi torna la pàgina d'abans —la sp
 eink»—. El driver **carrega i pinta des de la columna 0** i, si el pintat neteja (`gc16` i família) i ja cobria mig
 panell o més, neteja **tot el vidre**, que és el que una pàgina nova necessita i el que la splash feia des del primer dia
 sense saber-ho.
+
+## 34. Com pinta una tecla la calculadora del paper (0.158.0)
+
+L'amo va demanar com fa el botó de retrocés, el de canviar de signe, el de dividir i el de multiplicar la
+calculadora del projecte vell, i que el de lunokOS faci el mateix. El codi és
+`OLD/PaperOS/data/app/Calculator/pos_launch.lua` i la captura del resultat és
+`OLD/PaperOS/captures/Calculator - the keypad.png`.
+
+**El dibuix d'una tecla són quatre línies, i són les que ja té el port:**
+
+```lua
+if isOperator(k.action) or k.action == "=" then
+    draw.rect(k.x, k.y, k.w, k.h, 12)          -- el quart columna va sobre gris 12
+end
+draw.frame(k.x, k.y, k.w, k.h)                  -- la vora d'un píxel, quadrada
+local lw = draw.text_width(k.label, "title")
+local lh = draw.text_height(k.label, 100000, "title")
+draw.text(math.floor(k.x + (k.w - lw) / 2),
+          math.floor(k.y + (k.h - lh) / 2), k.label, "title")
+```
+
+O sigui que la tecla **no és cap control**: és un rectangle amb gris, una vora quadrada d'un píxel i una
+etiqueta centrada a la cara `title`, i el seu propi capçalera diu per què —«the controls of an app are a FIXED
+POOL and a script has exactly **EIGHT** buttons (`MaxButtons`, a `src/system/lua_ui.h`). A pocket calculator
+asks for **NINETEEN**»—. `lDrawRect`/`lDrawFrame` de `src/system/lua_api.cpp` són `fillRect` i `drawRect` del
+canvas i no hi ha cap radi: l'API té `draw.round_rect`/`draw.round_frame` (els fa servir `Paint` i `Files`),
+però **la calculadora no en fa servir cap**, i la captura ho ensenya: arestes rectes. El port ja pinta el
+mateix (`ui.rect` gris 12, `ui.frame`, `ui.text` centrat amb `kTitle`), i l'única cosa que hi afegeix —un
+`ui.rect` blanc dins de la caixa del display— **fa falta aquí** perquè aquesta app repinta només la caixa del
+número a cada tecla i el canvas no es torna a esclarir (docs/50).
+
+**El que sí que és diferent és l'etiqueta, i té dos motius que van junts:**
+
+1. **El signe no és una paraula, és un glif.** `Rows` de l'original és `{"←", "back"}, {"±", "neg"},
+   {"÷", "/"}` i `{"×", "*"}`, i el seu comentari diu d'on surten: «the glyphs are the ones the bitmap font
+   carries (`tools/fontgen.py`): the arrows, the plus-minus, the multiplication and the division signs are all
+   there». Aquella eina còïa **216 codis**, i la llista inclou `0x2190`–`0x2193` (les fletxes), `0x00B1`,
+   `0x00D7` i `0x00F7`.
+2. **Per què allà es podia escriure `"←"` i aquí no.** El text del paper és **UTF-8** i les seves cares
+   s'indexen **per punt de codi** (`src/gfx/text.cpp`, `utf8Decode` camina la cadena abans de buscar el glif),
+   o sigui que un `"←"` de tres bytes del guió és un glif de `U+2190`. El text d'aquí **és d'un byte per
+   caràcter** (Latin-1, i la franja `0x80`–`0x9F` amb els caràcters de la 1252, docs/30): un `U+2190` no hi cap.
+   Dels quatre signes, tres són Latin-1 (`÷` `0xF7`, `×` `0xD7`, `±` `0xB1`) i la fletxa viu a **`0x81`**, un
+dels cinc codis que la 1252 deixa buits.
+
+**El que s'ha fet, doncs**, és el que demanava l'amo: la mateixa taula de tecles, amb els mateixos quatre
+signes, i la cara del sistema ensenyada a portar-los (`tools/ttf_latin1.py --set signs`: **104 glifs, 9 416 B**,
++868 B de disc i de RAM). La línia del display també torna a ser la de l'original, `Symbols = {["*"] = "×",
+["/"] = "÷"}`.
+
+**I tres tecles tenen un gris propi** (0.158.0, demanat el mateix dia): `C`, la fletxa i `=` es pinten amb
+**gris 8** i **lletra blanca** (nivell 15), i les quatre operacions conserven el **gris 12** de l'original, o
+sigui que la pàgina diu «aquestes tres canvien l'estat i aquelles quatre són l'aritmètica» —la `±` es queda en
+paper, com al vell—. Els dos números són `kOperatorGrey` i `kActionGrey` de `apps/calculator/calculator.lua`,
+un lloc cada un (`key_grey`), i la lletra blanca surt del mateix test.
+
+**El que encara no és igual del tot, i és una limitació de debò**: la **mida**. El vell tenia quatre cares de mapa
+de bits fetes a 33, 43, 57 i 82 px d'alçada de línia; aquí la cara és d'outlines i el seu pas és d'11 px, o sigui
+que les quatre mides surten **33, 44, 55 i 77** — la del número gran, cinc píxels curta— (docs/30). Fora d'això,
+les dues calculadores són la mateixa imatge: mateixa graella, mateixos marges (16 px de marge, 10 de separació),
+mateixa caixa del display, mateix gris i mateixa vora.

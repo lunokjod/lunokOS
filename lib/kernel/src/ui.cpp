@@ -396,6 +396,10 @@ bool make_view(bool full) {
   root().y = top;
   g_full_screen = full;
   bar::show(!full);
+  // **And the strip comes back whole whatever the bar believed it had** (0.164.3): `show(true)` already owes a whole
+  // paint, and this is the same wish said again for the case the app painted over the top rows while it had them —
+  // leaving full screen is the moment the glass under the strip stops being the app's (docs/30, docs/50).
+  if (!full) bar::refresh();
   return true;
 }
 
@@ -409,9 +413,10 @@ bool paint(const Damage& region) {
   // lines together —this one and the `paint` of the panel— say whether what the page asked for is what the glass was
   // told (docs/50).
   const bool big = static_cast<uint32_t>(region.w) * region.h >= 10000u;
-  log_printf(big ? pal::kLogInfo : pal::kLogDebug, "UI", "paint %u,%u %ux%u mode %u",
+  log_printf(big ? pal::kLogInfo : pal::kLogDebug, "UI", "paint %u,%u %ux%u mode %u %s",
              static_cast<unsigned>(region.x), static_cast<unsigned>(region.y), static_cast<unsigned>(region.w),
-             static_cast<unsigned>(region.h), static_cast<unsigned>(region.mode));
+             static_cast<unsigned>(region.h), static_cast<unsigned>(region.mode),
+             hal::mode_name(region.mode));
   const Canvas& view = root();
   int32_t x = static_cast<int32_t>(view.x) + region.x;
   int32_t y = static_cast<int32_t>(view.y) + region.y;
@@ -500,12 +505,22 @@ void compose_region(Canvas& parent, const Canvas& child, int32_t origin_x, int32
   damage_add(parent, at_x, at_y, w, h, region.mode);
 }
 
+// **The page is the white one the system handed over and nothing has been painted since** (0.168.0): `attach()` washes the
+// view in one pass and this flag says so, which is what makes a `ui.clear(15, …)` of an app that has not drawn anything yet
+// cost nothing at all —the paper is already clean— instead of a second whole-page clean on a glass that flashes every time
+// it is cleaned (docs/30, docs/50). It is declared here and not with the other flags because the first place that reads it
+// is the tree and the one that composes it.
+bool g_page_owes_nothing = false;
+
 // **The tree, and the controls without a view are not a hole in it.** Depth first, in the order the
 // controls were added —the one added later is in front—, and each view is composed into the first canvas
 // that holds it: the offset is what every control between the two adds with its place, so a label inside a
 // box inside a panel lands where the three of them say (docs/90).
 void compose_tree(int16_t slot, int16_t destination, int32_t origin_x, int32_t origin_y) {
   Canvas& control = g_canvases[slot];
+  // **The page is not the white one the system handed over any more** (0.168.0): the moment a control is composed into it
+  // there is ink on the paper, and a `ui.clear` that came after it has something to erase again (docs/30, docs/50).
+  if (slot == 0) g_page_owes_nothing = false;
   // **The children first.** A father's buffer has to be complete before it travels up: composing him into
   // his own father and *then* composing his children into him was a father that reached the glass without
   // what his children had just put in him (found by this suite, 1/11).
@@ -551,6 +566,12 @@ void settle_root() {
 // s'executen però no mostren res a pantalla»*. What did not go up goes back to the list, and the next `present` —or the
 // turn of the kernel, through `idle()`— asks again (docs/50, docs/92 §33).
 bool g_owed_paint = false;
+
+// **A page the system owes whole** (0.167.0): giving a view back to the system changes the page the glass is showing and
+// the page below was drawn before it, so the next present is the whole view with a mode that cleans instead of the
+// damage of the page the app has just built (docs/30, docs/50).
+bool g_owe_all = false;
+
 // **And a paint is never asked for from inside a paint** (0.118.2): the wait for the ink turns the kernel on the bench
 // —`wait_and_pump`, docs/85— and the turn asks whether something is owed, so without this flag a refused page would be
 // asked for again in the middle of the paint that is asking for it.
@@ -584,7 +605,7 @@ bool paint_root() {
       log_printf(pal::kLogWarn, "UI", "the glass refused a page (%u,%u %ux%u, %s): %s",
                  static_cast<unsigned>(root().x + region.x), static_cast<unsigned>(root().y + region.y),
                  static_cast<unsigned>(region.w), static_cast<unsigned>(region.h),
-                 (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4) ? "du" : "gc16", why);
+                 hal::mode_name(region.mode), why);
     }
     // The refused one stays, and it stays in its own order: `kept` never passes `i`, so this is a copy in place.
     root().damage[kept++] = region;
@@ -1049,6 +1070,28 @@ DrawTarget open_draw(int16_t slot) {
     at_y -= control.y;
   }
   if (holder != slot) {
+    // **And what the control owes, brought into the canvas that draws it** (0.168.2): a control without a view of its own
+    // paints straight into the nearest canvas that has one, so the rectangle of its redraw —two letters of a text box, one
+    // ring of a button— has to be cut here as well, in the pixels of that canvas. Without this the redraw box lived on the
+    // control and nothing applied it, which is why a blink of the caret went on painting the whole box (found on the bench,
+    // 8/11: `paint 20,40 420x64` for a caret of `9x33`) (docs/30, docs/90).
+    const Canvas& control = g_canvases[slot];
+    if (control.redraw_w > 0 && control.redraw_h > 0) {
+      int32_t ox = 0;
+      int32_t oy = 0;
+      for (int16_t walk = slot; walk != holder && walk >= 0; walk = g_canvases[walk].parent) {
+        ox += g_canvases[walk].x;
+        oy += g_canvases[walk].y;
+      }
+      const int32_t rx0 = ox + control.redraw_x;
+      const int32_t ry0 = oy + control.redraw_y;
+      const int32_t rx1 = rx0 + control.redraw_w;
+      const int32_t ry1 = ry0 + control.redraw_h;
+      if (rx0 > x0) x0 = rx0;
+      if (ry0 > y0) y0 = ry0;
+      if (rx1 < x1) x1 = rx1;
+      if (ry1 < y1) y1 = ry1;
+    }
     canvas.clipped = true;
     canvas.clip_x = x0;
     canvas.clip_y = y0;
@@ -1147,7 +1190,17 @@ struct ImagePlace {
   uint32_t source_w = 0;
   uint32_t source_h = 0;
   bool wrote = false;
+  // **The mask of the row that is being written** (0.169.0), one nibble a pixel and `nullptr` when the app did not ask for one:
+  // `15` is a pixel of the picture and `0` is a place the picture leaves alone, which is kept as the canvas had it.
+  const uint8_t* alpha = nullptr;
 };
+
+// **The row of the mask, before the colours of it** (0.169.0): it is the picture's own transparency, and a row that has no
+// mask is a row that asked for none —the pointer stays where it was and nothing is read— (docs/30).
+void image_mask_row(void* context, uint16_t source_y, const uint8_t* packed) {
+  (void)source_y;
+  static_cast<ImagePlace*>(context)->alpha = packed;
+}
 
 void image_row(void* context, uint16_t source_y, const uint8_t* packed) {
   ImagePlace& place = *static_cast<ImagePlace*>(context);
@@ -1171,6 +1224,14 @@ void image_row(void* context, uint16_t source_y, const uint8_t* packed) {
       const uint8_t byte = packed[at / 2];
       const uint8_t level = ((at & 1) == 0) ? static_cast<uint8_t>(byte >> 4)
                                             : static_cast<uint8_t>(byte & 0x0F);
+      // **A transparent pixel is not a white one** (0.169.0): it is no pixel at all, and the canvas keeps what it had there.
+      // The test is the middle of the sixteen levels, because the mask is a byte of the file squeezed into a nibble.
+      if (place.alpha != nullptr) {
+        const uint8_t alpha_byte = place.alpha[at / 2];
+        const uint8_t alpha = ((at & 1) == 0) ? static_cast<uint8_t>(alpha_byte >> 4)
+                                              : static_cast<uint8_t>(alpha_byte & 0x0F);
+        if (alpha < 8) continue;
+      }
       uint8_t& target_byte = line[canvas_x / 2];
       if ((canvas_x & 1) == 0) {
         target_byte = static_cast<uint8_t>((target_byte & 0x0F) | (level << 4));
@@ -1454,6 +1515,10 @@ uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* it
 
 }  // namespace
 
+// **The present that keeps the boxes apart** (0.168.1), declared here because the table of the ops is filled a few lines
+// below and its body lives with the other presents of the page, after `paint_root` (docs/30).
+bool present_each(hal::UpdateMode mode);
+
 bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   (void)platform;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
@@ -1477,6 +1542,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      rect_for_lua,
                                      pixel_for_lua,
                                      present_for_lua,
+                                     [](uint8_t mode) { return present_each(static_cast<hal::UpdateMode>(mode)); },
                                      idle_for_lua,
                                      resize_for_lua,
                                      damage_for_lua,
@@ -1528,6 +1594,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      panel_layout_for_lua,
                                      canvas_resize,
                                      tabs_draw,
+                                     tabs_draw_closeable,
+                                     tabs_close_at,
+                                     tabs_tab_at,
                                      dots_draw,
                                      list_page_of_for_lua,
                                      list_draw,
@@ -1558,6 +1627,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      textbox_multiline_total,
                                      textbox_multiline_line,
                                      textbox_multiline_scroll,
+                                     textbox_caret_box,
                                      textbox_caret,
                                      textbox_multiline_row,
                                      selector_draw,
@@ -1615,6 +1685,10 @@ void attach() {
   release_faces();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
+  // **The page is the system's white one until the app draws in it** (0.168.0): the wash above is the one pass the owner
+  // asked for —the view and the screen erased before it is handed over— and this is what says so, so the app's first
+  // `ui.clear(15, …)` does not pay for it a second time (docs/30, docs/50).
+  g_page_owes_nothing = true;
   // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
   // here painted something and the next one starts on white paper, and what that wash costs is the
   // system's to choose —`a2` for a page of text, `gl16` for a few grays, `gc16` for a photograph— and not
@@ -1637,7 +1711,19 @@ bool clear(uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
+  // **A page the system has just handed over white is already washed** (0.168.0): `attach()` fills the view with white and
+  // asks the glass for it in one pass before an app draws a single control, so an app that starts its page with
+  // `ui.clear(15, …)` —which six apps of this tree do, eleven times between them— was paying a second whole-page clean for
+  // paper that is already clean, and on e-ink that clean is a flash of the glass. The owner's rule is the other way round:
+  // *«en cas de que el sistema demani un redibuixat de la vista a una app, aquesta ho farà a la qualitat que necessiti…
+  // el sistema sempre et passarà una vista neta»*. Nothing has been painted since, so there is nothing to erase
+  // (docs/30, docs/50).
+  if (g_page_owes_nothing && level == 15) {
+    log_printf(pal::kLogDebug, "UI", "a clear of a page the system handed white: nothing to wash");
+    return true;
+  }
   draw_clear(root(), level, chosen);
+  g_page_owes_nothing = false;
   // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
   // present has to put it back (docs/50, docs/90).
   keyboard_page_cleared();
@@ -1655,17 +1741,17 @@ bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, co
 
 // **The picture of the app's own view**, which is what `ui.image` draws on: the same call a control gets,
 // with the root as the canvas (docs/30).
-bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode, const char*& code,
-           const char*& reason) {
-  return canvas_image(0, x, y, w, h, path, mode, code, reason);
+bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode, bool mask,
+           const char*& code, const char*& reason) {
+  return canvas_image(0, x, y, w, h, path, mode, mask, code, reason);
 }
 
 // **And the same picture in a canvas that is not the page** (0.153.0): what `canvas:image` asks for, and the reason a
 // launcher needs it —the icon of an app drawn inside the cell of a grid, which is a canvas of the app's own—. One
 // primitive and two doors, so a picture cannot be drawn one way on the page and another in a control (docs/30).
 bool image_on_canvas(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
-                     const char*& code, const char*& reason) {
-  return canvas_image(slot, x, y, w, h, path, mode, code, reason);
+                     bool mask, const char*& code, const char*& reason) {
+  return canvas_image(slot, x, y, w, h, path, mode, mask, code, reason);
 }
 
 bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
@@ -1793,6 +1879,12 @@ bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
   Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   canvas->needs_draw = true;
+  // **A control with bits that is asked to draw again owes its pixels to the glass once more** (0.168.4): its content lives in
+  // its own canvas and it is composed by its damage, so a father that painted paper over it —the grid over the cells of a
+  // launcher— leaves it invisible unless the child puts its rectangle back in the damage list. A control without bits does not
+  // need this: its drawing is what marks damage, and it draws again because `needs_draw` is set (docs/30, docs/90). The
+  // quality is `gl16` because the paper that covered it was painted with a wash and a `du` on top of it keeps the ghost.
+  if (canvas->bits != nullptr) damage_add(*canvas, x, y, w, h, hal::UpdateMode::kGl16);
   if (canvas->redraw_w <= 0 || canvas->redraw_h <= 0) {
     canvas->redraw_x = x;
     canvas->redraw_y = y;
@@ -1819,8 +1911,21 @@ bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 // own to paint. What the father owes is what a child **leaves behind** —a move, a canvas going away— and
 // those reasons say so explicitly, with the rectangle, where they happen (docs/90).
 bool invalidate(int16_t slot) {
-  const Canvas* canvas = find(slot);
+  Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
+  // **A control that repaints itself whole has no block to remember** (0.168.2): the app changed the text, the cursor or the
+  // size, and the box of the caret of the draw before is a rectangle that may not be where the new one is.
+  canvas->caret_box = false;
+  // **And a father that paints itself whole owes what its children had there** (0.168.4): the paper of a grid covers the
+  // canvases of its cells, and a child with nothing changed of its own is never composed again —so the picture stayed under
+  // the paper and the name, which has no canvas at all, was gone from the glass for good—. That is what the owner sees as
+  // *«l'efecte de perdre el contingut és quan uso el focus»*: the ring of a cell invalidates the grid, the grid paints its
+  // whole box and the cells it holds are not asked for their buffers. Asking them is exactly the rule of the composition,
+  // the father asks every child, and it is done here so that no control has to remember it (docs/30, docs/90).
+  for (int16_t index = canvas->first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
+    if (!live(index) || g_canvases[index].pending_release) continue;
+    invalidate(index);
+  }
   return invalidate_rect(slot, 0, 0, canvas->width, canvas->height);
 }
 
@@ -1925,8 +2030,8 @@ bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t
 // —or the size of the picture— scaled as it is read, cut to the canvas and to what the control owes, and the
 // damage left where it landed. The file is read into the app's extra memory and the decoder's block with it,
 // and both go back before this returns: a picture is on the page, not in the heap (docs/75).
-bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
-                  const char* mode, const char*& code, const char*& reason) {
+bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+                  bool mask, const char*& code, const char*& reason) {
   code = "E_INVAL";
   reason = nullptr;
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
@@ -2015,8 +2120,14 @@ bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
         }
         if (status == img::kOk) {
           img::RowSink sink(image_row, &place);
+          // **A mask is one row of the picture and it is the only thing an app pays for one** (0.169.0): the decoder owns it
+          // —`kMaxSide / 2 + 1` bytes, 271 for the widest picture of this glass— and hands it to `image_mask_row` a row at a
+          // time; the canvas, the file and the scratch are the same whether the app wants transparency or not (docs/75).
+          img::RowSink mask_sink(image_mask_row, &place);
+          const img::RowSink* wanted_mask = nullptr;
+          if (mask) wanted_mask = &mask_sink;
           status = img::decode(data, static_cast<uint32_t>(read), sink,
-                               static_cast<uint8_t*>(scratch), scratch_bytes);
+                               static_cast<uint8_t*>(scratch), scratch_bytes, wanted_mask);
           if (status == img::kOk && place.wrote) {
             const uint16_t damage_x = static_cast<uint16_t>(place.clip_x0);
             const uint16_t damage_y = static_cast<uint16_t>(place.clip_y0);
@@ -2912,9 +3023,21 @@ uint16_t panel_layout(int16_t slot, PanelFlow flow, uint16_t padding, uint16_t g
 // **Equal columns and a line that is missing under the chosen one**: on two tones there is no bold and no
 // colour, so "you are here" is said by taking the line away instead of by adding anything, and a tab that is
 // drawn with a line under it is a tab that is not the one (docs/90).
-bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
-               uint8_t text, uint8_t background, uint8_t scale) {
-  if (!live(slot) || labels == nullptr || count == 0 || text > 15 || background > 15) return false;
+//
+// **The cross of a tab that can be closed is one arithmetic** (0.161.0): `tab_cross_side` says how big it is, the
+// paint puts it on the right of the tab and `tab_under` answers with the same box, so what a finger presses is what
+// the glass painted (docs/30, docs/90).
+int32_t tab_cross_side(int32_t height, int32_t column) {
+  int32_t side = height / 3;
+  if (side > column / 6) side = column / 6;
+  if (side < 8) side = 8;
+  if (side > height - 8) side = (height > 8) ? height - 8 : 8;
+  return side;
+}
+
+bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+                uint8_t text, uint8_t background, uint8_t scale, bool closeable) {
+  if (!live(slot) || text > 15 || background > 15) return false;
   const Canvas& strip = g_canvases[slot];
   const int32_t width = strip.width;
   const int32_t height = strip.height;
@@ -2927,6 +3050,15 @@ bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t i
   const font::Face& face = face_of(strip.face);
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  // **A strip with no tab is a strip that washes itself** (0.164.2): the empty box is a page state of
+  // its own —a terminal whose only tab was closed— and returning before the fill left the words of the
+  // tabs that go away on the glass for ever, which is a broken page and not an empty one. The count is
+  // checked here and not in the guard because the guard is also what decides whether the paint costs
+  // anything at all (docs/30, docs/90).
+  if (labels == nullptr || count == 0) {
+    close_draw(target);
+    return true;
+  }
   const int32_t column = width / count;
   // **Two pixels of line**, which is the thickness the paper project gives a tab and the bar of a menu (docs/92).
   int32_t line = 2;
@@ -2965,15 +3097,77 @@ bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t i
     }
     // The word, in the middle of its column and between the bookmark and the line.
     if (labels[i] != nullptr && labels[i][0] != '\0' && (x1 - x0 - 2 * line) > 8) {
-      const uint16_t taken = label_text(strip.face, labels[i],
-                                        static_cast<uint16_t>(x1 - x0 - 2 * line - 8), scale, shown, sizeof(shown));
-      const int32_t at_x = x0 + ((x1 - x0) - static_cast<int32_t>(taken)) / 2;
-      const int32_t at_y = target.y + (height - line_h) / 2;
-      draw_text(*target.canvas, face, at_x, at_y, shown, scale, face_level, mode);
+      // **The cross takes its room from the word** (0.161.0): a strip that closes its tabs gives the right of every
+      // tab to the cross, so the label is measured against what is left and a long word is cut there instead of being
+      // painted under it (docs/30, docs/90).
+      const int32_t room = (x1 - x0 - 2 * line) - 8 - (closeable ? tab_cross_side(height, x1 - x0) + 6 : 0);
+      if (room > 8) {
+        const uint16_t taken = label_text(strip.face, labels[i], static_cast<uint16_t>(room), scale, shown, sizeof(shown));
+        const int32_t at_x = x0 + (room - static_cast<int32_t>(taken)) / 2;
+        const int32_t at_y = target.y + (height - line_h) / 2;
+        draw_text(*target.canvas, face, at_x, at_y, shown, scale, face_level, mode);
+      }
+    }
+    // **The cross of a tab that can be closed** (0.161.0): two diagonals of two pixels on the right of the tab and
+    // centred vertically, in the ink of the tab, and drawn where `tabs_close_at` answers —the paint and the finger are
+    // the same arithmetic and not two— (docs/30, docs/90).
+    if (closeable) {
+      const int32_t side = tab_cross_side(height, x1 - x0);
+      const int32_t cx = x1 - 6 - side;
+      const int32_t cy = target.y + (height - side) / 2;
+      for (int32_t step = 0; step < side; ++step) {
+        put_rect(*target.canvas, cx + step, cy + step, 2, 2, face_level);
+        put_rect(*target.canvas, cx + side - step - 2, cy + step, 2, 2, face_level);
+      }
     }
   }
   close_draw(target);
   return true;
+}
+
+bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit, uint8_t text,
+               uint8_t background, uint8_t scale) {
+  return tabs_paint(slot, labels, count, index, lit, text, background, scale, false);
+}
+
+bool tabs_draw_closeable(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+                         uint8_t text, uint8_t background, uint8_t scale) {
+  return tabs_paint(slot, labels, count, index, lit, text, background, scale, true);
+}
+
+// **Which tab of a strip is at a point, and whether the point is on its cross** (0.161.0): one arithmetic for the two
+// answers, because a finger has to land on what the glass painted and the paint is `tabs_paint`'s (docs/30).
+uint8_t tab_under(int16_t slot, uint8_t count, uint16_t x, uint16_t y, bool on_the_cross) {
+  if (!live(slot) || count == 0) return 0;
+  const Canvas& strip = g_canvases[slot];
+  if (strip.width == 0 || strip.height == 0) return 0;
+  const int32_t column = strip.width / count;
+  if (column <= 0) return 0;
+  const int32_t px = static_cast<int32_t>(x) - static_cast<int32_t>(strip.x);
+  const int32_t py = static_cast<int32_t>(y) - static_cast<int32_t>(strip.y);
+  if (py < 0 || py >= strip.height) return 0;
+  if (px < 0 || px >= strip.width) return 0;
+  const uint8_t which = static_cast<uint8_t>(px / column + 1);
+  if (which == 0 || which > count) return 0;
+  const int32_t x1 = (which == count) ? strip.width : static_cast<int32_t>(which) * column;
+  const int32_t side = tab_cross_side(strip.height, x1 - static_cast<int32_t>(which - 1) * column);
+  // **The cross a finger presses is at least `kTabCrossHit` on a side** (0.161.0): what is painted is the cross, what
+  // is pressed is a box around it, because a finger is not a mouse —and that box is the strip's own and not a number
+  // an app guesses— (docs/90).
+  const int32_t hit = (side > kTabCrossHit) ? side : kTabCrossHit;
+  const int32_t cx = x1 - 6 - side + side / 2;
+  const int32_t cy = strip.height / 2;
+  const bool inside = (px >= cx - hit / 2) && (px < cx + hit / 2) && (py >= cy - hit / 2) && (py < cy + hit / 2);
+  if (on_the_cross && !inside) return 0;
+  return which;
+}
+
+uint8_t tabs_close_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
+  return tab_under(slot, count, x, y, true);
+}
+
+uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
+  return tab_under(slot, count, x, y, false);
 }
 
 // ---- a list (docs/90) ----
@@ -3062,28 +3256,48 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t
     const int32_t band_y = target.y + height - footer;
     put_rect(*target.canvas, target.x, band_y, width, 1, dim);
     mark_box(*target.canvas, target.x, band_y, width, 1, mode);
-    const font::Face& face = face_of(list.face);
-    const int32_t line_h =
-        static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
-    char shown[24];
-    snprintf(shown, sizeof(shown), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(pages));
-    const uint16_t taken = font::width(face, shown, scale);
-    const int32_t at_y = band_y + (footer - line_h) / 2;
-    draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2, at_y, shown, scale,
-              text, mode);
-    // **A chevron is there only when that way exists**: an arrow that does nothing is a promise the page does not
-    // keep, and the two of them are the same words as the keys of the dial (docs/90).
-    const int32_t edge = (width > 40) ? 10 : 4;
-    if (page > 1) draw_text(*target.canvas, face, target.x + edge, at_y, "<", scale, text, mode);
-    if (page < pages) {
-      const uint16_t arrow = font::width(face, ">", scale);
-      draw_text(*target.canvas, face, target.x + width - edge - static_cast<int32_t>(arrow), at_y, ">", scale,
-                text, mode);
+    // **The pages are dots and not a line of arithmetic** (0.167.0): the owner asked for the paginator of dots —*«usa el
+    // paginador de boletes»*— because `1 / 4` is a number a person has to read and the dots are a thing a person sees:
+    // the page that is on the glass is a full dot and the others are drawn hollow, in the middle of the band. The
+    // arrows went with the numbers, because a dot already says that the page is not the last one (docs/30, docs/90).
+    const int32_t radius = (footer >= 24) ? 4 : 3;
+    const int32_t step = radius * 2 + 7;
+    const int32_t across = static_cast<int32_t>(pages) * step - (step - radius * 2);
+    if (across > 0 && across <= width - 8) {
+      const int32_t mid_y = band_y + footer / 2;
+      int32_t at = target.x + (width - across) / 2;
+      for (uint8_t i = 1; i <= pages; ++i) {
+        const int32_t dot_y = mid_y - radius;
+        if (i == page) {
+          draw_round_fill(*target.canvas, at, dot_y, radius * 2, radius * 2, radius, text, mode);
+        } else {
+          draw_round_fill(*target.canvas, at, dot_y, radius * 2, radius * 2, radius, dim, mode);
+          draw_round_fill(*target.canvas, at + 1, dot_y + 1, radius * 2 - 2, radius * 2 - 2, radius - 1, background,
+                          mode);
+        }
+        mark_box(*target.canvas, at, dot_y, radius * 2, radius * 2, mode);
+        at += step;
+      }
+    } else if (pages > 1) {
+      // **A page count that does not fit a row of dots is said in numbers**: a band of two hundred pixels cannot say
+      // "61 of 400" in dots, and dropping the only sign of where the page is would be worse than the number (docs/90).
+      const font::Face& face = face_of(list.face);
+      const int32_t line_h =
+          static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
+      char shown[24];
+      snprintf(shown, sizeof(shown), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(pages));
+      const uint16_t taken = font::width(face, shown, scale);
+      draw_text(*target.canvas, face, target.x + (width - static_cast<int32_t>(taken)) / 2,
+                band_y + (footer - line_h) / 2, shown, scale, text, mode);
     }
   }
   // **The focus is the frame of the list**, and it is drawn last so the rows do not paint over it: a list that
   // has the focus is the one the arrows of the dial turn (docs/90).
-  if (focused && width > 8 && height > 8) {
+  // **And a list of entries has no frame** (0.167.1): its rows are controls the app built, each with its own paper and
+  // its own ring, so a border around the whole column is a box the app never asked for and the owner did not want —
+  // *«no posis vora a la llista de llibreries d'About»*—. A list that draws its rows itself keeps it, because there the
+  // frame is the only thing that says where the list is (docs/30, docs/90).
+  if (focused && count > 0 && width > 8 && height > 8) {
     put_rect(*target.canvas, target.x, target.y, width, 2, text);
     put_rect(*target.canvas, target.x, target.y + height - 2, width, 2, text);
     put_rect(*target.canvas, target.x, target.y, 2, height, text);
@@ -3247,11 +3461,21 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
   }
   // **The caret is a block of ink with the letter under it in paper**: a filled block would hide the letter the
   // person is about to type over, and an outline would be a box drawn on a box (docs/90).
+  // **The box of the block is kept from the draw that put it down** (0.168.2): the block blinks, and half of the blinks
+  // draw the box without it —the off phase—, so forgetting where it was would leave the system painting the whole control
+  // on every second blink. It is the same place, and `invalidate` of the whole control is what forgets it (docs/30).
   if (caret) {
     int32_t caret_x = inner_x + before;
     int32_t cell = caret_w;
     if (caret_x + cell > inner_x + inner_w) cell = inner_x + inner_w - caret_x;
     if (cell > 0) {
+      // **The box of the block is what a blink of the system repaints** (0.168.2): one letter, and not the box of the
+      // whole text, which is what the system used to mark for a caret that turns twice a second (docs/30, docs/90).
+      window.canvas->caret_box = true;
+      window.canvas->caret_x = caret_x;
+      window.canvas->caret_y = top;
+      window.canvas->caret_w = cell;
+      window.canvas->caret_h = line_h;
       put_rect(*window.canvas, caret_x, top, cell, line_h, color);
       mark_box(*window.canvas, caret_x, top, cell, line_h, mode);
       if (under_bytes > 0) {
@@ -3545,6 +3769,12 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
         caret_w = target.x + layout.pad + layout.room - caret_at;
       }
       if (caret_w > 0) {
+        // **The block of this row is the box a blink repaints** (0.168.2), in the pixels of the canvas that holds it.
+        target.canvas->caret_box = true;
+        target.canvas->caret_x = caret_at;
+        target.canvas->caret_y = y;
+        target.canvas->caret_w = caret_w;
+        target.canvas->caret_h = layout.line_h;
         put_rect(*target.canvas, caret_at, y, caret_w, layout.line_h, color);
         mark_box(*target.canvas, caret_at, y, caret_w, layout.line_h, mode);
         if (under_bytes > 0) {
@@ -3570,6 +3800,37 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
     }
   }
   close_draw(target);
+  return true;
+}
+
+// **The box of the caret the last draw put down** (0.168.2): the block and the letter under it, in the control's own
+// pixels. The system turns the block twice a second, and a blink that dirtied the whole box of the text was repainting a
+// page for a letter —measured on the bench, 8/11: fifteen paints in twelve seconds with the keyboard's target and five
+// without it—. A box that drew no block answers no, and then the system marks the whole control, which is what it did
+// before this existed (docs/30, docs/90).
+bool textbox_caret_box(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h) {
+  if (!live(slot)) return false;
+  // **The block is recorded where it was drawn**, and a control without a view of its own draws into the nearest canvas that
+  // has one: on the bench, 8/11, a box of text put its caret on canvas 0, which is the page, and asking the control for a
+  // box it never had is why the blink went on painting the whole control. The rectangle is read from the canvas that drew
+  // it and **brought back to the pixels of the control**, which is what `invalidate_rect` takes (docs/30, docs/90).
+  const int16_t holder = painting_holder(slot);
+  if (holder < 0) return false;
+  const Canvas& canvas = g_canvases[holder];
+  if (!canvas.caret_box || canvas.caret_w <= 0 || canvas.caret_h <= 0) return false;
+  int32_t offset_x = 0;
+  int32_t offset_y = 0;
+  for (int16_t walk = slot; walk != holder && walk >= 0; walk = g_canvases[walk].parent) {
+    offset_x += g_canvases[walk].x;
+    offset_y += g_canvases[walk].y;
+  }
+  const int32_t left = canvas.caret_x - offset_x;
+  const int32_t top = canvas.caret_y - offset_y;
+  if (left < 0 || top < 0) return false;
+  x = static_cast<uint16_t>(left);
+  y = static_cast<uint16_t>(top);
+  w = static_cast<uint16_t>(canvas.caret_w);
+  h = static_cast<uint16_t>(canvas.caret_h);
   return true;
 }
 
@@ -4452,6 +4713,12 @@ GridCells icon_grid_cells(const Canvas& grid, uint8_t count, uint8_t index, uint
   cells.cell_w = width / columns_now;
   // The box of the mark takes what the cell can hold, and the name goes under it.
   int32_t icon = cells.cell_w - 2 * cells.pad;
+  // **Seventy-two pixels is the biggest a mark of a grid is drawn, and it was measured with the owner's own grid**
+  // (0.166.1): a hundred and twenty and then ninety-six were tried, and in both the last two of his nine apps came out
+  // without a picture while their names were there —the canvases of a page of nine at four bits are a page the heap the
+  // emulator builds does not have (docs/75), and a canvas that cannot be made is not drawn and is not said—. The grid
+  // got its size from somewhere else: two columns instead of three and a name at thirty-three pixels, so a cell is 250
+  // wide with a mark of 72 in the middle of it (docs/30, docs/75, docs/90).
   if (icon > 72) icon = 72;
   if (icon < 24) icon = 24;
   cells.icon = icon;
@@ -6274,6 +6541,14 @@ bool present() {
     log_printf(pal::kLogWarn, "UI", "a present arrived with no page attached");
     return false;
   }
+  // **A page the system owes whole is painted whole** (0.167.0): giving a view back is a change of page the system made,
+  // so the app's next present is the whole view with a mode that cleans and not the damage of the page it built. It is
+  // asked here and not in `present_all`, because an app that presents by itself is exactly the one that has to be given
+  // the right page (docs/30, docs/50).
+  if (g_owe_all) {
+    g_owe_all = false;
+    return present_all(hal::UpdateMode::kGc16);
+  }
   compose_tree(0, -1, 0, 0);
   // **The keyboard goes over the page and not in it**: the tree is composed first and the band last, so a
   // control of the page under it is covered and does not have to know that the keyboard is there (docs/90).
@@ -6295,6 +6570,23 @@ bool present_all(hal::UpdateMode mode) {
   return ok;
 }
 
+// **The same quality for everything pending, and every box where it is** (0.168.1): a focus that moves dirties **two**
+// controls —the one that loses the ring and the one that takes it— and both have to be cleaned, because a ring that goes
+// away is ink that goes away. Merging the two boxes would clean the air between them too —measured on the bench, 8/11:
+// two rows of `300x64` became one region of `300x344`, which is 103 200 pixels of ink where 38 400 are owed— so the mode
+// is written into each region that is already there and the boxes stay apart. An app that wants a uniform page calls
+// `present_all` and gets the merge it asked for (docs/30, docs/50).
+bool present_each(hal::UpdateMode mode) {
+  if (!g_attached || root().bits == nullptr) return false;
+  compose_tree(0, -1, 0, 0);
+  Canvas& page = root();
+  for (uint8_t i = 0; i < page.damage_count; ++i) page.damage[i].mode = mode;
+  keyboard_paint();
+  const bool ok = paint_root();
+  sweep_released();
+  return ok;
+}
+
 bool idle() {
   // **And a page the panel refused is asked for again here** (0.118.2): `idle()` is the question "is the ink over?"
   // that an app in a loop already asks, so it is where the system paints what it owes without anybody inventing another
@@ -6307,6 +6599,8 @@ bool idle() {
 // **Whether the glass is owed a page** (0.118.2): the kernel asks it every turn and only then pays for `idle()`, so a
 // turn that owes nothing costs nothing (docs/30, docs/50).
 bool owes_paint() { return g_owed_paint; }
+
+void owe_the_page() { g_owe_all = true; }
 
 bool title(const char* text) {
   bar::title(text);

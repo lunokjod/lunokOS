@@ -14,7 +14,9 @@
 #include "hal/hal.h"
 #include "img/img.h"
 #include "kernel/display.h"
+#include "kernel/font.h"
 #include "kernel/log.h"
+#include "kernel/version.h"
 #include "kernel/vfs.h"
 #include "pal/pal.h"
 
@@ -86,6 +88,21 @@ void settle(hal::ISurface* glass) {
     pal::Event event;
     pal::system().queue()->pop(event, static_cast<int32_t>((left < kSettleTurnMs) ? left : kSettleTurnMs));
   }
+}
+
+// **The stamp of the build**: `lunokOS v<version>` in the bottom right corner of the glass, in black with a margin, at
+// scale two of the face the system draws with —the five by seven of the flash at the boot, the bold face of the disk
+// later, which is the same face the bar and the prompt use— (0.165.0, docs/30, docs/50).
+void draw_version(hal::ISurface& surface) {
+  char text[40];
+  snprintf(text, sizeof(text), "lunokOS v%s", kVersion);
+  const uint8_t scale = 2;
+  const uint16_t text_w = font::width(text, scale);
+  const uint16_t line_h = static_cast<uint16_t>(font::system_face().height * scale);
+  const uint16_t margin = 16;
+  if (surface.width() <= text_w + margin || surface.height() <= line_h + margin) return;
+  font::draw(surface, static_cast<uint16_t>(surface.width() - text_w - margin),
+             static_cast<uint16_t>(surface.height() - line_h - margin), text, scale, 0);
 }
 
 // **One nibble of a packed row**, which is the packing of the glass and of the decoder: one byte per two
@@ -277,6 +294,11 @@ bool show(const char* path) {
   const uint16_t at_y = static_cast<uint16_t>((glass_h - height) / 2u);
   glass->clear(15);
   glass->blit(at_x, at_y, width, height, sink.pixels, stride);
+  // **The version of the build, in a corner and in the face of the system** (0.165.0): a board on a table has no console,
+  // and the one thing a person asks of the picture at the boot is which build it is. Black letters, a margin of sixteen
+  // pixels, the bottom right corner and **scale two** —a stamp and not a text— over whatever the picture has there, which
+  // is the owner's wish: discreet (docs/30, docs/50).
+  draw_version(*glass);
   // **The wash before is over before this one is asked for** (0.118.2): the panel refuses a paint that arrives while
   // it is moving ink, and the boot's own wash of the whole page is still running when a person types quickly.
   settle(glass);
@@ -289,6 +311,22 @@ bool show(const char* path) {
   log_printf(pal::kLogInfo, "SPLASH", "%s, %ux%u at %u,%u", path, static_cast<unsigned>(width),
              static_cast<unsigned>(height), static_cast<unsigned>(at_x), static_cast<unsigned>(at_y));
   return true;
+}
+
+bool wait() {
+  hal::ISurface* glass = display::surface();
+  if (glass == nullptr) {
+    g_error = "this board has no glass";
+    return false;
+  }
+  // **The first turn is not asked of the glass but given to it** (0.165.1): the driver takes the command of the paint on
+  // its next turn, so a board that asked "is the ink over?" in the same millisecond as `show` was answered "yes" about the
+  // ink of before. One turn of the queue and then the glass is asked, and `settle` is the same wait the picture already
+  // uses before it, with its own ceiling (docs/50).
+  pal::Event event;
+  pal::system().queue()->pop(event, kSettleTurnMs);
+  settle(glass);
+  return glass->idle();
 }
 
 bool hide() {

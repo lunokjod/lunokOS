@@ -50,7 +50,9 @@ void on_the_way_out(int number) {
 // The speed of the console, when it is a wire and not a file: zero is no wait at all, which is what
 // a test wants, and the emulator asks for 115200 (docs/85).
 uint32_t g_baud = 0;
-int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
+// **Whether the console of this run can be hung up** (0.158.0): off is a serial port —the board— and it is the
+// default, because a console that is a file or a pipe is nobody's session (docs/30, docs/85).
+bool g_virtual_terminal = false;int64_t g_wire_free_ns = 0;  // when the last byte handed over would finish leaving the UART
 // **What the heap costs and what the extra memory moves**, in nanoseconds a node of the allocator's
 // walk and bytes a microsecond (docs/85). Zero is the PC's heap: it answers at once, which is what every
 // test wants, and the emulator sets the numbers of the board's allocator and its PSRAM.
@@ -409,6 +411,12 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   bool ansi() const override {
     return isatty(STDOUT_FILENO) != 0 && getenv("TERM") != nullptr;
   }
+
+  // **The console of the bench is a virtual terminal** (0.158.0) when the program that carries it says so: it is a
+  // session somebody opened on a PC and can hang up, so `logout` ends the run. The default is a serial port, which
+  // cannot hang up, and that is what a test wants —its console is a file and its case models the board— (docs/30,
+  // docs/85). What the console is belongs to the console; what `logout` does with it is the shell's decision.
+  bool virtual_terminal() const override { return g_virtual_terminal; }
 
  private:
   void wait_for_input(int32_t timeout_ms) {
@@ -799,6 +807,13 @@ void set_console_baud(uint32_t baud) {
   g_baud = baud;
   g_wire_free_ns = 0;  // a new speed starts from a wire that is free
 }
+
+// **What the console is** (0.158.0): a virtual terminal can hang up and a serial port cannot. It is the program that
+// carries the console who says so —`main_host` says yes for the bench— and a test leaves it off, because its console
+// is a file and its case is the board (docs/30, docs/85).
+void set_virtual_terminal(bool on) { g_virtual_terminal = on; }
+
+bool virtual_terminal() { return g_virtual_terminal; }
 
 void set_dispatch_us(uint32_t us) { g_dispatch_us = us; }
 

@@ -15,28 +15,8 @@ namespace {
 const uint16_t kPanelWidth = 960;
 const uint16_t kPanelHeight = 540;
 
-// **The name of a quality, for the log**: the eight the panel takes, and nothing else (docs/50).
-const char* mode_name(hal::UpdateMode mode) {
-  switch (mode) {
-    case hal::UpdateMode::kInit:
-      return "init";
-    case hal::UpdateMode::kDu:
-      return "du";
-    case hal::UpdateMode::kGc16:
-      return "gc16";
-    case hal::UpdateMode::kGl16:
-      return "gl16";
-    case hal::UpdateMode::kGlr16:
-      return "glr16";
-    case hal::UpdateMode::kGld16:
-      return "gld16";
-    case hal::UpdateMode::kDu4:
-      return "du4";
-    case hal::UpdateMode::kA2:
-      return "a2";
-  }
-  return "?";
-}
+// **The name of a quality is the one of the system** (`hal::mode_name`, `lib/hal/include/hal/hal.h`, 0.158.0):
+// the bench prints the same word the panel prints, and a second table here would be a second truth.
 
 // **A picture of the glass on the disk of this machine** (`--dump <file>`): the whole page as a PGM of eight bits
 // per pixel, which is the one level of the panel in each byte and the way a session with no window looks at what the
@@ -310,7 +290,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // **Every paint says which rectangle and with what quality**, with `--verbose`: "did the strip repaint for a title?"
   // is a question about this line and not about a screen (docs/85).
   if (options().verbose) {
-    fprintf(stderr, "gui: paint %u,%u %ux%u %s\n", paint.x, paint.y, paint.w, paint.h, mode_name(mode));
+    fprintf(stderr, "gui: paint %u,%u %ux%u %s\n", paint.x, paint.y, paint.w, paint.h, hal::mode_name(mode));
   }
 
   // **And now the ink.** The pixels of the region move towards what they were painted with, according to

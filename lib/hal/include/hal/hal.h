@@ -331,6 +331,31 @@ enum class UpdateMode : uint8_t {
   kA2 = 7,
 };
 
+// **The name of a quality**, which is the word the glass speaks: every line of the log says `gl16` and not a
+// five, because a number a reader has to look up in a header is a number that says nothing —and the question
+// «which quality painted this rectangle?» is the one the log is read for— (docs/50, docs/85).
+inline const char* mode_name(UpdateMode mode) {
+  switch (mode) {
+    case UpdateMode::kInit:
+      return "init";
+    case UpdateMode::kDu:
+      return "du";
+    case UpdateMode::kGc16:
+      return "gc16";
+    case UpdateMode::kGl16:
+      return "gl16";
+    case UpdateMode::kGlr16:
+      return "glr16";
+    case UpdateMode::kGld16:
+      return "gld16";
+    case UpdateMode::kDu4:
+      return "du4";
+    case UpdateMode::kA2:
+      return "a2";
+  }
+  return "?";
+}
+
 // A surface an app can draw on, and the paint that puts it on the glass. It is a **surface** and not a
 // streaming driver: what is drawn lives in the board's own memory, a rectangle remembers what changed,
 // and `flush` sends only that rectangle. An e-ink glass takes 120 to 450 ms to move its ink, so a

@@ -159,7 +159,17 @@ struct Promise {
   uint32_t meter_start_us;
 };
 
+// **Where an app's console words go** (0.160.0): the terminal, unless the app was sent to the background —`run x &`
+// detaches its stdin, stdout and stderr from the session that started it— and then the sink the kernel installed,
+// which is the log of the system. Two writers on one prompt is the mess `&` exists to avoid (docs/30, docs/50).
+bool g_console_attached = true;
+void (*g_console_away)(const char* text, size_t len) = nullptr;
+
 void con_write(const char* text, size_t len) {
+  if (!g_console_attached) {
+    if (g_console_away != nullptr) g_console_away(text, len);
+    return;
+  }
   pal::IConsole* console = pal::system().console();
   if (console != nullptr) console->write(text, len);
 }
@@ -1261,6 +1271,9 @@ const size_t kFsWindow = 512;
 
 FileOps g_file_ops = {};  // every operation starts absent: install_fs_ops() fills them
 AppsOps g_apps_ops = {};  // the door of the apps and the wish to start one, filled by the kernel (0.153.0)
+// **A session of the shell for an app** (0.159.0), filled by the kernel: the shell is the system's, and this library
+// never includes the kernel (docs/20, docs/30).
+ShellOps g_shell_ops = {};
 AppOps g_app_ops = {};
 NetOps g_net_ops = {};    // same rule: without them net.* answers E_UNSUPPORTED
 PowerOps g_power_ops = {};  // and power.* too
@@ -1958,6 +1971,35 @@ int l_app_run(lua_State* L) {
     return push_nil_error(L, "E_INVAL", (why[0] != '\0') ? why : "that app cannot be started");
   }
   lua_pushboolean(L, 1);
+  return 1;
+}
+
+// **The views of the app in front** (0.163.0): `app.view()` is how many pages the app has on top of its first one,
+// and the two calls that move it are `app.view_push()` and `app.view_pop()`. A page that shows a detail over the list
+// it came from pushes one, and **the system is the one that reads the number** when a pinch comes from big to small:
+// a view on top is given back (the app hears `on_back(depth)`) and zero views is the app itself, which the pinch
+// closes. The number is the kernel's because a pinch means the same wish in every app (docs/30, docs/46).
+int l_app_view(lua_State* L) {
+  if (g_app_ops.views == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system does not count the views of an app");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_app_ops.views()));
+  return 1;
+}
+
+int l_app_view_push(lua_State* L) {
+  if (g_app_ops.push_view == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system does not count the views of an app");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_app_ops.push_view()));
+  return 1;
+}
+
+int l_app_view_pop(lua_State* L) {
+  if (g_app_ops.pop_view == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system does not count the views of an app");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_app_ops.pop_view()));
   return 1;
 }
 
@@ -3295,13 +3337,15 @@ int l_ui_image(lua_State* L) {
   const lua_Integer w = luaL_optinteger(L, 4, 0);
   const lua_Integer h = luaL_optinteger(L, 5, 0);
   const char* mode = luaL_optstring(L, 6, nullptr);
+  // **The mask of the page's own picture** (0.169.0): the seventh argument, and the same meaning it has in `canvas:image`.
+  const bool mask = (lua_gettop(L) >= 7) && (lua_toboolean(L, 7) != 0);
   if (w < 0 || h < 0 || w > 4096 || h > 4096) {
     return push_nil_error(L, "E_INVAL", "a picture is up to 4096 pixels a side");
   }
   const char* code = nullptr;
   const char* reason = nullptr;
   if (!g_ui_ops.image(0, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
-                      static_cast<uint16_t>(h), path, mode, code, reason)) {
+                      static_cast<uint16_t>(h), path, mode, mask, code, reason)) {
     return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
                           (reason != nullptr) ? reason : "the picture was not drawn");
   }
@@ -3756,14 +3800,17 @@ bool panel_field_valid(lua_State* L, const char* key, int value) {
   return number >= 0 && number <= 64;
 }
 
-// **The fields of a strip of tabs**: the words, the chosen one, the two colours and the size of the words.
+// **The fields of a strip of tabs**: the words, the chosen one, the two colours, the size of the words and whether
+// every tab wears a cross to close it (0.163.2: `closeable` was a field the painter read and the strip did not accept,
+// so a typo in it was a cross that did not appear instead of a line, docs/30).
 bool is_tabs_field(const char* key) {
   return strcmp(key, "items") == 0 || strcmp(key, "index") == 0 || strcmp(key, "text") == 0 ||
-         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0;
+         strcmp(key, "background") == 0 || strcmp(key, "scale") == 0 || strcmp(key, "closeable") == 0;
 }
 
 bool tabs_field_valid(lua_State* L, const char* key, int value) {
   if (strcmp(key, "items") == 0) return lua_istable(L, value) || lua_isnil(L, value);
+  if (strcmp(key, "closeable") == 0) return lua_type(L, value) == LUA_TBOOLEAN;
   if (!lua_isnumber(L, value)) return false;
   const lua_Integer number = lua_tointeger(L, value);
   if (strcmp(key, "index") == 0) return number >= 0 && number <= 8;
@@ -4814,6 +4861,9 @@ bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer 
 bool ui_call_hook(lua_State* L, int object, const char* name, bool with_flag, bool flag);
 bool ui_call_hook_text(lua_State* L, int object, const char* name, const char* text);
 void ui_invalidate(lua_State* L, int object);
+// **A hook with a number** (0.161.0): `on_change(self, index)` and the like are called from here, and the definition is
+// further down because it needs the tables of a control —the same road as the two above—.
+bool ui_call_hook_number(lua_State* L, int object, const char* name, lua_Integer number);
 
 // **The options of a menu as the kernel wants them**: the app says a Lua array of words —an option of a label and
 // nothing else— or of tables with `label`, `tag`, `hidden` and `primary`, the way a row of a list is a word or a table
@@ -5574,13 +5624,73 @@ int l_tabs_draw(lua_State* L) {
     }
   }
   lua_pop(L, 1);  // the items
+  // **`closeable` is read while the fields table is still on the stack** (0.163.2): it used to be read after the
+  // pops, on a value that was not the table any more, and the app died on its first present with `attempt to index
+  // a boolean value` —the stack under it happened to be one— which is what the shell app found on 8/11 (docs/30).
+  lua_getfield(L, -1, "closeable");
+  const bool closeable = lua_toboolean(L, -1) != 0;
+  lua_pop(L, 1);
   lua_pop(L, 1);  // the fields table
-  if (g_ui_ops.tabs_draw != nullptr && count > 0) {
+  if (g_ui_ops.tabs_draw != nullptr) {
+    // **A strip the app can close** (0.161.0): the same paint with a cross on the right of every tab, and it is the
+    // system that draws it so the box a finger presses is the box the glass painted (docs/30, docs/90).
+    // **And it is drawn with no tab too** (0.164.2): an empty strip washes its own box, which is what an app with no
+    // tab left needs —`count > 0` here meant the words of the tabs that go away stayed on the glass— (docs/30).
+    if (closeable && g_ui_ops.tabs_draw_closeable != nullptr) {
+      g_ui_ops.tabs_draw_closeable(canvas->slot, labels, count, static_cast<uint8_t>((index < 0) ? 0 : index),
+                                   off.on ? 0 : static_cast<uint8_t>((lit < 0) ? 0 : lit), ink_or_dim(off, text),
+                                   static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale));
+      return 0;
+    }
     g_ui_ops.tabs_draw(canvas->slot, labels, count, static_cast<uint8_t>((index < 0) ? 0 : index),
                        off.on ? 0 : static_cast<uint8_t>((lit < 0) ? 0 : lit), ink_or_dim(off, text),
                        static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale));
   }
   return 0;
+}
+
+// **`tabs:tap(x, y)`**: the strip takes a finger and decides. **A cross closes its tab** —the app hears `on_close(self,
+// index)` and it is the app that gives back what was behind it, because a strip does not know what a tab holds— and **a
+// word chooses its tab** —`index` becomes that one and the app hears `on_change(self, index)`, the same hook the dial
+// calls—. The answer is true when the strip did something with the finger (0.161.0, docs/30, docs/90).
+//
+// **It is one call and not two** because the geometry is the control's: an app that worked out the columns would be a
+// second arithmetic, and the day the strip changes it would press a tab that is not there.
+int l_tabs_tap(lua_State* L) {
+  if (!canvas_ready(L, 1)) return 0;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  int count = 0;
+  lua_getiuservalue(L, 1, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "items");
+    if (lua_istable(L, -1)) count = static_cast<int>(lua_rawlen(L, -1));
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  bool did = false;
+  const uint16_t px = static_cast<uint16_t>((x < 0) ? 0 : x);
+  const uint16_t py = static_cast<uint16_t>((y < 0) ? 0 : y);
+  if (count > 0) {
+    const uint8_t the_cross =
+        (g_ui_ops.tabs_close_at != nullptr)
+            ? g_ui_ops.tabs_close_at(canvas->slot, static_cast<uint8_t>(count), px, py)
+            : 0;
+    if (the_cross > 0) {
+      did = true;
+      ui_call_hook_number(L, 1, "on_close", the_cross);
+    } else if (g_ui_ops.tabs_tab_at != nullptr) {
+      const uint8_t the_tab = g_ui_ops.tabs_tab_at(canvas->slot, static_cast<uint8_t>(count), px, py);
+      if (the_tab > 0) {
+        did = true;
+        if (ui_set_field_number(L, 1, "index", the_tab)) ui_invalidate(L, 1);
+        ui_call_hook_number(L, 1, "on_change", the_tab);
+      }
+    }
+  }
+  lua_pushboolean(L, did ? 1 : 0);
+  return 1;
 }
 
 // ui.tabs(width, height): **a strip of tabs**. The fields are `items` —a Lua array of words, eight at most—,
@@ -5615,6 +5725,10 @@ int l_ui_tabs(lua_State* L) {
   // reads it, and an app may read it too to know where the dial is (0.99.0, docs/30, docs/92).
   lua_pushinteger(L, 0);
   lua_setfield(L, -2, "focus_index");
+  // **Whether every tab wears a cross to close it** (0.161.0): false by default —a strip of tabs is a page selector—
+  // and true for a strip whose tabs are things an app can give back, which is what `tabs:tap` reads (docs/30).
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "closeable");
   lua_pushcfunction(L, &l_tabs_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
@@ -7494,13 +7608,17 @@ int l_canvas_image(lua_State* L) {
   const lua_Integer w = luaL_optinteger(L, 5, 0);
   const lua_Integer h = luaL_optinteger(L, 6, 0);
   const char* mode = luaL_optstring(L, 7, nullptr);
+  // **The mask is the eighth argument and it is optional** (0.169.0): `canvas:image(x, y, path, w, h, 'du', 'mask')` leaves
+  // the pixels the picture calls transparent as the canvas had them, and `canvas:image(x, y, path, w, h)` paints the white of
+  // a PNG's alpha over them as it always did (docs/30).
+  const bool mask = (lua_gettop(L) >= 8) && (lua_toboolean(L, 8) != 0);
   if (x < 0 || y < 0 || x > 4096 || y > 4096 || w < 0 || h < 0 || w > 4096 || h > 4096) {
     return push_nil_error(L, "E_INVAL", "a picture is up to 4096 pixels a side");
   }
   const char* code = nullptr;
   const char* reason = nullptr;
   if (!g_ui_ops.image(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
-                      static_cast<uint16_t>(h), path, mode, code, reason)) {
+                      static_cast<uint16_t>(h), path, mode, mask, code, reason)) {
     return push_nil_error(L, (code != nullptr) ? code : "E_INVAL",
                           (reason != nullptr) ? reason : "the picture was not drawn");
   }
@@ -8309,6 +8427,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "box", l_checkbox_box);
   set_function(L, "rows", l_multiline_rows);
   set_function(L, "lines", l_multiline_lines);
+  set_function(L, "tap", l_tabs_tap);
   set_function(L, "draw", l_canvas_draw);
   set_function(L, "invalidate", l_canvas_invalidate);
   set_function(L, "parent", l_canvas_parent);
@@ -8887,6 +9006,27 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
 // **The paint is the app's page and it is only the regions that changed**: a present composes the controls that
 // owe a draw and sends their rectangles, and a page where nothing moved owes nothing — the call costs nothing and
 // paints nothing — so a button going down costs its own box and not the glass (docs/30, docs/50).
+// **The draw of the page and then the boxes it owes, each where it is and all cleaned** (0.168.1): a focus that moves, or a
+// button that goes down and up, changes **two** controls —the ring that comes and the ring that goes—, and a `du` on them
+// leaves the ghost of the ring on the glass because `du` paints and does not clean. The quality is `gl16`, which cleans
+// without the flash of `gc16`, and **each region keeps its own box**: merging them would also paint the air between the two
+// controls, which is the opposite of the smallest area a change is owed (docs/30, docs/50).
+int l_ui_present_feedback(lua_State* L) {
+  if (g_ui_ops.present_each == nullptr) return 0;
+  if (l_ui_root(L) == 1) {
+    const int height = lua_gettop(L) - 1;
+    lua_getfield(L, -1, "draw");
+    if (lua_isfunction(L, -1)) {
+      lua_pushvalue(L, -2);
+      if (lua_pcall(L, 1, 0, 0) != LUA_OK) return lua_error(L);
+    }
+    lua_settop(L, height);
+  }
+  ++g_ui_present_count;
+  g_ui_ops.present_each(static_cast<uint8_t>(hal::UpdateMode::kGl16));
+  return 0;
+}
+
 void ui_feedback() {
   if (g_state == nullptr || g_ui_ops.present == nullptr) return;
   // **The same way in as the app**: what changed is drawn first —the view asks its children, and a control with
@@ -8896,7 +9036,7 @@ void ui_feedback() {
   const int top = lua_gettop(g_state);
   // **Protected, like every other hook**: a draw of the app that throws must say so on the console and leave the
   // page as it was, and an error that long-jumps out of a key handler takes the app down with it.
-  lua_pushcfunction(g_state, l_ui_present);
+  lua_pushcfunction(g_state, l_ui_present_feedback);
   if (lua_pcall(g_state, 0, 0, 0) != LUA_OK) {
     con_text("present: ");
     const char* message = lua_tostring(g_state, -1);
@@ -9571,6 +9711,183 @@ int l_epub_font(lua_State* L) {
   return push_font(L, handle);
 }
 
+// ---------------------------------------------------------------------------
+// a session of the shell, for an app (0.159.0, docs/30)
+// ---------------------------------------------------------------------------
+//
+// **The shell is the system's and not the wire's.** `sys.shell()` asks for a session of the system's own shell and
+// what comes back is a handle with the **three pipes** of one: what is written on `stdin` are the lines the shell
+// runs, `stdout` is what the shell answers and `stderr` is what it complains about. No console, no prompt, no echo —
+// a pipe is not a terminal— and one shell underneath: the lines go to the same `execute` the console uses, which is
+// what makes a session a session and not a second shell (docs/30, docs/75).
+//
+// **The kernel gives them and `luabind` asks**: the table of function pointers of `luabind.h`, installed by the
+// kernel, because this library never includes the kernel (docs/20).
+const char kShellMeta[] = "lunokOS.ShellSession";
+
+// The handle a session is, in Lua: the id the kernel gave, and zero once it is closed.
+struct LuaShell {
+  uint8_t id = 0;
+};
+
+// **The bytes one read takes at most**: the ring of a session is 1 024 B and a read that asks for more than that is
+// a read that waits for a byte that is not there (docs/30, docs/75).
+const size_t kShellReadCap = 1024;
+
+int l_sys_shell(lua_State* L);
+
+// **A pipe answers with or without a colon** (0.163.2): `stdin`, `stdout` and `stderr` are closures over the id of
+// their session, so the table they are read from is not an argument they need — and `session.stdout:read()` is how the
+// session is written in every example of docs/30 and in the app that found it, which passed the pipe table as the
+// first argument and got `calling 'read' on bad self (number expected, got table)` on the bench on 8/11. The table is
+// stepped over instead of refused, and `stdout.read(64)` keeps working the same.
+static int pipe_arg(lua_State* L) { return lua_istable(L, 1) ? 2 : 1; }
+
+// **`stdin:write(text)`**: the lines of the session, one command per line, and `true` when the shell took them.
+int l_shell_stdin_write(lua_State* L) {
+  const uint8_t id = static_cast<uint8_t>(lua_tointeger(L, lua_upvalueindex(1)));
+  size_t len = 0;
+  const char* text = luaL_checklstring(L, pipe_arg(L), &len);
+  if (g_shell_ops.write == nullptr || id == 0) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+  lua_pushboolean(L, g_shell_ops.write(id, text, len) ? 1 : 0);
+  return 1;
+}
+
+// **One read of a pipe**: the bytes that are waiting right now and never more than the cap, which is what a pipe
+// does —an empty string is a pipe with nothing in it and not the end of anything— (docs/30).
+int l_shell_pipe_read(lua_State* L, bool error_pipe) {
+  const uint8_t id = static_cast<uint8_t>(lua_tointeger(L, lua_upvalueindex(1)));
+  lua_Integer asked = luaL_optinteger(L, pipe_arg(L), static_cast<lua_Integer>(kShellReadCap));
+  if (asked <= 0) asked = 1;
+  const size_t cap = (static_cast<size_t>(asked) < kShellReadCap) ? static_cast<size_t>(asked) : kShellReadCap;
+  char out[kShellReadCap + 1];
+  size_t got = 0;
+  if (g_shell_ops.read != nullptr && id != 0) {
+    got = error_pipe ? g_shell_ops.read_error(id, out, cap + 1) : g_shell_ops.read(id, out, cap + 1);
+  }
+  lua_pushlstring(L, out, got);
+  return 1;
+}
+
+int l_shell_stdout_read(lua_State* L) { return l_shell_pipe_read(L, false); }
+
+int l_shell_stderr_read(lua_State* L) { return l_shell_pipe_read(L, true); }
+
+// **The fields of one session** and the verbs of all of them: `stdin`, `stdout` and `stderr` are made with the
+// session —each one a closure over its id— and live in the uservalue, so a second session does not answer with the
+// pipes of the first (docs/30).
+int l_shell_index(lua_State* L) {
+  if (lua_getiuservalue(L, 1, 1) == LUA_TTABLE) {
+    lua_pushvalue(L, 2);
+    lua_gettable(L, -2);
+    if (!lua_isnil(L, -1)) return 1;
+    lua_pop(L, 2);
+  } else {
+    lua_pop(L, 1);
+  }
+  luaL_getmetatable(L, kShellMeta);
+  lua_pushvalue(L, 2);
+  lua_gettable(L, -2);
+  return 1;
+}
+
+int l_shell_close(lua_State* L) {
+  LuaShell* session = static_cast<LuaShell*>(luaL_checkudata(L, 1, kShellMeta));
+  if (session->id != 0 && g_shell_ops.close != nullptr) g_shell_ops.close(session->id);
+  session->id = 0;
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_shell_gc(lua_State* L) {
+  LuaShell* session = static_cast<LuaShell*>(luaL_testudata(L, 1, kShellMeta));
+  if (session != nullptr && session->id != 0 && g_shell_ops.close != nullptr) g_shell_ops.close(session->id);
+  if (session != nullptr) session->id = 0;
+  return 0;
+}
+
+// **`session:dropped()`**: the bytes the shell said and nobody read, because a session that loses words has to be
+// able to tell (docs/30).
+int l_shell_dropped(lua_State* L) {
+  LuaShell* session = static_cast<LuaShell*>(luaL_checkudata(L, 1, kShellMeta));
+  if (session->id == 0 || g_shell_ops.dropped == nullptr) {
+    lua_pushinteger(L, 0);
+    return 1;
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_shell_ops.dropped(session->id)));
+  return 1;
+}
+
+int l_shell_id(lua_State* L) {
+  LuaShell* session = static_cast<LuaShell*>(luaL_checkudata(L, 1, kShellMeta));
+  lua_pushinteger(L, session->id);
+  return 1;
+}
+
+int l_shell_tostring(lua_State* L) {
+  LuaShell* session = static_cast<LuaShell*>(luaL_checkudata(L, 1, kShellMeta));
+  lua_pushfstring(L, "shell session %d", static_cast<int>(session->id));
+  return 1;
+}
+
+// The three pipes and the verbs of one session: one table of fields (the uservalue) and one metatable of methods.
+int push_shell(lua_State* L, uint8_t id) {
+  LuaShell* session = static_cast<LuaShell*>(lua_newuserdatauv(L, sizeof(LuaShell), 1));
+  session->id = id;
+  luaL_getmetatable(L, kShellMeta);
+  lua_setmetatable(L, -2);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, id);
+  lua_pushcclosure(L, l_shell_stdin_write, 1);
+  lua_setfield(L, -2, "write");
+  lua_setfield(L, -2, "stdin");
+  lua_newtable(L);
+  lua_pushinteger(L, id);
+  lua_pushcclosure(L, l_shell_stdout_read, 1);
+  lua_setfield(L, -2, "read");
+  lua_setfield(L, -2, "stdout");
+  lua_newtable(L);
+  lua_pushinteger(L, id);
+  lua_pushcclosure(L, l_shell_stderr_read, 1);
+  lua_setfield(L, -2, "read");
+  lua_setfield(L, -2, "stderr");
+  lua_setiuservalue(L, -2, 1);
+  return 1;
+}
+
+// **`sys.shell()`**: a session of the shell, or `nil` and why there is none (docs/30).
+int l_sys_shell(lua_State* L) {
+  if (g_shell_ops.open == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system has no shell to give");
+  }
+  char why[96] = {0};
+  const uint8_t id = g_shell_ops.open(why, sizeof(why));
+  if (id == 0) return push_nil_error(L, "E_BUSY", (why[0] != '\0') ? why : "no session");
+  return push_shell(L, id);
+}
+
+void open_shell_library(lua_State* L) {
+  luaL_newmetatable(L, kShellMeta);
+  lua_pushcfunction(L, &l_shell_index);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, &l_shell_gc);
+  lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, &l_shell_tostring);
+  lua_setfield(L, -2, "__tostring");
+  lua_pushcfunction(L, &l_shell_close);
+  lua_setfield(L, -2, "close");
+  lua_pushcfunction(L, &l_shell_dropped);
+  lua_setfield(L, -2, "dropped");
+  lua_pushcfunction(L, &l_shell_id);
+  lua_setfield(L, -2, "id");
+  lua_pop(L, 1);
+}
+
 // Nothing here reaches the outside world: no files, no C modules, no way to load
 // a precompiled chunk (docs/20).
 void seal_globals(lua_State* L) {
@@ -9594,7 +9911,13 @@ void seal_globals(lua_State* L) {
   lua_pushcfunction(L, &l_print);
   lua_setglobal(L, "print");
 
-  lua_createtable(L, 0, 9);
+  // ---- a session of the shell (0.159.0, docs/30) ----
+  //
+  // **An app can be a shell's client**: `sys.shell()` asks the system for a session of its own shell and what comes
+  // back is a handle with the three pipes of one —`stdin`, `stdout` and `stderr`—, so a line written on the first
+  // is a command the system runs and what it prints comes out of the other two. The shell is the system's and not
+  // the wire's: no console, no prompt and no echo in the middle (docs/30).
+  lua_createtable(L, 0, 10);
   // Who is running this: plain values, so an app can test them without a call.
   lua_pushstring(L, "lunokOS");
   lua_setfield(L, -2, "name");
@@ -9611,6 +9934,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "gc", l_sys_gc);
   set_function(L, "caps", l_sys_caps);
   set_function(L, "delay", l_sys_delay);
+  set_function(L, "shell", l_sys_shell);
   lua_setglobal(L, "sys");
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
@@ -9890,6 +10214,9 @@ void seal_globals(lua_State* L) {
   set_function(L, "exit", l_app_exit);
   set_function(L, "info", l_app_info);
   set_function(L, "run", l_app_run);
+  set_function(L, "view", l_app_view);
+  set_function(L, "view_push", l_app_view_push);
+  set_function(L, "view_pop", l_app_view_pop);
   lua_setglobal(L, "app");
 
   // apps: **the door of the apps** (0.153.0), which is what a launcher draws (docs/30, docs/40).
@@ -9979,6 +10306,9 @@ void finish_task() {
 int open_everything(lua_State* L) {
   open_libraries(L);
   open_promises(L);
+  // **The metatable of a session of the shell** (0.159.0): its pipes are made with the session and its verbs live
+  // here, so the handle of `sys.shell()` is an object with `stdin`, `stdout`, `stderr` and `close` (docs/30).
+  open_shell_library(L);
   seal_globals(L);
   return 0;
 }
@@ -9997,6 +10327,16 @@ int make_the_task(lua_State* L) {
 }
 
 }  // namespace
+
+// **The three setters are the kernel's and they are not private** (0.159.0, 0.160.0): they have to sit outside the
+// anonymous namespace above, or they are three functions with internal linkage that the kernel cannot link and the
+// compiler says so (`defined but not used`, on 8/11). What they touch is the anonymous namespace's, which the
+// enclosing `luabind` sees (docs/20).
+void set_shell_ops(const ShellOps& ops) { g_shell_ops = ops; }
+
+void set_console_attached(bool attached) { g_console_attached = attached; }
+
+void set_console_away(void (*write)(const char* text, size_t len)) { g_console_away = write; }
 
 bool start(const Boot& boot, size_t limit_bytes) {
   if (g_state != nullptr) return false;
@@ -10275,6 +10615,8 @@ void feed_console(const char* data, size_t len) {
 }
 
 bool exit_requested() { return g_exit_requested; }
+
+void clear_exit_request() { g_exit_requested = false; }
 
 const char* app_id() { return g_app_id; }
 
@@ -10926,7 +11268,21 @@ void caret_poll() {
   }
   if (!g_caret_dirty) g_caret_on = !g_caret_on;
   caret_set_field(g_state, -1, g_caret_on);
-  ui_invalidate(g_state, -1);
+  // **A blink repaints the block and nothing else** (0.168.2): the box of the caret the last draw put down is the part of
+  // the control that has changed, and the rule of this project is that a control repaints the part that changed. Before
+  // this, every blink marked the **whole** box of the text —fifteen paints in twelve seconds on the bench where five were
+  // owed— and on the board that is a page redrawn for a letter (docs/30, docs/90).
+  uint16_t caret_x = 0;
+  uint16_t caret_y = 0;
+  uint16_t caret_w = 0;
+  uint16_t caret_h = 0;
+  const bool have_box = (g_ui_ops.textbox_caret_box != nullptr) &&
+                        g_ui_ops.textbox_caret_box(canvas->slot, caret_x, caret_y, caret_w, caret_h);
+  if (g_ui_ops.canvas_invalidate_rect != nullptr && have_box) {
+    g_ui_ops.canvas_invalidate_rect(canvas->slot, caret_x, caret_y, caret_w, caret_h);
+  } else {
+    ui_invalidate(g_state, -1);
+  }
   lua_pop(g_state, 1);
   ui_draw_and_present("du");
   g_caret_dirty = false;
@@ -11426,6 +11782,33 @@ bool call_resize(uint16_t width, uint16_t height) {
   lua_pushinteger(L, static_cast<lua_Integer>(height));
   if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
     con_text("on_resize: ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+    lua_settop(L, top);
+    return false;
+  }
+  lua_settop(L, top);
+  return true;
+}
+
+// **The system went back one view**: `on_back(depth)` runs between turns, like `on_resize` and the other hooks, and
+// it is where an app puts the page it left back on the glass —it has to, because the system took one of its views
+// away and the page under it is the app's and not the system's—. A app without the hook is legal (nothing calls it
+// and the glass keeps the page it had) and `depth` is what the app has left: zero is its only page (docs/30).
+bool call_back(uint8_t depth) {
+  if (g_state == nullptr) return false;
+
+  lua_State* L = g_state;
+  const int top = lua_gettop(L);
+  lua_getglobal(L, "on_back");
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return false;
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(depth));
+  if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+    con_text("on_back: ");
     const char* message = lua_tostring(L, -1);
     con_text((message != nullptr) ? message : "(no message)");
     con_text("\r\n");

@@ -64,6 +64,12 @@ bool show(Kind kind);
 bool show(const char* path);
 // **Gives the glass back**: paper, washed whole, and no picture of any moment.
 bool hide();
+// **Waits until the ink of the last picture is over** (0.165.1): `show` waits for the ink that was moving **before** its
+// picture and then asks for a `gc16` of the whole glass, which is half a second of ink — and a caller that cuts the power
+// or restarts the board in the middle of it shows the page of before and not the picture. A restart, a power-off and a
+// deep sleep ask this **before they go**. True when the glass says the ink is over, false when there is no glass or the
+// ceiling of the wait ran out, because a panel that never answers must not keep a board from restarting (docs/50).
+bool wait();
 // The moment that is on the glass, or `kNone` when the last thing that happened was `hide` or a failure.
 Kind showing();
 // Why the last call that answered false did, in words for a log or a line of the console.

@@ -30,6 +30,28 @@ void feed(const char* data, size_t len);
 // Runs one command line (already null-terminated). Returns false on error.
 bool execute(char* line);
 
+// ---- a session of the shell that is not the console (0.159.0, docs/30) ----
+//
+// **The shell is the system's and not the wire's**: `open_session` gives a handle and the caller talks to a shell
+// through three pipes —`session_write` is the lines in, `session_read` the answers and `session_read_error` the
+// complaints— with no console in the middle, no prompt and no echo. The handle is one based, and `open_session`
+// answers 0 with the reason in `why` when it cannot give one.
+// **What a session costs**: 1 024 B of answers and 256 B of complaints asked of the heap, given back by
+// `close_session`; a byte that does not fit the ring is dropped and counted (`session_dropped`), because an app that
+// stops reading must not stop the shell. One session at a time, which is the number `kMaxSessions` says
+// (docs/30, docs/75).
+uint8_t open_session(char* why, size_t why_cap);
+void close_session(uint8_t id);
+bool session_open(uint8_t id);
+bool session_write(uint8_t id, const char* data, size_t len);
+size_t session_read(uint8_t id, char* out, size_t cap);
+size_t session_read_error(uint8_t id, char* out, size_t cap);
+uint32_t session_dropped(uint8_t id);
+
+// **The six calls, into the interpreter** (0.159.0): `luabind` never includes the kernel, so the boot hands it the
+// table and `sys.shell()` is the Lua side of the same session (docs/20, docs/30).
+void install_shell_ops();
+
 // True while an app has been started and has not finished. An app may be waiting
 // for a promise between turns of the kernel (docs/30).
 bool app_running();
@@ -52,6 +74,30 @@ const char* app_id();
 // Closes the app that is alive, if there is one. What `raise` does to whatever
 // was in front before the alarm takes over.
 void close_app();
+
+// **Going back one view, which is what every way out asks for first** (0.163.1): the app gives the page on top back
+// and hears `on_back(depth)`; true means the app is still in front and the caller does not close it. It is here and
+// not in the three places that ask for it —the pinch from big to small, the three taps of the middle key and the
+// three taps on the glass— because «go back» has one meaning and a page that stops listening is what the ways out
+// exist for (docs/30).
+bool go_back_one_view();
+
+// **What going out of a page ended in** (0.167.0), so the three gestures can say it in their own words and a caller does
+// not have to ask the same questions twice (docs/30).
+enum class LeaveOutcome {
+  kNothing,     // no app is in front
+  kLauncher,    // a launcher is the one page that is not left
+  kBack,        // a page was given back and the app is still in front
+  kClosed,      // the only page went and the prompt is what there is
+  kClosedHome,  // the only page went and the page that asked for it took the glass back
+};
+
+// **The one road out of a page, which every way out asks for** (0.167.0): a page with another one on top gives the top
+// one back and stays —the app hears `on_back` and the page below it is refreshed by the system—, and a page that is the
+// only one goes with the app, **and the page it was started from takes the glass back**, which is the launcher when a
+// launcher asked for it. The pinch, the three presses of the middle key and the three taps on the glass all come here,
+// because «leave this page» is one meaning and three gestures that mean it differently are three behaviours (docs/30).
+LeaveOutcome leave_one_page();
 
 // The app of the alarm goes to the front: what was in front is closed and this
 // app is started in its place (docs/60).

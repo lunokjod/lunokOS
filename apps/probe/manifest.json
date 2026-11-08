@@ -1,8 +1,0 @@
-{
-  "title": "Probe",
-  "author": "@lunokjod",
-  "version": "0.1.0",
-  "entry": "probe.lua",
-  "boards": ["esp32"],
-  "description": "A temporary probe for the glass: it replays the start of the reader in stages, a tiny paint after each one, and says in the console which stage the panel did not survive. It is not a screen and it is not meant to stay."
-}

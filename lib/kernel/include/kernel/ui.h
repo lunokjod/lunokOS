@@ -123,6 +123,15 @@ struct Canvas {
   // It is a number and not a pointer because the face lives in a table that an app may give back: the
   // canvas that used it draws with the system's again instead of pointing at a freed block (docs/30).
   int8_t face = -1;
+  // **The box of the caret the last draw of this control put down** (0.168.2), in the control's own pixels. The block
+  // blinks twice a second, and a blink is **that block and nothing else**: the system that turns it asks for this
+  // rectangle and the control repaints the letter it is over, not the whole box of the text (docs/30, docs/90).
+  // `caret_box` is false when the last draw left no block at all —an empty page, a box without the focus—.
+  bool caret_box = false;
+  int32_t caret_x = 0;
+  int32_t caret_y = 0;
+  int32_t caret_w = 0;
+  int32_t caret_h = 0;
 };
 
 // Makes the canvas, at the size of the glass **minus the rows the system keeps at the top** and just
@@ -228,17 +237,21 @@ bool canvas_disc(int16_t slot, int16_t center_x, int16_t center_y, int16_t radiu
 // **A picture on the canvas**, read from a file of the volume and turned into rows of the canvas as it is
 // decoded (docs/30): `w` or `h` zero is the size of the picture, and a size that is not the picture's is a
 // nearest neighbour scale. `reason` says why when it is false.
+// **`mask` is the transparency the picture itself carries** (0.169.0): false draws the white of a PNG's alpha over the
+// canvas —which is what paper is—, and true leaves those pixels as they were, for a picture put over something that is not
+// paper. The row of the mask is the decoder's and only one, so an app that does not ask pays nothing (docs/30, docs/75).
 bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path,
-                  const char* mode, const char*& code, const char*& reason);
+                  const char* mode, bool mask, const char*& code, const char*& reason);
 
 // The same on the app's own view, which is what `ui.image` is (docs/30).
 // **The same picture drawn in a canvas that is not the page** (0.153.0): what `canvas:image` asks for, and what a
 // launcher uses to put the icon of an app inside the cell of a grid. `ui::image` is this call with the page as its
 // canvas (docs/30).
 bool image_on_canvas(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+                     bool mask,
                      const char*& code, const char*& reason);
 
-bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode,
+bool image(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* path, const char* mode, bool mask,
            const char*& code, const char*& reason);
 
 // **What a picture is**, without drawing it: the family as four letters, the size, and the depth of the file
@@ -550,6 +563,24 @@ bool canvas_resize(int16_t slot, uint16_t width, uint16_t height);
 bool tabs_draw(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                uint8_t text, uint8_t background, uint8_t scale);
 
+// ---- the same strip with a cross to close a tab (0.161.0, docs/30) ----
+//
+// **A tab that can be closed wears a cross on its right, centred vertically**, and the strip says which one a finger
+// pressed instead of leaving each app to work out the arithmetic of the columns: the paint and the two hit tests are
+// one geometry, and a finger that lands where the glass painted nothing is not a press (docs/30, docs/90).
+//
+// **The app owns what is behind a tab** —a session of the shell, a file, a page— and it is the app that hears
+// `on_close(self, index)` and gives it back; the strip only says which tab and where the cross is.
+bool tabs_draw_closeable(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
+                         uint8_t text, uint8_t background, uint8_t scale);
+// **Which tab has its cross at this point of the page**, 1 to `count`, or 0 when the point is not on one. The cross a
+// finger presses is a box of at least `kTabCrossHit` on a side around the painted one (docs/90).
+const uint8_t kTabCrossHit = 28;
+uint8_t tabs_close_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
+// **Which tab is at this point**, 1 to `count` or 0: the word half of the same arithmetic, so a finger that is not on
+// a cross still chooses the tab it landed on (0.161.0, docs/30).
+uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y);
+
 // ---- a list: rows on pages and never a scroll (docs/30, docs/90) ----
 //
 // **A list is the rows of one page and the band that says which page it is.** On this glass a scroll is a
@@ -609,7 +640,11 @@ uint16_t textbox_inside(int16_t slot, uint8_t scale);
 // the window, so the paint keeps no state of the gesture (docs/30, docs/90).
 bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool wrap, uint8_t color,
                             uint8_t background, uint8_t border, uint8_t scale, int16_t top = -1);
-
+// **The box of the caret the last draw put down** (0.168.2), in the control's own pixels. It is what a blink of the
+// system repaints: the block and the letter under it, and not the box of the whole text —the owner's rule is that a
+// control repaints the part that changed, and a caret that turns is one letter—. False when the last draw left no block
+// (docs/30, docs/90).
+bool textbox_caret_box(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
 // **Where a point of the box puts the cursor**: the row from the y and the letter from the x, both measured with the
 // font, which is the only thing that knows how wide a letter comes out. A byte offset of the text, for a finger that
 // went past the end of a row (docs/90).
@@ -827,6 +862,19 @@ bool present();
 // The same, with one quality for everything pending: what an app asks for when it wants the whole page
 // to look the same, or when it is about to leave a page behind (docs/30).
 bool present_all(hal::UpdateMode mode);
+
+// **One quality for every pending region, and the regions kept apart** (0.168.1): what the system asks for when it has
+// changed two controls and owes the glass both of them —the ring that comes and the ring that goes—, because merging the
+// two boxes would also paint the air between them. It is the draw of a focus move and of a press, and it is the smallest
+// area a control change can be (docs/30, docs/50).
+bool present_each(hal::UpdateMode mode);
+
+// **The whole page is owed and it is owed clean** (0.167.0): a view that is given back to the system changes the page the
+// glass is showing, and the page below it was drawn before the one on top of it —its ink is not under the glass any
+// more, so a present of the damage would leave the boxes of the view that went away behind—. The next present of the
+// page is the whole view with `gc16`, which is the one moment the system knows better than the app what the glass owes
+// (docs/30, docs/50).
+void owe_the_page();
 
 // Whether the paint that was asked for has finished moving ink. **And the moment a paint the panel refused is asked
 // for again** (0.118.2): the glass says no to a page that arrives while another one is moving its ink, and that page is

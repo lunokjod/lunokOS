@@ -318,6 +318,10 @@ void boot(hal::IPlatform& platform) {
   // **The door of the apps, for a launcher** (0.153.0): `apps.list` and `app.run` are the two calls a launcher is made
   // of, and they are the door's and not a second reader of the manifests (docs/30, docs/40).
   apps::install_apps_ops();
+  // **And the shell is a thing an app can ask for** (0.159.0): `sys.shell()` gives it a session of the system's own
+  // shell with the three pipes of one, so the prompt is not the only way in and an app can run a command and read
+  // what it said. The table is handed over here because `luabind` never includes the kernel (docs/20, docs/30).
+  shell::install_shell_ops();
   net::boot(platform);
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).

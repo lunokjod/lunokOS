@@ -762,11 +762,12 @@ bool It8951::flush(UpdateMode mode) {
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
             "engine status %s after the paint", status_read ? "read" : "not read");
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
-            "paint %u,%u %ux%u mode %u at 0x%06x (page %u,%u %ux%u, %u rows of %u B)",
+            "paint %u,%u %ux%u mode %u %s at 0x%06x (page %u,%u %ux%u, %u rows of %u B)",
             static_cast<unsigned>(nx0), static_cast<unsigned>(ny0), static_cast<unsigned>(w),
-            static_cast<unsigned>(h), static_cast<unsigned>(mode), static_cast<unsigned>(memory_),
-            static_cast<unsigned>(x0), static_cast<unsigned>(y0), static_cast<unsigned>(x1 - x0),
-            static_cast<unsigned>(y1 - y0), static_cast<unsigned>(h), static_cast<unsigned>(row_bytes));
+            static_cast<unsigned>(h), static_cast<unsigned>(mode), hal::mode_name(mode),
+            static_cast<unsigned>(memory_), static_cast<unsigned>(x0), static_cast<unsigned>(y0),
+            static_cast<unsigned>(x1 - x0), static_cast<unsigned>(y1 - y0), static_cast<unsigned>(h),
+            static_cast<unsigned>(row_bytes));
   return true;
 }
 

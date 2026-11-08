@@ -35,8 +35,8 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
 uint8_t unit_of(const hal::IStorage* storage);
 
 // **The whole path of a path of the door, on the disk that answered** (0.89.0): `/apps/squares` is
-// `/littlefs/apps/squares` and `/apps/squares-SD` is `/sd/apps/squares`. A door is not a place, and a message that has to
-// say where something was says the row of the table that is a disk and not the alias (docs/70).
+// `/littlefs/apps/squares` and `/apps/*squares` is `/sd/apps/squares` (0.164.0). A door is not a place, and a message
+// that has to say where something was says the row of the table that is a disk and not the alias (docs/70).
 bool on_disk(const char* path, char* out, size_t cap);
 
 bool stat(const char* path, hal::Stat& out);
@@ -60,8 +60,8 @@ bool read_file(const char* path, char* buf, size_t cap, size_t& out_len);
 // with a hundred folders of things that are not apps would cost otherwise (docs/40, docs/70). A null presenter presents
 // everything, which is what a test with no kernel sees.
 //
-// A name the flash has and the card also has is presented **once as `name` and once as `name-SD`**, so the two can be
-// read and run apart.
+// A name the flash has and the card also has is presented **once as `name` and once as `*name`** (0.164.0), so the two
+// can be read and run apart.
 //
 // The presenter is asked about a name **and the disk it came from** (`/littlefs/apps` or `/sd/apps`), because the same
 // name on the two disks is two different folders and only one of them may be an app.

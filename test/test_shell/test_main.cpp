@@ -23,6 +23,7 @@
 #include "kernel/repository.h"
 #include "kernel/shell.h"
 #include "kernel/vfs.h"
+#include "luabind/luabind.h"
 #include "pal/pal.h"
 
 // The meters and the test file are in different namespaces: one line and the rest reads the same as in
@@ -79,6 +80,14 @@ bool console_take_away() {
   dup2(g_console_sink, STDOUT_FILENO);
   return true;
 }
+
+}  // namespace
+
+namespace {
+
+// **The writer of the cases of the apps**: it is defined with the rest of the helpers, further down, and the cases
+// that start an app ask for it from here (docs/85).
+bool write_text(hal::IStorage* storage, const char* path, const char* text);
 
 }  // namespace
 
@@ -380,6 +389,195 @@ void test_unknown_command_fails(void) {
 void test_empty_line_is_not_an_error(void) {
   ensure_booted();
   TEST_ASSERT_TRUE(kernel::execute(""));
+}
+
+// **`&` sends an app to the background** (0.160.0, as the owner asked): the line starts the app and **gives the prompt
+// back at once** —its stdin, its stdout and its stderr are detached from this console— so the shell keeps working
+// while the app runs. **There is no thread and no second task**: the app is polled by the same turn of the kernel as
+// always, one thing at a time, which is the whole point of doing it without one (docs/30, docs/50).
+void test_an_ampersand_runs_an_app_in_the_background(void) {
+  ensure_booted();
+  static char said[4096];
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const char kManifest[] =
+      "{\"title\":\"Background\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}";
+  storage->mkdir("/apps/lunok-bg");
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/lunok-bg/manifest.json", kManifest));
+  // An app that says one line and then waits: it is alive while it waits, which is the state this case measures.
+  TEST_ASSERT_TRUE(write_text(storage, "/apps/lunok-bg/app.lua",
+                              "console.print('bg started')\nwhile true do sys.delay(20):await() end\n"));
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("run lunok-bg &"));
+  capture_end(said, sizeof(said));
+  // **The app is alive and its words are not on this wire**: a detached app's console is the log, because two writers
+  // on one prompt is the mess `&` exists to avoid.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the app is alive");
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "bg started"), said);
+
+  // **And the prompt is the shell's**: a line typed now runs in the shell and not in the app.
+  capture_begin();
+  kernel::shell::feed("version\r", 9);
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS "), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunok> "), said);  // the prompt came back
+
+  // **`&` is only for an app**: every other command is over before a person could type the next one, and the shell
+  // says so instead of obeying in silence.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("version &"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "only an app goes to the background"), said);
+
+  // The bench is left as it was found: the app in the background is closed, with its goodbye hooks.
+  kernel::shell::close_app();
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app is closed");
+  storage->remove("/apps/lunok-bg/app.lua");
+  storage->remove("/apps/lunok-bg/manifest.json");
+  storage->remove("/apps/lunok-bg");
+}
+
+// **The shell is the system's and not the wire's** (0.159.0): anybody can ask for a session —an app asks for it with
+// `sys.shell()`— and it is **the same shell** the console talks to, with three pipes instead of a terminal. The lines
+// go in on `session_write`, the answers come out of `session_read` and the complaints out of `session_read_error`,
+// with **no prompt and no echo**, because a pipe is not a terminal. What this case measures is that door: a command
+// that answers, a command that is not a command (and the pipe it lands on), the second session that says no instead
+// of waiting, `exit` that closes it from the inside, and the same thing again through Lua —which is the road an app
+// has— (docs/30, docs/75).
+void test_a_session_of_the_shell_is_a_shell_with_three_pipes(void) {
+  ensure_booted();
+  static char said[1200];
+
+  char why[96] = {0};
+  const uint8_t id = kernel::shell::open_session(why, sizeof(why));
+  TEST_ASSERT_TRUE_MESSAGE(id > 0, why);
+
+  // **The answer of a command**, and no prompt in it: a session reads what the command printed and nothing else.
+  TEST_ASSERT_TRUE(kernel::shell::session_write(id, "version\n", 8));
+  const size_t answered = kernel::shell::session_read(id, said, sizeof(said));
+  TEST_ASSERT_TRUE_MESSAGE(answered > 0, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunokOS "), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunok> "), said);
+
+  // **What went wrong is on its own pipe**: a word that is not a command answers nothing and complains once.
+  TEST_ASSERT_TRUE(kernel::shell::session_write(id, "no_existeix\n", 12));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, static_cast<uint32_t>(kernel::shell::session_read(id, said, sizeof(said))),
+                                   said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::shell::session_read_error(id, said, sizeof(said)) > 0, said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "unknown command: no_existeix"), said);
+
+  // **One at a time**, and the second one is told why instead of waiting for a session that may never come.
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::shell::open_session(why, sizeof(why)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(why, "already a session"), why);
+
+  // **`exit` closes the session from the inside**, which is how a shell is left, and the pipes go with it.
+  TEST_ASSERT_TRUE(kernel::shell::session_write(id, "exit\n", 5));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::shell::session_open(id), "the session is closed");
+
+  // **And an app asks for the same one**, with the three pipes of `sys.shell()`: what it prints goes to the console
+  // of the app —another road, and it must not land in the session— (docs/30).
+  luabind::Boot boot;
+  boot.board = "test";
+  boot.version = "0.1.0";
+  boot.emulator = true;
+  TEST_ASSERT_TRUE_MESSAGE(luabind::start(boot, 131072), "the interpreter starts");
+  static const char kScript[] =
+      "local s = sys.shell()\n"
+      "if s == nil then print('no session') return end\n"
+      "s.stdin:write('version\\n')\n"
+      "local said = s.stdout:read()\n"
+      "print(said ~= nil and said ~= '' and 'session answered' or 'session silent')\n"
+      "s.stdin:write('no_existeix\\n')\n"
+      "local why = s.stderr:read()\n"
+      "print(why ~= nil and why ~= '' and 'complaint read' or 'no complaint')\n"
+      "s:close()\n"
+      "print('session closed')\n";
+  capture_begin();
+  TEST_ASSERT_TRUE(luabind::eval(kScript, sizeof(kScript) - 1));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "session answered"), said);   // the shell's own line came back
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "complaint read"), said);     // and the complaint on its pipe
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "session closed"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "no session"), said);
+  luabind::stop();
+}
+
+// **A console that can be hung up and a console that cannot** (0.158.0, as the owner asked): `exit`, `logout` and
+// Ctrl+D ask for a closed session, and **what closing means is the console's business** (`IConsole::virtual_terminal`).
+// On a **serial port** nobody is at the other end to close the wire and it is the only way into a board with no
+// glass, so the session is not closed at all: the board says so, nothing that arrives is a line, and the **Enter** of
+// the terminal opens a new one. On a **virtual terminal** —the console of the bench, a program on a PC that somebody
+// started— the session really closes and the run stops, which is what `poweroff` does on the bench (docs/30, docs/50,
+// docs/85).
+void test_the_session_of_the_console_closes_and_opens_again(void) {
+  ensure_booted();
+  static char said[4096];
+
+  // The console of this half of the case is the **serial port of a board**, which is the default of a test's PAL:
+  // nobody is at the other end to hang it up (docs/30, docs/85).
+  pal::set_virtual_terminal(false);
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("logout"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "logout: the session is closed; press Enter to open a new one"), said);
+  // **A closed session does not ask**: the prompt is the sign of a session that is listening, and it is not there.
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunok> "), said);
+
+  // **A letter is neither a line nor a key**: while the session is closed nothing runs and nothing opens it.
+  capture_begin();
+  kernel::shell::feed("help", 4);
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "login:"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunok> "), said);
+
+  // **The Enter opens it**, and the line that arrives after it runs.
+  capture_begin();
+  kernel::shell::feed("\r", 1);
+  kernel::shell::feed("help\r", 5);
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "login: a new session"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "lunok> "), said);        // the prompt of the new session
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "help [command]"), said);  // the line ran
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "unknown command"), said);
+
+  // `exit` is the other name of the same verb.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("exit"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "press Enter to open a new one"), said);
+
+  // **Ctrl+D is `exit`**, and the line of the moment goes with the session instead of running.
+  capture_begin();
+  kernel::shell::feed("\r", 1);       // the Enter that opens it again
+  kernel::shell::feed("version", 7);  // a line that must not run
+  kernel::shell::feed("\x04", 1);     // Ctrl+D
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "logout: the session is closed"), said);
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunokOS "), said);  // `version` was not run
+
+  // **And the console of the bench is a virtual terminal**: `logout` closes the session for real and the run stops.
+  // The case boots again so that the ones after it find the bench running with its console open (docs/85).
+  kernel::shell::feed("\r", 1);
+  pal::set_virtual_terminal(true);
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("logout"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "logout: the session is closed"), said);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::running(), said);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the bench is running again");
+
+  // **`help` answers each of the two names**: they are two lines of the list and not one with a comma, because a
+  // word of the list has to be the whole command —`help pow` is not `power`— (docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("help logout"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the same as exit"), said);
+
+  // The bench is left as it was found: a console that cannot be hung up, which is what the cases after this one have.
+  pal::set_virtual_terminal(false);
 }
 
 void test_overlong_line_is_cut_not_crashed(void) {
@@ -985,6 +1183,27 @@ void test_hexdump_of_a_missing_file_fails(void) {
   TEST_ASSERT_FALSE(kernel::execute("hexdump un cami de mes"));
 }
 
+// **A command that opens a file says which file** (0.164.4; the owner: *«si cat demana <path> perqué hexdump te <path>
+// per defecte?»*): `hexdump` with nothing after it answered with the 7 168 B of `/rtc`, which nobody had asked for, and
+// `cat` said `usage: cat <path>`. The two say the same thing now and neither reads a file the person did not name
+// (docs/30, docs/70).
+void test_hexdump_with_no_path_says_what_it_wants(void) {
+  ensure_booted();
+  static char said[1024];
+  capture_begin();
+  const bool ran = kernel::execute("hexdump");
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_FALSE_MESSAGE(ran, "a command with no path is not a command that ran");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: hexdump <path>"), said);
+  // **And nothing of the memory is on the wire**: the failure is a usage line and not a dump of 7 168 bytes.
+  TEST_ASSERT_NULL_MESSAGE(strstr(said, "0000"), said);
+  // `cat` says the same, which is the point of the change.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("cat"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: cat <path>"), said);
+}
+
 
 // **What the system costs is counted at the door** (docs/30): a call through the VFS is one call in its
 // meter, it carries its time, and the moment of the last one is on the table for `stats` to print.
@@ -1197,9 +1416,13 @@ int main(int argc, char** argv) {
   RUN_TEST(test_cat_prints_the_whole_file_and_not_its_first_screen);
   RUN_TEST(test_cat_of_a_missing_file_fails);
   RUN_TEST(test_hexdump_of_a_missing_file_fails);
+  RUN_TEST(test_hexdump_with_no_path_says_what_it_wants);
   RUN_TEST(test_a_path_that_is_not_there_says_where_the_rest_is);
   RUN_TEST(test_unknown_command_fails);
   RUN_TEST(test_empty_line_is_not_an_error);
+  RUN_TEST(test_the_session_of_the_console_closes_and_opens_again);
+  RUN_TEST(test_a_session_of_the_shell_is_a_shell_with_three_pipes);
+  RUN_TEST(test_an_ampersand_runs_an_app_in_the_background);
   RUN_TEST(test_overlong_line_is_cut_not_crashed);
   RUN_TEST(test_board_has_a_console);
   RUN_TEST(test_kernel_is_running);

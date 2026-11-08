@@ -4223,7 +4223,621 @@ namespace kernel {
 //   - the case `test_the_pages_of_a_grid_follow_the_dial` walks five cells in a box of two and says that the third and
 //     the fifth are reached —the second and the third page— and that the grid is laid out again for each of them; with
 //     the off-page cells out of the walk it is red (measured). 540 of 540 green.
-static const char kVersion[] = "0.157.0";
+// 0.158.0 (8/11): **the keys of the calculator wear the signs of the original**, and the road that was missing
+// between the two. The owner asked how `pos_launch.lua` of PaperOS paints its backspace, its sign, its divide
+// and its times, and the answer is two lines of it plus one decision of the system:
+//
+//   - **the original writes the glyph and not the operation**: `Rows` is `{"C"}, {"←", "back"}, {"±", "neg"},
+//     {"÷", "/"}` and `{"×", "*"}` in the second row, and its comment says where those glyphs come from —
+//     `tools/fontgen.py` of PaperOS cooks `0x2190` to `0x2193` with the letters, 216 code points of a face —;
+//   - **because its text is UTF-8 and its faces are indexed by code point** (`src/gfx/text.cpp` decodes the
+//     string before it looks a glyph up), a `"←"` of `U+2190` is three bytes of the script and one glyph. **A
+//     text here is one byte a character** (docs/30), so a byte above `U+00FF` does not exist and three of the
+//     four signs are the only ones that fit: `÷` is `0xF7`, `×` is `0xD7` and `±` is `0xB1`. The arrow gets
+//     `0x81`, one of the **five codes Windows-1252 leaves empty** —no file can ever mean them—, with `→` at
+//     `0x8D`, `↑` at `0x8F`, `↓` at `0x90` and `⌫` at `0x9D` (docs/30, docs/92 §34);
+//   - **the system face carried none of them**: `dejavusans-bold.ttf` was the printable ASCII, so the key would
+//     have painted a hole. It is made now with `python3 tools/ttf_latin1.py --set signs` —a third set of the
+//     tool: the pretty ASCII plus `±`, `×`, `÷`, the four arrows and the backspace—, **104 glyphs and 9 416 B**
+//     in place of 8 548 (**868 B** more of disk, and of RAM while the face is loaded), 78 points and 5 contours
+//     in the biggest glyph, inside the reader's 256 and 64. The letters with an accent are still not in it:
+//     an app that wants those loads `/fonts/dejavusans-latin1.ttf` (docs/30, docs/75);
+//   - **`apps/calculator` is the original, key for key**: the four signs in the keypad and `Symbols` with `×`
+//     and `÷` in the line of the display, written with `string.char` and never as the letter in the file, which
+//     is UTF-8 and would paint two marks where the key has one. The drawing was already the same call for call
+//     —`rect` grey 12 on the operators, `frame` on every key, the label centred in `title`—, and what still
+//     differs is the size: the four faces of the paper project were bitmaps baked at 33, 43, 57 and 82 px of
+//     line and this face steps **eleven** pixels, so the same four asked in pixels come out **33, 44, 55 and
+//     77** (docs/92 §34);
+//   - **the three keys that are not a figure have a grey of their own** (asked for by the owner the same day):
+//     `C`, the arrow of the backspace and `=` are filled with **grey 8** and wear **white letters**, and the four
+//     operations keep the **light grey 12** of the original, so the page reads «these three change the state and
+//     those four are the arithmetic». The two levels are `kOperatorGrey` and `kActionGrey` at the top of the page,
+//     one place each (`key_grey`), and the white letter comes out of the same test (docs/30, docs/92 §34);
+//   - **the bench carries every app** (asked for by the owner: «afegeix totes les apps a l'emulador»): the disk of
+//     `[env:emulator]` is `custom_apps_in_disk = yes` and, as the bench has no board, the filter of `make_disk`
+//     keeps every folder of `apps/` —**7 apps, 35 files, 295 793 B** measured on this machine: about, calculator,
+//     editor, home_eink, probe, reader and timeclock—, so the launcher shows seven cells instead of one and an app
+//     added tomorrow is on the bench without touching a line of configuration. They go in as **links**, so an edit
+//     is what the next run reads; the boards keep a short list, which is what their 4 MB of LittleFS allow
+//     (docs/70, docs/85);
+//   - **every line of a paint says the quality by its name** (asked for by the owner): `mode 3 gl16` and not
+//     `mode 3`, because a number has to be looked up in a header and the question «which quality painted this
+//     rectangle?» is the one the log is read for. `hal::mode_name` is the only table of the eight words
+//     (`lib/hal/include/hal/hal.h`) and the panel, the UI, the refusal of a page and the emulator all read it —
+//     the bench had its own copy, which is a second truth— (docs/50, docs/85);
+//   - **`exit`, `logout` and Ctrl+D close the session of the console, and what closing means is the console's
+//     business** (asked for by the owner): they are one verb with two names plus the byte a terminal ends its input
+//     with, and they ask `IConsole::virtual_terminal` —a policy the bench turns on from `main_host` with
+//     `pal::set_virtual_terminal(true)`— because the two consoles of this system are not the same thing:
+//     - **a serial port** is the console of a board **and it cannot be hung up**: nobody is at the other end to
+//       close the wire and it is the only way into a system with no glass. There **the session is not closed at
+//       all** — the board answers `logout: the session is closed; press Enter to open a new one`, throws the half
+//       line away, stops taking lines (a letter is not a line and an arrow is not a key) and **the Enter of the
+//       terminal opens a new one**, `login: a new session`, which is what a getty does;
+//     - **a virtual terminal** —the console of the bench, a program on a PC that somebody started— **really
+//       closes**: the line is written, the port is flushed and the run stops, which is what `poweroff` does on the
+//       bench too;
+//     - inside `lua`, Ctrl+D keeps its meaning: it leaves the interpreter. The case
+//       `test_the_session_of_the_console_closes_and_opens_again` says all of it, the two consoles one after the
+//       other, and boots the bench again so the cases after it find it running (test_shell, docs/30, docs/50,
+//       docs/85);
+//   - **and the size of a disk, corrected**: `docs/70`, `docs/80` and the comment of `platformio.ini` said that an
+//     image with all of `apps/` was *148 files and 418 720 B* and that the tool left two of them out. `apps/` is
+//     **35 files and 295 793 B** and the system alone **16 files and 130 217 B** (measured on 8/11), so that figure
+//     is withdrawn —it is not this tree's— and what fits is what `check_it_fits` prints on every build, not a
+//     number written in a document (docs/70, docs/80);
+//   - the case of the calculator **loads the bold face of the disk for itself** (the suite's bench carries
+//     none), asserts the four signs have a width on it, presses them by the byte they carry —`0xF7`, `0xD7`,
+//     `0xB1` and `0x81`— and reads the display as the original writes it, `Calculator: 8 ÷ 0 = Error` and
+//     `Calculator: 6 × 7 = 42`.
+// 0.159.0 (8/11): **the shell is the system's and not the wire's**. The owner asked for the shell to be usable from
+// anywhere in the system —an app asks and gets a session— with a handle whose three pipes are the shell's stdin, its
+// stdout and its stderr:
+//
+//   - **a session is a shell somebody asked for** (`kernel/shell.h`): `open_session` gives a handle and
+//     `session_write` are the lines, `session_read` the answers and `session_read_error` the complaints, and the
+//     lines go to the **same `execute`** the console uses —one shell, two doors— with no console in the middle, no
+//     prompt and no echo, because a pipe is not a terminal (docs/30);
+//   - **the redirection is one number**: every word of this file already went through `out_bytes`, so `g_sink` says
+//     where it goes —zero is the console and anything else is a session— and `error_out`/`usage_out` say that the
+//     line is the complaint, not the answer, for the length of one call. One place, and the prompt and the echo are
+//     asked for in `prompt()`, which stays quiet for a session (docs/30, docs/50);
+//   - **an app asks for it with `sys.shell()`** (docs/30, «Una sessió del shell»): a handle with `stdin`, `stdout`
+//     and `stderr` —each a closure over the id—, `close`, `dropped` and `id`, and the metatable of the handle in
+//     `luabind`. The six calls travel as a table of function pointers (`luabind::ShellOps`, installed by the boot
+//     with `shell::install_shell_ops`), because `luabind` never includes the kernel (docs/20);
+//   - **what it costs is asked and given back**: 1 024 B of answers and 256 B of complaints from the heap while a
+//     session lives and nothing when it closes, plus a line of 128 B; **one session at a time**, and the second
+//     answers `E_BUSY` with the reason instead of a queue nobody drains. A byte that does not fit its ring is
+//     dropped and counted (`sh:dropped()`), because an app that stops reading must not stop the shell (docs/75);
+//   - **`lua` is refused from a session** —the interpreter is the console's prompt and paints a view of its own— and
+//     `run` is already refused while an app is in front, which is the case of whoever has a session;
+//   - the case `test_a_session_of_the_shell_is_a_shell_with_three_pipes` (test_shell) runs a command and reads its
+//     answer, runs a word that is not a command and reads it on the **error** pipe, says `no` to a second session,
+//     closes the first with `exit`, and does the same again **from Lua** with `sys.shell()`, so the call of an app
+//     and the call of the kernel are one road.
+// 0.160.0 (8/11): **`&` sends an app to the background without a second task**. The owner asked for `run calculator &`:
+// the app starts, the prompt comes back at once, and its stdin, stdout and stderr are detached from the console that
+// started it.
+//
+//   - **the `&` is read where the line is cut** (`execute`): it is taken off the end, and it is **only an app** that can
+//     go there —every other command of this shell is over before a person could type the next one— so a `&` on one of
+//     them says `only an app goes to the background: `run <id> &`` and does not run it in silence (docs/30);
+//   - **nothing is threaded**: `g_app_detached` is the whole of it. The app is polled by the same turn of the kernel as
+//     any other, one thing at a time, and what changes is who owns the console: `feed` gives the lines to the shell
+//     instead of to the app (`g_app_alive && !g_app_detached`) and the prompt comes back for the shell
+//     (`!g_app_alive || g_app_detached`), which is what the person typed `&` for (docs/30, docs/50);
+//   - **a detached app's `print` goes to the log**: `luabind::set_console_attached(false)` sends `con_write` to the sink
+//     the kernel installs (`console_away`), which is one line of the log each and cut to what a line holds. Two writers
+//     on one prompt is the mess `&` exists to avoid, and an app that prints into the log is not an app that is silent
+//     (docs/30, docs/50);
+//   - **it ends the way it started**: a detached app that ends says `[<id> ended in the background]`, `close_app` and the
+//     end of the turn give the console back (`set_console_attached(true)`), and an app that asks for another one from
+//     the background keeps it detached —the continuation of the same wish and not a new page in front of a prompt—;
+//   - the case `test_an_ampersand_runs_an_app_in_the_background` (test_shell) writes an app that prints and waits, runs
+//     it with `&`, and measures the three things that matter: the app is alive, **its line is not on the wire** (it is
+//     the log's), and a line typed after it runs **in the shell** (it answers `version` and the prompt comes back); and
+//     that a `&` on something that is not an app is said and not obeyed.
+// 0.161.0 (8/11): **a strip of tabs whose tabs can be closed**. The owner asked for a terminal in the glass whose tabs
+// carry an `X`, and the strip had no such thing: a tab was a word and a finger could not press anything on it.
+//
+//   - **the cross is the strip's arithmetic and not the app's** (`tabs_draw_closeable`, `tabs_close_at`, `tabs_tab_at`
+//     of `kernel/ui.h`): `tab_cross_side` says how big the cross is —a third of the strip's height at most, a sixth of
+//     the tab at most— the paint puts it on the right of the tab and centred, and the two hits answer with the same
+//     box, so **what a finger presses is what the glass painted**. The cross a finger presses is at least
+//     `kTabCrossHit` (28 px) on a side, because a finger is not a mouse, and the word of the tab is measured against
+//     what the cross leaves so a long name is cut there instead of painted under it (docs/30, docs/90);
+//   - **`tabs_draw` did not change**: the strip with crosses is a call of its own, so every page that draws a strip of
+//     words draws exactly what it drew before (docs/30);
+//   - **`tabs:tap(x, y)` is the app's one call** (docs/30, «`ui.tabs`»): it takes the point of a finger, and the strip
+//     decides —a cross closes its tab and the app hears **`on_close(self, index)`**, a word chooses its tab and the app
+//     hears the `on_change` the dial already calls—. It answers true when the strip did something with the finger. It
+//     is one call because an app that worked out the columns would be a second arithmetic that presses a tab that is
+//     not there the day the strip changes;
+//   - **and the app is the one that frees**: the strip says *which* tab, and giving back what is behind it —a session
+//     of the shell, a file, a page— is the app's, because a strip does not know what a tab holds (docs/30).
+// 0.162.0 (8/11): **the Shell app, the system's own shell in the glass with tabs**. The owner asked for a Lua page with
+// a contextual menu, one tab a session, a cross on every tab and a terminal of black with white letters.
+//
+//   - **`apps/shell` is a client of the shell and not a second shell** (docs/30, «L'app `shell`»): every tab is a
+//     `sys.shell()` session, what a person types on the last line goes to `stdin`, and what the session answers is
+//     appended from `stdout` and `stderr`. The app never reads a line of its own, which is the whole reason the session
+//     API of 0.159.0 exists;
+//   - **the page is a terminal and it says so**: `ui.menu_bar` on top —**File**, with **New** opening a session and a
+//     tab and **Close** giving away the one in front—, `ui.tabs` with `closeable = true` below it, and a
+//     `ui.textbox_multiline` for the rest with `color = 15` and `background = 0`. The black page with white letters is
+//     a decision of the page and not a theme of the system (docs/30, docs/90);
+//   - **the box is read-only wherever the caret is not on the line of the prompt**, and that rule lives in the app
+//     because the multiline has **no caret-moved hook**: it reads `box.cursor` at every turn and sets `readonly` (and
+//     `keyboard`) from it. A page that is read is not a page a finger writes on, and the line of the prompt is
+//     (docs/30);
+//   - **the cross keeps its promise**: `on_close` closes the session before the tab goes away. One session at a time is
+//     the kernel's rule (`kMaxSessions`), so a tab that left its session open would also leave the page without a
+//     second tab (docs/30, docs/75);
+//   - **the Paper carries it** (its list goes from six apps to seven, **34 files and 278 127 B**) and the bench carries
+//     every app of `apps/` as before (**8 folders, 39 files, 305 615 B**), all of it measured on 8/11; **the image is
+//     what `make_disk` wrote that day and not the sum of those two numbers** —*`build/disk/m5-paper is 410534 B in 50
+//     files, 7 apps`* and *`build/disk/emulator is 438116 B in 56 files, 8 apps`*— and the figures of docs/70, docs/80,
+//     docs/85 and `platformio.ini` are those and no longer the ones of the seven-app tree (docs/70);
+//   - **the icon is the old project's style and not a black square**: the owner asked for it (*«aquesta icona es massa
+//     negre, poc amigable»*). The masters of `OLD/PaperOS/tools/icons/` are 448 × 448 and use **four levels and only
+//     four** —white 255, light grey 221, mid grey 170 and ink 68— with a thick rounded outline, so the window here is
+//     a **light grey screen with an ink outline**, a mid grey title bar with three dots, an ink prompt and one line of
+//     grey answer; `tools/make_icon.py` takes it down to 94 × 94 like every other icon of `apps/` (docs/40);
+//   - **what the compiler of 8/11 caught, and which is fixed here**: the three setters of `luabind` (`set_shell_ops`,
+//     `set_console_attached`, `set_console_away`) had been written **inside the file's anonymous namespace**, so they
+//     were three functions with internal linkage that the kernel could not link (`defined but not used` under
+//     `-Werror`), and `session_write` compared `session->line_used + 1` with `sizeof` across two signednesses. The
+//     setters sit outside the anonymous namespace now, and both environments build: `emulator` in 3 s and `m5-paper`
+//     in 87 s on 8/11, warning-free (docs/80);
+//   - the case `test_the_shell_app_is_a_page_with_a_session_of_the_shell` (test_apps) runs the app that ships on a
+//     board with a glass and a panel, and measures the half of it that is the kernel's: the app in front is `shell`, it
+//     **opened exactly one session** (id 1 — the ids are one based and zero is the console), and the session answers
+//     `version` with `kernel::kVersion`; `exit` closes it, so the page did not keep it for nobody.
+// 0.163.0 (8/11): **the pinch from big to small closes**. The owner asked for it as the gesture of leaving: a page
+// with one view goes out of the app, a page with several goes back one at a time, and a launcher cannot be closed.
+//
+//   - **the gesture is the system's and not the app's** (`touch::take_pinch_in`, `kPinchClosePx = 60` in the shell):
+//     it is taken out of the queue before the app reads it, the way the three taps are, because a gesture every app
+//     implements is a gesture one of them will not. **Only the ones that come from big to small**: a pinch that opens
+//     the fingers, or that comes back by less than sixty pixels —the step the paper project gave its pinches— stays in
+//     the queue and the app reads it with `touch.gesture()` as before (docs/30, docs/46);
+//   - **the views of an app are a number of the kernel** (`apps::views/view_push/view_pop/reset_views`): zero means the
+//     app is on its only page, and an app that shows a detail over the page it came from says `app.view_push()` and
+//     gives it back with `app.view_pop()`. The counter lives there because a pinch means the same wish everywhere and
+//     an app that kept the number itself is an app that can get it wrong; it starts at zero with every app and it goes
+//     with it when it leaves (docs/30);
+//   - **three wishes in `poll_app`**: a view on top is given back and the app hears **`on_back(depth)`**
+//     (`luabind::call_back`, a hook between turns like `on_resize`) so it draws the page below it again; with no views
+//     the app is closed and the page that asked for it comes back the way it does for the three taps; and **a launcher
+//     is refused with a line**, because `"launcher": true` is the app's own declaration (`apps::read`) and a board with
+//     no page at all is a board a person reaches with a cable (docs/30, docs/40);
+//   - **an app uses it**: `about` pushes its detail as a view and its `on_back` builds the cover again, so the gesture
+//     has one page that proves it. `home_eink` already says `"launcher": true`, so it is the first page a pinch does
+//     not close (docs/40);
+//   - the case `test_a_pinch_from_big_to_small_goes_back_and_then_closes` (test_apps) makes the gesture with two fingers
+//     of the bench —eighty pixels either side of the middle, four steps of fifteen coming back— and measures the three
+//     wishes: the counter goes 1 → 0 and the app hears `on_back(0)` and stays, the next pinch closes it, and a launcher
+//     with the same gesture is still there with its line in the log.
+// 0.163.1 (8/11): **the ways out go back one view before they close**. The owner saw the log of the middle key
+// —*«button: three taps, closing the app / app closed»*— and asked for the same as the pinch.
+//
+//   - **`shell::go_back_one_view` is one function and three callers**: the pinch from big to small, the three taps of
+//     the middle key (`button.cpp`) and the three taps on the glass (`luabind::exit_requested`) all ask it first. A
+//     page with views on top gives the last one back and hears `on_back(depth)`, and only the wish that finds no view
+//     closes the app. **«Go back» has one meaning**, and three places that each decide it is three places that can
+//     disagree (docs/30);
+//   - **the wish is spent on the view it took** (`luabind::clear_exit_request`): without it the next turn would find
+//     the same exit request and close the app anyway, which is the bug this version would have had (docs/30);
+//   - **the launcher stays the exception of the pinch and not of the keys**: three taps of the middle key still close
+//     a launcher, because that gesture is the escape hatch of a page that stopped listening —and on the launcher it
+//     does not even get there, since a grid of cells is focusable and the middle key is Enter (docs/30);
+//   - the case of the pinch grows: the app with a view pushed is started again and **three taps of the middle key**
+//     take the view (the counter goes 1 → 0 and the app stays, with the line `button: three taps, back one view`), and
+//     the three after it close it with `button: three taps, closing the app`.
+// 0.163.2 (8/11): **the shell app found three bugs in the new pieces, and they are fixed here**. The owner ran it and
+// got `attempt to index a boolean value` in `ui.present`, then the pipes refused their own colon.
+//
+//   - **`closeable` was read after the fields table was popped** (`l_tabs_draw`): the painter asked the stack for the
+//     field once the table under it was gone, so the value it indexed was whatever was underneath —a boolean, in the
+//     shell app— and every page with a strip that can be closed died on its **first present**. It is read before the
+//     pops now (docs/30);
+//   - **and `closeable` was a field the painter read and the strip did not accept** (`is_tabs_field`): the assignment
+//     fell through to the raw set, so a wrong value was a cross that did not appear instead of a line. It is a field
+//     of the strip now, true or false, and writing it marks the strip for a new paint (docs/30, docs/46);
+//   - **the three pipes take the colon the docs teach**: `stdin:write`, `stdout:read` and `stderr:read` are closures
+//     over the id of their session, and they looked for their argument at index one —so `s.stdout:read()`, which is
+//     how docs/30 and the app write it, passed the pipe table and answered `calling 'read' on bad self (number
+//     expected, got table)`—. A table in front is stepped over, and both `s.stdout:read()` and `s.stdout.read()` work;
+//   - **measured on the bench, 8/11**: the shell app comes up (`paint 12,12 516x888 gc16`) and runs twenty seconds with
+//     **no line of `lua:`**, and a probe app that writes `version\n` into its own session reads the answer back
+//     (`lunokOS 0.163.1  board m5stack-paper (emulator)`), so the pipes are a round trip and not a wish. Typing into the
+//     app's box was not exercised: the bench had no finger and no key in that run;
+//   - the case `test_a_strip_that_closes_its_tabs_draws_its_crosses` (test_apps) is the one that would have caught the
+//     first of them: a page with two tabs and `closeable = true` is presented, and the log has to say `present true`.
+// 0.164.0 (8/11): **a redirected app is an id with an asterisk and a name with the word of its unit**. The owner
+// found the launcher asking for the picture of an app of the card and getting nothing, and named the rule: `id: *shell`
+// with `name: Shell-SD` is `/sd/apps/shell`, and `id: *editor` with `name: Editor-Littlefs` is `/littlefs/apps/editor`.
+//
+//   - **the mark is on the id and the unit is on the name** (`vfs.cpp`'s `kRedirect`, `apps.cpp`'s `kRedirectMark` and
+//     `unit_word`): the id is a **path** —`/apps/*editor/res/icon.png` has to exist or the launcher cannot paint that
+//     cell— and the name is what **a person reads** in the grid and in the bar. The `-SD` used to be on the id, and then
+//     the picture of the duplicated app was the path of a folder no disk has: `editor-SD has no picture`, and the cell
+//     fell back to the letter of the placeholder (found on the bench on 8/11, docs/40);
+//   - **the same code that presents the duplicate does both**: the `/apps` listing of the card (`CardSink`) writes
+//     `*<folder>` instead of `<folder>-SD`, and `apps::load` appends `-<unit>` to the title of a marked id —`SD` for the
+//     card and `Littlefs` for the flash— so a board whose default were the card would name the flash copy the same way
+//     (docs/40, docs/70);
+//   - **the mark resolves by the same question the listing asked**: `*<folder>` is answered by the disk that does not
+//     carry `<folder>` as a plain app —the card when the flash has that folder, the flash when it does not— so the name
+//     and the path cannot disagree, and the old `-SD` stripping is gone (one rule and not two);
+//   - **the shell says the new name** where it told a person to run `-SD` after an install: it says `run *<id>`;
+//   - **measured on the bench, 8/11**: with a card carrying a copy of `editor`, the launcher logs
+//     `8 ids: *editor about calculator editor probe reader shell timeclock`, then `home: app *editor Editor-SD`, paints
+//     its cell (`paint 24,12 158x96`) and **no `has no picture` line for it**, which is the bug;
+//   - the case `test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD` asks the three things this
+//     version promises: `root_of("*twice")` is `/apps/*twice`, the door's entry is `id *twice` with the title
+//     `Card twice-SD` and `on_card`, and `/apps/*twice/res/which.txt` **reads the card's file**.
+// 0.164.1 (8/11): **the Shell app has a prompt, a fixed small face, and a page that is washed and rebuilt**. The owner
+// saw the page come up with the corners of the boot still on it, the keyboard over the text and the box painted twice a
+// second, and asked for the prompt and for a fixed, smaller letter.
+//
+//   - **the prompt is the app's**: a session of the shell has no prompt and no echo —a pipe is not a terminal— so the
+//     page writes `> ` in front of the line a person types and echoes the line when it goes. `at_the_prompt` is
+//     `box.cursor >= #tab.text`, which is one number and not a search for the last newline;
+//   - **the letters are three steps of the face** (`kTerminal = 3`, 33 px with the disk's bold and 21 with the flash's
+//     table): a terminal does not grow its letters with the screen, and this one is dense on purpose;
+//   - **the page washes the glass** (`ui.clear(15, 'gc16')`): the corners kept the picture of the boot because the app
+//     painted only inside its margins (docs/40);
+//   - **and it is built again when the system gives another view** (`on_resize`): the keyboard is the system's and
+//     always sits outside the app's view, so when it opens the view shrinks and the app heard nothing about it and kept
+//     painting its 778 rows over the band. It now gives the old controls back (`release`) and builds the page in the box
+//     it is given, with the tabs and their text (docs/30);
+//   - **what is still the system's and measured here**: with the keyboard as the box's target, an **idle** page paints
+//     15 times in 12 s against 5 without it —`caret_poll` invalidates the box **whole** and presents it in `du` every
+//     600 ms to blink the block, so a terminal pays a full-page `du` twice a second—. The block should cost the rect it
+//     occupies, and that is a change of the box's paint and not of this app (docs/30, docs/90);
+// 0.164.2 (8/11): **an empty strip washes its own box, and the defect that is still open is written down here**. The
+// owner closed the only tab of the Shell app and the page's layout broke.
+//
+//   - **what is fixed**: `tabs_paint` filled its box and then returned early on a count of zero —before the fill, so a
+//     strip with no tab left its words on the glass for ever— and `l_tabs_draw` skipped the painter for a count of zero
+//     as well (`count > 0`). Both are gone: a strip with no tab is a page state of its own and it washes itself
+//     (docs/30, docs/90);
+//   - **what is measured and is not fixed**: on the bench, **assigning a field of a strip does not repaint it**. A page
+//     with one strip presents, then `s.items = { 'Only' }` (or `s.index = 2`) and presents again: the second present
+//     paints **nothing** —one `paint 20,20 500x60` in the whole run, and no line after the second `present true`— while
+//     a label's `text` does repaint the page. That is why closing a tab leaves the strip as it was, and it is the defect
+//     to chase next: the `is_tabs_field` branch of `l_canvas_newindex` computes `redraw` and asks for the invalidate, and
+//     the paint that follows does not happen (docs/30, docs/90);
+//   - **the app waits for it**: `show()` with no tab leaves a bare prompt and `File -> New` opens a session again, so the
+//     page is legal with no tab —but the strip of the closed tab is still on the glass until the defect above is found—.
+// 0.164.3 (8/11): **the strip of the system is asked for whole when the glass under it stops being the bar**. The
+// owner: the splash erases the bar, and an app that opens repaints only what changed of it.
+//
+//   - **the picture of the app washes the whole panel** —the bar with it— and `bar` paints itself only when the minute,
+//     the title or the charge changes, so what the title did after the picture was **the box of the title** and not the
+//     strip: the hour and the battery stayed erased (docs/30, docs/50);
+//   - **`bar::refresh()` is asked right after a picture that washed the glass** —the app's splash in `run_app`, and the
+//     one a person asks for with the `splash` command— and **when the view comes back from full screen**
+//     (`ui::make_view`); the bar then paints its 48 rows whole with `gc16` on the next turn (docs/50);
+//   - **the moments that put the board down still do not ask for it**: `poweroff`, `reboot` and the deep sleep paint
+//     their picture through `power.cpp` and the strip does not come back on it —it must not, until the next boot—.
+//     The wish lives in the two places that put a page back on the glass and nowhere else;
+//   - **measured on the bench, 8/11**: an app whose manifest names a splash gives
+//     `[I][SPLASH] /apps/sp/res/start.png, 460x200 at 40,380` and then `gui: paint 0,0 540x48 gc16`, which is the strip
+//     painted whole over the picture; before this version the line after the splash was the box of the title only;
+//   - the case `test_an_app_that_names_a_picture_has_it_painted_before_it_starts` now reads two more pixels: the line
+//     under the strip (row 47) is ink and the paper of the strip (row 10) is paper, so the bar is back and what is above
+//     the page is not the wash of the splash.
+// 0.164.4 (8/11): **a command that opens a file says which file**. The owner, at the prompt: *«si cat demana <path>
+// perqué hexdump te <path> per defecte? no hauria de dir el mateix que cat?»*. It should, and now it does.
+//
+//   - **`hexdump` with nothing after it answers `usage: hexdump <path>`** and reads nothing: it used to answer with the
+//     7 168 B of `/rtc`, the one memory a person most wants to look at and the one thing a prompt must not guess. `cat`
+//     already said `usage: cat <path>` and now the two say the same thing (docs/30, docs/70);
+//   - **`ls` keeps its default** and it is not the same case: it lists a place and the door of the places is `/`, while
+//     `cat` and `hexdump` read a file and a file has to be named (docs/70);
+//   - **the help line says `<path>`** (`hexdump <path>    the bytes of a file in hex and in visible letters`), and the
+//     README and docs/70 no longer promise a default that does not exist: `hexdump /rtc` is how the memory is looked at;
+//   - the case `test_hexdump_with_no_path_says_what_it_wants` (test_shell) runs `hexdump` with nothing after it, asserts
+//     the line is the usage one, that it ran `false`, and that **no hex of the memory is on the wire**; then it asks the
+//     same of `cat`, so the two commands are measured together.
+// 0.165.0 (8/11): **the picture of the boot is full screen, in the fastest format the glass reads, and it says which build
+// it is**. The owner brought three webp pictures of his own and asked for them as the background of the splash, with a
+// discreet `lunokOS vX.Y.Z` in a corner in the system's face.
+//
+//   - **three pictures at the panel's own size** (`data/res/splash/boot-2.bmp`, `boot-3.bmp`, `boot-5.bmp`): 540 × 960,
+//     the middle of the square cut to the shape of the glass and scaled once, so the splash paints them **at 0,0 and
+//     whole** and not in the middle of a white page —the splash cuts an image bigger than the glass and leaves one that
+//     fits as it came, so the size has to be the panel's— (docs/30, docs/50);
+//   - **BMP and not PNG**: a picture of the boot is read at every boot and an uncompressed **8-bit paletted** file is a
+//     row and a table lookup per pixel, with no decompressor in the way —519 478 B each, and the decoder already hands
+//     4-bit rows to the glass—. The three are measured on the bench: `[I][SPLASH] /res/splash/boot-2.bmp, 540x960 at
+//     0,0` (docs/50);
+//   - **the stamp**: `lunokOS v<version>` drawn by `draw_version` after the picture is on the surface and before the one
+//     `gc16` that takes both to the panel, **black, at scale 2 of the face the system draws with and a margin of sixteen
+//     pixels** in the bottom right corner. At the boot that face is the five by seven of the flash —a stamp, which is
+//     what this is— and later it is the bold face of the disk (docs/30, docs/50);
+//   - **what is still to come, and the owner said so**: an argument with a **list of pictures** among which the splash
+//     picks one at random, and **formatted text**. The three files are named so that list has something to name, and the
+//     stamp is the first text a splash draws;
+//   - **measured on the bench, 8/11**: the page dumped after `splash /res/splash/boot-2.bmp` is 540 × 960 and its bottom
+//     right corner carries **980 dark pixels** of the stamp, which reads `lunokOS v0.164.4` in the crop.
+// 0.165.1 (8/11): **the picture of a moment is on the glass before the board goes**. The owner: the reboot picture opens
+// too late and is never seen.
+//
+//   - **why**: `splash::show` waits for the ink that was moving **before** its picture and then asks for a `gc16` of the
+//     whole panel —half a second of ink— and `reboot` restarted the board where the call found it, so the restart cut
+//     the paint and the glass kept the page of before (docs/50);
+//   - **`splash::wait()`** is the missing half: it gives the panel one turn of the queue —the driver takes the command of
+//     the paint on its next turn, so asking "is the ink over?" in the same millisecond answers about the ink of before—
+//     and then waits on `idle()` with the ceiling the splash already had, because a panel that never answers must not
+//     keep a board from restarting (docs/50);
+//   - **the three moments that put the board down ask it**: `reboot` (after writing its line, so the wire and the glass
+//     say the same thing), `poweroff` (after flushing the console and before cutting the supply) and the deep sleep
+//     (`power.cpp`). A light sleep paints nothing and waits for nothing (docs/50, docs/60);
+//   - **measured on the bench, 8/11**: `reboot` with the page dumped at the end leaves the picture of the moment on the
+//     glass —`reboot`, the line and `restarting`, and the stamp `lunokOS v0.165.0` in the corner, 5 158 dark pixels—
+//     where before the dump was the page of the prompt. **The bench cannot measure the wait itself**: its glass paints
+//     what it is given in the same call and the ink is not paid, so what the bench proves is that the picture is asked
+//     for and up at the end, and the waiting is what a real panel needs (docs/50, docs/85);
+// 0.166.0 (8/11): **the page of About is a list, one row a library with its name and its version**. The owner: *«usa una
+// llista i afegeix el nom de la llibrería i versió a l'entrada, així pots tenir més elements que els que caben a pantalla
+// i no cal fer el paginador merdós de "More XX to XX of XX"»*.
+//
+//   - **the rows are the entries of a `ui.list`** (`ui.list_entry` filled with two labels): the control places the ones
+//     that do not fit a page **out of its frame**, the dial turns the pages and **its foot says `1 / 4`**, so the app has
+//     no count of rows, no page, no `per_page` and no `More` row any more —four numbers and a sentence that the system
+//     already had— (docs/30, docs/90);
+//   - **the name and the version are two texts in one row and side by side**: the first attempt put the version at the
+//     bottom of the row and a label paints its own paper, so the small one **painted over the lower half of the name**
+//     and the page showed the libraries cut in half. The name keeps the left, the version a 96 px column on the right
+//     (docs/30);
+//   - **the list is given one row less than the room left**: its foot is a band of its own and a list that ends at the
+//     last pixel of the page leaves it cut at the edge, which is what the first version did (`1 / 4` half off the glass);
+//   - **measured on the bench, 8/11**: the dumped page reads `alarms 0.1.0`, `board_atom 0.1.0`, `board_esp32 0.1.0`,
+//     `board_matrix 0.1.0`, `board_paper 0.1.0`… with the separator of each row, and the foot of the list says `1 / 4`
+//     with the chevron of the pages after it; the app logs `about: 25 rows in a list of 567 px` and no `lua:` line;
+//   - the case `test_the_about_app_lists_the_libraries_of_the_project` now asserts that **the app's own paginator is
+//     gone** (`about: cover page` is not in the log) and that the list was built with the rows of the tree.
+//
+// 0.166.1 (8/11): **the grid of the launcher gets its size, and the cell that the system has just filled is the one that
+// is refreshed**. The owner: *«vull les icones i el text mes gran al grid. I evidentment has de refrescar millor l'ara de
+// l'icona que s'acaba d'actualitzar»*.
+//
+//   - **two columns instead of three and a name at 33 px instead of 22** (`kColumns`, `kName`): a cell is 250 wide with
+//     its padding and the name of `EPUB reader` fits in one line with room to spare, and the box of the cell is
+//     recomputed in `build()` from the width of the view, so a narrow glass gets narrower cells instead of a name that
+//     runs off the edge (docs/30, docs/90);
+//   - **the mark of the cell stays 72 px, and that was measured three times**: the cap of `icon_grid_cells` was raised to
+//     120 and then to 96 and the bench gave **exactly the same two cells without a picture in all three runs** (`Squares`
+//     and `Timeclock`), so the size of the canvas was never the cause and a canvas of 120 x 120 at four bits is 7 200 B
+//     of a page for no measured gain (docs/75);
+//   - **why those cells are empty is in the disk, not in the grid**: `squares` is an app of the emulator's SD card
+//     (`emulator/sd/apps/squares`) with a `manifest.json` and a `squares.lua` and **no `res/` and no `icon` field at
+//     all**, and the card's `editor` and the workspace's `probe` are the same, so the cell is a name and no picture and
+//     that is what the manifest says (docs/40);
+//   - **one cell is still open and it is not explained**: `timeclock` lives in `apps/timeclock` **with** a
+//     `res/icon.png` and comes out with its name and without its picture in all three runs of the bench (docs/90);
+//   - **the present is one per app, right after its picture** (the app's loop): a single paint of the whole page when the
+//     queue is over was tried and measured wrong —it lands **before** the cells arrive, so the last pictures of the grid
+//     stay unwritten—, and the owner's sentence asks for the opposite: the cell that has just been filled is the one that
+//     goes to the glass;
+//   - **measured on the bench, 8/11**: `home: 9 cells`, `lua: 0`, one `[I][UI] paint 0,0 540x912 mode 1 du` for the wash
+//     of the page and then a `gc16` per cell, and the dumped page shows the apps of the disk in two columns with their
+//     names at 33 px (`Editor-SD` from the card, `About`, `Calculator`, `Editor`, `Probe`, `EPUB reader`, `Shell`);
+//   - **and a defect is left open and named here** (measured, not fixed): with a state built from nothing the grid of the
+//     launcher comes out **empty** —`home: about has no picture: this canvas is not on the screen any more` five times—
+//     because the stream of pictures writes into canvases that a second `build()` of the view has already given back.
+//     That is the second half of the owner's sentence, and it is the next piece of work (docs/90).
+//
+// 0.166.2 (8/11): **the word of the unit in the name of a redirected app is read and not only written**. The owner: *«si
+// l'id porta asterisc davant, has de mirar l'última paraula amb guió del nom de l'app "Editor-SD"»*.
+//
+//   - **`name_says_unit` reads the last word behind a dash of the title** and answers which unit the name claims, so a
+//     manifest that already says `-SD` keeps its name instead of becoming `Editor-SD-SD`, and a name that says one disk
+//     while the door answered the other **keeps its word** and puts a line in the log naming both —a person reads the
+//     name, and hiding one of the two would be the lie— (docs/40, docs/70);
+//   - **the paths are still the door's**: the word decides what the name says and `vfs` decides which disk a file comes
+//     from, so a name that disagrees with its disk cannot send an app to read the other copy's files (docs/70);
+//   - **measured on the bench, 8/11**: the launcher logs `home: app *editor Editor-SD` with `[I][APPS] *editor`, and with
+//     `cfg home none` the same id runs —`editor: File opens, saves and closes...`— which is the card's
+//     `emulator/sd/apps/editor`. The `cannot start the interpreter` that `--run '*editor'` gives **with the launcher
+//     still in front** is the interpreter of the launcher holding the heap and the second one not fitting, not a name
+//     that does not resolve (docs/45 D1, docs/75);
+//   - **and the missing picture of that copy is a fact of the disk and not of the resolution**: `home: *editor has no
+//     picture` is a card folder with a `manifest.json` and an `editor.lua` and **no `res/` at all**, so there is nothing
+//     to draw (docs/40);
+//   - the case `test_a_name_that_already_says_its_unit_keeps_its_word` covers the three readings: a name with the word
+//     of its own disk is not given a second one, a name that says the other disk keeps its word, and a bare `SD` in a
+//     name is a name and not a unit.
+//
+// 0.166.3 (8/11): **an app is started only when the one in front has let go of the interpreter**, and that is what the
+// owner saw as a name that does not resolve.
+//
+//   - **`run_app` closes the app in front first**: `luabind::start` answers no while a state is alive —`if (g_state !=
+//     nullptr) return false`—, so `run <id>` with an app in front said `cannot start the interpreter` **for every id of
+//     the disk** —`editor`, `shell`, `about`, `*editor`, all four measured on the bench on 8/11—, which a person reads as
+//     «`Editor-SD` does not resolve» and is a start that never happened (docs/30, docs/40);
+//   - **and it is the same road an app that asks for another one takes**: the goodbye hooks, the views, the colour and the
+//     bar go with the app that leaves, so the app that comes up is in the same state as one the launcher asked for by a
+//     tap (docs/30, docs/90);
+//   - **measured on the bench, 8/11**, with the launcher in front and `run <id>` from a script: before, `cannot start the
+//     interpreter` for all four; after, `app closed` then `[I][APPS] *editor` and `editor: File opens, saves and closes;
+//     View is read only and wrapping`, which is the card's copy of `emulator/sd/apps/editor`;
+//   - **and the two halves of the owner's report are answered**: the id `*editor` **does** resolve —`/apps/*editor` is
+//     the card's folder— and what it was missing was the interpreter, not the name; the picture of that copy is missing
+//     for a reason of the disk (`emulator/sd/apps/editor` has no `res/` at all), which is what `home: *editor has no
+//     picture` says (docs/40, docs/70).
+//
+// 0.167.0 (8/11): **one road out of a page, the pages said in dots, and a picture for the card's editor**. The owner:
+// *«a l'About, si entro en una opció de la llista no puc sortir... les 3 pulsacions del botó central tanca l'app però no
+// torna a Home... 3 botons => back, 3 tocs => back, pinch => back»*, *«a la llista de llibreries no usis un paginador
+// manual, usa el paginador de boletes (slide esquerra i dreta et desplaça per la llista)»*, *«revisa el refresc de l'app...
+// al tancar una vista, el sistema avisa a la vista de sota que es redibuixi»*.
+//
+//   - **`shell::leave_one_page()` and its four answers**: a page with another one on top gives the top one back and stays;
+//     a page that is the only one goes with the app **and the page that asked for it takes the glass back**, which is the
+//     launcher; a launcher is the one page that is not left; and no app at all is nothing to do. The **pinch**, the
+//     **three presses of the middle key** and the **three taps on the glass** all call it, which is what the header of
+//     `go_back_one_view` already promised and only two of the three did —the button closed the app and left the prompt
+//     where the launcher had been, which is exactly what the owner described— (docs/30, docs/45);
+//   - **the three presses are the system's on every page** (the exception for a page with controls is gone): the owner's
+//     About detail has a Back control, and the gesture he asked for is the one that has to work there. The first two
+//     presses are still delivered to the page, so the ring moves as it did (docs/30, docs/90);
+//   - **the system owes the page when a view is given back** (`ui::owe_the_page()`): the page below was drawn before the
+//     one on top of it, so its ink is not under the glass any more and the app's next present is the **whole view with
+//     `gc16`** instead of the damage of the page it has just built. It is the system's business because the system made
+//     the change of page (docs/30, docs/50);
+//   - **the pages of a list are dots** (`list_draw`): the page on the glass is one full dot and the others are hollow
+//     rings in the middle of the band, and the arrows and the `1 / 4` went with them. A count that does not fit a row of
+//     dots is said in numbers, because dropping the only sign of the page would be worse than the number (docs/90);
+//   - **the About turns its list with a slide**: `touch.gesture()` in its loop, a drag of forty pixels that is mostly
+//     horizontal, left for the page after and right for the one before, and the list clamps the number (docs/30);
+//   - **and the room of that list is two rows less**: the head is measured by the app with `ui.text_width` and placed by
+//     the panel with the face it draws with, and the two disagreed by one line of the big size —the list of 0.166.0 ended
+//     20 px under the glass and the foot of the page was **off the page**, found on the bench on 8/11 with a dump— (docs/30);
+//   - **the card's editor has a picture**: `OLD/PaperOS/data/app/Editor/icon.icn` is a square of four bits a pixel without
+//     a header —4 418 bytes are 94 x 94— and it is `emulator/sd/apps/editor/res/icon.png` now, named by that copy's
+//     manifest, so `home: *editor has no picture` is gone (docs/40);
+//   - **measured on the bench, 8/11**: the About page dumps one full dot and three hollow ones at `x 247..292, y 849..854`
+//     under a list of `25 rows in a list of 503 px`, `lua: 0`, and the eight separators of the rows at `615, 679, 743,
+//     807, 861` with the band of dots under the last one (docs/30, docs/85).
+//
+// 0.167.1 (8/11): **the list of the libraries has no frame**. The owner: *«no posis vora a la llista de llibreries
+// d'About»*. The focus of a list is drawn as a two-pixel frame around it, which is right for a list whose rows the system
+// paints —there the frame is the only thing that says where the list is— and wrong for a list of entries: those rows are
+// controls of the app, each with its own paper and its own ring, so the frame was a box nobody asked for around the whole
+// column. Measured on the bench with a dump of the page: the two pixels at `x 20` and `x 518` along the list are gone and
+// the rows, the separators and the dots are where they were (docs/30, docs/90).
+//
+// 0.168.0 (8/11): **the law of the redraw, written down, and the first half of it made true**. The owner: *«els UIControl
+// només ha de redibuixar la part que ha canviat del anterior fotograma, no tot el control… En cas de que el sistema demani
+// un redibuixat de la vista a una app, aquesta ho farà a la qualitat que necessiti… el sistema sempre et passarà una vista
+// neta. Ell ha d'esborrar la vista i la pantalla abans de passar-te la vista. Preferiblement d'una sola pasada»*.
+//
+//   - **the law is a memory of the project now** (`/memories/repo/lunokOS-drawing-law.md`): a control draws the part that
+//     changed and nothing else, in the smallest area and the quality its graphics need; the system hands a clean view in
+//     one pass and the app chooses what to paint and in which quality; the system asks for a whole view when an app starts
+//     and for a part when a part of the view is dirtied (docs/30, docs/50);
+//   - **`attach()` already did the system's half**: it releases every control of the app before, fills the view with white,
+//     clears the damage and asks the glass for the whole page with the cleaner the last page deserves —one pass, before a
+//     single control of the new app exists—. It is measured on the bench: `gui: paint 0,0 540x960 gc16`, once, and nothing
+//     else until the app presents (docs/30, docs/50);
+//   - **and a `ui.clear(15, …)` on a page the system has just handed white costs nothing** (0.168.0): `g_page_owes_nothing`
+//     is set by `attach()` and cleared by the first control composed into the page or by any other wash, so the eleven
+//     `ui.clear` calls of six apps —About 2, Editor 2, Shell 2, Timeclock 3, Calculator 1, Home 1— stop paying a second
+//     whole-page clean for paper that is already clean. **Measured on the bench, 8/11**: running About logs
+//     `a clear of a page the system handed white: nothing to wash` once and the whole-page paints of the run are **one**
+//     (the system's) instead of two, with the page still whole —separators at `551, 615, 679, 743, 807` and the four dots
+//     at `y 850..853`— (docs/30, docs/50);
+//   - **what is left of the law and is not done**, said here so it is not forgotten: (1) `canvas_invalidate` marks a
+//     **whole** control and is called from **31 places** of `luabind.cpp`, so a label whose text changes repaints its whole
+//     box; (2) `caret_poll` repaints the whole box of several lines every 600 ms, which wants a `textbox_caret_box` in the
+//     kernel and one rectangle of damage; (3) `list_draw` and `tabs_paint` fill their whole frame on every draw instead of
+//     the rows and the tab that changed (docs/30, docs/90).
+//
+// 0.168.1 (8/11): **a focus that moves repaints two controls, each in its own box, and cleans them**. The owner:
+// *«al moure el focus s'han de redibuixar dos controls, el nou per dibuixar-lo amb focus i l'anterior que s'ha de
+// dibuixar sense focus»*.
+//
+//   - **the two controls were already the two**, and it was measured with a bench app of two buttons: `ui.focus(two)`
+//     invalidates the one that loses the ring and the one that takes it, and nothing else (`ui_apply_focus`). What was
+//     wrong was the **quality** and the **area** (docs/30);
+//   - **the quality was `du`, which paints and does not take ink away**: the ring that went stayed on the glass as a ghost,
+//     which is what the owner saw. `ui_feedback` —the paint of a focus and of a press— presents now with **`gl16`**, that
+//     cleans the box without the flash of `gc16` (docs/30, docs/50);
+//   - **and the two boxes were merged into one**: presenting everything pending with one quality went through
+//     `merge_all`, which turns the two regions into the rectangle around both —measured on the bench, 8/11: two boxes of
+//     `300x64` at `y 40` and `y 320` became **one of `300x344`**, 103 200 pixels of ink where 38 400 are owed—. The new
+//     `ui::present_each` writes the quality into each region that already exists and leaves the boxes where they are, and
+//     `ui_feedback` goes through it with the ops table (docs/30, docs/50);
+//   - **measured on the bench, 8/11**: moving the ring from `One` to `Two` paints `20,40 300x64 gl16` and
+//     `20,320 300x64 gl16` — two regions, the two controls, the air between them untouched — and the log of the run has no
+//     other paint between the two names (docs/30, docs/85);
+//   - `present_all` keeps merging, because an app that asks for a whole page with one quality asked for exactly that.
+//
+// 0.168.2 (8/11): **the redraw box of a control is real for every control, and the caret is the first one that says which
+// part changed**. The owner: *«un control que es vol redibuixar ha de cridar a tots els controls fills demanant-los el seu
+// buffer… el pare rep el canvas del fill i després decideix quines parts pintar de si mateix (incloent l'àrea del fill)»*
+// and *«ho has d'aplicar a tots els controls del sistema»*.
+//
+//   - **the composition already worked that way**: `compose_region` copies only the damaged regions of a child, cut at the
+//     father's border, with the child's quality, and the father takes them as its own damage. What was missing is that
+//     **the redraw box of a control without a view of its own was never applied**: most controls of this system —labels,
+//     buttons, boxes of text— paint straight into the nearest canvas that has one, so the rectangle lived on the control and
+//     the paint went out whole. `open_draw` now **cuts it into that canvas**, in that canvas' pixels, which is one change
+//     that every control inherits (docs/30, docs/90);
+//   - **and the caret is the first control that says which part changed**: `textbox_draw` and `textbox_multiline_draw`
+//     record the block of the caret in the canvas that draws it, `textbox_caret_box` brings it back to the control's pixels
+//     —a box with no view drew its caret on canvas 0, which is the page, and asking the control for a box it never had is
+//     why the blink went on painting everything— and `caret_poll` invalidates **that** rectangle instead of the control. A
+//     whole invalidate forgets the block, because the text or the cursor moved and the old rectangle is a guess (docs/30);
+//   - **measured on the bench, 8/11**, a box of text of `420x64` with the ring on it and the caret blinking every 600 ms:
+//     before, **8 paints of `420x64`** —215 040 pixels of ink for nine seconds of a blinking cursor—; after, **one paint of
+//     the page and seven of `10x33`**, which is 2 310 pixels: **98,8 % less ink** for the same blink (docs/30, docs/50);
+//   - **what is left for the same law**, said so it is not forgotten: the fields of the other controls still invalidate the
+//     whole control —`canvas_invalidate` in 31 places of `luabind.cpp`— and for most of them the whole control **is** the
+//     minimal area (a label's text is its box, a panel's paper is its box); the ones that can do better and do not yet are
+//     the slider's value, the progress bar, the two tabs of a strip and the changed row of a list (docs/90).
+//
+// 0.168.3 (8/11): **the launcher does not rebuild its page for a resize that says the size it already has**, and the
+// question of the lost pictures got an answer instead of a patch.
+//
+//   - `on_resize` compares the size with the page on the glass and returns when it is the same one: rebuilding threw seven
+//     picture canvases of 72 x 72 (18 144 B) and a whole-page paint to end in the same page (docs/30, docs/50);
+//   - **and the lost pictures were measured, not guessed**: with the app started **twice** —`lunokOS` boots its home app
+//     and a bench asked for it again with `--run home_eink`, which the log says with `[I][APPS] home_eink` twice— the first
+//     instance's grid and its seven canvases are released while its queue of manifests is still filling the cells, and
+//     every picture that arrives after that answers `this canvas is not on the screen any more`. **Started once, the page is
+//     built once and all seven pictures are there** (`home: 7 ids`, `home: 7 cells`, `no picture` zero times, measured with
+//     a dump of the page on 8/11) (docs/30, docs/85);
+//   - **why a name can go and a picture cannot be recovered**: `ui.canvas` is the only control of this system with a buffer
+//     of its own —`create_control(L, true)`— and the picture lives in those bits, so it can be given to the glass again
+//     without redrawing it; a name is a label, which has no canvas and is painted straight on the page, so it exists only
+//     while the page that painted it is the page on the glass (docs/30, docs/90).
+//
+// 0.168.4 (8/11): **a father that repaints itself asks its children for their pixels again**, which is the lost content of
+// the launcher when the ring moves. The owner: *«l'efecte de perdre el contingut és quan uso el focus»*.
+//
+//   - **the cause**: the ring of a cell calls `grid.index = index` and `grid:invalidate()`, and a whole invalidation painted
+//     the **grid's paper over its cells**. A child with nothing changed of its own was never composed again —`compose_tree`
+//     only carries what is in `damage`— so the picture of the cell stayed under the paper and the name, which has no canvas
+//     at all, was gone from the glass for good (docs/30, docs/90);
+//   - **two halves of the fix, one rule**: `invalidate()` now **walks the subtree** and invalidates every child, and
+//     `invalidate_rect()` makes a control **with bits** owe its rectangle as damage again —`gl16`, because the paper that
+//     covered it was a wash—. A control without bits needs no damage of its own: drawing is what marks it, and `needs_draw`
+//     is what makes it draw (docs/30);
+//   - **measured on the bench, 8/11**, a `ui.icon_grid` of two cells with a black picture of `72x72` and a name in each, the
+//     grid invalidated as the ring does: before, the grid painted `20,20 400x220` and the ink inside it fell to **2 376**
+//     pixels —the frames and nothing else—; after, the same paint and then `40,30 72x72 gl16` and `240,30 72x72 gl16`, with
+//     **12 744** pixels of ink inside the grid. The two pictures and the two names are back (docs/30, docs/50);
+//   - and the launcher of the disk is unchanged in a clean run: `home: 7 ids`, `home: 7 cells`, **no `no picture` line** and
+//     35 840 pixels of ink in the grid (docs/85).
+//
+// 0.169.0 (8/11): **a picture can be given with its own transparency, and an app that does not ask pays not one byte**. The
+// owner: *«si cal, fem-ho! que sigui opcional per estalviar memòria»*.
+//
+//   - **the alpha of a PNG is now a mask and not a flattening**: the decoder reads the alpha it was already reading and, when
+//     the caller asks for it, hands a row of nibbles a pixel —`15` where the picture has a pixel, `0` where it leaves what
+//     is under it— **before** the colours of that row. **The row lives in the caller's scratch and not in the firmware's
+//     data**: the first attempt made it a `static` of the decoder and the DRAM of the Paper overflowed by **1 064 bytes**,
+//     which is exactly the kind of cost this project refuses —a feature nobody uses taking memory of everybody—. The
+//     scratch of a PNG is two rows now instead of one, and it is a block the caller already allocates in the extra memory
+//     (docs/30, docs/75);
+//   - **`canvas:image(x, y, path, w, h, mode, 'mask')`** is the seventh argument, and `ui.image` the seventh of its own:
+//     without it the white of the alpha is painted over the canvas as it always was, with it the pixels stay as the canvas
+//     had them. The manifest does not change, no file is added, and a picture without transparency is drawn the same either
+//     way (docs/30);
+//   - **measured on the bench, 8/11**, a `72x72` PNG with a transparent ring and a black square in the middle, drawn twice
+//     over a canvas of grey 8: **without** the mask the ring is `255` —white paper painted over the grey— and **with** it the
+//     ring is `136`, the grey of the canvas; the square is `0` in both. The whole feature is one row of 271 bytes and a
+//     branch in the row writer (docs/30, docs/50);
+//   - **and a picture of a family that carries no transparency gives no mask**: it is drawn as if everything were there,
+//     which is what a BMP or a JPEG is (docs/30).
+static const char kVersion[] = "0.169.0";
 
 }  // namespace kernel
 

@@ -11,9 +11,12 @@ namespace kernel {
 namespace apps {
 
 struct Entry {
-  // **The id is the name the door presents** (0.88.20): `squares` for the app of the flash and `squares-SD` for the copy
-  // of the card, so it has room for the suffix on top of the longest folder the disks carry.
+  // **The id is the name the door presents** (0.88.20): `squares` for the app of the flash and **`*squares`** for the
+  // copy of the card (0.164.0), which is the mark of a redirect, so it has room for the mark on top of the longest
+  // folder the disks carry.
   char id[40];
+  // **The name a person reads, and for a redirect the word of its unit at the end**: `Editor-SD` is the card's copy
+  // and `Editor-Littlefs` the flash's, which is the unit the redirect resolves to (0.164.0, docs/40, docs/70).
   char title[48];
   char version[16];
   char entry_file[48];
@@ -73,17 +76,17 @@ typedef bool (*Visitor)(const Entry& entry, void* context);
 
 // **The one door of the apps** (0.88.20): `/apps` is the virtual directory that puts the flash's `apps/` and the card's
 // `apps/` together, and it is the only place the system looks —the listing, the `run` and the files of an app all go
-// through it—. A name the flash has and the card also has is presented **once as `name` and once as `name-SD`**, so the
-// two can be read and run apart, and what the door presents is what the system decides to present: a folder that is not
-// an app is not in it, and a disk the system did not offer is never read (docs/40, docs/70).
+// through it—. A name the flash has and the card also has is presented **once as `name` and once as `*name`** (0.164.0),
+// so the two can be read and run apart, and what the door presents is what the system decides to present: a folder that
+// is not an app is not in it, and a disk the system did not offer is never read (docs/40, docs/70).
 extern const char kAppsDoor[];
 
 // **Whether there is a card in the slot**: the mount says so and not a folder, because a card the system could not
 // mount is not a place to look for anything in (docs/50, docs/70).
 bool card_here();
 
-// **The id of the door of an app, `name` or `name-SD`**: `/apps/<id>`, which the filesystem answers from the disk that
-// has that app (docs/40, docs/70).
+// **The id of the door of an app, `name` or `*name`**: `/apps/<id>`, which the filesystem answers from the disk that
+// has that app —the mark of a redirect is answered by the disk the plain copy is not on— (0.164.0, docs/40, docs/70).
 bool root_of(const char* id, char* out, size_t cap);
 
 // **What the door of the apps presents** (0.88.20): the kernel hands this to the VFS, which asks it for every name of
@@ -130,6 +133,17 @@ void install_apps_ops();
 // The first app (in directory order) that declares "opens" for ext. When more
 // than one does, matches says how many; the caller decides what to say.
 bool find_for_extension(const char* ext, Entry& out, uint32_t& matches);
+
+// **The views of the app in front, on top of its first one** (0.163.0): an app that shows a detail over the page it
+// came from says so with `app.view_push()` and gives it back with `app.view_pop()`, and this is the number the system
+// reads when a finger asks to go back —zero means the app is on its only page, which is the page a pinch closes—.
+// **The counter lives here and not in the app** because a pinch means the same wish everywhere and an app that had to
+// keep the number itself is an app that can get it wrong (docs/30, docs/46). It starts at zero with every app and it
+// goes back to zero when one leaves (docs/30).
+uint8_t views();
+uint8_t view_push();
+uint8_t view_pop();
+void reset_views();
 }  // namespace apps
 }  // namespace kernel
 

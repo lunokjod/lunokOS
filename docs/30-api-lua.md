@@ -148,6 +148,69 @@ funció.
 | `sys.delay(ms)` ⏳ | promesa | Espera sense tocar la cua d'alarmes ni el port sèrie |
 | `sys.time_ms()` | enter | Rellotge monòton en mil·lisegons. **Mai salta enrere** |
 | `sys.reboot(reason)` | no torna | Permís: cap |
+| `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
+
+## Una sessió del shell (0.159.0)
+
+**El shell és del sistema i no del fil** on li toca parlar. `sys.shell()` en demana una sessió i torna un objecte
+amb les tres canonades d'una —`stdin`, `stdout` i `stderr`—, i el shell que hi ha a sota és el mateix que atén el
+prompt: la línia que s'escriu al primer és una comanda que el sistema executa, el que contesta surt pel segon i el
+que es queixa pel tercer. Sense consola al mig, **sense prompt i sense eco**: una canonada no és un terminal, i el
+que llegeix l'app és el que la comanda ha dit i res més (docs/75).
+
+```lua
+local sh = sys.shell()
+if sh == nil then
+  console.print('sense sessió')
+  return
+end
+
+sh.stdin:write('version\n')          -- una comanda per línia, com al prompt
+local said = sh.stdout:read()        -- el que ha contestat (cadena; buida vol dir res encara)
+sh.stdin:write('no_existeix\n')
+local why = sh.stderr:read()         -- el que s'ha queixat, pel seu costat
+sh:close()                           -- o escriure 'exit\n' al stdin, que és com es deixa un shell
+```
+
+- **`stdin:write(text)`** → `true` si el shell l'ha pres. Una línia acaba amb `\n`; un `\r` s'ignora, perquè un
+  terminal n'envia dos i una canonada un. Una línia de més de **127 bytes** es rebutja i es diu pel `stderr`.
+- **`stdout:read([màxim])`** i **`stderr:read([màxim])`** → el que hi ha ara mateix, fins al màxim (1 024 B com a
+  sostre); una cadena buida és una canonada buida i no el final de res.
+- **`sh:dropped()`** → quants bytes s'han perdut perquè ningú llegia. És el número que diu que una app s'ha
+  quedat curta de lectura; **el shell no s'atura mai per una canonada plena**.
+- **`sh:close()`** o un `exit`/`logout` al `stdin`: la sessió s'acaba i les canonades es tornen. El `__gc` ho fa
+  igual si l'app s'oblida.
+- **`lua` no es pot demanar des d'una sessió**: l'intèrpret és del prompt de la consola i pinta una vista seva; el
+  shell ho diu i no ho fa. `run` tampoc, perquè una app ja és al davant quan demana la sessió.
+- **El que costa**: 1 024 B de respostes i 256 B de queixes **demanats al heap** mentre la sessió viu, i res quan es
+  tanca. **Una sessió alhora**: la segona rep `E_BUSY` amb el motiu, i no una cua que ningú buida (docs/75).
+
+## L'app `shell`: el terminal amb pestanyes (0.162.0)
+
+**`apps/shell` és el shell del sistema al vidre i no una segona implementació**: cada pestanya és una
+sessió de `sys.shell()` i l'app només fa de pàgina. La composició és la d'un terminal —**la barra de
+menú a dalt, les pestanyes a sota i la caixa negra amb lletra blanca** la resta—, i per això no
+s'assembla a cap document del sistema: aquí no es llegeix, aquí s'escriu.
+
+| La peça | Què fa |
+|---|---|
+| `ui.menu_bar`, títol **File** | **New** obre una sessió (i una pestanya) i **Close** tanca la que és al davant. És `on_pick(self, title, entry)` qui ho rep |
+| `ui.tabs` amb `closeable = true` | una pestanya per sessió, amb una **creu a la dreta** que el sistema dibuixa i que arriba com a `on_close(self, index)`; el cos de la pestanya arriba com a `on_change(self, index)` i el dit, per `tabs:tap(x, y)` |
+| `ui.textbox_multiline` amb `color = 15` i `background = 0` | el full del terminal. **La lletra blanca sobre negre és una decisió de la pàgina**, i el color 0 no vol dir «sense color» sinó negre |
+| `session.stdin:write` / `stdout:read` | el que una persona escriu a l'última línia se'n va a la sessió; el que la sessió contesta s'afegeix al text de la pestanya |
+
+- **La caixa és de només lectura i la línia del prompt no ho és.** Una pàgina que es llegeix no ha
+  de poder-se tocar, però l'última línia és on s'escriu, i el que decideix és **el cursor**:
+  l'app mira `box.cursor` a cada torn i posa `box.readonly = false` (i `box.keyboard = true`) quan és
+  a l'última línia. Aquesta regla viu a l'app i no al control perquè **la caixa de diverses línies no
+  té ganxo de cursor mogut** —`on_change` només arriba quan canvia el text—; si algun dia el té, el
+  lloc d'aquesta regla és el control.
+- **Una línia que acaba en salt de línia és una comanda** i surt del full: el shell és qui l'ecoïa, i
+  la resposta torna per `stdout` com tota la resta. Una línia que no acaba en salt es queda a la
+  pàgina, que és el que fa un terminal mentre s'escriu.
+- **La creu és una promesa**: `on_close` crida `session:close()` abans de treure la pestanya. Una
+  pestanya que marxa amb la sessió oberta deixa una sessió que ningú no llegeix (i la segona sessió
+  rep `E_BUSY`, o sigui que la pàgina es quedaria sense cap pestanya nova possible).
 
 ## Saber on s'executa
 
@@ -219,6 +282,9 @@ sistema i és el primer client d'aquestes dues crides.
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
 | `app.run(id[, back])` | `true`, o `nil, error` | **Arrenca una altra app** (0.153.0): l'app que hi ha davant es tanca amb els seus comiats i la del `id` ocupa el seu lloc. És **un desig i no un canvi immediat** —qui pregunta és la mateixa app que el intèrpret té a sota, i tancar-la dins la crida destruiria l'estat on la crida corre—: el nucli el porta a terme al final del torn, i fins aleshores `app.run` ha contestat `true` i no ha passat res. **`back` és la tornada i val `true` si no es diu**: quan l'app que s'ha obert s'acaba —o tres tecles la tanquen— la que va preguntar torna a la pantalla, que és el que vol un llançador i l'única manera de tornar en una placa de tres tecles. `app.run(id, false)` és un traspàs sense tornada. **El motiu del no és del sistema**: l'app que es demana a si mateixa, un `id` que no és al disc i una app d'una altra placa es diuen amb el seu `message` (`E_INVAL`), i no passa res més |
+| `app.view()` | enter | **La vista d'una app, per què és el nombre de pàgines que té a sobre de la primera** (0.163.0): `0` és una app que només té una pàgina, i és el que el sistema llegeix quan un pessic demana tornar (vegeu `app.view_push`) |
+| `app.view_push()` | enter | **Una pàgina a sobre de la que hi havia** (0.163.0): una app que obre un detall sobre la llista ho diu amb aquesta crida, i torna el nombre nou. És el número el que fa que un pessic doni el detall en lloc de tancar l'app |
+| `app.view_pop()` | enter | **La pàgina de dalt, tornada** (0.163.0): la mateixa que baixa el pessic i la que baixa un botó de Tornar. Es queda a zero i no baixa de zero |
 | `app.raise()` | — | Demana passar a primer pla (només té sentit dins d'una finestra d'alarma) |
 | `app.save(t)` ⏳ | — | Desa una taula petita a `/data/<id>/state.json` |
 | `app.restore()` ⏳ | taula o `nil` | Recupera el que va desar `app.save` |
@@ -941,7 +1007,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.slider(w, h)` | **un objecte** o `nil, error` | **Un número que mou el dial**: la pista, el botó i el número amb la seva unitat (`suffix`). **És enfocable**: les fletxes canvien `value` de `step` en `step` i l'app ho sap per `on_change(self, value)`. **Des de la 0.117.0 cal entrar-hi amb el botó central** (`editing`): fora, les fletxes segueixen caminant el dial; dins, són el número, i el centre les torna al sistema (3/11, 0.69.0, 0.117.0) |
 | `ui.row(w, h)` | **un objecte** o `nil, error` | **Una fila de llista**: `title` a l'esquerra, `detail` a la dreta, `subtitle` a sota i el filet del separador. `marked` la inverteix. **No és enfocable** (3/11, 0.69.0) |
 | `ui.panel(w, h, [flow])` | **un objecte** o `nil, error` | **El VBox o l'HBox de la pàgina**: `'vertical'` (per defecte), `'horizontal'` o `'overlay'`, amb `padding` i `gap`. Els fills es posen amb `panel:add(child)`, i cada cel·la diu **el seu percentatge del box amb `child.share`** (0.103.0) o la seva part del lloc lliure amb `child.weight` (3/11, 0.70.0) |
-| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0) |
+| `ui.tabs(w, h)` | **un objecte** o `nil, error` | Una **tira de pestanyes**: `items` (un array de paraules, vuit com a molt) i `index` (1 a n, i 0 = cap). **És enfocable, amb una parada per pestanya**: les fletxes van d'una pestanya a la següent, el centre tria la del cercle i `on_change(self, index)` avisa; `focus_index` diu quina té el cercle (3/11, 0.70.0 i 0.99.0). **I una tira que es pot tancar** (0.161.0): amb `closeable = true` cada pestanya porta una **`X` a la dreta, centrada verticalment**, i `tabs:tap(x, y)` diu què ha fet el dit —si era una creu crida **`on_close(self, index)`** i és l'app qui allibera el que hi havia darrere— i `on_change` si era el mot d'una pestanya |
 | `ui.focus(control)` | **res** | **On és el dial**: l'app el posa en un control seu quan la seva pàgina s'ha tornat a construir i el que hi havia ja no hi és. Sense això la volta comença al primer control de l'arbre —la tira de pestanyes— i les fletxes canvien la pestanya per sempre (7/11, 0.97.4). Un control que no es pot enfocar no fa res |
 | `ui.dots(w, h)` | **un objecte** o `nil, error` | **Els punts de pàgina**: `pages` i `current`, amb la bola de la pàgina on ets plena i més gran i les altres d'anella, unides per un pal (0.94.1); si les pàgines no hi caben, la finestra de les que hi caben i **tres boles més petites a cada cap** que no arriba (0.139.0). **No és enfocable**, i amb una sola pàgina no dibuixa res (3/11, 0.70.0). **Accepta fins a 512 pàgines** (0.138.0): abans eren un byte amb un topall de 32, i un capítol d'un llibre en té més |
 | `ui.list_entry(w, h)` | **un objecte** o `nil, error` | **Una fila d'una llista que l'app construeix** (0.104.0): paper, tinta, separador, `marked` i focus, i el contingut és un fill |
@@ -1073,7 +1139,12 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   entra i en surt (0.84.0)— l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
   dibuixar és de l'app, i `cv:resize(w, h)` és el que necessita un `panel` per prendre la mida nova. Una app sense
   `on_resize` és una app legal; simplement no dibuixa mai la vista nova.
-
+- **Quan el sistema torna una vista enrere** (0.163.0), l'app rep `on_back(depth)` amb **les vistes que li
+  queden**: el pessic de gran a petit que ve de dalt de tot es del sistema, i el que fa és baixar una de
+  les que l'app va apuntar amb `app.view_push()` i cridar aquest ganxo perquè la pàgina de sota torni al
+  vidre. `depth = 0` vol dir que el pessic ha estat l'última pàgina que quedava, i **el ganxo no ha de
+  tornar a baixar res**: el número ja l'ha baixat el sistema. Un `on_back` que cridi `app.view_pop()` deixa
+  el comptador una vista per sota del que hi ha al vidre (docs/30).
 ```lua
 local view = ui.caps()
 ui.clear(15, 'gc16')                    -- la pàgina, i que quedi neta
@@ -1108,11 +1179,26 @@ i el contracte.
   kilobytes, i fins avui una app que en volia una se la posava a `apps/<id>/res/`: el mateix DejaVu viatjava
   dins de dues apps i el disc el pagava dues vegades. `/fonts` és el `res/fonts/` del disc vist des de
   l'arrel (docs/70), una fila de la taula de muntatges, i una app **la llegeix i no hi escriu**, com `/apps`.
-  El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (8 548 B), `dejavusansmono.ttf`
-  (8 084 B), `dejavuserif.ttf` (10 896 B) i `dejavuserif-latin1.ttf` (23 856 B) —les quatre primeres
-  retallades a l'ASCII imprimible amb `pyftsubset` i la cinquena amb `tools/ttf_latin1.py`, i la llicència
-  de DejaVu al costat, `/fonts/LICENCE.txt`—. `run fonts-ttf` i `run label` les fan servir i no en guarden
-  cap còpia.
+  El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (**9 416 B**), `dejavusansmono.ttf`
+  (8 084 B), `dejavuserif.ttf` (10 896 B), `dejavusans-latin1.ttf` (21 360 B) i `dejavuserif-latin1.ttf`
+  (23 856 B) —les quatre primeres retallades a l'ASCII imprimible amb `pyftsubset`, i les dues `-latin1` amb
+  `tools/ttf_latin1.py`, la del serif amb `--set latin1` (per als llibres) i la del sans amb `--set signs`
+  (la del sistema, més avall)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`—. `run fonts-ttf` i
+  `run label` les fan servir i no en guarden cap còpia.
+
+- **La cara del sistema porta també els signes d'una tecla** (8/11, 0.158.0). `dejavusans-bold.ttf` era
+  l'ASCII imprimible i prou, i un signe com `÷`, `×` o `±` **no hi era**: el byte s'escrivia, la línia
+  avançava i el vidre quedava buit. La cara es fa ara amb `python3 tools/ttf_latin1.py --ttf
+  <DejaVuSans-Bold.ttf> --out data/res/fonts/dejavusans-bold.ttf --set signs`, i aquest joc és l'ASCII més
+  nou codis: el `±` (`U+00B1`), el `×` (`U+00D7`), el `÷` (`U+00F7`), les quatre fletxes (`U+2190` a
+  `U+2193`) i el retrocés (`U+232B`). Són **104 glifs**, **9 416 B** en comptes de 8 548 (868 B més de disc i
+  de RAM mentre la cara del sistema és carregada), i el glif més gran de 78 punts i 5 contorns, dins del que
+  el lector accepta (docs/75). Són exactament els signes que el projecte del paper coïa a les seves cares de
+  mapa de bits (`tools/fontgen.py`, 216 codis amb les fletxes), i el motiu és el de sempre: la calculadora
+  escriu el signe de la tecla i no el nom de l'operació (docs/92 §34). La prova que ho mesura és el cas de la
+  calculadora de `test_apps`, que llegeix l'amplada dels quatre signes i una amplada de zero és un test
+  vermell. El que no hi cap segueix sent un forat: la cara del sistema **no** porta les lletres amb accent,
+  i una app que les vol carrega `/fonts/dejavusans-latin1.ttf` amb `ui.load_font`.
 
 - **Una cara d'outlines porta els codis que porta el fitxer, i el byte és el codi** (7/11, 0.127.0). Fins a
   0.127.0 el dibuix d'un text saltava qualsevol byte per sobre de `0x7F` abans de preguntar-li res a la
@@ -1139,6 +1225,14 @@ i el contracte.
   byte `0x96`, i `lib/ttf` responia «no hi ha aquest glif» i el guió **desapareixia**; ara el byte es tradueix al
   caràcter que vol dir abans de buscar-lo al fitxer (`ttf::glyph_of`), o sigui que un llibre en CP1252 i una
   entitat numèrica dibuixen el mateix. El que la cara no porti segueix sent un forat.
+- **Els cinc codis que la 1252 deixa buits són les fletxes i el retrocés** (8/11, 0.158.0). La franja
+  `0x80`–`0x9F` té un forat a `0x81`, `0x8D`, `0x8F`, `0x90` i `0x9D`, i allà no hi pot haver mai cap caràcter
+  d'un fitxer; el sistema els dona als signes que un text **no es pot escriure d'una altra manera**, perquè un
+  text és d'un byte per caràcter i la fletxa del Unicode (`U+2190`) no hi cap: `0x81` és `←`, `0x8D` és `→`,
+  `0x8F` és `↑`, `0x90` és `↓` i `0x9D` és `⌫`. **El projecte del paper no ho necessitava** perquè el seu text
+  era UTF-8 i les seves cares s'indexaven per punt de codi (`OLD/PaperOS/src/gfx/text.cpp` decodifica la
+  cadena abans de buscar el glif); aquí el byte és el codi i prou, i aquests cinc són l'únic lloc on una fletxa
+  pot viure (la taula és a `lib/ttf/src/ttf.cpp`, docs/92 §34).
 - **Qui converteix la cara en píxels és el nucli, i ningú més.** La cadena sencera és
   `cv:text`/`ui.text` → `luabind` (`text_at`) → `ui::canvas_text` (`lib/kernel/src/ui.cpp`) → `draw_text` →
   `font::runs(face_of(canvas.face), …)`, que camina els glifs i deixa cada tros com un rectangle al buffer
@@ -2676,6 +2770,24 @@ vidre i es poden provar al PC (docs/85).
   no s'ha mogut el mig, és `pinch`; si s'ha mogut més el mig, és `drag` amb `fingers = 2`. I **els dos
   números van sempre al missatge** (`spread` i `dx`/`dy`), així que una app que vulgui la història
   sencera no depèn del nom.
+- **El pessic de gran a petit és del sistema i vol dir «tanca»** (0.163.0). El gest de tancar no és de
+  cada app: **el sistema el pren de la cua abans que l'app el llegeixi** i fa una de tres coses. Si
+  l'app té **vistes a sobre de la primera** (`app.view_push`), baixa la de dalt i l'app rep
+  `on_back(depth)` perquè torni a pintar la pàgina de sota. Si **no en té cap**, tanca l'app, i la
+  pàgina que la va obrir torna a la pantalla igual que amb els tres tocs. I si l'app és **un
+  llançador** (`"launcher": true` al manifest), **no es tanca**: una placa sense cap pàgina és una
+  placa que s'ha d'anar a buscar amb un cable. El llindar és de **60 píxels** de tornada, que és el pas
+  que el projecte del paper donava als seus pessics; **un pessic que obre els dits, o que torna menys
+  de seixanta píxels, no és del sistema** i l'app el llegeix amb `touch.gesture()` com sempre.
+- **I les altres maneres de sortir fan el mateix camí** (0.163.1): els **tres tocs de la tecla del mig**
+  i els **tres tocs al vidre** també baixen una vista i només tanquen quan no en queda cap —una
+  pàgina amb una altra a sobre no és l'app—. És una sola funció del nucli (`shell::go_back_one_view`) i
+  tres qui la criden, perquè «tornar enrere» vol dir una cosa i tres llocs que la decideixin són tres
+  llocs que es poden contradir. La línia del registre diu quin dels dos ha passat:
+  `button: three taps, back one view` o `button: three taps, closing the app`. **El llançador és
+  l'excepció del pessic i no de les tecles**: tres tocs de la tecla del mig tanquen un llançador, perquè
+  aquest gest és la sortida d'una pàgina que s'ha deixat de sentir (i a la pàgina d'inici no hi arriba:
+  una graella de cel·les és enfocable i la tecla del mig hi és Enter).
 - **Mentre hi ha dos dits, la màquina d'un dit està aturada**: un `pinch` no és un `drag` del dit que
   la placa llista primer, ni una premuda llarga de dos dits és un `long`. Mesurat a la Paper l'1/11,
   que era exactament el que passava abans d'arreglar-ho (docs/50).

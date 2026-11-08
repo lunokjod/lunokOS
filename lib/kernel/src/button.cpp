@@ -178,12 +178,11 @@ void poll() {
         // (docs/30).
         g_taps = 0;
         g_tap_started_ms = now;
-      } else if (luabind::ui_has_focusable()) {
-        // A page with controls has the centre as Enter, so three rapid clicks are three activations
-        // and not the way out. The ESC hatch and a Quit control are still there (docs/30, docs/90).
-        g_taps = 0;
-        deliver("press", 0, key);
       } else {
+        // **The three presses are the system's on every page** (0.167.0): a page with controls has the centre as Enter, and
+        // the first two presses are delivered to it as they always were; the third is the way out, because a page with no
+        // way out is a board a person has to reach with a cable, and the owner's About had a Back control and no way back
+        // (docs/30, docs/90).
         if (g_taps == 0 || (now - g_tap_started_ms) > kTapWindowMs) {
           g_taps = 1;
           g_tap_started_ms = now;
@@ -194,8 +193,24 @@ void poll() {
         // wants every press cannot swallow the one that closes it (docs/30).
         if (g_taps >= kTapsToClose) {
           g_taps = 0;
-          say("button: three taps, closing the app\r\n");
-          shell::close_app();
+          // **And the three presses take the same road as the pinch and the three taps on the glass** (0.167.0): a page
+          // with views on top of it gives the last one back and stays, and a page that is the only one goes with the app
+          // **and the page that asked for it comes back**, which is what the owner asked for —three presses used to
+          // close the app and leave the prompt where his launcher had been— (docs/30, docs/45).
+          switch (shell::leave_one_page()) {
+            case shell::LeaveOutcome::kBack:
+              say("button: three taps, back one view\r\n");
+              break;
+            case shell::LeaveOutcome::kClosedHome:
+              say("button: three taps, the page that asked is back\r\n");
+              break;
+            case shell::LeaveOutcome::kLauncher:
+              say("button: three taps, a launcher is the one page that is not left\r\n");
+              break;
+            default:
+              say("button: three taps, closing the app\r\n");
+              break;
+          }
         } else {
           deliver("press", 0, key);
         }

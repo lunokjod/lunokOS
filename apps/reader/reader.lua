@@ -311,7 +311,8 @@ end
 local function say_foot()
   if foot == nil then return end
   -- **The two words of the separator are a hyphen and not the middle dot of the paper**: the face of the system of this
-  -- build is 95 glyphs of ASCII and the `·` is not one of them (docs/46, D3). A Latin-1 face of the system is a decision
+  -- build is the ASCII plus the signs of a keypad and the arrows —104 glyphs since 0.158.0, see `tools/ttf_latin1.py
+  -- --set signs`— and the `·` is not one of them (docs/46, D3). A Latin-1 face of the system is a decision
   -- of the owner and it is written down there.
   foot.text = string.format('Chapter %d/%d - %d%%', chapter_at, chapter_total, percent())
   if endmark ~= nil then

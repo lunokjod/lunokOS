@@ -1,0 +1,9 @@
+{
+  "title": "Shell",
+  "author": "@lunokjod",
+  "version": "0.2.0",
+  "entry": "shell.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The system's own shell in the glass, one tab a session: File New opens one and File Close gives it away, the cross of a tab frees what it holds, and the page is black with white letters because it is a terminal and not a document."
+}

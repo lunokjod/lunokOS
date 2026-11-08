@@ -234,21 +234,30 @@ d'ells, la build tria SDL2 si el troba, després X11, i finalment un banc sense 
 
 Al prompt de l'emulador: `help`, `version`, `caps`, `mem`, `apps`, `apps remove <id>` (esborra l'app
 d'aquell nom —`squares` o `squares-SD`—, del disc on és, i els seus ajustos i dades es queden),
-`mounts`, `run <id> [path]`,
+`mounts`, `run <id> [path] [&]` (l'ampersand al final **deixa l'app en segon pla**: el prompt torna de
+seguida, el `stdin`, el `stdout` i el `stderr` de l'app queden desenganxats d'aquesta consola i el que l'app
+imprimeix va al `log`; no hi ha cap fil ni cap segona tasca, l'app es segueix atenent al mateix torn que
+sempre),
 `lua` (el prompt es torna l'intèrpret, amb tota l'API, i `exit` en surt), `ls`, `cat <fitxer>`,
-`hexdump [fitxer]` (els bytes en hex i en visible; sense camí, `/rtc`), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
+`hexdump <fitxer>` (els bytes en hex i en visible), `open [app] <path>`, `wifi` (`scan`, `add`, `connect`, `forget`, `stop`), `provision [softap]`,
 `ntp`, `http <url>`, `repo [owner/repo] [dir]` i `repo info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `repo install <app>` (el directori sencer d'una app, al disc que `cfg` diu), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
 idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
 `button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
 (`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
-no, ho diu). `cat` sempre necessita un camí; `hexdump` sense camí mira `/rtc`, que és la memòria que es vol veure quan no se'n diu cap.
+no, ho diu). **`exit` i `logout`** tanquen la sessió de la consola, i què vol dir tancar depèn de la consola:
+**en un port sèrie** (la placa) la sessió no es pot tancar de debò, així que el sistema ho diu i espera un
+**Enter** per obrir-ne una de nova; **en un terminal virtual** (el banc) la sessió es tanca de veritat i
+l'execució s'atura. **Ctrl+D** fa el mateix que `exit`. `cat` i `hexdump`
+sempre necessiten un camí: un camí que el prompt endevina és el camí que no s'ha demanat, i `/rtc` —que és
+el que abans sortia quan no es deia res— es mira dient-lo (`hexdump /rtc`).
 
-El disc de l'emulador és el del seu build, **`build/disk/emulator`** —el `data/` del sistema i **cap app**, com
-el de qualsevol placa des de la 0.118.3: les apps hi arriben amb `repo install <id>` o amb una targeta (`--sd`)—,
-i `--flash <dir>` en tria una altra; la tasca
+El disc de l'emulador és el del seu build, **`build/disk/emulator`** —el `data/` del sistema i **totes les
+apps d'`apps/`**, enllaçades i no copiades des del 8/11: el banc no té placa, així que les rep totes, i el
+llançador les ensenya a la graella—, i `--flash <dir>` en tria una altra; la tasca
 **lunokOS: seed emulator disk** de VS Code copia les apps de `apps/` a `emulator/littlefs`, que és
-el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`). Per córrer un
+el que es fa servir quan es vol un disc propi (`--flash emulator/littlefs`) — i és una **còpia**, que
+després d'editar una app **no** es refresca tota sola—. Per córrer un
 guio sense seure al davant: `./.pio/build/emulator/program --board m5stack-atom --script <fitxer>`.
 
 Les proves que obrin la finestra de l'emulador (`--gui`) es fan **en un X propi**, mai al `DISPLAY` de

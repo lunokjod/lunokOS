@@ -1,7 +1,7 @@
 {
   "title": "Home",
   "author": "@lunokjod",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "entry": "home_eink.lua",
   "boards": ["esp32"],
   "launcher": true,

@@ -57,6 +57,12 @@ class IConsole {
   // Returns what is available right now, 0 if nothing. Never blocks.
   virtual size_t read(void* data, size_t len) = 0;
   virtual bool ansi() const = 0;
+  // **Whether this console is a session that can really end** (0.158.0): a **virtual terminal** —the console of
+  // the bench, which is a program on a PC that somebody started and can hang up— is a session, and `logout` ends
+  // it. **The serial port of a board is not one**: nobody can hang it up and it is the only way into a board
+  // with no glass, so `logout` says the session is closed and waits for an Enter, and the console starts again
+  // (docs/30, docs/50).
+  virtual bool virtual_terminal() const { return false; }
   // Waits until what was written has left the port. A serial line keeps bytes in flight
   // after write() returns, so the last thing a person reads before the board stops has to
   // be pushed out first or it is a word cut in half (docs/50).
@@ -106,6 +112,15 @@ ISystem& system();
 // the board in a way a person notices (docs/85). Zero —the default, and what the tests want— is no
 // wait at all: a file is not a wire. Only a host whose console is a terminal calls this.
 void set_console_baud(uint32_t baud);
+
+// **Whether the console is a session that can really end** (0.158.0), which is the `IConsole`'s policy and the one
+// the shell asks before it closes anything: a **virtual terminal** —the console of the bench, a program on a PC that
+// somebody started and can hang up— is, and `exit`, `logout` and Ctrl+D end the run; a **serial port** is not, and
+// there the session is not closed at all —the board says so and the Enter of the terminal opens a new one— (docs/30,
+// docs/50, docs/85). False is the default and what a test wants: its console is a file or a pipe and its case models
+// the board.
+void set_virtual_terminal(bool on);
+bool virtual_terminal();
 
 // **What the heap of the bench costs**, because on the board a block is not free: the allocator walks
 // its free list before it hands one over, and moving a block that has to move is a copy of its bytes

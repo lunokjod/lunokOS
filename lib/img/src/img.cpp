@@ -59,6 +59,22 @@ void row_start(Row& row, uint8_t* bytes, uint16_t width, uint16_t y) {
   row.at = 0;
   row.y = y;
   for (uint32_t i = 0; i < row_bytes(width); ++i) bytes[i] = 0;
+  // **A mask that nobody asked for is not written** (0.169.0): the row is drawn as if every pixel were there, and the
+  // buffer of the caller is left alone.
+  if (row.alpha != nullptr) {
+    for (uint32_t i = 0; i < row_bytes(width); ++i) row.alpha[i] = 0xFF;
+  }
+}
+
+void row_put_alpha(Row& row, uint8_t alpha) {
+  if (row.alpha == nullptr || row.at >= row.width) return;
+  const uint8_t value = static_cast<uint8_t>((alpha > 15) ? 15 : alpha);
+  uint8_t& byte = row.alpha[row.at / 2];
+  if ((row.at & 1) == 0) {
+    byte = static_cast<uint8_t>((byte & 0x0F) | (value << 4));
+  } else {
+    byte = static_cast<uint8_t>((byte & 0xF0) | value);
+  }
 }
 
 void row_put(Row& row, uint8_t level) {
@@ -163,7 +179,8 @@ Status read_info(const uint8_t* data, uint32_t len, Info& out) {
   return (status == kUnknown) ? kBadData : status;
 }
 
-Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap) {
+Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* scratch, uint32_t cap,
+              const RowSink* mask) {
   if (data == nullptr || len == 0 || sink.write == nullptr) return kUnknown;
   // A picture with no scratch is a picture that is read where it lies; one that needs a block and does not
   // get it says `kNoRoom` from its own decoder, which is the only one that knows how much it wanted
@@ -172,7 +189,7 @@ Status decode(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_t* s
   bool matched = false;
   if (is_png(data, len)) {
     matched = true;
-    status = detail::decode_png(data, len, sink, scratch, cap);
+    status = detail::decode_png(data, len, sink, scratch, cap, mask);
   } else if (is_jpeg(data, len)) {
     matched = true;
     status = detail::decode_jpeg(data, len, sink, scratch, cap);

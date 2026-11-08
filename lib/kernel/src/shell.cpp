@@ -34,6 +34,7 @@
 #include "kernel/bar.h"
 #include "kernel/power.h"
 #include "kernel/repository.h"
+#include "kernel/touch.h"
 #include "kernel/ui.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
@@ -112,9 +113,21 @@ bool g_last_was_cr = false;
 // The app that is alive between turns: while it is, the prompt is not shown and
 // the keyboard is not the shell's.
 bool g_app_alive = false;
+// **Whether the app in front is detached from this console** (0.160.0): `run calculator &` starts it and the prompt
+// comes back at once —`feed` goes to the shell and not to the app, and the app's own console words go to the log
+// instead of the wire—. There is no thread and there is no second task: the app is polled by the same turn of the
+// kernel as before, one thing at a time, which is the whole point (docs/30, docs/50).
+bool g_app_detached = false;
+// **Whether the next app to start goes to the background**: the `&` of a line says it and it lives for one start.
+bool g_start_detached = false;
 // True while the prompt is an interpreter (the `lua` command): the lines are not
 // commands, they are Lua, and the prompt says so (docs/30).
 bool g_lua = false;
+// **True while the console session is open** (0.158.0): `exit` and `logout` close it —the prompt stops and the
+// lines that arrive do not run— and the first byte that comes after it opens a new one. The board goes on running
+// the queue and the alarms meanwhile; what closes is the session and not the machine, which is what `poweroff`
+// does (docs/30, docs/50).
+bool g_session_open = true;
 // ESC pressed in a row: three of them stop a command that is waiting, the same
 // way they leave an app (docs/30). An arrow or a function key is `ESC [ …` and is
 // one key press, so the parser below keeps its state between feeds.
@@ -124,7 +137,111 @@ enum class Escape : uint8_t { kNone, kEsc, kCsi, kCsiNum, kSs3 };
 Escape g_escape = Escape::kNone;
 uint32_t g_csi_number = 0;
 
+// ---- the sessions of the shell that are not the console (0.159.0) ----
+//
+// **A session is a shell somebody asked for**: an app writes lines into it and reads what the shell answers, and the
+// console is not involved at all. It is what makes the shell a thing of the **system** and not of the wire it happens
+// to be talking to, and it is three pipes —the lines in, the answers out and the complaints out— because that is what
+// a shell of a system is to whoever calls it (docs/30, docs/75).
+//
+// **One at a time, and the rings are the heap's**: the money is the ring of the answers (1 KB), the ring of the
+// complaints (256 B) and the line being typed (128 B), 1 408 B in all while a session lives and nothing after it. A
+// second session at once is not a refusal of principle —it is one more block of the same size and a second `Editor`
+// to go with it— it is simply not written yet, and a call that says `E_BUSY` and why is better than a queue nobody
+// drains (docs/30, docs/75).
+const uint8_t kMaxSessions = 1;
+const size_t kSessionOutBytes = 1024;  // what the shell answers and nobody has read yet
+const size_t kSessionErrBytes = 256;   // the complaints, which are shorter than the answers
+const size_t kSessionLineBytes = 128;  // one line of a session, the width of a word of a command
+
+enum class Pipe : uint8_t { kOut = 0, kErr = 1 };
+
+// **A ring inside a block**: `head` is where the next byte goes and `tail` where the next one is read, both counted
+// modulo the cap. A byte that does not fit is dropped and counted, because an app that stops reading must not stop
+// the shell (docs/30).
+struct Ring {
+  uint8_t* bytes = nullptr;
+  uint16_t cap = 0;
+  uint16_t head = 0;
+  uint16_t tail = 0;
+  uint32_t dropped = 0;
+
+  void put(const void* data, size_t len);
+  size_t get(char* out, size_t cap);
+  uint16_t used() const { return static_cast<uint16_t>((head + cap - tail) % cap); }
+};
+
+struct Session {
+  bool in_use = false;
+  Ring out;
+  Ring err;
+  char line[kSessionLineBytes];
+  uint16_t line_used = 0;
+  bool close_asked = false;
+};
+
+Session g_sessions[kMaxSessions];
+// **Where the shell's own words go**: zero is the console and anything else is a session (`id`, one based). Every
+// `out` of this file goes through `out_bytes`, which is why one number is the whole of the redirection (docs/30).
+uint8_t g_sink = 0;
+// **Whether the words are the answer or the complaint**: `error_out` says so for the length of one line, and
+// `out_bytes` sends it to the other pipe when it is (docs/30).
+bool g_to_error = false;
+
+Session* session_of(uint8_t id) {
+  if (id == 0 || id > kMaxSessions) return nullptr;
+  Session& session = g_sessions[id - 1];
+  return session.in_use ? &session : nullptr;
+}
+
+// **A session goes back to nothing**: the block of its pipes is the caller's to give back and the rest is the shape
+// of a session that is not there (docs/30).
+void reset_session(Session& session) {
+  session.in_use = false;
+  session.out = Ring();
+  session.err = Ring();
+  session.line_used = 0;
+  session.close_asked = false;
+}
+
+// **The bytes that did not fit are counted and not lost in silence**: an app that never reads would otherwise make
+// the shell look quiet. `dropped` is the number it can ask for (docs/30).
+void Ring::put(const void* data, size_t len) {
+  if (bytes == nullptr || cap == 0) return;
+  const uint8_t* in = static_cast<const uint8_t*>(data);
+  for (size_t i = 0; i < len; ++i) {
+    const uint16_t next = static_cast<uint16_t>((head + 1) % cap);
+    if (next == tail) {  // full: the byte is dropped and said
+      ++dropped;
+      continue;
+    }
+    bytes[head] = in[i];
+    head = next;
+  }
+}
+
+size_t Ring::get(char* out, size_t cap) {
+  if (bytes == nullptr || cap == 0) return 0;
+  size_t got = 0;
+  while (got + 1 < cap && head != tail) {
+    out[got++] = static_cast<char>(bytes[tail]);
+    tail = static_cast<uint16_t>((tail + 1) % cap);
+  }
+  out[got] = '\0';
+  return got;
+}
+
+void session_put(uint8_t id, Pipe pipe, const void* data, size_t len) {
+  Session* session = session_of(id);
+  if (session == nullptr) return;
+  ((pipe == Pipe::kErr) ? session->err : session->out).put(data, len);
+}
+
 void out_bytes(const void* data, size_t len) {
+  if (g_sink != 0) {
+    session_put(g_sink, g_to_error ? Pipe::kErr : Pipe::kOut, data, len);
+    return;
+  }
   pal::IConsole* console = pal::system().console();
   if (console == nullptr) return;
   console->write(data, len);
@@ -214,7 +331,13 @@ void colour_off() { colour(kColourOff); }
 
 void error_out(const char* text) {
   colour(kColourError);
+  // **A complaint is the other pipe of a session** (0.159.0): the flag lives for one line and `out_bytes` reads it,
+  // so a session sees what went wrong on its own pipe and an app does not have to guess it from the answers
+  // (docs/30).
+  const bool was = g_to_error;
+  g_to_error = true;
   out(text);
+  g_to_error = was;
   colour_off();
 }
 
@@ -226,7 +349,12 @@ void good_out(const char* text) {
 
 void usage_out(const char* text) {
   colour(kColourWarn);
+  // **A usage line is a complaint and not an answer** (0.159.0): a session has a pipe for each, so what went wrong is
+  // asked for where it went, and `execute` answering false is the same thing said to the caller (docs/30).
+  const bool was = g_to_error;
+  g_to_error = true;
   out(text);
+  g_to_error = was;
   colour_off();
 }
 
@@ -421,7 +549,7 @@ void print_help(const char* only) {
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_line("                    lives, the keyboard, the picture of the boot and the app that comes up with the board",
             only);
-  help_line("  run <id> [path]   run an app, optionally pointed at a file", only);
+  help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
   help_line("  wifi add <ssid> [password]  store a network and go on it", only);
@@ -445,7 +573,7 @@ void print_help(const char* only) {
   help_line("  open [app] <path>  open a file with the app that handles it", only);
   help_line("  ls [path]         list a directory or one file (default /)", only);
   help_line("  cat <path>        print a file", only);
-  help_line("  hexdump [path]    the bytes of a file in hex (default /rtc)", only);
+  help_line("  hexdump <path>    the bytes of a file in hex and in visible letters", only);
   help_line("  lua               the prompt becomes the interpreter (`exit` or Ctrl+D leaves)", only);
   help_line("  log               last lines of the log ring", only);
   help_line("  stats [reset]     what each device cost: calls, time, last call", only);
@@ -454,6 +582,11 @@ void print_help(const char* only) {
   help_line("  clear             clear the screen", only);
   help_line("  reboot            restart", only);
   help_line("  poweroff          cut the power of the board, if it can (docs/50)", only);
+  // **Two lines and not one with a comma** (0.158.0): `help` answers a word of the syntax, and a line that says
+  // `exit, logout` answers neither of the two —the rule is `help pow` is not `power`, and a comma is not a
+  // space— (docs/30).
+  help_line("  exit              close this session of the console; a key opens it again (Ctrl+D the same)", only);
+  help_line("  logout            the same as exit", only);
   help_line("three ESC in a row leave an app, or stop a command that waits", only);
   help_line("a path with spaces goes in quotes: cat \"res/el meu fitxer.txt\"", only);
   // **A word that answers to nothing is said and not swallowed**: `help` alone lists them all, and a person who
@@ -651,6 +784,9 @@ bool command_splash(const char* rest) {
   out("splash: ");
   out((kind != splash::kNone) ? splash::word(kind) : words[0]);
   out("\r\n");
+  // **The strip of the system comes back over the picture** (0.164.3): the moment was asked for by a person, the page
+  // is still the app's and the glass under the bar is not the bar any more (docs/30, docs/50).
+  bar::refresh();
   return true;
 }
 
@@ -1148,7 +1284,7 @@ bool find_app(const char* id, RunTarget& target) {
     newline();
     // **Where it was looked for, said once and in full** (0.88.20): the apps live in the door `/apps`, which is the
     // flash's `apps/` and the card's together, so a person who does not find it knows where to look before doubting the
-    // name they typed —and a name the flash has and the card also has is the one without the `-SD`— (docs/40, docs/70).
+    // name they typed —and a name the flash has and the card also has is the one without the mark— (docs/40, docs/70).
     out("  apps are in ");
     out(apps::kAppsDoor);
     if (!apps::card_here()) out(", and there is no card in the slot");
@@ -1209,6 +1345,12 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
 }
 
 bool run_app(const char* id, const char* open_path, bool restore = false) {
+  // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
+  // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
+  // `cannot start the interpreter` **for every app of the disk**, which a person reads as a name that does not resolve
+  // and is not one (found on the bench on 8/11 with the launcher in front, docs/30, docs/40). The app in front goes the
+  // way it goes when another app asks for the glass: its goodbye hooks, its views, its colour and the bar with it.
+  if (g_app_alive) close_app();
   RunTarget target;
   // **Where the app is and what its manifest says, with nothing read yet**
   // (0.151.17): the picture a start shows is the one the manifest names, and a
@@ -1241,6 +1383,13 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
     if (made > 0 && static_cast<size_t>(made) < sizeof(picture)) {
       if (!splash::show(picture)) {
         log_printf(pal::kLogDebug, "SPLASH", "%s: %s", id, splash::last_error());
+      } else {
+        // **The picture washes the strip of the system and nothing else says so** (0.164.3): the splash washes the whole
+        // glass —the bar with it— and the bar paints itself only when something of it changes, so the title that comes
+        // after it repainted the box of the title and not the strip, and the hour and the battery stayed erased. The
+        // refresh is asked **here** and not inside the splash, because a moment that goes down (poweroff, reboot) must
+        // not paint a strip on the picture (docs/30, docs/50).
+        bar::refresh();
       }
     }
   }
@@ -1322,8 +1471,23 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // ones that come after, and an app that asks for another one from its own first lines —`app.run` in the start of a
   // launcher is exactly that— must not be answered "no app is in front" by a system that is running it.
   g_app_alive = true;
+  // **And it starts on its only page** (0.163.0): the views of the app before it go with the app before it, or the
+  // first pinch of a page would take away a view nobody pushed (docs/30).
+  apps::reset_views();
+  // **`run calculator &` is an app whose console is not this one** (0.160.0): it is polled like any other and the
+  // prompt stays where it is, so the person at the terminal keeps their shell while the app runs. What it prints
+  // goes to the log and not to the wire, because two writers on one prompt is the mess `&` exists to avoid
+  // (docs/30, docs/50).
+  g_app_detached = g_start_detached;
+  g_start_detached = false;
+  luabind::set_console_attached(!g_app_detached);
+  if (g_app_detached) {
+    log_printf(pal::kLogInfo, "APPS", "%s goes to the background: its console is the log", id);
+  }
   if (!luabind::poll()) {  // it never waited: it is already over
     g_app_alive = false;
+    g_app_detached = false;
+    luabind::set_console_attached(true);
     const int code = luabind::exit_code();
     luabind::stop();
     // **An app that ends in its first turn is an app that ended** (0.136.0, docs/46 D1): same two lines as an app that
@@ -2602,17 +2766,18 @@ void install_report(bool ok, const char* why) {
     out(", ");
     out_num(g_install_bytes);
     out(" bytes\r\n");
-    // **A copy that lands beside one the flash already has is run by its `-SD` name** (0.88.20): the door presents the
-    // flash's copy as `<id>` and the card's as `<id>-SD`, so a person who installed an app to try a version has to know
-    // which name runs what they have just downloaded. The question is the presenter's own —does the flash carry an app
-    // of that name?— and not a stat of `/apps/<id>`, which the card would answer too (docs/40, docs/70).
+    // **A copy that lands beside one the flash already has is run by its redirected id** (0.164.0): the door presents
+    // the flash's copy as `<id>` and the card's as `*<id>` —whose name says the unit, `Editor-SD`—, so a person who
+    // installed an app to try a version has to know which name runs what they have just downloaded. The question is the
+    // presenter's own —does the flash carry an app of that name?— and not a stat of `/apps/<id>`, which the card would
+    // answer too (docs/40, docs/70).
     if (strncmp(g_install_root, "/sd/", 4) == 0 && apps::is_an_app("/littlefs/apps", g_install_app)) {
       colour(kColourDim);
       out("  the flash has a ");
       out(g_install_app);
-      out(" too: run ");
+      out(" too: run *");
       out(g_install_app);
-      out("-SD to run this copy\r\n");
+      out(" to run this copy\r\n");
       colour_off();
     }
   } else {
@@ -3263,6 +3428,47 @@ bool leave_lua() {
   return true;
 }
 
+// **The session of the console closes, and what that means is the console's business** (0.158.0, asked for by the
+// owner). A **virtual terminal** —the console of the bench, a program on a PC that somebody started— is a session
+// somebody opened and can hang up, so `exit`, `logout` and Ctrl+D **end it for real**: the line is written and the
+// run stops, the same way `poweroff` stops it on the bench. **A serial port cannot be hung up** —nobody is on the
+// other side to close the wire and it is the only way into a board with no glass— so the session is not closed: the
+// board says so, stops taking lines, and **the Enter of a terminal opens a new one**, which is what a getty does
+// (docs/30, docs/50, docs/85).
+//
+// **The session of the console and the session of an app are two doors of the same shell** (0.159.0), which is why
+// this is `close_console_session` and the other one is `close_session` of `kernel/shell.h`.
+bool close_console_session() {
+  g_editor.reset();
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr && console->virtual_terminal()) {
+    out("logout: the session is closed\r\n");
+    console->flush();  // the line has to be out before the run stops, or it is a word cut in half
+    shutdown();        // on the bench it is the program that ends, which is the session going away
+    return true;
+  }
+
+  g_session_open = false;
+  out("logout: the session is closed; press Enter to open a new one\r\n");
+  if (console != nullptr) console->flush();
+  return true;
+}
+
+// **Where the words of a detached app go** (0.160.0): `run calculator &` gives the console back to the shell, so the
+// app's `print` cannot land on the same wire —two writers on one prompt is the mess `&` exists to avoid— and it goes
+// to the log of the system instead, one line each and cut to what a line of the log holds. The app is not silent and
+// the prompt is not a mess (docs/30, docs/50).
+void console_away(const char* text, size_t len) {
+  char line[128];
+  const size_t room = sizeof(line) - 1;
+  size_t used = (len < room) ? len : room;
+  while (used > 0 && (text[used - 1] == '\n' || text[used - 1] == '\r')) --used;
+  if (used == 0) return;
+  memcpy(line, text, used);
+  line[used] = '\0';
+  log_printf(pal::kLogInfo, "APP", "%s", line);
+}
+
 }  // namespace
 
 // **The answer and the switch that overrides it.** A serial bridge or a terminal that does not reply to the
@@ -3277,6 +3483,12 @@ void set_ansi(bool on) {
 }
 
 void prompt() {
+  // **A closed session does not ask**: the prompt is what says the console is listening, and every caller keeps
+  // asking for it —the end of an app, a new line, a command— because it is one place and not ten (docs/30).
+  if (!g_session_open) return;
+  // **And a session of an app is a pipe and not a terminal**: no prompt and no echo, so what the app reads is what
+  // the command printed and nothing else (docs/30).
+  if (g_sink != 0) return;
   set_prompt_text(g_lua ? "lua> " : "lunok> ", true);
   g_esc = 0;
   g_escape = Escape::kNone;
@@ -3342,6 +3554,19 @@ bool app_run_wanted(char* out, size_t cap, bool& back) {
   return true;
 }
 
+// **Going back one view, which is what every way out asks for first** (0.163.1): the app gives the page on top back
+// and hears `on_back(depth)`, and the answer says whether there was one —true means the app is still in front and the
+// caller does not close it—. **It is one function because «go back» has one meaning and three ways of asking for
+// it**: the pinch from big to small, the three taps of the middle key, and the three taps on the glass (docs/30).
+bool go_back_one_view() {
+  if (apps::views() == 0) return false;
+  const uint8_t left = apps::view_pop();
+  if (!luabind::call_back(left)) {
+    log_printf(pal::kLogWarn, "APPS", "%s went back to %u views and has no on_back", app_id(), left);
+  }
+  return true;
+}
+
 void close_app() {
   if (!g_app_alive) return;
   // The colour the app took goes with it, and it goes **off** and not back to some
@@ -3357,6 +3582,13 @@ void close_app() {
   luabind::call_hook("on_close");
   luabind::stop();
   g_app_alive = false;
+  // **The views go with the app that had them** (0.163.0): a count that outlived its app would make the next one
+  // open with pages on top of its first one, which are pages nobody pushed (docs/30).
+  apps::reset_views();
+  // **The console is the shell's again** (0.160.0): an app that goes takes its detachment with it, so the prompt
+  // that comes after it is a prompt that answers (docs/30).
+  g_app_detached = false;
+  luabind::set_console_attached(true);
   // **A wish dies with the app that wished it**: an app that asked for another one and was closed by something else
   // —three escapes, a raise, its own end— must not leave the name behind for the next app to be replaced by
   // (0.153.0, docs/30).
@@ -3432,6 +3664,47 @@ int32_t app_wait_ms() {
   return luabind::until_next_ms();
 }
 
+// **How far the two fingers come back for a pinch to mean «close»** (0.163.0): sixty pixels is the step the paper
+// project gave its pinches (`pinchStepPx` of its `touch_manager.h`) and it is a palm's width on this glass, so a hand
+// that rests on the page does not close it. **A pinch that comes back less than this is the app's**, and it reads it
+// with `touch.gesture()` like any other gesture (docs/30).
+const int16_t kPinchClosePx = 60;
+
+// **Whether the app in front is a launcher** (0.163.0): the manifest says `"launcher": true` and that is the app's own
+// declaration, so it is read from the door and not guessed from its name; an app started by a path the door does not
+// present answers no (docs/40).
+static bool app_in_front_is_a_launcher() {
+  const char* id = app_id();
+  if (id == nullptr || id[0] == '\0') return false;
+  apps::Entry entry = {};
+  return apps::read(id, entry) && entry.launcher;
+}
+
+// **The one road out of a page** (0.167.0): the owner's complaint was that three presses of the middle key closed the app
+// and **the launcher did not come back** —the page he came from was lost and the prompt was what he found—, while a pinch
+// came home. It is one function now, and all three gestures call it: a page with another one on top gives the top one
+// back and stays; a page that is the only one goes with the app and **the page that asked for it takes the glass back**;
+// and a launcher is the one page that is not left, because a board with no page at all is a board a person has to reach
+// with a cable (docs/30, docs/45).
+LeaveOutcome leave_one_page() {
+  if (!g_app_alive) return LeaveOutcome::kNothing;
+  if (app_in_front_is_a_launcher()) {
+    log_printf(pal::kLogInfo, "APPS", "%s is a launcher: it is the one page that is not left", app_id());
+    return LeaveOutcome::kLauncher;
+  }
+  if (apps::views() > 0 && go_back_one_view()) {
+    // **The page below is refreshed by the system and not by the app** (0.167.0): giving a view back is a change of page
+    // that the system made, so it is the system that owes the paint —the whole page and clean, because the page below
+    // was drawn before the one on top of it and its ink is not under the glass any more— (docs/30, docs/50).
+    ui::owe_the_page();
+    return LeaveOutcome::kBack;
+  }
+  close_app();
+  if (start_the_one_that_asked()) return LeaveOutcome::kClosedHome;
+  prompt();
+  return LeaveOutcome::kClosed;
+}
+
 bool poll_app() {
   // **The next step of an install, in the turn and not inside the answer** (0.86.0): the queue of the radio has to be
   // empty and the page of before given back, and that is the turn after (found on the bench, 4/11, docs/30, docs/75).
@@ -3441,10 +3714,43 @@ bool poll_app() {
     return false;
   }
   if (!g_app_alive) return false;
+  // **A pinch from big to small closes** (0.163.0): the gesture is the system's because it means «leave this page» in
+  // every app, and a gesture every app has to implement is a gesture one of them will not. It is taken out of the
+  // queue here so the app never reads it (the pinches that open the fingers, or that come back by less, stay for it).
+  // **Three wishes, in this order**: an app with views on top of its first one gives the last of them back and keeps
+  // the glass —it hears `on_back(depth)` and puts the page below it back—; an app on its only page is closed, and the
+  // page that asked for it comes back the way it does for the three taps; and **a launcher is the one page that cannot
+  // be closed**, because a board with no page at all is a board a person has to reach with a cable (docs/30, docs/45).
+  {
+    touch::Gesture pinch{};
+    if (touch::take_pinch_in(kPinchClosePx, pinch)) {
+      const LeaveOutcome out = leave_one_page();
+      if (out == LeaveOutcome::kBack || out == LeaveOutcome::kLauncher) return true;
+      if (out == LeaveOutcome::kClosed || out == LeaveOutcome::kClosedHome) return g_app_alive;
+    }
+  }
+  // **And three taps on the glass are the same way out** (0.167.0): the gesture is taken out of the queue here, as the
+  // pinch is, so an app cannot swallow the one gesture that means «leave this page» in every app of this system. It used
+  // to be the way back from a page that covers the whole glass and nothing else (docs/30).
+  {
+    touch::Gesture triple{};
+    if (touch::take_gesture_of("triple", triple)) {
+      const LeaveOutcome out = leave_one_page();
+      if (out == LeaveOutcome::kBack || out == LeaveOutcome::kLauncher) return true;
+      if (out == LeaveOutcome::kClosed || out == LeaveOutcome::kClosedHome) return g_app_alive;
+    }
+  }
   // Three ESC in a row, or a line that says !!exit, are the way out of an app
   // that has stopped listening. The app does not get a say, but it still gets
   // its goodbye hooks (docs/30 and docs/40).
   if (luabind::exit_requested()) {
+    // **And a way out goes back before it closes** (0.163.1): the same road as the pinch and the three taps of the
+    // middle key, because the wish is «leave this page» and a page with another one on top of it is not the app.
+    // The wish is spent on the view it took, or the next turn would close the app anyway (docs/30).
+    if (go_back_one_view()) {
+      luabind::clear_exit_request();
+      return true;
+    }
     close_app();
     // **And the page the person came from takes the glass back** (0.153.0): the three presses that close an app are the
     // way out of a launcher's app on a board with no keyboard, so they end where they started and not at a prompt.
@@ -3465,17 +3771,35 @@ bool poll_app() {
       // the wish is set after `close_app`, which clears whatever an app that is going away was holding (0.153.0).
       char asked_by[sizeof(g_run_back)];
       snprintf(asked_by, sizeof(asked_by), "%s", app_id());
+      // **A detached app that asks for another one stays detached** (0.160.0): `close_app` gives the console back
+      // and the one that comes in its place is the continuation of the same wish and not a new page in front of a
+      // prompt somebody is typing at (docs/30).
+      const bool was_detached = g_app_detached;
       close_app();
       if (back) snprintf(g_run_back, sizeof(g_run_back), "%s", asked_by);
+      g_start_detached = was_detached;
       if (!run_app(wanted, nullptr)) prompt();
+      g_start_detached = false;
       return g_app_alive;
     }
     return true;
   }
   const int code = luabind::exit_code();
   const bool died = luabind::failed();
+  // **A detached app that ends says so** (0.160.0): the prompt was the shell's the whole time, so a line is the only
+  // sign that the app in the background is over, and without it a person keeps waiting for a page that is gone
+  // (docs/30).
+  const bool was_detached = g_app_detached;
+  if (was_detached) {
+    char ended[72];
+    snprintf(ended, sizeof(ended), "[%s ended in the background]\r\n", app_id());
+    out(ended);
+  }
   luabind::stop();
   g_app_alive = false;
+  // **The console is the shell's again** (0.160.0): the detachment goes with the app that asked for it.
+  g_app_detached = false;
+  luabind::set_console_attached(true);
   // **The app that asked for this one gets the glass back** (0.153.0): a launcher opens an app and is the page the person
   // comes back to when they close it, which is the whole reason `app.run` remembers who asked. It is started before the
   // report of how this one ended, so the page a person sees is the launcher and not the prompt of a board with no
@@ -3483,7 +3807,11 @@ bool poll_app() {
   if (g_run_back[0] != '\0') {
     ui::give_back_the_glass();
     bar::title("");
+    // The page the person comes back to is the one that sent this app to run, so it goes back to wherever it was:
+    // detached stays detached (0.160.0).
+    g_start_detached = was_detached;
     if (start_the_one_that_asked()) return g_app_alive;
+    g_start_detached = false;
     prompt();
     return false;
   }
@@ -3510,6 +3838,16 @@ void start() {
   g_editor.clear();
   g_last_was_cr = false;
   g_app_alive = false;
+  // **A start is a session** (0.158.0): a board that has just booted has its console open, whatever a session
+  // before it did —a bench that re-boots in a test would otherwise stay closed— (docs/30, docs/85).
+  g_session_open = true;
+  // **No app is detached at a start** (0.160.0), and the console of an app is the terminal's until one says
+  // otherwise: the log is where a detached app's words go, and it is installed here because it is the shell who
+  // knows what a console is (docs/30, docs/50).
+  g_app_detached = false;
+  g_start_detached = false;
+  luabind::set_console_attached(true);
+  luabind::set_console_away(&console_away);
   g_esc = 0;
   g_escape = Escape::kNone;
   g_visible = 0;
@@ -3796,9 +4134,45 @@ bool execute(char* line) {
   }
   if (*line == '\0') return true;
 
+  // **A line that ends with `&` asks for the background** (0.160.0): the command starts and the prompt comes back at
+  // once, with its three streams —the lines in, the answers out, the complaints out— detached from this console. It
+  // is **only an app** that can go there: every other command of this shell is over before a person could type the
+  // next one, so a `&` on one of them is said out loud and not obeyed in silence (docs/30).
+  bool background = false;
+  if (len > 0 && line[len - 1] == '&') {
+    line[--len] = '\0';
+    while (len > 0 && (line[len - 1] == ' ' || line[len - 1] == '\t')) {
+      line[--len] = '\0';
+    }
+    background = true;
+  }
+  if (*line == '\0') return true;
+  const bool starts_an_app = (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) ||
+                             (strncmp(line, "open", 4) == 0 && (line[4] == '\0' || line[4] == ' '));
+  if (background && !starts_an_app) {
+    error_out("only an app goes to the background: `run <id> &`\r\n");
+    return false;
+  }
+
   // Inside a session the prompt is the interpreter and nothing else: `apps` is a
   // Lua expression there, and the way out is `exit` (docs/30).
   if (g_lua) return lua_line(line);
+
+  // **`exit` and `logout` close the session of the console** (0.158.0, asked for by the owner): they are one verb
+  // with two names —a serial session is a session and a person types whichever their habits give them— and what
+  // they close is the prompt and not the board. `exit` inside the interpreter is the one of `lua_line`, above: a
+  // session of Lua is a smaller thing and it ends before this line is reached (docs/30, docs/50).
+  //
+  // **And in a session of an app they close that session** (0.159.0): the app asked for a shell and `exit` is how a
+  // shell is left, so the door is its own. The block is not given back here —the caller is running inside it— so the
+  // line is marked and `session_write` closes it when the command has returned (docs/30).
+  if (strcmp(line, "exit") == 0 || strcmp(line, "logout") == 0) {
+    if (g_sink != 0) {
+      if (Session* session = session_of(g_sink)) session->close_asked = true;
+      return true;
+    }
+    return close_console_session();
+  }
 
   // **`help` with a command is the lines of that command**: `help repo` is the three lines of `repo`, and a word
   // that is the beginning of a command is not the command (0.88.1, docs/30).
@@ -3858,6 +4232,13 @@ bool execute(char* line) {
     return apps_remove(words[1]);
   }
   if (strcmp(line, "lua") == 0) {
+    // **The interpreter is the console's and a session cannot take it** (0.159.0): `lua` makes the prompt of the
+    // console the interpreter and paints a view of its own, which is not a thing an app's pipe can hold. Said and
+    // not swallowed, because a session that asks for it has to know (docs/30).
+    if (g_sink != 0) {
+      error_out("a session cannot take the interpreter of the console\r\n");
+      return false;
+    }
     return command_lua();
   }
   if (strcmp(line, "mounts") == 0) {
@@ -3878,10 +4259,18 @@ bool execute(char* line) {
       usage_out("usage: run <id> [path]\r\n");
       return false;
     }
-    return run_app(words[0], (count > 1) ? words[1] : nullptr);
+    // **`&` is read by `run_app` and not here** (0.160.0): the flag lives for one start, so an app that asks for
+    // another one from its own turns is not detached by accident.
+    g_start_detached = background;
+    const bool started = run_app(words[0], (count > 1) ? words[1] : nullptr);
+    g_start_detached = false;
+    return started;
   }
   if (strncmp(line, "open", 4) == 0 && (line[4] == '\0' || line[4] == ' ')) {
-    return open_file(line + 4);
+    g_start_detached = background;
+    const bool opened = open_file(line + 4);
+    g_start_detached = false;
+    return opened;
   }
   if (line[0] == 'l' && line[1] == 's' && (line[2] == '\0' || line[2] == ' ')) {
     char words[1][kWordCap];
@@ -3908,7 +4297,15 @@ bool execute(char* line) {
     char words[1][kWordCap];
     size_t count = 0;
     if (!read_words(line + 7, words, 1, count)) return false;
-    return hexdump_file((count == 0) ? "/rtc" : words[0]);
+    // **A command that opens a file says which file** (0.164.4; the owner: *«si cat demana <path> perqué hexdump te
+    // <path> per defecte?»*): `hexdump` answered with the 7 168 B of `/rtc` and nobody had asked for them, which is the
+    // one path a person is most likely to want and the one thing this prompt must not guess. Same line as `cat`
+    // (docs/30, docs/70).
+    if (count == 0) {
+      usage_out("usage: hexdump <path>\r\n");
+      return false;
+    }
+    return hexdump_file(words[0]);
   }
   if (strcmp(line, "log") == 0) {
     log_dump();
@@ -3941,8 +4338,12 @@ bool execute(char* line) {
     // **The picture of the moment goes up before the board goes**: a restart is a
     // moment a person sees, and the glass it leaves is the one the boot paints over
     // (docs/50). A board without the picture is a board that restarts all the same.
+    // **And it goes up whole** (0.165.1): a restart cut in the middle of the `gc16` of the picture leaves the page of
+    // before on the glass, which is exactly what a person saw — the picture opened too late and was never seen—. The
+    // line is written first and the ink is waited on after it, so the wire and the glass say the same thing.
     splash::show(splash::kReboot);
     out("restarting...\r\n");
+    splash::wait();
     pal::system().reboot();
     return true;
   }
@@ -3958,6 +4359,9 @@ bool execute(char* line) {
     out("powering off...\r\n");
     pal::IConsole* console = pal::system().console();
     if (console != nullptr) console->flush();  // the line has to be out before the supply goes
+    // **And the glass has the goodbye on it before the supply goes** (0.165.1): the picture is a `gc16` of the whole
+    // panel and cutting the power in the middle of it leaves the last page of somebody's app (docs/50).
+    splash::wait();
     if (!platform().power()->power_off()) {
       error_out("this board cannot cut its own power: it holds nothing to switch off\r\n");
       return false;
@@ -4038,17 +4442,22 @@ bool execute(char* line) {
   if (strncmp(line, "sleep", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
     return command_sleep(line + 5);
   }
-  out("unknown command: ");
-  out(line);
-  newline();
-  out("try 'help'.\r\n");
+  // **A command that is not there is a complaint** (0.159.0): the session of an app reads it on its own pipe, and a
+  // person at the console sees the same three lines as ever (docs/30). One call per line, because a newline outside
+  // it would go to the other pipe.
+  char complaint[kWordCap + 32];
+  snprintf(complaint, sizeof(complaint), "unknown command: %s\r\n", line);
+  error_out(complaint);
+  error_out("try 'help'.\r\n");
   return false;
 }
 
 void feed(const char* data, size_t len) {
   // While an app runs the keyboard is the app's: it echoes, it edits, and it is
   // the one that gets the lines (docs/30). The shell sees nothing of this.
-  if (g_app_alive) {
+  // **Unless the app is detached** (0.160.0): `run x &` gave the console back to the shell, so the lines are the
+  // shell's and the app never sees them (docs/30).
+  if (g_app_alive && !g_app_detached) {
     luabind::feed_console(data, len);
     return;
   }
@@ -4063,13 +4472,32 @@ void feed(const char* data, size_t len) {
     }
     g_last_was_cr = (c == '\r');
 
-    // **Ctrl+D leaves the Lua interpreter**, the same way `exit` does: it is the end of the input a
-    // person at a prompt expects, and the line being typed is discarded without running it (docs/30,
-    // docs/85). In the shell prompt the same byte means nothing and is ignored.
-    if (c == 0x04 && g_lua) {
+    // **A closed session opens again only with the Enter of a terminal** (0.158.0): a serial port cannot be hung
+    // up, so the session is not closed at all —the board says so and starts again when the person presses Enter—
+    // and nothing else counts as a line: a letter typed while it is closed is not the first letter of anything,
+    // and an escape is not a key (docs/30, docs/50).
+    if (!g_session_open) {
+      if (c != '\r' && c != '\n') continue;
+      g_session_open = true;
       g_editor.reset();
       newline();
-      leave_lua();
+      out("login: a new session\r\n");
+      prompt();
+      continue;
+    }
+
+    // **Ctrl+D is `exit`** (0.158.0): in the interpreter it leaves the session of Lua, which is what it has always
+    // done, and at the prompt of the shell it closes the session of the console, because the end of the input of a
+    // terminal and the four letters `exit` are the same wish. The line being typed is discarded and not run
+    // (docs/30, docs/85).
+    if (c == 0x04) {
+      g_editor.reset();
+      newline();
+      if (g_lua) {
+        leave_lua();
+      } else {
+        close_console_session();
+      }
       prompt();
       continue;
     }
@@ -4174,7 +4602,8 @@ void feed(const char* data, size_t len) {
       }
       // The question of the selector is its own prompt: printing "lunok> " there
       // left the person answering after a prompt that belongs to the shell.
-      if (!g_app_alive && !g_choosing && !native_running()) prompt();
+      // **And a detached app does not own the prompt**: it is the shell's, which is what `&` bought (0.160.0).
+      if ((!g_app_alive || g_app_detached) && !g_choosing && !native_running()) prompt();
     } else if (c == 0x7f || c == 0x08) {
       if (g_editor.backspace()) redraw_line();
     } else if (c >= 0x20 && c < 0x7f) {
@@ -4182,6 +4611,121 @@ void feed(const char* data, size_t len) {
       if (g_editor.insert(c)) redraw_line();
     }
   }
+}
+
+// ---------------------------------------------------------- the sessions (0.159.0)
+//
+// **The shell is the system's and not the wire's**: whoever calls `open_session` gets a handle and talks to a shell
+// through three pipes —the lines in, the answers out, the complaints out— with no console in the middle, no prompt
+// and no echo. The work of the line is the same `execute` the console uses, which is the whole point: one shell, two
+// doors (docs/30, docs/75).
+
+uint8_t open_session(char* why, size_t why_cap) {
+  for (uint8_t i = 0; i < kMaxSessions; ++i) {
+    Session& session = g_sessions[i];
+    if (session.in_use) continue;
+    session.in_use = true;
+    session.line_used = 0;
+    session.close_asked = false;
+    session.out = Ring();
+    session.err = Ring();
+    session.out.bytes = static_cast<uint8_t*>(malloc(kSessionOutBytes));
+    session.err.bytes = static_cast<uint8_t*>(malloc(kSessionErrBytes));
+    if (session.out.bytes == nullptr || session.err.bytes == nullptr) {
+      // **A session without its pipes is not half a session**: what was asked for goes back and the caller is told,
+      // because an app that got a handle it cannot read from is an app that hangs (docs/30, docs/75).
+      free(session.out.bytes);
+      free(session.err.bytes);
+      reset_session(session);
+      if (why != nullptr && why_cap > 0) {
+        snprintf(why, why_cap, "no room for the pipes of a session");
+      }
+      return 0;
+    }
+    session.out.cap = static_cast<uint16_t>(kSessionOutBytes);
+    session.err.cap = static_cast<uint16_t>(kSessionErrBytes);
+    return static_cast<uint8_t>(i + 1);  // ids are one based: zero is the console
+  }
+  if (why != nullptr && why_cap > 0) {
+    snprintf(why, why_cap, "there is already a session and one at a time is what this system has");
+  }
+  return 0;
+}
+
+void close_session(uint8_t id) {
+  Session* session = session_of(id);
+  if (session == nullptr) return;
+  free(session->out.bytes);
+  free(session->err.bytes);
+  reset_session(*session);
+}
+
+bool session_open(uint8_t id) { return session_of(id) != nullptr; }
+
+// **One line of a session runs as the console's would**, with the shell's words going to its own pipe: the sink is
+// the one number that says it, and it is asked and given back around the call so a command that prints by another
+// road still prints to the console (docs/30).
+void run_session_line(uint8_t id, Session& session) {
+  char line[kSessionLineBytes];
+  const uint16_t used = session.line_used;
+  memcpy(line, session.line, used);
+  line[used] = '\0';
+  session.line_used = 0;
+  if (used == 0) return;
+
+  const uint8_t was = g_sink;
+  g_sink = id;
+  execute(line);
+  g_sink = was;
+  if (session.close_asked) close_session(id);  // `exit` or `logout`, asked by the line itself
+}
+
+bool session_write(uint8_t id, const char* data, size_t len) {
+  Session* session = session_of(id);
+  if (session == nullptr || data == nullptr) return false;
+  for (size_t i = 0; i < len; ++i) {
+    const char c = data[i];
+    // A pipe carries `\n` and a terminal `\r\n`: one Enter and not two (docs/30).
+    if (c == '\r') continue;
+    if (c == '\n') {
+      run_session_line(id, *session);
+      // The line may have closed the session, and the pipes with it.
+      if (!session_open(id)) return true;
+      continue;
+    }
+    if (static_cast<size_t>(session->line_used) + 1 >= sizeof(session->line)) {
+      // **A line that does not fit is said and not grown**: the block of a session is fixed and a name of a command
+      // is a hundred and twenty-eight bytes (docs/30, docs/75).
+      session->err.put("line too long\r\n", 15);
+      session->line_used = 0;
+      continue;
+    }
+    session->line[session->line_used++] = c;
+  }
+  return true;
+}
+
+size_t session_read(uint8_t id, char* out, size_t cap) {
+  Session* session = session_of(id);
+  return (session == nullptr) ? 0 : session->out.get(out, cap);
+}
+
+size_t session_read_error(uint8_t id, char* out, size_t cap) {
+  Session* session = session_of(id);
+  return (session == nullptr) ? 0 : session->err.get(out, cap);
+}
+
+uint32_t session_dropped(uint8_t id) {
+  Session* session = session_of(id);
+  return (session == nullptr) ? 0 : (session->out.dropped + session->err.dropped);
+}
+
+// **The table the interpreter reads** (0.159.0): the kernel is the only one that knows how a session is opened and
+// given back, and `luabind` never includes the kernel, so the six calls arrive as six function pointers
+// (docs/20, docs/30).
+void install_shell_ops() {
+  luabind::set_shell_ops(luabind::ShellOps{&open_session, &close_session, &session_write, &session_read,
+                                           &session_read_error, &session_dropped});
 }
 
 }  // namespace shell

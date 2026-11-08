@@ -105,9 +105,12 @@ bool join_apps(char* out, size_t cap, const char* name) {
   return true;
 }
 
-// **The mark of the app that lives on the card** when the flash carries one with the same name (0.88.20): a person sees
-// `squares` and `squares-SD` and can run the two of them.
-const char kCardSuffix[] = "-SD";
+// **The mark of an app that is a redirect** (0.164.0): the copy of a name the door presents twice carries an asterisk
+// in front of its id —`*editor`— and the word of the unit it lives on at the end of its **name** —`Editor-SD`—, which
+// is what the door reads to say which disk a picture comes from. It used to be a `-SD` on the id, and then
+// `/apps/editor-SD/res/icon.png` was a path nothing could resolve: the launcher asked for the icon of an id that is not
+// a folder of any disk (found on the bench on 8/11, docs/40, docs/70).
+const char kRedirect[] = "*";
 
 // **The two halves of the door, whole** (0.88.20): the presenter is asked about a name and the disk it came from, because
 // `squares` on the flash and `squares` on the card are two folders and only one of them may be an app.
@@ -140,8 +143,8 @@ class PresentedSink : public hal::ListSink {
 };
 
 // **The card's half of `/apps`**: an app of the card whose name the door also presents from the flash is presented as
-// `<name>-SD`, so a person sees both and can run both —`squares` is the one of the flash and `squares-SD` the one of the
-// card— instead of one of them disappearing behind the other (0.88.20, docs/40, docs/70).
+// `*<name>` —the id of a redirect— so a person sees both and can run both, and **the id is a folder that exists**:
+// `/apps/*squares/res/icon.png` is the card's `apps/squares/res/icon.png` (0.164.0, docs/40, docs/70).
 class CardSink : public hal::ListSink {
  public:
   CardSink(hal::IStorage* flash, hal::ListSink& inner) : flash_(flash), inner_(inner) {}
@@ -149,17 +152,17 @@ class CardSink : public hal::ListSink {
   bool on_entry(const hal::ListEntry& entry) override {
     if (entry.name == nullptr) return true;
     if (flash_ == nullptr) return inner_.on_entry(entry);
-    // **The suffix says there are two of that name in the door**, so the flash's folder has to be one the door presents:
-    // a folder of the flash that is not an app does not push the card's copy into `-SD`, because there is nothing to tell
-    // the two apart from (docs/40, docs/70).
+    // **The mark says there are two of that name in the door**, so the flash's folder has to be one the door presents:
+    // a folder of the flash that is not an app does not push the card's copy into a redirect, because there is nothing
+    // to tell the two apart from (docs/40, docs/70).
     char rel[kMaxPathBytes];
     hal::Stat info;
     if (!join_apps(rel, sizeof(rel), entry.name) || !flash_->stat(rel, info)) return inner_.on_entry(entry);
     if (g_presenter != nullptr && !g_presenter(kFlashApps, entry.name)) return inner_.on_entry(entry);
     const size_t len = strlen(entry.name);
-    if (len + 4 > sizeof(renamed_)) return inner_.on_entry(entry);
-    memcpy(renamed_, entry.name, len);
-    memcpy(renamed_ + len, kCardSuffix, sizeof(kCardSuffix));  // "-SD" and the terminator
+    if (len + 2 > sizeof(renamed_)) return inner_.on_entry(entry);
+    renamed_[0] = kRedirect[0];
+    memcpy(renamed_ + 1, entry.name, len + 1);
     hal::ListEntry copy = entry;
     copy.name = renamed_;
     return inner_.on_entry(copy);
@@ -340,35 +343,41 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
   const char* rest = full + best_len;
   while (*rest == '/') ++rest;
   // **A name of `/apps` is answered by the disk that has it**: the flash first —`squares` is the app of the flash— and
-  // the card when the flash does not have that name, and a name that ends in `-SD` is the app of the card whose name is
-  // the one without the suffix. It is the same rule the listing follows, so what a person lists is what a person can
-  // open (0.88.20, docs/40, docs/70).
+  // the card when the flash does not have that name. **And a name that starts with `*` is a redirect** (0.164.0): the
+  // id is `*<folder>` and it is answered by the disk the plain copy is **not** on —the card when the flash carries
+  // `<folder>`, the flash when it does not— which is the copy the door presented as a redirect. That is what makes
+  // `/apps/*editor/res/icon.png` a path that exists, which `-SD` on the id never was (docs/40, docs/70).
   if (rest[0] != '\0' && strcmp(best->path, "/apps") == 0) {
     hal::IStorage* flash = best->storage;
     hal::IStorage* card = storage_of("/sd");
     char rel[kMaxPathBytes];
     hal::Stat info;
+
+    if (rest[0] == kRedirect[0] && rest[1] != '\0') {
+      const char* bare = rest + 1;
+      const char* slash = strchr(bare, '/');
+      const size_t name_len = (slash != nullptr) ? static_cast<size_t>(slash - bare) : strlen(bare);
+      char name[64];
+      if (name_len == 0 || name_len + 1 > sizeof(name)) return false;
+      memcpy(name, bare, name_len);
+      name[name_len] = '\0';
+      // **The plain copy says which disk the redirect is not on**: a folder of the flash with that name is the app the
+      // door presents without a mark, so the marked one is the card's (docs/40, docs/70).
+      const bool plain_in_flash = (flash != nullptr) && join_apps(rel, sizeof(rel), name) && flash->stat(rel, info);
+      hal::IStorage* target = plain_in_flash ? card : flash;
+      const int made = (target != nullptr)
+                           ? snprintf(rel_out, rel_cap, "apps/%s%s", name, (slash != nullptr) ? slash : "")
+                           : -1;
+      if (made > 0 && static_cast<size_t>(made) < rel_cap && target->stat(rel_out, info)) {
+        storage = target;
+        return true;
+      }
+      return false;
+    }
+
     const bool in_flash = (flash != nullptr) && join_apps(rel, sizeof(rel), rest) && flash->stat(rel, info);
     if (!in_flash && card != nullptr) {
-      bool in_card = join_apps(rel, sizeof(rel), rest) && card->stat(rel, info);
-      if (!in_card) {
-        // **The suffix is on the name and not on the end of the path** (0.88.20): `/apps/squares-SD/res/x` is the card's
-        // `apps/squares/res/x`, and looking for `-SD` at the end of the whole path only stripped it for the folder itself
-        // and not for anything inside it —the app listed and `run squares-SD` answering `has no readable manifest`—.
-        const char* slash = strchr(rest, '/');
-        const size_t name_len = (slash != nullptr) ? static_cast<size_t>(slash - rest) : strlen(rest);
-        const size_t mark = sizeof(kCardSuffix) - 1;
-        if (name_len > mark && strncmp(rest + name_len - mark, kCardSuffix, mark) == 0) {
-          const size_t bare = name_len - mark;
-          const size_t tail_len = strlen(rest + name_len);  // the "/..." after the name, empty at the folder
-          char stripped[kMaxPathBytes];
-          if (bare + tail_len < sizeof(stripped)) {
-            memcpy(stripped, rest, bare);
-            memcpy(stripped + bare, rest + name_len, tail_len + 1);
-            in_card = join_apps(rel, sizeof(rel), stripped) && card->stat(rel, info);
-          }
-        }
-      }
+      const bool in_card = join_apps(rel, sizeof(rel), rest) && card->stat(rel, info);
       if (in_card) {
         const size_t len = strlen(rel);
         if (len >= rel_cap) return false;
