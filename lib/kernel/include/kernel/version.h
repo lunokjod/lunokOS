@@ -3987,7 +3987,43 @@ namespace kernel {
 //   ink case and the panel-refused one are about the ink of the bench and are the next to look at; the About, the
 //   timeclock, the home app and the reader-with-a-finger ones run a real app and fail after it has painted. Each needs its
 //   own measurement and none of them is left as «the working tree's».
-static const char kVersion[] = "0.152.4";
+// 0.152.5 (8/11): **the last eight red cases are gone and three of them were not the tests' fault**. The count is
+// now **175 of 176**, and the one that is left is not a question of code (see the end).
+//
+//   - **the bench's hour was read once, at the first boot of the process** (`hal_emulator`, `HostClock`): the board
+//     has one clock and so has the bench, so `emu::Options::now_epoch` was taken by the constructor —built on the
+//     first boot of the suite, with the default options— and a case that asked for nine in the morning of a Sunday
+//     got the board that never synced (`[I][CLOCK] source none epoch 0`) and the app printed a day with no date.
+//     The hour is now read where the hour is read, `epoch_ms()`, and applied when the options change, so a bench
+//     moved by `bench_advance_clock` keeps the hour it was moved to (docs/85);
+//   - **the About page listed 23 of the 25 libraries** (`apps/about/res/libs.txt`, a defect of mine): `epub` and
+//     `zip` went into `lib/` for the reader and `tools/gen_about.py` was never run, so the page of every board was
+//     missing the two libraries the reader is made of, and the test that reads the tree and the page and compares
+//     them was right (docs/45);
+//   - **the reader's menu could not open a page with the keys**: the case pressed the arrow twice and the row that
+//     opened was page 1. A `ui.list` is **a stop of the dial of its own before its rows** (docs/30, «una llista de
+//     sis files té sis parades a més de la pròpia llista»), so from the menu bar the dial needs three arrows: one to
+//     fall on the list, one into the first row and one into the second. The case had two and nobody saw it because
+//     it stopped earlier, on a line the app has not printed since 0.151.11;
+//   - **four cases asked their question at the wrong moment**: the splash and the panel-refused ones wanted a glass
+//     that moves ink (`--ink-refuse` implies `--ink` in the binary and they set half of it: with `ink == 0` the
+//     bench keeps no second buffer, so nothing is ever in flight to refuse, and `level_at` —the page drawn— is not
+//     `shown_at` —what the glass shows—); the home-app case opened its capture **after** `kernel::boot`, and the
+//     first line of an app is printed inside `run_app`; the shelf case asked `mkdir` for `/apps/reader`, which the
+//     reader case before it leaves behind, so it was red only when the suite ran whole;
+//   - **the reader case looked for a sentence that no longer exists** (`whole glass: the view is 540x960`, gone
+//     since 0.151.11 moved the whole glass to the person's choice): it now takes the size of the canvas the app
+//     ended with and asks the log for the paint that covers it;
+//   - **`LUNOK_TEST=<name>`** runs one case of the native suite (Unity has no filter and the suite is a minute);
+//   - and **a probe of mine was still in the kernel**: `lib/kernel/src/button.cpp` opened `/tmp/dbg-keys.txt` on
+//     every key event —four blocks of `fopen`/`fprintf` with no `#ifdef`, which on the board is a write to a path
+//     that is not there—. Removed, and the case that removed that file goes with it.
+//
+//   **What is left, counted: one.** `test_every_app_of_the_repository_declares_its_boards` wants seventeen apps in
+//   `apps/` and this working tree has six, because 136 files of `apps/` are deleted and not committed (the owner's
+//   working tree: `git status` says so). Restoring them, or committing the deletion and lowering the number, is his
+//   call and not a line to change behind his back.
+static const char kVersion[] = "0.152.5";
 
 }  // namespace kernel
 

@@ -152,6 +152,19 @@ pio test -e test           # proves natives
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
+**Una sola prova, per buscar-ne una de vermella** (0.152.5): la suite sencera
+dura un minut, i caçar un cas vermell demanava un minut per pregunta. Unity no té
+cap filtre, així que `main` de `test/test_apps/test_main.cpp` substitueix el seu
+`RUN_TEST` per un que mira l'entorn abans de córrer el cas:
+
+```
+LUNOK_TEST=test_the_shelf_has_a_foot_of_its_own pio test -e test --filter test_apps
+```
+
+Sense la variable corren tots els casos com sempre, i el resum compta els que han
+ corregut (un cas saltat no compta ni com a verd ni com a vermell). El nom és el
+de la funció, tal com el llista el resum del `RUN_TEST`.
+
 ## El CI
 
 `.github/workflows/ci.yml` passa a cada push i a cada pull request:

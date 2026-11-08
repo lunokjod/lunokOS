@@ -7,6 +7,7 @@ board_esp32	0.1.0	lib/board_esp32		Who this firmware is for: a plain ESP32 and n
 board_matrix	0.1.0	lib/board_matrix		Who this firmware is for: the M5 ATOM Matrix, the same band as the Lite with a panel of twenty-five lights. Headers only.
 board_paper	0.1.0	lib/board_paper		Who this firmware is for: the M5 Paper v1.0 and v1.1 (K049 and K049-B), 16 MB of flash, 8 MB of PSRAM and the pin map of the e-ink band. Headers only: board/identity.h says the name, board/impl.h says what to link.
 board_tkoala	0.1.0	lib/board_tkoala		Who this firmware is for: the LilyGO TTGO T-Koala (ESP32-WROVER-B). Headers only: board/identity.h says the name, one plain LED and no IMU; board/impl.h says what to link.
+epub	0.1.0	lib/epub	MIT	The XHTML of a chapter of a book, word by word with the byte of each word: the blocks, the entities as Latin-1, the pictures with their side, and the grid of a table. No allocation of its own.
 hal	0.1.0	lib/hal		Hardware abstraction interfaces: capabilities, clock, storage, net, power.
 hal_atom	0.2.0	lib/hal_atom		Board support for the M5 ATOM family (Lite and Matrix): ESP32-PICO-D4, one button on GPIO39, one light or twenty-five on GPIO27, and the MPU6886 of the Matrix. The drivers for the things it puts on a pin, and everything else that is the chip's, are in hal_esp32.
 hal_emulator	0.1.0	lib/hal_emulator		Board support for the PC emulator: same kernel, host console, host disk.
@@ -23,4 +24,5 @@ pal	0.1.0	lib/pal		Platform abstraction layer: queues, console, log sink, clock,
 pal_esp32	0.1.0	lib/pal_esp32		PAL implementation for ESP32 + Arduino (FreeRTOS queue, UART console).
 pal_host	0.1.0	lib/pal_host		PAL implementation for POSIX (emulator): in-memory queue and raw stdin/stdout console.
 qr	0.1.0	lib/qr		A QR code that can be any QR: every version of the standard, every level of error correction and the three modes that carry text. Written here so it can be read, with the tables the standard publishes.
-ttf	0.1.0	lib/ttf		TrueType outlines read the way a page needs them: the tables of a font, the glyph of a code, and the outline of that glyph drawn at the size it is asked for (docs/30).
+ttf	0.1.0	lib/ttf	MIT	TrueType outlines read the way a page needs them: the tables of a font, the glyph of a code, and the outline of that glyph drawn at the size it is asked for. Since 0.150.0 it also opens the box a face travels in, a WOFF of a book (docs/46, D6).
+zip	0.1.0	lib/zip	MIT	The ZIP container an EPUB travels in: the closing record, the central directory and one entry inflated into a block of the caller's, with no allocation of its own.

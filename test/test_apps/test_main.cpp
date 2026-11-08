@@ -6304,8 +6304,11 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   opts.board = "m5stack-paper";
   opts.display = true;
   // **The ink costs what it costs and the panel says no while it moves it**: without the first there is nothing to wait
-  // for and without the second the waiting cannot be seen.
+  // for and without the second the waiting cannot be seen. **And the glass has to move ink at all** (0.152.5): a bench
+  // with `ink` off keeps no second buffer to show what the ink has done, so there is never anything in flight to refuse —
+  // `--ink-refuse` implies `--ink` in the binary and this case set only half of it—.
   opts.delays = true;
+  opts.ink = 1;
   opts.ink_refuse = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
@@ -6326,6 +6329,10 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
 
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
+  // **The glass has to move ink or there is never a page in flight to refuse** (0.152.5): the second buffer that shows
+  // what the ink has done is made when the ink is turned on, which the binary does with `--ink` and this case did not
+  // do —it asked for `--ink-refuse` alone—, so the refusal at line 6341 could never happen—.
+  TEST_ASSERT_TRUE(glass->set_ink(true));
   const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
   const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
 
@@ -6367,8 +6374,10 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
   opts.board = "m5stack-paper";
   opts.display = true;
   // **The ink costs time and the panel says no while it moves it**: without the first there is nothing to refuse and
-  // without the second the retry cannot be seen.
+  // without the second the retry cannot be seen. And the glass has to move ink, or there is no page in flight either
+  // (0.152.5).
   opts.delays = true;
+  opts.ink = 1;
   opts.ink_refuse = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
@@ -6404,16 +6413,28 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "present nil the previous paint did not finish"), g_out);
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
+  // The ink on, for the reason the splash case above gives (0.152.5): the refusal needs a second buffer to show.
+  TEST_ASSERT_TRUE(glass->set_ink(true));
   const kernel::ui::Canvas& view = kernel::ui::canvas();
-  const auto at = [glass, &view](uint16_t x, uint16_t y) {
+  // **Two buffers, two questions** (0.152.5): `level_at` is the page the system has drawn and `shown_at` is what the
+  // glass shows, which with the ink on is the second one (`docs/85`). Before this fix the test asked `level_at` for
+  // both and passed only because there was no ink model at all —the app's page is drawn there the moment it is drawn,
+  // refused or not—.
+  const auto drawn = [glass, &view](uint16_t x, uint16_t y) {
     return glass->level_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y));
   };
-  TEST_ASSERT_EQUAL_UINT8(15, at(60, 60));
+  const auto on_the_glass = [glass, &view](uint16_t x, uint16_t y) {
+    return glass->shown_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y));
+  };
+  // The page was drawn and it did not go up: the glass still has the white of the boot splash, and the black of the
+  // app's square is only in the page the system holds.
+  TEST_ASSERT_EQUAL_UINT8(15, on_the_glass(60, 60));
+  TEST_ASSERT_EQUAL_UINT8(0, drawn(60, 60));
 
   // **The system paints what it owes**: the ink of the boot ends, a turn asks the glass, and the square is there —with
   // nobody presenting again, which is the whole point (0.118.2).
   pump_turns(4000);
-  TEST_ASSERT_EQUAL_UINT8(0, at(60, 60));
+  TEST_ASSERT_EQUAL_UINT8(0, on_the_glass(60, 60));
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -6428,9 +6449,12 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
   opts.board = nullptr;
   opts.display = false;
   opts.delays = false;
+  opts.ink = 0;
   opts.ink_refuse = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
+  // The second buffer goes with the ink, and the ink now stays off for every test that comes after.
+  TEST_ASSERT_TRUE(emu::memory_surface()->set_ink(false));
 }
 
 // **The glass is one surface however many times it is asked** (0.118.9): `platform().display()` is the one
@@ -7156,11 +7180,13 @@ void test_the_home_app_comes_up_with_the_board(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board's default is none"), g_out);
 
   // **The boot starts it**: nothing is in front, so the home app is the one that comes up, and the prompt is not a
-  // place the board stopped at.
+  // place the board stopped at. **The capture wraps the boot and not the turns after it** (0.152.5): the source of an
+  // app is read and run inside `run_app`, so its first line is already on the console when `kernel::boot` returns and
+  // a capture opened after it sees nothing.
+  capture_begin();
   kernel::boot(hal::platform());
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the home app did not come up with the board");
   TEST_ASSERT_EQUAL_STRING("comer", kernel::shell::app_id());
-  capture_begin();
   pump_turns(30);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home here"), g_out);
@@ -9217,7 +9243,6 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
 // turns a text page over a text page is a `du` —mode 1 of the panel— and a page that comes after one with a plate takes
 // the wash (docs/50).
 void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
-  remove("/tmp/dbg-keys.txt");
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
@@ -9251,8 +9276,14 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // after it, which reads the chapter and paints the page.
   kernel::log_echo(true);
   pump_captured(300, g_out, sizeof(g_out), "run reader /littlefs/epub/la-vaca-cega.epub");
-  // The page takes the whole glass (docs/46, D1).
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "whole glass: the view is 540x960"), g_out);
+  // **The page is painted on the whole view the system gave it** (docs/46, D1). This case used to look for a line
+  // the app printed with the size of its view (`whole glass: the view is 540x960`), which no line of `apps/reader`
+  // writes and has not written since 0.151.11 moved the whole glass to the person's choice: the size is taken from
+  // the canvas the app ended with and the paint that covers it is what the log has to show (0.152.5).
+  char whole_glass[64];
+  snprintf(whole_glass, sizeof(whole_glass), "paint 0,0 %ux%u", kernel::ui::canvas().width,
+           kernel::ui::canvas().height);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, whole_glass), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
   // **And its four files are on the disk** (0.149.0, docs/46 D6): the reader asks for `library`, `chapters` and
   // `notice` before it draws anything, and a module that is not there says `require:` in the log.
@@ -9386,13 +9417,23 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   pump_turns(1100);
   emu::press_key(0, false);
   pump_turns(120);
+  // The console of the whole walk is what a failure has to show: the list answers "There is no page to choose" when
+  // the count of the chapter has not landed, and that is a different fault from a row that opened the wrong page.
+  capture_begin();
   press(2);  // Shelf -> Contents
   press(2);  // Contents -> Page
   press(0);  // the centre chooses Page
-  press(2);  // the list is one page: the arrow goes to the first row
-  press(2);  // and this one to the second
+  // **The list is a stop of the dial before its rows are** (docs/30, `ui.list` with entries: «una llista de sis files
+  // té sis parades a més de la pròpia llista»). The dial comes from the menu bar, which has just been released, so the
+  // first arrow falls on the list, the second walks into the first row and the third into the second —which is the
+  // row of page 2—. This case had two arrows and opened page 1, and nobody saw it because it stopped at a line the
+  // app has not printed since 0.151.11 (0.152.5).
+  press(2);  // the dial falls on the list
+  press(2);  // into the first row
+  press(2);  // and this one to the second row
   press(0);  // the centre opens page 2
-  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), where);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_INT_MESSAGE(second, byte_of(), g_out);
 
   kernel::shell::close_app();
   pump_captured(10, nullptr, 0);
@@ -9477,7 +9518,10 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
 
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
-  TEST_ASSERT_TRUE(storage->mkdir("/apps/reader"));
+  // **The folders may already be there**: `mkdir` answers false for one that is, and the case of the reader before
+  // this one runs on the same disk and leaves `/apps/reader` and `/epub` behind, so the test that asks for them was
+  // red only when the whole suite ran and green alone (0.152.5).
+  storage->mkdir("/apps/reader");
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/reader.lua", "/apps/reader/reader.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/manifest.json", "/apps/reader/manifest.json"));
   // **And its three modules** (0.149.0, docs/46 D6): the reader is `require`s of `library`, `chapters` and `notice`,
@@ -9485,7 +9529,7 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/library.lua", "/apps/reader/library.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/chapters.lua", "/apps/reader/chapters.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/notice.lua", "/apps/reader/notice.lua"));
-  TEST_ASSERT_TRUE(storage->mkdir("/epub"));
+  storage->mkdir("/epub");
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/epub/la-vaca-cega.epub", "/epub/la-vaca-cega.epub"));
 
   // **The shelf is where the reader starts when the shell gives it no book** (docs/46, B10).
@@ -9539,6 +9583,23 @@ void test_the_shelf_has_a_foot_of_its_own(void) {
   emu::set_options(opts);
   kernel::boot(hal::platform());
 }
+
+// **`LUNOK_TEST=<name>` runs one case** (0.152.5): the suite is a minute long, and hunting one red case at a
+// time meant a minute for every question asked of it. Unity has no filter of its own, so the one `RUN_TEST` it
+// gives is replaced here by one that asks the environment first; without the variable every case runs as before
+// and the summary counts what ran, not what was skipped.
+static bool runs_now(const char* name) {
+  const char* only = getenv("LUNOK_TEST");
+  return only == nullptr || only[0] == '\0' || strcmp(only, name) == 0;
+}
+
+#undef RUN_TEST
+#define RUN_TEST(func)                             \
+  do {                                             \
+    if (runs_now(#func)) {                         \
+      UnityDefaultTestRun(func, #func, __LINE__);  \
+    }                                              \
+  } while (0)
 
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;

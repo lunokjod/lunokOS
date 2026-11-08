@@ -213,7 +213,12 @@ int64_t mono_ms() {
 // (docs/85). The monotonic counter is the host's either way.
 class HostClock : public IClock {
  public:
-  HostClock() : mono_start_(mono_ms()), epoch_base_(0), scale_(1), known_(false) {
+  HostClock()
+      : mono_start_(mono_ms()),
+        epoch_base_(0),
+        scale_(1),
+        known_(false),
+        pinned_epoch_(emu::options().now_epoch) {
     const emu::Options& opts = emu::options();
     scale_ = (opts.time_scale > 0) ? opts.time_scale : 1;
     if (opts.now_epoch > 0) {
@@ -237,7 +242,21 @@ class HostClock : public IClock {
     }
   }
 
-  int64_t epoch_ms() override { return known_ ? (epoch_base_ + elapsed_ms()) : 0; }
+  // **The hour of the bench may be set after this clock exists** (0.152.5): the board has one clock and so has the
+  // bench —this object is built on the first turn of the process, which the comment on `host_clock` below explains—,
+  // so a case of the suite that asks for nine in the morning asked *after* the first boot had already built it with
+  // the default options, and its board "never synced": the time clock opened with no day at all. The options are read
+  // here, where the hour is read, and only when they have changed, because a bench moved with `bench_advance_clock`
+  // has to keep the hour it was moved to.
+  int64_t epoch_ms() override {
+    const int64_t wanted = emu::options().now_epoch;
+    if (wanted != pinned_epoch_) {
+      pinned_epoch_ = wanted;
+      known_ = (wanted > 0);
+      epoch_base_ = (wanted > 0) ? (wanted * 1000 - elapsed_ms()) : 0;
+    }
+    return known_ ? (epoch_base_ + elapsed_ms()) : 0;
+  }
   int64_t monotonic_ms() override { return elapsed_ms(); }
 
   bool set_epoch_ms(int64_t ms) override {
@@ -301,6 +320,8 @@ class HostClock : public IClock {
   int64_t epoch_base_;
   uint32_t scale_;
   bool known_;
+  // The `now_epoch` of the options this clock is holding, so a change of them is noticed in `epoch_ms` (0.152.5).
+  int64_t pinned_epoch_;
   int64_t armed_ = 0;
   int64_t slept_ = 0;
 };
