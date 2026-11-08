@@ -4055,7 +4055,12 @@ namespace kernel {
 //   - and **the title of the reader is his**: `Reader` → `EPUB reader`, which is the port of `EPUB` (docs/45 §8). No
 //     case of the suite reads a title, the id is still `reader`, and the manifest keeps what the port owes: `version`
 //     0.1.0, `entry`, `boards`, `icon`, `splash`, `opens` and a description of what the app does.
-static const char kVersion[] = "0.152.7";
+// 0.152.8 (8/11): **`tools/icons/` has twenty-four drawings and not twenty-four apps**, and docs/45 §2 says which
+// is which now that the folder is in the repository: the twenty-three that an app of the paper project has, plus
+// `Example.png`, which is the drawing to start one from and not an app. `Paint` has none because the original carries
+// none —its `manifest.json` has no `icon` and the folder has no `res/`—, so its icon, if a person wants one, is drawn
+// and not searched for.
+static const char kVersion[] = "0.152.8";
 
 }  // namespace kernel
 

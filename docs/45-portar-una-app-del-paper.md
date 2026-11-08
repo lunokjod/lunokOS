@@ -32,6 +32,12 @@ Res d'això no s'inventa: si un número no es troba a l'original, no es posa.
   - El `.icn` **no es porta**: és el format de quatre bits de l'altra pantalla i aquí no el llegeix
     ningú. El que es pinta aquí és un PNG, i `ui.image` en llegeix i n'escala.
   - El tamany és **94 × 94**, el número del paper (la caixa que el seu menú dona a una icona).
+  - **`tools/icons/` té vint-i-quatre dibuixos i no vint-i-quatre apps** (mesurat el 8/11): els vint-i-tres de les
+    apps que en tenen —`2048`, `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`,
+    `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Password`, `SerialFUSE`,
+    `Snake`, `Tamagotchi`, `Tetris` i `Timeclock`— i `Example.png`, que és **el dibuix per començar-ne un** i no
+    una app. **`Paint` no hi és perquè l'original tampoc no en porta**: el seu `manifest.json` no té `icon` i la
+    carpeta no té `res/`, o sigui que la seva icona, si un dia se'n vol una, s'ha de dibuixar i no s'ha de buscar.
 - **El `splash` no es copia: es torna a compondre** (0.151.17, i abans es copiava tal com era). De les
   vint-i-quatre apps del paper, només l'EPUB en tenia un, i el fitxer era el que havia fet
   `tools/splashgen.py` **a partir del dibuix de la icona**: aquí la recepta és `tools/app_splash.py` i
