@@ -875,6 +875,37 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
+// **A `du` of the whole glass goes up as a wash** (0.151.2, docs/50): the two-level waveform of this panel is a
+// *partial* one, and the controller of the Paper stops answering on the bus when the whole page is asked of it in it
+// —`ffff` on every word from that moment and not one paint more, which is the frozen glass the reader and the splash
+// both left on the board (measured 8/11, docs/92 §33). The kernel turns a `du` that big into a `gc16`, and the bench
+// can say it twice: in the quality the glass was told, and in the trace a `du` would have left behind.
+static void test_a_du_of_the_whole_glass_is_painted_as_a_wash(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(glass().set_ink(true));
+  // A black page, with the quality that cleans, so the glass and the sheet agree on what is there.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 960, 540, 0, "gc16"));
+  TEST_ASSERT_TRUE(ui::present());
+  wait_ms(500);
+  TEST_ASSERT_EQUAL_UINT8(0, glass().shown_at(20, 20));
+
+  // White over the whole glass, **with the quick quality**: seven eighths of the panel is not a partial paint.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 960, 540, 15, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kGc16), static_cast<int>(glass().last_mode()));
+  wait_ms(500);
+  // And it is the whole page that is clean: the level asked for, and no dirt of the black one under it.
+  TEST_ASSERT_EQUAL_UINT8(15, glass().shown_at(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().dirt_at(20, 20));
+
+  // **A small one is still a `du`** (docs/50): the clock of the bar and the strip of a page pay the 120 ms of the
+  // quick waveform and not the 450 of the wash.
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 40, 40, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kDu), static_cast<int>(glass().last_mode()));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
 // **The level a band of the glass shows**, averaged over twenty pixels: one pixel can be a miss of the
 // speckle, and what the test below is about is the shape of the trace and not the grain of it (docs/85).
 static uint8_t band_of_the_glass(uint16_t y) {
@@ -3497,6 +3528,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_canvas_takes_its_children_with_it_when_it_goes);
   RUN_TEST(test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child);
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
+  RUN_TEST(test_a_du_of_the_whole_glass_is_painted_as_a_wash);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
   RUN_TEST(test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away);
   RUN_TEST(test_the_trace_of_a_rich_page_is_richer_than_a_flat_one);

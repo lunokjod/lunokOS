@@ -422,6 +422,11 @@ end
 -- page of the first chapter and nowhere else, and it goes with the position. **A picture keeps its paper** — it is not
 -- inverted on the dark page, because a negative cover is not a cover (C9) — and the foot says the one thing a person
 -- has to know there: the page is to the right.
+-- **The position is saved and `show_cover` does it** (docs/46, C6 and C7): `forget_page` is written below it and a
+-- `local function` only exists from its own line, so the cover called a global that was not there (the suite found
+-- it on 8/11: `attempt to call a nil value (global 'forget_page')`).
+local forget_page
+
 local function show_cover()
   if screen == nil or book == nil or cover == nil then return end
 
@@ -441,7 +446,7 @@ local function show_cover()
   ui.present('gc16')
 end
 
-local function forget_page()
+function forget_page()
   if chapter ~= nil and book ~= nil then library.remember(book.path, chapter, from, cover_mode) end
 end
 
@@ -725,8 +730,10 @@ function show_shelf(why)
 
   -- **The shelf is paper from edge to edge** (0.147.0): a book read in the dark leaves a black page on the glass, and the
   -- margins around the grid and the air above the foot are rows that neither the grid nor the foot paints — without this
-  -- line they keep the ink of the page that was being read (docs/46, C9).
-  ui.rect(0, 0, view.w, view.h, 15, 'du')
+  -- line they keep the ink of the page that was being read (docs/46, C9). **And it is a wash and not a `du`** (0.151.2):
+  -- the whole glass in the two-level waveform is what the controller of the Paper does not take, and the kernel turns a
+  -- `du` that big into a `gc16` anyway —saying it here is saying which of the two the app meant (docs/50).
+  ui.rect(0, 0, view.w, view.h, 15, 'gc16')
 
   if #books == 0 then
     local empty = ui.label(view.w - 40, 120)

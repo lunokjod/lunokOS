@@ -131,6 +131,12 @@ const uint8_t kReviveTries = 3;
 // (measured on the board, 1/11: `busy stayed low` right after the boot) (docs/50).
 const uint32_t kBusyTimeoutMs = 3000;
 
+// **The biggest glass this driver will believe** (0.151.2, docs/95): a device that answers `ffff` is a
+// MISO nobody drives, and read as a size it is a glass of 65535 by 65535 with its image at 0xffffffff.
+// Nothing on this board is wider than four thousand pixels, and a geometry past this is a controller that
+// is not there (measured on the board, 8/11).
+const uint16_t kMaxGlassSide = 4096;
+
 void pin_output(int pin, int level) {
   gpio_config_t out = {};
   out.pin_bit_mask = 1ULL << pin;
@@ -428,15 +434,30 @@ bool It8951::arm() {
              info[2], info[3]);
     return false;
   }
-  native_width_ = info[0];
-  native_height_ = info[1];
-  memory_ = (static_cast<uint32_t>(info[3]) << 16) | info[2];
-  if (native_width_ == 0 || native_height_ == 0) {
-    // A controller that answers zeros has not been read: the size of this glass is not a guess, it is
-    // the panel the board carries, and a zero here would make a surface of nothing (docs/50).
-    snprintf(profile_, sizeof(profile_), "the controller answered no size");
+  // **All ones is a MISO nobody drives, and it was taken for a panel that had come back** (0.151.2). The log of the
+  // board says it word for word: after the glass stopped answering, `revive()` cycled the rail, `read_words` came back
+  // "well", and this function believed `glass 65535x65535` with its image at `0xffffffff` — `arm()` returned true,
+  // `ready_` stayed up, and the driver went on loading every page into an address nobody has, with the paint accepted
+  // and the glass never changed. That is the frozen board of the reader and of the splash: *«no pinta res de res al
+  // eink i després ningú pot tocar la pantalla fins al reinici»* (measured on the board, 8/11, docs/50, docs/95).
+  // A controller that is not on the bus has to say so here, so that the rail is tried again and the driver stops
+  // painting where nothing is listening. **The four words are checked before they are believed**: what is read is a
+  // proposal, and the geometry of this panel and the address of its image only become the driver's when they are a
+  // panel at all.
+  const uint16_t glass_w = info[0];
+  const uint16_t glass_h = info[1];
+  const uint32_t image = (static_cast<uint32_t>(info[3]) << 16) | info[2];
+  if ((glass_w == 0xFFFF && glass_h == 0xFFFF) || glass_w == 0 || glass_h == 0 || glass_w > kMaxGlassSide ||
+      glass_h > kMaxGlassSide || image == 0xFFFFFFFFu) {
+    // One sentence for the two readings that mean "no panel": all ones (nobody drives the line) and zeros (the
+    // controller answered nothing). The rest of the words are printed because they are the only fingerprint left.
+    snprintf(profile_, sizeof(profile_), "no panel: words %04x %04x %04x %04x, %ux%u at %08x", info[0], info[1],
+             info[2], info[3], glass_w, glass_h, static_cast<unsigned>(image));
     return false;
   }
+  native_width_ = glass_w;
+  native_height_ = glass_h;
+  memory_ = image;
   // The image is made **in the frame an app draws in**, which is the glass turned by `rotation_` —90 by
   // default, so the page is a portrait one on a landscape glass (docs/50). **It is made once**: a panel
   // that is armed again keeps the page an app drew, because an arming that threw it away would leave

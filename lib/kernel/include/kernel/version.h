@@ -3382,7 +3382,38 @@ namespace kernel {
 // whose name is not printable ASCII (only the accented EPUB under `OLD/PaperOS/tests/`, which is a real name).
 // **Pending**: the suites themselves, untouched — the 31 failing cases of 0.151.0 are where they were, and the glass
 // still has not been looked at.
-static const char kVersion[] = "0.151.1";
+// 0.151.2 (8/11): **the glass of the reader, dead, and the two errors that leave it dead for the whole board**.
+//
+//   The board said it in its own log: `run reader`, two paints, and then `the panel had stopped answering; the rail was
+//   cycled and it is back: 540x960 turned 270 (glass 65535x65535), image at 0xffffffff, words ffff ffff f`. From that
+//   moment nothing painted, for anybody, until the board was restarted — *«no pinta res de res al eink i després ningú
+//   pot tocar la pantalla fins al reinici»*. It had happened with the splash too.
+//
+//   - **`ffff` is not a panel that came back** (`it8951.cpp`, `arm()`): after the rail cycle `read_words` "succeeds" and
+//     hands back twenty `ffff`, and the driver believed them —a glass of 65535 by 65535 with its image at 0xffffffff—,
+//     so `arm()` said yes, `ready_` stayed up, and every page after that was loaded into an address nobody has, with
+//     the paint accepted and the glass never changing. It was one dead paint turned into a dead board. The four words
+//     are checked **before** they are believed now: all ones, a zero, a side past `kMaxGlassSide` (4 096) or an image
+//     at `0xffffffff` are "no panel", `revive()` returns false, the rail is tried again and `kReviveTries` gets to say
+//     the truth in the log;
+//   - **a `du` never covers the glass** (`ui.cpp`, `paint()`): the two-level waveform is a *partial* one and this
+//     controller stops answering on the bus when the whole page is asked of it in it. That is what the log shows one
+//     paint before the `ffff`. Any `du`, `du4` or `a2` that covers seven eighths of the glass or more goes up as a
+//     `gc16`; the threshold is generous on purpose, so a block of text that covers most of the view and the clock of
+//     the bar are still `du`. The reader's own wash of the shelf asks for `gc16` by name (it was a full-glass `du`);
+//   - **`apps/reader/reader.lua`**: the three `console.print('DBG …')` of the cover hunt are gone (they printed on
+//     every key event), and `forget_page` is declared before `show_cover`, which called it as a global that did not
+//     exist yet — the suite found it on 8/11 (`attempt to call a nil value (global 'forget_page')`).
+//
+//   **A test pins the rule**: `test_a_du_of_the_whole_glass_is_painted_as_a_wash` (test_ui) paints a black page, asks
+//   for white over the whole glass in `du`, and checks both what the glass was told (`last_mode()` is `gc16`) and that
+//   no trace of the black is left — and that a 40-by-40 `du` afterwards is still a `du`. The driver half has no host
+//   test: it only exists on the board, and what it needs is a flash.
+//
+//   **Measured**: `pio test -e test --without-testing` builds the 23 suites with no warning; `pio run -e m5-paper`
+//   builds the firmware with no warning (2 338 113 B of flash, 55,7 %). **Pending**: the firmware is not flashed and no test has
+//   been run; the 31 failing cases of 0.151.0 are untouched.
+static const char kVersion[] = "0.151.2";
 
 }  // namespace kernel
 

@@ -990,6 +990,40 @@ tres girs en surten, i no queda cap número per endevinar.
 És a dir: **17 de les 19 capacitats**, i l'única que falta a aquesta placa és `imu`, que no hi és.
 | Tecles: dreta, central (`PWR`), esquerra | GPIO39, 38, 37 |
 
+### El vidre deixa de contestar: `ffff` no és una placa que ha tornat (8/11, mesurat)
+
+El lector d'EPUB va deixar la Paper **amb el vidre mort**: no pintava res de res i, a partir d'aquell moment, cap altra
+app no podia pintar fins a reiniciar. El log de la placa diu exactament el que va passar:
+
+```
+[I][UI] paint 0,0 540x960 mode 7              <- la rentada de tota la pàgina en `du`
+[D][PANEL] blit 0,0 540x960 of a line of 270 B
+[I][PANEL] engine flag 0000 -> 0000 -> 0000
+[I][PANEL] paint 0,0 960x540 mode 7 at 0x1236e0 (page 0,0 540x960, 540 rows of 480 B)
+[I][UI] paint 0,0 540x960 mode 2
+[W][PANEL] the panel had stopped answering; the rail was cycled and it is back:
+           540x960 turned 270 (glass 65535x65535), image at 0xffffffff, words ffff ffff f
+```
+
+Dues coses, i totes dues són errors meus:
+
+1. **Una `du` no pot cobrir tota la pàgina.** La forma d'ona de dos nivells és una ona *parcial*; aquest controlador
+   deixa de contestar al bus quan se li demana la pàgina sencera amb ella, i des d'aquell moment tot el que torna és
+   `ffff`. El nucli **converteix en `gc16` qualsevol `du`, `du4` o `a2` que cobreixi set vuitens del vidre o més**
+   (`ui.cpp`, `paint()`), i el lector demana `gc16` a la seva rentada de prestatge: una pàgina així és una rentada, i
+   una rentada és `gc16`. El llindar és generós a posta, perquè un bloc de text que ocupa gairebé tota la vista i el
+   rellotge de la barra segueixin sent `du`.
+2. **`ffff` no és una placa que ha tornat.** Després del cicle de rail, `read_words` «va bé» i torna vint paraules
+   `ffff`; el driver les va creure i va fer `glass 65535x65535`, `image at 0xffffffff`, `arm()` va dir que sí i el
+   driver va seguir carregant cada pàgina a una adreça que no existeix —amb la pintada «acceptada» i el vidre sense
+   canviar mai. Ara `arm()` **refusa** una informació de dispositiu tota a `ffff`, una geometria més gran que
+   `kMaxGlassSide` (4 096) i una imatge a `0xffffffff`: `revive()` torna fals, el rail es reintenta i el comptador de
+   `kReviveTries` arriba a dir la veritat al log. Un controlador que no és al bus ho ha de dir **aquí** i no pas tres
+   pintades més tard.
+
+La mateixa parella d'errors és la que va deixar el *splash* penjat («amb l'splash també passava»): el que mata el
+vidre és el segon error, i el primer li dona l'ocasió.
+
 ### Apagar-se de debò: el son profund d'aquesta placa no és un son
 
 El mapa de pins del fabricant té una columna `INT` a la taula de la I2C interna, i només la té

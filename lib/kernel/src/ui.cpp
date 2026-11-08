@@ -432,11 +432,27 @@ bool paint(const Damage& region) {
                static_cast<unsigned>(surface->width()), static_cast<unsigned>(surface->height()));
     return true;
   }
+  // **A `du` never covers the glass** (0.151.2, docs/50). The two-level waveform is a *partial* one, and this
+  // controller stops answering on the bus when it is asked for the whole page in it: from that moment every word it
+  // hands back is `ffff`, every paint is accepted by nobody, and the glass keeps the page it had for ever — that is the
+  // frozen board of the reader and of the splash, *«no pinta res de res al eink i després ningú pot tocar la pantalla
+  // fins al reinici»* (measured on the board, 8/11, docs/92 §33). And it is ghosting as well: a page that big is a
+  // wash, and a wash is `gc16`. The threshold is generous on purpose —seven eighths of the glass— so a block of text
+  // that covers most of the view is still a `du` and the clock of the bar is still a `du`.
+  hal::UpdateMode mode = region.mode;
+  const uint32_t glass_area = static_cast<uint32_t>(surface->width()) * static_cast<uint32_t>(surface->height());
+  if ((mode == hal::UpdateMode::kDu || mode == hal::UpdateMode::kDu4 || mode == hal::UpdateMode::kA2) &&
+      glass_area != 0 && static_cast<uint32_t>(w) * static_cast<uint32_t>(h) >= (glass_area / 8u) * 7u) {
+    log_printf(pal::kLogDebug, "UI", "a %s of %u,%u %ux%u is the whole glass, and it goes up as a gc16",
+               (mode == hal::UpdateMode::kA2) ? "a2" : "du", static_cast<unsigned>(x), static_cast<unsigned>(y),
+               static_cast<unsigned>(w), static_cast<unsigned>(h));
+    mode = hal::UpdateMode::kGc16;
+  }
   surface->blit(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
                 static_cast<uint16_t>(h),
                 view.bits + static_cast<uint32_t>(region.y) * view.stride + region.x / 2,
                 view.stride);
-  return display::present(region.mode);
+  return display::present(mode);
 }
 
 // **One canvas onto the one that holds it.** A region the child painted is copied at the child's place,
