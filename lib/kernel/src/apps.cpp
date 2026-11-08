@@ -429,8 +429,13 @@ bool find_for_extension(const char* ext, Entry& out, uint32_t& matches) {
   memset(&out, 0, sizeof(out));
   matches = 0;
   if (ext == nullptr || ext[0] == '\0') return false;
+  // **The name of a manifest is normalised and the one a person types is not** (0.152.4): `"TXT"`, `".txt"` and `"txt"`
+  // are one thing when a manifest declares it (`normalise_extension`) and were three when a file asked for it, so a file
+  // called `NOTES.TXT` opened nothing. The query goes through the same door as the declaration.
+  char wanted[Entry::kMaxOpens ? 16 : 16];
+  if (!normalise_extension(ext, wanted, sizeof(wanted))) return false;
   HandlerSearch search;
-  search.ext = ext;
+  search.ext = wanted;
   search.found = &out;
   search.matches = 0;
   for_each(nullptr, &handler_visitor, &search);

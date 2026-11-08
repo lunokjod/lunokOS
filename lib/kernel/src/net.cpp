@@ -512,14 +512,20 @@ void start_next() {
     g_head = static_cast<uint8_t>((g_head + 1) % kQueueLen);
     --g_count;
     g_deadline_ms = (g_current.timeout_ms > 0) ? now_ms() + g_current.timeout_ms : 0;
+    // **What a radio that is really working on something else says**, and the answer when nobody knows better
+    // (0.152.4): the line below could only make it worse, and it did.
+    g_refuse = "E_BUSY";
     if (begin(g_current)) return;
     // The radio refused it. The answer is given in the next turn: the one who
     // asked may still be inside its own call (docs/30).
-    // **And it says which refusal it was** (0.118.10): the driver hands back its own words when it has
-    // them —`the radio did not come up (ESP_ERR_NO_MEM)` is not a busy radio— and `E_BUSY` stays only
-    // for the case of a radio that is really working on something else (docs/30, docs/50).
+    // **And it says which refusal it was** (0.118.10): `begin` sets `E_NONET` when the request needed a network and
+    // the board has none, and the driver hands back its own words when it has them —`the radio did not come up
+    // (ESP_ERR_NO_MEM)` is not a busy radio—. **The driver speaks only when it has something to say**: this line used
+    // to write `E_BUSY` over the `E_NONET` of `begin` whenever the driver was silent, which is the normal case, so
+    // `ntp` without a network answered `no time came back, E_BUSY` and sent a person to look at the radio for a
+    // network that was not there (found by the two tests of the bench that had been red for it, 8/11).
     const char* why = g_net->last_error();
-    g_refuse = (why != nullptr && why[0] != '\0') ? why : "E_BUSY";
+    if (why != nullptr && why[0] != '\0') g_refuse = why;
     g_phase = kRefused;
   }
 }

@@ -3945,7 +3945,49 @@ namespace kernel {
 //   is what a reader is for.
 //
 //   `pio run -e m5-paper`: **2 341 465 B (55,8 %)**, 121 708 B of RAM (2,7 %), no warning.
-static const char kVersion[] = "0.152.2";
+// 0.152.3 (8/11): **one of the red tests was mine, and it was asking the wrong question**.
+//
+//   The owner asked whether everything was green and it was not: fifteen of the hundred and seventy-six cases of
+//   `test_apps`, and I had been calling them «the working tree's». **One was mine and had been red since 0.151.1**, the
+//   version written to stop the bench writing files under a garbage name: `test_the_options_of_the_bench_start_empty`
+//   asked that every field of `emu::Options` be null, and the constructor of the bench gives `fs_dir` the word
+//   **`"emulator"`** —the folder the emulated disks live in— from the day it was written. A case that asks the wrong
+//   question is red whatever the code does, and fifteen reds is what hides one of your own.
+//
+//   **And the wrong question hid nothing**: checked against the source, the struct has **51 fields**, 43 carry their
+//   value in the header and **50 are in the constructor**, and the union covers all of them — there is no field that
+//   comes out of the stack. The nine floats of the fake sensors are the board **at rest** and not zero: a g downwards,
+//   25 °C, and half the air, which is what an app that asks an IMU nobody configured has to find. The case asserts the
+//   value of every field it can now, instead of asking that they all be empty.
+//
+//   **The other fourteen reds are not this version's** and they are not explained by it: they are red on a clean
+//   checkout of the commit before it too, and they are the next piece of work, one by one and with their own
+//   measurements.
+// 0.152.4 (8/11): **hunting the red tests found three bugs and two cases that asked the wrong question**.
+//
+//   The count went from fifteen to eight, and what the hunt turned up is worth more than the number:
+//
+//     - **`E_NONET` was thrown away** (`net.cpp`, `start_next`): `begin` sets it when a request needs a network and the
+//       board has none, and the line after it wrote `E_BUSY` over it whenever the driver had no words of its own —which
+//       is the normal case—. So `ntp` and `http` without a network answered `no time came back, E_BUSY` and sent a person
+//       to look at the radio for a network that was not there. The driver now speaks only when it has something to say;
+//     - **an extension was normalised on one side and not the other** (`apps.cpp`, `find_for_extension`): a manifest's
+//       `opens` goes through `normalise_extension` (`"TXT"`, `".txt"` and `"txt"` are one thing) and the **query** did
+//       not, so a file called `NOTES.TXT` opened nothing. Both go through the same door now;
+//     - **the bench's `use_board` gave the board's name and not its glass**: the binary gives a model the parts it has
+//       (`docs/85`) and the helper did not, so a case that ran an app that presents was running it on a board with no
+//       screen and the app died inside `ui.present` — `test_ui_focus_puts_the_dial_where_the_app_says` was red for that
+//       and nothing else;
+//     - and **two cases asked questions that were not theirs**: the badge of `apps info` was written into a folder nobody
+//       had made, and the present-with-a-mode case painted the **whole view**, which the system promotes to `gc16` by
+//       rule (`docs/50`) — a small square asks the question about the mode and not about the promotion.
+//
+//   **What is left, counted**: eight, and they are named —`test_every_app_of_the_repository_declares_its_boards` wants
+//   seventeen apps in `apps/` and this working tree has six (the owner's uncommitted deletions); the splash-waits-for-the-
+//   ink case and the panel-refused one are about the ink of the bench and are the next to look at; the About, the
+//   timeclock, the home app and the reader-with-a-finger ones run a real app and fail after it has painted. Each needs its
+//   own measurement and none of them is left as «the working tree's».
+static const char kVersion[] = "0.152.4";
 
 }  // namespace kernel
 

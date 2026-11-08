@@ -19,6 +19,7 @@
 #include "alarms/alarms.h"
 #include "emu/gt911.h"
 #include "emu/memories.h"
+#include "emu/model.h"
 #include "emu/options.h"
 #include "emu/surface.h"
 #include "hal/hal.h"
@@ -362,9 +363,15 @@ bool card_on(const char* dir) {
 // The board this test is about: a board is chosen and never assumed, because the bench answers with
 // the hardware of the model it was told to be, and a test that expects a gauge on an ATOM is a test
 // that would pass on a board nobody has (docs/50, docs/85).
+// **The board comes with its parts** (0.152.4): the binary gives a model the glass it has —`Options` has it off because a
+// board nobody looks at does not read a bus once a turn— and this helper gave the name and nothing else, so a case that
+// ran an app that presents was running it on a board with no screen and the app died in `ui.present`. Same rule as the
+// binary's (`docs/85`), and a case that wants a board without one turns it off itself.
 void use_board(const char* model) {
+  const emu::Model hw = emu::model_of(model);
   emu::Options opts = emu::options();
   opts.board = model;
+  if (hw.glass) opts.display = true;
   emu::set_options(opts);
   // The board's operations (the sensor, the gauge) are installed by the boot, so a board is not
   // something a test can change under a running kernel: it boots again on the new one (docs/85).
@@ -525,18 +532,36 @@ void close_any_app() {
 void test_the_options_of_the_bench_start_empty(void) {
   const emu::Options one{};
   TEST_ASSERT_NULL(one.dump);
-  TEST_ASSERT_NULL(one.fs_dir);
+  // **`fs_dir` is not null and never was** (0.152.3): the constructor of the bench gives it `"emulator"`, which is the
+  // folder the emulated disks live in when nobody says otherwise, and this test asserted null from the day it was
+  // written —it was red from 0.151.1 and I did not see it, which is what a suite of fifteen reds hides—. What the case is
+  // about is that **no field comes out as rubbish**, not that every one is zero.
+  TEST_ASSERT_EQUAL_STRING("emulator", one.fs_dir);
   TEST_ASSERT_NULL(one.state_dir);
   TEST_ASSERT_NULL(one.flash_dir);
   TEST_ASSERT_NULL(one.sd_dir);
   TEST_ASSERT_NULL(one.board);
-  TEST_ASSERT_EQUAL_INT32(0, one.baud);
+  TEST_ASSERT_NULL(one.script);
+  TEST_ASSERT_NULL(one.run_app);
+  TEST_ASSERT_EQUAL_INT32(-1, one.baud);
   TEST_ASSERT_EQUAL_INT32(0, one.ink);
+  TEST_ASSERT_EQUAL_UINT32(1, one.time_scale);
+  TEST_ASSERT_EQUAL_UINT32(0, one.seed);
+  TEST_ASSERT_FALSE(one.verbose);
   TEST_ASSERT_FALSE(one.display);
   TEST_ASSERT_FALSE(one.touch);
   TEST_ASSERT_FALSE(one.delays);
   TEST_ASSERT_FALSE(one.ink_refuse);
   TEST_ASSERT_FALSE(one.persist);
+  // **And the sensors of a board that is lying still**: a g downwards, twenty-five degrees and half the air, which is what
+  // the constructor of this bench has always given them —the header leaves those nine to it on purpose— and what an app
+  // asking an IMU nobody configured has to find (docs/85).
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, one.imu_ax);
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, one.imu_az);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, one.imu_gy);
+  TEST_ASSERT_EQUAL_FLOAT(25.0f, one.imu_celsius);
+  TEST_ASSERT_EQUAL_FLOAT(25.0f, one.env_celsius);
+  TEST_ASSERT_EQUAL_FLOAT(50.0f, one.env_humidity);
 }
 
 // The plainest app there is: it starts, it writes, it ends, and the shell is back.
@@ -2563,7 +2588,14 @@ void test_ntp_without_a_network_is_refused(void) {
   emu::set_options(opts);
 
   // A board with no network stored: `ntp` cannot even get on one.
-  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  // **And the radio is a job that has to end first** (0.152.4): `wifi forget` spends `wifi_ms` —a hundred in this bench—
+  // and a command that arrives while it is still running answers `E_BUSY`, which is true and is not what this case is
+  // about. Twenty milliseconds was the whole wait, so the case was asking the wrong question and has been red for it.
+  char forgot[512];
+  pump_captured(20, forgot, sizeof(forgot), "wifi forget");
+  // **The forget has to have happened**: it is the state this case is about, and a command that arrives while another
+  // one is running answers `E_BUSY` —which is true and is another question— (0.152.4).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(forgot, "network: none"), forgot);
   pump_captured(20, g_out, sizeof(g_out), "ntp");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "ntp: the board has no network to use"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::shell::native_running(), "a job started with no network");
@@ -3027,7 +3059,11 @@ void test_http_without_a_network_is_refused(void) {
   opts.wifi_ms = 100;
   emu::set_options(opts);
 
-  pump_captured(20, g_out, sizeof(g_out), "wifi forget");
+  // **The radio is a job and it has to end** (0.152.4): the same twenty milliseconds that `wifi_ms` does not fit, and
+  // the `E_BUSY` of a command that arrives in the middle of a forget.
+  char forgot[512];
+  pump_captured(20, forgot, sizeof(forgot), "wifi forget");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(forgot, "network: none"), forgot);
   pump_captured(20, g_out, sizeof(g_out), "http https://example.com/");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "http: the board has no network to use"),
                                g_out);
@@ -5339,7 +5375,10 @@ void test_a_present_with_a_mode_paints_with_that_mode(void) {
   TEST_ASSERT_TRUE(add_app(storage, "washed",
                             "{\"title\":\"Washed\",\"version\":\"0.1.0\","
                             "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                            "ui.clear(15, 'du')\n"
+                            // **A small square and not the whole glass**: a `du`/`du4` region that covers seven
+                            // eighths of the panel is promoted to `gc16` by the system (docs/50), which is a rule of its
+                            // own and would hide the mode this case is about (0.152.4).
+                            "ui.rect(20, 20, 40, 40, 0)\n"
                             "local ok = ui.present('du4')\n"
                             "console.print('washed ' .. tostring(ok))\n"
                             "sys.delay(5000):await()\n"));
@@ -8637,6 +8676,9 @@ void test_apps_info_shows_the_keys_a_manifest_carries(void) {
                            "\"boards\":[\"esp32\"],\"opens\":\"txt md\",\"opensArgs\":\"-ro\","
                            "\"icon\":\"res/badge.png\",\"description\":\"First line.\\nSecond line.\"}",
                            "console.print('card')\n"));
+  // **The folder of the app's own files is made here**: `add_app` writes the manifest and the entry and nothing else, and
+  // a file that has no folder to live in is a write that fails and a case that says nothing about the manifest (0.152.4).
+  storage->mkdir("/apps/card/res");
   TEST_ASSERT_TRUE(write_text(storage, "/apps/card/res/badge.png", "not really a picture\n"));
 
   TEST_ASSERT_TRUE(run_captured("apps info card", g_out, sizeof(g_out)));
