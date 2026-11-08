@@ -511,9 +511,9 @@ tons), **l'error com a avís** (C12) i les **dues cares del llibre** (C13: un se
 dues amb Latin-1) ja hi són. I el 0.142.0 **l'OPF llegit de debò** (C2: `META-INF/container.xml` → OPF → `dc:title` i
 l'`spine`, amb `epub.read` i la porta del ZIP, B6), que és el que diu el títol del llibre i **l'ordre dels seus
 capítols**. El que no hi és i el lector demana, amb la seva fitxa a docs/46: la **miniatura del prestatge** (el cau del
-llibre ja es fa des del 0.146.0, C11); **el peu del prestatge**; i **la mida de l'app** (57 818 B
-contra un sostre de font de 65 536, D6) amb els seus **ajustos** (D7). **L'índex (C14) hi és des del 0.143.0**, **la
-portada com a estat (C7) des del 0.144.0** i **anar a una pàgina pel número (C15) des del 0.145.0**. I el
+llibre ja es fa des del 0.146.0, C11) i **la mida de l'app** (60 930 B contra un sostre de font de 65 536, D6) amb els
+seus **ajustos** (D7). **L'índex (C14) hi és des del 0.143.0**, **la portada com a estat (C7) des del 0.144.0**, **anar
+a una pàgina pel número (C15) des del 0.145.0** i **el peu del prestatge des del 0.147.0**. I el
 **cau de miniatures (C11) des del 0.146.0**: la portada escalada a 64 píxels al costat del llibre, escrita pel
 sistema i llegida com una foto més.
 

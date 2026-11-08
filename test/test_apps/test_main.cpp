@@ -9985,6 +9985,78 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   kernel::boot(hal::platform());
 }
 
+// **The shelf has the foot of a page** (0.147.0, docs/46 C1): the band of 84 rows at the bottom of the glass with the
+// paper of the page, the line across its top, the books it has on the left and what the centre does on the right. **No
+// strip of balls**: the grid of cells already says which page it is on at the bottom of its own box (docs/30, docs/90),
+// so the shelf's own foot is the words and not a second counter of the same number.
+void test_the_shelf_has_a_foot_of_its_own(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/reader"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/reader.lua", "/apps/reader/reader.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/reader/manifest.json", "/apps/reader/manifest.json"));
+  TEST_ASSERT_TRUE(storage->mkdir("/epub"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/epub/la-vaca-cega.epub", "/epub/la-vaca-cega.epub"));
+
+  // **The shelf is where the reader starts when the shell gives it no book** (docs/46, B10).
+  pump_captured(200, g_out, sizeof(g_out), "run reader");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "attempt to"), g_out);
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // The band starts 84 rows above the bottom edge —960 - 84 = 876— and its line is the second row of it, from x 16 to
+  // x 523: sixteen pixels of paper on each side is what makes it a line and not the edge of the screen.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(270, 878), "the line across the foot of the shelf is not there");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(8, 878), "the line of the foot reaches the edge of the glass");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(10, 940), "the paper under the words of the foot is not paper");
+
+  // **The two words of the band**: the books on the left and the help on the right, both in the ink of the page. A label
+  // of a colour that hides it would pass every other check in this test.
+  auto ink_in = [&](uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1) {
+    int ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = x0; x < x1; ++x) {
+        if (glass->level_at(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
+  };
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in(16, 324, 884, 914), "the foot of the shelf says no book");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in(324, 524, 884, 914), "the foot of the shelf says no help");
+  // **And the words are under the cells and not on them**: the grid stops eight rows above the band, so the row of the
+  // paper right under the grid is still paper.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(270, 872), "the cells of the shelf reach into the foot");
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/reader/reader.lua");
+  storage->remove("/apps/reader/manifest.json");
+  storage->remove("/apps/reader");
+  storage->remove("/epub/.la-vaca-cega.epub.cache.ics");
+  storage->remove("/epub/la-vaca-cega.epub");
+  storage->remove("/epub");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -10174,6 +10246,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_about_app_lists_the_libraries_of_the_project);
   RUN_TEST(test_the_timeclock_of_the_paper_project_keeps_the_day);
   RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
+  RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   UNITY_END();
   return 0;
 }

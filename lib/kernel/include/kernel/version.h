@@ -3151,7 +3151,33 @@ namespace kernel {
 // **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn. And the cache is not a
 // thumbnail yet: the shelf still draws its books as words, so this turn leaves the file that the app which draws them
 // will read. Of the book, what is still missing with its fitxa in docs/46: the foot of the shelf.
-static const char kVersion[] = "0.146.0";
+// 0.147.0 (8/11): **the foot of the shelf** (docs/46, C1).
+//
+//   - **the shelf is a page and its foot is the page's**: the band of 84 rows at the bottom of the glass with the paper
+//     of the page, the line across its top —the second row of the band, from x 16 to x 523, sixteen pixels of paper on
+//     each side— and one row of words: the books it has on the left (`1 book`, `12 books`) and what the centre does on
+//     the right (`centre opens`). The grid of cells stops eight rows above the band, so a cell never reaches the words;
+//   - **the row of dots of the paper's shelf is NOT here, and that is a decision**: the grid already says which page it
+//     is on at the bottom of its own box (`2 / 3`, with a triangle on each side that has somewhere to go), and the
+//     system had written that a grid's footer replaces the row of dots —two counters of one number on one glass is one
+//     too many—. The count of the books is the shelf's because the grid counts pages of cells and not books;
+//   - **the labels go back with the glass**: they are released where the foot of a page is released, so going back to
+//     the shelf thirty times leaves one foot and not thirty, because a label left behind keeps its words on the glass
+//     for ever (docs/30, docs/90);
+//   - **and a bug of the shelf that came out with the foot**: the glass was paper only where the grid and the foot drew,
+//     so coming back from a page read in the dark left the margins and the air in black —the ink of a page that is not
+//     there any more—. The shelf now paints its paper **from edge to edge** before it draws anything (docs/46, C9);
+//   - **app only**: no door, no control and no number of the system changed this turn. The app is **60 930 B** of Lua
+//     under the 65 536 B of the source ceiling: **4 606 B** of room, which is what the thumbnail on the shelf has.
+//
+// The test opens the reader with no book —the shelf is where it starts (B10)— and reads the glass: the line of the foot
+// in ink at row 878 with paper outside it, the two words of the band in ink in their own halves of it, and the row of
+// paper under the grid still paper. The suites are **535 cases**, and `pio test -e test --without-testing` builds the 23
+// with **0 warnings**.
+// **Pending**: the cases are **not executed** and **the glass has not been looked at** this turn. Of the book, what is
+// still missing with its fitxa in docs/46: **the thumbnail drawn in a cell of the shelf** —the cache of a book is
+// written beside it since 0.146.0 and nothing reads it back for a cell yet— and the size of the app (D6).
+static const char kVersion[] = "0.147.0";
 
 }  // namespace kernel
 

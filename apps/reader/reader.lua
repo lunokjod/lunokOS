@@ -341,6 +341,10 @@ local ended = false
 local foot = nil
 local endmark = nil
 local strip = nil
+-- **The foot of the shelf** (0.147.0, docs/46 C1): the same band and the same two labels as the foot of a page, so the
+-- shelf and a book are one machine and not two. They are released with the glass, like the page's foot.
+local shelf_foot = nil
+local shelf_help = nil
 -- **The spine of the open book and its index** (0.143.0, docs/46 C2 and C14): the chapters in the order they are read
 -- and the entries of the book's own index —a label and the chapter it opens—. A book of one chapter declares no index
 -- and one is not made up for it.
@@ -621,6 +625,12 @@ local function release_page()
   endmark = nil
   if strip ~= nil then strip:release() end
   strip = nil
+  -- **And the foot of the shelf, when the glass was the shelf** (0.147.0): a label left behind keeps its words on the
+  -- glass for ever, because nothing paints over what is not drawn again (docs/30, docs/90).
+  if shelf_foot ~= nil then shelf_foot:release() end
+  shelf_foot = nil
+  if shelf_help ~= nil then shelf_help:release() end
+  shelf_help = nil
 end
 
 -- **The index is a screen and it goes back with its rows** (docs/90).
@@ -943,6 +953,36 @@ local function ask_for(one)
   ui.present('gc16')
 end
 
+-- **The foot of the shelf** (0.147.0, docs/46 C1): the band of 84 rows of a page of a book —the paper, the line across
+-- and one row of words— with the books it has on the left and what the keys do on the right. The strip of balls of the
+-- paper's shelf is **not** here: the grid of cells already says which page its cells are on at the bottom of its own box,
+-- and the system decided a grid's footer replaces the row of dots because two counters of one number on one glass is one
+-- too many (docs/30, docs/90). The count is the shelf's because the grid cannot say it: it counts pages of cells.
+local function draw_shelf_foot(count)
+  ui.rect(0, view.h - kFoot, view.w, kFoot, 15, 'du')
+  ui.rect(16, view.h - kFoot + kFootLine, view.w - 32, 1, 0, 'du')
+
+  shelf_foot = ui.label(view.w - 32 - kFootEnd, kFootRow)
+  if shelf_foot ~= nil then
+    shelf_foot.text = (count == 1) and '1 book' or string.format('%d books', count)
+    shelf_foot.scale = 2
+    shelf_foot.align = 'left'
+    shelf_foot.color = 0
+    shelf_foot.background = 15
+    shelf_foot:place(16, view.h - kFoot + kFootText)
+  end
+
+  shelf_help = ui.label(kFootEnd, kFootRow)
+  if shelf_help ~= nil then
+    shelf_help.text = 'centre opens'
+    shelf_help.scale = 2
+    shelf_help.align = 'right'
+    shelf_help.color = 0
+    shelf_help.background = 15
+    shelf_help:place(view.w - 16 - kFootEnd, view.h - kFoot + kFootText)
+  end
+end
+
 -- **The shelf, and the sentence of what went wrong when there is one** (0.140.0, docs/46 C12): the notice is put after the
 -- shelf is on the glass, so it is the last thing the person sees and the first thing they can touch.
 function show_shelf(why)
@@ -954,6 +994,11 @@ function show_shelf(why)
 
   ui.title('Library')
   books = shelf_of()
+
+  -- **The shelf is paper from edge to edge** (0.147.0): a book read in the dark leaves a black page on the glass, and the
+  -- margins around the grid and the air above the foot are rows that neither the grid nor the foot paints — without this
+  -- line they keep the ink of the page that was being read (docs/46, C9).
+  ui.rect(0, 0, view.w, view.h, 15, 'du')
 
   if #books == 0 then
     local empty = ui.label(view.w - 40, 120)
@@ -970,7 +1015,7 @@ function show_shelf(why)
     return
   end
 
-  local grid = ui.icon_grid(view.w - 40, view.h - 60)
+  local grid = ui.icon_grid(view.w - 40, view.h - 20 - kFoot - 8)
   if grid == nil then return end
 
   local items = {}
@@ -985,6 +1030,10 @@ function show_shelf(why)
     -- next one, which is when the callback of this pick has already finished.
     if books[index] ~= nil then ask_for(books[index]) end
   end
+
+  -- **The foot goes under the cells and not on them** (0.147.0, docs/46 C1): the grid keeps its own footer —`2 / 3` and
+  -- the two triangles of the pages— in the air the band leaves it.
+  draw_shelf_foot(#books)
 
   screen = grid
   ui.present('gc16')
