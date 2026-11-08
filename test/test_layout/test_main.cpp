@@ -41,6 +41,20 @@ const epub::Metrics& metrics() {
   return built;
 }
 
+// **The step of the page of these cases is one** (see the top of the file): `epub::Style` keeps the steps the
+// reader of the paper wants —a body of four, a title of five and a note of three— and every case here was
+// written with a pencil on a step of one, where a letter is six pixels and a line ten. The style is said once
+// here and passed everywhere instead of being left to a default that belongs to the reader: eight cases were
+// asking for a page of step one and being given a page of step four (found red on the 8/11).
+const epub::Style& step_one() {
+  static epub::Style built;
+  built.body_scale = 1;
+  built.title_scale = 2;
+  built.small_scale = 1;
+  built.indent = 24;
+  return built;
+}
+
 // A picture of the test: it asks for a size and the box of the page cuts it, which is what a book's picture does
 // when it is bigger than the paper.
 struct Picture {
@@ -81,7 +95,7 @@ const char* text_of(const Block& block, int32_t index) { return block.words + bl
 
 // Lays one page out of the chapter, from the first byte.
 void lay_out(const char* chapter, int32_t width, int32_t height, Block& block,
-             const epub::Style& style = epub::Style(), const epub::Pictures* pictures = nullptr,
+             const epub::Style& style = step_one(), const epub::Pictures* pictures = nullptr,
              int32_t from = 0) {
   epub::Tokens tokens(chapter, static_cast<int32_t>(strlen(chapter)), from);
   const bool composed = epub::layout(tokens, width, height, style, metrics(), pictures, block.sheet,
@@ -138,12 +152,14 @@ static void test_the_page_ends_at_the_byte_of_the_word_that_did_not_fit() {
   lay_out(chapter, 40, 25, first);
   TEST_ASSERT_EQUAL_INT16(4, first.result.count);
   TEST_ASSERT_FALSE(first.result.ended);
-  // `ee` is at byte sixteen: `<p>` is three and three pairs of a word and a space are twelve more.
-  TEST_ASSERT_EQUAL_INT32(16, first.result.next);
+  // `ee` is at byte fifteen: `<p>` is three and three pairs of a word and a space are twelve more. The case
+  // said sixteen and the comment above it said three and twelve, so the number was the one that was wrong
+  // (found red on the 8/11).
+  TEST_ASSERT_EQUAL_INT32(15, first.result.next);
   TEST_ASSERT_EQUAL_INT32(20, first.result.used);
 
   Block second;
-  lay_out(chapter, 40, 25, second, epub::Style(), nullptr, first.result.next);
+  lay_out(chapter, 40, 25, second, step_one(), nullptr, first.result.next);
   TEST_ASSERT_EQUAL_INT16(1, second.result.count);
   TEST_ASSERT_EQUAL_STRING("ee", text_of(second, 0));
   TEST_ASSERT_EQUAL_INT16(0, second.items[0].y);
@@ -153,12 +169,8 @@ static void test_the_page_ends_at_the_byte_of_the_word_that_did_not_fit() {
 // **A title is its own face and its own size, and a block opens with air** (docs/46, A3), and the air of a block
 // is paid once: the `</h1>` of before does not open a block of its own.
 static void test_a_title_is_taller_and_opens_with_air() {
-  epub::Style style;
-  style.body_scale = 1;
-  style.title_scale = 2;
-
   Block block;
-  lay_out("<h1>Titol</h1><p>text</p>", 200, 200, block, style);
+  lay_out("<h1>Titol</h1><p>text</p>", 200, 200, block, step_one());
 
   TEST_ASSERT_EQUAL_INT16(2, block.result.count);
   TEST_ASSERT_EQUAL_STRING("Titol", text_of(block, 0));
@@ -219,7 +231,7 @@ static void test_a_floated_picture_leaves_a_band_for_the_words() {
   pictures.measure = picture_measure;
 
   Block block;
-  lay_out("<p>a<img src=\"x.png\" style=\"float:left\"/>bb</p>", 200, 200, block, epub::Style(), &pictures);
+  lay_out("<p>a<img src=\"x.png\" style=\"float:left\"/>bb</p>", 200, 200, block, step_one(), &pictures);
 
   TEST_ASSERT_EQUAL_INT16(3, block.result.count);
   TEST_ASSERT_TRUE_MESSAGE(block.result.has_picture, "the page says it holds a picture");
@@ -243,7 +255,7 @@ static void test_a_picture_that_does_not_fit_opens_the_next_page() {
 
   // Three lines of ten and a picture of forty in a page of sixty: the picture lands at thirty and does not fit.
   Block block;
-  lay_out("<p>aa bb cc dd ee ff gg</p><img src=\"plate.png\"/>", 40, 60, block, epub::Style(), &pictures);
+  lay_out("<p>aa bb cc dd ee ff gg</p><img src=\"plate.png\"/>", 40, 60, block, step_one(), &pictures);
 
   TEST_ASSERT_FALSE(block.result.ended);
   TEST_ASSERT_EQUAL_INT16(7, block.result.count);
@@ -290,7 +302,7 @@ static void test_a_pool_that_is_full_ends_the_page_at_a_word() {
 
   const char* chapter = "<p>aaa bbb</p>";
   epub::Tokens tokens(chapter, static_cast<int32_t>(strlen(chapter)));
-  TEST_ASSERT_TRUE(epub::layout(tokens, 200, 200, epub::Style(), metrics(), nullptr, block.sheet,
+  TEST_ASSERT_TRUE(epub::layout(tokens, 200, 200, step_one(), metrics(), nullptr, block.sheet,
                                 block.result));
 
   TEST_ASSERT_EQUAL_INT16(1, block.result.count);
@@ -305,11 +317,11 @@ static void test_a_sheet_with_no_room_is_refused() {
   block.sheet.items_cap = 0;
 
   epub::Tokens tokens("<p>a</p>", 8);
-  TEST_ASSERT_FALSE(epub::layout(tokens, 200, 200, epub::Style(), metrics(), nullptr, block.sheet,
+  TEST_ASSERT_FALSE(epub::layout(tokens, 200, 200, step_one(), metrics(), nullptr, block.sheet,
                                  block.result));
 
   epub::Tokens small("<p>a</p>", 8);
-  TEST_ASSERT_FALSE(epub::layout(small, 15, 200, epub::Style(), metrics(), nullptr, block.sheet,
+  TEST_ASSERT_FALSE(epub::layout(small, 15, 200, step_one(), metrics(), nullptr, block.sheet,
                                  block.result));
 }
 

@@ -613,7 +613,11 @@ void test_a_broken_chunk_does_not_kill_the_state(void) {
 // message instead of eating the board.
 void test_a_chunk_over_the_ceiling_is_refused(void) {
   pal::init();
-  TEST_ASSERT_TRUE(luabind::start(test_boot(), 32 * 1024));
+  // **The ceiling holds the interpreter and the task of the chunk and not the table**: with thirty-two
+  // kilobytes there was not even room for the thread (`lua_newthread` answered no and Lua aborted the process,
+  // 8/11), so what this case measures was never the chunk. A hundred kilobytes is the interpreter, its
+  // libraries and a task, and the two hundred thousand entries of the chunk do not fit in them.
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), 100 * 1024));
   TEST_ASSERT_TRUE(run("local t = {} for i = 1, 200000 do t[i] = i end"));
   TEST_ASSERT_TRUE(luabind::failed());
   TEST_ASSERT_TRUE(luabind::running());

@@ -231,55 +231,69 @@ static void test_a_block_that_does_not_fit_the_ceilings_is_refused() {
   ensure_booted();
   // **The books start here and not at boot**: the blocks the boot took were handed out by a bench with no
   // ceiling, and counting them now would make this test's arithmetic the boot's (docs/85).
-  pal::set_memory_bytes(4096, 8192);
+  // **The home of this case is the floor plus four kilobytes** and not four kilobytes: a block goes to the
+  // chip's own RAM only while sixty-four kilobytes are left after it (0.151.20, `pal::kHomeReserveBytes`), so a
+  // home of 4096 B would send every block of this case to the extra memory and the case would be measuring the
+  // floor the whole way instead of the block.
+  const uint32_t kHome = static_cast<uint32_t>(pal::kHomeReserveBytes) + 4096;
+  pal::set_memory_bytes(kHome, 8192);
   pal::IExtraMemory& memory = pal::extra_memory();
 
   const pal::MemoryLeft home_before = pal::memory_left(false);
   TEST_ASSERT_TRUE_MESSAGE(home_before.counted, "the home has no ceiling");
-  TEST_ASSERT_EQUAL_UINT32(4096, home_before.free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(kHome, home_before.free_bytes);
   TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
 
-  // The block carries its own sixteen bytes of bookkeeping, and the books count them: a home of 4096 B
-  // that hands out 4000 B has 80 B left and not 96 (docs/85).
+  // **The block carries its own sixteen bytes of bookkeeping**, and one that leaves the home above its floor goes
+  // to the chip's RAM: 4000 B of block are 4016 B of heap and eighty bytes are left over the floor, not ninety-six.
   char* first = static_cast<char*>(memory.allocate(4000, false));
   TEST_ASSERT_NOT_NULL(first);
-  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(pal::kHomeReserveBytes + 80, pal::memory_left(false).free_bytes);
   TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
   memset(first, 'a', 4000);
 
-  // **The other home before a refusal**: 2000 B do not fit in the 80 B left of the board's RAM, and the
-  // extra memory takes them, which is what the board's allocator does (docs/75).
+  // **The next one would take the home under its floor**, so the rule sends it to the extra memory and the home
+  // does not move a byte: the floor is the home's and not the caller's (0.151.20).
   char* second = static_cast<char*>(memory.allocate(2000, false));
   TEST_ASSERT_NOT_NULL(second);
-  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(pal::kHomeReserveBytes + 80, pal::memory_left(false).free_bytes);
   TEST_ASSERT_EQUAL_UINT32(8192 - 2016, pal::memory_left(true).free_bytes);
 
-  // Neither home has room for the third: this is the refusal that makes an app that asks for more than
-  // the glass has die on the bench and not on the paper (docs/85).
-  TEST_ASSERT_NULL(memory.allocate(8000, false));
+  // **The floor says where a block goes first and not whether it goes**: a block of eight kilobytes would leave
+  // the home under its floor, so the extra memory is asked first, and when that one cannot hold it the home still
+  // does —a block is a block and an app does not have to know where it lives— (0.151.20, docs/75). What is refused
+  // is the block that fits nowhere: sixty-six kilobytes against 65 616 B of home and 6 176 B of extra memory.
+  void* under_the_floor = memory.allocate(8000, false);
+  TEST_ASSERT_NOT_NULL(under_the_floor);
+  TEST_ASSERT_EQUAL_UINT32(kHome - 4016 - 8016, pal::memory_left(false).free_bytes);
+  memory.release(under_the_floor);
+  TEST_ASSERT_EQUAL_UINT32(pal::kHomeReserveBytes + 80, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_NULL(memory.allocate(66000, false));
 
-  // A block that shrinks stays where it is and gives its bytes back exactly.
+  // **A block that shrinks and moves to the extra memory**: 3000 B still do not leave the home above its floor,
+  // so the resize takes the block where it can live, the bytes it held go with it, and the home it left is whole
+  // again.
   first = static_cast<char*>(memory.resize(first, 3000, false));
   TEST_ASSERT_NOT_NULL(first);
-  TEST_ASSERT_EQUAL_UINT32(80 + 1000, pal::memory_left(false).free_bytes);
   TEST_ASSERT_EQUAL_MEMORY("aaaa", first, 4);
+  TEST_ASSERT_EQUAL_UINT32(kHome, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(8192 - 2016 - 3016, pal::memory_left(true).free_bytes);
 
-  // **A block that grows past its home moves to the other one**, and the bytes it held come with it: the
-  // move is a `realloc` that could not happen in place, and the caller keeps the new pointer (docs/85).
+  // **And a block that grows where it is**: five thousand and sixteen bytes of the extra memory, which has them.
   first = static_cast<char*>(memory.resize(first, 5000, false));
   TEST_ASSERT_NOT_NULL(first);
   TEST_ASSERT_EQUAL_MEMORY("aaaa", first, 4);
-  // The home it left is whole again and its bytes went with it: only the extra memory holds the block.
-  TEST_ASSERT_EQUAL_UINT32(4096, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(kHome, pal::memory_left(false).free_bytes);
   TEST_ASSERT_EQUAL_UINT32(8192 - 2016 - 5016, pal::memory_left(true).free_bytes);
 
   memory.release(first);
   memory.release(second);
-  TEST_ASSERT_EQUAL_UINT32(4096, pal::memory_left(false).free_bytes);
+  TEST_ASSERT_EQUAL_UINT32(kHome, pal::memory_left(false).free_bytes);
   TEST_ASSERT_EQUAL_UINT32(8192, pal::memory_left(true).free_bytes);
   // The least that was left is the mark of the run and it does not go back up: `mem` prints it as the
-  // `min free heap` of the board (docs/75).
-  TEST_ASSERT_EQUAL_UINT32(80, pal::memory_left(false).lowest_free_bytes);
+  // `min free heap` of the board (docs/75). It is the moment the block of eight kilobytes was in the home, under
+  // the floor, because the floor says the order and not the refusal.
+  TEST_ASSERT_EQUAL_UINT32(kHome - 4016 - 8016, pal::memory_left(false).lowest_free_bytes);
 
   // **And a bench with no model is a bench with no ceiling**, which is what every other test of this
   // suite is and what the PC's own heap is (docs/85).

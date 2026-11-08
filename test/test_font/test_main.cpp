@@ -48,13 +48,16 @@ kernel::font::Face load(const char* text) {
   return face;
 }
 
-// The runs of a text, kept as they come: a rectangle each, and how many there were.
+// The runs of a text, kept as they come: a rectangle each, and how many there were. **The count starts at
+// zero** and it is not a detail: `keep_run` refuses a run when the count has reached the sixty-four of the
+// buffers, and an uninitialised count is whatever the stack had —the case passed or failed by the luck of the
+// frame above it, and on the 8/11 it failed with 3 362 875 152 runs— (docs/80).
 struct Runs {
   int32_t x[64];
   int32_t y[64];
   int32_t w[64];
   int32_t h[64];
-  uint32_t count;
+  uint32_t count = 0;
 };
 
 void keep_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
@@ -530,9 +533,12 @@ static void test_a_sup_goes_up_and_a_sub_goes_down() {
   Runs level;
   Runs high;
   Runs low;
-  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &level, on_the_line);
-  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &high, up);
-  kernel::font::runs(face, "0", 0, 0, 2, kernel::font::no_clip(), keep_run, &low, down);
+  // **The text starts twenty pixels down and not on the top edge**: the box of `no_clip` is the page and it
+  // does not cut below its corner, so a line at zero would lose the rows a `sup` takes above it and the case
+  // would be measuring the retall and not the ink (found red on the 8/11).
+  kernel::font::runs(face, "0", 0, 20, 2, kernel::font::no_clip(), keep_run, &level, on_the_line);
+  kernel::font::runs(face, "0", 0, 20, 2, kernel::font::no_clip(), keep_run, &high, up);
+  kernel::font::runs(face, "0", 0, 20, 2, kernel::font::no_clip(), keep_run, &low, down);
   // Ten pixels of line: a third up is three and a fifth down is two.
   TEST_ASSERT_EQUAL_INT32(level.y[0] - 3, high.y[0]);
   TEST_ASSERT_EQUAL_INT32(level.y[0] + 2, low.y[0]);
@@ -565,10 +571,12 @@ static void test_the_ink_of_a_book_on_a_face_of_outlines() {
   Runs thick;
   Runs leaning;
   Runs high;
-  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &thin, plain);
-  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &thick, bold);
-  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &leaning, italic);
-  kernel::font::runs(face, "l", 0, 0, 4, kernel::font::no_clip(), keep_run, &high, up);
+  // And the text starts forty pixels down for the same reason as the case of the bits above: a `sup` of
+  // fourteen pixels over a line on the top edge is a line the box cuts.
+  kernel::font::runs(face, "l", 0, 40, 4, kernel::font::no_clip(), keep_run, &thin, plain);
+  kernel::font::runs(face, "l", 0, 40, 4, kernel::font::no_clip(), keep_run, &thick, bold);
+  kernel::font::runs(face, "l", 0, 40, 4, kernel::font::no_clip(), keep_run, &leaning, italic);
+  kernel::font::runs(face, "l", 0, 40, 4, kernel::font::no_clip(), keep_run, &high, up);
 
   TEST_ASSERT_GREATER_THAN(8, thin.count);
   TEST_ASSERT_EQUAL_UINT32(thin.count, thick.count);

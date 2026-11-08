@@ -151,7 +151,10 @@ static void test_the_entities_become_the_letters_of_latin1() {
   TEST_ASSERT_EQUAL_INT32(8, reading.count);
   // One byte per code, which is what the face of this system carries.
   TEST_ASSERT_EQUAL_STRING_LEN("caf\xE9", reading.text[0], reading.text_len[0]);
-  TEST_ASSERT_EQUAL_INT32(5, reading.text_len[0]);
+  // **Four bytes and not five**: `cafe acute` is four codes of this system —one byte each— and the five was
+  // what it counted when the letter was written in UTF-8, which is a thing this reader stopped doing before
+  // 0.130.0 (docs/46, A2). The case kept the old number and was red for it.
+  TEST_ASSERT_EQUAL_INT32(4, reading.text_len[0]);
   TEST_ASSERT_EQUAL_STRING_LEN("&", reading.text[1], reading.text_len[1]);
   TEST_ASSERT_EQUAL_STRING_LEN("te", reading.text[2], reading.text_len[2]);
   // The same letter written in decimal and in hexadecimal is the same byte.

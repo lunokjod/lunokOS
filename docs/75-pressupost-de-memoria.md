@@ -707,6 +707,15 @@ mirar quan una app no cap.
 ## Quan no hi cap
 
 - L'assignador falla, Lua llança `E_NOMEM`, l'app rep l'error i es tanca amb el missatge.
+- **Els últims 256 B del sostre no són de l'app** (0.156.0, `luabind::kErrorReserve`): Lua **no pot llançar
+  `E_NOMEM` si no té amb què escriure el missatge** —la cadena `not enough memory` demana uns quants bytes i
+  l'assignador diu que no— i aleshores no llança res: **avorta el procés** (`luaD_throw` sense ningú que el
+  reculli, i després `abort()`). Es va veure al banc el 8/11 (un `SIGABRT` de la suite) i a la placa hauria estat un
+  reinici del nucli enmig d'una app que només demanava massa. La reserva és el que el missatge necessita i l'app no
+  la veu mai com a seva: `sys.heap().limit` segueix dient el sostre i el que queda per gastar és 256 B menys.
+- **El fil d'un chunk també es demana protegit** (0.156.0): `lua_newthread` fora d'un `lua_pcall` és un sostre que
+  diu que no i un procés que se'n va; ara el fil es crea dins una crida protegida i el refús és un `E_NOMEM` que
+  l'app llegeix (`luabind::make_the_task`).
 - No es mata una altra app per fer lloc: no n'hi ha cap altra.
 - Si qui no hi cap és el nucli en arrencar, s'obre el prompt amb menys capacitats i es diu al log
   quina s'ha desactivat.

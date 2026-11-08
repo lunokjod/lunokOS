@@ -3,8 +3,9 @@
 // board does not read; and the whole path from the volume to the canvas of an app, which is what a page
 // really does.
 //
-// The samples live with the demo app (`apps/images/res`) because a format that only a test reads is a
-// format nobody has looked at.
+// **The samples of the netpbm family live with this test** (0.156.0): they were the ones of the demo app
+// `images`, which was not an app of the paper project and went with the other sixty (0.152.6). The pictures are
+// the same bytes and they are still the ones the numbers below were measured on.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -234,7 +235,7 @@ void test_the_netpbm_family_draws_its_own_pictures(void) {
   static uint8_t bits[96 * 48];
   for (uint32_t i = 0; i < kNetpbmCount; ++i) {
     char path[128];
-    snprintf(path, sizeof(path), "apps/images/res/%s", kNetpbm[i]);
+    snprintf(path, sizeof(path), "test/test_img/data/%s", kNetpbm[i]);
     const uint32_t size = read_host(path, file, sizeof(file));
     TEST_ASSERT_GREATER_THAN_MESSAGE(0, size, path);
     img::Info info;

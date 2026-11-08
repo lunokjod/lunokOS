@@ -4169,7 +4169,30 @@ namespace kernel {
 //     `home: page 1 / 1 (2 cells)` (the two apps of the card of this bench, which is a directory that exists);
 //     `--no-delay` says `gui: no window, --no-delay is a bench without the times of the hardware` and runs; and
 //     `--gui --no-delay` is refused with the sentence it always had. 179 of 179 green.
-static const char kVersion[] = "0.155.0";
+// 0.156.0 (8/11): **the eighteen red cases of the suite are seventeen repairs and one case that was wrong**, and
+// three of them were not the tests' fault. The count is exact and every one of them was measured with `pio test
+// -e test`: **538 of 538** green today, against 518 cases with eighteen red and two suites that never finished.
+//
+//   - **the bytes of `0x80` to `0x9F` are the characters of Windows-1252** (`lib/ttf`): the frame has no picture in
+//     Latin-1 and the 1252 puts the quotes, the dashes, the ellipsis and the bullet there, which is how a page of a
+//     book is written. The tokenizer already turned `&#150;` into one byte and the face answered «no such glyph», so
+//     the dash vanished from the page (docs/30, docs/46 A2);
+//   - **the last 256 bytes of a Lua ceiling are not the app's** (`luabind::kErrorReserve`): a state whose ceiling is
+//     exactly full cannot write the sentence `not enough memory` and **Lua aborts the process** instead of raising at
+//     the app. On the bench that was the SIGABRT of `test_luabind`; on the board it would be the kernel restarting in
+//     the middle of an app that asked for too much (docs/75);
+//   - **the task of a chunk is made inside a protected call** (`luabind::make_the_task`): `lua_newthread` outside a
+//     `lua_pcall` is the same abort with no message at all, and it was the case of a chunk over the ceiling that
+//     never reported (docs/75);
+//   - **the cases that were the tests' fault and not the code's**: the runs of a text kept an uninitialised count, so
+//     a case passed or failed by the luck of the stack; a page of a book was written with the places of the OS/2
+//     header inside a header that says forty bytes, so its picture was refused; the layouts of `test_layout` asked
+//     for a page of step one and got the reader's four; `café` counted five bytes when the reader writes four; the
+//     samples of the netpbm family lived in an app that the purge of 0.152.6 took away; the three taps of the glass
+//     inherited the finger of the case before them, and the page of that bench is 960 high because it is turned;
+//   - what the cases said of the two homes of memory was written before the floor of 64 KB (0.151.20): the case of
+//     the ceilings now says that the floor decides **the order and not the refusal** (docs/75).
+static const char kVersion[] = "0.156.0";
 
 }  // namespace kernel
 

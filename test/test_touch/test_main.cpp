@@ -33,7 +33,10 @@ bool g_booted = false;
 // A bench that is the Paper with its panel on and the factory page up: the chip counts in 540x960 and
 // that is the page's own frame, so a finger lands where it looks like it lands (docs/50, docs/95 E-6).
 void boot_with_a_touch_panel() {
-  if (g_booted) return;
+  if (g_booted) {
+    TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+    return;
+  }
   emu::Options opts = emu::options();
   // **The board that has the panel**, and the frame it counts in: a GT911 is the Paper's and the
   // default model of the bench is the ATOM, which has no glass to put a finger on (docs/50, docs/85).
@@ -49,6 +52,10 @@ void boot_with_a_touch_panel() {
   // page has to land after the offset (docs/30, docs/50).
   ui::place(0, kernel::bar::height());
   ui::attach();
+  // **The module of the fingers is booted by every case and not once for the file**: it keeps a queue of
+  // gestures, the finger it is following and the count of the taps of a triple, and a case that inherits the
+  // finger of the case before it is a case measuring that one —the lift of the long press arrived inside the
+  // three taps and the triple was never counted (found red on the 8/11, docs/30).
   TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
   g_booted = true;
 }
@@ -276,10 +283,13 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
     }
   }
 
-  // The bar is back and the view is the one of every app.
+  // The bar is back and the view is the one of every app: the page of this bench is **960 high** because it
+  // is turned a quarter (the panel is 540x960 and the test sets the rotation to 270), so the bar takes the
+  // first forty-eight rows off the top and the view is the rest. The case said `540 - 48`, which was the
+  // page of before the turn.
   TEST_ASSERT_FALSE(ui::is_full_screen());
   TEST_ASSERT_EQUAL_UINT16(48, ui::canvas().y);
-  TEST_ASSERT_EQUAL_UINT16(540 - 48, ui::canvas().height);
+  TEST_ASSERT_EQUAL_UINT16(960 - 48, ui::canvas().height);
   // **And the app never heard them**: there is no gesture of three taps in the queue it reads (docs/30).
   kernel::touch::Gesture gesture;
   while (kernel::touch::take_gesture(gesture)) {

@@ -329,9 +329,31 @@ const char* open(const uint8_t* data, uint32_t length, Face& out) {
   return nullptr;
 }
 
+namespace {
+
+// **The byte a book uses that Latin-1 has no picture for** (0.156.0): the range 0x80 to 0x9F is empty in
+// Latin-1 and Windows-1252 fills it with the quotes, the dashes, the ellipsis and the bullets, which is the
+// convention a page of a book is written in —the tokenizer of `lib/epub` turns `&#150;` into one byte and a
+// file saved as CP1252 carries the same byte, and until now the face answered «no such glyph» and the mark
+// vanished— (docs/30, docs/46 A2). Zero is a code the standard does not give a picture to, and it stays a gap.
+const uint16_t kC1ToUnicode[32] = {
+    0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+    0x2039, 0x0152, 0,      0x017D, 0,      0,      0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
+    0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178};
+
+}  // namespace
+
 Status glyph_of(const Face& face, uint8_t code, uint16_t& glyph) {
   glyph = 0;
   if (!face.format4 || face.cmap + 16 > face.length) return kBadData;
+  // **A byte of the C1 range is the character of Windows-1252** and the map is the one of the file, so a
+  // mark with no picture of its own is a gap of this file and not of the system (docs/30).
+  uint32_t wanted = code;
+  if (code >= 0x80 && code <= 0x9F) {
+    const uint16_t mapped = kC1ToUnicode[code - 0x80];
+    if (mapped == 0) return kNoGlyph;
+    wanted = mapped;
+  }
   const uint8_t* p = face.data + face.cmap;
   const uint32_t segments = u16(p + 6) / 2;
   if (segments == 0) return kBadData;
@@ -342,18 +364,18 @@ Status glyph_of(const Face& face, uint8_t code, uint16_t& glyph) {
   if (face.cmap + ranges + segments * 2 > face.length) return kBadData;
   for (uint32_t i = 0; i < segments; ++i) {
     const uint32_t last = u16(p + ends + i * 2);
-    if (code > last) continue;
+    if (wanted > last) continue;
     const uint32_t first = u16(p + starts + i * 2);
-    if (code < first) return kNoGlyph;
+    if (wanted < first) return kNoGlyph;
     const int32_t delta = s16(p + deltas + i * 2);
     const uint32_t range = u16(p + ranges + i * 2);
     if (range == 0) {
       if (delta == 0) return kNoGlyph;
-      glyph = static_cast<uint16_t>((code + delta) & 0xFFFF);
+      glyph = static_cast<uint16_t>((wanted + delta) & 0xFFFF);
       return glyph == 0 ? kNoGlyph : kOk;
     }
     // The offset of a range is counted from itself, in words, which is the one awkward thing in the format.
-    const uint32_t at = ranges + i * 2 + range + (code - first) * 2;
+    const uint32_t at = ranges + i * 2 + range + (wanted - first) * 2;
     if (face.cmap + at + 2 > face.length) return kBadData;
     const uint32_t found = u16(p + at);
     if (found == 0) return kNoGlyph;

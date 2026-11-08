@@ -175,6 +175,9 @@ int64_t now_ms() { return static_cast<int64_t>(pal::system().millis()); }
 // Where the block lives is not the app's problem: a big one goes to the extra memory of the board
 // when it has it and a small one to the board's own RAM, and the PAL takes the other home when the
 // first one is full (docs/75).
+// **The room a memory error is written in**, which is kept out of what an app may take (0.156.0).
+constexpr size_t kErrorReserve = 256;
+
 void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   Allocator* alloc = static_cast<Allocator*>(ud);
   pal::IExtraMemory& memory = pal::extra_memory();
@@ -189,7 +192,13 @@ void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
 
   const size_t base = (ptr == nullptr) ? alloc->used : (alloc->used - osize);
   const size_t next = base + nsize;
-  if (alloc->limit > 0 && next > alloc->limit) return nullptr;
+  // **The last two hundred and fifty-six bytes of a ceiling are not the app's** (0.156.0): a state whose ceiling is
+  // exactly full cannot build the sentence that says so —the string `not enough memory` needs a few bytes and the
+  // allocator says no—, and Lua does not throw at the app then: it **aborts the process** (`luaD_throw` with
+  // nobody to catch it). On the bench that was a SIGABRT of the suite; on the board it would be a restart of the
+  // kernel in the middle of an app that only asked for too much. The reserve is the room the sentence is written
+  // in, and an app never sees it as its own (docs/20, docs/75).
+  if (alloc->limit > 0 && next + kErrorReserve > alloc->limit) return nullptr;
 
   void* block = memory.resize(ptr, nsize, nsize >= kExtraThreshold);
   if (block == nullptr) return nullptr;
@@ -9944,6 +9953,19 @@ int open_everything(lua_State* L) {
   return 0;
 }
 
+// **The task a chunk runs in is made inside a protected call too** (0.156.0), and for the same reason as the
+// libraries above: `lua_newthread` asks for a stack, a ceiling that cannot give it is a state that says no, and
+// **outside a `lua_pcall` Lua does not throw at the app: it aborts the process** (`luaD_throw` with no handler and
+// then the panic). Found on the bench on 8/11 —a chunk with a ceiling of thirty-two kilobytes left the suite with a
+// SIGABRT— and on the board it would have been the kernel restarting in the middle of an app that only asked for
+// too much. The argument is the chunk and the answer is the thread (docs/20, docs/75).
+int make_the_task(lua_State* L) {
+  lua_State* task = lua_newthread(L);  // the chunk, the thread
+  lua_pushvalue(L, 1);                 // the chunk, the thread, the chunk
+  lua_xmove(L, task, 1);               // the thread owns the chunk
+  return 1;                            // the thread is the answer
+}
+
 }  // namespace
 
 bool start(const Boot& boot, size_t limit_bytes) {
@@ -11460,11 +11482,26 @@ bool run_source(const char* name, const char* source, size_t len) {
     return false;
   }
 
-  lua_State* task = lua_newthread(g_state);  // stack: chunk, thread
-  lua_pushvalue(g_state, -2);
-  lua_xmove(g_state, task, 1);               // the chunk moves into the task
+  // **The thread, asked for through a call and not here**: a `lua_newthread` that runs out of ceiling throws
+  // where nobody is listening and the process goes with it (see `make_the_task`).
+  lua_pushcfunction(g_state, &make_the_task);  // the chunk, the function
+  lua_pushvalue(g_state, -2);                  // the chunk, the function, the chunk
+  if (lua_pcall(g_state, 1, 1, 0) != LUA_OK) { // the chunk, the thread — or the chunk, the error
+    report_error();
+    lua_pop(g_state, 1);  // the error
+    lua_pop(g_state, 1);  // the chunk
+    g_failed = true;
+    return false;
+  }
+  lua_State* task = lua_tothread(g_state, -1);
+  if (task == nullptr) {
+    lua_pop(g_state, 2);  // the answer and the chunk
+    g_failed = true;
+    return false;
+  }
+  lua_pushvalue(g_state, -1);
   lua_setfield(g_state, LUA_REGISTRYINDEX, kTaskKey);  // keeps the task alive
-  lua_pop(g_state, 1);                       // the copy left on the main stack
+  lua_pop(g_state, 2);                                 // the answer and the chunk
   g_task = task;
   return true;
 }

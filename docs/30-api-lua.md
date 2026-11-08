@@ -1133,6 +1133,12 @@ i el contracte.
 
 - **Una cara pot ser parcial**: un codi que no hi és es dibuixa com un forat i la línia avança igual, o sigui
   que una cara de deu xifres és una cara legal i el text del voltant no es desplaça.
+- **Els bytes de `0x80` a `0x9F` són els caràcters de Windows-1252** (0.156.0): aquesta franja no té cap
+  imatge a Latin-1 i és on la 1252 posa les cometes, els guions llargs, els punts suspensius i el bullet, que és
+  la convenció amb què escriu una pàgina de llibre. El tokenitzador (`lib/epub`) ja convertia `&#150;` en un sol
+  byte `0x96`, i `lib/ttf` responia «no hi ha aquest glif» i el guió **desapareixia**; ara el byte es tradueix al
+  caràcter que vol dir abans de buscar-lo al fitxer (`ttf::glyph_of`), o sigui que un llibre en CP1252 i una
+  entitat numèrica dibuixen el mateix. El que la cara no porti segueix sent un forat.
 - **Qui converteix la cara en píxels és el nucli, i ningú més.** La cadena sencera és
   `cv:text`/`ui.text` → `luabind` (`text_at`) → `ui::canvas_text` (`lib/kernel/src/ui.cpp`) → `draw_text` →
   `font::runs(face_of(canvas.face), …)`, que camina els glifs i deixa cada tros com un rectangle al buffer

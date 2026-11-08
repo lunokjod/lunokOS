@@ -256,10 +256,14 @@ int32_t tiny_bmp(uint8_t* out) {
   out[2] = 70;   // the size of the file
   out[10] = 54;  // where the pixels start
   out[14] = 40;  // the size of the header of the picture
-  out[18] = 2;   // width
-  out[20] = 2;   // height
-  out[22] = 1;   // one plane
-  out[24] = 24;  // twenty-four bits a pixel
+  // **The places of the forty-byte header**, which are not the ones of the twelve-byte header of OS/2: a
+  // width and a height of four bytes each, two of planes and two of depth. The case wrote the eight-bit
+  // places —the ones of the small header— inside a header that says forty, so the reader saw a depth of zero
+  // and refused the picture; it was red for that and not for the page (found on the 8/11, docs/30).
+  out[18] = 2;   // width, four bytes
+  out[22] = 2;   // height, four bytes
+  out[26] = 1;   // one plane, two bytes
+  out[28] = 24;  // twenty-four bits a pixel, two bytes
   out[34] = 16;  // the bytes of the pixels, rows padded to four
 
   // Two rows of two pixels, from the bottom up: black, white, white, black.
@@ -418,7 +422,9 @@ static void test_a_picture_of_the_book_is_placed() {
   kernel::book::Page page;
   TEST_ASSERT_TRUE(kernel::book::page(0, 400, 700, epub::Style(), fonts, page));
   // The picture is placed, and its hundred and forty-six thousand pixels of room were taken by the page.
-  TEST_ASSERT_TRUE_MESSAGE(page.has_picture, "the page says it holds a picture");
+  // **A picture that is not on the page says why**, with the sentence the book keeps for it (0.151.20): the
+  // entry may not be in the book, its stream may be broken, or its pixels may not fit the block.
+  TEST_ASSERT_TRUE_MESSAGE(page.has_picture, kernel::book::picture_why());
   bool found = false;
   for (int16_t i = 0; i < page.count; ++i) {
     if (page.items[i].kind != epub::Item::kPicture) continue;
