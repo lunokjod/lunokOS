@@ -77,6 +77,18 @@ bool tz_text(char* out, size_t cap, int32_t minutes);
 // own (`60`, `-90`). True when `text` is one of them, and then `minutes` holds it.
 bool parse_tz(const char* text, int32_t& minutes);
 
+// **The calendar a person wants** (0.170.0, docs/60, docs/90): whether February has its twenty-ninth day and which
+// weekday a week begins on. Both are settings of the system and not of an app —`ui.month`, `time.utc`/`date` and any
+// page that draws a month ask the same rule— and both survive a reboot like the offset of the hour does. The rule
+// itself is `kernel/calendar.h`; this door keeps the choice, puts it in the calendar at boot, and answers the same
+// value the calendar is using.
+bool leap_years();
+bool set_leap_years(bool on);
+// **1 is Monday and 7 is Sunday**: Monday is the default of this system since its first calendar, and Sunday is the
+// week a person may ask for with `cfg week sunday` or `time.week(7)` (docs/60).
+uint8_t week_start();
+bool set_week_start(uint8_t first);
+
 // The real path of one app's settings, for a person to read: "/sd/cfg/<id>".
 bool dir_for_app(char* out, size_t cap, const char* app);
 

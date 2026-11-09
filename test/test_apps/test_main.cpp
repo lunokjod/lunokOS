@@ -26,6 +26,7 @@
 #include "img/img.h"
 #include "json/json.h"
 #include "kernel/apps.h"
+#include "kernel/calendar.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
 #include "kernel/log.h"
@@ -547,6 +548,7 @@ void close_any_app() {
     pump_turns(10);
   }
 }
+
 
 }  // namespace
 
@@ -10531,6 +10533,163 @@ static bool runs_now(const char* name) {
     }                                              \
   } while (0)
 
+// **The hour of the person, with a finger on a map of the world** (0.170.0): the app of the time zone reads the offset,
+// the leap day and the first day of the week from the system, a finger on the map picks a band of fifteen degrees, and
+// the offset is written **when the app closes and not while it is used** —which is the owner's rule— because `time.tz`
+// writes the setting at once (docs/30, docs/60, docs/90).
+void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // The glass and the panel are the model's, and the face of the disk is the one the page is measured with.
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **The app that ships is the app the test runs**, its manifest and the picture of the map (docs/85).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/tz"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/tz/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tz/tz.lua", "/apps/tz/tz.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tz/manifest.json", "/apps/tz/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tz/res/world.png", "/apps/tz/res/world.png"));
+
+  // **Where the map, the hours and the three controls are, from the app** (docs/30, docs/85): a test that knew the
+  // layout would be a test that a change of layout moves onto another zone without saying so.
+  kernel::log_echo(true);
+  pump_captured(120, g_out, sizeof(g_out), "run tz zones");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz map 20 46 500 250"), g_out);
+
+  struct Place {
+    char what[16];
+    int x;
+    int y;
+    int w;
+    int h;
+  };
+  Place places[40] = {};
+  int count = 0;
+  for (const char* at = strstr(g_out, "tz "); at != nullptr && count < 40; at = strstr(at + 3, "tz ")) {
+    Place one = {};
+    const int read = sscanf(at, "tz %15s %d %d %d %d", one.what, &one.x, &one.y, &one.w, &one.h);
+    // **A line of an hour is `tz hour <hour> <x> <y>` and a box is `tz <word> <x> <y> <w> <h>`**: the shapes are told
+    // apart by how many numbers `sscanf` took, and the three of an hour leave the place of the finger in `x` and `y`
+    // (docs/85).
+    if (read == 4 && strcmp(one.what, "hour") == 0) {
+      // `what`, the hour and the two pixels: the hour is not a place of the page.
+      one.x = one.y;
+      one.y = one.w;
+      one.w = 0;
+      one.h = 0;
+    } else if (read == 4 && strcmp(one.what, "leap") == 0) {
+      // `what`, the place and one side of it: the checkbox is a square and the app says one side.
+      one.h = one.w;
+    } else if (read != 5) {
+      continue;
+    }
+    places[count++] = one;
+  }
+  auto place = [&](const char* what) -> const Place* {
+    for (int i = 0; i < count; ++i) {
+      if (strcmp(places[i].what, what) == 0) return &places[i];
+    }
+    return nullptr;
+  };
+  const Place* hour_three = place("hour");
+  // The first `tz hour` line is -12 and the sixteenth is +3: the app prints one line per hour.
+  int seen = 0;
+  for (int i = 0; i < count; ++i) {
+    if (strcmp(places[i].what, "hour") != 0) continue;
+    if (++seen == 16) hour_three = &places[i];
+  }
+  TEST_ASSERT_NOT_NULL_MESSAGE(place("sync"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(place("leap"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(place("week"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(place("list"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(25, seen, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  // **A finger on the band of +3** picks it and says so, and nothing is written yet: the page is holding it.
+  TEST_ASSERT_NOT_NULL(hour_three);
+  const int before = kernel::cfg::tz_minutes();
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(hour_three->x, hour_three->y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: picked +03:00"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(before, kernel::cfg::tz_minutes(), "the page saved the hour before the close");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the leap day went off with no finger on it");
+
+  // **The leap day and the week are settings with an immediate effect**: a checkbox and a list are not a choice that
+  // waits for the close (docs/60).
+  const Place* leap = place("leap");
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(leap->x, leap->y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap off"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the leap day is still on");
+  TEST_ASSERT_EQUAL_UINT8(28, kernel::calendar::days_in_month(2024, 2));
+
+  const Place* week = place("week");
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(week->x + week->w / 2, week->y + week->h / 2));
+  capture_end(g_out, sizeof(g_out));
+  const Place* list = place("list");
+  TEST_ASSERT_NOT_NULL(list);
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(list->x + list->w / 2, list->y + list->h + list->h / 2));  // the second row
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: week sunday"), g_out);
+  TEST_ASSERT_EQUAL_UINT8(7, kernel::cfg::week_start());
+
+  // **And the close is what saves the hour**: three taps of the middle key take the app away, `on_close` runs, and the
+  // setting is the one the page was holding.
+  capture_begin();
+  for (int i = 0; i < 3 && kernel::app_running(); ++i) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived three taps of the centre");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +03:00"), g_out);
+  TEST_ASSERT_EQUAL_INT(180, kernel::cfg::tz_minutes());
+
+  // And the prompt says the same thing the page said.
+  pump_captured(20, g_out, sizeof(g_out), "cfg tz");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: tz +03:00"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "cfg week");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
+  pump_captured(20, g_out, sizeof(g_out), "cfg leap");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: leap off"), g_out);
+
+  // The board goes back to the calendar it was born with, or the cases after this one read a Sunday.
+  kernel::cfg::set_leap_years(true);
+  kernel::cfg::set_week_start(1);
+  kernel::cfg::set_tz_minutes(0);
+
+  storage->remove("/apps/tz/res/world.png");
+  storage->remove("/apps/tz/tz.lua");
+  storage->remove("/apps/tz/manifest.json");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -10719,6 +10878,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_pinch_from_big_to_small_goes_back_and_then_closes);
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
+  RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   UNITY_END();
   return 0;
 }

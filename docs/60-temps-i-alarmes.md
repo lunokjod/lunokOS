@@ -299,10 +299,16 @@ còpies de la regla dels traspasos es donen respostes diferents** i un calendari
 vegades l'any. `ui.month` i el dial del calendari pregunten aquestes mateixes funcions (docs/30, docs/90). Les proves
 són a `test/test_calendar`: el febrer de 2024, 1900, 2000 i 2100, i sis dates que un calendari ja ha imprès.
 
-**I les dues coses que no són una opció (encara)**: el primer dia de la setmana i el traspàs són **decisions del
-nucli i no d'una app**. `weekday_of` torna 1 = dilluns sempre, i `ui.month` en fa la primera columna del mes sense
-preguntar ningú (`cells_of`, a `lib/kernel/src/ui.cpp`); `days_in_month` compta el 29 de febrer sempre. Una app que
-volgués un calendari que comenci en diumenge, o que pogués apagar el traspàs, no pot: ho ha de demanar al sistema,
-que és una preferència com la de la zona horària —una clau de `cfg` que `calendar` llegeixi— i no una taula de
-l'app. És el que demana l'app de la zona horària (docs/90), i fins que hi sigui el mapa només pot ensenyar el
-calendari que el nucli sap fer.
+**I les dues coses que sí que són una opció** (0.170.0): el primer dia de la setmana i el dia de traspàs són
+**ajustos del sistema**, i no una taula de cada app, perquè `ui.month`, `time.utc`/`date` i qualsevol pàgina que compti
+dies d'un mes han de dir el mateix (l'app de la zona horària les mou amb `time.leap` i `time.week`, docs/30):
+
+- **`cfg leap on|off`** (o `time.leap`): amb el traspàs apagat, `days_in_month` diu que el febrer té vint-i-vuit dies
+  **cada any**, i la pàgina d'un calendari ensenya vint-i-vuit. **El dia de la setmana d'una data no es mou**: el 29 de
+  febrer segueix caient on cau, perquè això és el cel i no una preferència.
+- **`cfg week monday|sunday`** (o `time.week`): `weekday_of` continua tornant 1 = dilluns i 7 = diumenge —el compte no
+  canvia— i el que gira és **la columna**: `ui.month` posa el primer dia del mes on li toca segons aquest ajust
+  (`cells_of`, a `lib/kernel/src/ui.cpp`) i gira els set noms de la setmana amb ell. Dilluns és el valor amb què aquest
+  sistema va néixer i diumenge és l'altre; una setmana que comenci en dimecres no s'accepta.
+- **Les dues es desen a l'acte i sobreviuen a un reinici**, com el desfasament de l'hora: són claus de l'cfg (`leap`,
+  `week`) escrites amb les paraules que una persona llegeix amb `nvs` (`on`/`off`, `monday`/`sunday`).

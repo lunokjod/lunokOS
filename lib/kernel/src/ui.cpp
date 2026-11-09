@@ -4050,15 +4050,22 @@ namespace {
 struct MonthCells {
   int32_t cell_w;
   int32_t row_h;
-  int32_t first;  // the weekday of the first of the month, 1 Monday
+  int32_t first;  // the column the first of the month goes in: zero for the one a week begins with
   uint8_t days;
+  uint8_t start;  // the weekday a week begins with, 1 Monday and 7 Sunday
 };
 
 MonthCells cells_of(const Canvas& grid, uint16_t year, uint8_t month) {
   MonthCells cells;
   cells.cell_w = static_cast<int32_t>(grid.width) / 7;
   cells.row_h = static_cast<int32_t>(grid.height) / 7;
-  cells.first = calendar::weekday_of(year, month, 1);
+  // **The first column is the day a week begins with, and a person chooses that day** (0.170.0): the weekday of the
+  // first of the month is a fact of the sky —1 Monday to 7 Sunday— and the column it lands in is the setting turned
+  // into an offset, so a week that begins on Sunday puts the first of the month in a different column without the
+  // calendar itself moving (docs/30, docs/60).
+  cells.start = calendar::week_start();
+  const uint8_t weekday = calendar::weekday_of(year, month, 1);
+  cells.first = (weekday != 0) ? static_cast<int32_t>((weekday + 7 - cells.start) % 7) + 1 : 1;
   cells.days = calendar::days_in_month(year, month);
   return cells;
 }
@@ -4089,11 +4096,13 @@ bool month_draw(int16_t slot, uint16_t year, uint8_t month, uint8_t selected, ui
   static char shown[8];
   const int32_t line_h =
       static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
-  // **The names of the days are the app's**: the kernel draws them and does not know what a Tuesday is called.
+  // **The names of the days are the app's**: the kernel draws them and does not know what a Tuesday is called. They
+  // arrive in the order of a week that begins on Monday —the seven names, Monday first— and the columns turn with the
+  // setting, so the app writes one list and the glass says the week the person asked for (0.170.0, docs/30).
   if (weekdays != nullptr) {
     const uint8_t small = static_cast<uint8_t>((scale > 1) ? scale - 1 : 1);
     for (int32_t column = 0; column < 7; ++column) {
-      const char* name = weekdays[column];
+      const char* name = weekdays[(column + cells.start - 1) % 7];
       if (name == nullptr) continue;
       const int32_t taken = static_cast<int32_t>(font::width(face, name, small));
       const int32_t small_h = static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * small;

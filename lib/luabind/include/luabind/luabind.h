@@ -201,6 +201,13 @@ struct TimeOps {
   // Sakamoto live once in this system (`kernel/calendar.h`), and a second copy written here would be a second answer
   // that disagrees twice a year (docs/60, docs/90).
   uint8_t (*weekday_of)(uint16_t year, uint8_t month, uint8_t day);
+  // **The two decisions of a calendar a person can move** (0.170.0): whether February has twenty-nine days, and which
+  // weekday a week begins on. They are the kernel's —`kernel/calendar.h`— and the calls are only the door, the same
+  // way `set_tz_minutes` is the door of the offset (docs/30, docs/60).
+  bool (*leap_years)();
+  bool (*set_leap_years)(bool on);
+  uint8_t (*week_start)();
+  bool (*set_week_start)(uint8_t first);
 };
 
 void set_time_ops(const TimeOps& ops);

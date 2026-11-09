@@ -1082,6 +1082,74 @@ int l_time_tz(lua_State* L) {
 }
 
 
+// time.leap([on]): **whether February has its twenty-ninth day** (0.170.0). With no argument it answers the setting;
+// with one it writes it and answers the new one, and the word it takes is a boolean or the two words a person types in
+// the prompt, `on` and `off`. It is a setting of the system —`ui.month` and `time.utc`/`date` count the days of a
+// month with it— and it is kept in the store, so it survives a reboot (docs/30, docs/60).
+int l_time_leap(lua_State* L) {
+  if (g_time_ops.leap_years == nullptr || g_time_ops.set_leap_years == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no calendar of its own");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (lua_isboolean(L, 1)) {
+      on = lua_toboolean(L, 1) != 0;
+    } else if (lua_isstring(L, 1)) {
+      const char* word = lua_tostring(L, 1);
+      if (strcmp(word, "on") == 0 || strcmp(word, "true") == 0) {
+        on = true;
+      } else if (strcmp(word, "off") == 0 || strcmp(word, "false") == 0) {
+        on = false;
+      } else {
+        return push_nil_error(L, "E_INVAL", "the leap day is on or off");
+      }
+    } else {
+      return push_nil_error(L, "E_INVAL", "the leap day is on or off");
+    }
+    if (!g_time_ops.set_leap_years(on)) {
+      return push_nil_error(L, "E_INVAL", "the calendar did not take that");
+    }
+  }
+  lua_pushboolean(L, g_time_ops.leap_years() ? 1 : 0);
+  return 1;
+}
+
+// time.week([first]): **which weekday a week begins on** (0.170.0), 1 for Monday —the week this system was born with—
+// and 7 for Sunday, in the same count `wday` uses. A number or the word `monday`/`sunday`; with no argument it answers
+// the setting. `ui.month` turns its seven columns with it, and the app of the time zone is the one that moves it
+// (docs/30, docs/60).
+int l_time_week(lua_State* L) {
+  if (g_time_ops.week_start == nullptr || g_time_ops.set_week_start == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no calendar of its own");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    uint8_t first = 0;
+    if (lua_isnumber(L, 1)) {
+      const lua_Integer number = lua_tointeger(L, 1);
+      if (number != 1 && number != 7) {
+        return push_nil_error(L, "E_INVAL", "a week begins on Monday (1) or on Sunday (7)");
+      }
+      first = static_cast<uint8_t>(number);
+    } else if (lua_isstring(L, 1)) {
+      const char* word = lua_tostring(L, 1);
+      if (strcmp(word, "monday") == 0) {
+        first = 1;
+      } else if (strcmp(word, "sunday") == 0) {
+        first = 7;
+      } else {
+        return push_nil_error(L, "E_INVAL", "a week begins on monday or on sunday");
+      }
+    } else {
+      return push_nil_error(L, "E_INVAL", "a week begins on Monday (1) or on Sunday (7)");
+    }
+    if (!g_time_ops.set_week_start(first)) {
+      return push_nil_error(L, "E_INVAL", "the calendar did not take that");
+    }
+  }
+  lua_pushinteger(L, g_time_ops.week_start());
+  return 1;
+}
+
 // ---------------------------------------------------------------------------
 // alarm: it belongs to the system, not to the machine that asked for it
 // ---------------------------------------------------------------------------
@@ -9950,6 +10018,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "utc", l_time_utc);
   set_function(L, "date", l_time_date);
   set_function(L, "tz", l_time_tz);
+  set_function(L, "leap", l_time_leap);
+  set_function(L, "week", l_time_week);
   lua_setglobal(L, "time");
 
   // alarm: what the system keeps for the app when the app is not running.

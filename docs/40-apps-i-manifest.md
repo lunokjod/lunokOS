@@ -493,8 +493,8 @@ que el dibuix canviï.
 
 **I el lunokhod és de les apps de prova, no de les que una persona fa servir** (9/11, l'amo): una app que existeix
 per mesurar o per provar el sistema el porta perquè es vegi d'un cop d'ull quina mena d'app és; una app de debò
-—l'editor, el lector, la calculadora i les que vindran com la de la zona horària o l'esborrador (docs/90)— dibuixa
-la seva, amb el seu `res/icon-source.png` i la recepta de dalt. El que no pot passar és que una app de prova
+—l'editor, el lector, la calculadora, la de la zona horària (`tz`, que ja hi és) i les que vindran— dibuixa la seva,
+amb el seu `res/icon-source.png` i la recepta de dalt. El que no pot passar és que una app de prova
 s'amagui darrere una icona que sembla d'una app normal.
 
 ## Instal·lació

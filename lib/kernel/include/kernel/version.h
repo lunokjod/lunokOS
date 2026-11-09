@@ -5006,7 +5006,38 @@ namespace kernel {
 //     a volume (`IStorage` has no such call) and `sys.reboot`, so the last modal can only suggest it (docs/70, docs/90);
 //   - **and the two of them are apps and not apps of prova**: the lunokhod of 0.169.4 is the picture of the ones that
 //     exist to measure the system, and an app a person uses draws its own (docs/40).
-static const char kVersion[] = "0.169.6";
+//
+// 0.170.0 (9/11): **the hour of the person is chosen on a map of the world, and the calendar has the two settings a
+// person asks for**. The owner left the spec of the app —*«vull un mapa del mon per seleccionar la zona… al tancar
+// l'app es guarda la zona horària (no durant l'us)… afegeix un botó per sincronitzar l'ntp… un checkbox per activar
+// l'any de traspás… un desplegable per indicar en quin dia de la setmana comença»*— and asked for the calls it needs.
+//
+//   - **`time.leap([on])` and `time.week([day])`** are the two new calls of `time` (docs/30): the leap day of February
+//     —`true`/`false` or the words `on`/`off`— and the day a week begins on —`1` Monday, the value this system was
+//     born with, or `7` Sunday, or the words `monday`/`sunday`—, both read with no argument, written with one, **saved
+//     at once** like the offset of the hour and refused with `E_INVAL` when the value is neither. They are `cfg`'s
+//     (`leap`, `week`, written in the store as the words a person reads with `nvs`) and the prompt takes the same two:
+//     `cfg leap on|off` and `cfg week monday|sunday`, which is what makes an app and a person say the same thing;
+//   - **the settings are the calendar's, and there is one of each**: `calendar::days_in_month` answers 28 for February
+//     in every year when the leap day is off, and **the weekday of a date does not move** —the 29th of February 2024 is
+//     a Thursday with the day and without it, because the sky is not a preference— and `ui.month` puts the first of the
+//     month in the column of the day the week begins with, turning its seven names with it. An app writes the names of
+//     a week that begins on Monday and the glass says the week the person asked for (docs/30, docs/60, docs/90);
+//   - **`apps/tz`**: the map of the world (500 x 250, a public-domain land layer of Natural Earth drawn into
+//     `res/world.png`, 6 219 B), the zones marked as a graph —a band above the map and one below with a line at every
+//     hour, the chosen hour filled in both so the land is never hidden—, the sentence `Selected timezone: +01:00`, the
+//     button of `net.ntp` (which turns the leap day on when the hour comes from a server, the owner's rule), the
+//     checkbox and the list of the week. **A tap says what the hour is and saves nothing**: `time.tz` writes at once, so
+//     the page keeps the choice and calls it in `on_close`, and the log says `tz: saved +03:00` when it does. It needs
+//     a glass and a finger, has its own icon —the globe with a hand, a normal app and not one of prova— and the Paper
+//     carries it (docs/40, docs/85);
+//   - **and the tests**: `test_calendar` takes the leap day and the week as settings, `test_apps` runs the page, puts a
+//     finger on the band of +3, turns the two settings with a tap and reads `tz: saved +03:00` and `settings: tz
+//     +03:00` after three taps of the centre — **551 cases and none of them is red** (docs/80);
+//   - **and the numbers**: `apps/` is **42 files and 331 536 B**, `build/disk/m5-paper` **61 files and 2 020 187 B**,
+//     `build/disk/emulator` **64 files and 2 024 449 B**, and the ATOM's firmware **2 268 577 B** of flash and
+//     **122 736 B** of RAM (README, docs/70, docs/80, docs/85).
+static const char kVersion[] = "0.170.0";
 
 }  // namespace kernel
 

@@ -564,7 +564,9 @@ void print_help(const char* only) {
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_continuation(
-      "                    lives, the keyboard, the picture of the boot and the app that comes up with the board", only);
+      "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
+  help_continuation(
+      "                    `cfg tz [<offset>]`, `cfg leap [on|off]` and `cfg week [monday|sunday]`", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -3923,7 +3925,8 @@ bool command_cfg(const char* argument) {
   size_t count = 0;
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
-    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]]\r\n");
+    usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
+              "leap [on|off]|week [monday|sunday]]\r\n");
     return false;
   }
 
@@ -3971,8 +3974,44 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **The calendar of the person** (0.170.0): the leap day and the first day of the week, the two settings the app of
+    // the time zone writes from Lua with the same words —`on`/`off` and `monday`/`sunday`— so that a person and an app
+    // never disagree about what a calendar is (docs/30, docs/60).
+    if (strcmp(words[0], "leap") == 0 || strcmp(words[0], "week") == 0) {
+      bool kept = false;
+      if (strcmp(words[0], "leap") == 0) {
+        bool on = false;
+        if (strcmp(words[1], "on") == 0) {
+          on = true;
+        } else if (strcmp(words[1], "off") != 0) {
+          out("cfg: the leap day is on or off\r\n");
+          return false;
+        }
+        kept = cfg::set_leap_years(on);
+        out("settings: leap ");
+        out(cfg::leap_years() ? "on" : "off");
+        newline();
+      } else {
+        uint8_t first = 0;
+        if (strcmp(words[1], "monday") == 0) {
+          first = 1;
+        } else if (strcmp(words[1], "sunday") == 0) {
+          first = 7;
+        } else {
+          out("cfg: a week begins on monday or on sunday\r\n");
+          return false;
+        }
+        kept = cfg::set_week_start(first);
+        out("settings: week ");
+        out((cfg::week_start() == 7) ? "sunday" : "monday");
+        newline();
+      }
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
-      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]]\r\n");
+      usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
+                "leap [on|off]|week [monday|sunday]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4044,6 +4083,19 @@ bool command_cfg(const char* argument) {
       say_keyboards();
       return true;
     }
+    // **The calendar, read in the same words it is written** (0.170.0).
+    if (strcmp(words[0], "leap") == 0) {
+      out("settings: leap ");
+      out(cfg::leap_years() ? "on" : "off");
+      newline();
+      return true;
+    }
+    if (strcmp(words[0], "week") == 0) {
+      out("settings: week ");
+      out((cfg::week_start() == 7) ? "sunday" : "monday");
+      newline();
+      return true;
+    }
     if (!cfg::set_unit(words[0])) {
       // The reason is named: a person who asked for the card needs to know whether the
       // word was wrong or the card is missing.
@@ -4082,6 +4134,12 @@ bool command_cfg(const char* argument) {
   newline();
   out("  home: ");
   out((cfg::home_app()[0] != '\0') ? cfg::home_app() : "none");
+  newline();
+  out("  leap: ");
+  out(cfg::leap_years() ? "on" : "off");
+  newline();
+  out("  week: ");
+  out((cfg::week_start() == 7) ? "sunday" : "monday");
   newline();
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {

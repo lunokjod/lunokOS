@@ -529,27 +529,10 @@ I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el 
 (0.149.0), amb el lector partit en **quatre fitxers** —`reader.lua` **49 215 B**, `chapters.lua`, `notice.lua` i
 `library.lua`, **64 411 B** en total—, o sigui **49 089 B** de marge al fitxer més gran.
 
-## Les dues apps que falten (9/11)
+## L'app que falta (9/11)
 
-L'amo les ha demanades i encara no hi són. El que segueix és què han de fer i **què els falta del sistema**, que és
-el que decideix si es fan tal com estan pensades o s'han de canviar.
-
-### `tz` · la zona horària, amb un mapa
-
-- **Què ha de fer**: un **mapa del món** per triar la zona, amb les zones marcades «com una gràfica, amb una línia a
-  dalt i una a baix»; un toc sobre una zona actualitza un `ui.label` que diu `Selected timezone: <valor>`; un botó per
-  **sincronitzar l'NTP**; una **casella** per a l'any de traspàs, que s'activa sola en sincronitzar; i un
-  **desplegable** del primer dia de la setmana (dilluns per defecte, o diumenge) que ha de manar al generador de
-  calendaris. **La zona es desa en tancar l'app i no durant l'ús**, i **no és una app de prova**: porta la seva icona.
-- **Què ja hi ha**: `time.tz([offset])` llegeix i **desa a l'acte** (`cfg::set_tz_minutes` → `remember_tz`, docs/60),
-  o sigui que l'app ha de **tenir la tria a la memòria i fer la crida a `on_close`**: si la fa en tocar, ja l'ha
-  desada. `net.ntp` és el camí a l'hora de debò, `ui.month` pinta el mes, i una imatge del món és un fitxer de
-  l'app amb `ui.image` (docs/30).
-- **Què no hi ha**: ni el mapa —que és dades de l'app, no del sistema— ni **les dues decisions del calendari**:
-  `calendar::weekday_of` torna **1 = dilluns** i `ui.month` en fa la primera columna sense preguntar ningú
-  (`cells_of`, `lib/kernel/src/ui.cpp`), i `days_in_month` compta el 29 de febrer **sempre**. Ni el primer dia de la
-  setmana ni el traspàs no es poden canviar des de Lua: demanen una **preferència del sistema** —una clau de `cfg`
-  que `calendar` llegeixi, com la de la zona horària— i la seva prova (docs/60).
+L'amo en va demanar dues; **la de la zona horària ja hi és** (0.170.0: `tz`, i amb ella `time.leap` i `time.week`,
+docs/30, docs/60). El que queda és la segona, i el que segueix és què ha de fer i **què li falta al sistema**.
 
 ### L'esborrador · l'NVS i la targeta
 

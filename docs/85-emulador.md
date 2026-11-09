@@ -174,9 +174,9 @@ app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.
 portava una —el llançador, que és l'app amb què arrenca i que ha de ser al disc que llegeix— i la resta quedava
 fora, o sigui que un emulador acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
 `run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador **no té placa**, el filtre de
-`tools/make_disk.py` les hi posa totes: **8 carpetes, 37 fitxers, 300 697 B** mesurats el 9/11 a `apps/` (about,
-calculator, editor, home_eink, luaperf, reader, shell i timeclock) i **59 fitxers i 1 993 610 B** d'imatge segons la
-línia del mateix `make_disk` (`build/disk/emulator is 1993610 B in 59 files, 8 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
+`tools/make_disk.py` les hi posa totes: **9 carpetes, 42 fitxers, 331 536 B** mesurats el 9/11 a `apps/` (about,
+calculator, editor, home_eink, luaperf, reader, shell, timeclock i tz) i **64 fitxers i 2 024 449 B** d'imatge segons la
+línia del mateix `make_disk` (`build/disk/emulator is 2024449 B in 64 files, 9 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
 emulador el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i
 una app nova a `apps/` hi és amb un `pio run -e emulator` i sense tocar cap línia de configuració. Les plaques no
 són així i no poden ser-ho: la seva imatge és el sistema sol, i la Paper nomena les seves set perquè 4 MB de
@@ -820,7 +820,7 @@ l'última comença a `0000ade0`, que és l'últim tros de 16 B del fitxer (docs/
 on era es movia només a l'altra memòria, i si el veí estava ocupat l'emulador deia `not enough memory` amb quatre
 megabytes lliures (docs/75, la secció del heap de l'emulador). Ara pot anar a qualsevol taca de la seva.
 
-**Les vuit apps del disc són les que es veuen a l'emulador i al vidre, i són les mateixes**: el que es veu a
+**Les nou apps del disc són les que es veuen a l'emulador i al vidre, i són les mateixes**: el que es veu a
 un costat i a l'altre és la mateixa pàgina, i els números s'hi poden comparar. Les apps de demostració que
 provaven cada control una per una ja no hi són —el que queda és el que una persona fa servir— i el que
 provava cadascuna ho diuen les taules de docs/50 i docs/92.
@@ -833,6 +833,7 @@ provava cadascuna ho diuen les taules de docs/50 i docs/92.
 | **`run reader [path]`** | **el lector d'EPUB** (0.120.0 i enllà): el zip del llibre, l'HTML de cada capítol i la pàgina composta amb la cara i les imatges que el llibre porta | que un llibre de debò s'obre sencer i es pot fullejar, que les imatges hi són, que **la pinça de gran a petit el tanca** i que la pàgina dura el que dura un canvi de pàgina i no mitja hora |
 | **`run shell`** | **el terminal al vidre** (0.163.0): el prompt del sistema amb pestanyes que es tanquen i la cara petita fixa | que una ordre s'escriu i respon a la pàgina, que les pestanyes es tanquen i que **sortir d'un app torna a la vista de sota abans de tancar** |
 | **`run timeclock`** | **el rellotge de fitxar** (0.125.0): tres tecles, el dia a sota i la setmana darrere d'un ull | que les tres tecles obren, tanquen i aturen el dia, que la llista de marques creix i que la setmana es dibuixa |
+| **`run tz`** | **l'hora de la persona en un mapa del món** (0.170.0): el mapa de 500 x 250 amb les zones marcades com una gràfica —una banda a dalt i una a baix amb una línia a cada hora—, la frase `Selected timezone: +01:00` que un toc actualitza, el botó de l'NTP, la casella del traspàs i el desplegable del primer dia de la setmana | que el toc en una banda diu l'hora que és i **no la desa** (es desa en tancar, i el log diu `tz: saved +03:00`), que la casella i el desplegable canvien el calendari del sistema a l'acte (`cfg leap` i `cfg week` ho diuen), i que `run tz zones` dona el mapa i el lloc de cada hora perquè una prova hi posi el dit (docs/30, docs/60) |
 | **`run luaperf`** | **el preu d'una instrucció de Lua** (0.169.3): un bucle de tres instruccions comptades al bytecode, el mínim de tres tirades amb el vidre quiet i mitja segona de voltes per dir què val una tanda de 100 000 instruccions —el pressupost d'un torn— contra els 120 ms d'una pàgina de tinta | que les dues llargades donen els ns per volta que diu el model (66 ns per instrucció aquí, que són 60 de model i el torn de 850 µs a dins), que la pàgina diu el mateix que la consola i que el número és el que decideix si el pressupost es retalla o no (docs/95, E-9) |
 | **`cfg keyboard`** | **els teclats** (0.93.0): `cfg keyboard` en dona la llista —`qwerty` i `azerty`— i `cfg keyboard azerty` en tria un, el desa a l'NVS (`cfg/keyboard`) i l'arrencada el torna a posar; `cfg` mostra el que hi ha amb la resta d'ajustos | que la primera tecla de la fila de dalt és una `q` amb qwerty i una `a` amb azerty, que la llista refusa un nom que no hi és, i que la tria sobreviu a un reinici |
 | **`cfg boot`** | **el dibuix del logotip de l'arrencada** (0.115.0): `cfg boot` en dona la llista amb el mot, el camí de la imatge i una estrella al que surt ara; `cfg boot boot-alt` el desa a l'NVS (`cfg/boot`) i la propera arrencada pinta el clipart. L'emulador té la targeta i l'NVS a `emulator/`, o sigui que la tria sobreviu entre execucions | que el log del segon arrencada diu `CFG ... boot boot-alt` i `SPLASH /res/splash/boot-alt.png`, i que la prova de l'emulador compara el píxel del mig del vidre amb la imatge que ha escrit ella |

@@ -413,6 +413,8 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.utc([t])` | taula `{year, month, day, hour, min, sec, wday, yday}` | El moment tal com el compta el xip, o l'`t` que se li dona |
 | `time.date([t])` | taula | El mateix moment **en l'hora de la persona** (`cfg tz`) |
 | `time.tz([offset])` | enter | El desfasament en minuts: es llegeix sol i s'escriu amb un argument |
+| `time.leap([on])` | booleà | **Si el febrer té el vint-i-nou** (0.170.0): es llegeix sol i s'escriu amb `true`/`false` o les paraules `on`/`off`, que són les del prompt (`cfg leap on`) |
+| `time.week([dia])` | enter | **Quin dia comença la setmana** (0.170.0): `1` dilluns —el valor del sistema— o `7` diumenge, en el mateix compte que `wday`, i les paraules `monday`/`sunday`. `ui.month` gira les seves set columnes amb això |
 | `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` — **encara no hi és** |
 | `time.parse(s, fmt)` | enter o `nil, error` | **Encara no hi és** |
 | `time.set(epoch)` | — | Permís `rtc_set` — **encara no hi és** |
@@ -422,7 +424,7 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 `time.now()` pot **saltar endavant** quan arriba una sincronització. Per mesurar durades, sempre
 `sys.time_ms()`.
 
-**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz` i `time.caps()`.
+**Avui hi ha** `time.now()`, `time.now_ms()`, `time.utc`, `time.date`, `time.tz`, `time.leap`, `time.week` i `time.caps()`.
 `format`, `parse`, `set`, `tz` amb noms de zona i `sync` encara no existeixen; l'hora la dona el rellotge i cada u la trenca
 com vol (docs/60).
 
@@ -464,6 +466,32 @@ time.tz(90)        -- noranta minuts, o sigui +01:30
 - **Escriure-hi el desa a l'acte** (`cfg::set_tz_minutes` → `remember_tz`): no hi ha cap «desa-ho ara» ni cap manera de
   desfer-ho, o sigui que una app que vulgui desar la tria **en tancar** ha de tenir-la a la memòria i fer la crida a
   `on_close`, no en tocar el mapa. És el que demana l'app de la zona horària (docs/90).
+
+### `time.leap` i `time.week`: el calendari que una persona vol (0.170.0)
+
+Les dues decisions d'un calendari que **no** són una regla de la natura: si el febrer té el vint-i-nou i quin dia
+comença la setmana. Són ajustos del sistema i no d'una app —`ui.month`, `time.utc`/`date` i qualsevol pàgina que
+compti els dies d'un mes pregunten el mateix— i es desen a l'cfg com el desfasament, o sigui que sobreviuen a un
+reinici (docs/60, docs/70).
+
+```lua
+time.leap()          -- cert: el febrer té vint-i-nou quan toca
+time.leap(false)     -- el calendari sense el dia de traspàs; torna el valor nou
+time.week()          -- 1, la setmana comença en dilluns
+time.week('sunday')  -- 7, i torna 7
+```
+
+- **El dia de la setmana d'una data no es mou**: el 29 de febrer de 2024 cau en dijous amb el traspàs encès i amb
+  ell apagat, perquè el cel no és una preferència. El que canvia és **quants dies té el febrer**, que és el que una
+  pàgina compta.
+- **`time.week` pren dilluns o diumenge i res més** (1 o 7, o les dues paraules): una setmana que comença en dimecres
+  no és un calendari que una persona demani, i el que no es pot llegir del disc no s'hi escriu. Un número o una
+  paraula que no siguin aquests donen `E_INVAL`.
+- **Escriure-hi desa a l'acte**, com `time.tz`: no hi ha cap «desa-ho ara», o sigui que una app que vulgui desar la
+  tria en tancar ha de fer la crida a `on_close`.
+- **`ui.month` gira amb el primer dia**: els set noms de `weekdays` que l'app dona són **de dilluns a diumenge** i el
+  sistema els gira amb l'ajust, o sigui que una app escriu una llista i el vidre ensenya la setmana que la persona ha
+  triat (docs/30, docs/92).
 
 ## `alarm`
 
@@ -1021,7 +1049,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.dialog(w, h)` | **un objecte** o `nil, error` | **Una targeta sobre la pàgina**: `title`, `text` (que **s'ajusta** en línies i no es talla), `note`, `accept` i `cancel`, `emphasis` (la porta que s'inverteix: 0 cap, 1 el cancel·lar, 2 l'acceptar) i `choice` (la porta on és el dial). El dit tria la porta que toca; el centre prem `on_accept`/`on_cancel` (3/11, 0.73.0) |
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
-| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0) |
+| `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
 | `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |

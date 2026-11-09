@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "kernel/calendar.h"
 #include "kernel/log.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
@@ -47,6 +48,16 @@ const size_t kTzCap = 8;  // "+01:00" and the null
 // ahead is a typo and not a place.
 const int32_t kTzMaxMinutes = 14 * 60;
 
+// **The calendar a person wants** (0.170.0): the leap day and the first day of the week, kept as the words a person
+// reads with `nvs` —`leap on`/`leap off` and `week monday`/`week sunday`— and not as numbers nobody can look up
+// (docs/60, docs/70).
+const char kLeapKey[] = "leap";
+const char kWeekKey[] = "week";
+const char kOn[] = "on";
+const char kOff[] = "off";
+const char kMonday[] = "monday";
+const char kSunday[] = "sunday";
+
 hal::IStorage* g_card = nullptr;
 hal::IStorage* g_flash = nullptr;
 hal::IKeyValue* g_nvs = nullptr;
@@ -62,6 +73,9 @@ char g_boot[kNameCap] = "boot";
 char g_home[kHomeCap] = LUNOK_HOME_APP;
 // The minutes the local hour is ahead of UTC, which is zero until somebody says otherwise (0.125.0).
 int16_t g_tz_minutes = 0;
+// What the store said, which is also what the calendar is using: the two are written together.
+bool g_leap_years = true;
+uint8_t g_week_start = 1;
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
 
@@ -97,6 +111,20 @@ bool remember_home() {
 
 // The offset is written as the text the person typed, and never as a binary number: the store is a place people read
 // with the `nvs` command, and a setting that reads as four unreadable bytes is a setting that hides itself (docs/70).
+bool remember_leap() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_leap_years ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kLeapKey, word, strlen(word));
+}
+
+bool remember_week() {
+  if (g_nvs == nullptr) return false;
+  const char* word = (g_week_start == 7) ? kSunday : kMonday;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kWeekKey, word, strlen(word));
+}
+
 bool remember_tz() {
   if (g_nvs == nullptr) return false;
   char text[kTzCap] = {0};
@@ -138,6 +166,13 @@ void boot(hal::IPlatform& platform) {
   snprintf(g_home, sizeof(g_home), "%s", LUNOK_HOME_APP);
   // The hour starts at UTC for the same reason: an emulator that boots twice must not inherit the offset of the run before.
   g_tz_minutes = 0;
+  // **And the calendar starts as this system was born**: the leap day on and the week from Monday, put in the calendar
+  // before the store is read so that a second boot of the same object —the tests— does not inherit the run before
+  // (docs/60).
+  g_leap_years = true;
+  g_week_start = 1;
+  calendar::set_leap_years(true);
+  calendar::set_week_start(1);
 
   char raw[kNameCap] = {0};
   size_t len = 0;
@@ -219,10 +254,44 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  // **The calendar, if the store says one** (0.170.0): a word this build does not know —a value left by an older
+  // build, a typo in the store— falls back to the calendar of the board and says so, because a calendar that silently
+  // hides a day is worse than one that never moved (docs/60).
+  char raw_leap[kNameCap] = {0};
+  size_t leap_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kLeapKey, raw_leap, sizeof(raw_leap) - 1, leap_len) && leap_len > 0 &&
+        leap_len < sizeof(raw_leap)) {
+      raw_leap[leap_len] = '\0';
+      if (same(raw_leap, kOn) || same(raw_leap, kOff)) {
+        g_leap_years = same(raw_leap, kOn);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "leap '%s' is not on or off; the leap day stays", raw_leap);
+      }
+    }
+  }
+  char raw_week[kNameCap] = {0};
+  size_t week_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kWeekKey, raw_week, sizeof(raw_week) - 1, week_len) && week_len > 0 &&
+        week_len < sizeof(raw_week)) {
+      raw_week[week_len] = '\0';
+      if (same(raw_week, kMonday) || same(raw_week, kSunday)) {
+        g_week_start = same(raw_week, kSunday) ? 7 : 1;
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "week '%s' is not monday or sunday; the week starts on Monday", raw_week);
+      }
+    }
+  }
+  calendar::set_leap_years(g_leap_years);
+  calendar::set_week_start(g_week_start);
   apply();
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d",
+  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, week %s",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
-             (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60);
+             (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
+             g_leap_years ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday);
 }
 
 const char* unit() { return g_unit; }
@@ -296,6 +365,27 @@ bool set_tz_minutes(int32_t minutes) {
   if (minutes > kTzMaxMinutes || minutes < -kTzMaxMinutes) return false;
   g_tz_minutes = static_cast<int16_t>(minutes);
   return remember_tz();
+}
+
+// **The leap day and the first day of the week** (0.170.0): the same shape as the offset —the number in this file,
+// the word in the store, and the calendar told every time so that the page and the call cannot disagree (docs/60).
+bool leap_years() { return g_leap_years; }
+
+bool set_leap_years(bool on) {
+  g_leap_years = on;
+  calendar::set_leap_years(on);
+  return remember_leap();
+}
+
+uint8_t week_start() { return g_week_start; }
+
+bool set_week_start(uint8_t first) {
+  // **The week of this system is Monday's or Sunday's and nothing else is written**: a week that begins on a Wednesday
+  // is not a calendar a person asks for, and the store keeps the two words it has to be able to read back (docs/60).
+  if (first != 1 && first != 7) return false;
+  g_week_start = first;
+  calendar::set_week_start(first);
+  return remember_week();
 }
 
 const char* boot_splash() { return g_boot; }
