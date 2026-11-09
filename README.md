@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **552 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **556 proves natives**
 > en **24 suites**, totes verdes.
-> A l'ATOM (9/11): **2 268 577 B** de flash (86,5 % de la partició d'aplicació, 2 621 440 B) i **122 736 B**
+> A l'ATOM (9/11): **2 269 697 B** de flash (86,6 % de la partició d'aplicació, 2 621 440 B) i **122 744 B**
 > de RAM estàtica (37,5 % de 327 680 B).
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
@@ -28,7 +28,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/`, `/fonts/` (les cares que el disc
 > porta per a tothom) i `/sd/`, que només es llegeixen; i
 > **el límit és el disc**: no hi ha
-> quota. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
+> quota. **`fs.format('/nvs')` i `fs.format('/sd')` són l'única porta que arriba fora d'aquest terreny**
+> —buiden el magatzem de claus i la targeta, que és el que fa l'app `wipe` darrere d'una targeta d'avís—, i
+> `sys.reboot()` és el reinici que la mateixa pàgina ofereix en acabar. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
 > és una porta i no un disc**: apunta a `cfg/<id>/` de la targeta si n'hi ha i de la flash si no, i qui
 > ho tria és la persona (`cfg` a la consola, `fs.cfg()` a Lua).
 >
@@ -75,7 +77,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > `ui.notification_bar` i `ui.icon_grid`: cada un és una ranura del nucli on l'app posa camps i el sistema
 > pinta, guarda el focus i la tecla premuda, i **només passa les fletxes al control que les vol**. Les
 > cares del disc viuen una sola vegada a `/fonts` (`res/fonts/`, de només lectura) i no una còpia per app.
-> Els que els fan servir són les apps del disc —el lector, l'editor, la calculadora, el rellotge i el
+> Els que els fan servir són les apps del disc —el lector, l'editor, la calculadora, el rellotge, l'esborrador i el
 > launcher—, i la revisió del projecte antic que va portar-los és a
 > [docs/92](docs/92-ui-del-projecte-antic.md).
 > **Un fitxer llarg, a l'editor, porta la seva barra de desplaçament al cantó dret de la caixa** —la pista diu quant text hi ha i

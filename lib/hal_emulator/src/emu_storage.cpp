@@ -68,6 +68,43 @@ const char* mode_name(OpenMode mode) {
   return "rb";
 }
 
+// **A directory and everything under it, gone**, counting the files: the shape of a format here, where a volume is a
+// directory of this machine. A folder is only removed when it is empty, so the walk goes down first and the answer of a
+// folder that refused —somebody's file is open— is false and stops the count (docs/70).
+bool wipe(const char* path, uint32_t& removed) {
+  DIR* dir = opendir(path);
+  if (dir == nullptr) return false;
+
+  bool ok = true;
+  for (struct dirent* item = readdir(dir); item != nullptr && ok; item = readdir(dir)) {
+    if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0) continue;
+
+    char child[kPathCap];
+    const int written = snprintf(child, sizeof(child), "%s/%s", path, item->d_name);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(child)) {
+      ok = false;
+      break;
+    }
+    struct stat info;
+    if (::stat(child, &info) != 0) continue;
+    if (S_ISDIR(info.st_mode)) {
+      if (!wipe(child, removed)) {
+        ok = false;
+      } else if (::rmdir(child) == 0) {
+        ++removed;
+      } else {
+        ok = false;
+      }
+    } else if (::remove(child) == 0) {
+      ++removed;
+    } else {
+      ok = false;
+    }
+  }
+  closedir(dir);
+  return ok;
+}
+
 class PosixStorage : public IStorage {
  public:
   // Two volumes of the same kind: the flash is the directory named as a volume (or
@@ -195,6 +232,16 @@ class PosixStorage : public IStorage {
     return ::rename(from_path, to_path) == 0;
   }
 
+  // **Emptying the volume is walking it and taking everything**: the directory the person gave with `--sd` is the
+  // volume, so what goes is what is inside it and not the directory itself —a card that a run leaves without its mount
+  // point is a card the next run has to make again— (docs/70, docs/85).
+  bool format(uint32_t& removed) override {
+    char path[kPathCap];
+    fs_path("", path, sizeof(path));
+    removed = 0;
+    return wipe(path, removed);
+  }
+
   bool space(uint64_t& total, uint64_t& free) override {
     char path[kPathCap];
     fs_path("", path, sizeof(path));
@@ -286,6 +333,12 @@ class TimedStorage : public IStorage {
   bool space(uint64_t& total, uint64_t& free) override {
     emu::disk_pay(disk_, 0, false);
     return inner_->space(total, free);
+  }
+  bool format(uint32_t& removed) override {
+    // **A format is not free and it is not one block either**: the walk reads the directory and every removal writes
+    // the table of blocks, which is what the model prices at a block each (docs/85).
+    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, true);
+    return inner_->format(removed);
   }
 
  private:

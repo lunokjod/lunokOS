@@ -28,7 +28,6 @@ perquè:
 | Crida | Per què no hi és | On va |
 |---|---|---|
 | `console.flush`, `console.read`, `console.on_data` | cap app no les ha demanades; `read_line` i `read_byte` cobreixen el teclat (`read_byte` ja hi és) | M1 |
-| `sys.reboot` | reiniciar sense dir res a qui hi ha al davant no és una crida d'app | M6 |
 | `time.format`, `parse`, `set` | el rellotge dona l'hora i les parts del dia; formatar-la no l'ha demanada cap app (`utc`, `date` i `tz` hi són des de la 0.125.0) | M3 |
 | `time.sync` | ja hi ha `net.ntp`, que és el que fa la feina | M5 |
 | `Promise.all`, `Promise.race` | cap app ha necessitat esperar dues coses alhora | M1 |
@@ -37,11 +36,11 @@ perquè:
 | `store` | és un fitxer petit per app, i `fs` ja el pot fer | M4 |
 | `log` | una app escriu a la consola, i l'anell de log del sistema ja existeix per a ell | M1 |
 | `net.softap` | el HAL sap aixecar un AP pel provisioning; falta la crida, i cap app l'ha demanada | M5 |
-| buidar l'NVS (`nvs` a Lua, o una ordre) | el HAL esborra **una clau** i prou, i `/nvs` no és terreny d'una app: ho demana l'app de l'esborrador (a baix) | M4 |
-| `fs.format(<volum>)` | cap volum té format: `IStorage` no en té la crida i la targeta és de la persona; ho demana la mateixa app | M4 |
 
 La llista no és una promesa: **una crida d'aquestes s'afegeix quan una app la demana**, amb la
-política a dins del sistema i la seva prova, com qualsevol altra (docs/10).
+política a dins del sistema i la seva prova, com qualsevol altra (docs/10). **I tres files que hi eren ja no hi
+són**, perquè la 0.171.0 va tancar-les el 9/11: `sys.reboot`, `fs.format(<volum>)` i el buidatge de l'NVS, que és
+la mateixa porta que el format d'un volum (`fs.format('/nvs')`, docs/30, docs/70).
 
 ## M0 · Les dues bandes arrenquen i parlen
 
@@ -51,7 +50,7 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 
 | | |
 |---|---|
-| **Què queda** | Les crides de consola i `sys.reboot` de la taula de dalt, `Promise.all`/`race` i el mòdul `log`. |
+| **Què queda** | Les crides de consola de la taula de dalt, `Promise.all`/`race` i el mòdul `log`. |
 | **Criteri per tancar-les** | Cada una amb la seva prova: una app que llegeix bytes sense perdre el teclat, un reinici que diu per què, i dues promeses que es compleixen alhora. |
 
 ## M2 · Apps i manifest
@@ -529,23 +528,23 @@ I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el 
 (0.149.0), amb el lector partit en **quatre fitxers** —`reader.lua` **49 215 B**, `chapters.lua`, `notice.lua` i
 `library.lua`, **64 411 B** en total—, o sigui **49 089 B** de marge al fitxer més gran.
 
-## L'app que falta (9/11)
+## Les dues apps que l'amo va demanar el 9/11
 
-L'amo en va demanar dues; **la de la zona horària ja hi és** (0.170.0: `tz`, i amb ella `time.leap` i `time.week`,
-docs/30, docs/60). El que queda és la segona, i el que segueix és què ha de fer i **què li falta al sistema**.
+Cap de les dues no falta: **la de la zona horària** hi és des de la 0.170.0 (`tz`, amb `time.leap` i `time.week`) i
+**l'esborrador** des de la 0.171.0 (`wipe`, amb `fs.format` i `sys.reboot`), i totes dues amb icona pròpia i el seu
+cas a `test_apps` (docs/30, docs/40, docs/70).
 
-### L'esborrador · l'NVS i la targeta
+### El que l'esborrador va deixar dit
 
-- **Què ha de fer**: buidar l'**NVS** i **formatejar l'SD**; les dues coses amb un **modal d'avís** que la persona
-  ha de respondre que sí, una **barra de progrés** mentre s'esborra i, en acabar, un altre modal que **suggereixi
-  reiniciar**.
-- **Què ja hi ha**: `ui.dialog` per als dos modals i `ui.progress` per a la barra; `fs.mounts` i `fs.space` per
-  ensenyar què hi ha abans de tocar-ho; i `ls /nvs` per mirar-s'ho (docs/30, docs/70).
-- **Què no hi ha**: **cap porta per buidar l'NVS** (el HAL esborra una clau, `IKeyValue::erase`, i el muntatge és de
-  només lectura i fora del terreny d'una app), **cap format d'un volum** (`IStorage` no en té la crida) i
-  **`sys.reboot`** —que és a la taula de dalt des de M6—, o sigui que el modal final pot suggerir el reinici i la
-  persona el fa amb el botó o amb `reboot`. Les dues portes són feina del nucli i del HAL amb la seva prova al disc de
-  l'emulador (docs/70).
+- **La targeta es buida però no es reformata**: el format deixa el FAT com era i treu tots els fitxers i carpetes.
+  Refer el FAT demana desmuntar i tornar a muntar la targeta, i **no hi ha placa per provar-ho**; queda aquí com a
+  decisió oberta, amb el risc de deixar una targeta que la placa no reconeix si es fa a mitges (docs/70).
+- **La barra no pot dir quant falta**: `fs.format` és una crida i prou, o sigui que la pàgina ensenya «encara no ho
+  sé» (`value` negatiu) i la posa a 100 quan la resposta arriba. Una barra de debò necessitaria un format a trossos,
+  i cap de les dues bandes el té (docs/30).
+- **I la pàgina és l'única cosa que impedeix un `fs.format` sense voler**: el sistema no té model de permisos i una
+  app pot cridar la porta quan vulgui. El que la fa honesta és la targeta d'avís amb el dial a la porta segura; el
+  dia que hi hagi permisos (el `E_PERM` reservat de docs/30), aquesta és la primera porta que hi hauria de passar.
 
 ## Fora de la v1
 

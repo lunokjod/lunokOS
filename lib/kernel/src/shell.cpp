@@ -3515,6 +3515,22 @@ void prompt() {
 
 bool app_running() { return g_app_alive; }
 
+// **The picture of the moment goes up before the board goes**: a restart is a moment a person sees, and the glass it
+// leaves is the one the boot paints over (docs/50). A board without the picture is a board that restarts all the same.
+// **And it goes up whole** (0.165.1): a restart cut in the middle of the `gc16` of the picture leaves the page of before
+// on the glass, which is exactly what a person saw — the picture opened too late and was never seen—. The line is
+// written first and the ink is waited on after it, so the wire and the glass say the same thing.
+bool reboot(const char* reason) {
+  if (reason != nullptr && reason[0] != '\0') {
+    log_printf(pal::kLogInfo, "APPS", "%s restarts the board: %s", luabind::app_id(), reason);
+  }
+  splash::show(splash::kReboot);
+  out("restarting...\r\n");
+  splash::wait();
+  pal::system().reboot();
+  return true;
+}
+
 bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
@@ -4410,16 +4426,10 @@ bool execute(char* line) {
     return true;
   }
   if (strcmp(line, "reboot") == 0) {
-    // **The picture of the moment goes up before the board goes**: a restart is a
-    // moment a person sees, and the glass it leaves is the one the boot paints over
-    // (docs/50). A board without the picture is a board that restarts all the same.
-    // **And it goes up whole** (0.165.1): a restart cut in the middle of the `gc16` of the picture leaves the page of
-    // before on the glass, which is exactly what a person saw — the picture opened too late and was never seen—. The
-    // line is written first and the ink is waited on after it, so the wire and the glass say the same thing.
-    splash::show(splash::kReboot);
-    out("restarting...\r\n");
-    splash::wait();
-    pal::system().reboot();
+    if (!reboot(nullptr)) {
+      error_out("reboot: this board cannot restart itself\r\n");
+      return false;
+    }
     return true;
   }
   // Cutting the power is not a sleep: nothing is armed and the button is the only way back in. The

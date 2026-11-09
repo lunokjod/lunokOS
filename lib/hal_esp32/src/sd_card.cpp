@@ -40,6 +40,46 @@ const char* mode_name(OpenMode mode) {
   return "r";
 }
 
+// **A folder and everything under it, gone**, counting what went: the same walk the emulator's volume does, with POSIX
+// because the card is a FATFS mounted in the VFS (docs/70).
+bool wipe(const char* path, uint32_t& removed) {
+  DIR* dir = opendir(path);
+  if (dir == nullptr) return false;
+
+  bool ok = true;
+  for (struct dirent* item = readdir(dir); item != nullptr && ok; item = readdir(dir)) {
+    if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0) continue;
+
+    char child[kPathCap];
+    const int written = snprintf(child, sizeof(child), "%s%s", path, item->d_name);
+    if (written <= 0 || static_cast<size_t>(written) >= sizeof(child)) {
+      ok = false;
+      break;
+    }
+    struct stat info;
+    if (::stat(child, &info) != 0) continue;
+    if (S_ISDIR(info.st_mode)) {
+      // Room for the slash: a child of the longest path and its separator, so the compiler can see that the copy fits
+      // (the board builds with `-Werror=format-truncation`).
+      char deeper[kPathCap + 2];
+      snprintf(deeper, sizeof(deeper), "%s/", child);
+      if (!wipe(deeper, removed)) {
+        ok = false;
+      } else if (::rmdir(child) == 0) {
+        ++removed;
+      } else {
+        ok = false;
+      }
+    } else if (::remove(child) == 0) {
+      ++removed;
+    } else {
+      ok = false;
+    }
+  }
+  closedir(dir);
+  return ok;
+}
+
 class SdCard : public IStorage {
  public:
   explicit SdCard(const char* mount) {
@@ -152,6 +192,17 @@ class SdCard : public IStorage {
   // volume the VFS registers is '0', and this project mounts exactly one —the card—
   // (docs/70). The day there is a second, the letter has to come from the mount and not
   // from a constant.
+  // **Emptying the card**: the volume stays mounted and keeps its FAT, and what goes is every file and folder of its
+  // root. It is what a page means by formatting a card with the calls this HAL has —a real `f_mkfs` needs the volume
+  // unmounted and put back, and there is no board here to try that on— and the contract of `format` says the same
+  // (docs/50, docs/70).
+  bool format(uint32_t& removed) override {
+    char path[kPathCap];
+    snprintf(path, sizeof(path), "%s/", mount_);
+    removed = 0;
+    return wipe(path, removed);
+  }
+
   bool space(uint64_t& total, uint64_t& free_bytes) override {
     const char drive[3] = {'0', ':', '\0'};
     FATFS* fs = nullptr;

@@ -1,0 +1,9 @@
+{
+  "title": "Wipe",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "wipe.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The two places this board keeps and never shows, emptied on request: the store of keys and the card. Both ask first, both show how far they are, and both end by offering the restart that makes it true."
+}

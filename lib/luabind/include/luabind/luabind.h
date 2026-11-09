@@ -61,6 +61,10 @@ struct FileOps {
   bool (*mkdir)(const char* path, FsError& err);
   bool (*remove)(const char* path, FsError& err);
   bool (*rename)(const char* from, const char* to, FsError& err);
+  // **Empty a volume** (0.171.0, docs/70): every file and folder of the mount a path lives on, and how many went. The
+  // key-value store is a volume of this call too —`fs.format('/nvs')` erases every key, which is what formatting it
+  // means— and a mount that cannot be emptied answers `E_UNSUPPORTED` and not a silent true (docs/30).
+  bool (*format)(const char* path, uint32_t& removed, FsError& err);
 
   // An open file. The interpreter keeps the handle in a userdata and the kernel
   // keeps the file; the pool is what makes the ninth open fail with E_NO_HANDLES
@@ -174,6 +178,11 @@ struct AppOps {
   uint8_t (*views)();
   uint8_t (*push_view)();
   uint8_t (*pop_view)();
+  // **A restart asked for by an app** (0.171.0): the page of the eraser finishes by offering one, and an app that wipes
+  // the store it is running on cannot be trusted to keep running. **The reason is written and it is the app's**: the
+  // kernel puts the picture of the moment on the glass, says in the log who asked and why, and restarts — what the
+  // prompt's `reboot` does, with a name in front of it (docs/30, docs/50).
+  bool (*reboot)(const char* reason);
 };
 
 void set_app_ops(const AppOps& ops);

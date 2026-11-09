@@ -801,6 +801,92 @@ bool space_at(const char* path, uint64_t& total, uint64_t& free_bytes, luabind::
   return true;
 }
 
+// **Emptying a volume** (0.171.0): the page of the eraser asks for a `/nvs` and for a `/sd`, and they are two different
+// machines —the key-value store has no files, only keys— so this is where the two are told apart. The store is wiped one
+// key at a time because that is the only write it has (`IKeyValue::erase`), and the names are collected **before** any of
+// them goes: walking a store that is being erased is a walk that can skip what the erase moved (docs/70, docs/90).
+const uint32_t kMaxNamespaces = 8;
+const uint32_t kMaxKeys = 48;
+const size_t kNameBytes = 24;
+
+bool format_volume(const char* path, uint32_t& removed, luabind::FsError& err) {
+  err = luabind::FsError::kOk;
+  removed = 0;
+  char full[128];
+  if (path == nullptr || !absolute(path, full, sizeof(full))) {
+    err = luabind::FsError::kInval;
+    return false;
+  }
+
+  // **Only the root of a mount is a volume**: emptying `/sd/apps` is emptying one folder, which `fs.remove` is for, and a
+  // call that took a folder for a volume would be a call that erases a card by accident (docs/30).
+  const char* kind = nullptr;
+  for (uint32_t i = 0, count = vfs::mount_count(); i < count; ++i) {
+    if (strcmp(vfs::mount_path(i), full) == 0) {
+      kind = vfs::mount_kind(i);
+      break;
+    }
+  }
+  if (kind == nullptr) {
+    err = luabind::FsError::kInval;
+    return false;
+  }
+
+  // The key-value store: every key of every namespace, one erase at a time, with the names taken before the first one
+  // goes —a walk of a store that is being erased can skip what the erase moved— (docs/70). **A namespace with more keys
+  // than fit in one batch is walked again**: a wipe that stopped at the forty-eighth key would leave the rest and say it
+  // was done.
+  if (strcmp(kind, "nvs") == 0) {
+    hal::IKeyValue* store = hal::platform().nvs();
+    if (store == nullptr) {
+      err = luabind::FsError::kUnavail;
+      return false;
+    }
+    char spaces[kMaxNamespaces][kNameBytes] = {};
+    uint32_t space_count = 0;
+    const char* name = nullptr;
+    bool first = true;
+    while (space_count < kMaxNamespaces && store->next_namespace(name, first)) {
+      snprintf(spaces[space_count], kNameBytes, "%s", name);
+      ++space_count;
+    }
+    char keys[kMaxKeys][kNameBytes] = {};
+    for (uint32_t s = 0; s < space_count; ++s) {
+      for (;;) {
+        uint32_t key_count = 0;
+        name = nullptr;
+        first = true;
+        while (key_count < kMaxKeys && store->next(spaces[s], name, first)) {
+          snprintf(keys[key_count], kNameBytes, "%s", name);
+          ++key_count;
+        }
+        if (key_count == 0) break;
+        uint32_t gone = 0;
+        for (uint32_t k = 0; k < key_count; ++k) {
+          if (store->erase(spaces[s], keys[k])) ++gone;
+        }
+        removed += gone;
+        // A batch that let nothing go is a store that will not be walked again without an end.
+        if (gone == 0 || key_count < kMaxKeys) break;
+      }
+    }
+    return true;
+  }
+
+  // Any other volume: the backend empties it, and one that cannot says so instead of answering that there was nothing.
+  hal::IStorage* storage = nullptr;
+  char rel[8];
+  if (!vfs::resolve(full, storage, rel, sizeof(rel)) || storage == nullptr) {
+    err = luabind::FsError::kUnavail;
+    return false;
+  }
+  if (!storage->format(removed)) {
+    err = luabind::FsError::kUnsupported;
+    return false;
+  }
+  return true;
+}
+
 // Where the settings go, as the kernel decided it at boot and as the person may have
 // changed it since (docs/70). An app does not need any of these three: it writes /cfg and
 // the rewrite in `absolute` does the rest.
@@ -872,6 +958,7 @@ void install_fs_ops() {
   ops.mkdir = &mkdir;
   ops.remove = &remove;
   ops.rename = &rename_file;
+  ops.format = &format_volume;
   ops.open = &open_file;
   ops.file_read = &file_read;
   ops.file_write = &file_write;

@@ -30,6 +30,12 @@ void feed(const char* data, size_t len);
 // Runs one command line (already null-terminated). Returns false on error.
 bool execute(char* line);
 
+// **The restart, asked for by the prompt or by an app** (0.171.0): the picture of the moment goes on the glass, the ink
+// is waited on and the board restarts, which is what `reboot` does — it is one function because a restart is a moment a
+// person sees and three copies of it would be three moments (docs/30, docs/50). `reason` is written in the log with the
+// app's name in front when an app asked; the prompt passes nothing, because a person at the prompt is the reason.
+bool reboot(const char* reason);
+
 // ---- a session of the shell that is not the console (0.159.0, docs/30) ----
 //
 // **The shell is the system's and not the wire's**: `open_session` gives a handle and the caller talks to a shell

@@ -5074,7 +5074,45 @@ namespace kernel {
 //     94 x 94 the manifest names— instead of a new shape. The nine apps of `apps/` were checked one by one and all nine
 //     answer with a 94 x 94 picture; `luaperf` is the one without a master of its own, because its drawing is the shared
 //     lunokhod of `tools/icons/` (docs/40, docs/85).
-static const char kVersion[] = "0.170.2";
+// 0.171.0 (9/11): **the eraser, and the three doors it needed**. The owner asked for a page that empties the NVS and
+// formats the card: *«ambdues opcions ha de mostrar un modal amb un avís que l'usuari ha de respondre afirmativament per
+// procedir»*, a bar while it works and, at the end, *«un modal amb la suggerencia de reiniciar»*.
+//
+//   - **`fs.format(path)` is a call of the system** (docs/30, docs/70): the mount a path lives on, emptied, with how many
+//     things went in `{erased}`. On `/nvs` it walks the namespaces and the keys and erases them with `IKeyValue::erase`;
+//     on a card it takes every file and every folder and **leaves the FAT as it was**, because what is emptied is the
+//     content and not the file system —`f_mkfs` would need an unmount and a remount, and there is no board to prove
+//     that— (docs/70). A path that is not the root of a mount is `E_INVAL`; the flash of the system is
+//     `E_UNSUPPORTED`, because a door that eats the running system does not open from an app; and a backend that cannot
+//     do it says so instead of a silent `true`. **It is the one door that reaches outside an app's ground**, and it is
+//     that way on purpose: what a page of an eraser needs is a door with an answer and not a walk of `remove`s from an
+//     app (docs/30);
+//   - **`IStorage::format` is in the HAL** (`lib/hal`), answered by the emulator's volume —the same walk of a directory,
+//     paying a block like every other call— and by the board's card (POSIX over the FATFS mounted in the VFS, with the
+//     `opendir`/`unlink`/`rmdir` of the platform) (docs/70, docs/85);
+//   - **`sys.reboot([reason])` is in Lua** (docs/30): the `reboot` of the prompt, as one function —the picture of the
+//     moment on the glass, the ink waited on, and the board starting again—, with the reason in the log
+//     (`[I][APPS] wipe restarts the board: the NVS was erased`). It does not come back, so what has to be saved is saved
+//     before it;
+//   - **and the app is `apps/wipe`** (docs/40, docs/85): two doors with a label inside each, the card of `ui.dialog` for
+//     the warning —**with the safe door lit and the dial on it**, because a finger that lands on a card it did not read
+//     must not be the finger that emptied the board—, a `ui.progress` that says `-1` while the call holds the kernel and
+//     100 when the answer arrives, and a card that ends offering the restart with `sys.reboot`. **The door of the card is
+//     `disabled` when there is no card in the slot** —`fs.mounts` is asked, not `caps.sd`, which says that the board has
+//     a slot and not that a card is in it— and the same for a board with no store. Its icon is a bin of four greys in the
+//     style of the others, with its `res/icon-source.png`, and the Paper carries it because it is the board of the
+//     project with a slot (docs/40);
+//   - **a hook of a control cannot wait, and the page of the eraser says it in code**: `on_accept` closes the card and
+//     leaves the wish in a variable, and the loop of the app is what erases in the next turn —the `sys.delay` that waits
+//     for the bar to be painted cannot run inside the system's call—. It is the old rule of the project taken to the
+//     letter: read the action, close the card, and then run it (docs/30);
+//   - **and the message of a card was being measured against the page** (docs/30): `dialog_draw` compared the row of the
+//     text —which carried the place of the card in the view— with the row of the doors —which is a row of the card—, so a
+//     card that was not at the top of the glass had **zero lines of message** and showed only its title. Found with the
+//     card of `wipe` on the emulator (9/11) and fixed where it always meant to be measured; the tests of the dialog only
+//     read the doors, which is why nothing had caught it (docs/30, docs/90).
+
+static const char kVersion[] = "0.171.0";
 
 }  // namespace kernel
 

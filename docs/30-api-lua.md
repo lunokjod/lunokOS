@@ -53,7 +53,7 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   **`power`** (les dues menes de son, la velocitat del processador i la bateria), **`led`** (el llum),
   **`imu`** (el sensor del Matrix) i **`button`** (el botó, i el hook `on_button`).
 
-**Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»: `sys.reboot()`,
+**Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»:
 `console.flush()`, `console.read()`, `console.on_data()`, `time.format`/`parse`/`set`/`sync`,
 `Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`, `net.softap`, `power.off`, i els mòduls
 `store` i `log`. (`console.read_byte`, `time.utc` i `time.tz` hi són des de la 0.125.0 i ja no són en
@@ -149,7 +149,7 @@ funció.
 | `sys.gc("count")` | enter | KB en ús |
 | `sys.delay(ms)` ⏳ | promesa | Espera sense tocar la cua d'alarmes ni el port sèrie |
 | `sys.time_ms()` | enter | Rellotge monòton en mil·lisegons. **Mai salta enrere** |
-| `sys.reboot(reason)` | no torna | Permís: cap |
+| `sys.reboot([reason])` | no torna | **Reinicia la placa** (0.171.0): la imatge del moment (el dibuix `reboot` del splash) va al vidre, s'espera la tinta i la placa torna a arrencar. `reason` és el que queda al log —`[I][APPS] wipe restarts the board: the NVS was erased`—, i el que fa la feina és el mateix `reboot` del prompt (docs/50). **No torna**: la VM de l'app mor amb la placa, i per això el que calgui desar s'ha de desar abans |
 | `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
 
 ## Una sessió del shell (0.159.0)
@@ -769,6 +769,7 @@ memòria quan hi cap.
 | `fs.list(path)` | taula | `{name, type, size, mtime}` de cada entrada |
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
 | `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El `E_PERM` de la taula d'errors és **reservat**: el model de permisos no existeix encara, i avui escriure el decideix el terreny de l'app, no el manifest |
+| `fs.format(path)` | `{erased}` o `nil, error` | **Buida el muntatge on viu el camí** (0.171.0): cada fitxer i cada carpeta del seu arrel, i `erased` diu quants n'han anat. A `/nvs` esborra **totes les claus** del magatzem; a `/sd` deixa la targeta buida i **amb el seu FAT**, perquè el que s'esborra és el contingut i no el format del sistema de fitxers (docs/70) |
 | `fs.open(path[, mode])` | objecte fitxer | `mode`: `"r"`, `"w"`, `"a"`, `"r+"` |
 | `fs.read(path[, max])` | cadena o `nil, error` | El fitxer sencer, o com a molt `max` bytes |
 | `fs.read_at(path, offset, len)` | cadena o `nil, error` | Accés aleatori sense obrir |
@@ -777,7 +778,7 @@ memòria quan hi cap.
 | `fs.cfg([unitat])` | taula o `nil, error` | `{unit, dir}`: on van els ajustos d'aquesta app. Amb `"auto"`, `"sd"` o `"littlefs"` els mou (docs/70) |
 
 **Avui hi ha** `fs.open`, `fs.list`, `fs.stat`, `fs.read`, `fs.read_at`, `fs.write`, `fs.mkdir`,
-`fs.remove`, `fs.rename`, `fs.data`, `fs.mounts`, `fs.space` i `fs.cfg`.
+`fs.remove`, `fs.rename`, `fs.format`, `fs.data`, `fs.mounts`, `fs.space` i `fs.cfg`.
 
 De l'**objecte fitxer** (`f = fs.open(path[, "r"|"w"|"a"|"r+"])`):
 
@@ -805,6 +806,12 @@ El que una app ha de saber:
   `E_INVAL`, no `E_NOENT`. Fora del seu terreny només pot **llegir** `/res/` —el seu, que és
   `apps/<id>/res/` al costat de l'app—, `/apps/` i `/sd/`; les unitats del sistema (`/littlefs/`,
   `/nvs/`) no són seves i també responen `E_INVAL` (docs/70).
+- **`fs.format` és l'única porta que arriba fora del terreny de l'app** (0.171.0). No és un forat del
+  model: és el que vol dir buidar un volum, i el que la tanca és la targeta d'avís que ha de respondre
+  una persona —la pàgina de `wipe` no fa res sense un accept— (docs/70, docs/90). El camí ha de ser
+  l'arrel d'un muntatge i no una carpeta a dins: `/nvs` i `/sd` són volums, `/sd/notes` respon
+  `E_INVAL`. La flash del sistema (`/littlefs`) respon **`E_UNSUPPORTED`**: reformatar-la es menjaria el
+  sistema que hi viu, i una porta que no es pot desfer no s'obre des d'una app.
 - **`/rtc` i `/fram` són l'excepció i són memòria crua**: 7 168 B que sobreviuen a un son profund i
   256 B que no necessiten el corrent, sense mapa ni claus, i **el format el decideix l'app que hi
   escriu** (`/rtc` a seques, que és el fitxer sencer). S'hi escriu amb un mànec —`fs.open('/rtc',
@@ -2264,6 +2271,16 @@ ui.present('gc16')
 Una targeta i prou és el que cal per provar el diàleg amb el dial i amb el dit: `ui.dialog` torna la porta
 que l'usuari ha triat, o `nil` si l'ha tancada.
 
+- **El missatge té la sala que queda dins la targeta i no la de la pàgina** (0.171.0): fins a la 0.170.2
+  el compte de línies barrejava la fila del text —mesurada dins la targeta— amb la fila de les portes
+  —mesurada dins la pàgina—, i una targeta que no era a la primera fila del vidre es quedava amb **zero
+  línies de missatge** i només ensenyava el títol. Es va trobar amb la targeta de `wipe` sobre l'emulador
+  (9/11) i ara la sala es mesura dins la targeta, que és el que el dibuix sempre havia volgut dir
+  (docs/30, docs/90).
+- **I qui obre la targeta li dona el dial**: `ui.focus(card)`. Una targeta sobre la pàgina que no té el
+  focus és una targeta que el centre del dial no contesta, i el dial segueix prement el botó de sota
+  (docs/30).
+
 ### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
 
 - **`ui.sparkline`**: una barra per mostra, la més vella a l'esquerra, i **l'alçada contra el pic de la finestra** i no
@@ -2965,7 +2982,7 @@ end
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
 | `power.cpu(mhz)` | número o `nil, error` | La canvia. **Els passos són 80, 160 i 240**: un altre número es refusa amb `E_INVAL` i **no s'arrodoneix** |
-| `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no, com `sys.reboot()` |
+| `power.off()` ⏳ | booleà | Apaga la placa de debò: talla el corrent, no arma res i només el botó la torna a encendre. **Al prompt ja hi és** (`poweroff`, que diu si la placa no en té el control, docs/50); des de Lua encara no —`sys.reboot()` sí que hi és des de la 0.171.0, i aquesta és la que li falta— |
 
 - **Un son necessita una hora per tornar.** Sense `in_ms` ni `until` no hi ha res per amollar i es
   refusa amb `E_INVAL`: una placa que dorm sense hora espera un dit al botó (docs/60). També es

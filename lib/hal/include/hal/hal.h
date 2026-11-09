@@ -125,6 +125,16 @@ class IStorage {
   virtual bool mkdir(const char* rel) = 0;
   virtual bool rename(const char* from, const char* to) = 0;
   virtual bool space(uint64_t& total, uint64_t& free) = 0;
+  // **Empty the volume** (0.171.0, docs/70, docs/90): every file and every folder of its root goes and the volume
+  // stays mounted with the format it has — the card is FAT before and after, and what a person gets is an empty card—.
+  // It is what the page of the eraser means by formatting, and `removed` says how many files went so the page can
+  // report it. **A backend that cannot do it says so instead of pretending**: the default answers false and the kernel
+  // turns that into `E_UNSUPPORTED`, which is the difference between "there is nothing to erase" and "not here"
+  // (docs/30).
+  virtual bool format(uint32_t& removed) {
+    removed = 0;
+    return false;
+  }
 };
 
 class IKeyValue {

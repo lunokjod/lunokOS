@@ -1576,6 +1576,24 @@ int l_fs_mkdir(lua_State* L) {
   return 1;
 }
 
+// fs.format(path): **the volume the path lives on, emptied** (0.171.0). It is the call the page of the eraser is built
+// on: `/nvs` erases every key of the store and `/sd` takes every file and folder of the card. The answer is how many
+// things went, and a volume this system cannot empty answers `E_UNSUPPORTED` — a card that is not there is `E_UNAVAIL`
+// and a path that is not a mount is `E_INVAL` (docs/30, docs/70).
+int l_fs_format(lua_State* L) {
+  const char* path = luaL_checkstring(L, 1);
+  if (g_file_ops.format == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system cannot empty a volume");
+  }
+  uint32_t removed = 0;
+  FsError err = FsError::kOk;
+  if (!g_file_ops.format(path, removed, err)) return push_fs_error(L, err);
+  lua_createtable(L, 0, 1);
+  lua_pushinteger(L, static_cast<lua_Integer>(removed));
+  lua_setfield(L, -2, "erased");
+  return 1;
+}
+
 int l_fs_remove(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
   if (g_file_ops.remove == nullptr) {
@@ -2028,6 +2046,22 @@ int l_apps_info(lua_State* L) {
 // app.run(id): **the wish to start another app**, which the kernel carries out at the end of the turn (docs/30, docs/90).
 // It answers true and nothing has happened yet; the reason of a refusal is the system's, because the system is the one
 // that knows whether the app is there, whether it runs on this board and whether it is the app that is asking.
+// **sys.reboot([reason])** (0.171.0): the page of the eraser ends by offering a restart, and an app that has just
+// emptied the store it is running on cannot be trusted to keep running. The reason is the app's and it is written in the
+// log with the name of who asked; with none, the name of the app is the reason. It is the prompt's `reboot` with a name
+// in front of it: the picture of the moment goes on the glass, the ink is waited on, and the board restarts (docs/30,
+// docs/50). Never returns when it works.
+int l_sys_reboot(lua_State* L) {
+  if (g_app_ops.reboot == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system does not restart on command");
+  }
+  const char* reason = luaL_optstring(L, 1, nullptr);
+  if (!g_app_ops.reboot(reason)) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board cannot restart itself");
+  }
+  return 0;
+}
+
 int l_app_run(lua_State* L) {
   const char* id = luaL_checkstring(L, 1);
   // **`app.run(id[, back])`**: `back` is true unless the app says otherwise, because an app that opens another one is
@@ -10007,6 +10041,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_sys_caps);
   set_function(L, "delay", l_sys_delay);
   set_function(L, "shell", l_sys_shell);
+  set_function(L, "reboot", l_sys_reboot);
   lua_setglobal(L, "sys");
 
   // time: the wall clock. It can jump when somebody sets it; sys.time_ms() is
@@ -10207,6 +10242,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "write", l_fs_write);
   set_function(L, "mkdir", l_fs_mkdir);
   set_function(L, "remove", l_fs_remove);
+  set_function(L, "format", l_fs_format);
   set_function(L, "rename", l_fs_rename);
   set_function(L, "data", l_fs_data);
   set_function(L, "mounts", l_fs_mounts);

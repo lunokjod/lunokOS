@@ -10747,6 +10747,263 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   storage->remove("/apps/tz/manifest.json");
 }
 
+// **The eraser of the repository, on the disk of this run**: a case that failed before its clean-up leaves the folder
+// behind, so the folder is taken away first and a second case cannot fail on the leftovers of the first (docs/85).
+bool install_the_eraser(hal::IStorage* storage) {
+  storage->remove("/apps/wipe/res/icon.png");
+  storage->remove("/apps/wipe/res/icon-source.png");
+  storage->remove("/apps/wipe/wipe.lua");
+  storage->remove("/apps/wipe/manifest.json");
+  storage->remove("/apps/wipe/res");
+  storage->remove("/apps/wipe");
+  if (!storage->mkdir("/apps/wipe")) return false;
+  if (!storage->mkdir("/apps/wipe/res")) return false;
+  if (!copy_a_host_file(storage, "apps/wipe/wipe.lua", "/apps/wipe/wipe.lua")) return false;
+  if (!copy_a_host_file(storage, "apps/wipe/manifest.json", "/apps/wipe/manifest.json")) return false;
+  return copy_a_host_file(storage, "apps/wipe/res/icon.png", "/apps/wipe/res/icon.png");
+}
+
+// **How many entries a volume has**: the format of the card is proved by the card being empty, and the card is a
+// volume of folders the case wrote itself (docs/70).
+class CountingSink : public hal::ListSink {
+ public:
+  bool on_entry(const hal::ListEntry& entry) override {
+    (void)entry;
+    ++count;
+    return true;
+  }
+  int count = 0;
+};
+
+int entries_of(hal::IStorage* volume, const char* path) {
+  if (volume == nullptr) return -1;
+  CountingSink sink;
+  if (!volume->list(path, sink)) return -1;
+  return sink.count;
+}
+
+// **The page that empties the store and the card** (0.171.0): `fs.format` is the one door of the system that reaches
+// outside the ground of an app —an app cannot write `/sd` and cannot touch `/nvs`— and it is behind a warning card whose
+// default door is the safe one. What is proved here: nothing is written before the accept, the accept empties the store,
+// and the card that ends offers a restart without taking it (docs/30, docs/70, docs/90).
+void test_the_eraser_app_empties_the_store_after_the_card_is_accepted(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  // The glass and the panel of the Paper, and no card in the slot: the door of the card is the one that is closed.
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **The app that ships is the app the test runs**, with the picture of its icon (docs/85).
+  TEST_ASSERT_TRUE(install_the_eraser(storage));
+
+  // Two keys of the store, so that the erase has something to take and the count is a number and not a zero.
+  hal::IKeyValue* kv = hal::platform().nvs();
+  TEST_ASSERT_NOT_NULL(kv);
+  const uint8_t on[2] = {'o', 'n'};
+  TEST_ASSERT_TRUE(kv->set("eraser", "one", on, sizeof(on)));
+  TEST_ASSERT_TRUE(kv->set("eraser", "two", on, sizeof(on)));
+
+  // **Where the two doors are, said by the app** and not by this file (docs/30, docs/85).
+  kernel::log_echo(true);
+  pump_captured(120, g_out, sizeof(g_out), "run wipe boxes");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe nvs "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe nvs open"), g_out);
+  // **A board with an empty slot has a door that is closed** and a button that the dial walks past: the page says which
+  // of the two it is, and the test reads it from there.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe sd closed"), g_out);
+
+  int nvs_x = 0, nvs_y = 0, nvs_w = 0, nvs_h = 0;
+  const char* nvs_line = strstr(g_out, "wipe nvs ");
+  TEST_ASSERT_NOT_NULL(nvs_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(nvs_line, "wipe nvs %d %d %d %d", &nvs_x, &nvs_y, &nvs_w, &nvs_h), nvs_line);
+  TEST_ASSERT_TRUE_MESSAGE(nvs_w > 0 && nvs_h > 0, nvs_line);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  // **A finger on the door of the store opens the warning, and nothing is written yet**: the warning is the system's
+  // card and the keys are still there until the accept.
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(nvs_x + nvs_w / 2, nvs_y + nvs_h / 2));
+  capture_end(g_out, sizeof(g_out));
+  char value[8] = {0};
+  size_t len = 0;
+  TEST_ASSERT_TRUE_MESSAGE(kv->get("eraser", "one", value, sizeof(value), len), "the key went with no accept");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the page died on the warning");
+
+  // **The dial starts on the safe door and has to be walked to the other one**: one step forward and the centre, and
+  // the store is empty.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  // **The count is the page's and not this case's**: the store of the suite has whatever the cases before it left, so the
+  // number is read and what is proved is that it took the two keys of this one with it.
+  int erased = 0;
+  const char* erased_line = strstr(g_out, "wipe: nvs erased ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(erased_line, g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(erased_line, "wipe: nvs erased %d", &erased), erased_line);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(2, erased, erased_line);
+  TEST_ASSERT_FALSE_MESSAGE(kv->get("eraser", "one", value, sizeof(value), len), "the key is still in the store");
+  TEST_ASSERT_FALSE_MESSAGE(kv->get("eraser", "two", value, sizeof(value), len), "the key is still in the store");
+
+  // **The card that ends says so and offers a restart that the person may refuse**: the dial is on `Restart` and one
+  // step back is `Not now`, which closes the card and leaves the app where it was —a restart in the middle of a test
+  // would end the board for every case after it— (docs/30).
+  capture_begin();
+  emu::press_key(1, true);
+  pump_turns(20);
+  emu::press_key(1, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the app went with the card of the end");
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "wipe: nvs erased"), "the erase ran twice");
+
+  // And the page is closable: three taps of the centre take it away, which is the rule of every app (docs/30).
+  for (int i = 0; i < 3 && kernel::app_running(); ++i) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived three taps of the centre");
+
+  kv->erase("eraser", "one");
+  kv->erase("eraser", "two");
+  storage->remove("/apps/wipe/res/icon.png");
+  storage->remove("/apps/wipe/wipe.lua");
+  storage->remove("/apps/wipe/manifest.json");
+  storage->remove("/apps/wipe/res");
+  storage->remove("/apps/wipe");
+}
+
+// **The card, which an app may read and never write, is emptied by the door of the format and not by a file call**
+// (0.171.0): the same page with a card in the slot has both doors open, and the accept of the card empties every file and
+// every folder on it (docs/30, docs/70).
+void test_the_eraser_app_empties_the_card_it_may_not_write(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+  TEST_ASSERT_TRUE(card->mkdir("/notes"));
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(card->open("/notes/one.txt", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_TRUE(card->write(slot, "one", 3) == 3);
+  TEST_ASSERT_TRUE(card->close(slot));
+
+  TEST_ASSERT_TRUE(install_the_eraser(storage));
+
+  kernel::log_echo(true);
+  pump_captured(120, g_out, sizeof(g_out), "run wipe boxes");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe sd open"), g_out);
+  int sd_x = 0, sd_y = 0, sd_w = 0, sd_h = 0;
+  const char* sd_line = strstr(g_out, "wipe sd ");
+  TEST_ASSERT_NOT_NULL(sd_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(sd_line, "wipe sd %d %d %d %d", &sd_x, &sd_y, &sd_w, &sd_h), sd_line);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(sd_x + sd_w / 2, sd_y + sd_h / 2));
+  capture_end(g_out, sizeof(g_out));
+  // Still whole: a warning that emptied the card when it opened would be no warning at all.
+  hal::Stat info;
+  TEST_ASSERT_TRUE_MESSAGE(card->stat("/notes/one.txt", info), "the card went with no accept");
+
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe: sd erased "), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(card->stat("/notes", info), "a folder survived the format of the card");
+  TEST_ASSERT_FALSE_MESSAGE(card->stat("/notes/one.txt", info), "a file survived the format of the card");
+  // **And the count of the page is the truth of the volume**: a card that says three and holds one is a card that lies.
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, entries_of(card, "/"), "the card of this test is not empty");
+
+  // **The door of the format is the only one**: an app still may not write the card it has just emptied (docs/70).
+  TEST_ASSERT_TRUE(add_app(storage, "cardwriter",
+                           "{\"title\":\"Writer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local ok, err = fs.write('/sd/x.txt', 'no')\n"
+                           "console.print('write ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"));
+  TEST_ASSERT_TRUE(run_captured("run cardwriter", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "write nil E_INVAL"), g_out);
+
+  // And back: the card of this case is emptied, the app and its keys go, so the next case finds a disk it knows.
+  for (int i = 0; i < 3 && kernel::app_running(); ++i) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  storage->remove("/apps/cardwriter/app.lua");
+  storage->remove("/apps/cardwriter/manifest.json");
+  storage->remove("/apps/cardwriter");
+  storage->remove("/apps/wipe/res/icon.png");
+  storage->remove("/apps/wipe/wipe.lua");
+  storage->remove("/apps/wipe/manifest.json");
+  storage->remove("/apps/wipe/res");
+  storage->remove("/apps/wipe");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -10937,6 +11194,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
+  RUN_TEST(test_the_eraser_app_empties_the_store_after_the_card_is_accepted);
+  RUN_TEST(test_the_eraser_app_empties_the_card_it_may_not_write);
   UNITY_END();
   return 0;
 }

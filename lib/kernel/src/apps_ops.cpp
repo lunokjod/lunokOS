@@ -108,6 +108,11 @@ bool lua_run(const char* id, bool back, char* why, size_t why_cap) {
   return shell::ask_run(id, back, why, why_cap);
 }
 
+// **An app that restarts the board** (0.171.0): the page of the eraser offers it when it ends, because an app that has
+// emptied the store it is running on is an app nobody wants to keep running. The reason is the app's and goes to the log
+// with its name: a restart nobody can explain is a restart a person blames on the board (docs/30, docs/50).
+bool lua_reboot(const char* reason) { return shell::reboot(reason); }
+
 }  // namespace
 
 void install_apps_ops() {
@@ -121,6 +126,7 @@ void install_apps_ops() {
   app_ops.views = &views;
   app_ops.push_view = &view_push;
   app_ops.pop_view = &view_pop;
+  app_ops.reboot = &lua_reboot;
   luabind::set_app_ops(app_ops);
 }
 

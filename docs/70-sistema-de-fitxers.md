@@ -144,14 +144,37 @@ Regles que se'n dedueixen i que són fàcils de trencar si no es diuen:
 - El que **no** és nostre no es toca: `/nvs` no esborra ni escriu res de moment, i quan ho faci serà
   només a l'espai que li demanin.
 
-**Buidar l'NVS i formatejar la targeta** (l'app que ho ha de fer és a docs/90, 9/11): cap de les dues
-coses té porta avui. L'NVS esborra **una clau** i prou (`IKeyValue::erase`; el que hi ha per recórrer
-són `next`/`next_namespace` i `stats`, que dona `used` de `total`), el muntatge `/nvs` és de només
-lectura i **no és terreny d'una app** —respon `E_INVAL`, a dalt—, i un volum **no té format**:
-`IStorage` té `stat`, `list`, `open`, `read`, `write`, `seek`, `close`, `remove`, `mkdir`, `rename` i
-`space`, o sigui que esborrar un arbre a base de `remove` és el que faria una app si el disc fos seu, i
-la targeta no ho és. Les dues portes són feina del nucli i del HAL, amb la seva prova al disc de
-l'emulador, i el reinici que l'app voldria suggerir en acabar tampoc no hi és (`sys.reboot`, docs/90).
+## Buidar l'NVS i formatar la targeta (0.171.0)
+
+**La porta és `fs.format(path)` i és l'única del sistema que arriba fora del terreny d'una app**, i és
+així a posta: buidar un volum no es fa amb `remove` des d'una app, es fa aquí, amb una porta i una
+resposta (docs/30).
+
+- **El camí ha de ser l'arrel d'un muntatge**, i es busca a la taula de muntatges i no al disc:
+  `/sd/notes` no és un volum i respon `E_INVAL`, i un camí que no és de cap muntatge també.
+- **`/nvs` es buida clau a clau**: el nucli recorre els noms (`next_namespace`, fins a 8) i les claus de
+  cadascun (fins a 48) i les esborra amb `IKeyValue::erase`. El muntatge continua essent de només
+  lectura per a una app —això no canvia—, i el que torna és quantes claus han anat.
+- **`/sd` es buida fitxer a fitxer i carpeta a carpeta** i **la targeta conserva el seu FAT**: el que
+  s'esborra és el contingut, no el sistema de fitxers, o sigui que després del format una targeta és una
+  targeta buida i no una targeta que la placa ha de tornar a muntar. A l'ESP32 el camí és POSIX
+  (`opendir`/`unlink`/`rmdir`, el FATFS que hi ha muntat al VFS) i a l'emulador és el mateix passeig
+  sobre el directori que fa de targeta; **no es crida `f_mkfs`**: reconstruir el FAT demana desmuntar i
+  tornar a muntar, i no hi ha placa per provar-ho (docs/90).
+- **Una targeta que no hi és no és un volum buit**: sense targeta al sòl, `/sd` no és a la taula i el
+  camí respon `E_INVAL` —i la pàgina de `wipe` ni tan sols obre la porta, perquè mira `fs.mounts`
+  abans de dibuixar el botó (docs/40)—.
+- **`/littlefs` respon `E_UNSUPPORTED`** i no és una feblesa: el sistema hi viu i una porta que
+  s'emporta el programa que la crida no s'obre des d'una app. El backend que no sap buidar un volum (
+  `IStorage::format` té una resposta per defecte) també respon `E_UNSUPPORTED`, que és la diferència
+  entre «no hi ha res per esborrar» i «aquí no es pot».
+- **I el reinici que la pàgina suggereix és `sys.reboot([reason])`** (docs/30): el mateix `reboot` del
+  prompt, amb la imatge del moment al vidre i la tinta esperada. El que el magatzem tenia es llegeix a
+  l'arrencada, i per això un magatzem buit és una veritat del proper boot i no d'aquest.
+
+Les dues portes tenen la seva prova al disc de l'emulador i a la pàgina de `wipe`: el cas de `test_disk`
+mesura el que paga un format, `test_luabind` la resposta de la porta i `test_apps` la pàgina sencera amb
+una targeta i sense (docs/85).
 
 ## Resolució de camins
 
@@ -728,13 +751,13 @@ deixa passar totes (docs/85).
 littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
 fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
-`apps/` són les **nou** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell`,
-`timeclock` i `tz`— i **42 fitxers i 331 536 B**, i el `data/` del sistema **19 fitxers i 1 688 651 B** —el que el
+`apps/` són les **deu** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell`,
+`timeclock`, `tz` i `wipe`— i **46 fitxers i 357 820 B**, i el `data/` del sistema **19 fitxers i 1 688 651 B** —el que el
 repositori porta: `data/data/` és l'estat d'una app i no és al git—, dels quals **1 558 434 B són els tres
 bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un; la carpeta
 sencera en fa 1 595 456). **La mida del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va
-escriure *`build/disk/emulator is 2024449 B in 64 files, 9 apps, linked to apps/`* i *`build/disk/m5-paper is
-2020187 B in 61 files, 9 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
+escriure *`build/disk/emulator is 2050733 B in 68 files, 10 apps, linked to apps/`* i *`build/disk/m5-paper is
+2046471 B in 65 files, 10 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
 `partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 688 651 B en 19 fitxers sense cap app**, o
 sigui que `pio run -e m5-atom -t buildfs` **s'atura amb `this disk does not fit`** mentre els tres bitmaps de
 splash siguin a `data/` (mesurat el 9/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
@@ -778,10 +801,10 @@ pio run -e m5-paper -t uploadfs    # i la puja
   fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
   disc que munta.
 - **El que hi ha avui, mesurat el 9/11**: el sistema sol són **19 fitxers i 1 688 651 B**; `apps/` sencer són
-  **42 fitxers i 331 536 B**; les **nou** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
-  `home_eink`, `shell`, `luaperf` i `tz`— són totes les que hi ha, o sigui que la Paper, que és l'única placa que en porta,
-  fa **61 fitxers i 2 020 187 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
-  execucions, **64 fitxers i 2 024 449 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
+  **46 fitxers i 357 820 B**; les **deu** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
+  `home_eink`, `shell`, `luaperf`, `tz` i `wipe`— són totes les que hi ha, o sigui que la Paper, que és l'única placa que en porta,
+  fa **65 fitxers i 2 046 471 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
+  execucions, **68 fitxers i 2 050 733 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
   **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 9/11, i el que fa créixer el
   sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 688 651, i la carpeta sencera
   1 595 456.

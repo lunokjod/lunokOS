@@ -4475,8 +4475,11 @@ bool dialog_draw(int16_t slot, const char* title, const char* text, const char* 
               static_cast<uint8_t>(scale + 1), text_level, mode);
     y += ((face.height != 0) ? face.height : font::kGlyphHeight) * (scale + 1) + 8;
   }
-  // **The message wraps** in what is left above the doors, and a note goes under it in the dim colour.
-  const int32_t room = doors.y - y - (doors.pad / 2);
+  // **The message wraps** in what is left above the doors, and a note goes under it in the dim colour. **The room is
+  // measured inside the card and not on the page** (0.171.0): `y` carries the place of the card in the view and
+  // `doors.y` is a row of the card, so a card that is not at the top of the page used to have no room at all and its
+  // message was never drawn (found on the emulator with the card of the eraser, 9/11).
+  const int32_t room = doors.y - (y - target.y) - (doors.pad / 2);
   const int32_t max_lines = (line_h > 0) ? (room / line_h) : 0;
   if (text != nullptr && text[0] != '\0' && max_lines > 0) {
     static char lines[512];
@@ -4489,7 +4492,7 @@ bool dialog_draw(int16_t slot, const char* title, const char* text, const char* 
       one += strlen(one) + 1;
     }
   }
-  if (note != nullptr && note[0] != '\0' && y + line_h <= doors.y - 2) {
+  if (note != nullptr && note[0] != '\0' && (y - target.y) + line_h <= doors.y - 2) {
     const uint16_t taken = label_text(card.face, note, static_cast<uint16_t>(width - 2 * doors.pad),
                                       static_cast<uint8_t>((scale > 1) ? scale - 1 : 1), shown,
                                       sizeof(shown));

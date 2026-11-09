@@ -223,7 +223,24 @@ int32_t fake_module_source(const char* name, char* buf, uint32_t cap, luabind::F
   return static_cast<int32_t>(len);
 }
 
-void install_fake_fs(bool with_mounts = false) {
+// **Emptying a volume is one answer and not a walk the app does** (0.171.0, docs/70): the fake says how many things
+// went and which path it was given, so the bridge is measured and not the file system.
+char g_format_path[64];
+uint32_t g_format_removed = 0;
+bool g_format_ok = true;
+luabind::FsError g_format_error = luabind::FsError::kInval;
+
+bool fake_format(const char* path, uint32_t& removed, luabind::FsError& err) {
+  snprintf(g_format_path, sizeof(g_format_path), "%s", path);
+  if (!g_format_ok) {
+    err = g_format_error;
+    return false;
+  }
+  removed = g_format_removed;
+  return true;
+}
+
+void install_fake_fs(bool with_mounts = false, bool with_format = false) {
   luabind::FileOps ops = {};
   ops.read_at = &fake_read_at;
   ops.size = &fake_size;
@@ -234,11 +251,16 @@ void install_fake_fs(bool with_mounts = false) {
     ops.mounts = &fake_mounts;
     ops.space = &fake_space;
   }
+  if (with_format) ops.format = &fake_format;
   luabind::set_file_ops(ops);
   g_read_calls = 0;
   g_biggest_read = 0;
   g_part_source = nullptr;
   g_part_asked = 0;
+  g_format_path[0] = '\0';
+  g_format_removed = 0;
+  g_format_ok = true;
+  g_format_error = luabind::FsError::kInval;
 }
 
 }  // namespace
@@ -410,6 +432,44 @@ void test_fs_mounts_without_a_file_system_says_unsupported(void) {
                        "local s, err2 = fs.space('/')\n"
                        "assert(s == nil)\n"
                        "assert(err2.code == 'E_UNSUPPORTED', tostring(err2 and err2.code))"));
+  luabind::stop();
+}
+
+// **`fs.format` answers how many things went, or the word of why not** (0.171.0, docs/30, docs/70): the path goes
+// through unchanged —the volume is the kernel's to find and not the app's to name— and a backend that cannot empty a
+// volume is `E_UNSUPPORTED` and not a silent `true`.
+void test_fs_format_answers_how_many_went_or_the_word_of_why_not(void) {
+  pal::init();
+  install_fake_fs(true, true);
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  g_format_removed = 7;
+  TEST_ASSERT_TRUE(run("local r = fs.format('/nvs')\n"
+                       "assert(r ~= nil)\n"
+                       "assert(r.erased == 7, tostring(r and r.erased))"));
+  TEST_ASSERT_EQUAL_STRING("/nvs", g_format_path);
+  // A volume that is not there and one that cannot be emptied are two answers, and the two are the backend's.
+  g_format_ok = false;
+  g_format_error = luabind::FsError::kInval;
+  TEST_ASSERT_TRUE(run("local r, err = fs.format('/sd/notes')\n"
+                       "assert(r == nil)\n"
+                       "assert(err.code == 'E_INVAL', tostring(err and err.code))\n"
+                       "assert(err.message ~= nil and #err.message > 0)"));
+  g_format_error = luabind::FsError::kUnsupported;
+  TEST_ASSERT_TRUE(run("local r, err = fs.format('/littlefs')\n"
+                       "assert(r == nil)\n"
+                       "assert(err.code == 'E_UNSUPPORTED', tostring(err and err.code))"));
+  luabind::stop();
+}
+
+// **A board whose file system has no door for it says so**: the call is not gone —an app asks and gets a word— and it
+// is the same one a mount that cannot be emptied gives (docs/30).
+void test_fs_format_without_a_door_says_unsupported(void) {
+  pal::init();
+  install_fake_fs(true);
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(run("local r, err = fs.format('/nvs')\n"
+                       "assert(r == nil)\n"
+                       "assert(err.code == 'E_UNSUPPORTED', tostring(err and err.code))"));
   luabind::stop();
 }
 
@@ -989,6 +1049,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_net_connect_waits_for_the_kernel_to_say_so);
   RUN_TEST(test_fs_mounts_and_space_answer_without_guessing);
   RUN_TEST(test_fs_mounts_without_a_file_system_says_unsupported);
+  RUN_TEST(test_fs_format_answers_how_many_went_or_the_word_of_why_not);
+  RUN_TEST(test_fs_format_without_a_door_says_unsupported);
   RUN_TEST(test_fs_read_uses_a_window_of_512_bytes);
   RUN_TEST(test_fs_read_without_a_bound_reads_the_whole_file);
   RUN_TEST(test_fs_read_at_and_a_missing_file);
