@@ -175,7 +175,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **551 proves natives** (`pio test -e test`), i **cap de vermella** (0.170.0): les dotze de la 0.169.0 eren quatre
+- les **552 proves natives** (`pio test -e test`), i **cap de vermella** (0.170.1): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,

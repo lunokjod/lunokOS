@@ -252,6 +252,10 @@ La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llist
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app
 que la placa porta (el `custom_apps` de `platformio.ini`) desapareix, el cas es posa vermell i diu quin id falta.
 
+**I tota app que es porti porta icona** (0.170.1, la norma de docs/40): el manifest declara `icon`, el PNG surt del
+seu `icon-source.png` amb `tools/make_icon.py` i la prova `test_every_app_of_the_repository_carries_an_icon` no deixa
+entrar una carpeta sense el dibuix. Una app portada a mitges es veu de seguida: la seva cel·la és una lletra.
+
 **Una conseqüència que es tanca sola**: aquest document, `docs/40`, `docs/50` i `docs/90` nomenen apps de la
 llista d'abans (per exemple `clock`, `battery` o `checkbox`) com a exemples. Cada nom torna a ser cert quan la
 seva app es porta; el que no es fa és inventar-se l'app perquè el text quedi bé.

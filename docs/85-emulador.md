@@ -821,7 +821,9 @@ on era es movia només a l'altra memòria, i si el veí estava ocupat l'emulador
 megabytes lliures (docs/75, la secció del heap de l'emulador). Ara pot anar a qualsevol taca de la seva.
 
 **Les nou apps del disc són les que es veuen a l'emulador i al vidre, i són les mateixes**: el que es veu a
-un costat i a l'altre és la mateixa pàgina, i els números s'hi poden comparar. Les apps de demostració que
+un costat i a l'altre és la mateixa pàgina, i els números s'hi poden comparar. **I totes nou porten icona** (0.170.1,
+la norma de docs/40): la graella dibuixa el PNG de cada app, i la lletra en una caixa que es veu un instant mentre
+arriba la imatge no és la icona de ningú. Les apps de demostració que
 provaven cada control una per una ja no hi són —el que queda és el que una persona fa servir— i el que
 provava cadascuna ho diuen les taules de docs/50 i docs/92.
 

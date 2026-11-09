@@ -5037,7 +5037,23 @@ namespace kernel {
 //   - **and the numbers**: `apps/` is **42 files and 331 536 B**, `build/disk/m5-paper` **61 files and 2 020 187 B**,
 //     `build/disk/emulator` **64 files and 2 024 449 B**, and the ATOM's firmware **2 268 577 B** of flash and
 //     **122 736 B** of RAM (README, docs/70, docs/80, docs/85).
-static const char kVersion[] = "0.170.0";
+//
+// 0.170.1 (9/11): **totes les apps porten icona, i és una norma i no un costum**. The owner: *«fes una norma, totes les
+// apps han de tenir icona»*.
+//
+//   - **the rule**: an app of this project declares `icon` in its manifest and the picture is beside it —a PNG of 94 x 94
+//     made with `tools/make_icon.py` from `res/icon-source.png`, or from the shared lunokhod when the app is one of the
+//     ones that exist to measure the system— because the launcher draws that file in every cell of its grid, and an app
+//     without one is a cell with the first letter of its name in a box: `home: <id> has no picture` (docs/40);
+//   - **the rule is checked where it is cheap**: `test_every_app_of_the_repository_carries_an_icon` walks `apps/` with
+//     the disk of the PC and, for every `manifest.json`, asks for the field, that the path stays inside the app's folder,
+//     and that the file exists with the eight bytes of a PNG and something after them. A new app without a picture turns
+//     the suite red the day it is created, which is the day it costs nothing to fix; a case that only walked the folder
+//     and found it empty would pass without checking anything, and says so instead (docs/40, docs/80);
+//   - **and the kernel keeps the field optional**, which is a different thing: an app from outside may arrive without a
+//     picture and its cell shows the letter, and what it lacks is the drawing and not the permission. The rule is this
+//     project's, and `docs/40`, `docs/45` (what a ported app carries) and `docs/85` (the nine apps of the disk) say so.
+static const char kVersion[] = "0.170.1";
 
 }  // namespace kernel
 

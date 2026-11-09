@@ -15,7 +15,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **551 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **552 proves natives**
 > en **24 suites**, totes verdes.
 > A l'ATOM (9/11): **2 268 577 B** de flash (86,5 % de la partició d'aplicació, 2 621 440 B) i **122 736 B**
 > de RAM estàtica (37,5 % de 327 680 B).
@@ -49,6 +49,10 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > baixa una **pàgina amb TLS** (el paquet d'autoritats del build, cap certificat al repositori) i
 > torna una promesa amb `{status, body, bytes}`. La NVS es
 > pot mirar en **lectura** com un directori (`ls /nvs`).
+>
+> **Totes les apps porten icona** (0.170.1): el manifest la declara, el PNG és a `res/` i el llançador el dibuixa a la
+> cel·la; una app sense icona és una cel·la amb una lletra, i la suite ho posa en vermell el dia que es crea
+> (`test_every_app_of_the_repository_carries_an_icon`, docs/40).
 >
 > **La pàgina sap ensenyar imatges.** `ui.image(x, y, path[, w, h[, mode[, mask]]])` dibuixa un fitxer del disc a la
 > vista de l'app i `ui.image_info(path)` en diu la família i la mida sense dibuixar-lo: **PNG, JPEG,

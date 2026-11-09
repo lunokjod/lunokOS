@@ -148,7 +148,7 @@ El que el codi llegeix avui, amb la mida que hi cap:
 | `description` | cadena | No | 159 B | Què és l'app; dues línies amb `\n` si cal (0.120.0) |
 | `opens` | cadena | No | 8 extensions d'11 B | Les extensions que aquesta app sap obrir, separades per espais (0.120.0) |
 | `opensArgs` | cadena | No | 31 B | Els commutadors que l'app vol quan li donen un fitxer; comença per `-` (0.120.0) |
-| `icon` | cadena | No | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30) |
+| `icon` | cadena | **Sí** (0.170.1) | 47 B | La imatge de l'app per a un llistat, relativa al directori de l'app (0.120.0). **Des de la 0.153.0 es pinta**: el llançador `home_eink` la posa a la seva graella amb `apps.list()` i `canvas:image` (docs/30). **Tota app d'aquest projecte en porta una** —vegeu la norma de sota— |
 | `splash` | cadena | No | 47 B | La imatge que el sistema pinta abans d'arrencar l'app, relativa al directori de l'app |
 | `launcher` | booleà | No | — | **L'app és un llançador** (0.153.0): `true` vol dir que la graella d'un altre llançador no la llista. Continua sent una app —`apps` la mostra, `run` l'arrenca i obre el que sap obrir—, i el sistema no ho endevina pel títol ni per l'id: ho diu l'app. Un valor que no és `true` ni `false` es deixa fora amb una línia del registre i no s'endevina. **Des de la 0.163.0 també és la pàgina que un pessic no tanca**: el gest de tancar és del sistema i ho pregunta aquí, perquè una placa que es quedés sense cap pàgina s'hauria d'anar a buscar amb un cable (docs/30) |
 
@@ -496,6 +496,24 @@ per mesurar o per provar el sistema el porta perquè es vegi d'un cop d'ull quin
 —l'editor, el lector, la calculadora, la de la zona horària (`tz`, que ja hi és) i les que vindran— dibuixa la seva,
 amb el seu `res/icon-source.png` i la recepta de dalt. El que no pot passar és que una app de prova
 s'amagui darrere una icona que sembla d'una app normal.
+
+### La norma: **totes les apps porten icona** (0.170.1)
+
+L'amo: *«fes una norma, totes les apps han de tenir icona»*. Una app d'aquest projecte **declara `icon` i el fitxer hi
+és**: el manifest el nomena, el dibuix és a `res/` i és un **PNG** amb alguna cosa a dins. No és un consell i no és
+decoració: el llançador dibuixa la imatge de cada cel·la, i una app sense icona és una cel·la amb la primera lletra
+del nom en una caixa —el llançador ho diu, `home: <id> has no picture`—, o sigui una app que sembla inacabada al
+costat de les altres.
+
+- **Qui ho comprova**: la prova `test_every_app_of_the_repository_carries_an_icon` (`test/test_apps`), que passeja
+  `apps/` amb el disc del PC i, per a cada `manifest.json`, exigeix el camp, que el camí quedi dins de la carpeta de
+  l'app i que el fitxer existeixi amb la signatura d'un PNG i més de dos-cents bytes. Una app nova sense icona posa la
+  suite en vermell el mateix dia que es crea, que és quan és barat arreglar-ho.
+- **La icona és una imatge i no un dibuix a mà**: `tools/make_icon.py` baixa el mestre (`res/icon-source.png`, o el
+  lunokhod compartit de les apps de prova) a un PNG de 94 × 94, que és la mida que el llançador li dona.
+- **El nucli no refusa un manifest sense `icon`**: el camp és opcional per al sistema —una app de fora pot no dur-ne i
+  la seva cel·la ensenya la lletra— i la norma és del projecte. El dia que una app de fora vulgui entrar aquí, el que
+  li falta és el dibuix, no el permís (docs/30, docs/85).
 
 ## Instal·lació
 

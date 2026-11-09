@@ -5272,6 +5272,63 @@ void test_every_app_of_the_repository_declares_its_boards(void) {
   }
 }
 
+// **Every app of this repository carries a picture** (0.170.1, the owner: *«totes les apps han de tenir icona»*): the
+// manifest says it and the file is beside it, because a launcher that has to write the first letter of a name in a box
+// is a launcher saying that the app has no picture — and the rule is a rule of this project, so the suite is where it
+// is checked and not a document nobody opens (docs/40, docs/85).
+void test_every_app_of_the_repository_carries_an_icon(void) {
+  static const char* const kParents[] = {"", "../", "../../", "../../../"};
+  static char text[1024];
+  bool found_the_folder = false;
+  uint32_t seen = 0;
+  for (size_t p = 0; p < sizeof(kParents) / sizeof(kParents[0]); ++p) {
+    char dir_path[256];
+    snprintf(dir_path, sizeof(dir_path), "%sapps", kParents[p]);
+    DIR* dir = opendir(dir_path);
+    if (dir == nullptr) continue;
+    found_the_folder = true;
+    struct dirent* item = nullptr;
+    while ((item = readdir(dir)) != nullptr) {
+      if (item->d_name[0] == '.') continue;
+      char manifest[560];
+      snprintf(manifest, sizeof(manifest), "%s/%s/manifest.json", dir_path, item->d_name);
+      FILE* file = fopen(manifest, "rb");
+      if (file == nullptr) continue;
+      const size_t got = fread(text, 1, sizeof(text) - 1, file);
+      fclose(file);
+      text[got] = '\0';
+
+      char icon[64] = {0};
+      TEST_ASSERT_TRUE_MESSAGE(lunok::json::get_string(text, got, "icon", icon, sizeof(icon)), item->d_name);
+      // **Inside its own folder and with a picture in it**: `..` and a leading `/` are what the kernel refuses, and a
+      // name with no file behind it is an app that says it has a picture and does not (docs/40).
+      TEST_ASSERT_TRUE_MESSAGE(icon[0] != '\0' && icon[0] != '/', item->d_name);
+      TEST_ASSERT_NULL_MESSAGE(strstr(icon, ".."), item->d_name);
+
+      char picture[640];
+      snprintf(picture, sizeof(picture), "%s/%s/%s", dir_path, item->d_name, icon);
+      FILE* art = fopen(picture, "rb");
+      TEST_ASSERT_NOT_NULL_MESSAGE(art, picture);
+      unsigned char head[8] = {0};
+      const size_t head_got = fread(head, 1, sizeof(head), art);
+      fseek(art, 0, SEEK_END);
+      const long size = ftell(art);
+      fclose(art);
+      // **A PNG and not an empty file**: eight bytes of signature and something after them, which is the format the
+      // recipe of `tools/make_icon.py` writes for every app (docs/40).
+      TEST_ASSERT_EQUAL_INT_MESSAGE(8, static_cast<int>(head_got), picture);
+      static const unsigned char kPng[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+      TEST_ASSERT_EQUAL_MEMORY_MESSAGE(kPng, head, sizeof(kPng), picture);
+      TEST_ASSERT_GREATER_THAN_MESSAGE(200, size, picture);
+      ++seen;
+    }
+    closedir(dir);
+    break;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found_the_folder, "the apps of the repository were not found");
+  TEST_ASSERT_TRUE_MESSAGE(seen > 0, "the folder of the apps of the repository is empty");
+}
+
 // The store answers how full it is in **entries**, which is the number that says whether the
 // next alarm fits: the NVS is not bytes. On the PC there is no ceiling —a key is a file— and
 // the total says so by being zero (docs/70).
@@ -10795,6 +10852,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
+  RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
