@@ -215,13 +215,13 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
   **El que hi ha avui, mesurat el 9/11**: `apps/` són **37 fitxers i 300 697 B**, i el `data/` del sistema
-  **20 fitxers i 1 688 656 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 9/11 va
+  **19 fitxers i 1 688 651 B** (el que el repositori porta; `data/data/` és estat d'una app i no és al git). **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 9/11 va
   escriure *`build/disk/emulator is 1993610 B in 59 files, 8 apps, linked to apps/`* i *`build/disk/m5-paper is
   1989348 B in 56 files, 8 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
   12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 688 651 B en
   19 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
-  tres bitmaps de splash (`data/res/splash`, 1 595 456 B) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
-  dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 35) i s'ha retirat: el que queda
+  tres bitmaps de splash (`data/res/splash`, 1 558 434 B dels tres i 1 595 456 B la carpeta) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
+  dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 37 el 9/11) i s'ha retirat: el que queda
   d'aquella mesura és el guard, que és cert, i no els números. La raó per la qual cap placa no en porta no és
   la mida sinó la decisió de l'amo i el fet que una imatge amb apps es queda vella (docs/70).
 

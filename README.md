@@ -17,7 +17,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
 > que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **548 proves natives**
 > en **24 suites**, totes verdes.
-> A l'ATOM (9/11): **2 265 753 B** de flash (86,4 % de la partició d'aplicació, 2 621 440 B) i **122 704 B**
+> A l'ATOM (9/11): **2 265 873 B** de flash (86,4 % de la partició d'aplicació, 2 621 440 B) i **122 704 B**
 > de RAM estàtica (37,4 % de 327 680 B).
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
@@ -50,7 +50,7 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > torna una promesa amb `{status, body, bytes}`. La NVS es
 > pot mirar en **lectura** com un directori (`ls /nvs`).
 >
-> **La pàgina sap ensenyar imatges.** `ui.image(x, y, path[, w, h])` dibuixa un fitxer del disc a la
+> **La pàgina sap ensenyar imatges.** `ui.image(x, y, path[, w, h[, mode[, mask]]])` dibuixa un fitxer del disc a la
 > vista de l'app i `ui.image_info(path)` en diu la família i la mida sense dibuixar-lo: **PNG, JPEG,
 > BMP, GIF, ICO** i els netpbm **PBM/PGM/PPM**, tots amb el mateix codi que compila per a la placa. El
 > color cau a les setze tintes amb la seva lluminància i un **dither ordenat** —un degradat es veu com un

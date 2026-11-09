@@ -25,7 +25,7 @@ que no té un dispositiu torna `nullptr` i la seva capacitat és `false`.
 | `IInput` | les tecles: quantes n'hi ha, si una és premuda i quant fa | ✓ (1) | ✓ (1) | ✓ (3) | — (cap tecla; el botó és RST) | ✓ (les del model) |
 | `IImu` | acceleració, gir i temperatura del xip inercial | — | ✓ | — | — | de mentida |
 | `ISensor` | l'aire: temperatura i humitat relatives | — | — | ✓ (**SHT30**, a la I2C interna; es mesura quan es demana i no té estat) | — | de mentida (el model del Paper) |
-| `IDisplay` | la pantalla | — | — | **pendent** (e-ink IT8951E) | — | — |
+| `ISurface` (sobre un `IDisplay` buit) | la pantalla: la mida, els modes de pintat i l'espera de la tinta | — | — | ✓ (e-ink **IT8951E**, amb `init`, `du`, `gc16`, `gl16`, `glr16`, `gld16`, `du4` i `a2` i la línia `engine flag` del log) | — | ✓ (el vidre del model, amb `--display` i la finestra amb `--gui`, docs/85) |
 
 El contracte sencer, amb totes les funcions i els comentaris que les expliquen, és a
 `lib/hal/include/hal/hal.h`. **Quan aquest document i el capçalari no diguin el mateix, mana el
@@ -51,7 +51,7 @@ class IPlatform {
   virtual IKeyValue* nvs() = 0;
   virtual INet* net() = 0;
   virtual IPower* power() = 0;
-  virtual IDisplay* display() = 0;   // nullptr en aquesta versió
+  virtual ISurface* display() = 0;   // nullptr a les plaques sense vidre (els ATOM i el T-Koala)
   virtual ILed* led() = 0;
   virtual IInput* input() = 0;
   virtual IImu* imu() = 0;

@@ -665,8 +665,9 @@ tarja amb un bloc dolent dona exactament això).
 `mimetype` stored i un capítol deflated amb un stream que ha fet el zlib de debò—, un comentari amb una firma a
 dins, i cada refús amb el seu fitxer pedaçat on viu el número.
 
-**El que encara no hi és**: la **capa d'epub** a sobre del zip (l'XHTML, el paginador i el llibre obert),
-que és la feina que el pla de [docs/46](46-epub-el-motor-i-el-port.md) té repartida en fases.
+**La capa d'epub ja hi és** (0.120.0 i enllà): `lib/epub` és el zip, l'OPF, el XHTML i el paginador, i el
+llibre obert és el que llegeix el lector cada dia —el pla i el que queda de cada fase són a
+[docs/46](46-epub-el-motor-i-el-port.md)—.
 
 ## Errors típics
 
@@ -713,9 +714,10 @@ littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
 fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
 `apps/` són les **vuit** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell` i
-`timeclock`— i **37 fitxers i 300 697 B**, i el `data/` del sistema **20 fitxers i 1 688 656 B**, dels quals
-**1 595 456 B són tres bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B
-cada un). **La mida del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va
+`timeclock`— i **37 fitxers i 300 697 B**, i el `data/` del sistema **19 fitxers i 1 688 651 B** —el que el
+repositori porta: `data/data/` és l'estat d'una app i no és al git—, dels quals **1 558 434 B són els tres
+bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un; la carpeta
+sencera en fa 1 595 456). **La mida del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va
 escriure *`build/disk/emulator is 1993610 B in 59 files, 8 apps, linked to apps/`* i *`build/disk/m5-paper is
 1989348 B in 56 files, 8 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
 `partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 688 651 B en 19 fitxers sense cap app**, o
@@ -766,7 +768,8 @@ pio run -e m5-paper -t uploadfs    # i la puja
   fa **56 fitxers i 1 989 348 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
   execucions, **59 fitxers i 1 993 610 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
   **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 9/11, i el que fa créixer el
-  sistema són els tres bitmaps de splash (`data/res/splash`): **1 595 456 B** dels 1 688 651.
+  sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 688 651, i la carpeta sencera
+  1 595 456.
 - **Quantes hi caben**: la partició de les quatre plaques de 4 MB (`partitions.csv`, `0x160000`) és de **1 441 792 B**
   i la de la Paper (`partitions_16mb.csv`, `0xBE0000`) de **12 451 840 B**; els dos números són de la taula i no d'una
   mesura. **Si una càrrega hi cap ho diu el build** i no aquest document, amb la línia de `check_it_fits` (a sota).

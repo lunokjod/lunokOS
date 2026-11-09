@@ -104,7 +104,7 @@ Cada app s'executa amb un `_ENV` propi:
 
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
-| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: 65 536 B al sostre per defecte i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
+| **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: si la placa no en diu cap, **131 072 B** —els 128 KB de `kDefaultHeapBytes`, `lib/kernel/src/shell.cpp`— i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
 | **Instruccions** | `lua_sethook` amb comptador: **100 000 per torn**, en blocs de 2 000 | En esgotar-se, la tasca fa `lua_yield` i torna al nucli; **no es mata**. Un `while true do end` corre a trossos i la placa no es penja; `!!exit`/3 ESC la tanquen (docs/75) |
 | **Temps de torn** | El comptador talla el torn: una app que cedeix torna al nucli a cada espera, i una que no cedeix hi torna igualment quan el comptador s'esgota | Es torna a la cua de tasques |
 
@@ -156,8 +156,8 @@ suite. El `--seed` de l'emulador **es llegeix i no fa res encara**; quan ho faci
 - Tota crida a Lua passa per `lua_pcall` amb un gestor de missatges que afegeix el `traceback`.
 - Els errors del nucli són taules `{ code = "E_...", message = "..." }`; els errors del codi de
   l'app són el que llança l'app (normalment una cadena).
-- Quan una app mor per un error, la consola rep el missatge i les primeres línies del traceback. No
-  hi ha pantalla d'error perquè no hi ha pantalla.
+- Quan una app mor per un error, la consola rep el missatge i les primeres línies del traceback. **No
+  hi ha pàgina d'error**: la consola és l'única que ho diu, també a la placa amb vidre (docs/30).
 - Un error dins d'una finestra d'alarma **no** mata res més: es registra, es tanca la finestra i el
   primer pla continua.
 

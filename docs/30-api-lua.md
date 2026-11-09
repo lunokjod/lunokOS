@@ -54,9 +54,11 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
   **`imu`** (el sensor del Matrix) i **`button`** (el botó, i el hook `on_button`).
 
 **Encara no hi és**, i una app que ho cridi peta amb «attempt to call a nil value»: `sys.reboot()`,
-`console.flush()`, `console.read()`, `console.read_byte()`, `console.on_data()`, `time.utc`/`local`/
-`format`/`parse`/`set`/`tz`/`sync`, `Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`,
-`net.softap`, `power.off`, i els mòduls `store` i `log`. Les taules d'aquest document ho marquen amb
+`console.flush()`, `console.read()`, `console.on_data()`, `time.format`/`parse`/`set`/`sync`,
+`Promise.all`/`race`, `app.spawn`/`raise`/`save`/`restore`, `net.softap`, `power.off`, i els mòduls
+`store` i `log`. (`console.read_byte`, `time.utc` i `time.tz` hi són des de la 0.125.0 i ja no són en
+aquesta llista; `time.local` no hi serà mai, perquè `local` és una paraula de Lua i la crida es diu
+`time.date`.) Les taules d'aquest document ho marquen amb
 ⏳, i el que queda fitat és a `docs/90`.
 
 `term.width()` i `term.height()` tornen **80 i 24**, que és el valor per defecte del contracte: el
@@ -1030,7 +1032,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.text(x, y, text, [scale], [level], [mode])` | `true` o `nil, error` | Un text amb la cara del canvas i, si no en té, amb la font del sistema, `scale` vegades la seva mida (1 a 16) |
 | `ui.text_width(text, [scale])` | píxels | Quant fa de llarg el text amb la cara del sistema: el que centra un text en una caixa d'amplada fixa |
 | `ui.line_height([scale])` | píxels | **L'alçada d'una línia** amb la cara del sistema (0.121.0). `ui.text` posa **el cim** de la línia a `y`, o sigui que un text centrat en una caixa és `y + (alçada − ui.line_height(scale)) / 2`. És l'altra meitat de `ui.text_width` i **no se suposa**, perquè les dues cares del sistema no fan la mateixa línia: la d'outlines del disc en fa onze píxels de línia per pas i la taula de cinc per set del flash en fa set (docs/92) |
-| `ui.image(x, y, path, [w], [h], [mode])` | `true` o `nil, error` | **Una imatge d'un fitxer**: sense `w` ni `h` es dibuixa a la mida del fitxer; amb una mida, s'escala al més proper |
+| `ui.image(x, y, path, [w], [h], [mode], [mask])` | `true` o `nil, error` | **Una imatge d'un fitxer**: sense `w` ni `h` es dibuixa a la mida del fitxer; amb una mida, s'escala al més proper. **`mask`** (0.169.0, el setè) deixa els píxels que el PNG diu transparents tal com eren a sota en lloc de pintar-hi el blanc de l'alfa |
 | `ui.image_info(path)` | `{format, width, height}` o `nil, error` | El que diu la capçalera del fitxer, **sense dibuixar-lo** |
 | `ui.load_font(path)` | `font` o `nil, error` | **Una cara d'un fitxer**: del seu `res/` (`/res/x.lfont`, `.bdf`, `.pcf` o `.ttf`) o de la carpeta de cares del disc (`/fonts/dejavusans.ttf`, vegeu més avall, docs/70); el bloc de glifs és de l'app i compta al seu pressupost, i un `.ttf` és el fitxer sencer |
 | `ui.font(font)` · `cv:font(font)` | `true` o `nil, error` | La cara de la vista i la d'un canvas; `nil` torna a la del sistema |
@@ -1265,7 +1267,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 | `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
 | `cv:resize(w, h)` | `true` o `nil, error` | **Una altra mida** per a un control que no té píxels propis (un panel, una etiqueta, una caixa de text): la mesura del grup; el que la necessita és un `on_resize` que torna a col·locar la pàgina (0.84.0). Un canvas **amb buffer** la refusa: els seus píxels són un bloc demanat amb una mida, i una altra mida és un altre canvas |
 | `cv:rect`, `cv:frame`, `cv:line`, `cv:circle`, `cv:disc`, `cv:text` | `true` o `nil, error` | Les mateixes primitives que la vista, dibuixades al canvas propi |
-| `cv:image(x, y, path[, w[, h[, mode]]])` | `true` o `nil, error` | **Una imatge d'un fitxer, dins d'aquest canvas** (0.153.0): és el que fa servir el llançador per posar la icona d'una app dins la cel·la de la graella, i és `ui.image` amb el canvas propi com a destí i no la pàgina. El camí és el que una app pot llegir (docs/70), i `/apps/<id>/res/icon.png` ho és: un manifest és públic |
+| `cv:image(x, y, path[, w[, h[, mode[, mask]]]])` | `true` o `nil, error` | **Una imatge d'un fitxer, dins d'aquest canvas** (0.153.0), amb el mateix `mask` que `ui.image` (0.169.0): és el que fa servir el llançador per posar la icona d'una app dins la cel·la de la graella, i és `ui.image` amb el canvas propi com a destí i no la pàgina. El camí és el que una app pot llegir (docs/70), i `/apps/<id>/res/icon.png` ho és: un manifest és públic |
 | `cv:add(fill)` | `true` o `nil, error` | El fill passa a estar **dins** d'aquest canvas, i és l'últim (la capa del davant). Un canvas té **un sol pare** |
 | `cv:draw()` | `true` si ha dibuixat, `false` si no hi havia res | **Es dibuixa ell i després pregunta als fills**, en l'ordre en què es van afegir. **Si no té cap canvi, no fa res** |
 | `cv:invalidate([x, y, w, h])` | `true` o `nil, error` | «Ha canviat el que ensenyo». Amb una caixa, **això** és el que s'ha de pintar; sense, tot el canvas |
@@ -1325,9 +1327,10 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   necessita cap transparència ni cap màscara (docs/90).
 - **La qualitat viatja amb la tinta**: el `mode` amb què s'ha pintat una regió és el que s'usa quan la
   regió arriba al vidre, passi pels canvas que passi.
-- **Dos sostres i no un**: hi ha fins a **32 controls**, i només **vuit** poden tenir vista pròpia (la de
-  l'app inclosa). Un control sense vista no gasta ni un byte de píxel; si no hi ha lloc, `ui.canvas` o
-  `ui.control` responen `nil` amb `E_NOMEM`.
+- **Dos sostres i no un**: els controls que hi caben són **els que la taula de la memòria extra
+  permet** —milers, i el nombre el diu el log a l'arrencada (docs/75)—, i només **vuit** poden tenir
+  vista pròpia (la de l'app inclosa). Un control sense vista no gasta ni un byte de píxel; si no hi ha
+  lloc, `ui.canvas` o `ui.control` responen `nil` amb `E_NOMEM`.
 - **Un control sense vista no és cap forat a l'arbre**: els seus fills es componen igual, amb el
   desplaçament de cada capa sumat, i el que ell dibuixa cau al canvas que el conté (el primer que en té) i
   **es talla al seu marc**: no pot pintar fora de la seva caixa. Un `UILabel` no necessita cap buffer.
@@ -2884,8 +2887,8 @@ end
 - **`kind` no és un detall**: el botó de l'ATOM i el dial de la Paper són el mateix contacte i no són
   la mateixa cosa de tocar. `"compound"` diu que aquelles tres tecles són **un sol component**, i
   `group` diu **quin**: una placa amb dos botons separats i un dial tindria dos grups.
-- **Les posicions són les de la placa i no les de la pantalla**: la Paper no té pantalla encara, i el
-  dia que en tingui la rotació no canviarà on és la tecla (docs/50).
+- **Les posicions són les de la placa i no les de la pantalla**: la tecla és on és el contacte, i la
+  rotació de la vista (`ui.rotation`) no la mou (docs/50).
 - `button.list()` torna una taula buida en una placa sense tecles, i `button.info` d'una tecla que no
   hi és dona `E_INVAL`: cap de les dues inventa res.
 - **Si la pàgina té controls, el dial és del sistema**: `amunt`/`esquerra` van al control anterior,

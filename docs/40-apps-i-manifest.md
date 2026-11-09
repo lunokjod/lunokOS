@@ -167,7 +167,7 @@ Regles de validació, totes amb error clar i el nom del camp:
 - Si falta un camp obligatori, o és buit, l'app **no es carrega** i el motiu surt per la consola.
 - `entry` ha d'existir i no pot sortir del directori de l'app (ni `..` ni camins absoluts). Es
   comprova a l'escaneig, no a `run`: una app que no es pot obrir **no surt a `apps`**, i el log diu
-  `apps: <id> has no entry file (<camí>)`. Una app llistada que després no arrenca seria una mentida.
+  `[W][APPS] <id> has no entry file (<camí>)`. Una app llistada que després no arrenca seria una mentida.
 - `boards` diu on funciona l'app. Cada nom és una placa (`m5stack-atom`) o una **família**
   (`esp32`, que vol dir qualsevol placa d'aquest xip), i l'app corre si la placa actual hi surt pel
   seu nom o pel de la seva família. Si no hi surt, **l'app no desapareix**: `apps` la llista amb què

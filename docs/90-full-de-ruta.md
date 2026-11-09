@@ -27,7 +27,7 @@ perquè:
 
 | Crida | Per què no hi és | On va |
 |---|---|---|
-| `console.flush`, `console.read`, `console.read_byte`, `console.on_data` | cap app no les ha demanades; `read_line` cobreix el teclat | M1 |
+| `console.flush`, `console.read`, `console.on_data` | cap app no les ha demanades; `read_line` i `read_byte` cobreixen el teclat (`read_byte` ja hi és) | M1 |
 | `sys.reboot` | reiniciar sense dir res a qui hi ha al davant no és una crida d'app | M6 |
 | `time.format`, `parse`, `set` | el rellotge dona l'hora i les parts del dia; formatar-la no l'ha demanada cap app (`utc`, `date` i `tz` hi són des de la 0.125.0) | M3 |
 | `time.sync` | ja hi ha `net.ntp`, que és el que fa la feina | M5 |
@@ -63,7 +63,7 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 
 | | |
 |---|---|
-| **Què queda** | `time.utc`/`local`/`format`/`parse`/`set`/`tz`, si una app els demana. Les alarmes persisteixen, es reprodueixen amb `late_ms` i compten les repeticions perdudes. |
+| **Què queda** | `time.format`/`parse`/`set`/`sync`, si una app els demana —`time.utc`, `time.date` i `time.tz` ja hi són des de la 0.125.0—. Les alarmes persisteixen, es reprodueixen amb `late_ms` i compten les repeticions perdudes. |
 | **Es mesura, i no està mesurat** | L'error d'entrega amb el sistema despert, a la placa; i quantes alarmes hi caben a la NVS abans que digui que no. |
 
 ## M4 · Disc
@@ -531,9 +531,7 @@ I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el 
 
 | Cosa | Per què queda fora |
 |---|---|
-| Pantalla (`IDisplay`) | No hi ha maquinari a la placa de proves; la interfície ja hi és |
 | Targeta SD a l'ATOM | No hi ha maquinari (al Paper hi és, i és el pas 7) |
-| Instal·lació d'apps des del prompt o per xarxa | Primer ha d'existir el disc, i el disc hi és: això és el següent de debò |
 | Actualització del firmware (OTA) | La taula de particions ja hi deixa el forat, però les dues ranures es van fusionar per fer-hi cabre el Bluetooth |
 | Àudio | Ni maquinari ni necessitat |
 | Múltiples apps simultànies | És un no-objectiu, no una fita pendent |

@@ -37,8 +37,10 @@ tancat en una carpeta.
    es diu que s'ha mesurat allà.
 
 7. **El sistema sempre es pot recuperar.** Si una app trenca, el prompt `lunok>` torna. Si una app
-   es menja la memòria, es tanca. Si una app no respon dues vegades seguides, es mata. El camí de
-   tornada no depèn de Lua.
+   es menja la memòria, es tanca. Si una app no cedeix mai, el comptador li talla el torn i el nucli
+   recupera el comandament entre trossos —**no es mata**: les tres ESC o `!!exit` la tanquen, i
+   `docs/20` diu per què el sistema no pot distingir una app penjada d'un joc—. El camí de tornada no
+   depèn de Lua.
 
 8. **Una sola cua temporal, ordenada, i només se'n programa la més propera.** El maquinari només ha
    de gestionar un despertador; la resta és una llista ordenada a la RAM.
@@ -56,8 +58,10 @@ tancat en una carpeta.
   seguretat.
 - **No hi ha multitasca preemptiva.** Les coroutines cedeixen quan volen i el comptador les atura si
   no ho fan.
-- **No és un simulador de maquinari.** L'emulador corre el sistema de debò, però no modela la flash,
-  el consum ni el refresc d'una pantalla d'e-ink.
+- **No és un simulador de maquinari.** L'emulador corre el sistema de debò i en paga els temps —els
+  blocs de la flash, els sectors de la targeta, el bus i la tinta del panell, les transaccions del
+  tàctil, el torn del nucli (docs/85)—, però **no modela el consum, el desgast de la flash ni la
+  física del refresc** d'una pantalla d'e-ink: en modela els mil·lisegons de cada mode, no la tinta.
 - **No és un sistema multiusuari** ni té comptes, ni permisos per persona, ni xarxa de confiança.
 - **No executa binaris d'altres sistemes** ni cap app que no sigui un directori amb un manifest.
 - **El firmware no pretén ser portable a altres arquitectures** que no siguin ESP32. L'emulador de PC

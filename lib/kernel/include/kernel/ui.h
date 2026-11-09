@@ -46,7 +46,7 @@ const uint8_t kMaxDamage = 8;
 
 // **The number of controls is what the memory holds, and not a number in this file** (0.102.0). The table of
 // canvases is taken from the board's extra memory at boot —the PSRAM of the Paper, which has three and a half
-// megabytes idle— and `canvas_count()` says how many slots there are; a hundred and ninety-two bytes each, so
+// megabytes idle— and `canvas_count()` says how many slots there are; a hundred and seventy-six bytes each, so
 // thousands. The buffers are the ones that cost: a view is four bits per pixel, a quarter of a megabyte for a
 // page of this size, and **that** is the ceiling that a page meets first (docs/75, docs/90).
 const uint16_t kMaxCanvases = 8;

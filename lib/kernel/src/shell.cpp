@@ -2839,8 +2839,9 @@ bool install_step() {
     char name[48];
     char url[192];
     // **The listing is opened once and walked on**: `entry_at` answers an index by reading the document from its first
-    // byte, so asking it for the twenty files of an app was twenty opens and twenty passes over forty-four kilobytes of
-    // JSON. The reader is the same object and it only has to be where it left off (0.88.5, docs/75).
+    // byte, so asking it for the twenty files of an app was twenty opens and twenty passes over the whole listing (44 KB
+    // with the sixty apps of that day, 6 KB with the eight of today). The reader is the same object and it only has to be
+    // where it left off (0.88.5, docs/75).
     if (!g_install_walking) {
       if (!repository::start(g_install_list)) {
         drop_radio();

@@ -4852,7 +4852,7 @@ namespace kernel {
 //     describes) or the app of today that does the same job, and the two that are only a historical log are quoted and said
 //     to be so (docs/30, docs/40, docs/50, docs/60, docs/70, docs/75, docs/80, docs/85, docs/90, docs/92, docs/95);
 //   - **the numbers of the disk are the ones the tool printed on 9/11**: the system alone is 19 files and 1 688 651 B —of
-//     which 1 595 456 B are three splash bitmaps— and the seven apps are 34 files and 290 501 B, so `build/disk/m5-paper` is
+//     which 1 558 434 B are three splash bitmaps— and the seven apps are 34 files and 290 501 B, so `build/disk/m5-paper` is
 //     53 files and 1 979 152 B and `build/disk/emulator` 55 files and 1 981 991 B (docs/70, docs/80, docs/85). **And the four
 //     4 MB boards do not fit**: 1 688 651 B of system against the 1 441 792 B of `partitions.csv`, so `-t buildfs` stops with
 //     `this disk does not fit` until the splash bitmaps are not carried (docs/70);
@@ -4934,7 +4934,59 @@ namespace kernel {
 //     manifest names, made with `tools/make_icon.py`, because an icon inside the app is the only path a manifest can name
 //     and a copy per app is a lunokhod that goes old the day the drawing changes (docs/40). A second app of prova brings
 //     the same picture with one command and no new drawing.
-static const char kVersion[] = "0.169.4";
+//
+// 0.169.5 (9/11): **a pass over every document against the code, and twenty claims the documents made that the code does
+// not**. The owner: *«revisa de nou la documentació per trobar afirmacions falses. Has de comparar l'afirmació amb el codi
+// per assegurar-te que tens la prova de que es real»*. Each one was checked against the source before it was touched, and
+// the source won every time.
+//
+//   - **the system has a screen, and the documents said it did not**: the table of devices of docs/50 gave `IDisplay` as
+//     *pendent* on the Paper and *nothing* on the emulator, with a snippet `virtual IDisplay* display() = 0;  // nullptr
+//     en aquesta versió` — and `IPlatform::display()` returns an **`ISurface*`**, the Paper's is the IT8951E with all
+//     eight update modes and the emulator's is the glass of the model (`hal_paper.cpp`, `hal_emulator.cpp`). It is the
+//     interface the whole page of docs/30, docs/90 and docs/92 is built on (docs/50);
+//   - **and docs/00 listed the screen as something the emulator does not model**, when the ink is a table of eight modes
+//     with their milliseconds, their trace and their dirt (`lib/hal_emulator/include/emu/ink.h`). What is not modelled is
+//     the consumption, the wear of the flash and the physics (docs/00);
+//   - **no app is killed after two silent turns**: docs/00 said it was, and the counter of 0.90.0 **yields** instead of
+//     killing (`kTurnBudgetInstructions`, `lua_yield`), which is what docs/20 and docs/10 say in the same repository
+//     (docs/00, docs/20);
+//   - **`console.read_byte`, `time.utc` and `time.tz` exist**: docs/30 listed them under «Encara no hi és» and docs/90 in
+//     its table of absent calls, and the three are in `lib/luabind/src/luabind.cpp` and have been since 0.125.0. The list is
+//     now `sys.reboot`, `console.flush`/`read`/`on_data`, `time.format`/`parse`/`set`/`sync`, `Promise.all`/`race`,
+//     `app.spawn`/`raise`/`save`/`restore`, `net.softap`, `power.off`, `store` and `log` (docs/30, docs/90);
+//   - **the controls are not thirty-two**: docs/30 said «hi ha fins a 32 controls» in a section that two pages later says
+//     there is no number, because since 0.102.0 the table is taken from the extra memory (2 978 slots of 176 bytes on the
+//     Paper). The old number is kept only where it is history, in docs/90 (docs/30);
+//   - **the ceiling of an app is 131 072 B and not 65 536**: docs/20 gave the old number of 0.81.2 as the current one, and
+//     docs/75 has the right one with its date (docs/20);
+//   - **the `mask` of a picture is part of the contract**: `ui.image` takes it as a seventh argument and `cv:image` as an
+//     eighth since 0.169.0, and neither signature in docs/30 nor the one in the README said so (docs/30, README);
+//   - **`--sd` does create the card**: docs/85's row said the emulator did not create `emulator/sd` since 0.88.2, and the
+//     same document, forty lines later, said it did — `make_slot()` does, and that is what makes a Paper come up with a
+//     slot (docs/85);
+//   - **the listing of the repository is 6 113 B and eight folders**, and docs/85 said 45 KB and sixty folders: the
+//     repository's `apps/` is what the API answers, and it was asked today with `curl` (9/11) — the example of
+//     a `repo install` keeps the numbers of the day it was taken, as the quote it is (docs/85);
+//   - **the system disk is 19 files and 1 688 651 B**: docs/70 and docs/80 said 20 and 1 688 656, which counts
+//     `data/data/rtccheck/rtccheck.txt` — an app's own state, gitignored — and the three splash bitmaps are 1 558 434 B and
+//     not 1 595 456, which is the whole `data/res/splash` folder with the five PNGs of the other moments (docs/70, docs/80);
+//   - **the EPUB layer is not pending**: docs/70's section of the zip ended with «el que encara no hi és: la capa d'epub»,
+//     and `lib/epub` is the zip, the OPF, the XHTML and the paginator, and the book the reader opens every day (docs/46);
+//   - **the table of utility libraries of docs/10 is complete again**: `img`, `inflate`, `zip`, `ttf` and `epub` were
+//     missing from it, and the document says that a library that is not in it is an oversight and not a decision (docs/10);
+//   - **the module block is 65 536 B and the entry's ceiling is not**: docs/75 said the two were the same number, which was
+//     true before 0.149.0 (`kSourceCap` is 98 304) (docs/75);
+//   - **and the small ones of the same pass**: the Paper has a page and it rotates, so a button is where the contact is and
+//     not where the screen is (docs/30); what a dead app leaves is the console line and not a page, and the reason is not
+//     «there is no screen» any more (docs/20); `apps/` is 37 files in the tree and not 35 (docs/80); the ATOM's firmware is
+//     2 265 873 B and the README had 2 265 753 from the build of another day (README); the log line of a manifest without
+//     an entry is `[W][APPS] ...` and not `apps: ...` (docs/40); and docs/90's «Fora de la v1» no longer lists the screen
+//     or installing an app from the prompt, both of which are in and used every day (docs/90);
+//   - **and two comments that lied about their own numbers**: `ui.h` said a slot of the table of canvases is 192 bytes
+//     (176, said by the boot's own line) and `shell.cpp` priced the listing of the repository at forty-four kilobytes
+//     (six today, and forty-four with the sixty apps of 0.88.5) (`kernel/ui.h`, `kernel/shell.cpp`).
+static const char kVersion[] = "0.169.5";
 
 }  // namespace kernel
 

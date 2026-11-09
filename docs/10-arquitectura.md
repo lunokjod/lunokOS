@@ -224,6 +224,11 @@ aquest mateix document.
 | `hal` | el maquinari | **mai directa**: `fs.*`, `net.*`, `time.*`, `console.*` passen pel nucli, que és qui decideix quan encendre, quan esperar i quan dir que no |
 | `pal` | porta sèrie, consola, cues | `console.*` i `term.*` |
 | `kernel` | VFS, shell, xarxa, apps | `fs.*`, `net.*`, `http.get`, `app.*`, `sys.*` |
+| `epub` | l'EPUB: el zip, l'OPF, el XHTML i el paginador | taula `epub` (`epub.open`, `books`, `page`, `picture`…, docs/46) |
+| `img` | PNG, JPEG, BMP, GIF, ICO i netpbm, amb la màscara i el dither | **no directa**: `ui.image`, `cv:image` i `ui.image_info` hi passen pel nucli, que és qui té el canvas on va el dibuix |
+| `inflate` | deflate en un bloc del qui crida | **no directa**: `zip` i `img` la fan servir; una app no té res a fer-ne |
+| `zip` | el zip d'un llibre: directori central, entrades `stored` i `deflate` | **no directa**: `epub` hi passa pel damunt (docs/46 B8 deixa `zip.extract` com a pendent) |
+| `ttf` | una cara d'outlines d'un `.ttf` | **no directa**: `ui.load_font` i les cares de `/fonts` hi passen pel nucli |
 
 Una llibreria nova que no aparegui en aquesta taula és un oblit, no una decisió: quan se n'afegeix una,
 s'afegeix aquí amb el que en veu Lua, o amb el motiu de no veure-hi res.
