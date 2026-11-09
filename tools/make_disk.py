@@ -4,14 +4,14 @@
 #
 # **Why per build.** `PROJECT_DATA_DIR` is one value for the whole project, and a
 # single `build/disk` meant that building the ATOM after the Paper changed the
-# disk the Paper was built from —and the one the bench reads— behind its back. Now
+# disk the Paper was built from —and the one the emulator reads— behind its back. Now
 # every environment has `build/disk/<env>` and this script points
 # `PROJECT_DATA_DIR` at it, so two builds cannot write over each other and a build
 # that carries no apps leaves the others alone (docs/80).
 #
 # **Why links and not copies.** `mklittlefs` **follows a symbolic link to a
 # directory** —measured on 3/11 with 1.203.210628: the image comes out with
-# `/apps/hello/hello.lua` inside— and so does the bench, which uses `stat()` and
+# `/apps/hello/hello.lua` inside— and so does the emulator, which uses `stat()` and
 # `S_ISDIR()` (`emu_storage.cpp`). One source, and no copy to go stale. **The tests
 # are the exception and say so**: a test creates and deletes apps in the disk it
 # mounts, and writing through a link would write into the repository, so the `test`
@@ -26,7 +26,7 @@
 #                                 `manifest.json` lists the board's id or its chip
 #                                 family ("esp32"), which is the same rule the
 #                                 kernel uses to refuse an app at `run` (docs/40).
-#                                 The bench and the tests have no board, so they
+#                                 The emulator and the tests have no board, so they
 #                                 carry every app of `apps/`;
 #   - neither                     none, and the disk is the system alone, which is
 #                                 what every board does since 0.118.3 (docs/70).
@@ -71,7 +71,7 @@ def board_identity():
     """The id and the family this environment builds for, read from its own header."""
     # **The board is the one its `-Ilib/board_<id>/include` selects**, and not the `board =` option: the ATOM
     # Matrix shares the PlatformIO board of the Lite (`board = m5stack-atom`) and is another board by its
-    # header, which is the whole point of that design (docs/50). The bench and the tests have no such flag, so
+    # header, which is the whole point of that design (docs/50). The emulator and the tests have no such flag, so
     # they have no board and carry every app. The header is read here and not asked to the platform because a
     # pre-script runs before it is loaded —in PlatformIO's `builder/main.py` the extra scripts come at line
     # 167 and the platform's own script at 173— and `BoardConfig` has nothing in it yet.
@@ -117,7 +117,7 @@ def wanted_apps():
                 print("make_disk: there is no app called %s, so it stays out" % app)
             continue
         if not board_id:
-            keep.append(app)  # no board: the bench and the tests carry them all
+            keep.append(app)  # no board: the emulator and the tests carry them all
             continue
         try:
             with open(os.path.join(folder, "manifest.json")) as handle:
@@ -140,7 +140,7 @@ def rebuild():
     os.makedirs(DISK_DIR, exist_ok=True)
     # **The system's own content is replaced, the state is not.** What comes from
     # `data/` is code and a build must not run on an old copy of it; `data/` inside
-    # the disk (`/littlefs/data/<app>/`) is what an app wrote while the bench ran,
+    # the disk (`/littlefs/data/<app>/`) is what an app wrote while the emulator ran,
     # and wiping it on every `pio run` would throw away the run of the person who is
     # testing (docs/85).
     for name in sorted(os.listdir(SYSTEM_DIR)):
@@ -165,7 +165,7 @@ def rebuild():
     elif os.path.isdir(apps_dir):
         shutil.rmtree(apps_dir)
     # **A disk that carries no app has no `apps/` folder at all** (0.88.2): the folder is the door `/apps`, and a
-    # door that opens on nothing is what `apps` and `ls /` were showing on the bench. The log says `cannot list`
+    # door that opens on nothing is what `apps` and `ls /` were showing on the emulator. The log says `cannot list`
     # the day something asks, which is the truth of that disk (docs/70, docs/85).
     apps = wanted_apps()
     if apps:
@@ -193,7 +193,7 @@ def rebuild():
             payload += os.path.getsize(os.path.join(root, name))
     if not apps:
         # **A disk of the system alone is the normal one since 0.118.3**: no board carries apps in its image, and the
-        # line says which of the two empty disks it is —a board that carries none by rule, or the bench, which has no
+        # line says which of the two empty disks it is —a board that carries none by rule, or the emulator, which has no
         # board and receives its apps with `repo install` or a card (docs/70, docs/85).
         how = "no apps: the system alone"
     elif COPY_APPS:

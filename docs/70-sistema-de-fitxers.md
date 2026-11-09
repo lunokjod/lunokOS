@@ -44,7 +44,7 @@ deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb 
 | `/rtc` | **un sol fitxer** sobre la memòria RTC del xip (`hal/memory_file.h`) | **7 168 B** (7 KB): la part dels 8 KB del xip que l'aplicació pot tenir, perquè la ROM i l'IDF se'n guarden la resta. És l'única memòria que **sobreviu a un son profund i mor amb el corrent**, o sigui que hi van els pocs bytes que una placa ha de recordar entre dues arrencades sense tocar la flash. L'espai és **la seva mida i tota lliure, sempre** (`free 7168 of 7168 B`), perquè no s'hi assigna res: és memòria crua i el repartiment el fa l'app. `cat /rtc` el llegeix com a text i `hexdump /rtc` l'ensenya en hex i en visible, que és el que cal per a un binari. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1: una escriptura atòmica necessita un reanomenament que una memòria no té, i el que fa és escriure al lloc —els bytes al començament i la resta a zero— |
 | `/data` | àlies | escrivible per app: `/data/<id>/` |
 | `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
-| `/apps` | **directori virtual: els dos discs en un, i l'únic punt d'entrada de les apps** (0.88.19, 0.88.20) | **`littlefs/apps` i `sd/apps` junts**, amb la flash primer i la targeta després. Un nom que la flash té **i** la targeta també es presenta **dues vegades**: `<id>` és la còpia de la flash i **`*<id>` la de la targeta** —l'asterisc és la marca d'una app redirigida, i el nom de la còpia diu la unitat al final (`Editor-SD`, `Editor-Littlefs`)—, i cada nom llegeix i corre la seva —`run squares` és l'app de la flash i `run squares-SD` la de la targeta—, en lloc d'una desapareixent darrere l'altra. La carpeta **es crea si no hi és** (a la flash i a la targeta): el banc no porta cap app i `repo install` n'hi posa la primera, i una porta que s'obrís només quan la carpeta ja hi era al boot deixava l'app instal·lada **llistada per `apps` i no oberta per `run`** (`cannot read: /apps/<id>/<entry>`, trobat al banc el 4/11). **És l'únic camí per on el sistema mira una app**: el llistat, el `run` i els fitxers d'una app (`/res/`) hi passen, i mai pel directori real d'una unitat, o sigui que **el sistema decideix què presenta la porta** (`vfs::set_apps_presenter`, instal·lat al boot amb `apps::is_an_app`): una carpeta que no porta `manifest.json` **no es llista, no es corre i no la llegeix ningú** que busqui un obridor; una que en porta i diu una altra placa **sí** que hi és, i el llistat diu què necessita |
+| `/apps` | **directori virtual: els dos discs en un, i l'únic punt d'entrada de les apps** (0.88.19, 0.88.20) | **`littlefs/apps` i `sd/apps` junts**, amb la flash primer i la targeta després. Un nom que la flash té **i** la targeta també es presenta **dues vegades**: `<id>` és la còpia de la flash i **`*<id>` la de la targeta** —l'asterisc és la marca d'una app redirigida, i el nom de la còpia diu la unitat al final (`Editor-SD`, `Editor-Littlefs`)—, i cada nom llegeix i corre la seva —`run editor` és l'app de la flash i `run editor-SD` la de la targeta—, en lloc d'una desapareixent darrere l'altra. La carpeta **es crea si no hi és** (a la flash i a la targeta): l'emulador no porta cap app i `repo install` n'hi posa la primera, i una porta que s'obrís només quan la carpeta ja hi era al boot deixava l'app instal·lada **llistada per `apps` i no oberta per `run`** (`cannot read: /apps/<id>/<entry>`, trobat a l'emulador el 4/11). **És l'únic camí per on el sistema mira una app**: el llistat, el `run` i els fitxers d'una app (`/res/`) hi passen, i mai pel directori real d'una unitat, o sigui que **el sistema decideix què presenta la porta** (`vfs::set_apps_presenter`, instal·lat al boot amb `apps::is_an_app`): una carpeta que no porta `manifest.json` **no es llista, no es corre i no la llegeix ningú** que busqui un obridor; una que en porta i diu una altra placa **sí** que hi és, i el llistat diu què necessita |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
 | `/fonts` | àlies | `/littlefs/res/fonts`: **les cares del disc, una sola còpia per a totes les apps** (3/11, 0.68.0). De només lectura des d'una app, com `/apps`: una cara no és d'una app sinó de la placa. El perquè és un número: les quatre cares de DejaVu són 37 476 B i, quan cada app en portava la seva còpia, el disc les pagava dues vegades (docs/30) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
@@ -256,7 +256,7 @@ o sigui que els fitxers d'una altra app no s'hi arriben (docs/20, docs/46 D6).
 
 **`fs.write` sobre una memòria crua va al lloc i no a un temporal** (0.65.1): `/rtc` i `/fram` són *un*
 fitxer cadascun i no hi ha `/fram/x.tmp` on escriure per després reanomenar, o sigui que el camí del mig
-donava `E_NOENT` —el `no such file or directory` que veia `run hexedit /fram` en desar (4/11). El que fa ara
+donava `E_NOENT` —el `no such file or directory` que es veia en desar a `/fram` amb una app (4/11). El que fa ara
 és escriure els bytes al començament i **posar la resta de la memòria a zero**, perquè el que s'ha escrit és
 el que s'ha de poder tornar a llegir; i una escriptura que no hi cap sencera és `E_NOSPC` i deixa la memòria
 com era, que mitja memòria canviada no es pot desfer. Per mirar-la, `cat /rtc` si és text i `hexdump /rtc` si és
@@ -297,7 +297,7 @@ segueix aquesta mateixa taula**: `http.download(url, '/data/<id>/x')` hi escriu 
 '/sd/x')` respon `E_INVAL`, perquè una targeta és de la persona i no de l'app (docs/30). El disc d'on llegeix l'app és
 de només llegir per a ella (`/apps` és `ro`), i el rewrite no ho canvia: només hi afegeix l'id.
 
-**El camí que la persona nomena** (0.65.0). `run edit /littlefs/notes.txt` és una app i un fitxer, i aquell
+**El camí que la persona nomena** (0.65.0). `run editor /littlefs/notes.txt` és una app i un fitxer, i aquell
 fitxer és de la persona: l'app el pot **llegir i escriure mentres viu**, i res més del disc de la persona. No
 és una porta oberta —`fs.write('/littlefs/altre.txt')` des de la mateixa app segueix dient `E_INVAL`— sinó
 l'autoritat del prompt sobre el que la persona ha escrit a la comanda. És el que fa que un editor desi on li
@@ -307,8 +307,8 @@ sigui que el nucli se'n guarda una **còpia** (`luabind::app_path`).
 
 **Les imatges d'una app viuen aquí i es llegeixen amb `ui.image`** (0.63.0, docs/30): el camí és el de
 l'app (`/res/plan.png`), el sistema l'obre amb la mateixa política que `fs.read` i el descodifica fila a fila
-dins del canvas. L'exemple `run images` porta **una imatge de cada família que el sistema llegeix** a
-`apps/images/res`, i cada una ensenya el que aquell format sap fer: `photo.jpg` (una fotografia),
+dins del canvas. El lector porta **una imatge de cada família que el sistema llegeix** a
+`data/res`, i cada una ensenya el que aquell format sap fer: `photo.jpg` (una fotografia),
 `poster.bmp` (tinta plana en 24 bits), `logo8.bmp` (vuit tintes en una paleta de 8), `cartoon.gif` (una
 paleta i una cantonada transparent), `icon.ico` (una icona amb alfa), `lines.png` (línies primes, que no les
 sua), `shades.pgm` i `colours.ppm` (dos degradats) i `checks.pbm` (un bit). El **mateix pla en sis formats**
@@ -401,15 +401,15 @@ li queda**. Les files d'avui, en l'ordre en què surten:
 | `/apps` | no | els mateixos bytes, és el mateix disc |
 | `/res` | no | els mateixos bytes |
 | `/data` | **sí** | els mateixos bytes |
-| `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, al banc amb `--sd` i un model amb ranura |
+| `/sd` | **sí** | bytes de la targeta: al Paper amb targeta al slot, a l'emulador amb `--sd` i un model amb ranura |
 | `/rtc` | **sí** | bytes: **un sol fitxer** de 7 168 B, la memòria del RTC del xip (docs/50). No té entrades |
 | `/fram` | **sí** | bytes: **un sol fitxer** de 256 B, la FM24C02 del Paper; només hi és si el xip contesta (docs/50) |
 | `/nvs` | no | **entrades** (`entries N of M`), perquè el magatzem no té bytes |
 | `/cfg` | **sí** | els bytes de la unitat on és oberta la porta, i el tipus diu quina és |
 
 Dos dels números que demana M4 surten d'aquí (espai lliure després d'`uploadfs`), i el tercer
-(temps d'una escriptura atòmica) el diu l'app `scratch`, que compta els mil·lisegons del seu
-`fs.write` amb `sys.time_ms()`.
+(temps d'una escriptura atòmica) el diu una app que compti els mil·lisegons del seu `fs.write` amb
+`sys.time_ms()`.
 
 ## El que diu el backend quan el fitxer no hi és (30/10)
 
@@ -417,8 +417,8 @@ Mesurat a la placa: `cat` d'un fitxer que no existeix feia sortir una línia de 
 missatge del nucli:
 
 ```
-[  5349][E][vfs_api.cpp:105] open(): /littlefs/apps/mtab/app.lua does not exist, no permits for creation
-cannot read: /apps/mtab/app.lua
+[  5349][E][vfs_api.cpp:105] open(): /littlefs/apps/nope/app.lua does not exist, no permits for creation
+cannot read: /apps/nope/app.lua
 ```
 
 **És el nucli d'Arduino, no el nostre**: `VFSImpl::open` del core (arduino-esp32 2.0.x) escriu aquest
@@ -439,7 +439,7 @@ silenciar el log: és **no obrir el que no hi és**.
 
 L'única cosa d'aquest canvi que no es pot veure en una prova nativa és el **soroll**, perquè el log és
 de la placa: es comprova amb la traça del port sèrie. **Comprovat a la placa el 30/10**: `cat` d'un
-fitxer que hi és (l'entry de `mtab`) i d'un que no hi és (`no-hi-es.txt` → `no such file: no-hi-es.txt`)
+fitxer que hi és (una app del disc) i d'un que no hi és (`no-hi-es.txt` → `no such file: no-hi-es.txt`)
 surten **sense cap línia `[E]` de l'IDF**.
 
 ## `fs.mounts` i `fs.space` (30/10)
@@ -452,15 +452,14 @@ L'app pot veure què hi ha muntat, però **l'espai és una pregunta a part**:
 - `fs.space(path)` pregunta l'espai i **camina pel sistema de fitxers**: és la que costa (la mesura
   que va fer baixar l'escriptura de 247 a 83 ms va ser treure-la del camí feliç). No informa de res
   quan el backend no ho sap: `nil` i `E_UNSUPPORTED`, que no és el mateix que «no queda espai».
-- **Per veure-ho de mà**: `run mtab` (`apps/mtab/`) llista els muntatges i demana l'espai de
-  cadascun, així que ensenya el cost: quatre noms de la mateixa partició són quatre passejades.
-  L'arrenca una prova, com `run handles`.
+- **Per veure-ho de mà**: `mounts` llista els muntatges i demana l'espai de cadascun, així que ensenya
+  el cost: quatre noms de la mateixa partició són quatre passejades.
 - A l'**emulador** el disc tampoc no és del PC: la flash val el que diu la taula de particions de la
   placa (0x0E0000 = 917 504 B a l'Atom, 0xBE0000 = 12 451 840 B al Paper) i l'ocupat és el que sumen
   els fitxers, amb el que quedi al PC com a sostre; la targeta val 16 GB i el lliure és el del PC, i
   el que falta fins als 16 GB surt com a ocupat. Són les mateixes xifres que a la placa (31/10,
   mesurat a l'emulador i a `docs/85`).
-- **I el que costa llegir-hi és el del dispositiu i no un número per a tot** (1/11): al banc, la flash
+- **I el que costa llegir-hi és el del dispositiu i no un número per a tot** (1/11): a l'emulador, la flash
   paga blocs de 4 KB i els 45 ms d'esborrar el sector d'una escriptura, la targeta sectors de 512 B i la
   FRAM **90 µs per byte**, amb la taula a `emu/disk.h` (docs/85). La NVS és una partició de la flash i
   paga el mateix, i la RTC RAM no paga res perquè és RAM.
@@ -501,9 +500,8 @@ pool de la HAL. El novè dona **`E_NO_HANDLES`**.
   del disseny (un sol pool, cap reserva amagada) i cal dir-la.
 - **La mida es pregunta en obrir** i es porta a part: el backend no diu la mida d'un fitxer obert, i
   les escriptures l'actualitzen. `f:seek("end")` usa aquest número.
-- **Per veure-ho de mà**: `run handles` (`apps/handles/`) escriu pel mànec, llegeix de tres
-  maneres, torna enrere amb `seek` i ensenya el novè refusat. L'arrenca una prova, així que l'exemple
-  no pot quedar-se enrere sense que caigui.
+- **Per veure-ho de mà**: `lua` i `fs.open` amb una escriptura, tres lectures, un `seek` enrere i el
+  novè mànec refusat. Una prova ho fa i ho comprova.
 - **Un error d'obertura no menteix**: si el fitxer hi és i no s'obre, és `E_NO_HANDLES`, no
   `E_NOENT`. Es va veure amb una trencada feta amb nou llocs al pool del nucli: el novè arribava al
   pool de la HAL i l'error deia «no such file».
@@ -541,8 +539,8 @@ passa quatre operacions (`read_at`, `size`, `is_dir`, `list`). Sense elles, `fs.
   aquesta placa (una app que desa un llibre). `E_NOSPC` surt quan el disc diu que no, amb el fitxer
   vell sencer.
 
-**Cost d'una escriptura atòmica, mesurat a l'ATOM el 30/10** amb l'app `scratch` (20 bytes, en
-règim): **83 ms**, i el desglossament que donava el sistema en aquell moment era:
+**Cost d'una escriptura atòmica, mesurat a l'ATOM el 30/10** amb una app que hi escrivia 20 bytes, en
+règim: **83 ms**, i el desglossament que donava el sistema en aquell moment era:
 
 | Part | Cost | Què és |
 |---|---|---|
@@ -568,11 +566,11 @@ escrivint el que li donen i no necessita el fitxer sencer enlloc (docs/30).
 llegir, i l'IDF deixa anar `[E][vfs_api.cpp] open(): … does not exist, no permits for creation` per
 un camí que simplement encara no hi és — que és la pregunta normal del sistema. El `stat` del port
 de l'ATOM fa servir el `stat()` de POSIX, que va pel mateix VFS i no obre res. Es va veure amb
-`run scratch` el 30/10: dues línies d'error per escriure el primer fitxer d'una app.
+una app que escrivia el seu primer fitxer el 30/10: dues línies d'error.
 
 **I els dos mons no parlen el mateix camí.** `LittleFS.open()` rep camins **relatius al punt de
-muntatge** (`/apps/burst/burst.lua`), mentre que les crides POSIX van per la VFS del sistema i volen
-el camí **sencer** (`/littlefs/apps/burst/burst.lua`). El 30/10 el `stat` nou es va deixar el prefix i
+muntatge** (`/apps/editor/editor.lua`), mentre que les crides POSIX van per la VFS del sistema i volen
+el camí **sencer** (`/littlefs/apps/editor/editor.lua`). El 30/10 el `stat` nou es va deixar el prefix i
 la placa va dir `apps: 0 found` amb tots els directoris llistant-se: els fitxers hi eren i el `stat`
 els buscava al lloc equivocat. El port té `kMountPoint` i l'hi posa davant; qualsevol crida POSIX nova
 que hi aparegui l'ha de fer servir.
@@ -702,30 +700,35 @@ La imatge de `/littlefs` la fa `tool-mklittlefs` **1.203.210628** (el que instal
 l'ESP32). **Les apps no són a `data/`** i, **des de la 0.118.3, cap placa no en porta a la imatge**: viuen a `apps/`, a
 l'arrel del projecte, una carpeta per id, i el disc de cada entorn el munta `tools/make_disk.py` a
 **`build/disk/<entorn>`** i el fa servir la imatge d'aquell entorn: `PROJECT_DATA_DIR` és un sol valor per a tot el
-projecte, i amb un sol `build/disk` el build de l'ATOM canviava el disc del Paper i el del banc sense que ningú ho
+projecte, i amb un sol `build/disk` el build de l'ATOM canviava el disc del Paper i el de l'emulador sense que ningú ho
 hagués demanat. **Cada build té el seu**, i **la imatge d'una placa és el sistema sol**: `res/`, `http/` i `data/`,
 **16 fitxers i 130 217 B** (mesurat el 8/11, vegeu «Com afegir apps a la imatge del disc»). **Les
 proves són l'excepció i ho diuen**: creen i esborren apps al disc que munten, i escriure a través d'un enllaç escriuria
-al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom_apps_copied = yes`); el banc
+al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom_apps_copied = yes`); l'emulador
 també les porta totes (8/11, `custom_apps_in_disk = yes`), **enllaçades**, perquè no té placa i el filtre les
 deixa passar totes (docs/85).
 
 **Per què cap placa no en porta**: perquè és una decisió de l'amo (0.118.3, *«cap placa ha de contenir apps al
 littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
-fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui,
-mesurat el 8/11 i tornat a mesurar el mateix dia amb la Shell a dins**: `apps/` són **39 fitxers i 305 615 B**
-(`git ls-tree -r apps` en dona el mateix compte) i el `data/` del sistema **16 fitxers i 130 217 B**. **La mida del disc
-no és la suma d'aquests dos números, i qui la diu és `make_disk`**: el 8/11, amb la Shell dins, va escriure
-*`build/disk/emulator is 438116 B in 56 files, 8 apps`* i *`build/disk/m5-paper is 410534 B in 50 files, 7 apps`*. **Si hi cap o no ho diu l'eina i no aquest document**: `make_disk` munta la imatge amb `mklittlefs` —la
-partició de la taula, pàgina de `0x100` i bloc de `0x1000`— i escriu una de dues línies a cada build, `the tool
-takes every one of the N files in P B of partition, so it fits` o **`this disk does not fit`** amb quants fitxers
-deixa fora (`check_it_fits`, docs/80). El guard segueix sent necessari perquè l'eina deixa el fitxer fora i
-PlatformIO encara diu SUCCESS.
+fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
+`apps/` són les **set** apps —`about`, `calculator`, `editor`, `home_eink`, `reader`, `shell` i `timeclock`— i
+**34 fitxers i 290 501 B**, i el `data/` del sistema **20 fitxers i 1 688 656 B**, dels quals **1 595 456 B són
+tres bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un). **La mida
+del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 12/11, va escriure
+*`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`* i *`build/disk/m5-paper is 1979152 B in
+53 files, 7 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
+`partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 688 651 B en 19 fitxers sense cap app**, o
+sigui que `pio run -e m5-atom -t buildfs` **s'atura amb `this disk does not fit`** mentre els tres bitmaps de
+splash siguin a `data/` (mesurat el 12/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
+l'eina i no aquest document**: `make_disk` munta la imatge amb `mklittlefs` —la partició de la taula, pàgina de
+`0x100` i bloc de `0x1000`— i escriu una de dues línies a cada build, `the tool takes every one of the N files in P
+B of partition, so it fits` o **`this disk does not fit`** amb quants fitxers deixa fora (`check_it_fits`,
+docs/80). El guard segueix sent necessari perquè l'eina deixa el fitxer fora i PlatformIO encara diu SUCCESS.
 
 **L'enllaç i no una còpia** (mesurat el mateix dia): `mklittlefs` **segueix** un enllaç simbòlic a un
-directori i la imatge acaba amb el fitxer de l'app a dins (la mesura es va fer amb `apps/hello/hello.lua`, que
-aleshores hi era), i el banc també (`emu_storage` fa `stat()` i `S_ISDIR()`, que van al darrere de l'enllaç). Així
+directori i la imatge acaba amb el fitxer de l'app a dins (la mesura es va fer amb una app que aleshores hi era,
+`apps/hello/hello.lua`), i l'emulador també (`emu_storage` fa `stat()` i `S_ISDIR()`, que van al darrere de l'enllaç). Així
 hi ha un sol lloc on s'edita una app i no hi ha cap còpia que es quedi vella (docs/85 n'ha estat mossegat dues
 vegades).
 
@@ -738,9 +741,9 @@ que es toca una app:
 
 | Al `platformio.ini` de l'entorn | Què hi va |
 |---|---|
-| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **16 fitxers i 130 217 B** (mesurats el 8/11). És el que fan les quatre plaques |
+| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **19 fitxers i 1 688 651 B** (mesurats el 12/11 a `build/disk/m5-atom`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
 | `custom_apps = calculator,reader` | **Aquestes**, i només les que nomenen la placa: el filtre de sota s'aplica a les dues opcions, perquè portar una app que el nucli refusaria al `run` és una imatge que menteix. Un nom que es queda fora **ho diu** (p. ex. `make_disk: there is no app called light, so it stays out`) |
-| `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). Al banc i a les proves, que no tenen placa, són totes les d'`apps/` |
+| `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` — set |
 
 ```ini
 [env:m5-paper]
@@ -757,14 +760,13 @@ pio run -e m5-paper -t uploadfs    # i la puja
   que `-t buildfs` s'ha de tornar a fer **després de tocar una app**; el que es puja és el que hi havia quan es va
   fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
   disc que munta.
-- **El que hi ha avui, mesurat el 8/11** (càrrega: els fitxers i els seus bytes, sense el que afegeix LittleFS):
-  el sistema sol són **16 fitxers i 130 217 B**; `apps/` sencer són **39 fitxers i 305 615 B**; les **set** apps de
-  la Paper —`editor`, `calculator`, `about`, `timeclock`, `reader`, `home_eink` i `shell`— són **34 fitxers i
-  278 127 B**, o sigui que la Paper, que és l'única placa que en porta, fa **50 fitxers i 410 534 B** d'imatge —la
-  línia de `make_disk` del 8/11—; i el banc, que les porta totes, **56 fitxers i 438 116 B**. El disc de les proves porta les mateixes carpetes d'`apps/` **copiades**.
-  (Els números d'aquest paràgraf que hi havia fins al 8/11 —*13 fitxers i 79 288 B*, *les tres apps de la Paper*,
-  *el banc amb el sistema sol*— eren d'un altre estat del repositori i s'han retirat; les apps que es deien
-  `hello`, `clock`, `keys` i `images` ja no hi són.)
+- **El que hi ha avui, mesurat el 12/11**: el sistema sol són **19 fitxers i 1 688 651 B**; `apps/` sencer són
+  **34 fitxers i 290 501 B**; les **set** apps de la Paper —`editor`, `calculator`, `about`, `timeclock`, `reader`,
+  `home_eink` i `shell`— són totes les que hi ha, o sigui que la Paper, que és l'única placa que en porta, fa
+  **53 fitxers i 1 979 152 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
+  execucions, **55 fitxers i 1 981 991 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
+  **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 12/11, i el que fa créixer el
+  sistema són els tres bitmaps de splash (`data/res/splash`): **1 595 456 B** dels 1 688 651.
 - **Quantes hi caben**: la partició de les quatre plaques de 4 MB (`partitions.csv`, `0x160000`) és de **1 441 792 B**
   i la de la Paper (`partitions_16mb.csv`, `0xBE0000`) de **12 451 840 B**; els dos números són de la taula i no d'una
   mesura. **Si una càrrega hi cap ho diu el build** i no aquest document, amb la línia de `check_it_fits` (a sota).

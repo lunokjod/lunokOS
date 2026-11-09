@@ -205,7 +205,7 @@ void* counting_alloc(void* ud, void* ptr, size_t osize, size_t nsize) {
   // **The last two hundred and fifty-six bytes of a ceiling are not the app's** (0.156.0): a state whose ceiling is
   // exactly full cannot build the sentence that says so —the string `not enough memory` needs a few bytes and the
   // allocator says no—, and Lua does not throw at the app then: it **aborts the process** (`luaD_throw` with
-  // nobody to catch it). On the bench that was a SIGABRT of the suite; on the board it would be a restart of the
+  // nobody to catch it). On the emulator that was a SIGABRT of the suite; on the board it would be a restart of the
   // kernel in the middle of an app that only asked for too much. The reserve is the room the sentence is written
   // in, and an app never sees it as its own (docs/20, docs/75).
   if (alloc->limit > 0 && next + kErrorReserve > alloc->limit) return nullptr;
@@ -637,7 +637,7 @@ uint32_t g_call_start = 0;
 // at a few tens of nanoseconds and the PC at a fraction of that, so a loop that takes a second on the
 // glass takes a millisecond here. What one instruction costs is the band's answer —zero on a board,
 // where the time is the real one— and this counts them in blocks of `kHookInstructions` and pays in one
-// go, because a sleep per instruction would be a bench that asks for time more often than it simulates
+// go, because a sleep per instruction would be an emulator that asks for time more often than it simulates
 // it.
 const uint32_t kHookInstructions = 2000;
 const uint32_t kPayThresholdUs = 500;
@@ -3421,7 +3421,7 @@ int l_ui_present(lua_State* L) {
   if (l_ui_root(L) == 1) {
     // **The arguments are still the app's after the draw**: the root the call pushed is taken back
     // to the height of the stack the app had, because the next line reads the optional mode at index
-    // one and the root was sitting on top of it (found on the bench, 3/11: every `present('gc16')`
+    // one and the root was sitting on top of it (found on the emulator, 3/11: every `present('gc16')`
     // was a present with no mode, and the `du` that the controls ask for left the ghost of the text
     // that had moved).
     const int height = lua_gettop(L) - 1;
@@ -4505,7 +4505,7 @@ int create_control(lua_State* L, bool with_view) {
   lua_setiuservalue(L, -2, 1);
   // **It is born a child of the view**, so the two trees agree from the first line: the system already
   // put it inside the view, and the app's list of children has to say the same or `draw()` walks a tree
-  // that is not the one being composed (found running `layers` on the bench, 1/11: nothing drew).
+  // that is not the one being composed (found running `layers` on the emulator, 1/11: nothing drew).
   const int made = lua_gettop(L);
   lua_pushvalue(L, made);
   const int kept = lua_gettop(L);
@@ -4662,7 +4662,7 @@ int l_label_draw(lua_State* L) {
   lua_pop(L, 1);
   // **A label on an inverted face swaps its tones** (0.101.0): a word inside a button that has the ring or the
   // finger is paper on ink and not a white hole in a black box, which is what a label with its own paper did
-  // (measured on the bench, 8/11: the button came out as a black bar under a white rectangle). Turning the page
+  // (measured on the emulator, 8/11: the button came out as a black bar under a white rectangle). Turning the page
   // lists it is the same rule one level down (docs/92).
   if (lua_toboolean(L, 2)) {
     const int swap = color;
@@ -9739,7 +9739,7 @@ int l_sys_shell(lua_State* L);
 // **A pipe answers with or without a colon** (0.163.2): `stdin`, `stdout` and `stderr` are closures over the id of
 // their session, so the table they are read from is not an argument they need — and `session.stdout:read()` is how the
 // session is written in every example of docs/30 and in the app that found it, which passed the pipe table as the
-// first argument and got `calling 'read' on bad self (number expected, got table)` on the bench on 8/11. The table is
+// first argument and got `calling 'read' on bad self (number expected, got table)` on the emulator on 8/11. The table is
 // stepped over instead of refused, and `stdout.read(64)` keeps working the same.
 static int pipe_arg(lua_State* L) { return lua_istable(L, 1) ? 2 : 1; }
 
@@ -10316,7 +10316,7 @@ int open_everything(lua_State* L) {
 // **The task a chunk runs in is made inside a protected call too** (0.156.0), and for the same reason as the
 // libraries above: `lua_newthread` asks for a stack, a ceiling that cannot give it is a state that says no, and
 // **outside a `lua_pcall` Lua does not throw at the app: it aborts the process** (`luaD_throw` with no handler and
-// then the panic). Found on the bench on 8/11 —a chunk with a ceiling of thirty-two kilobytes left the suite with a
+// then the panic). Found on the emulator on 8/11 —a chunk with a ceiling of thirty-two kilobytes left the suite with a
 // SIGABRT— and on the board it would have been the kernel restarting in the middle of an app that only asked for
 // too much. The argument is the chunk and the answer is the thread (docs/20, docs/75).
 int make_the_task(lua_State* L) {
@@ -10385,7 +10385,7 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_budget_pending = false;
   g_budget_yielded = false;
   g_call_split = false;
-  // **The count hook is installed on every band**: the same hook prices the instructions on the bench and
+  // **The count hook is installed on every band**: the same hook prices the instructions on the emulator and
   // enforces the turn budget on the board, where an instruction costs what it costs and there is nothing to
   // simulate (docs/20, docs/85). The call/return hooks are the meter of the API.
   lua_sethook(g_state, &meter_hook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, kHookInstructions);
@@ -10902,7 +10902,7 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   const bool menu_bar = ui_field_bool(L, object, "__menu_bar", false);
   // **The grid takes the arrows too, and it was missing from this list**: the walk of the dial asked it, the grid
   // answered that it did not take the key because the answer was decided here, before its own branch, and the cells
-  // never moved on a page that had a grid (found on the bench, 3/11).
+  // never moved on a page that had a grid (found on the emulator, 3/11).
   const bool grid = ui_field_bool(L, object, "__icon_grid", false);
   // **A strip of tabs is not in this list any more** (0.99.0): its arrows are the walk of the dial, which lands on
   // one tab at a time and goes out of the strip at either end, and the centre chooses the one it is on. A strip that
@@ -11270,7 +11270,7 @@ void caret_poll() {
   caret_set_field(g_state, -1, g_caret_on);
   // **A blink repaints the block and nothing else** (0.168.2): the box of the caret the last draw put down is the part of
   // the control that has changed, and the rule of this project is that a control repaints the part that changed. Before
-  // this, every blink marked the **whole** box of the text —fifteen paints in twelve seconds on the bench where five were
+  // this, every blink marked the **whole** box of the text —fifteen paints in twelve seconds on the emulator where five were
   // owed— and on the board that is a page redrawn for a letter (docs/30, docs/90).
   uint16_t caret_x = 0;
   uint16_t caret_y = 0;

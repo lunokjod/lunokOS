@@ -1,6 +1,6 @@
 # Chooses the window backend of the emulator, without making SDL2 a hard dependency of a machine that
 # only has X11. `LUNOK_GUI=sdl|x11|none` forces one; the default `auto` prefers SDL2 because it is the
-# portable one and falls back to Xlib, then to a bench with no window (docs/85).
+# portable one and falls back to Xlib, then to an emulator with no window (docs/85).
 Import("env")
 
 import os

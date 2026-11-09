@@ -20,14 +20,15 @@ Regles de la casa, que valen per a tots els números d'aquí:
 ### A-1 · D'on ve l'hora i què pot despertar la placa (1 minut)
 
 ```
-run clock
 lua
+console.print('now ' .. time.now() .. ' from ' .. time.caps().source
+  .. ' (wake ' .. time.caps().wake .. ')')
 console.print('wake ' .. power.caps().wake .. ' source ' .. time.caps().source)
 exit
 ```
 
-`run clock` comença dient `now … from rtc (wake yes)` —el `wake` de `time.caps()` només diu si la
-placa pot despertar d'algun rellotge—, i la línia de `lua` és la que dona les paraules: ha de dir
+La primera línia ha de dir `from rtc` —el `wake` de `time.caps()` només diu si la placa pot despertar
+d'algun rellotge—, i la segona és la que dona les paraules: ha de dir
 **`wake timer, clock source rtc`**. Si diu `soc` o `none` en comptes de `rtc`, la BM8563 no s'ha
 llegit i **no val la pena mesurar res més d'aquesta secció** fins que això es digui `rtc`.
 
@@ -44,8 +45,10 @@ xip la torna a encendre**, i **quant deriva** el quars del xip.
 
 ```
 power idle on
-run alarmset
-600
+lua
+alarm.at({in_ms = 600000, raise = true, persist = true})
+power.sleep({mode = 'deep', in_ms = 600000})
+exit
 ```
 
 I tot seguit **desendolla el cable USB** (si no el desendolles, la placa no cau i el que es mesura
@@ -80,8 +83,10 @@ El comptador del xip, quan l'espera passa de 255 s, compta **minuts sencers** i 
 un minut abans (docs/60). Cal saber-ho de debò per decidir si val la pena armar 255 s + la resta.
 
 ```
-run alarmset
-330
+lua
+alarm.at({in_ms = 330000, raise = true, persist = true})
+power.sleep({mode = 'deep', in_ms = 330000})
+exit
 ```
 
 (330 s són 5,5 minuts: el pla és de 6 minuts de rellotge.) Un cop despert:
@@ -111,22 +116,31 @@ i, abans que passin deu minuts, **prémer PWR** (o posar el cable):
 ### A-5 · La precisió de l'entrega amb el sistema despert (2 minuts)
 
 ```
-run clock
+lua
+local t0 = time.now_ms()
+alarm.after(2000)
+--
+print('late ' .. (time.now_ms() - t0 - 2000) .. ' ms')
+exit
 ```
 
 | Què apuntar | On va |
 |---|---|
-| `alarm 1: ring, late N ms, missed 0` — el número de mil·lisegons | `docs/60` §Precisió |
+| El número de mil·lisegons (`late N ms`) | `docs/60` §Precisió |
 
 **Fet el 31/10 al Paper: `late 0 ms`.**
 
 ### A-6 · El son de vint segons des d'una app (2 minuts)
 
 ```
-run rtccheck
+lua
+local t0 = time.now_ms()
+power.sleep({mode = 'deep', in_ms = 20000}):await()
+print('the wake was ' .. (time.now_ms() - t0 - 20000) .. ' ms off (positive is late)')
+exit
 ```
 
-Dorm vint segons i, en tornar, diu `the wake was N ms off (positive is late)`.
+Dorm vint segons i, en tornar, diu quant s'ha desviat el despert.
 
 | Què apuntar | On va |
 |---|---|
@@ -205,13 +219,14 @@ hexdump /fram
 Respon si el divisor ×2 de GPIO35 i l'ADC diuen la veritat (docs/50).
 
 1. Amb la bateria **plena** (o carregada fa poc): punta al `BAT` i al `GND`, apuntar mV.
-2. `run battery` (diu `3900 mV, 70 %, [###…]` i `charging: the board cannot tell`).
+2. `lua` i `power.battery()` (diu `mv`, `pct` i `charging`; `charging` pot ser `nil`, que vol dir
+   «aquesta placa no ho sap»).
 3. Repetir **a mitges** (que baixi una estona).
 
 | Què apuntar | On va |
 |---|---|
 | mV multímetre / mV que diu el sistema / % de la corba, als dos punts | `docs/50` (fila Bateria), `docs/90` pas 5 |
-| **Què costa llegir-la**: la fila `power.battery` de `stats` (al banc són **400 µs** de quatre conversions d'ADC i ~1 ms de caracterització la primera vegada) | `docs/50`, `docs/85` |
+| **Què costa llegir-la**: la fila `power.battery` de `stats` (a l'emulador són **400 µs** de quatre conversions d'ADC i ~1 ms de caracterització la primera vegada) | `docs/50`, `docs/85` |
 | Si cal corregir el factor (avui `{35, 2}` a `lib/hal_paper/`) | Una línia del HAL |
 
 **Vist el 31/10, amb el cable posat (o sigui carregant)**: `4246 mV, 100 %`. Els 4 246 mV són per
@@ -265,7 +280,7 @@ targeta (docs/90 pas 7).
 
 ### D-1 · La latència del port sèrie (2 minuts)
 
-Amb l'app `ping` al disc i la placa al prompt:
+Amb una app que respon `pong` al disc i la placa al prompt:
 
 ```
 tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
@@ -282,13 +297,15 @@ tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
 ```
 wifi scan
 ntp
-run clock
 http https://example.com
 ```
 
+I, després de `ntp`, `lua` amb `console.print(time.caps().source)` per veure si l'hora ve del `rtc` o
+del `soc`.
+
 | Què apuntar | On va |
 |---|---|
-| Si `ntp` posa l'hora (i `run clock` ja no diu `from soc`), el codi HTTP i quants bytes | `docs/90` pas 6 (ja donat per bo; això és la comprovació) |
+| Si `ntp` posa l'hora (i `time.caps().source` ja no diu `soc`), el codi HTTP i quants bytes | `docs/90` pas 6 (ja donat per bo; això és la comprovació) |
 
 ---
 
@@ -300,28 +317,45 @@ La llibreria del fabricant es contradiu entre el capçalari i el README, i això
 de dalt diu `up` o `down` (docs/90 pas 3).
 
 ```
-run keys
+button
+lua
+while true do
+  local b = button.read()
+  if b then console.print(b) end
+  sys.delay(50)
+end
+exit
 ```
 
-L'app dona una funció a cada **posició** i diu on has premut, així que n'hi ha prou de prémer les tres
+El bucle dona una funció a cada **posició** i diu on has premut, així que n'hi ha prou de prémer les tres
 tecles **una per una** (no calen tres dits alhora: cada premuda surt a la consola) i llegir què diu.
+`button` al prompt, sol, ja diu quina tecla és premuda en aquest moment.
 
 | Què apuntar | On va |
 |---|---|
-| Per a cada tecla (esquerra, centre/PWR, dreta): què diu `run keys` (`up`, `down` o el mig). Si la de dalt diu `down`, s'intercanvien dues línies de `kKeys` a `lib/hal_paper/` | `docs/50` (taula `kKeys`), `docs/90` pas 3 |
+| Per a cada tecla (esquerra, centre/PWR, dreta): què diu el bucle (`up`, `down` o el mig). Si la de dalt diu `down`, s'intercanvien dues línies de `kKeys` a `lib/hal_paper/` | `docs/50` (taula `kKeys`), `docs/90` pas 3 |
 
 ### E-2 · La memòria de debò (2 minuts)
 
 ```
 mem
-run burst
+lua
+local t0, peak = sys.time_ms(), 0
+for i = 1, 100 do
+  sys.delay(1)
+  local used = sys.heap().used
+  if used > peak then peak = used end
+end
+console.print('100 waits in ' .. (sys.time_ms() - t0) .. ' ms')
+console.print('heap used ' .. sys.heap().used .. ' B, peak ' .. peak .. ' B')
+exit
 ```
 
 | Què apuntar | On va |
 |---|---|
-| `free heap`, `min free heap` i `largest block` al prompt; i el que diu `burst` (`heap used`, `peak`, `limit`) | `docs/75` §1 i §2 |
+| `free heap`, `min free heap` i `largest block` al prompt; i el que diu el bucle (`heap used`, `peak`) | `docs/75` §1 i §2 |
 
-**Fet el 31/10 al Paper**: `run burst` → `100 waits in 101 ms`, `heap used 37 883 B, peak 37 883 B`.
+**Fet el 31/10 al Paper**: `100 waits in 101 ms`, `heap used 37 883 B, peak 37 883 B`.
 El `limit 65 536 B` que sortia llavors era el sostre per defecte, perquè **la mesura és d'abans de la
 0.7.0**: des de la 0.7.0 el Paper contesta **4 194 304 B** (la PSRAM mapejada, docs/75) i aquesta
 línia és la que s'ha de tornar a llegir.
@@ -347,16 +381,15 @@ despert amb precisió de mil·lisegons (el de A-6 i el de A-2).
 
 ```
 mem
-run burst
 lua
 console.print('extra ' .. sys.heap().extra_total .. ' free ' .. sys.heap().extra_free)
+local t = {}
+for i = 1, 60000 do t[i] = i end
+console.print('holding ' .. #t)
+t = nil
+collectgarbage()
+console.print('free ' .. sys.heap().extra_free)
 exit
-```
-
-I una app que demani un megabyte de debò, que ja és al disc (`apps/heap/`):
-
-```
-run heap
 ```
 
 Ha de dir `holding 60000` i, després, que la memòria ha tornat.
@@ -370,23 +403,28 @@ Ha de dir `holding 60000` i, després, que la memòria ha tornat.
 **`extra memory 4067 of 4095 KB free (psram)`** (abans deia `of 8192`, que era el xip i no el que es pot
 mapejar). Des de la **0.8.1** la línia diu els **tres** números —`4067 of 4095 KB usable, of 8192 KB on
 the chip`— perquè el primer que es va veure a la placa va ser una contradicció (docs/75). Queda la
-segona meitat: **`run heap`** i veure `holding 60000`.
+segona meitat: la taula de 60 000 enters i veure `holding 60000`.
 
-**Comprovat al banc el 31/10 amb la 0.8.1** (179 de 179 proves i els tres builds en `SUCCESS`):
+**Comprovat a l'emulador el 31/10 amb la 0.8.1** (179 de 179 proves i els tres builds en `SUCCESS`):
 `test_the_extra_memory_is_there_for_any_app` mesura el xip a **8 388 608 B** i el que la CPU adreça a
 **4 194 304 B**, i l'app d'un megabyte hi cap. El que falta és el mateix número **llegit a la placa**.
 
 ### E-5 · L'aire (2 minuts)
 
 ```
-run air
+lua
+while true do
+  console.print(string.format('air %.1f C %.1f %%', env.read()))
+  sys.delay(2000)
+end
+exit
 ```
 
 Ha de dir `air 21.5 C 48.0 %` cada dos segons (els números són els que doni la sala).
 
 | Què apuntar | On va |
 |---|---|
-| Que `caps` digui **`env yes`** al Paper i que `run air` doni una temperatura i una humitat que **quadrin amb un termòmetre** de la mateixa sala (±1 °C i ±5 %) | `docs/50` (fila SHT30), `docs/30` (§`env`) |
+| Que `caps` digui **`env yes`** al Paper i que `env.read()` doni una temperatura i una humitat que **quadrin amb un termòmetre** de la mateixa sala (±1 °C i ±5 %) | `docs/50` (fila SHT30), `docs/30` (§`env`) |
 | Si `caps` diu `env no`, el xip no ha contestat: mirar el log (`i2c: …`) abans de culpar el driver | `docs/50` |
 
 **Si el número no quadra** amb el termòmetre, no es canvia la fórmula: el full de dades del SHT30 és
@@ -403,7 +441,8 @@ i2c: read of 44 failed (ESP_ERR_TIMEOUT)
 
 lunok> caps
   env  no
-lunok> run air
+lunok> lua
+lua> console.print(string.format('air %.1f C %.1f %%', env.read()))
 this board has no ambient sensor
 ```
 
@@ -421,7 +460,8 @@ sd: /sd mounted, 15193 MB
 
 lunok> caps
   env  yes          (14 de 18: la fila passa de «no» a «sí»)
-lunok> run air
+lunok> lua
+lua> console.print(string.format('air %.1f C %.1f %%', env.read()))
 air 21.1 C 63.5 %
 air 21.1 C 63.5 %
 ```
@@ -465,7 +505,7 @@ dreta— que està explicat a `docs/50` i té prova al PC. La línia de consola 
 (0.18.2): una línia per toc no és una consola que es pugui fer servir. Per a una altra placa o un altre
 panell, es torna a posar allà mateix.
 
-**L'1/11 amb la 0.19.0, l'app `glass`** (un minut de dit a sobre del vidre): la línia de l'arrencada és la
+**L'1/11 amb la 0.19.0, una app que llegia el panell** (un minut de dit a sobre del vidre): la línia de l'arrencada és la
 de dalt, i el que va dir la consola és el que es volia veure:
 
 ```
@@ -476,11 +516,11 @@ long at 294,171 after 1002 ms
 
 Tres coses queden mesurades aquí: **els dos punts alhora** (el xip en dona dos i la crida els torna tots dos,
 cadascun amb la seva mida de contacte), **el gest de prémer llarg** amb la seva durada —1002 ms, o sigui que
-el llindar de 1000 ms es compleix amb la dada de la placa i no amb la del banc— i **que els punts no es
+el llindar de 1000 ms es compleix amb la dada de la placa i no amb la de l'emulador— i **que els punts no es
 congelen**: mentre el dit no es mou les coordenades es repeteixen (és el que ha de fer), i es mouen de
 seguida que el dit es mou.
 
-**El banc ja simula el xip (1/11, 0.24.0)**: `--touch` dona al banc un GT911 en el marc d'aquesta unitat
+**L'emulador ja simula el xip (1/11, 0.24.0)**: `--touch` dona a l'emulador un GT911 en el marc d'aquesta unitat
 —540 × 960, dos dits, mides 28 i 30— que costa **800 µs per torn sense dit i 2 550 amb dos** (tres
 transaccions a 100 kHz) i que **dona el marc una vegada per escombrat**, o sigui que un lector més ràpid
 que el vidre llegeix «ningú» (docs/85). Les dues coses que falten aquí es poden comparar amb ell: la fila
@@ -489,7 +529,7 @@ que el vidre llegeix «ningú» (docs/85). Les dues coses que falten aquí es po
 | Què apuntar | On va |
 |---|---|
 | **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que conta el dit | `docs/50` |
-| **El cost d'una lectura**: `stats` i apuntar la fila `touch.read`. Al banc són **800 µs** per torn sense dit i **1 830 amb un dit** (l'estat, el marc i el zero, a 100 kHz, docs/50) i a la placa ha de ser el mateix o més, perquè el bus és compartit amb el rellotge, la FRAM i el SHT30 | `docs/50`, `docs/75` |
+| **El cost d'una lectura**: `stats` i apuntar la fila `touch.read`. A l'emulador són **800 µs** per torn sense dit i **1 830 amb un dit** (l'estat, el marc i el zero, a 100 kHz, docs/50) i a la placa ha de ser el mateix o més, perquè el bus és compartit amb el rellotge, la FRAM i el SHT30 | `docs/50`, `docs/75` |
 | Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
 
 ### E-7 · El panell: el handshake i la primera pàgina (5 minuts)
@@ -511,7 +551,7 @@ comproven a ull.
 **I la pàgina surt recta amb la 0.13.0** (dit a la placa l'1/11): el marc, l'escala de 16 nivells i els
 cinc quadres arriben sencers després d'enviar **un sol preàmbul de dades per trama** en lloc d'un per
 mot. El que encara no està mesurat és el temps del `gc16` i el sentit dels nivells: el número que dirà
-`run panel` quan es torni a córrer.
+una pàgina de prova quan es torni a córrer.
 
 Abans d'això, el handshake va fallar de quatre maneres i cadascuna té el seu nom al log. Serveix per
 no tornar-hi:
@@ -532,13 +572,12 @@ no tornar-hi:
 | `LISAR` (mot alt) | `+ 0x000A` | **0x020A** | escrivia a `0x0202` |
 | `LUTAFSR` | `DISPLAY_REG_BASE (0x1000) + 0x0224` | **0x1224** | preguntava a `0x0000`, així que `display.idle()` no s'acabava mai |
 
-**L'1/11 amb la 0.19.0, l'app `panel`**:
+**L'1/11 amb la 0.19.0, la pàgina de prova** (un marc, una escala de 16 nivells i cinc quadres):
 
 ```
 panel: 540x960 turned 270 (glass 960x540), image at 0x001236e0, words 03c0 021c 36e0 0012
 ui: view 540x932 at 0,28, 251640 bytes of canvas
 
-lunok> run panel
 view 540 x 932 at 0,28, 16 levels
 2 region(s) with damage
 paint asked; waiting for the glass
@@ -581,7 +620,7 @@ pintat de `gc16` de l'escala. Són **dos pintats seguits** i no un.
 **I el número no quadra amb el fabricant, i això és el resultat**: 450 ms per a un `gc16` de pàgina sencera
 voldrien dir uns 0,6 s per a aquesta pàgina, i el que s'ha mesurat és **tres o quatre vegades més**. No se
 sap encara si el que costa és **el motor, l'enviament o les dues coses**, i la mesura que ho separa és
-l'app `squares`: pinta **una sola qualitat per `present`** i des de la 0.19.3 imprimeix
+un quadrat de prova: pinta **una sola qualitat per `present`** i des de la 0.19.3 imprimeix
 `painted with du in N ms` i `erased with du in N ms` d'un quadrat de 40 × 40 —uns 800 B de transferència,
 o sigui que el que surti allà és **el motor i prou**—. Amb els dos números al costat, el que queda és
 l'enviament, i es pot atacar a part (l'amplada del bus i les trames per fila, `docs/50`).
@@ -589,12 +628,12 @@ l'enviament, i es pot atacar a part (l'amplada del bus i les trames per fila, `d
 **Què s'hi ha de veure, i què no.** El número **inclou els dos pintats de la pàgina** (la de `du` i
 després la de `gc16`, que no poden anar alhora), o sigui que el que s'ha d'esperar és la **suma**: uns
 120 + 450 = **570 ms** si els números del fabricant són els d'aquesta unitat. Per separar-los, la prova
-és pintar **una sola qualitat** per `present` (una app de tres línies, o `squares`, que ja pinta d'un
-mode cada vegada).
+és pintar **una sola qualitat** per `present` (una app de tres línies, o el quadrat de prova, que ja
+pinta d'un mode cada vegada).
 
-**El banc el descompon, i el que en surt és una pista i no una resposta (1/11, 0.23.0)**: el model de la
+**L'emulador el descompon, i el que en surt és una pista i no una resposta (1/11, 0.23.0)**: el model de la
 tinta (`docs/85`) fa aquesta pàgina amb **1 954 ms** —570 de tinta, 1 227 de cable i files per al `du` de
-la vista (540 × 932) i 157 per al `gc16` de l'escala—, **1 970 ms** el camí sencer mesurat al banc el
+la vista (540 × 932) i 157 per al `gc16` de l'escala—, **1 970 ms** el camí sencer mesurat a l'emulador el
 mateix dia, i per quadrar-la amb els 1 985 de la placa li cal suposar que **una fila costa un mil·lisegon
 fora del cable**. Aquest mil·lisegon és el que no està mesurat, i les dues preguntes que el tanquen són
 quant costa un `spi_device_transmit` d'una fila de 480 B i quantes files caben en una sola transacció. La
@@ -602,15 +641,14 @@ prova que ho separa és pintar **una línia fina al llarg de tot el vidre** (960
 byte) i una **columna fina** (2 × 960, o sigui una fila de 270 bytes per cada costat): si la columna surt
 molt més cara que la línia, el que es paga és la fila; si surten igual, el que es paga és el byte.
 
-**I una segona cosa que aquest run ha destapat**: la pàgina de `panel` es dibuixava amb **`du4`** —la vora,
+**I una segona cosa que aquest run ha destapat**: aquella pàgina es dibuixava amb **`du4`** —la vora,
 el blanc i els quadres— i `du4` és, precisament, un dels modes que aquí dalt està mesurat com a **no pinta**.
-La pàgina que es veu a la placa amb aquella versió pot ser la de l'app anterior. Des de la 0.19.1 l'app fa
-servir `du` per a les regions ràpides i `gc16` per a l'escala.
+La pàgina que es veu a la placa amb aquella versió pot ser la de la versió anterior. Des de la 0.19.1 la
+pàgina fa servir `du` per a les regions ràpides i `gc16` per a l'escala.
 
-**L'1/11 amb la 0.19.1, la mateixa app amb `du`** (i mirant el vidre):
+**L'1/11 amb la 0.19.1, la mateixa pàgina amb `du`** (i mirant el vidre):
 
 ```
-lunok> run panel
 view 540 x 932 at 0,28, 16 levels
 2 region(s) with damage
 paint asked; waiting for the glass
@@ -621,7 +659,7 @@ La sortida és la mateixa —**dues regions**, perquè les regions del mateix mo
 vora amb `du` d'un costat, l'escala amb `gc16` de l'altre— i **la pàgina hi és sencera**: dit per qui mira
 el vidre, «no veig cap problema al redibuixat». O sigui que qui no pintava era **el mode** i no el camí de
 la composició ni la mida de la vista, i el que la 0.19.1 canvia és el mode. `du4` continua com a mesura
-dient el que deia `squares` (no va pintar), i **no s'ha tornat a provar** amb aquesta app: si algun dia es
+dient el que va dir el quadrat de prova (no va pintar), i **no s'ha tornat a provar** amb aquesta pàgina: si algun dia es
 vol saber si pinta «a vegades», la prova és pintar dues meitats de la pàgina, una amb cada mode, i mirar
 quina hi és.
 
@@ -629,17 +667,17 @@ Què apuntar:
 
 | Què apuntar | On va |
 |---|---|
-| **Si la pàgina surt recta**: `run panel` dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
+| **Si la pàgina surt recta**: una pàgina de prova dibuixa un marc, una escala de 16 nivells i cinc quadres. El primer cop (1/11) va sortir **torçada**, i no era l'adreça de la imatge: era que s'enviava un `0x0000` davant de **cada** mot dins d'una trama amb el CS aguantat, o sigui el doble de bytes per fila. El fabricant ho pot fer perquè aixeca el CS a cada parell de mots i el controlador es resincronitza allà (vegeu `docs/50`, «El CS no es queda baix…») | `docs/50` |
 | **El sentit dels nivells**: el fabricant deixa la pantalla blanca escrivint `0x0000FFFF` a la gram, o sigui que **15 és blanc i 0 és negre** en aquest controlador | `docs/50`, `docs/30` (§`display`) |
-| **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb l'app `squares` i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió. **L'app `squares` esborra amb `du` a posta** (4/11): és una app sobre el dany, i amb `gc16` a cada quadrat la pàgina acabava **més neta del que havia començat** —el rastre que havia de deixar el tornava a treure ella mateixa—; ara un quadrat de cada vint esborra amb `gc16`, perquè les dues qualitats es vegin al costat. **El banc és més optimista que aquesta unitat**: simula el parpelleig d'`a2` i el rastre de `du4` del full del fabricant, i aquí el que cal és tornar a mirar si el vidre els fa (docs/85) | `docs/50` |
-| **Quant fantasma deixa un `du`, en nivells**: pintar un esglaó de setze nivells amb `gc16`, repintar-lo de blanc amb `du` (`run ghost` fa exactament això) i mirar quina diferència queda entre les bandes. És el número que fixa `keep_of_16` a `emu_ink.cpp`: avui **cinc setzens** al `du` i **set** al `du4`, amb un sostre de brutícia d'**onze setzens** (docs/85). I el gra: vuit píxels de cada mil fallen un nivell o dos | `docs/50`, `docs/85` |
-| **El temps d'un `gc16`**: `run panel` diu `the ink took N ms`, comptat **des d'abans del `present`** fins que `ui.idle()` diu que sí. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`, i la pàgina porta **dos pintats** (du i gc16), o sigui que el número és la suma. La primera lectura de `LUTAFSR` no servia —el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` l'1/11 amb la pàgina encara movent tinta— i des de la 0.19.2 el conductor no deixa respondre abans de 20 ms | `docs/50`, `docs/75` |
+| **Quin mode es pot fer servir de debò.** Mesurat l'1/11 amb un quadrat de prova i la imatge de 4 bits: `gc16` pinta (la pàgina sencera va sortir blanca i recta) i **`du` pinta però no neteja** —un quadrat negre esborrat amb `du` deixa el rastre gris i, al cap d'una estona, la pàgina té zones més fosques i les vores de les vegades anteriors—. **`du4` i `a2` no van pintar res**: el `present` responia `true` i el vidre no canviava. Conseqüència pràctica: pintar amb `du` i **esborrar amb `gc16` sobre la mateixa regió** és el que deixa el blanc net costant només la regió. **El quadrat de prova esborra amb `du` a posta** (4/11): la pàgina és sobre el dany, i amb `gc16` a cada quadrat acabava **més neta del que havia començat** —el rastre que havia de deixar el tornava a treure ella mateixa—; ara un quadrat de cada vint esborra amb `gc16`, perquè les dues qualitats es vegin al costat. **L'emulador és més optimista que aquesta unitat**: simula el parpelleig d'`a2` i el rastre de `du4` del full del fabricant, i aquí el que cal és tornar a mirar si el vidre els fa (docs/85) | `docs/50` |
+| **Quant fantasma deixa un `du`, en nivells**: pintar un esglaó de setze nivells amb `gc16`, repintar-lo de blanc amb `du` i mirar quina diferència queda entre les bandes. És el número que fixa `keep_of_16` a `emu_ink.cpp`: avui **cinc setzens** al `du` i **set** al `du4`, amb un sostre de brutícia d'**onze setzens** (docs/85). I el gra: vuit píxels de cada mil fallen un nivell o dos | `docs/50`, `docs/85` |
+| **El temps d'un `gc16`**: una pàgina que compti els mil·lisegons del seu `present` diu `the ink took N ms`, comptat **des d'abans del `present`** fins que `ui.idle()` diu que sí. El fabricant documenta **450 ms** per a `GC16` i **290 ms** per a `A2`, i la pàgina porta **dos pintats** (du i gc16), o sigui que el número és la suma. La primera lectura de `LUTAFSR` no servia —el motor no es marca ocupat en el mateix instant, i la mesura va dir `0 ms` l'1/11 amb la pàgina encara movent tinta— i des de la 0.19.2 el conductor no deixa respondre abans de 20 ms | `docs/50`, `docs/75` |
 | **El `init`**: el primer `kInit` és el de dos segons i el que neteja la fantasma; no s'ha de fer servir per a res més | `docs/30` |
 
 ### E-8 · La capa de controls a la placa (5 minuts)
 
 El que es mesura aquí és **que la composició i el dany no depenguin del vidre**: les mateixes línies a la
-placa que al banc. La línia de l'arrencada
+placa que a l'emulador. La línia de l'arrencada
 diu la mida de la vista i quants bytes té el canvas de l'app:
 
 ```
@@ -650,7 +688,7 @@ Són **540 × 932** (960 menys els 28 de la barra d'aleshores) i **251 640 B**, 
 que `docs/75` comptava per a una pàgina de quatre bits: `540 × 932 / 2`. **Des de la 0.52.0** la barra fa
 48 files, la vista és **540 × 912** i el canvas **246 240 B**; la mesura de sota és la de l'1/11.
 
-**L'1/11 amb la 0.19.0, `run layers` a la placa**:
+**L'1/11 amb la 0.19.0, dos canvas i un botó a la placa**:
 
 ```
 layers: view 540 x 932 at 0,28
@@ -667,7 +705,7 @@ layers: after the dot went away, canvas (gone)
 `canvas (gone)`. O sigui que la capa de controls no depèn del vidre: el que es prova al PC és el que passa a
 la placa.
 
-**I `run squares` amb la 0.19.0**, que és el dany en mans de l'app:
+**I el quadrat de prova amb la 0.19.0**:
 
 ```
 square at 443,110 44x44 (du), 1 region(s) with damage
@@ -701,11 +739,11 @@ lunok> stats
 | `turns` alt amb `kernel` baix | el nucli dona moltes voltes curtes: el que espera és un esdeveniment |
 | `lua.own` d'un bucle conegut | **el preu d'una instrucció d'aquest intèrpret**: un bucle de deu mil sumes i la fila `lua.own` dona els ns per instrucció que s'han de posar a `--lua-cpu` (avui el model en diu **60 ns a 160 MHz**, docs/85) |
 
-**Què diu el banc i què no**: des de la 0.26.0 el banc **paga els temps de cada dispositiu** —blocs de
+**Què diu l'emulador i què no**: des de la 0.26.0 l'emulador **paga els temps de cada dispositiu** —blocs de
 flash i sectors de targeta, el bus i la tinta del panell, les tres transaccions del tàctil, les quatre
 conversions del gauge— i des de la 0.29.0 **també el codi de l'app** a la freqüència simulada, o sigui
 que les files `flash.read`, `glass.flush`, `touch.read`, `power.battery` i `lua.own` es poden comparar
-directament amb les de la placa. El que el banc **no** pot dir és el que no modela: el consum, la
+directament amb les de la placa. El que l'emulador **no** pot dir és el que no modela: el consum, la
 freqüència real del xip i si el maquinari fa el que diu el full (docs/85).
 
 ---

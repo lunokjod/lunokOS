@@ -100,7 +100,7 @@ Options::Options()
       gui(false),
       gui_scale(0),
       ink(0),
-      // **The panel of the bench is off unless the run asked for it**: a bench nobody is touching does
+      // **The panel of the emulator is off unless the run asked for it**: an emulator nobody is touching does
       // not read a bus once a turn, and a test wants a board that answers nothing here (docs/85).
       touch(false),
       touch_scan_ms(0),
@@ -112,7 +112,7 @@ Options::Options()
       persist(false),
       // **The app's own code is CPU time and it is not free on the glass**: sixty nanoseconds an
       // instruction at 160 MHz is the model's number, and `main` turns it on with the rest of the times
-      // (-1 is "the bench's own number" and 0 is "free") (docs/85).
+      // (-1 is "the emulator's own number" and 0 is "free") (docs/85).
       lua_ns_160(-1),
       wifi_ms(300),
       wifi_absent(false),
@@ -151,7 +151,7 @@ void set_options(const Options& opts) { g_options = opts; }
 const char* active_board() {
   const char* asked = g_options.board;
   if (asked == nullptr || asked[0] == '\0') return board::default_model();
-  // A name that is not one of the models is not a board this bench can be, and the
+  // A name that is not one of the models is not a board this emulator can be, and the
   // option is checked when it is parsed; this is the belt for a caller that set the
   // struct by hand, and the default is the honest answer there too.
   for (uint32_t i = 0; i < board::models_count(); ++i) {
@@ -162,7 +162,7 @@ const char* active_board() {
 }
 
 namespace {
-// The bench has three keys: key 0 is the ATOM's only button and the Paper's
+// The emulator has three keys: key 0 is the ATOM's only button and the Paper's
 // middle one, and keys 1 and 2 are the Paper's sides (docs/50, docs/85).
 const int kEmuKeys = 3;
 bool g_key_down[kEmuKeys] = {false, false, false};
@@ -200,8 +200,8 @@ uint32_t i2c_us(uint32_t bytes) { return bytes * kI2cByteUs; }
 // time, at ninety microseconds a byte (docs/50, docs/60).
 const uint32_t kRtcBusBytes = 10;
 
-// The hardware of this bench is `emu::model()`, which is the model `--board` named: one list and
-// not two, because a bench that answers for another board teaches the wrong thing (docs/85).
+// The hardware of this emulator is `emu::model()`, which is the model `--board` named: one list and
+// not two, because an emulator that answers for another board teaches the wrong thing (docs/85).
 int64_t mono_ms() {
   const auto now = std::chrono::steady_clock::now().time_since_epoch();
   return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
@@ -229,7 +229,7 @@ class HostClock : public IClock {
     // **The hour a board comes back with**: a chip with a coin cell behind it kept it while the board
     // was off, and `--persist` is a board that was never unplugged at all, so the run starts at the
     // hour the run before left. A board with neither starts at zero —a board nobody has set— which is
-    // what the bench did before and what the hardware is (docs/50, docs/60, docs/85).
+    // what the emulator did before and what the hardware is (docs/50, docs/60, docs/85).
     if (opts.persist || emu::model().keeps_the_hour) {
       const int64_t kept = emu::load_clock_ms();
       if (kept > 0) {
@@ -242,11 +242,11 @@ class HostClock : public IClock {
     }
   }
 
-  // **The hour of the bench may be set after this clock exists** (0.152.5): the board has one clock and so has the
-  // bench —this object is built on the first turn of the process, which the comment on `host_clock` below explains—,
+  // **The hour of the emulator may be set after this clock exists** (0.152.5): the board has one clock and so has the
+  // emulator —this object is built on the first turn of the process, which the comment on `host_clock` below explains—,
   // so a case of the suite that asks for nine in the morning asked *after* the first boot had already built it with
   // the default options, and its board "never synced": the time clock opened with no day at all. The options are read
-  // here, where the hour is read, and only when they have changed, because a bench moved with `bench_advance_clock`
+  // here, where the hour is read, and only when they have changed, because an emulator moved with `emulator_advance_clock`
   // has to keep the hour it was moved to.
   int64_t epoch_ms() override {
     const int64_t wanted = emu::options().now_epoch;
@@ -336,11 +336,11 @@ HostClock& host_clock() {
 
 }  // namespace
 
-// The bench's clock, moved by hand. It is the only way a test can watch a five-second breath in a
+// The emulator's clock, moved by hand. It is the only way a test can watch a five-second breath in a
 // millisecond, and it moves **the same clock the kernel reads**, so an effect and the turn that
 // paints it agree (docs/30, docs/85). It is here and not in `emu` because the clock is this
 // translation unit's secret and the anonymous namespace is not reachable from outside.
-void bench_advance_clock(int64_t delta) { host_clock().advance_ms(delta); }
+void emulator_advance_clock(int64_t delta) { host_clock().advance_ms(delta); }
 
 namespace {
 
@@ -486,12 +486,12 @@ class FakeInput : public IInput {
     return mono_ms() - started_ms_[key];
   }
 
-  // The bench imitates the band of the Paper: one compound dial of three keys on
+  // The emulator imitates the band of the Paper: one compound dial of three keys on
   // the right face of the page, so an app that reads the positions can be tried on the PC
   // (docs/50, docs/85).
   Face face(uint32_t) override { return Face::kRight; }
   Spot spot(uint32_t key) override {
-    // The bench has the Paper's shape: a vertical dial of three keys (docs/85).
+    // The emulator has the Paper's shape: a vertical dial of three keys (docs/85).
     if (key == 1) return Spot::kUp;
     if (key == 2) return Spot::kDown;
     return Spot::kCentre;
@@ -535,7 +535,7 @@ class FakePower : public IPower {
     }
     mv = static_cast<int>(set);
     pct = static_cast<int>(battery_percent(mv));
-    // The bench is not on a cable any more than the Paper can tell: the same false and the
+    // The emulator is not on a cable any more than the Paper can tell: the same false and the
     // same warning in docs/30.
     charging = false;
     return true;
@@ -546,7 +546,7 @@ class FakePower : public IPower {
     if (at_epoch_ms > 0) {
       const int64_t now = host_clock().epoch_ms();
       int64_t jump = (now > 0) ? (at_epoch_ms - now) : 0;
-      // A bench told to come back early does it here, which is the button of the glass and the supply
+      // An emulator told to come back early does it here, which is the button of the glass and the supply
       // that blinked: the board lands before its hour and the kernel has to say so (docs/85).
       const int64_t early = emu::options().wake_early_ms;
       if (early > 0 && jump > early) jump -= early;
@@ -564,15 +564,15 @@ class FakePower : public IPower {
   // is not; the ATOMs have no chip and only know the timer (docs/50).
   const char* wakes() override { return emu::model().keeps_the_hour ? "timer, clock" : "timer"; }
 
-  // A board whose supply is cut stops being a board, and a bench whose supply is cut stops being a
+  // A board whose supply is cut stops being a board, and an emulator whose supply is cut stops being a
   // process: the answer is yes, the kernel leaves its loop, and the memories that are not a volume
   // go to their files on the way out, the same as they do after a deep sleep (docs/85). It is said
   // to stderr because it is this band talking about itself and not the system talking to a person.
   bool power_off() override {
-    // A board that cannot cut its own supply says no here as well: the bench answers what the model
+    // A board that cannot cut its own supply says no here as well: the emulator answers what the model
     // does and not what the PC could do (docs/85).
     if (!emu::model().powers_off) return false;
-    fprintf(stderr, "power: off (the bench ends; rtc.bin and fram.bin are written)\n");
+    fprintf(stderr, "power: off (the emulator ends; rtc.bin and fram.bin are written)\n");
     return true;
   }
 
@@ -634,7 +634,7 @@ class HostNet : public INet {
 
   bool wifi_scan_start() override {
     if (emu::options().wifi_absent) return false;
-    // A radio that turns the scan down and says why, for the bench of a board whose radio did not come
+    // A radio that turns the scan down and says why, for the emulator of a board whose radio did not come
     // up (0.118.10, docs/85).
     if (emu::options().refuse_why != nullptr) return false;
     scanning_ = true;
@@ -760,7 +760,7 @@ class HostNet : public INet {
   }
 
   // **The page is fetched for real unless the run asked for the canned one**: `http_get_start`
-  // hands the URL to a child of this bench and returns at once, and the body and the status are
+  // hands the URL to a child of this emulator and returns at once, and the body and the status are
   // read when that child is done. The child is `curl` and not the board: what the kernel measures
   // is still the queue, the deadline and the codes (docs/85).
   uint32_t http_get_start(const char* url, const HttpOpts& opts) override {
@@ -851,9 +851,9 @@ class HostNet : public INet {
     if (op == 0 || op != http_op_) return;
     free(http_body_);
     http_body_ = nullptr;
-    // **The kernel gave up on this page, or the run is over**: the download is the bench's and it
+    // **The kernel gave up on this page, or the run is over**: the download is the emulator's and it
     // stops with the answer, or a `curl` nobody reads would go on writing a file. SIGTERM first and
-    // SIGKILL if the tool is stuck, because a turn of the bench never waits on a dead page (docs/85).
+    // SIGKILL if the tool is stuck, because a turn of the emulator never waits on a dead page (docs/85).
     if (http_pid_ > 0) {
       kill(http_pid_, SIGTERM);
       int status = 0;
@@ -887,14 +887,14 @@ class HostNet : public INet {
   // link to a film does not fill this machine's temporary directory, and the bytes the caller asked
   // for are the ones that are read out of it. **A page that goes to a volume is bounded by the volume**
   // and not by a number of this file: the board refuses it when it does not fit where it was going, and
-  // the bench asks the unit how much room it has —with a gigabyte as a lid, because a filesystem reports
+  // the emulator asks the unit how much room it has —with a gigabyte as a lid, because a filesystem reports
   // its free space in blocks and a link to a film is not a page (docs/85).
   static const unsigned kRealBodyCeiling = 4u << 20;
   static const unsigned long long kRealFileCeiling = 1ull << 30;
   // What `curl` exits with when it is not on this machine at all.
   static const int kCurlMissing = 127;
 
-  // The temporary file of one download, made by `mkstemp` so two benches do not share a name.
+  // The temporary file of one download, made by `mkstemp` so two runs do not share a name.
   static bool make_temp(char* path, size_t cap) {
     const char* dir = getenv("TMPDIR");
     if (dir == nullptr || dir[0] == '\0') dir = "/tmp";
@@ -1192,7 +1192,7 @@ class HostNet : public INet {
   uint32_t http_max_bytes_ = 0;
   char http_url_[192];
   char* http_body_ = nullptr;
-  // The real fetch: the child of this bench that is asking for the page, and the two files it
+  // The real fetch: the child of this emulator that is asking for the page, and the two files it
   // leaves behind (docs/85).
   bool http_real_ = false;
   bool http_bad_scheme_ = false;
@@ -1211,13 +1211,13 @@ class EmulatorPlatform : public IPlatform {
   const char* family() const override { return board::family(); }
   bool emulator() const override { return board::emulator(); }
 
-  // One board, and it is the one this bench was told to be: an app is accepted or
+  // One board, and it is the one this emulator was told to be: an app is accepted or
   // refused here exactly as it would be on that board, which is the only way a manifest
   // tried on the PC means anything on the glass (docs/40, docs/85). The default of
   // IPlatform is already this answer, so there is nothing to override.
 
   const Caps& caps() const override {
-    // The bench can be told to be another board between two boots —`use_board` in the tests does
+    // The emulator can be told to be another board between two boots —`use_board` in the tests does
     // exactly that— and a cached answer from the model before would be a lie about the hardware: the
     // cache is keyed by the model, not by "already built once" (docs/85).
     const char* model = emu::model().name;
@@ -1255,8 +1255,8 @@ class EmulatorPlatform : public IPlatform {
       caps_.add(kCapRtcWake);
       // **The glass and the finger are the model's** (`Model::glass`, `Model::touch`): the Paper draws
       // and a finger goes through it, and the binary turns both on unless the run says no. Without this
-      // line an app that asks `sys.caps().display` was told no on a bench that had one, while the view
-      // behind it was there and the boot line said so (found running `layers` on the bench, 1/11).
+      // line an app that asks `sys.caps().display` was told no on an emulator that had one, while the view
+      // behind it was there and the boot line said so (found running `layers` on the emulator, 1/11).
       if (emu::model().glass && emu::options().display) caps_.add(kCapDisplay);
       if (emu::model().touch && emu::options().touch) caps_.add(kCapTouch);
       // The light and the sensor are the hardware of the model and of nobody else (docs/50).
@@ -1313,7 +1313,7 @@ class EmulatorPlatform : public IPlatform {
   }
   ISurface* display() override {
     // **The glass of the model**: the Paper draws on a panel and the ATOMs have no screen, so an option
-    // cannot make one appear — a bench of an ATOM with a glass is a board nobody can buy. The binary
+    // cannot make one appear — an emulator of an ATOM with a glass is a board nobody can buy. The binary
     // turns `Options::display` on for a model that has one (docs/85).
     if (!emu::model().glass || !emu::options().display) return nullptr;
     return emu::memory_surface();
@@ -1339,7 +1339,7 @@ class EmulatorPlatform : public IPlatform {
     return &instance;
   }
   uint32_t simulated_instruction_ns() override {
-    // **The instructions of the app at the frequency the board is set to**: a bench that is not paying the
+    // **The instructions of the app at the frequency the board is set to**: an emulator that is not paying the
     // times of the hardware does not pay these either, and a board is not asked because its instruction
     // already takes the time it takes (docs/85). 160 MHz is the frequency every board of this family
     // starts at, and the number the option is given is the cost at that speed.
@@ -1360,7 +1360,7 @@ class EmulatorPlatform : public IPlatform {
  private:
   mutable Caps caps_;
   mutable bool built_ = false;
-  // Which model the cached capabilities are about. A board is a board and the bench changes which
+  // Which model the cached capabilities are about. A board is a board and the emulator changes which
   // one it is, so the answer has a name attached (docs/85).
   mutable const char* built_for_ = nullptr;
 };
@@ -1405,8 +1405,8 @@ bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b) {
   return static_cast<hal::FakeLed*>(light)->light(index, r, g, b);
 }
 
-// The bench's clock, moved by hand: a test that watches a five-second breath does not wait
+// The emulator's clock, moved by hand: a test that watches a five-second breath does not wait
 // five seconds for it (docs/30, docs/85).
-void advance_ms(int64_t delta) { hal::bench_advance_clock(delta); }
+void advance_ms(int64_t delta) { hal::emulator_advance_clock(delta); }
 
 }  // namespace emu

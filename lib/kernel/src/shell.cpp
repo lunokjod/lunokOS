@@ -73,7 +73,7 @@ const size_t kPrintCap = 1024;
 // chart and the page, with the comments that say why each number is what it is— and the 32 KB cap said no to an app
 // that fits the board. What it costs is the moment of the load and nothing after it: the block is freed before the app
 // runs a line, and the chunk the compiler keeps is **21 578 B** stripped (43 499 B with the debug names), which fits the
-// 131 072 B ceiling of an interpreter with its 29 842 B floor to spare (docs/75, measured on the bench).
+// 131 072 B ceiling of an interpreter with its 29 842 B floor to spare (docs/75, measured on the emulator).
 //
 // **64 KB since 0.143.0**: the reader of EPUB of this system is **49 710 B** of Lua —the shelf, the page, the foot, the
 // menu, the index and the two faces— and the 48 KB cap said no to an app that fits the board. The block is the heap's
@@ -516,11 +516,18 @@ bool help_matches(const char* text, const char* only) {
 // the one thing that is said back (0.88.1, docs/30).
 uint8_t g_help_written = 0;
 
+// **Whether the line before this one was printed**, which is what a line of continuation hangs from (0.170.0). `splash`
+// and `cfg` do not fit one row of this console, so they take two, and the second one has no syntax of its own: it said
+// where the command starts and nothing else, and a `help splash` that filters on the syntax of a line dropped it —the
+// sentence ended in a comma— (found by reading the list, 9/11, docs/30).
+bool g_help_previous = false;
+
 // One line of the list, or nothing when the person asked for another command.
 void help_line(const char* text, const char* only) {
-  if (only != nullptr && !help_matches(text, only)) return;
-  ++g_help_written;
   const size_t len = help_syntax_len(text);
+  g_help_previous = (only == nullptr) || (len > 0 && help_matches(text, only));
+  if (!g_help_previous) return;
+  ++g_help_written;
   if (len == 0) {
     out(help_syntax(text));
     out("\r\n");
@@ -531,6 +538,15 @@ void help_line(const char* text, const char* only) {
   out_bytes(help_syntax(text), len);
   colour_off();
   out(help_syntax(text) + len);
+  out("\r\n");
+}
+
+// **The rest of the sentence of the line before**: printed when that one was, and only then —a continuation has no
+// syntax to be asked about, so it cannot answer a word of its own— (0.170.0, docs/30).
+void help_continuation(const char* text, const char* only) {
+  if (only != nullptr && !g_help_previous) return;
+  ++g_help_written;
+  out(text);
   out("\r\n");
 }
 
@@ -545,10 +561,10 @@ void print_help(const char* only) {
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot, boot-alt,", only);
-  help_line("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
+  help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
-  help_line("                    lives, the keyboard, the picture of the boot and the app that comes up with the board",
-            only);
+  help_continuation(
+      "                    lives, the keyboard, the picture of the boot and the app that comes up with the board", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -607,7 +623,7 @@ void print_version() {
   colour_off();
   out("  board ");
   out(platform().id());
-  // The board and the bench are both true at once on the PC (docs/85).
+  // The board and the emulator are both true at once on the PC (docs/85).
   if (platform().emulator()) {
     colour(kColourDim);
     out(" (emulator)");
@@ -637,7 +653,7 @@ void print_mem() {
     out_num(heap.min_free_bytes);
     newline();
     // **What a page could still take**: the free bytes can be in pieces, and a block that does not fit in
-    // any of them fails on a heap with room to spare. The board has the number and so does the bench
+    // any of them fails on a heap with room to spare. The board has the number and so does the emulator
     // (docs/75, docs/85).
     out("  largest block      ");
     out_num(heap.largest_free_bytes);
@@ -807,7 +823,7 @@ void print_mounts() {
     uint64_t free_bytes = 0;
     if (vfs::space(path, total, free_bytes)) {
       // Bytes below a megabyte and megabytes above it: a 16 GB card in bytes is a number nobody counts,
-      // and `out_num` takes 32 bits, so the card overflowed it and printed zero (measured on the bench,
+      // and `out_num` takes 32 bits, so the card overflowed it and printed zero (measured on the emulator,
       // 31/10). The flash of a board fits either way (917 504 B).
       const uint64_t megabyte = 1024ULL * 1024ULL;
       if (total >= megabyte) {
@@ -1303,7 +1319,7 @@ bool find_app(const char* id, RunTarget& target) {
     }
     out(" and this board is ");
     out(platform().id());
-    if (platform().emulator()) out(" (the bench is told with --board)");
+    if (platform().emulator()) out(" (the emulator is told with --board)");
     newline();
     return false;
   }
@@ -1348,7 +1364,7 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
   // `cannot start the interpreter` **for every app of the disk**, which a person reads as a name that does not resolve
-  // and is not one (found on the bench on 8/11 with the launcher in front, docs/30, docs/40). The app in front goes the
+  // and is not one (found on the emulator on 8/11 with the launcher in front, docs/30, docs/40). The app in front goes the
   // way it goes when another app asks for the glass: its goodbye hooks, its views, its colour and the bar with it.
   if (g_app_alive) close_app();
   RunTarget target;
@@ -1369,7 +1385,7 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // first page it presents takes it away. **It goes after `ui::attach()` and not
   // before**, because the attach washes the glass whole when the page before it
   // had painted something, and a wash after the picture is a picture nobody ever
-  // sees: that is exactly what the test of this found on the bench, where the
+  // sees: that is exactly what the test of this found on the emulator, where the
   // page of the test before had left its ink counted (docs/30, docs/40).
   // It is skipped for an app that comes back from a sleep: a resume is not a
   // start. A picture that is not there is a line of the log and nothing else; the
@@ -3429,9 +3445,9 @@ bool leave_lua() {
 }
 
 // **The session of the console closes, and what that means is the console's business** (0.158.0, asked for by the
-// owner). A **virtual terminal** —the console of the bench, a program on a PC that somebody started— is a session
+// owner). A **virtual terminal** —the console of the emulator, a program on a PC that somebody started— is a session
 // somebody opened and can hang up, so `exit`, `logout` and Ctrl+D **end it for real**: the line is written and the
-// run stops, the same way `poweroff` stops it on the bench. **A serial port cannot be hung up** —nobody is on the
+// run stops, the same way `poweroff` stops it on the emulator. **A serial port cannot be hung up** —nobody is on the
 // other side to close the wire and it is the only way into a board with no glass— so the session is not closed: the
 // board says so, stops taking lines, and **the Enter of a terminal opens a new one**, which is what a getty does
 // (docs/30, docs/50, docs/85).
@@ -3444,7 +3460,7 @@ bool close_console_session() {
   if (console != nullptr && console->virtual_terminal()) {
     out("logout: the session is closed\r\n");
     console->flush();  // the line has to be out before the run stops, or it is a word cut in half
-    shutdown();        // on the bench it is the program that ends, which is the session going away
+    shutdown();        // on the emulator it is the program that ends, which is the session going away
     return true;
   }
 
@@ -3707,7 +3723,7 @@ LeaveOutcome leave_one_page() {
 
 bool poll_app() {
   // **The next step of an install, in the turn and not inside the answer** (0.86.0): the queue of the radio has to be
-  // empty and the page of before given back, and that is the turn after (found on the bench, 4/11, docs/30, docs/75).
+  // empty and the page of before given back, and that is the turn after (found on the emulator, 4/11, docs/30, docs/75).
   if (g_install_pending) {
     g_install_pending = false;
     if (!install_step()) prompt();
@@ -3839,7 +3855,7 @@ void start() {
   g_last_was_cr = false;
   g_app_alive = false;
   // **A start is a session** (0.158.0): a board that has just booted has its console open, whatever a session
-  // before it did —a bench that re-boots in a test would otherwise stay closed— (docs/30, docs/85).
+  // before it did —an emulator that re-boots in a test would otherwise stay closed— (docs/30, docs/85).
   g_session_open = true;
   // **No app is detached at a start** (0.160.0), and the console of an app is the terminal's until one says
   // otherwise: the log is where a detached app's words go, and it is installed here because it is the shell who
@@ -4366,7 +4382,7 @@ bool execute(char* line) {
       error_out("this board cannot cut its own power: it holds nothing to switch off\r\n");
       return false;
     }
-    shutdown();  // on the bench it is a process that ends; on the glass the line below is never read
+    shutdown();  // on the emulator it is a process that ends; on the glass the line below is never read
     return true;
   }
   // **A terminal that does not answer is not a terminal without colour for ever**: the question is one

@@ -58,7 +58,7 @@ class IConsole {
   virtual size_t read(void* data, size_t len) = 0;
   virtual bool ansi() const = 0;
   // **Whether this console is a session that can really end** (0.158.0): a **virtual terminal** —the console of
-  // the bench, which is a program on a PC that somebody started and can hang up— is a session, and `logout` ends
+  // the emulator, which is a program on a PC that somebody started and can hang up— is a session, and `logout` ends
   // it. **The serial port of a board is not one**: nobody can hang it up and it is the only way into a board
   // with no glass, so `logout` says the session is closed and waits for an Enter, and the console starts again
   // (docs/30, docs/50).
@@ -114,7 +114,7 @@ ISystem& system();
 void set_console_baud(uint32_t baud);
 
 // **Whether the console is a session that can really end** (0.158.0), which is the `IConsole`'s policy and the one
-// the shell asks before it closes anything: a **virtual terminal** —the console of the bench, a program on a PC that
+// the shell asks before it closes anything: a **virtual terminal** —the console of the emulator, a program on a PC that
 // somebody started and can hang up— is, and `exit`, `logout` and Ctrl+D end the run; a **serial port** is not, and
 // there the session is not closed at all —the board says so and the Enter of the terminal opens a new one— (docs/30,
 // docs/50, docs/85). False is the default and what a test wants: its console is a file or a pipe and its case models
@@ -122,7 +122,7 @@ void set_console_baud(uint32_t baud);
 void set_virtual_terminal(bool on);
 bool virtual_terminal();
 
-// **What the heap of the bench costs**, because on the board a block is not free: the allocator walks
+// **What the heap of the emulator costs**, because on the board a block is not free: the allocator walks
 // its free list before it hands one over, and moving a block that has to move is a copy of its bytes
 // through the bus. `step_ns` is one node of that walk and `bytes_per_us` is what the extra memory
 // moves in a microsecond (the PSRAM of the Paper is 20 MB/s); zero —the default, and what every test
@@ -131,7 +131,7 @@ void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us);
 
 // **What dispatching a deadline costs**, in microseconds: on the board a wake-up lands on a tick and the
 // task that was waiting for it runs on the **next turn**, which is why a hundred awaits of one
-// millisecond take 199 ms there and 115 ms on a PC (measured, docs/75). The bench pays this after a wait
+// millisecond take 199 ms there and 115 ms on a PC (measured, docs/75). The emulator pays this after a wait
 // that expired with nothing to read, so a promise of one millisecond costs what it costs on the glass.
 // Zero —the default, and what every test wants— is a wait that is over when it is over (docs/85).
 void set_dispatch_us(uint32_t us);
@@ -139,15 +139,15 @@ void set_dispatch_us(uint32_t us);
 // **The longest a wait of the kernel's queue may block, in milliseconds.** On the board the chip's own tick
 // wakes the system many times a second, and a wait that ends when the chip says so is the chip's business. On
 // a PC the queue sleeps in one `select` until the console has a byte or the deadline arrives, and everything
-// that is not the console —the window of the bench and the finger on its glass— is looked at between those
+// that is not the console —the window of the emulator and the finger on its glass— is looked at between those
 // waits: a click that comes and goes inside one of them is drained in a batch with the next one, which is two
-// taps poured into the panel at once and therefore one tap (found on the bench, docs/85, docs/90). Zero —the
+// taps poured into the panel at once and therefore one tap (found on the emulator, docs/85, docs/90). Zero —the
 // default, and what every test wants— is a wait that lasts as long as it was told (docs/85).
 void set_wait_slice_ms(uint32_t ms);
 
 // **What a home of the memory has left**, in bytes: the board's own RAM (`extra` false) or its extra
 // memory (`extra` true). `counted` is false on a PAL that hands blocks out of the machine's heap and
-// keeps no books, which is what a test wants and what a bench without a model is (docs/85).
+// keeps no books, which is what a test wants and what an emulator without a model is (docs/85).
 struct MemoryLeft {
   size_t free_bytes;
   size_t lowest_free_bytes;  // the least that was left since the ceilings were set
@@ -163,7 +163,7 @@ MemoryLeft memory_left(bool extra);
 void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes);
 
 // **Wait this many microseconds.** The kernel does not use it —its waits are events and alarms— and it
-// is here for the one thing that has to spend time on purpose: a bench that simulates a processor it is
+// is here for the one thing that has to spend time on purpose: an emulator that simulates a processor it is
 // not running on, where the interpreter's instructions cost what they cost on the board (docs/85). On
 // the board it is the chip's own busy wait and nothing calls it with a number.
 void delay_us(uint32_t us);
@@ -176,7 +176,7 @@ void delay_us(uint32_t us);
 
 // **The floor of the board's own RAM, and the rule that keeps it** (0.151.20): a block goes to the chip's
 // RAM only while what is left after it stays above this, and to the extra memory after that. The rule is here
-// and not in a PAL so that the board and the bench obey the same one, and so that a test can hold it.
+// and not in a PAL so that the board and the emulator obey the same one, and so that a test can hold it.
 //
 // **Why it exists** (measured on the Paper, 8/11): the Lua machine of the reader asks for about 120 KB in
 // small tables and strings, and with every block under 4 KB going home it took the pool the file system needs

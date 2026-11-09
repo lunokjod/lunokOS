@@ -1,4 +1,4 @@
-// **The glass of the bench, in a window** (docs/85).
+// **The glass of the emulator, in a window** (docs/85).
 //
 // The emulator's glass is a buffer of four bits per pixel that remembers the rectangle of every paint.
 // Without this it is a buffer nobody can look at; with `--gui` the same buffer is copied into a window
@@ -8,7 +8,7 @@
 // functions live in gui_common.cpp and are the part a test can prove without a screen (docs/85).
 //
 // It is a window and not a picture: no ink, no ghost, no flicker, and the quality of a paint is not
-// drawn any differently because the bench has no waveform. The window is a way to *look*, and every
+// drawn any differently because the emulator has no waveform. The window is a way to *look*, and every
 // number of how it looks is still the board's (docs/50, docs/85).
 #ifndef LUNOK_EMU_GUI_H
 #define LUNOK_EMU_GUI_H
@@ -17,12 +17,12 @@
 
 namespace emu {
 
-// True when this bench was built with a window in it. A build without a window backend says so
+// True when this emulator was built with a window in it. A build without a window backend says so
 // instead of failing at the first `--gui` (docs/85).
 bool gui_available();
 
 // Opens a window of that size. False when there is no display to open it on, which is not an error of
-// the run: the bench carries on without it.
+// the run: the emulator carries on without it.
 // (The signature with the keys is at the end of this header, next to the geometry of the strip.)
 
 // **The glass in the colours of the display, which is the part that can be proved.** The buffer is four
@@ -59,7 +59,7 @@ uint8_t gui_scale();
 
 // **Which side of the page the keys go on, and it is the descriptor of the input that says it**
 // (`IInput::face`): a dial on the left or the right face is a column down that side, and a key on the top or
-// the front is a row under the page. The bench places the buttons where the board says they are and does not
+// the front is a row under the page. The emulator places the buttons where the board says they are and does not
 // pick a side of its own (docs/50, docs/85).
 enum class KeySide : uint8_t { kLeft = 0, kRight = 1, kBottom = 2 };
 
@@ -74,7 +74,7 @@ uint8_t gui_fit_scale(uint16_t page_width, uint16_t page_height, uint8_t keys, K
 // page's business, and a button that shrinks with it is a button a person cannot hit. Both backends draw
 // the same rectangle and the mouse reads the same one (docs/85).
 //
-// **Small and square** (0.85.1): the mouse of a bench is a pointer of one pixel and a finger of eighty by fifty was a
+// **Small and square** (0.85.1): the mouse of an emulator is a pointer of one pixel and a finger of eighty by fifty was a
 // key for a hand that is not there. Forty is enough for the aim of a mouse and it leaves the page the room it had.
 const uint16_t kKeyMargin = 6;
 const uint16_t kKeyButtonWidth = 40;

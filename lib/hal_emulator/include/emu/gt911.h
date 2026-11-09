@@ -1,4 +1,4 @@
-// **The touch panel of the bench, as a chip and not as a function** (docs/50, docs/85).
+// **The touch panel of the emulator, as a chip and not as a function** (docs/50, docs/85).
 //
 // A GT911 does not answer "where is the finger". It scans the glass by itself, keeps the frame of the
 // last scan, and hands that frame over **once** —the driver empties it by writing a zero to the status
@@ -28,7 +28,7 @@ class Gt911Panel : public hal::ITouch {
   uint16_t width() const override { return kFrameWidth; }
   uint16_t height() const override { return kFrameHeight; }
   uint8_t read(hal::TouchPoint* out, uint8_t capacity) override;
-  // **A frame the chip kept after the finger left says so**: the bench knows if a finger is on the glass right now,
+  // **A frame the chip kept after the finger left says so**: the emulator knows if a finger is on the glass right now,
   // and it is what tells a tap that is over from a key held down (docs/50, docs/85).
   bool finger_still_down() const override { return fingers_down() > 0; }
 
@@ -76,7 +76,7 @@ class Gt911Panel : public hal::ITouch {
   uint32_t missed_ = 0;
 };
 
-// The panel of this bench, made the first time it is asked for (`--touch`), like the glass. The first
+// The panel of this emulator, made the first time it is asked for (`--touch`), like the glass. The first
 // call pays the probe and says the line the board says before the prompt (docs/85).
 Gt911Panel* touch_panel();
 

@@ -288,7 +288,7 @@ que res d'això**, perquè són les que diuen si un control nou pot declarar el 
 | **`ui.selector`** — la pregunta en el to `dim` i la resposta en tinta, la porta és la columna de la fletxa i la llista la posa l'app | **0.79.0** | `test_a_selector_is_a_field_with_a_door_on_its_right`, `test_a_selector_opens_the_list_the_app_puts_up` |
 | **`ui.notification_bar`** — targetes d'una punta a l'altra, la més nova a baix, el `+N` dels que esperen i la creu que descarta | **0.80.0** | `test_a_band_of_notifications_puts_the_newest_at_the_bottom`, `test_the_cross_of_a_notice_dismisses_the_newest` |
 | **`ui.icon_grid`** — una icona amb el nom a sota, la pàgina segueix el cursor i el nom no s'inverteix amb la cel·la | **0.81.0** | `test_a_grid_puts_the_page_where_the_cursor_is`, `test_a_grid_walks_its_cells_and_pages_itself` |
-| pàgines d'exemple amb ells | **0.69.0–0.74.0** | `run controls`, `run typing`, `run dialog`, `run trend` |
+| pàgines d'exemple amb ells | **0.69.0–0.74.0** | les que hi havia (controls, escriptura, diàleg, tendència) **ja no són al disc**; avui cada control es prova amb un cas de `test_ui` i les apps del repositori els fan servir |
 
 **Els controls del vell estan portats tots.** L'últim que va quedar és `icon_grid` (0.81.0). El que **no** serà un control
 és `format`: és una taula de textos i números per a la consola i l'app ja té `string.format` a Lua. I la `option_picker` del
@@ -369,7 +369,7 @@ I el to `8` d'una paraula secundària (`answer.color = 8` a `dialog`, `menu`, `f
 és una excepció**: és el `dim` del tema, que és l'únic to que un color de text pot dir quan la paraula no és la que
 compta.
 
-**Com es comprova que continua sent cert**: `run` de cada app al banc i una imatge amb `--dump` (docs/85) mirada al
+**Com es comprova que continua sent cert**: `run` de cada app a l'emulador i una imatge amb `--dump` (docs/85) mirada al
 costat de les captures del vell. Les dotze apps de dalt s'han corregut així, i les que tenien un botó o una llista amb
 la mida vella s'han arreglat mirant-les: el botó del diàleg, que deia «Delete e…», i les files de `controls`, que es
 trepitjaven.
@@ -381,8 +381,8 @@ sàpiga res: mou el cercle d'un control a un altre, o baixa el botó que toca, i
 una cosa que el vidre no veu fins que algú demana un `ui.present`. Una app que espera dins d'un `sys.delay` no en
 demana cap, i el resultat amb la placa a la mà és *«l'app Showcase no respon a l'usuari»*.
 
-**El que estava mesurat abans de tocar res** (banc, `use_board("m5stack-paper")`, `run showcase 1` i sis tecles
-seguides): la volta **sí que hi era** —`count 3` a la pàgina, el cercle anava de la tira al botó i al quadre de
+**El que estava mesurat abans de tocar res** (emulador, `use_board("m5stack-paper")`, una pàgina de demostració i
+sis tecles seguides): la volta **sí que hi era** —`count 3` a la pàgina, el cercle anava de la tira al botó i al quadre de
 marcar, i el centre arribava a `ui_activate`— i **no es pintava ni un píxel**, perquè el present de la pàgina feia
 temps que havia passat. Tres intents abans d'encertar-lo, i tots tres són la mateixa lliçó: `present` sol no dibuixa
 els controls que deuen un dibuix (ho fa el `draw` de l'arbre, que és el que `ui.present` crida abans), i la guarda
@@ -466,7 +466,7 @@ continua tenint el seu `enabled` per entrada.
 **Mesurat**: **438 casos natius verds** (437 abans, i un de nou); una prova nova
 (`test_a_disabled_control_is_drawn_lighter_and_answers_nothing`) que mira el vidre —una fila marcada encesa és un
 bloc de nivell **0** i la mateixa fila apagada un bloc de nivell **8**—, que una fletxa **salta** el control del mig,
-que el centre prem el tercer i **mai** el segon, i que el **dit** tampoc no el toca (el banc necessita `opts.touch` i
+que el centre prem el tercer i **mai** el segon, i que el **dit** tampoc no el toca (l'emulador necessita `opts.touch` i
 `kernel::touch::boot`, que és el que faltava perquè el toc no fes res). Tres trencades a propòsit: fer que el dial hi
 caigui torna la prova vermella, no aclarir els tons també, i no baixar l'estat als fills també.
 
@@ -476,7 +476,7 @@ caigui torna la prova vermella, no aclarir els tons també, i no baixar l'estat 
 `attach_to()` no mira quin control és el pare: `button:add(label)` funciona des del primer dia, i `label:add(button)`
 també. El problema no era la mecànica sinó **el dibuix**: el pare pinta el seu contingut i el fill es compon a sobre.
 
-**El defecte mesurat** (app de prova al banc, un botó amb una etiqueta a dins i el cercle posat): el botó enfocat pinta
+**El defecte mesurat** (app de prova a l'emulador, un botó amb una etiqueta a dins i el cercle posat): el botó enfocat pinta
 la cara de tinta i l'etiqueta, que té el seu `background` de paper, **la tapa**. Al bolcat el botó sortia com una barra
 negra sota un rectangle blanc. És el que deia el comentari de `button_draw`: *«a child… is not inverted»*.
 
@@ -630,7 +630,7 @@ surten d'aquest número); (3) una cel·la fora de la pàgina es col·loca a `fra
 mateix parany que la llista fa servir: el retall no la compon i el recorregut del dial no hi arriba.
 
 **Mesurat aquest torn**: `sizeof(Canvas)` continua sent **160 B** i la taula de llenços **3 276 llocs** —llegit a
-l'arrencada de l'emulador, `the table of canvases: 3276 slots of 160 bytes`; la cel·la no és cap camp del llenç, la
+l'arrencada de l'emulador, `the table of canvases: 2978 slots of 176 bytes`; la cel·la no és cap camp del llenç, la
 geometria es calcula i no s'hi desa—. El bolcat de l'emulador amb una graella de 500 × 400, quatre columnes i vuit
 cel·les de 100 px dona **quatre cel·les per fila i dues files**, cada una amb el seu fill col·locat dins (mirat amb
 `--dump`).
@@ -816,7 +816,7 @@ l'echo, només una comanda "reset" restableix el terminal rera el test»*.
 
 1. **Una pàgina de més de cent vint-i-set controls matava el procés.** Els dos recorreguts de `open_draw` duien el lloc
    en un **`int8_t`**: a partir del 128 la cadena era un número negatiu, es llegia la taula abans del primer lloc i el
-   banc moria amb un **SIGSEGV a `button_draw`**. És exactament la mateixa errada que el lloc del dial tenia fins a la
+   emulador moria amb un **SIGSEGV a `button_draw`**. És exactament la mateixa errada que el lloc del dial tenia fins a la
    0.106.0, i la va trobar la prova nova de la pàgina de cent quaranta botons (que és el cas que l'amo va demanar:
    *«per què hi ha un kMaxControls?»*). Ara és un `int16_t` i la pàgina passa.
 2. **Una cel·la que no és a la llista tenia lloc.** `icon_grid_cell` responia per a qualsevol cel·la de la pàgina: demanar
@@ -860,7 +860,7 @@ de la memòria extra de la mida del que hi cap; el fitxer sencer i el bloc de de
 extra i es tornen quan la imatge és al vidre.
 
 **Els moments són paraules i la paraula és el nom del fitxer**: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i
-`/res/splash.png` per a tots. En la 0.111.0 eren **quatre** —`boot`, `shutdown`, `charging` i `sleep`— i el banc
+`/res/splash.png` per a tots. En la 0.111.0 eren **quatre** —`boot`, `shutdown`, `charging` i `sleep`— i l'emulador
 portava **tres imatges de 460 × 200** fetes amb la tipografia del sistema (`boot.png`, `shutdown.png`,
 `charging.png`); `sleep` no en tenia, i això és el que la prova fa servir per veure que un moment sense imatge **no
 pinta res i diu per què**. La 0.114.0 els va portar a **sis** i va canviar `boot.png` pel logotip: vegeu §29.
@@ -1009,7 +1009,7 @@ igual**.
 
 **Les proves escrites**: `test_the_splash_paints_a_picture_in_the_middle_of_the_glass` repassa ara els sis mots
 (`count()` és **6**, `kind_of("boot-alt")` no és `boot`, i `word(kBootAlt)` és `boot-alt`) i
-`test_an_app_that_names_a_picture_has_it_painted_before_it_starts` arrenca una app del banc amb `"splash"` i mira el
+`test_an_app_that_names_a_picture_has_it_painted_before_it_starts` arrenca una app de l'emulador amb `"splash"` i mira el
 vidre: els dos píxels de la imatge al mig del panell i el paper a la vora, la tinta d'un racó esborrada per la neteja,
 i una app sense el camp que deixa el racó amb la tinta com era.
 
@@ -1063,7 +1063,7 @@ sigui un moment del boot.
 
 O sigui que la splash surt **abans** de la línia que diu què té la placa, que fins ara era de les primeres; el
 bolcat del vidre ensenya el clipart al mig del panell i el paper a les vores; i `cfg boot boot` el torna a la
-fotografia. La prova del banc (`test_the_boot_paints_the_drawing_the_settings_chose`) escriu dos BMP de dos per dos
+fotografia. La prova de l'emulador (`test_the_boot_paints_the_drawing_the_settings_chose`) escriu dos BMP de dos per dos
 —el mateix dibuix de cap per avall— amb els dos noms, tria el mot, arrenca el sistema i llegeix **el píxel del mig
 del vidre**: blanc sobre negre amb `boot-alt` i negre sobre blanc amb `boot`, i a més el refús de `charging` (un
 moment que no és un dibuix del logotip) i que la tria sobreviu a un `cfg::boot`.
@@ -1171,8 +1171,11 @@ lunok> run images
 ***ERROR*** A stack overflow in task loopTask has been detected
 ```
 
+(`images` era l'app d'imatges d'aquell dia i ja no és al disc: les imatges es veuen amb el lector, i el que
+aquesta secció explica és del descodificador, no de l'app.)
+
 …després de tres fotos. I amb el log, dues preguntes: **«el carregador d'imatges usa PSRAM?»** i
-**«aprofita per modernitzar l'app `images` amb els controls UI nous i les seves mecàniques»**.
+**«aprofita per modernitzar la pàgina d'imatges amb els controls UI nous i les seves mecàniques»**.
 
 **La resposta a la primera és sí i no, i el «no» era el que petava.** El fitxer i el bloc de treball sí que
 venien de la memòria extra (`pal::extra_memory()`, docs/75); el que no hi era era **l'estat dels
@@ -1221,7 +1224,7 @@ verds en 1 min 30 s**. Al primer intent, cinc vermelles a `test_apps`, i no eren
   que la primera fletxa caminava les files del text. Ara `draw` es declara abans i la pàgina demana `ui.focus(grid)`
   després de col·locar els tres controls, i la prova prem una tecla, tria la segona família i llegeix `2 of 9` i `BMP`;
 - **dues més no haurien pogut passar mai** i també eren de les proves: dues llegien píxels d'un panell que era apagat
-  (el banc neix amb tot apagat i una prova que llegeix el vidre l'ha d'encendre amb `emu::Options.display`), i la de la
+  (l'emulador neix amb tot apagat i una prova que llegeix el vidre l'ha d'encendre amb `emu::Options.display`), i la de la
   caixa de text del 0.116.0 esperava que el centre **sortís** d'una caixa amb la banda a dalt, on les tres tecles són
   del teclat: ara escriu una lletra, l'app baixa la banda, el centre surt del camp i la fletxa amunt camina fins al botó.
 
@@ -1244,10 +1247,10 @@ pintat anterior s'hagi acabat (`wait_paint`, docs/50) i la neteja sencera de l'a
   està esperant una pàgina mentre puja un logotip, i perdre el dibuix per dos segons sí que costa—;
 - **el missatge porta el motiu del HAL** (`the panel did not take the picture: the previous paint did not
   finish`), perquè un no sense motiu és una tarda buscant quin dels cinc casos era;
-- **el banc també diu que no** (`--ink-refuse` a l'emulador): mentre la tinta es mou, `flush` contesta fals amb el
-  motiu del driver. Sense això el banc sempre espera i una prova no pot distingir el codi que espera del que té
+- **l'emulador també diu que no** (`--ink-refuse` a l'emulador): mentre la tinta es mou, `flush` contesta fals amb el
+  motiu del driver. Sense això l'emulador sempre espera i una prova no pot distingir el codi que espera del que té
   sort. La prova és `test_the_splash_waits_for_the_ink_of_the_page_before`: el primer dibuix deixa la pàgina
-  sencera movent tinta, el banc refusa un pintat, i el segon dibuix **arriba igualment** perquè la splash ha
+  sencera movent tinta, l'emulador refusa un pintat, i el segon dibuix **arriba igualment** perquè la splash ha
   esperat; traient `settle`, la crida contesta fals i el vidre es queda amb el primer dibuix.
 
 **I la segona mitat va ser pitjor** (0.118.2, el mateix torn, amb la placa a la mà): l'amo va dir *«l'splash sembla que
@@ -1255,8 +1258,8 @@ bloqueja l'eink? les apps s'executen però no mostren res a pantalla»*, i tenia
 però **la pàgina que el panell refusava es llençava**. `paint_root` buidava la llista del que esperava un pintat passés
 el que passés: un `flush` refusat era una pàgina perduda per sempre, i com que la neteja de l'arrencada mou tinta més
 estona que els tres segons que el driver espera, la primera pàgina de cada app hi queia. Una app que presenta **una
-vegada i espera** —`run images`, mitja dotzena del disc— es quedava amb el logotip de l'arrencada al vidre: s'executa i
-no es veu.
+vegada i espera** —la pàgina d'imatges, mitja dotzena del disc— es quedava amb el logotip de l'arrencada al vidre:
+s'executa i no es veu.
 
 Ara **el que no ha pujat es queda a deure**:
 
@@ -1268,7 +1271,7 @@ Ara **el que no ha pujat es queda a deure**:
 - i el pintat només es torna a demanar **quan el panell diu que la tinta s'ha acabat**, que és el que evita que cada torn
   es passi tres segons esperant dins de `wait_paint`.
 
-La prova és `test_a_page_the_panel_refused_is_painted_when_it_can`: el vidre del banc diu que no (`--ink-refuse`) mentre
+La prova és `test_a_page_the_panel_refused_is_painted_when_it_can`: el vidre de l'emulador diu que no (`--ink-refuse`) mentre
 la imatge de l'arrencada mou la tinta, una app fa **un sol `present`** i s'hi queda, la consola diu
 `present nil the previous paint did not finish`, el vidre encara és paper on hi ha d'haver el quadre… i després d'uns
 torns **el quadre hi és**, sense que l'app torni a presentar. Trencant-la (tornar a buidar la llista) la prova es queda
@@ -1285,6 +1288,8 @@ lunok> run images
 images: 9 pictures, 1 drawn, 0 failed
 (tampoc no es veu res a pantalla)
 ```
+
+(`images` és l'app d'imatges d'aquell dia; el que segueix és del controlador i no de cap app.)
 
 «el splash no marxa del eink», va dir, i tenia tota la raó: el que passava és que **després del logotip el vidre no
 tornava a pintar mai més**. El controlador té un motor de LUT per pintat i una bandera (`LUTAFSR`, 0x1224) que diu si
@@ -1313,7 +1318,7 @@ Les dues línies són la mesura que faltava: si la primera surt i la segona tamb
 és; si la primera surt i la segona no, el panell no torna mai a dir que està lliure i el problema és del driver i no
 del sistema.
 
-**La quarta l'ha acabada de decidir el log** (0.118.5). Amb la 0.118.4 a la placa, `run images` va contestar això:
+**La quarta l'ha acabada de decidir el log** (0.118.5). Amb la 0.118.4 a la placa, l'app d'imatges va contestar això:
 
 ```
 [W][PANEL] the ink engine kept its flag up for 9560 ms; cleared (LUTAFSR)

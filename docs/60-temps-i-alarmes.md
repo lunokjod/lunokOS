@@ -154,7 +154,7 @@ de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha p
 | Què | Valor |
 |---|---|
 | Granularitat de la cua | 1 ms a la RAM |
-| Precisió de l'entrega | **Mesurat a la placa el 31/10**: una alarma a 2 s rebuda amb el sistema despert surt **`late 0 ms`** al Paper (`run clock`). Al son és **pendent**: amb el cable posat el son és el del xip i el número encara porta el cost d'arrencar. A l'emulador, `late 3 ms` (30/10) |
+| Precisió de l'entrega | **Mesurat a la placa el 31/10**: una alarma a 2 s rebuda amb el sistema despert surt **`late 0 ms`** al Paper. Al son és **pendent**: amb el cable posat el son és el del xip i el número encara porta el cost d'arrencar. A l'emulador, `late 3 ms` (30/10) |
 | Alarmes amb el sistema despert però ocupat | Com a màxim, un torn del nucli |
 
 No es promet cap número de precisió fins que no es mesuri a la placa, i quan es mesuri s'ha de dir

@@ -199,7 +199,7 @@ bool Listing::next_entry(Kind& kind, char* name, size_t name_cap, char* url, siz
   char key[kKey];
   // **The value of a key is as long as the longest one here**, which is the download address and not a name: a
   // forty-eight byte buffer cut `download_url` in the middle and the file came back as a 404 of fourteen bytes
-  // (found on the bench, 4/11, docs/30).
+  // (found on the emulator, 4/11, docs/30).
   char value[kUrl];
   // An `int` for the same reason as in `next` above.
   int depth = 0;

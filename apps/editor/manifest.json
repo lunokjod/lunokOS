@@ -7,5 +7,5 @@
   "icon": "res/icon.png",
   "opens": "txt md lua json csv ini cfg log",
   "opensArgs": "-ro",
-  "description": "A graphical text editor on the glass, with the menu bar of the system: File opens, saves and closes a page, and View turns it read-only and turns word wrap on and off, the two of them with a tick in the menu. `run edit` is the modal editor of the serial terminal."
+  "description": "A graphical text editor on the glass, with the menu bar of the system: File opens, saves, saves as and closes a page, and View turns it read-only and turns word wrap on and off, the two of them with a tick in the menu. A long file carries a scroll bar on the right of the box, and the gesture that moves it is the app\u2019s to register."
 }

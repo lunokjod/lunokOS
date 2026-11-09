@@ -148,7 +148,7 @@ constexpr uint32_t kExtraCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
 constexpr uint32_t kHomeCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
 // **Where a block goes is `pal::take_from_the_extra`** (0.151.20): the floor of the board's own RAM and the rule
-// that keeps it live in `pal/pal.h` so the bench obeys the same one and a test can hold it. What is here is only
+// that keeps it live in `pal/pal.h` so the emulator obeys the same one and a test can hold it. What is here is only
 // the reading of the chip's free bytes.
 class EspExtraMemory : public IExtraMemory {
  public:
@@ -225,7 +225,7 @@ void set_dispatch_us(uint32_t us) {
 }
 
 void set_wait_slice_ms(uint32_t ms) {
-  // **The tick of the chip wakes the system by itself**: a slice is a bench's way of looking at a window, and
+  // **The tick of the chip wakes the system by itself**: a slice is an emulator's way of looking at a window, and
   // a board has no window (docs/85).
   (void)ms;
 }

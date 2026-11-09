@@ -21,7 +21,7 @@ const DiskTiming kCard = {200, 512, 410, 512, 1500, 0};
 // **The FRAM.** An I2C chip at **100 kHz** and nine bits a byte: ninety microseconds a byte, and no wait
 // after a write, because a ferroelectric cell takes it as fast as the bus can send it (docs/50).
 const DiskTiming kFram = {40, 1, 90, 1, 90, 0};
-// The RAM of the chip. A byte of it is a byte of RAM, and the bench does not charge for the CPU (docs/85).
+// The RAM of the chip. A byte of it is a byte of RAM, and the emulator does not charge for the CPU (docs/85).
 const DiskTiming kMemory = {0, 0, 0, 0, 0, 0};
 
 uint32_t blocks_of(uint32_t bytes, uint32_t block) {

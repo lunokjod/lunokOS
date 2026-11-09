@@ -34,10 +34,10 @@ capçalari**: aquí hi ha el perquè de les decisions, no una còpia de les sign
 ```cpp
 class IPlatform {
  public:
-  virtual const char* id() const = 0;      // "m5stack-atom", "m5stack-atom-matrix"; al banc, el model
+  virtual const char* id() const = 0;      // "m5stack-atom", "m5stack-atom-matrix"; a l'emulador, el model
   virtual const char* family() const = 0;  // "esp32": el que un manifest vol dir amb "esp32"
   virtual bool emulator() const = 0;       // cert només al PC
-  // Les plaques a les quals aquesta banda respon: el seu `id()` i prou, també al banc,
+  // Les plaques a les quals aquesta banda respon: el seu `id()` i prou, també a l'emulador,
   // que respon el model que se li ha dit que sigui. És contra això i la família que es
   // compara `boards` (docs/40).
   virtual uint32_t board_count() const { return 1; }
@@ -102,23 +102,23 @@ amb dues capçaleres de nom fix:
 
 | `board/identity.h` | Què diu |
 |---|---|
-| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`; al banc, el model que se li ha dit que és |
+| `id()` | el nom de la placa: `m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`; a l'emulador, el model que se li ha dit que és |
 | `family()` | el xip: `esp32`. És el que un manifest vol dir amb `"boards": ["esp32"]`, i val per a les cinc bandes |
 | `emulator()` | cert només al PC, i és el que diu que la placa de sota `id()` és de mentida |
-| `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap al Paper i 1 al T-Koala. **Al banc no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1 al Lite i al T-Koala, 25 al Matrix i 0 al Paper) |
-| `led_max()` | el sostre d'un canal: 255 al Lite i al T-Koala, 20 al Matrix i al banc |
+| `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap al Paper i 1 al T-Koala. **A l'emulador no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1 al Lite i al T-Koala, 25 al Matrix i 0 al Paper) |
+| `led_max()` | el sostre d'un canal: 255 al Lite i al T-Koala, 20 al Matrix i a l'emulador |
 | `has_imu()` | si la placa porta sensor inercial |
 
-El banc té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
+L'emulador té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
 models que sap ser —`m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`—. No els respon tots alhora:
-la persona li diu quin és (`--board m5stack-paper`, i **cal dir-lo**: el banc no tria placa) i `id()` i
+la persona li diu quin és (`--board m5stack-paper`, i **cal dir-lo**: l'emulador no tria placa) i `id()` i
 `board_name()` responen **aquell**, de manera que una app s'accepta o es refusa al PC igual que a la
 placa (docs/40, docs/85). `sys.emulator` continua cert: el nom és el d'una placa que existeix i el
 maquinari de sota és fals.
 
-El maquinari fals **segueix el model** que el banc ha rebut —capacitats, nombre de llums, nombre de
+El maquinari fals **segueix el model** que l'emulador ha rebut —capacitats, nombre de llums, nombre de
 tecles, sensor, indicador de bateria, ranura i FRAM surten tots de `emu::model()`—, perquè una app que
-demani més del que té la seva placa no ho trobi al banc i es cregui un número de mentida. L'únic que
+demani més del que té la seva placa no ho trobi a l'emulador i es cregui un número de mentida. L'únic que
 encara és comú als quatre models és la **forma de les tecles** (el dial compost de la Paper: cara
 esquerra, `centre`/`up`/`down`), i això és el que queda a M8 (docs/90).
 
@@ -241,7 +241,7 @@ SDA a **GPIO25**, SCL a **GPIO21**, **100 kHz**, adreça **0x68**, i `WHO_AM_I` 
 - **El xip pot no contestar**: és un xip en un bus compartit, i la crida torna `false` en comptes de
   quedar-s'hi.
 - **El sentit de cada eix en aquesta placa no s'ha mesurat** (docs/90). Qui n'hi depengui ho ha de poder
-  comprovar en un segon: per això l'app `tilt` ensenya els números a la consola.
+  comprovar en un segon: per això una app que imprimeixi `imu.read()` dona els números a la consola.
 
 ## La ràdio
 
@@ -469,24 +469,24 @@ i qui fa l'eco és el nucli, perquè ho ha de fer igual a totes les bandes.
 |---|---|---|---|---|---|
 | `console` | ✓ | ✓ | ✓ | ✓ | UART a 115200 / stdin-stdout cru |
 | `ansi` | ✓ | ✓ | ✓ | ✓ al PC | Depèn del terminal que hi hagi a l'altra banda |
-| `display` | — | — | ✓ amb l'IT8951 contestant | ✓ al model de la Paper (`Model::glass`), i `--no-display` el treu | El vidre: una app hi dibuixa i el nucli no hi pinta res de seu. S'anuncia quan `display()` no és nul —el controlador va contestar a l'arrencada—, i **al banc el diu el model** (docs/50, docs/85) |
-| `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, al banc, les del model |
-| `touch` | — | — | ✓ amb el GT911 contestant | ✓ al model de la Paper (`Model::touch`), i `--no-touch` el treu | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **al banc quan el model en té** (la Paper; un ATOM no en té de cap manera), i el dit pot ser el **ratolí de la finestra** de `--gui`. El que el banc simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
+| `display` | — | — | ✓ amb l'IT8951 contestant | ✓ al model de la Paper (`Model::glass`), i `--no-display` el treu | El vidre: una app hi dibuixa i el nucli no hi pinta res de seu. S'anuncia quan `display()` no és nul —el controlador va contestar a l'arrencada—, i **a l'emulador el diu el model** (docs/50, docs/85) |
+| `input` | ✓ | ✓ | ✓ | ✓ | Un botó a l'ATOM, tres tecles a la Paper i, a l'emulador, les del model |
+| `touch` | — | — | ✓ amb el GT911 contestant | ✓ al model de la Paper (`Model::touch`), i `--no-touch` el treu | El dit que travessa el vidre. S'anuncia quan el xip contesta al probe (0x5D o 0x14): **a l'emulador quan el model en té** (la Paper; un ATOM no en té de cap manera), i el dit pot ser el **ratolí de la finestra** de `--gui`. El que l'emulador simula —la velocitat de mostra, el cost del bus i el marc que es pren— és a `docs/85` |
 | `led` | ✓ | ✓ | — | ✓ al model que en té (no al del Paper) | El Paper no té cap llum |
 | `imu` | — | ✓ | — | ✓ al model del Matrix | El Lite no en té i la crida respon `E_UNSUPPORTED` |
 | `littlefs` | ✓ | ✓ | ✓ | ✓ | Obligatori: sense ell no hi ha apps |
-| `sd` | — | — | ✓ amb targeta | ✓ amb `--sd`, si el model té ranura | Targeta SD per SPI (FATFS), muntada a `/sd` a **10 MHz**. Només s'anuncia si una targeta de debò ha muntat: al Paper quan n'hi ha una al slot, al banc quan se li diu `--sd <dir>` **i** el model imitat la té (el Paper; els ATOM no en tenen) |
+| `sd` | — | — | ✓ amb targeta | ✓ amb `--sd`, si el model té ranura | Targeta SD per SPI (FATFS), muntada a `/sd` a **10 MHz**. Només s'anuncia si una targeta de debò ha muntat: al Paper quan n'hi ha una al slot, a l'emulador quan se li diu `--sd <dir>` **i** el model imitat la té (el Paper; els ATOM no en tenen) |
 | `nvs` | ✓ | ✓ | ✓ | ✓ | Partició NVS / directori de fitxers |
 | `rtc` | ✓ | ✓ | ✓ | ✓ | Dona l'hora mentre hi ha corrent. **Al Paper és de debò**: la BM8563 amb pila de botó es llegeix a l'arrencada i s'hi escriu a cada `set_epoch`, així que `time.caps().source` diu `"rtc"` i l'hora sobreviu a treure el cable (docs/60). A l'ATOM i al Matrix és el **domini RTC del xip**, que la perd |
 | `rtc_wake` | ✓ | ✓ | ✓ | ✓ | Despertar pel temporitzador del RTC (i pel botó, a l'ATOM) |
 | `net_wifi` | ✓ | ✓ | ✓ | ✓ | La ràdio de debò / la de mentida (docs/85); la del Paper és la del xip i **està provada a la placa** (31/10) |
 | `net_http` | ✓ | ✓ | ✓ | ✓ | `esp_http_client` amb TLS / la pàgina falsa |
 | `net_prov` | ✓ | ✓ | ✓ | ✓ | El component d'Espressif / l'AP de mentida |
-| `battery` | — | — | ✓ | ✓ si el model té indicador, i **sense cap bandera** | El Paper la llegeix del divisor de GPIO35 i el banc, amb un model que en té (**el Paper; els ATOM no**), de **la bateria d'aquesta màquina passada per la mateixa corba** —el percentatge, no la tensió— o de `--battery-mv` si la línia de comandes en diu un, que mana. Només s'anuncia quan la lectura és un número que pot ser una cel·la; `charging` és **fals sempre** perquè cap d'aquestes bandes no té un pin per preguntar-ho (docs/30, docs/85) |
+| `battery` | — | — | ✓ | ✓ si el model té indicador, i **sense cap bandera** | El Paper la llegeix del divisor de GPIO35 i l'emulador, amb un model que en té (**el Paper; els ATOM no**), de **la bateria d'aquesta màquina passada per la mateixa corba** —el percentatge, no la tensió— o de `--battery-mv` si la línia de comandes en diu un, que mana. Només s'anuncia quan la lectura és un número que pot ser una cel·la; `charging` és **fals sempre** perquè cap d'aquestes bandes no té un pin per preguntar-ho (docs/30, docs/85) |
 | `sleep_light` | ✓ | ✓ | ✓ | de mentida | Al PC el rellotge salta en comptes d'esperar |
 | `sleep_deep` | ✓ | ✓ | ✓ | de mentida | A la placa, tornar vol dir arrencar |
 
-`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 19: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 19** al Lite, **14 de 19** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **17** al del Paper (que ja hi té la targeta `emulator/sd`, el vidre, el GT911 i **la bateria que es presta sola**; **16** si el terminal no és ANSI), que baixa a **15** amb `--no-touch --no-display`. I les dinou existeixen en algun model, comptant-hi el banc.
+`caps` i `sys.caps()` diuen el mateix i surten d'aquesta taula. Cada placa d'ESP32 **parteix de `esp32_caps()`** (10 de 19: consola, ANSI, NVS, rellotge, despert del RTC, els dos sons i la ràdio amb provisioning i pàgina) i afegeix només el que té de seu: el sistema de fitxers que munta, i doncs **13 de 19** al Lite, **14 de 19** al Matrix (que hi afegeix `imu`), **15 de 19** al Paper amb el SHT30 contestant, el vidre i el GT911, i sense bateria ni targeta —**16** amb la bateria llegida **o** la targeta, **17** amb totes dues, que és el màxim d'aquesta placa— i **el que diu el model** a l'emulador: **13 de 19** al de l'ATOM (**12** si el terminal no és ANSI), **14** al del Matrix i **17** al del Paper (que ja hi té la targeta `emulator/sd`, el vidre, el GT911 i **la bateria que es presta sola**; **16** si el terminal no és ANSI), que baixa a **15** amb `--no-touch --no-display`. I les dinou existeixen en algun model, comptant-hi l'emulador.
 
 ## Fitxa: M5 ATOM i ATOM Matrix
 
@@ -552,7 +552,7 @@ capacitats perquè seria la de l'ATOM amb guions a sobre, i diria dues vegades e
 | Entrada | **Tres tecles** (una central `PWR` i les dues del costat) **i panell tàctil GT911** per I2C |
 | Sensor | SHT30 (temperatura i humitat) i una EEPROM FM24C02 |
 | Rellotge | **BM8563** amb pila de botó, a la I2C interna (0x51): es llegeix a l'arrencada i s'hi escriu l'hora a cada canvi d'època, o sigui que **sobreviu a treure el cable**. El seu `INT` **no arriba a cap GPIO** —al mapa del fabricant només el té la GT911, a GPIO36—: arriba al **circuit d'alimentació** (el SY7088), i per això la seva alarma és el que **torna a encendre la placa** quan s'ha apagat del tot (vegeu «Apagar-se de debò», a sota) |
-| Bateria | 1150 mAh, amb divisor a **GPIO35** (×2): es llegeix (`esp32_battery`, ADC1 canal 7) i el % surt de la corba de `hal/battery.h`. La lectura són **quatre conversions d'ADC** (~100 µs cada una) i la caracterització del canal una vegada (~1 ms), o sigui **~400 µs per lectura**, que al banc es paguen amb els temps engegats. **Pendent de creuar amb un multímetre**, que és l'única cosa que diu si el divisor i l'ADC diuen la veritat. De mà: `run battery`. Al banc la cel·la és **la d'aquesta màquina, prestada sola**: el **percentatge** passa per aquesta mateixa corba i no la tensió del portàtil, i `--battery-mv` hi posa un número si el vols triar (docs/85) |
+| Bateria | 1150 mAh, amb divisor a **GPIO35** (×2): es llegeix (`esp32_battery`, ADC1 canal 7) i el % surt de la corba de `hal/battery.h`. La lectura són **quatre conversions d'ADC** (~100 µs cada una) i la caracterització del canal una vegada (~1 ms), o sigui **~400 µs per lectura**, que a l'emulador es paguen amb els temps engegats. **Pendent de creuar amb un multímetre**, que és l'única cosa que diu si el divisor i l'ADC diuen la veritat. De mà: `power.battery()` des de `lua`. A l'emulador la cel·la és **la d'aquesta màquina, prestada sola**: el **percentatge** passa per aquesta mateixa corba i no la tensió del portàtil, i `--battery-mv` hi posa un número si el vols triar (docs/85) |
 | Expansió | Tres ports HY2.0-4P (A: G25/G32, B: G26/G33, C: G18/G19) i una ranura microSD |
 | Consola | Pont USB-sèrie: **CP2104 o CH9102** segons la unitat (vegeu el bloc de sota) |
 
@@ -585,12 +585,13 @@ coincideixen entre ells i amb el que la placa ja ha dit:
 | «Pressió» | El camp de **mida** és l'àrea que el xip mesura sota el dit, no una pressió: dos dits que premen igual de fort donen dues mides diferents. S'exposa com a `size` i no s'inventa una escala |
 | Velocitat | És un valor de la configuració del xip; el `M5GFX` el llegeix de `0x8056` i en fa `5 + (byte & 0x0F)` Hz. **No es dóna per bo**: es llegeix i es mesura al xip (docs/95, E-6) |
 | Gestos | El xip en té de propis, i **ni el driver de M5 ni el d'Espressif els llegeixen**. Aquí tampoc: un toc, una premuda llarga, un arrossegament o dos dits són **formes del flux de punts**, volen dir el mateix a qualsevol vidre i es poden provar al PC amb un fals; un gest que inventa el xip només el pot fer servir una placa (docs/85) |
-| Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **800 µs** (vuit bytes i dues transaccions), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i al banc, 1/11, docs/85) |
+| Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **800 µs** (vuit bytes i dues transaccions), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i a l'emulador, 1/11, docs/85) |
 
 **El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
 el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,
 `touch.gesture`), els gestos fets pel nucli (`tap`, `double`, `triple`, `long`, `drag` amb un dit o
-amb dos, `two` i `pinch`, amb la mateixa finestra que el botó), l'app `glass` i la línia de l'arrencada —`touch: GT911 at 0x14, config N, 540x960, 5
+amb dos, `two` i `pinch`, amb la mateixa finestra que el botó), una app que llegeixi el panell en bucle i la
+línia de l'arrencada —`touch: GT911 at 0x14, config N, 540x960, 5
 fingers`— que diu què és aquesta unitat sense un oscil·loscopi. **La capacitat s'anuncia** quan el xip
 contesta, perquè ara una app ho pot fer servir. La **rotació compartida amb el panell** ja hi és
 (0.18.1): una sola rotació per al dibuix i per al toc, amb els `x`/`y` i els `dx`/`dy` dels gestos
@@ -628,8 +629,8 @@ escriu el sostre de deu cicles). Dues notes que això deixa lligades:
 - **el sostre se sobreviu a un reset de bus**: `i2c_hw_fsm_reset` desa i torna a escriure el
   temps límit, o sigui que un timeout no el deixa baix per sempre.
 
-**Comprovat a la placa l'1/11 amb la 0.10.1**: `caps` diu `env yes` i `run air` dona
-`air 21.1 C 63.5 %` dues vegades seguides, sense cap línia `i2c:` al log (docs/95, E-5).
+**Comprovat a la placa l'1/11 amb la 0.10.1**: `caps` diu `env yes` i `env.read()` dona
+`21.1 C 63.5 %` dues vegades seguides, sense cap línia `i2c:` al log (docs/95, E-5).
 
 
 ### El CS no es queda baix sense el bus bloquejat (mesurat l'1/11)
@@ -989,9 +990,9 @@ tres girs en surten, i no queda cap número per endevinar.
 | 16 MB de flash | **fet**: 2 108 973 B (50,3 %, mesurat amb la 0.13.0 l'1/11) i 11,9 MB de disc | — |
 | **8 MB de PSRAM** (4 MB mapejats) | **fet de codi i mesurat a la placa** (31/10): `extra_memory()` a la plataforma torna els tres números (xip, adreçable, lliure) i `pal::IExtraMemory` assigna a la PSRAM; l'intèrpret hi posa els blocs de 4 KB en amunt i el sostre de les apps és la PSRAM **mapejada** (4 096 KB). `mem` diu `extra memory 4067 of 4095 KB usable, of 8192 KB on the chip (psram)` i `sys.heap()` en dona els bytes. Els altres 4 MB necessiten el `himem` amb bancs i **no poden ser transparents** (docs/90) | comprovar que una app d'1 MB hi cap (docs/95, E-4) |
 | **Panell e-ink ED047TC1/ET047TC1 + IT8951E** (SPI 15/14/12/13, BUSY 27, alimentació GPIO23) | **fet de codi i amb crida de Lua** (1/11): `ISurface` al HAL (una superfície de 4 bits amb el rectangle brut i un `flush` que no espera), el driver a `esp32/it8951.h` (trames de 16 bits, `GetDeviceInfo`, el bus de la targeta a **10 MHz** —la del fabricant— fins que el handshake es vegi al vidre, amb un sostre de 26,7 MHz per la matriu de GPIO, mesurat l'1/11—, els vuit modes) i, des de la 0.14.0, res de Lua que arribi al vidre directament: una app dibuixa a la seva vista (`ui.*`) i `ui.present` és el que compon. La capacitat **s'anuncia** quan el controlador contesta. **El sistema només pinta la barra**, les 48 files de dalt; la pàgina és sempre d'una app | **fet** (1/11, 0.13.0): la imatge arriba i surt recta; falten el sentit dels nivells i el temps d'un `gc16` (docs/95, E-7) i la política d'encesa de GPIO23. El **text** ja hi és per a la barra (una font de 5 × 7, 0.16.0) i no pas per a una app |
-| **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i l'app `glass`; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | la **velocitat de mostra** (contar frames amb el dit, docs/95 E-6) i la política d'energia del pas 8; el marc ja està mesurat amb quatre tocs, un a cada cantonada (1/11) |
-| **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `run air` dona `air 21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
-| **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i el banc el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |
+| **GT911**, tàctil de dos dits amb gestos (I2C 0x14 o 0x5D, INT GPIO36) | **fet de codi i amb crida de Lua** (1/11): `ITouch` al HAL, el driver a `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua i una app que llegeixi el panell; el sistema en fa `tap`, `double`, `triple`, `long`, `drag` (amb un dit o dos), `two` i `pinch`. La capacitat **s'anuncia** quan el xip contesta (vegeu «El tàctil», a sota) | la **velocitat de mostra** (contar frames amb el dit, docs/95 E-6) i la política d'energia del pas 8; el marc ja està mesurat amb quatre tocs, un a cada cantonada (1/11) |
+| **SHT30** (I2C 0x44) | **fet i provat al xip** (1/11): `ISensor` al HAL (`read(celsius, humidity)`), el driver a `esp32/sht30.h` —la comanda, els dos CRCs i les dues fórmules del full de dades— i `env.read()` des de Lua. La capacitat s'anuncia **només si una mesura sencera arriba amb els dos CRCs bons**. El primer enviament a la placa (1/11, 0.10.0) va dir `env no` amb `i2c: read of 44 failed (ESP_ERR_TIMEOUT)`: **el bus només deixava 100 µs de clock stretching** i el xip n'aguanta sis mil·lisegons (vegeu «El bus ha de deixar…», a sota); amb la 0.10.1 la placa diu **`env yes`** i `env.read()` dona `21.1 C 63.5 %` (docs/95, E-5) | que la temperatura **quadri amb un termòmetre** de la mateixa sala (docs/95, E-5) |
+| **FM24C02**, 256 B (I2C 0x50) | **fet** (31/10): `esp32/fm24c02.h`, un `IStorage` que **és el xip** —llegeix i escriu per la I2C, sense còpia a RAM— muntat a `/fram`, i l'emulador el té com a `fram.bin` (`Model::fram`) | provar-ho al xip: que contesti a 0x50 i que els bytes hi siguin amb la bateria treta (docs/95) |
 | **BM8563** amb pila (I2C 0x51) i la seva alarma al SY7088 | **fet**: l'hora, el despert, i `poweroff` | les dues proves de foc (docs/95, A-2) |
 | **SY7088** i les tres alimentacions (hold GPIO2, EPD GPIO23, ports GPIO5) | **a mitges**: el hold es manté i es deixa anar, i les altres dues **es tanquen** al `poweroff` | **encendre-les només mentre s'usen** (docs/90 pas 8): és la política que estalvia corrent |
 | Bateria de 1150 mAh (ADC GPIO35 ×2) | **fet de codi** | la mesura amb el multímetre (docs/95, B-1) |
@@ -1276,7 +1277,7 @@ binari que en surt porta la identitat del Paper i cap de les de l'ATOM. **S'ha f
 (31/10 amb la 0.6.0 i l'1/11 amb la 0.10.1): el banner diu `lunokOS <versió>  board m5stack-paper`, el
 prompt respon, `caps` dona **15 de 18** amb bateria i targeta dins (12 de 18 amb la 0.6.0, que encara
 no tenia ni el sensor ni el `led`), `mounts` llista `/sd` amb **15 193 MB**, `ls sd` el llegeix, `cfg` diu la
-targeta, `run air` dona temperatura i humitat, i **la ràdio funciona**: l'`INet` d'aquesta placa està
+targeta, `env.read()` dona temperatura i humitat, i **la ràdio funciona**: l'`INet` d'aquesta placa està
 provat en aquest maquinari (31/10).
 El que **encara no s'ha vist** en aquest maquinari és el panell i el toc; el que s'ha vist i s'ha
 verificat és a la llista de dalt, amb el que queda pendent dit allà mateix.

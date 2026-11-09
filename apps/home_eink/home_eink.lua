@@ -319,7 +319,7 @@ console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
 -- not another view, and building again for it would throw away the canvases of the cells that are already on the glass —
 -- seven pictures of 72 x 72 at four bits are 18 144 B and a whole-page paint, for nothing—. **What this guard does not fix,
 -- and it is written here so nobody believes it does**: the lost pictures of a launcher. Those were measured in a run where
--- the app was started **twice** —`lunokOS` boots its home app and the bench asked for it again with `--run home_eink`— and
+-- the app was started **twice** —`lunokOS` boots its home app and the emulator asked for it again with `--run home_eink`— and
 -- the log of it says `[I][APPS] home_eink` twice; started once, the page is built once (measured, 8/11) (docs/30, docs/50).
 local page_w = 0
 local page_h = 0

@@ -15,7 +15,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 |---|---|---|
 | RAM de la placa | El maquinari | 320 KB a l'M5 ATOM, sense PSRAM |
 | Heap lliure amb el prompt | **Mesurat a l'ATOM, 30/10, amb LittleFS muntada i Lua al binari** | **338 864 B** |
-| Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb l'app `demo` (colors, espera i lectura) |
+| Heap mínim vist | **Mesurat a l'ATOM, 30/10** | **327 496 B** amb el prompt sol; **315 944 B** amb una app que espera; **301 640 B** amb una app que dibuixa, espera i llegeix |
 | Sostre de la VM | `kDefaultHeapBytes` a `lib/kernel/src/shell.cpp` | **131 072 B** mentre `heap_limit_kb()` no digui un altre número (era 65 536 fins a la 0.81.2, vegeu la secció del terra) |
 | Sostre per app | `IPlatform::heap_limit_kb()` | El de la VM (131 072 B) mentre la placa no en digui un altre |
 | **Sostre del codi d'una app** | `kSourceCap` a `lib/kernel/src/shell.cpp` | **98 304 B** des de la 0.149.0, i era **65 536 B** des de la 0.143.0. És el sostre d'**un fitxer**: una app pot ser més d'un amb `require` (0.148.0) i cada mòdul té el seu bloc |
@@ -23,7 +23,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
 | Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
 | Pressupost d'instruccions | **100 000 per torn** (0.90.0) | En esgotar-se, l'app fa `lua_yield` i el nucli recupera el torn; **no es mata** (docs/20, docs/75) |
-| Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb `run burst` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i el mateix `run burst` dona `limit 4 194 304 B` |
+| Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb cent promeses seguides i `mem` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i la mateixa mesura dona `limit 4 194 304 B` |
 
 Nota sobre els 338 864: és més gran que els 320 KB del full de dades del xip perquè el heap de
 l'ESP-IDF inclou regions d'instruccions que també es poden fer servir com a memòria. El número que
@@ -111,12 +111,12 @@ RAM** sobre la mesura anterior del mateix dia (2 005 361 B i 92 624 B).
 | Flash lliure | **1 124 959 B** |
 | RAM estàtica | **93 096 B** de 327 680 (28,4 %) |
 | **Mesurat amb la 0.10.0** (1/11, `pio run -e m5-atom`): és el total d'avui, i el que creix des de la columna del mig d'aquesta secció són el `/rtc`, el `/fram`, el `poweroff`, la memòria extra, els efectes del llum i el sensor d'ambient. L'`atom_matrix` dona **2 020 781 B** i **95 464 B** (29,1 %) | — |
-| Pic de l'app `hello` a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `run hello` i `mem`, amb la 0.10.0 i el terra de llavors). **Amb la 0.81.2 i el sostre de 128 KB, el mateix `run hello` a l'ATOM de l'emulador dona 31 655 B de 131 072** — el terra de l'intèrpret és el que ha crescut, no l'app |
-| Pic de l'app `hello` a l'emulador | **31 655 B** de 131 072 (mesurat el 4/11 amb la 0.81.2; eren **14 364 B** de 65 536 amb la 0.10.0, i el que ha pujat és la llibreria d'UI que tot intèrpret registra en arrencar) |
-| Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `run wait` i `mem`) |
-| Pic de l'app `demo` (colors + espera + línia) a l'ATOM | **26 821 B** de 65 536 (**mesurat a la placa el 30/10**, dues vegades: 26 808 i 26 821); heap mínim vist, **301 640 B** |
-| Pic d'una app amb `sys.delay(1000)` a l'emulador | **17 285 B** de 65 536 (`wait`, mateix codi al PC) |
-| Pic d'una app amb **100 promeses seguides**, a l'emulador | **38 205 B** de 65 536 (`burst`: 100 × `sys.delay(1)`, 115 ms); abans del bucle, 19 969 B |
+| Pic d'una app que no espera res, a l'ATOM | **10 897 B** de 65 536 (assignador de Lua, **mesurat a la placa el 30/10** amb `mem` i una app de tres línies, amb la 0.10.0 i el terra de llavors). **Amb la 0.81.2 i el sostre de 128 KB, la mateixa app a l'ATOM de l'emulador dona 31 655 B de 131 072** — el terra de l'intèrpret és el que ha crescut, no l'app |
+| Pic d'una app que no espera res, a l'emulador | **31 655 B** de 131 072 (mesurat el 4/11 amb la 0.81.2; eren **14 364 B** de 65 536 amb la 0.10.0, i el que ha pujat és la llibreria d'UI que tot intèrpret registra en arrencar) |
+| Pic d'una app amb `sys.delay(1000)` a l'ATOM | **13 402 B** de 65 536 (**mesurat a la placa el 30/10** amb `mem`) |
+| Pic d'una app que dibuixa i espera, a l'ATOM | **26 821 B** de 65 536 (**mesurat a la placa el 30/10**, dues vegades: 26 808 i 26 821); heap mínim vist, **301 640 B** |
+| Pic d'una app amb `sys.delay(1000)` a l'emulador | **17 285 B** de 65 536 (el mateix codi al PC) |
+| Pic d'una app amb **100 promeses seguides**, a l'emulador | **38 205 B** de 65 536 (100 × `sys.delay(1)`, 115 ms); abans del bucle, 19 969 B |
 | Pic d'una app amb **100 promeses seguides**, a l'ATOM | **27 018 B** de 65 536 (**mesurat a la placa el 30/10**); abans del bucle, 15 665 B → **11 353 B** de sobrecost; 100 esperes d'1 ms en **199 ms** |
 
 ## El preu de Bluetooth, mesurat (31/10)
@@ -146,7 +146,7 @@ Una placa que no es provisiona mai no paga la pila en RAM, només el codi al bin
 ## El sostre del codi d'entrada, pujat a 8 KB (31/10)
 
 `run` llegeix el fitxer Lua de l'app en un buffer estàtic abans de compilar-lo, i aquest buffer era de
-**4 096 B** (`kSourceCap`). L'app `matrix`, un cop plena de rampes, fa **4 407 B**: el sistema responia
+**4 096 B** (`kSourceCap`). Una font d'onze rampes fa **4 407 B**: el sistema responia
 `too big to run: /apps/matrix-app/matrix.lua`, que és un límit dient que no a una app que cap a la
 placa. El sostre és ara de **8 192 B**, i es paga en RAM estàtica, que és el que diu la taula:
 
@@ -157,7 +157,7 @@ placa. El sostre és ara de **8 192 B**, i es paga en RAM estàtica, que és el 
 
 Els +4 200 B de RAM són **+4 096 del buffer** i uns **+104 de l'IMU** (la taula i l'estat del
 driver); el flash puja molt més perquè aquest torn hi entra també la feina de les plaques, de la
-sessió `lua` i de l'app `tilt`. Un buffer més gran **no** vol dir que una app pugui ser tan gran com
+sessió `lua` i d'una app que llegeixi el sensor. Un buffer més gran **no** vol dir que una app pugui ser tan gran com
 vulgui: el que mana és la memòria de l'app, i el sostre és el dir quan una app no hi cap abans de
 gastar un sol byte de heap.
 
@@ -165,7 +165,7 @@ gastar un sol byte de heap.
 
 El sostre de `kSourceCap` era de **8 192 B** des del 31/10. L'exemple `buttons`, quan se li van afegir els
 callbacks de veritat (un `on_click`, un `on_activate` i un `on_focus` per botó, amb els comptes al costat),
-va arribar a **9 329 B** i el sistema va dir `too big to run: /apps/buttons/buttons.lua`. Un exemple que no
+va arribar a **9 329 B** i el sistema va dir `too big to run: <el camí de l'app>`. Un exemple que no
 s'arrenca no és un exemple, i el que havia crescut no era farciment: era el que l'app ensenya. El sostre és
 ara de **16 384 B**, i el preu és exactament el doble del buffer:
 
@@ -213,7 +213,7 @@ una línia (0.56.0), o sigui que **64 KB són 32 KB de heap mentre una app arren
 mou.
 
 El que **no** és: la decisió de docs/46 D6, que vol triar entre un sostre molt més gran i un `require` per a les apps.
-El chunk del lector i el cost d'aquest pas al banc **no s'han mesurat** i queden a docs/95.
+El chunk del lector i el cost d'aquest pas a l'emulador **no s'han mesurat** i queden a docs/95.
 
 ## El bloc d'un mòdul (8/11, 0.148.0)
 
@@ -265,7 +265,7 @@ cal: avui el marge és de 49 089 B i no cal.
 
 ## Un bloc que no creix no es queda sense lloc (4/11)
 
-El heap del banc (`pal_host`, `HostExtraMemory`) té **dues cases** com la placa: la RAM del xip i la memòria
+El heap de l'emulador (`pal_host`, `HostExtraMemory`) té **dues cases** com la placa: la RAM del xip i la memòria
 extra (la PSRAM del Paper). Un `resize` que no podia créixer on era provava l'altra casa i prou, i si el bloc
 era a la PSRAM i el veí de darrere estava ocupat, deia que no — **amb quatre megabytes lliures a la mateixa
 PSRAM**. Va sortir obrint el fitxer d'1,3 MB d'una pàgina del `http`: el `luaL_Buffer` de `fs.read_at` demanava
@@ -273,21 +273,21 @@ PSRAM**. Va sortir obrint el fitxer d'1,3 MB d'una pàgina del `http`: el `luaL_
 
 Ara un `resize` que no cap on és **mou el bloc a qualsevol altra taca de la seva casa** (`move_into`), que és
 el que fa un heap de debò: un bloc de vuitanta-vuit kilobytes no necessita el lloc just darrere seu, només
-algun lloc. És un error del banc i no de la placa —l'`esp32` porta el seu propi `malloc`— i per això el que
+algun lloc. És un error de l'emulador i no de la placa —l'`esp32` porta el seu propi `malloc`— i per això el que
 canvia és el model, no el sistema (docs/85).
 
 ## El sostre d'una app, a 128 KB (4/11)
 
 El sostre per defecte era de **65 536 B** des del començament, i el 4/11 va deixar de ser suficient **sense
 que cap app hagués crescut**: el mateix `writer` que la prova escrivia sis fitxers de 15 000 B el 3/11 va
-començar a dir `not enough memory` amb la llibreria de controls a dins, i `run edit` (31 937 B de codi, 32 KB
+començar a dir `not enough memory` amb la llibreria de controls a dins, i l'editor (31 937 B de codi, 32 KB
 de buffer d'entrada) no arrencava a l'ATOM. El motiu és el **terra**: cada intèrpret gasta **29 842 B** abans
 que l'app corri una línia.
 
 | | Amb la 0.67.0 (abans dels controls) | Amb la 0.81.2 |
 |---|---|---|
 | Terra de l'intèrpret a l'ATOM | uns 12 000 B | **29 842 B** |
-| Pic de `hello` | 14 364 B de 65 536 | **31 655 B** de 65 536 |
+| Pic d'una app que no espera res | 14 364 B de 65 536 | **31 655 B** de 65 536 |
 | El `writer` de la prova (6 × 15 000 B) | passa | **`not enough memory`** |
 
 El sostre és ara de **131 072 B**, i el número no és un gust: l'ATOM contesta **338 864 B lliures** (mesurat
@@ -301,8 +301,8 @@ paràgraf.
 
 ## El sostre del codi, a 32 KB (4/11)
 
-L'editor que parla vim (`apps/edit/edit.lua`) fa **26 644 B** i el 4/11 el sistema li va dir `too big to
-run: /apps/edit/edit.lua`: el sostre era de 16 384 B. El que havia crescut no era farciment —és un editor de
+L'editor que parla vim que hi havia llavors (`apps/edit/edit.lua`, que ja no és al disc) fa **26 644 B** i el
+4/11 el sistema li va dir `too big to run: /apps/edit/edit.lua`: el sostre era de 16 384 B. El que havia crescut no era farciment —és un editor de
 debò, amb desfer, cerca i les ordres de desament— i un editor que no arrenca no és un editor.
 
 | | Sostre a 16 KB (0.56.0) | Sostre a 32 KB (0.65.0) |
@@ -435,11 +435,11 @@ La pila de la tasca de la baixada és de **10 240 B** (l'apretada de mans corre 
 
 | On | Demanat | Mesurat | Diferència |
 |---|---|---|---|
-| ATOM (`run tick`) | 500 ms | **501 ms** | +1 ms |
-| ATOM (`run tick`) | 1000 ms | **1001 ms** | +1 ms |
-| ATOM (`run wait`) | 1000 ms | **1001 ms** | +1 ms |
-| Emulador (`run tick`) | 500 ms | **501 ms** | +1 ms |
-| Emulador (`run wait`) | 1000 ms | **1001 ms** | +1 ms |
+| ATOM (un `tick` de 500 ms) | 500 ms | **501 ms** | +1 ms |
+| ATOM (un `sys.delay` de 1000 ms) | 1000 ms | **1001 ms** | +1 ms |
+| ATOM (el mateix, una altra app) | 1000 ms | **1001 ms** | +1 ms |
+| Emulador (un `tick` de 500 ms) | 500 ms | **501 ms** | +1 ms |
+| Emulador (un `sys.delay` de 1000 ms) | 1000 ms | **1001 ms** | +1 ms |
 
 El mil·lisegon de més és la resolució del torn del nucli (`kernel::poll` espera fins al venciment i
 després despatxa els esdeveniments de la consola abans de reprendre la tasca), no un error del
@@ -447,12 +447,12 @@ rellotge. Un `sys.delay` no serveix per comptar temps: per a això hi ha `sys.ti
 alarmes (`60 · Temps i alarmes`).
 
 El pic de les apps que esperen **a l'ATOM** és **13 402 B** (mesurat el 30/10). La diferència amb
-`hello`, que no espera res, és de **2 505 B** a l'ESP32 i **2 921 B** al PC: això és el que costa
+una app que no espera res, és de **2 505 B** a l'ESP32 i **2 921 B** al PC: això és el que costa
 tenir promeses en marxa (la metataula de `Promise`, la taula de pendents, un userdata amb el seu
 valor d'usuari i la taula de continuacions) més la promesa d'aquest `sys.delay`.
 
-El mateix codi fa **14 364 B al PC i 10 897 B a l'ESP32** (`hello`) i **17 285 B al PC i 13 402 B a
-l'ESP32** (`wait`): un 24 % menys a la placa, perquè al PC els punters fan 8 bytes i a l'ESP32 en fan
+El mateix codi fa **14 364 B al PC i 10 897 B a l'ESP32** (una app que no espera res) i **17 285 B al PC i
+13 402 B a l'ESP32** (una app que espera): un 24 % menys a la placa, perquè al PC els punters fan 8 bytes i a l'ESP32 en fan
 4. El número que compta per al pressupost és el de la placa; el del PC serveix per comparar canvis
 sense flashejar.
 
@@ -462,13 +462,13 @@ torn** a l'ESP32 (100 esperes d'1 ms → 199 ms) contra 0,15 ms al PC. És el pr
 del cost d'un torn del nucli, i el que el pressupost d'instruccions (100 000 per torn) ha de deixar
 passar entre torns.
 
-**Des de la 0.58.0 el banc el paga** (`kTurnOverheadUs` = 850 µs, la diferència mesurada, després de
+**Des de la 0.58.0 l'emulador el paga** (`kTurnOverheadUs` = 850 µs, la diferència mesurada, després de
 cada torn i fora de `--no-delay`), i des de la 0.60.0 **el venciment també es despatxa al torn
 següent** (`kDispatchUs` = 1 000 µs sobre una espera que expira): **1 000 esperes d'1 ms triguen
-2 107 ms al banc i 1 990 ms a la placa** (mesurat el 3/11, amb l'app `burst` estesa a mil), contra
+2 107 ms a l'emulador i 1 990 ms a la placa** (mesurat el 3/11, amb el bucle de cent promeses estès a mil), contra
 els **1 064 ms** que triguen amb el model apagat. El 6 % de més és la resolució del despertar del PC
 i no una decisió: el número que es desa és el de la diferència entre les dues bandes, i la placa té
-el seu propi ±5 %. El que **no** es modela és la instrucció: no hi ha cap Xtensa al banc i el codi de
+el seu propi ±5 %. El que **no** es modela és la instrucció: no hi ha cap Xtensa a l'emulador i el codi de
 Lua es cobra a part (`--lua-cpu`, 60 ns per instrucció a 160 MHz, docs/85).
 
 La columna «consum real» no s'inventa mai: es treu de `sys.heap()`, de l'ordre `mem` i del mapa de
@@ -498,8 +498,8 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **I la RAM del xip té un terra des de la 0.151.19** (`pal::kHomeReserveBytes`, **64 KB**, i la regla
   `pal::take_from_the_extra()` a `lib/pal/include/pal/pal.h`, des de la 0.151.20): un bloc petit hi va
   **només mentre el que en queda després de donar-lo es quedi per sobre del terra**, i si no, va a la
-  PSRAM. **La regla és del PAL i no del xip** perquè el banc l'ha d'obeir igual: `pal_host` enviava cada
-  bloc petit a la casa que li demanaven i un test podia passar al banc on la placa fallava. El llindar de 4 KB sol no n'hi havia
+  PSRAM. **La regla és del PAL i no del xip** perquè l'emulador l'ha d'obeir igual: `pal_host` enviava cada
+  bloc petit a la casa que li demanaven i un test podia passar a l'emulador on la placa fallava. El llindar de 4 KB sol no n'hi havia
   prou: la màquina de Lua del lector demana uns **120 KB** en taules i cadenes petites, se'ls endú tots
   de la RAM del xip, i el sistema es queda sense el bloc que necessiten el `FILE` d'un fitxer i els
   buffers de DMA de la targeta. Mesurat a la placa: `mem` deia **125 464 B lliures (el tros més gran
@@ -521,7 +521,7 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   documentació de l'ESP-IDF ho diu amb aquestes paraules —«only the first 4 MiB can be used as such»
   i «the length of this region is the same as the SPI RAM size, up to the limit of 4 MB»— i, per a la
   resta, cal el `himem`: **bancs de 32 KB** que es mapegen quan es volen i que deixen els punters
-  inútils quan es canvia de banc. Una taula de Lua que visqués allà es trencaria al mapejar el banc
+  inútils quan es canvia de emulador. Una taula de Lua que visqués allà es trencaria al mapejar l'emulador
   següent, i per tant **no es pot fer transparent**: el que és transparent és el que la CPU pot
   adreçar, i aix. no arriba enlloc (docs/90).
 - **El sistema diu els tres números i no un de sol** (31/10), perquè el primer que es va veure a la
@@ -539,20 +539,20 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **L'espai lliure el diu la placa**, no el PC: `IPlatform::extra_memory()` surt de
   `esp_spiram_get_size()` (el xip), `heap_caps_get_total_size` i `heap_caps_get_free_size` amb
   `MALLOC_CAP_SPIRAM` (el que es pot fer servir), i a la consola `mem` ho ensenya amb els tres
-  números. **I des de la 0.58.0 el banc els compta de debò** (`pal::set_memory_bytes`,
+  números. **I des de la 0.58.0 l'emulador els compta de debò** (`pal::set_memory_bytes`,
   `pal::memory_left`): els dos casals del xip tenen el seu llibre —**338 864 B** de RAM interna als
   ATOM, **162 728 B** al Paper, i **4 095 KB** de PSRAM al Paper— i cada bloc que demana el sistema o
   una app porta **16 B de capçalera** (el casal i la mida) que també es descompten, com fa el
   `malloc` de la placa. Un bloc que no cap al casal que vol prova l'altre, i un que no cap a cap dels
-  dos **es refusa**: és el que fa que una app massa gran mori al banc abans de morir a la placa
+  dos **es refusa**: és el que fa que una app massa gran mori a l'emulador abans de morir a la placa
   (docs/85). El que no hi pot haver és el desgast dels blocs ni la fragmentació de debò.
-- **Mesurat al banc amb els sostres posats (3/11)** —la prova que el refús és el de la placa i no el
+- **Mesurat a l'emulador amb els sostres posats (3/11)** —la prova que el refús és el de la placa i no el
   del PC—: una taula de **400 000 enters** (~6,4 MB) al Paper, amb el sostre de l'app ja al màxim
   dels seus 4 MB (`--mem-cap 8192` es refusa: «this board has 4096 KB of memory and no more»), mor
   amb **`lua: not enough memory`** i la PSRAM torna exacta (`extra free 4189168 B` abans i després,
   `lua peak 2125981 of 4194304 B`); i **60 000 enters** (~1 MB) a l'ATOM, amb el sostre al màxim
   dels seus 320 KB, moren igual amb el pic a **290 956 B** i el `free heap` torna a **338 864 B**. I
-  `run heap` (60 000 enters, la mateixa taula) continua cabent al Paper i ensenya el llibre exacte:
+  la mateixa taula de 60 000 enters, quan cap, continua cabent al Paper i ensenya el llibre exacte:
   **4 189 168 → 3 140 576 → 4 189 168 B** de PSRAM lliure.
 - **El heap és un heap i no un comptador** (3/11, 0.60.0): cada casal és **una regió de bytes tallada en
   trossos** de 16 B de capçalera, amb la llista dels lliures, primera concordança, partició del que sobra
@@ -567,7 +567,7 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **Mesurat a la placa el 31/10**, amb el prompt sol: `free heap 162 728 B` i `min free heap
   156 648 B` de RAM interna (menys que a l'ATOM, que en té 338 864: el Paper paga la targeta, la I2C,
   el rellotge i les tres tecles).
-- **Mesurat al banc el 31/10**: la mateixa app (una taula de 60 000 enters, ~1 MB) **no hi cap a
+- **Mesurat a l'emulador el 31/10**: la mateixa app (una taula de 60 000 enters, ~1 MB) **no hi cap a
   l'ATOM** (sostre de 64 KB) i **hi cap al Paper** (sostre de 4 MB), i l'app només diu
   `sys.heap()` per ensenyar `limit 4194304  extra 4194304`. És la prova que la memòria és
   transparent: el mateix codi, la mateixa crida, i el que canvia és la placa.
@@ -580,6 +580,44 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **El que encara no està mesurat**: quants blocs reals van a la PSRAM en una app de debò i quants a
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.
+
+## La taula de canvas i la RAM interna (pendent, i és un risc)
+
+**La taula de canvas no és una constant de codi: és mig megabyte demanat a la memòria extra** (0.102.0). A
+`lib/kernel/src/ui.cpp`, `kSlotTableBytes` són **512 KB**, i `ui::boot()` en fa
+`pal::extra_memory().allocate(kSlotTableBytes, true)` —una ranura per canvas, `sizeof(Canvas)` = **176 B** avui,
+que són **2 978 ranures**— abans de fer la vista i abans que cap app corri. El log ho diu un cop:
+`[I][UI] the table of canvases: 2978 slots of 176 bytes`.
+
+**El parany és el `true` de la crida.** A `lib/pal/include/pal/pal.h`, `allocate(bytes, prefer_extra)` **prefereix
+la PSRAM i, si no hi cap o no n'hi ha, prova la RAM del xip abans de dir que no**: «a block is a block and an app
+does not have to know where it lives». O sigui que **en una placa sense PSRAM la taula sencera cau a la RAM
+interna**, i la meitat gran del risc és que 2 978 × 176 B són **524 128 B**, més que els **338 864 B** que
+l'ATOM diu que té lliures amb el prompt sol.
+
+**El que passa llavors és la meitat bona**: el bloc es parteix per dos fins que l'assignador diu que sí, o sigui
+que la placa no es queda sense pantalla i es queda amb la taula que hi cap. Les mides que prova són, dividint
+per dos, **2 978, 1 489, 744, 372, 186, 93 i 46** ranures —**524 128, 262 064, 130 944, 65 472, 32 736, 16 368 i
+8 096 B**—; el terra del bucle és `kMinSlots = 32` (5 632 B, que és una pàgina de trenta-un controls) i el bucle
+s'atura abans, quan la meitat ja no hi arriba.
+
+**I la meitat dolenta és que aquests bytes es paguen abans que res més** i surten del mateix lloc on aniran la
+vista de l'app (a la Paper, 540 × 912 = **246 KB**) i el seu sostre. En una placa sense memòria extra, un
+`130 944 B` de taula sobre 338 864 B és **el 39 % del que hi ha**, i el que queda ha de passar pel terra de
+`kHomeReserveBytes` (64 KB) que protegeix els buffers del sistema (aquesta mateixa secció, més amunt).
+
+**El que està mesurat i el que no:**
+
+| Què | Número | Com |
+|---|---|---|
+| `sizeof(Canvas)` i les ranures | **176 B, 2 978 ranures** | `[I][UI] the table of canvases: 2978 slots of 176 bytes` a l'emulador, amb `--board m5stack-atom` i amb `--board m5stack-paper` (els dos donen el mateix, perquè la taula no depèn de la placa) |
+| Quantes en rep una placa **sense** PSRAM | **no mesurat** | la línia de l'arrencada de l'ATOM és la que ho dirà, i `mem` després; cap build no ho ha llegit encara |
+| Quantes en rep la Paper | **2 978** | cap dels 524 128 B no és a la RAM interna: la PSRAM els té de sobres |
+
+**Què s'hi farà quan es mesuri** (i no abans, perquè el número ha de sortir de la placa): si l'ATOM es queda
+amb 744 ranures o menys, la taula s'ha de dimensionar pel que la placa té i no per una constant —per exemple
+`extra_memory()` quan el xip és zero, i `kSlotTableBytes` quan no ho és—, o baixar `kSlotTableBytes` a la meitat.
+El que **no** s'ha de fer és llevar el `true`: sense ell, la Paper deixaria de tenir la taula a la PSRAM.
 
 ## Els comptadors de la porta (1/11)
 
@@ -710,7 +748,7 @@ mirar quan una app no cap.
 - **Els últims 256 B del sostre no són de l'app** (0.156.0, `luabind::kErrorReserve`): Lua **no pot llançar
   `E_NOMEM` si no té amb què escriure el missatge** —la cadena `not enough memory` demana uns quants bytes i
   l'assignador diu que no— i aleshores no llança res: **avorta el procés** (`luaD_throw` sense ningú que el
-  reculli, i després `abort()`). Es va veure al banc el 8/11 (un `SIGABRT` de la suite) i a la placa hauria estat un
+  reculli, i després `abort()`). Es va veure a l'emulador el 8/11 (un `SIGABRT` de la suite) i a la placa hauria estat un
   reinici del nucli enmig d'una app que només demanava massa. La reserva és el que el missatge necessita i l'app no
   la veu mai com a seva: `sys.heap().limit` segueix dient el sostre i el que queda per gastar és 256 B menys.
 - **El fil d'un chunk també es demana protegit** (0.156.0): `lua_newthread` fora d'un `lua_pcall` és un sostre que
@@ -733,7 +771,7 @@ l'entrada següent (el lector comparteix el mateix objecte que `entry_at`, que �
 de §«Consum estàtic») i `stop` el torna al backend. L'índex `g_install_entry` ha desaparegut: el
 lector ja sap on és.
 
-**Mesurat al banc** (`test_a_listing_is_walked_once_and_not_once_per_entry`, 40 entrades d'uns cent
+**Mesurat a l'emulador** (`test_a_listing_is_walked_once_and_not_once_per_entry`, 40 entrades d'uns cent
 bytes cadascuna, el relleu de la resposta real de l'API):
 
 | Manera | Cost |
@@ -756,8 +794,8 @@ E (719547) esp-tls: create_ssl_handle failed
 ```
 
 `-0x7F00` és **`MBEDTLS_ERR_SSL_ALLOC_FAILED`**: la biblioteca diu que **no ha pogut tenir un bloc**, i no té res a
-veure amb el certificat, amb el DNS ni amb la xarxa — que ja havien anat bé. Al banc la mateixa ordre baixa seixanta
-carpetes perquè un PC té tota la memòria que vulgui, i per això el banc no ho veia.
+veure amb el certificat, amb el DNS ni amb la xarxa — que ja havien anat bé. A l'emulador la mateixa ordre baixa seixanta
+carpetes perquè un PC té tota la memòria que vulgui, i per això l'emulador no ho veia.
 
 **D'on surt el número.** Un handshake de TLS demana a la **RAM pròpia del xip** uns **quaranta kilobytes en peces**
 (16 KB de buffer de lectura, 16 KB d'escriptura, la sessió i els transformats del xifrat). I abans del handshake,
@@ -797,7 +835,7 @@ blocs grans ja no surten d'aquí.
 
 ## La pila dels descodificadors d'imatge, i la pàgina que va petar (0.118.0)
 
-L'amo va portar el log de la placa: `run images`, tres fotos i
+L'amo va portar el log de la placa: una pàgina amb tres fotos i
 
 ```
 ***ERROR*** A stack overflow in task loopTask has been detected

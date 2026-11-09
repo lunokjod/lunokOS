@@ -642,7 +642,7 @@ bool It8951::flush(UpdateMode mode) {
     return true;
   }
   // **The engine is waited for twice, and the first one is what the maker cannot teach** (0.151.8): the maker loads the
-  // image and *then* waits, which is safe on a bench where the next page comes from a person's finger. Here the next page
+  // image and *then* waits, which is safe on an emulator where the next page comes from a person's finger. Here the next page
   // can arrive **one millisecond** after the last one —the reader paints the whole glass twice when it starts—, and a
   // load of 259 200 bytes into an image the running engine is reading is what this controller does not survive. So the
   // wait is asked **before the load** as well, with the floor below it (`kEngineStartMs`), and it is asked again before

@@ -86,7 +86,7 @@ bool name_says_unit(const char* name, bool& on_card) {
 }
 
 // A band answers to a set of board names (one on a chip, the ones it stands in for on
-// the bench) and to a chip family. An app runs here when its `boards` list names one
+// the emulator) and to a chip family. An app runs here when its `boards` list names one
 // of them, or the family (docs/40, docs/50).
 bool answers_here(const Entry& entry, hal::IPlatform& band) {
   const uint32_t count = band.board_count();
@@ -257,7 +257,7 @@ bool load(const char* id, Entry& out) {
     return false;
   }
   // The boards of this band, which is the board itself on a chip and the ones it
-  // stands in for on the bench: an app that needs nothing of a particular board can
+  // stands in for on the emulator: an app that needs nothing of a particular board can
   // be tried on the PC without saying so, and one that names a board this band is not
   // is listed with what it needs and refused when somebody asks to run it, which is
   // more useful than hiding it (docs/40, docs/85).

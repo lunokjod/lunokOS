@@ -43,8 +43,8 @@ void make_parent(const char* path) {
   }
 }
 
-// `<state_dir>/<name>`: the memories that are not a volume live with the key-value store, and a
-// bench that was given only a working disk keeps them in it (docs/85).
+// `<state_dir>/<name>`: the memories that are not a volume live with the key-value store, and an
+// emulator that was given only a working disk keeps them in it (docs/85).
 void memory_path(const char* name, char* out, size_t cap) {
   const Options& o = options();
   const char* base = (o.state_dir != nullptr) ? o.state_dir : o.fs_dir;

@@ -42,7 +42,7 @@ bool mode_from_name(const char* name, hal::UpdateMode& out) {
 
 // **The page of this system is a portrait one by default**, whatever the glass is: 540 wide and 960 tall,
 // and turned a quarter **the other way** from the first attempt —the one the board showed upside down—.
-// It is the system's decision and not the driver's, so it is one line and the bench takes the same turn as
+// It is the system's decision and not the driver's, so it is one line and the emulator takes the same turn as
 // the board (docs/50).
 const uint16_t kDefaultRotation = 270;
 

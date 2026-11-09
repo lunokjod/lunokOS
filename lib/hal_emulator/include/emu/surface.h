@@ -47,7 +47,7 @@ class MemorySurface : public hal::ISurface {
   uint8_t dirt_at(uint16_t x, uint16_t y) const;
   // How many pixels of the glass do not show the level they were painted with.
   uint32_t ink_errors() const;
-  // True when this bench paints with the model of the glass instead of instantly and perfectly.
+  // True when this emulator paints with the model of the glass instead of instantly and perfectly.
   bool ink_on() const { return shown_ != nullptr; }
   // **Turn the model on or off for this run.** A test that is about the ink says so and turns it on; the
   // rest of them run with a paint that is instant and exact, and do not pay half a megabyte for a
@@ -62,7 +62,7 @@ class MemorySurface : public hal::ISurface {
   // (docs/85).
   uint32_t ink_steps() const { return ink_steps_; }
   // **What to do while the glass waits.** A paint blocks its caller for the wires and for the ink, and
-  // the panel does not: it keeps blinking through both. The bench that has a window installs this and is
+  // the panel does not: it keeps blinking through both. The emulator that has a window installs this and is
   // called every few milliseconds of every wait, which is how a flash reaches a person's eyes instead of
   // happening inside a delay nobody draws (docs/85).
   using WaitPump = void (*)(void* user);
@@ -165,7 +165,7 @@ class MemorySurface : public hal::ISurface {
   uint16_t last_h_ = 0;
 };
 
-// The panel of this bench, made the first time it is asked for. It is 960x540 —the Paper's glass— and
+// The panel of this emulator, made the first time it is asked for. It is 960x540 —the Paper's glass— and
 // it exists when `Options::display` says so, which is what the binary does for a model that has one
 // (`Model::glass`) and what a test leaves off unless it is about the panel (docs/85).
 MemorySurface* memory_surface();

@@ -564,14 +564,14 @@ class IPlatform {
   virtual const char* id() const = 0;
   // The chip family this board belongs to ("esp32"). It is what an app means when
   // its manifest says it runs on "esp32": every board of the family accepts it
-  // (docs/40). The bench is not a chip of its own and answers the family of the model
+  // (docs/40). The emulator is not a chip of its own and answers the family of the model
   // it is, because that is what it is imitating.
   virtual const char* family() const = 0;
   // True only in the PC build: no real clock, no real flash, no real port. It is what
   // tells an app that the board under `id()` is a fake.
   virtual bool emulator() const = 0;
   // The board names this band answers to, which is what an app's `boards` list is
-  // matched against. A board answers with its own `id()` and nothing else, and the bench
+  // matched against. A board answers with its own `id()` and nothing else, and the emulator
   // does the same with the model it was told to be: one name, so an app is accepted or
   // refused on the PC exactly as it would be on the glass (docs/40, docs/85).
   virtual uint32_t board_count() const { return 1; }
@@ -581,7 +581,7 @@ class IPlatform {
   virtual const Caps& caps() const = 0;
   virtual uint32_t heap_limit_kb() const = 0;
   // The extra memory of the board, as the board sees it (docs/75). The interpreter puts its big
-  // blocks there and an app is told what is left; it is the board that answers, so the bench answers
+  // blocks there and an app is told what is left; it is the board that answers, so the emulator answers
   // what the model carries (docs/85).
   virtual ExtraMemory extra_memory() const { return ExtraMemory{0, 0, 0}; }
   virtual IClock* clock() = 0;
@@ -604,7 +604,7 @@ class IPlatform {
   virtual ITouch* touch() const { return nullptr; }
   // **What one instruction of the interpreter costs when this band has to simulate a processor it is
   // not running on**, in nanoseconds: zero on a board, where the time is the real one, and a number on
-  // a bench that is paying for it, scaled by `power()->cpu_mhz()` (docs/85).
+  // an emulator that is paying for it, scaled by `power()->cpu_mhz()` (docs/85).
   virtual uint32_t simulated_instruction_ns() { return 0; }
 };
 

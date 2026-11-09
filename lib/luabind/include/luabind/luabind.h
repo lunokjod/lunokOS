@@ -434,7 +434,7 @@ struct MeterOps {
   uint64_t (*call_us)();
   void (*add_own)(uint32_t us);
   // **What one instruction of this interpreter costs on the board being imitated**, in nanoseconds: zero
-  // on a board, where the time of an instruction is the time it takes, and a number on a bench that is
+  // on a board, where the time of an instruction is the time it takes, and a number on an emulator that is
   // paying for it (docs/85).
   uint32_t (*instruction_ns)();
   // **Where the time of those instructions is spent**: the band's own wait, which on the PC is a sleep

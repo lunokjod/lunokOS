@@ -1,4 +1,4 @@
-// The panel of the bench: a buffer with the same packing the real glass takes (docs/85).
+// The panel of the emulator: a buffer with the same packing the real glass takes (docs/85).
 #include "emu/surface.h"
 
 #include <stdio.h>
@@ -16,12 +16,12 @@ const uint16_t kPanelWidth = 960;
 const uint16_t kPanelHeight = 540;
 
 // **The name of a quality is the one of the system** (`hal::mode_name`, `lib/hal/include/hal/hal.h`, 0.158.0):
-// the bench prints the same word the panel prints, and a second table here would be a second truth.
+// the emulator prints the same word the panel prints, and a second table here would be a second truth.
 
 // **A picture of the glass on the disk of this machine** (`--dump <file>`): the whole page as a PGM of eight bits
 // per pixel, which is the one level of the panel in each byte and the way a session with no window looks at what the
 // system draws. It is written after every paint, so the file left behind is the last screen of the run, and it does
-// not change one thing of what the bench simulates (docs/85).
+// not change one thing of what the emulator simulates (docs/85).
 void write_pgm(const char* path, const uint8_t* bits, uint16_t width, uint16_t height, uint16_t stride) {
   if (path == nullptr || bits == nullptr || width == 0 || height == 0) return;
   FILE* out = fopen(path, "wb");
@@ -44,7 +44,7 @@ MemorySurface::MemorySurface(uint16_t width, uint16_t height)
     : width_(width), height_(height), stride_(static_cast<uint16_t>(width / 2)) {
   const size_t bytes = static_cast<size_t>(stride_) * height_;
   bits_ = static_cast<uint8_t*>(calloc(bytes, 1));
-  // A bench with no memory for its panel is a bench without a glass, not a crash: every read answers
+  // An emulator with no memory for its panel is an emulator without a glass, not a crash: every read answers
   // zero and nothing is ever painted (docs/85).
   if (bits_ == nullptr) return;
   // White, like the real glass after its own clear (docs/50).
@@ -251,7 +251,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   // asks for the previous one to be over before sending the next (`wait_paint`, docs/50). A present of
   // two qualities is two paints, so the second waits here for the first —and a flash still running is
   // finished before the glass is asked for another page (docs/85).
-  // **A bench that says no like the panel does** (`--ink-refuse`, 0.118.2): the driver of the Paper refuses a paint
+  // **An emulator that says no like the panel does** (`--ink-refuse`, 0.118.2): the driver of the Paper refuses a paint
   // that arrives while another one is moving ink (`wait_paint`, three seconds) and says why. Without it, a caller that
   // forgets to wait for `idle()` gets the same answer as one that waits, which is a test that cannot fail (docs/50,
   // docs/85).
@@ -299,7 +299,7 @@ bool MemorySurface::flush(hal::UpdateMode mode) {
   const InkMode ink = ink_mode(mode);
   if (shown_ != nullptr) {
     // **The bus first, and it holds the kernel.** The driver sends the region over the wire before it
-    // asks the controller to paint, and the loop does not turn while that happens; the bench pays the
+    // asks the controller to paint, and the loop does not turn while that happens; the emulator pays the
     // same wait the board pays, at the speed the board pays it (docs/50, docs/85). With the waits off
     // (`--no-delay`, every test) the model is the same and the clock is not asked.
     const bool pay = options().delays;
@@ -526,7 +526,7 @@ const MemorySurface::Paint* MemorySurface::paint_at(uint32_t index) const {
 }
 
 // **A paint takes as long as the glass takes**, and `idle()` is the question for it: this is what makes
-// `run panel` in the bench say a number that means something, and what an app that waits for the ink
+// `run panel` in the emulator say a number that means something, and what an app that waits for the ink
 // sees (docs/30, docs/85). It is also the question that walks a flash, because an app that waits for the
 // ink is an app that is waiting for the blinks too.
 bool MemorySurface::idle() {

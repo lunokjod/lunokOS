@@ -24,7 +24,7 @@ namespace {
 const size_t kMaxFiles = 8;
 const size_t kPathCap = 256;
 
-// A card in the slot of the bench is a **16 GB card**, because that is what a card is for the board
+// A card in the slot of the emulator is a **16 GB card**, because that is what a card is for the board
 // and what the number has to say. The volume behind it is a directory of the PC's disk, so the space
 // that is really left is the host's: when the host has less than the card, the difference is shown as
 // **used on the card**, which is the only way the number stays coherent with the board (docs/85).
@@ -73,7 +73,7 @@ class PosixStorage : public IStorage {
   // Two volumes of the same kind: the flash is the directory named as a volume (or
   // <fs_dir>/littlefs), and a card is the
   // directory the person named with `--sd`. Nothing else changes between them, which is
-  // the point of the bench: a file that works here works there (docs/85).
+  // the point of the emulator: a file that works here works there (docs/85).
   explicit PosixStorage(bool card) : card_(card) {}
 
   bool stat(const char* rel, Stat& out) override {
@@ -205,7 +205,7 @@ class PosixStorage : public IStorage {
     host_free = static_cast<uint64_t>(info.f_bavail) * info.f_frsize;
 
     if (card_) {
-      // A card in the slot of the bench is a **16 GB card**, and when the host has less than that, the
+      // A card in the slot of the emulator is a **16 GB card**, and when the host has less than that, the
       // difference is shown as used on the card (docs/85).
       total = kCardBytes;
       free = (host_free < total) ? host_free : total;
@@ -239,7 +239,7 @@ class PosixStorage : public IStorage {
 };
 
 // **The time of the device, wrapped around the volume** (docs/85). A directory of the PC does not care
-// what a read costs and the board does: every volume of this bench goes through here, and the numbers
+// what a read costs and the board does: every volume of this emulator goes through here, and the numbers
 // are the table in `emu/disk.h` —a block of the flash, a sector of the card, a byte of the FRAM—. The
 // RTC memory is **not** wrapped: it is the RAM of the chip and a byte of it is a byte of RAM.
 class TimedStorage : public IStorage {
@@ -299,8 +299,8 @@ PosixStorage g_card(true);
 TimedStorage g_littlefs_timed(&g_littlefs, emu::Disk::kFlash);
 TimedStorage g_card_timed(&g_card, emu::Disk::kCard);
 
-// The RTC memory of the bench is the one `emu/rtc.bin` holds, and `/rtc` is that same memory as one
-// file of its size: the board and the bench show the same thing (docs/50, docs/85). Built on first
+// The RTC memory of the emulator is the one `emu/rtc.bin` holds, and `/rtc` is that same memory as one
+// file of its size: the board and the emulator show the same thing (docs/50, docs/85). Built on first
 // use and not as a static, because the file it stands for is opened with the options of the run.
 IStorage* rtc_storage() {
   static MemoryFile file(emu::rtc_ram(), emu::kRtcRamBytes);
@@ -308,7 +308,7 @@ IStorage* rtc_storage() {
 }
 
 // The FRAM of the model, which is `emu/fram.bin`: 256 bytes that are non-volatile, so `/fram` is a
-// file the bench keeps between runs the same way the chip keeps it between two cuts of the power
+// file the emulator keeps between runs the same way the chip keeps it between two cuts of the power
 // (docs/50, docs/85). A model with no FM24C02 has no `fram()` to give and therefore no mount.
 IStorage* fram_storage() {
   uint8_t* bytes = emu::fram();
@@ -327,7 +327,7 @@ IStorage* emu_storage(const char* mount) {
   if (strcmp(mount, "/littlefs") == 0) return &g_littlefs_timed;
   // The RTC memory is a file of the chip and it is there on every board (docs/50).
   if (strcmp(mount, "/rtc") == 0) return rtc_storage();
-  // The FRAM is only on the model that carries the chip: the board decides and not the bench
+  // The FRAM is only on the model that carries the chip: the board decides and not the emulator
   // (docs/50, docs/85).
   if (strcmp(mount, "/fram") == 0) return fram_storage();
   // A card is there only when the person put one, and a card is a **directory that exists**: the

@@ -29,7 +29,7 @@ inline const char* id() { return "m5stack-paper"; }
 // chip this one does not have is not an app of this board (docs/40).
 inline const char* family() { return "esp32"; }
 
-// This build is for a board and not for the PC bench.
+// This build is for a board and not for the PC emulator.
 inline bool emulator() { return false; }
 
 // The Paper has no light of its own: what it has is a screen, and a screen is

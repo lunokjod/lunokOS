@@ -1,6 +1,6 @@
 // What the emulated model is made of, in **one** place (docs/50, docs/85).
 //
-// The bench used to answer for whatever hardware the option said; now the model decides, and the
+// The emulator used to answer for whatever hardware the option said; now the model decides, and the
 // model is the one `--board` names. The rest of the emulator asks here instead of testing board
 // names again, because two lists of what a board has are two truths and one of them ages.
 #ifndef LUNOK_EMU_MODEL_H
@@ -17,7 +17,7 @@ struct Model {
   bool imu;              // a sensor
   bool env;              // an ambient sensor: temperature and humidity (docs/50)
   // **The screen it draws on**: the IT8951 panel of the Paper, 960x540 and four bits per pixel. The
-  // ATOMs of this family have no screen at all, and a bench of one with a glass would be a board
+  // ATOMs of this family have no screen at all, and an emulator of one with a glass would be a board
   // nobody can buy (docs/50, docs/85).
   bool glass;
   // **A touch panel**: the glass that a finger goes through, which on this board is a GT911 that
@@ -33,8 +33,8 @@ struct Model {
   bool powers_off;
   // The memory the board really has for the system, in KB. **320** on every ESP32 of this family:
   // the chip's 520 KB of SRAM are not all heap, and 320 is what a program can use (docs/75). The
-  // bench may be told a smaller ceiling, never a bigger one: a bench that hands out a megabyte is a
-  // bench that lies about the glass (docs/85).
+  // emulator may be told a smaller ceiling, never a bigger one: an emulator that hands out a megabyte is
+  // an emulator that lies about the glass (docs/85).
   uint32_t heap_kb;
   // The **extra** memory of the board: what the chip says it has (`psram_chip_kb`) and how much of it
   // the CPU can address (`psram_kb`, which is all the system can hand out). On this family the second
@@ -43,13 +43,13 @@ struct Model {
   uint32_t psram_chip_kb;
   uint32_t psram_kb;
   // **What the board has free at the prompt, and what its extra memory can hand out when nothing of the
-  // system is in it**, in bytes, measured on the glass (docs/75). The bench counts everything the system
+  // system is in it**, in bytes, measured on the glass (docs/75). The emulator counts everything the system
   // and the apps take through `pal::extra_memory()` against these two, so the ceiling of a page and of an
   // app is the board's and not the PC's (docs/85). Zero is a home the board does not have.
   uint32_t free_heap_bytes;
   uint32_t extra_free_bytes;
   // What the board answers as the ceiling of an app (`IPlatform::heap_limit_kb`): its PSRAM on the
-  // Paper, and **0 on a board that does not say**, which is the kernel's own ceiling. The bench
+  // Paper, and **0 on a board that does not say**, which is the kernel's own ceiling. The emulator
   // answers this and not a number of its own (docs/75, docs/85).
   uint32_t app_limit_kb;
   // The data partition of the board, in bytes, from its own partition table: 0x0E0000 on the 4 MB
@@ -64,7 +64,7 @@ struct Model {
   uint32_t boot_image_bytes;
 };
 
-// The model this bench is.
+// The model this emulator is.
 Model model();
 
 // The hardware of a model, by name. It is what the command line asks before the options are
@@ -72,7 +72,7 @@ Model model();
 // against the one in effect (docs/85).
 Model model_of(const char* name);
 
-// Whether this bench is that model, by the name it is written with in `platformio.ini`.
+// Whether this emulator is that model, by the name it is written with in `platformio.ini`.
 bool model_is(const char* name);
 
 }  // namespace emu

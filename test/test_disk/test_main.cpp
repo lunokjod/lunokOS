@@ -1,6 +1,6 @@
-// **What the disk of the bench costs**, device by device (docs/50, docs/85).
+// **What the disk of the emulator costs**, device by device (docs/50, docs/85).
 //
-// The bench used to charge one flat millisecond for every read of every volume, which is a number that
+// The emulator used to charge one flat millisecond for every read of every volume, which is a number that
 // is wrong for all of them: a flash block is eight hundred microseconds of wire and a sector of it has
 // to be erased before anything is written, a card is a command and a sector at ten megahertz, and the
 // FRAM is an I2C chip where **a byte is ninety microseconds**. This is the table of `emu/disk.h` paid
@@ -28,7 +28,7 @@ const char* kRoot = "/tmp/lunokos_disk_test";
 
 bool g_booted = false;
 
-// A bench whose flash is a directory of its own, so nothing of this suite touches the repository's
+// An emulator whose flash is a directory of its own, so nothing of this suite touches the repository's
 // `data/`, and whose board is the Paper: it is the one with the FRAM and the card (docs/50, docs/85).
 void boot_with_a_disk() {
   if (g_booted) return;
@@ -72,7 +72,7 @@ static void test_the_table_says_what_each_device_costs() {
   const emu::DiskTiming fram = emu::disk_timing(emu::Disk::kFram);
   TEST_ASSERT_EQUAL_UINT32(1, fram.block_bytes);
   TEST_ASSERT_EQUAL_UINT32(90, fram.read_block_us);     // ninety microseconds a byte
-  // The RTC memory is RAM: nothing of it is paid, and a bench that charged for it would be inventing a
+  // The RTC memory is RAM: nothing of it is paid, and an emulator that charged for it would be inventing a
   // chip that is not there.
   const emu::DiskTiming memory = emu::disk_timing(emu::Disk::kNone);
   TEST_ASSERT_EQUAL_UINT32(0, memory.command_us);
@@ -188,12 +188,12 @@ static void test_with_the_waits_off_the_disk_is_free() {
   TEST_ASSERT_TRUE_MESSAGE(spent < 5000, "a write with the waits off asked the clock for a sector");
 }
 
-// **What a board keeps, and what a run that starts again finds** (docs/60, docs/70, docs/85). The bench
+// **What a board keeps, and what a run that starts again finds** (docs/60, docs/70, docs/85). The emulator
 // keeps the two things the hardware keeps outside a volume: the hour a chip with a coin cell holds and
 // the key-value store of the network. These tests are the two files, one run apart.
 //
 // The store is read here **before anything of this suite has touched the radio**, which is exactly the
-// state of a bench that has just started: the name comes from the flash and not from a string of the
+// state of an emulator that has just started: the name comes from the flash and not from a string of the
 // run.
 static void test_the_network_in_the_store_is_what_a_new_run_answers() {
   boot_with_a_disk();

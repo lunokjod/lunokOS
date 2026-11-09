@@ -1025,7 +1025,7 @@ local function do_end()
 end
 
 -- **The page says what it is showing**: the day on the glass with the hours it has, or the week with its average.
--- It is one line per turn of the sheet and per start, and it is what a bench reads instead of looking at the glass.
+-- It is one line per turn of the sheet and per start, and it is what an emulator reads instead of looking at the glass.
 local function say_day()
   local work, rest = totals(marks, nil)
   console.print(string.format('timeclock: day %s, %d marks, work %s, rest %s, %s', shown_day, #marks,
@@ -1295,7 +1295,7 @@ end
 ui.present('gc16')
 
 -- **The memory it costs, said once**: the ceiling of an app is the board's and this page is the biggest of the tree,
--- so the number is worth having in the log of a bench (docs/75).
+-- so the number is worth having in the log of an emulator (docs/75).
 if sys.heap ~= nil then
   local heap = sys.heap()
   if heap ~= nil and heap.used ~= nil then

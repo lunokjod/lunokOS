@@ -80,9 +80,9 @@ lib_ignore = hal_atom, hal_paper, hal_esp32, pal_esp32,
 
 El text de debò és a `platformio.ini`, amb un comentari per línia; aquí n'hi ha la forma. Les
 llibreries de xarxa d'Arduino són fora del build a posta (docs/50), i **cada entorn ignora les
-identitats de les altres tres plaques** perquè el build en vegi exactament una; el banc no en té cap
+identitats de les altres tres plaques** perquè el build en vegi exactament una; l'emulador no en té cap
 de `lib/board_*` i porta la seva a `lib/hal_emulator/include/board/`.
-**El banc no enllaça res per a la xarxa**: la pàgina que demana `http` la baixa el `curl` d'aquesta
+**L'emulador no enllaça res per a la xarxa**: la pàgina que demana `http` la baixa el `curl` d'aquesta
 màquina, en un procés fill, i un `curl` que no hi sigui no trenca el build — la petició respon
 `E_HTTP` i ho diu a la consola (docs/85).
 `extra_scripts = pre:tools/check_fs_names.py` és a tots els entorns de placa (`atom` —i el seu fill
@@ -103,7 +103,7 @@ Sis coses que aquesta configuració fa complir:
 3. **`lib_ignore` i `src/board_link.cpp`.** Cada entorn no veu mai el codi de les altres plaques: ho
    diuen el `lib_ignore` i el camí d'inclusió (`-Ilib/board_<id>/include`), que és el que fa que
    `#include "board/identity.h"` i `#include "board/impl.h"` resolguin a la placa d'aquest entorn i no
-   a les altres. (El banc i les proves no tenen cap `lib/board_*`: la seva identitat és dins
+   a les altres. (L'emulador i les proves no tenen cap `lib/board_*`: la seva identitat és dins
    `lib/hal_emulator/include/board/`.) Però això sol no n'hi prou: PlatformIO descobreix les llibreries
    de `lib/` seguint els
    `#include`, i com que `board/impl.h` no es diu com cap llibreria (`hal_atom`, `pal_esp32`…), sense
@@ -175,10 +175,11 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **429 proves natives** (`pio test -e test`);
-- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `M5 Atom`, `M5 Atom Matrix`,
-  `M5 Paper`, `ESP32 DevKit` i `TTGO T-Koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), i per
-  això es diuen amb espai i les comandes els han de posar entre cometes: `pio run -e m5-paper`.
+- les **486 proves natives** (`pio test -e test`), de les quals **12 són vermelles** des de la 0.169.0 (les del
+  `apps`, les de la porta de les apps i les de la caixa de redibuixat; docs/90 les porta);
+- les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
+  `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
+  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 
@@ -199,11 +200,11 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i llavors cada app del disc és
   **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves proves escriuen al
   disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
-- **El banc sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
-  `emulator` diu `custom_apps_in_disk = yes` i, com que el banc no té placa, el filtre de `make_disk` les
-  hi deixa passar totes —**8 apps, 39 fitxers, 305 615 B** mesurats el 8/11— i les posa **enllaçades**, o
-  sigui que el banc llegeix el que hi ha a `apps/` i no una còpia. Fins avui en portava una, el llançador, i
-  `apps` en un banc acabat de fer deia `no apps`; ara diu vuit noms i la graella del llançador té vuit cel·les.
+- **L'emulador sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
+  `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador no té placa, el filtre de `make_disk` les
+  hi deixa passar totes —**7 apps, 34 fitxers, 290 501 B** mesurats el 12/11— i les posa **enllaçades**, o
+  sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
+  `apps` en un emulador acabat de fer deia `no apps`; ara diu set noms i la graella del llançador té set cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
   (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
 - **Si un build en demana massa, ho diu i no perd fitxers en silenci.** `make_disk` munta la imatge amb
@@ -212,10 +213,13 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   PlatformIO donaria per bona (el guard és `check_it_fits`, a `tools/make_disk.py`). A cada build la línia ho
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
-  **El que hi ha avui, mesurat el 8/11**: `apps/` són **39 fitxers i 305 615 B**, i el `data/` del sistema
-  **16 fitxers i 130 217 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: amb la Shell
-  dins, el 8/11 va escriure *`build/disk/emulator is 438116 B in 56 files, 8 apps`* i *`build/disk/m5-paper is 410534 B
-  in 50 files, 7 apps`*, i les dues imatges hi caben (la Paper, en la partició de 1 441 792 B). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
+  **El que hi ha avui, mesurat el 12/11**: `apps/` són **34 fitxers i 290 501 B**, i el `data/` del sistema
+  **20 fitxers i 1 688 656 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 12/11 va
+  escriure *`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`* i *`build/disk/m5-paper is
+  1979152 B in 53 files, 7 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
+  12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 688 651 B en
+  19 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
+  tres bitmaps de splash (`data/res/splash`, 1 595 456 B) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
   dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 35) i s'ha retirat: el que queda
   d'aquella mesura és el guard, que és cert, i no els números. La raó per la qual cap placa no en porta no és
   la mida sinó la decisió de l'amo i el fet que una imatge amb apps es queda vella (docs/70).
@@ -226,15 +230,15 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   barra i el teixit de la splash viatgen aquí.
 - **No cal posar res a la targeta SD**: el slot és una targeta i prou. Si n'hi ha una, `/sd` apareix i
   `cfg auto` hi desa els ajustos; cap fitxer és obligatori.
-- **`emulator/littlefs` no es puja mai**: és la còpia privada d'un banc que demana `--flash
-  emulator/littlefs`; el disc del banc, per defecte, és `build/disk/emulator` (docs/85).
+- **`emulator/littlefs` no es puja mai**: és la còpia privada d'un emulador que demana `--flash
+  emulator/littlefs`; el disc de l'emulador, per defecte, és `build/disk/emulator` (docs/85).
 - El nom d'un fitxer de `data/` o d'`apps/` no pot passar de 32 caràcters: `tools/check_fs_names.py` ho converteix
   en un build fallit en lloc de deixar que la imatge el perdi en silenci (docs/70).
 - Per saber que tot hi és, després de flashejar: `version` (la versió i la placa), `caps` (**16 de
   19** al Paper amb targeta i bateria, o **17** si el terminal contesta ANSI), `mem` (els tres números
   de la memòria extra), `mounts` (fins a
-  nou files, amb `/rtc` i `/fram`) i `apps` (les apps del disc). I `run heap`, que és la meitat que
-  falta de la mesura E-4 de `docs/95`.
+  nou files, amb `/rtc` i `/fram`) i `apps` (les apps del disc). I una taula de 60 000 enters des de `lua`,
+  que és la meitat que falta de la mesura E-4 de `docs/95`.
 
 ## La versió: X.Y.Z, i puja a cada canvi (31/10)
 
@@ -267,13 +271,13 @@ Cinc nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_led/` | El motor dels efectes: els quatre efectes com a funció del temps, les dues capes, la interrupció pel sistema (desar, pintar, restaurar i avisar `on_light`) i el sostre de brillantor de la placa |
 | **Unitat** | `test/test_orientation/` | El gir: les quatre cantonades del Paper, el quart de volta i que encadenar un gir en el mateix objecte no llegeixi la seva pròpia sortida |
 | **Unitat** | `test/test_line_editor/` | El cursor d'una línia: una lletra al mig, el retrocés que se l'emporta, inici/final, i **l'historial**: vuit ordres, la que s'estava escrivint que torna en passar de la més nova, i ni les línies buides ni la repetició immediata no hi entren |
-| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre del banc: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16`, el temps de cada qualitat, el parpelleig d'`a2` en tres moments i el preu del bus que quadra amb els 1 985 ms de la placa l'1/11) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala), i **quina placa té vidre**: el model diu que la Paper en té i que els ATOM no, i una opció no dona pantalla a una placa que no en té, i **el camí de tornada del píxel de la finestra al píxel de la pàgina** (el centre del bloc d'escala i la vora per a un punter fora), i **la tira de les tecles** (la columna és pujar/centre/baixar, la seva geometria —96 d'ample, botons de 80 × 54 centrats— i que un clic al buit no prem cap tecla), i **els controls**: el retall d'UILabel, i el marc d'UIButton amb la vora premuda, el fill tallat al botó i el fill que es torna a dibuixar quan el marc canvia, i **UICheckbox** (la caixa amb el tick d'un color propi, el forat de premut i l'anell del focus fora de la caixa) |
-| **Unitat** | `test/test_touch/` | El panell de la Paper al banc: **què costa una lectura** (800 µs sense dit, 1 830 amb un i 2 550 amb dos, i el probe de 186 bytes de l'arrencada), **un marc per escombrat** —la segona lectura de la mateixa finestra diu que no hi ha ningú—, la configuració d'aquesta unitat (dos dits, mides 28 i 30, el punt fora del marc refusat), el dit que se'n va, el **xip més lent que el torn** (40 ms contra 20: la meitat de les lectures diuen ningú), i un dit que acaba en un gest `long` amb les coordenades de la vista (100,200 del vidre són 100,152 de la vista) |
+| **Unitat** | `test/test_ui/` | La capa de controls contra el vidre de l'emulador: la vista i el canvas, els danys amb la seva qualitat, el rectangle que comença en un píxel senar, la llista de vuit que s'omple, la composició **fills primer**, els controls **sense vista** (pinten al primer canvas que els conté, tallats al seu marc), el redibuix tallat a la caixa que el control deu, el forat que deixa un fill que es mou, la neteja abans d'alliberar amb **un sol rectangle per subarbre**, el **marc i la generació** que fan que un objecte mort respongui `E_INVAL`, el **model de la tinta** (el rastre d'un `du`, la neteja d'un `gc16`, el temps de cada qualitat, el parpelleig d'`a2` en tres moments i el preu del bus que quadra amb els 1 985 ms de la placa l'1/11) i **la finestra** (el color calent dels setze nivells i el pas a píxel amb escala), i **quina placa té vidre**: el model diu que la Paper en té i que els ATOM no, i una opció no dona pantalla a una placa que no en té, i **el camí de tornada del píxel de la finestra al píxel de la pàgina** (el centre del bloc d'escala i la vora per a un punter fora), i **la tira de les tecles** (la columna és pujar/centre/baixar, la seva geometria —96 d'ample, botons de 80 × 54 centrats— i que un clic al buit no prem cap tecla), i **els controls**: el retall d'UILabel, i el marc d'UIButton amb la vora premuda, el fill tallat al botó i el fill que es torna a dibuixar quan el marc canvia, i **UICheckbox** (la caixa amb el tick d'un color propi, el forat de premut i l'anell del focus fora de la caixa) |
+| **Unitat** | `test/test_touch/` | El panell de la Paper a l'emulador: **què costa una lectura** (800 µs sense dit, 1 830 amb un i 2 550 amb dos, i el probe de 186 bytes de l'arrencada), **un marc per escombrat** —la segona lectura de la mateixa finestra diu que no hi ha ningú—, la configuració d'aquesta unitat (dos dits, mides 28 i 30, el punt fora del marc refusat), el dit que se'n va, el **xip més lent que el torn** (40 ms contra 20: la meitat de les lectures diuen ningú), i un dit que acaba en un gest `long` amb les coordenades de la vista (100,200 del vidre són 100,152 de la vista) |
 | **Unitat** | `test/test_battery/` | La bateria: la **corba en els dos sentits** (4 200 mV plena, 3 300 buida, cada fila torna com va anar-hi, i el voltatge només puja amb la càrrega), la **bateria de la màquina** llegida d'uns fitxers del nucli (63 %, carregant o no, i un `150` que no és cap bateria), la **cel·la prestada** (el 100 % són 4 200 mV, el 63 % són 3 847, i una màquina sense bateria deixa la cel·la al **càrrec nominal, 3 700 mV**, perquè un Paper sempre en té), i que **preguntar el gauge pagui l'ADC** (400 µs) i no el pagui amb els temps apagats |
 | **Unitat** | `test/test_font/` | El tipus de lletra portable: un fitxer de text que es converteix en una cara (la mida, el forat, els codis en ordre i cada `#` on toca), **l'amplada d'una línia** amb l'escala i sense forat al final, els glifs **com a tirades de píxels** tallades a la caixa del label, i cada manera que un fitxer deixa de ser una cara amb el seu motiu. I **el BDF**: les files hexadecimals cap al mateix bloc de setze per setze (amb dues bytes per fila quan el glif passa de vuit columnes), el `COMMENT` i les propietats que no diuen res, `ENCODING -1 <n>`, les seves maneres de dir que no, i que el **sniffer** (`font::load_any`) triï el lector pel que diu el fitxer i salti els comentaris de davant. I **el PCF**, amb el fitxer de debò que `bdftopcf` va escriure a partir del BDF de l'app: surt **el mateix bloc, byte a byte**, i un directori tallat, una taula fora del fitxer, els bits al revés, una codificació de dos bytes o un codi que apunta més enllà dels glifs es refusen |
 | **Unitat** | `test/test_inflate/` | El deflate llegit de tornada: un stream comprimit pel zlib de debò —bloc dinàmic i bloc fix— torna com era, els **dos checksums** dels contenidors (Adler-32 del zlib i CRC-32 del zip) amb els valors que tothom cita, i el que **no és un stream** es refusa amb el seu motiu: un stream tallat, un quart tipus de bloc que no existeix, una longitud que no concorda amb el seu complement, una sortida que no hi cap, un diccionari preestablert, i un punter nul, que no és el mateix cas que un buffer buit |
 | **Unitat** | `test/test_ttf/` | Els contorns d'un TrueType: el que la font diu de si mateixa (64 unitats de cos, set glifs, l'ascendent), el codi que troba el seu glif pel `cmap` i el que no hi és, el **pas del glif** en píxels i a qualsevol mida, i el dibuix: **la `A` a vuit píxels surt amb les vuit files del `font-bdf`**, columna a columna, i a setze és el doble amb la caixa de tinta que li toca. Es refusen un fitxer que no és cap font, un `OTTO` (CFF), un directori tallat, una taula fora del fitxer i un glif que no cap al bloc |
-| **Unitat** | `test/test_disk/` | El disc del banc, dispositiu per dispositiu: la **taula** de `emu/disk.h` (blocs de 4 KB i 819 µs de flash, 45 ms d'esborrat, 512 B i 410 µs de targeta, **90 µs per byte** de FRAM), que un bloc de flash pagui el seu cable i no un errada, que una **escriptura pagui el sector** que littlefs ha d'esborrar, que vuit bytes de FRAM costin el bus I2C, i que amb els temps apagats el mateix bloc d'escriptura no demani res al rellotge |
+| **Unitat** | `test/test_disk/` | El disc de l'emulador, dispositiu per dispositiu: la **taula** de `emu/disk.h` (blocs de 4 KB i 819 µs de flash, 45 ms d'esborrat, 512 B i 410 µs de targeta, **90 µs per byte** de FRAM), que un bloc de flash pagui el seu cable i no un errada, que una **escriptura pagui el sector** que littlefs ha d'esborrar, que vuit bytes de FRAM costin el bus I2C, i que amb els temps apagats el mateix bloc d'escriptura no demani res al rellotge |
 | **Unitat** | `test/test_bar/` | La barra: que es quedi les 48 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és**. I el que **costa** l'intèrpret: amb una banda que diu el preu d'una instrucció, un bucle de dues mil sumes en paga el doble a quatre mil, i una banda que en diu zero —una placa— no en paga cap (docs/85) |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten, `cat` i `hexdump` inclosos, **i el que costa es conta**: una crida pel VFS és una fila del seu comptador amb el seu temps, `stats` l'ensenya i `stats reset` la torna a zero, i una línia de log porta sempre la seva lletra de nivell i la seva etiqueta |
@@ -289,7 +293,7 @@ Regles:
   que vigila. Una prova que no s'ha vist fallar no se sap si mira res.
 - La prova nova d'una crida de Lua ha d'incloure el **cas de la capacitat absent**: és el camí que
   més vegades es trencarà.
-- **El que una prova desa, una prova ho torna.** Dues coses d'aquest banc no són del procés i sí del terminal
+- **El que una prova desa, una prova ho torna.** Dues coses d'aquest emulador no són del procés i sí del terminal
   de qui el llança, i totes dues s'han vist quedar trencades (4/11):
   - **La consola.** `pump_captured`, `feed_captured` i `capture_begin` posen `stdout` en un fitxer amb `dup2`
     per llegir el que diu una app. Un `TEST_ASSERT` que falla surt per un `longjmp` de Unity i **no passa mai
@@ -299,7 +303,7 @@ Regles:
     ha fallat, que és l'única vegada que algú el vol llegir.
   - **El terminal.** `pal::init()` el posa en mode cru (sense eco i sense línia) i `pal::shutdown()` el torna,
     però una suite no en diu mai res: s'acabava amb el terminal de qui havia llançat les proves sense eco fins
-    a un `reset`. El PAL del banc instal·la `atexit` en encendre el mode cru, o sigui que el terminal es torna
+    a un `reset`. El PAL de l'emulador instal·la `atexit` en encendre el mode cru, o sigui que el terminal es torna
     encara que el procés acabi en un `exit` d'una fallada. Comprovat amb un pty (`script -q -c 'stty -g; …;
     stty -g'`): sense el ganxo el `stty` de després és un altre, i amb el ganxo és el mateix.
 - **Cap espera no és per sempre.** Un bucle de proves que espera una app acaba amb un pressupost de torns
@@ -334,8 +338,8 @@ debò.
 | Memòria de debò | 320 KB no es poden simular; es **limita** la VM amb `--mem-cap`, que és una aproximació |
 
 La latència del port **sí** que es pot mesurar, només que des de fora de la placa: és
-`tools/serial_ping.py`. Arrenca l'app `ping` (que respon `pong` a cada línia), hi envia deu línies i
-cronometra cada anada i tornada des del PC. La placa ha d'estar al prompt i l'app `ping` al disc:
+`tools/serial_ping.py`. Arrenca una app que respon `pong` a cada línia, hi envia deu línies i
+cronometra cada anada i tornada des del PC. La placa ha d'estar al prompt i l'app que respon al disc:
 
 ```
 tools/serial_ping.py --port /dev/ttyUSB0 --rounds 10
@@ -383,7 +387,7 @@ python3 tools/check_stack.py --all --budget 4096    # el mapa de tot el firmware
 
 ## Una prova que llegeix píxels encén el vidre (0.118.1)
 
-**El banc neix amb tot apagat** —sense vidre, sense tàctil, sense targeta— perquè això és el que vol una mesura del treball de la placa, i `use_board("m5stack-paper")` canvia el model **sense encendre res**. Una prova que llegeix píxels ha de demanar-ho abans de fer el boot:
+**L'emulador neix amb tot apagat** —sense vidre, sense tàctil, sense targeta— perquè això és el que vol una mesura del treball de la placa, i `use_board("m5stack-paper")` canvia el model **sense encendre res**. Una prova que llegeix píxels ha de demanar-ho abans de fer el boot:
 
 ```cpp
 emu::Options opts = emu::options();

@@ -52,7 +52,7 @@ HostBattery host_battery_in(const char* dir) {
   HostBattery out;
   if (dir == nullptr) return out;
   // **A percentage is the whole answer or there is no battery**: a battery is not a voltage to guess
-  // from, and a kernel that says 150 is a kernel this bench does not believe (docs/85).
+  // from, and a kernel that says 150 is a kernel this emulator does not believe (docs/85).
   int percent = 0;
   if (!read_number(dir, "capacity", percent)) return out;
   if (percent < 1 || percent > 100) return out;
@@ -85,7 +85,7 @@ HostBattery host_battery() {
   return found;
 #else
   // `/sys/class/power_supply` is Linux's. The other desktops have no battery to lend here, and the
-  // bench says so by returning none instead of looking for a file that cannot exist (docs/85).
+  // emulator says so by returning none instead of looking for a file that cannot exist (docs/85).
   return HostBattery();
 #endif
 }

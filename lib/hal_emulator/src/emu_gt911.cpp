@@ -1,4 +1,4 @@
-// The GT911 of the bench: the frame of the last scan, the bus it costs, and nothing that a PC cannot
+// The GT911 of the emulator: the frame of the last scan, the bus it costs, and nothing that a PC cannot
 // have (docs/50, docs/85).
 #include "emu/gt911.h"
 
@@ -60,7 +60,7 @@ uint32_t Gt911Panel::scan_ms() const {
 
 bool Gt911Panel::finger_down(uint8_t slot, uint16_t x, uint16_t y) {
   if (slot >= kMaxFingers) return false;
-  // A point that is not on the glass is not a finger: the bench refuses it instead of putting it
+  // A point that is not on the glass is not a finger: the emulator refuses it instead of putting it
   // somewhere and letting a test believe what it read (docs/85).
   if (x >= kFrameWidth || y >= kFrameHeight) return false;
   fingers_[slot].down = true;
@@ -115,7 +115,7 @@ void Gt911Panel::reset() {
 
 uint8_t Gt911Panel::read(hal::TouchPoint* out, uint8_t capacity) {
   if (out == nullptr || capacity == 0) return 0;
-  // **The bus first, and the bench pays it**: three transactions of a hundred-kilohertz bus is what a
+  // **The bus first, and the emulator pays it**: three transactions of a hundred-kilohertz bus is what a
   // turn costs on the board, and a read that is free here would make a caller that reads ten times a
   // turn look reasonable (docs/50, docs/85). With the waits off (`--no-delay`, every test) the read is
   // the model and not the clock; the scan window below stays either way, because a frame that was

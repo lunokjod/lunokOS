@@ -13,7 +13,7 @@ git, i el que el sistema **fa** avui s'explica als altres documents: `10` (mapa)
 `80` (compilació) i `85` (emulador).
 
 Estat d'avui, en una línia: **M0, M1, M2, M3, M4, M5, M6 (mecanisme) i M7 estan fets**; el que queda
-són les mesures de camp d'M5, M6 i M7, **M8** (la forma de les tecles al banc; la finestra ja les prem
+són les mesures de camp d'M5, M6 i M7, **M8** (la forma de les tecles a l'emulador; la finestra ja les prem
 amb el ratolí, i falten les portes del terminal i dels guions),
 dues
 crides que ningú no ha demanat encara (`net.softap` i escriptura a `/nvs`), la resta del contracte
@@ -93,16 +93,16 @@ Feta. El que queda és el que queda de tota la llista: res d'específic.
 
 | | |
 |---|---|
-| **Què queda** | **Mesurar a la placa** els microsegons d'un frame del llum (avui són un càlcul, no una mesura), el corrent d'un llum encès i apagat amb el mesurador USB, i **quant costa un efecte**: 30 fps d'un frame de 30 µs són 0,09 % de CPU en teoria, i a la placa no s'ha mesurat. I **el sensor del Matrix**: el driver està escrit pel full del fabricant i no s'ha vist en maquinari, o sigui que el **sentit dels eixos** en aquesta placa i la qualitat de la mesura estan per comprovar (`run tilt` els ensenya a la consola). |
+| **Què queda** | **Mesurar a la placa** els microsegons d'un frame del llum (avui són un càlcul, no una mesura), el corrent d'un llum encès i apagat amb el mesurador USB, i **quant costa un efecte**: 30 fps d'un frame de 30 µs són 0,09 % de CPU en teoria, i a la placa no s'ha mesurat. I **el sensor del Matrix**: el driver està escrit pel full del fabricant i no s'ha vist en maquinari, o sigui que el **sentit dels eixos** en aquesta placa i la qualitat de la mesura estan per comprovar (`imu.read()` en una pàgina els ensenya a la consola). |
 | **Criteri** | El que ja es compleix: el gest de tres tocs tanca l'app del davant, una app rep les premudes, i un llum que ha pres una app no li sobreviu. |
 
-## M8 · El banc és una placa
+## M8 · L'emulador és una placa
 
-El banc és **una** placa des del 31/10: `--board m5stack-atom|m5stack-atom-matrix|m5stack-paper|ttgo-t-koala`
+L'emulador és **una** placa des del 31/10: `--board m5stack-atom|m5stack-atom-matrix|m5stack-paper|ttgo-t-koala`
 diu quina i **és obligatori**; sense l'opció el binari es refusa i en llista les quatre (el `default_model()`
-de la identitat només és la resposta d'un banc construït a mà). `sys.board` respon **aquell nom** i no
+de la identitat només és la resposta d'un emulador construït a mà). `sys.board` respon **aquell nom** i no
 `emulator`, que no és cap placa; `sys.emulator` continua cert i
-és la pregunta que ha de fer canviar el comportament d'una app pel fet d'estar al banc. Com que
+és la pregunta que ha de fer canviar el comportament d'una app pel fet d'estar a l'emulador. Com que
 `board_name()` respon **un** nom, `boards` del manifest es compara al PC exactament com a la placa:
 una app del model corre i una d'un altre queda llistada amb l'avís i es refusa dient quin és aquesta
 placa. `version` i la capçalera diuen `m5stack-paper (emulator)`, les dues coses alhora.
@@ -115,7 +115,7 @@ bateria, la ranura i la FRAM). El que **encara no** segueix el model és la **fo
 | Peça | Com està | Què hi falta |
 |---|---|---|
 | Capacitats | Fet: surten del model (`kCapLed` fora al Paper, `kCapImu` fora al Paper, `kCapBattery` només amb indicador i una cel·la —`--battery-mv` o la prestada—, `kCapSd` només amb ranura i una targeta que existeixi, `kCapDisplay` amb el vidre del model, que `--no-display` treu) | res |
-| Llums | Fet: el comptador és el del model (1 a l'ATOM, 25 al Matrix, **0 al Paper**) i el sostre del canal és **20 a tots**, per decisió: un banc que deixés passar 255 amagaria el límit del panell (`lib/hal_emulator/include/board/identity.h`) | decidir si el sostre ha de ser el de cada model (255 a l'ATOM) o quedar-se a 20 |
+| Llums | Fet: el comptador és el del model (1 a l'ATOM, 25 al Matrix, **0 al Paper**) i el sostre del canal és **20 a tots**, per decisió: un emulador que deixés passar 255 amagaria el límit del panell (`lib/hal_emulator/include/board/identity.h`) | decidir si el sostre ha de ser el de cada model (255 a l'ATOM) o quedar-se a 20 |
 | Tecles (quantes) | Fet: `IInput::count()` és el del model (1 a l'ATOM i al Matrix, 3 al Paper) | — |
 | Tecles (forma) | **Pendent**: la cara, el lloc i si és composta són sempre els de la Paper (`hal_emulator.cpp`, el dial de la cara dreta) | una fila per model a `emu_model.cpp` i que `IInput::info()` la llegeixi |
 
@@ -124,13 +124,13 @@ bateria, la ranura i la FRAM). El que **encara no** segueix el model és la **fo
 **162 728 B** i **4 095 KB** de PSRAM al Paper, els números que la placa dona al prompt— i
 `pal::set_memory_bytes()` els dona al PAL del PC, que compta cada bloc amb els seus setze bytes de
 capçalera, prova l'altre casal abans de dir no i **refusa** el que no hi cap: una taula de 400 000
-enters mor al banc amb el mateix `not enough memory` que a la placa, i `run heap` torna el megabyte
-al byte (docs/75). I el **torn** del nucli paga els 850 µs que costa a la placa, o sigui que mil
+enters mor a l'emulador amb el mateix `not enough memory` que a la placa, i quan la taula es deixa anar la
+memòria torna al byte (docs/75). I el **torn** del nucli paga els 850 µs que costa a la placa, o sigui que mil
 esperes d'un mil·lisegon triguen 1 888 ms aquí i 1 990 ms al vidre. El que **no** és del model: la
 fragmentació del heap del PC, el desgast dels blocs i la instrucció del Xtensa, que no hi és i es
 cobra a part (`--lua-cpu`, docs/85).
 
-**I el que la placa recorda, el banc també** (3/11, 0.59.0): les **credencials de la xarxa** van a la
+**I el que la placa recorda, l'emulador també** (3/11, 0.59.0): les **credencials de la xarxa** van a la
 NVS (`lunoknet/ssid` i `wifidrv/pass`) com les desa la placa, o sigui que un run que arrenca
 després diu el mateix `network:`; l'**hora** viu a `<state>/clock.bin` amb el temps que la placa ha
 estat parada, i la llegeixen el Paper (pila de la BM8563) i qualsevol model amb `--persist`; i
@@ -139,7 +139,7 @@ la FRAM no depenen de res: són flash i ferrita (docs/60, docs/70, docs/85).
 
 Els perfils **viuen en una taula en temps d'execució** (`emu_model.cpp`): la identitat de les plaques
 de xip és una capçalera triada per `-I` (docs/50) i l'emulador no en pot veure tres de cop. Les
-plaques de xip es queden amb la capçalera i el banc té una fila per model amb els mateixos números.
+plaques de xip es queden amb la capçalera i l'emulador té una fila per model amb els mateixos números.
 **Falta la prova** que comprovi que cada fila diu el mateix que la `lib/board_<id>` de la seva placa.
 
 I per poder prémer una tecla a mà hi ha un sol camí i portes fines. Cap de les portes no és una font
@@ -162,7 +162,7 @@ Paranys que aquesta feina ha de respectar:
   sigui que el «baix» ha de sobreviure un torn: el toc és una pujada **programada**, no immediata.
 - **`--time-scale` multiplica el monòton** (`elapsed_ms()` × escala). A 1000×, un toc de 120 ms són
   120 s de `held_ms` i surt `long` de seguida, i la finestra d'**1,5 s** dels tres tocs queda en
-  1,5 ms. Les portes han de dir els temps en **ms simulats** i el banc ha de fer la conversió.
+  1,5 ms. Les portes han de dir els temps en **ms simulats** i l'emulador ha de fer la conversió.
 - **El terminal no dona el «puja».** Sense el prefix amb `h`/`u` només es poden fer polsos, i
   `kind == "long"` no es pot provar a mà.
 - **Un sol lector d'`stdin`.** Amb `--script`, `stdin` pot estar alimentant l'app: el filtre del
@@ -179,7 +179,7 @@ perfils; una tecla premuda des del terminal arriba a una app que està llegint u
 embrutar la línia**; el mode lot pot prémer tecles amb `printf`; i les proves existents no canvien
 de forma, perquè `emu::press_key` continua essent la veritat.
 
-**Un deute petit, dit**: `--fs` del banc **no fa res** des que el disc és `--flash` (el binari sempre
+**Un deute petit, dit**: `--fs` de l'emulador **no fa res** des que el disc és `--flash` (el binari sempre
 posa `flash_dir`), i `Options` només hi cau com a recanvi. O es treu, o passa a ser un altre nom de
 `--flash`; mentre hi sigui, `docs/85` diu què fa de debò.
 
@@ -197,13 +197,13 @@ necessita l'anterior:
 | # | Pas | Criteri per dir-lo fet |
 |---|---|---|
 | 1 | **Que arrenqui**: `pio run -e m5-paper`, flashejar i veure el prompt. El *main power hold* de GPIO2 és el primer que fa el HAL, perquè sense ell la placa s'apaga i sembla un crash | El prompt respon `help` i `caps` diu **15 de 18**, que és el sostre d'aquesta placa (no té ni llum ni sensor inercial, i l'única que falta és la pantalla) — mesurat l'1/11 amb bateria i targeta |
-| 2 | **El panell**: driver propi de l'**IT8951E** (SPI: CS 15, SCK 14, MOSI 12, MISO 13, BUSY 27, amb l'alimentació a GPIO23 i GPIO5) i `ISurface` de 960×540 amb 16 nivells. **Fet de codi i vist al vidre** (1/11, 0.13.0): el handshake contesta (`panel: 960x540, image at 0x001236e0`) i l'app `panel` hi pinta el marc, l'escala de 16 nivells i cinc quadres, rectes | Una pàgina en blanc i un rectangle negre de debò, amb els modes `INIT` i `GC16` mesurats — la pàgina hi és, i falten els dos temps (docs/95, E-7) |
+| 2 | **El panell**: driver propi de l'**IT8951E** (SPI: CS 15, SCK 14, MOSI 12, MISO 13, BUSY 27, amb l'alimentació a GPIO23 i GPIO5) i `ISurface` de 960×540 amb 16 nivells. **Fet de codi i vist al vidre** (1/11, 0.13.0): el handshake contesta (`panel: 960x540, image at 0x001236e0`) i una pàgina de prova hi pinta el marc, l'escala de 16 nivells i cinc quadres, rectes | Una pàgina en blanc i un rectangle negre de debò, amb els modes `INIT` i `GC16` mesurats — la pàgina hi és, i falten els dos temps (docs/95, E-7) |
 | 3 | **Les tecles**: fetes. `IInput` porta l'índex, la cara, el lloc, si és simple o composta i el grup, i l'app rep tot això amb `button.list()` per donar una funció a cada **posició** (docs/30, docs/50). La lectura és la del xip (`GpioKeys`) i el que és d'aquesta placa és la taula: el **damunt del dial és `GPIO37`**, perquè és el que fa que prémer la tecla de dalt digui `up` (docs/50). La llibreria del fabricant es contradiu (capçalari: `GPIO37` esquerra i `GPIO39` dreta; README: al revés) | Prémer la tecla de dalt i veure a `button` que diu `up`: si diu `down`, es canvien dues línies de la taula `kKeys` de `lib/hal_paper/` |
 | 4 | **El rellotge BM8563** (I2C 0x51): **fet de codi** (31/10). El bus de la I2C del xip (`esp32/i2c.h`), el xip (`esp32/bm8563.h`: hora en BCD i el bit VL que diu si ha perdut la pila) i `RtcClock`, que llegeix el xip a l'arrencada i l'escriu a cada `set_epoch`; `time.caps().source` diu `"rtc"`. El convertidor de data a època és a `hal/civil.h` i té prova pròpia al PC. **I la seva alarma, que no va a cap GPIO, va al circuit d'alimentació**: `sleep deep` amb una hora arma `Bm8563::arm_at` i baixa GPIO2, o sigui que **la placa s'apaga de debò** i l'alarma la torna a encendre (`deep_powers_off()` és cert aquí; docs/50). **Falten dues proves de foc**: desendollar el Paper un minut i veure que l'hora hi és, i comprovar que el corrent cau i que l'alarma el torna a pujar | `time.caps().source` diu `"rtc"`, `sleep deep <hora>` torna sol a l'hora demanada (al segon fins a 4 h 15, al minut més enllà), i un son de deu minuts torna a l'hora |
 | 5 | **La bateria**: **feta de codi** (31/10). El divisor de GPIO35 (×2) es llegeix amb l'ADC1 i la calibració de l'eFuse (`esp32_battery`), i el % surt de la corba de `hal/battery.h`; `kCapBattery` només s'anuncia si la lectura és un número que pot ser una cel·la. **Falta la mesura**: dos punts amb el multímetre a `BAT` i `GND` (ple i a mitges) per veure si `mv` quadra o si s'ha de corregir el factor | `power.battery()` dona mV i % que quadren amb el mesurador |
 | 6 | **La ràdio**: **provada a la placa i funciona** (31/10). El codi és el de l'ATOM i el `net()` d'aquesta placa el retorna (`lib/hal_esp32/src/net.cpp`, mogut i no copiat; les capacitats venen de `esp32_caps()`) | `provision`, `ntp` i `http` funcionen com a l'ATOM |
 | 7 | **La targeta microSD**: **feta** (31/10). `esp32_sd()` munta la targeta a `/sd` amb FATFS per SPI (CS GPIO4, SCK/MOSI/MISO compartits amb el panell), només si una targeta respon i amb una sola temptativa per arrencada. Dues coses que va dir la placa: el **CS del panell (GPIO15) s'ha de deseleccionar** abans de tocar el bus —arrenca seleccionat perquè és un pin de *strapping*— i la targeta va a **10 MHz**; no se sap si 20 MHz també hi van, perquè els dos canvis es van fer junts | `mounts` llista `/sd` amb números i `ls /sd` llegeix el directori |
-| 8 | **El toc GT911** (0x14 o 0x5D, INT a GPIO36). **Fet de codi l'1/11**: `ITouch` al HAL, el driver de `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua amb els gestos fets pel nucli (`tap`, `long`, `drag`, `two`) i l'app `glass`. El detall del xip és a docs/50 §«El tàctil». El marc està mesurat (quatre tocs, un a cada cantonada de la pàgina, 1/11): el xip compta en el marc de la pàgina, del dret i sense mirall. **Falta**: la velocitat de mostra (docs/95, E-6) i la **política d'energia** d'aquest pas: `GPIO23` i `GPIO5` s'encenen només mentre s'usen (docs/50). El SHT30 d'aquest pas ja no hi és: provat al xip l'1/11 (`env yes` i `air 21.1 C 63.5 %`) | Un dit diu on és, l'app `glass` ho ensenya, la capacitat s'anuncia i els gestos surten; la velocitat mesurada al xip |
+| 8 | **El toc GT911** (0x14 o 0x5D, INT a GPIO36). **Fet de codi l'1/11**: `ITouch` al HAL, el driver de `esp32/gt911.h` (les dues adreces, la configuració de 186 bytes, el marc de cinc punts i el zero que el tanca), `touch.caps`/`read`/`gesture` a Lua amb els gestos fets pel nucli (`tap`, `long`, `drag`, `two`) i una app que llegeixi el panell. El detall del xip és a docs/50 §«El tàctil». El marc està mesurat (quatre tocs, un a cada cantonada de la pàgina, 1/11): el xip compta en el marc de la pàgina, del dret i sense mirall. **Falta**: la velocitat de mostra (docs/95, E-6) i la **política d'energia** d'aquest pas: `GPIO23` i `GPIO5` s'encenen només mentre s'usen (docs/50). El SHT30 d'aquest pas ja no hi és: provat al xip l'1/11 (`env yes` i `air 21.1 C 63.5 %`) | Un dit diu on és, una app que llegeixi el panell ho ensenya, la capacitat s'anuncia i els gestos surten; la velocitat mesurada al xip |
 
 **Dues peces de la placa que no surten en aquesta taula i també falten** (el deute sencer, peça per
 peça, és a `docs/50` §«Què en fa el sistema, avui»):
@@ -224,7 +224,7 @@ peça, és a `docs/50` §«Què en fa el sistema, avui»):
   desplegament, un flux de xarxa): quan n'hi hagi, la porta és `esp_himem` amb una API de còpia
   d'entrada i sortida, i serà una crida de Lua **nova i explícita**, no un canvi darrere l'app.
 - **La FM24C02** (256 B de FRAM a la I2C 0x50): **feta de codi el 31/10**. El xip és el fitxer
-  (`esp32/fm24c02.h`, sense còpia a RAM), es munta a `/fram` i el banc ja en tenia el model. Falta
+  (`esp32/fm24c02.h`, sense còpia a RAM), es munta a `/fram` i l'emulador ja en tenia el model. Falta
   provar-ho al xip i mirar-s'ho amb `hexdump /fram` (docs/95). **I una decisió oberta**: la resta
   de volums (`/littlefs`, `/sd`, `/nvs` i `/rtc`) tenen bit a `sys.caps()` i la FRAM no, o sigui que
   una app no pot preguntar-ho sense caminar pels muntatges. Si s'hi posa, és un `kCapFram` amb set
@@ -254,8 +254,8 @@ peça, és a `docs/50` §«Què en fa el sistema, avui»):
    nucli desa a la NVS quant s'ha desviat l'últim despert i `power last` ho ensenya, amb `(clock)` o
    `(timer)` al costat. I el número ja és **del rellotge i no del firmware**: al Paper, un son de 20 s
    sortia `+1,2 s` perquè hi havia el segon d'arrencada a dins, i `hal::wake_error_ms` el treu
-   (31/10). Falta la dormida de deu minuts **amb bateria**: `run alarmset` → desendollar → `power
-   last` en tornar, i el número a `docs/60` (`docs/95`, A-2).
+   (31/10). Falta la dormida de deu minuts **amb bateria**: una alarma persistent, desendollar i
+   `power last` en tornar, i el número a `docs/60` (`docs/95`, A-2).
 2. **Mesurar la política d'oci a la placa**: el nucli ja s'apaga sol fins a la propera alarma quan la
    placa té xip de rellotge (`kernel::power`, docs/60) i `power idle` ho ensenya i ho pot desactivar.
    Falta veure-la fer: una alarma a deu minuts, res més, i la placa apagada fins aleshores.
@@ -299,18 +299,18 @@ marges a fora, hi ha una vora que no es pot passar.
     cada control ha de ser de la seva mida;
   - **el preu de compondre**: cada capa és una passada de píxels, i la tinta no és gratis (docs/50).
 
-**Què hi ha, l'1/11 (0.19.0)**: el primer tros ja és codi i està provat al banc — **el canvas com a
+**Què hi ha, l'1/11 (0.19.0)**: el primer tros ja és codi i està provat a l'emulador — **el canvas com a
 objecte** (`ui.canvas(w, h)` a Lua, `ui::create` al nucli): un buffer de quatre bits amb el seu lloc, un
 arbre de canvas dins de la vista, la composició en cascada a cada `ui.present` (l'ordre d'aparició és
 l'ordre de les capes), el retall a la vora de cada canvas, i **el que costa és el que ha canviat**: el pare
 només copia el que el fill ha pintat des de l'última composició, o sigui que no hi ha màscares ni alfes i
 un canvas sense res pintat no costa res. Són vuit canvas alhora amb la vista inclosa, i una vista feta de
 nou (una rotació, un `ui.resize`) se'ls emporta: l'objecte que l'app encara té respon `E_INVAL` en lloc
-d'escriure al canvas que hagi ocupat el seu lloc. L'app `layers` (`run layers`) és la prova que es veu.
+d'escriure al canvas que hagi ocupat el seu lloc. Una pàgina de dos canvas i un botó és la prova que es veu.
 
-**I a la placa diu el mateix, número per número** (1/11, 0.19.0): `run layers` a la Paper dona
-les sis línies idèntiques a les de l'emulador amb `--display` —els comptes `1 / 1 / 2`, el pare al slot 3, el
-marc sense vista i `canvas (gone)`—, i la línia de l'arrencada diu `ui: view 540x932 at 0,28, 251640 bytes
+**I a la placa diu el mateix, número per número** (1/11, 0.19.0): la pàgina de dos canvas i un botó a la
+Paper dona les sis línies idèntiques a les de l'emulador amb `--display` —els comptes `1 / 1 / 2`, el pare al
+slot 3, el marc sense vista i `canvas (gone)`—, i la línia de l'arrencada diu `ui: view 540x932 at 0,28, 251640 bytes
 of canvas` (docs/95, E-8).
 
 **I les primitives, que són del canvas**: `rect` i `frame`, `line`, `circle` i `disc`, i `text` amb la
@@ -350,24 +350,22 @@ rectangle que deixava un `place` tornava dins del rectangle d'un `release`).
 
 **I el `UILabel` ja hi és** (2/11, 0.44.0): `ui.label(w, h)` és un control sense buffer amb `text`, `color`,
 `background`, `align`, `valign` i `scale`, la cara de `cv:font`, el retall amb `...` quan el text no cap i el
-redibuix només quan un d'aquests camps canvia de valor. L'app `label` (`run label`) és una galeria de
-trenta labels amb quatre cares, quatre tamanys, les dues alineacions, dos retalls, els setze nivells i
-els comptes de redibuix (docs/30).
+redibuix només quan un d'aquests camps canvia de valor (docs/30).
 
 **I el `UIButton` ja hi és** (2/11, 0.45.0): és el primer control que és un **contenidor amb un marc**:
 `ui.button(w, h)` té `background`, `border` i `pressed`, i el fill es posa amb `button:add(child)` i es
 col·loca en les coordenades del botó. El fill es compon després del marc i es talla al mateix rectangle;
-com que el marc és opac, redibuixar el botó invalida els fills perquè el fons nou no els tapi. L'app
-`buttons` (`run buttons`) posa vuit labels de la mateixa cara d'outlines —Lato Black— a tres tamanys dins de
-vuit botons blancs (docs/30).
+com que el marc és opac, redibuixar el botó invalida els fills perquè el fons nou no els tapi. Un botó
+pot portar vuit labels de la mateixa cara d'outlines —Lato Black— a tres tamanys dins de vuit botons blancs
+(docs/30).
 
 **I el `UICheckbox` ja hi és** (4/11, 0.67.0): `ui.checkbox(w, h)` és una **fila** amb una caixa quadrada a
 l'esquerra i el lloc de les paraules a la dreta, que són un `UILabel` fill colocat amb `cb:box()`. És el primer
 control **el clic del qual vol dir una cosa i la fa el sistema**: `checked` es gira abans que l'app se
 n'assabenti (`on_change(self, checked)`), i per això no crida `on_activate`. La caixa té el pes del botó a un
 quart de mida, el tick és dues pinzellades d'un color propi (`mark`) i l'anell del focus va **fora** de la
-caixa, que és l'únic lloc on hi cap. L'app `checkbox` (`run checkbox`) és una pàgina de cinc files amb una que
-el dial no toca i una de fosca (docs/30, docs/90).
+caixa, que és l'únic lloc on hi cap. Una pàgina de cinc files amb una que el dial no toca i una de fosca és el
+que se'n pot fer (docs/30, docs/90).
 
 **I el marc del botó té pes, i el present d'una pàgina torna a ser el que l'app demana** (3/11, 0.56.2): la
 vora és de **tres píxels** en un botó més gran de 24 (dos en un de petit, un en un xip), el relleu és un
@@ -381,7 +379,7 @@ La pila es torna a l'altura que tenia abans de l'arrel, i el `gc16` de l'app man
 de la vora, els dos píxels del relleu fan de **pausa** i aleshores ve una **banda de set píxels** del color que
 no es pot confondre, amb el cos a dins —un anell que només dobla la vora es llegeix com una vora més gruixuda—.
 Com que el canvi de focus és un canvi d'estat, l'app el **renta amb `gc16`** al torn següent; un `du` hi deixa
-el rastre de l'anell anterior. L'app `buttons` passa a **vuit botons blancs** i a **Lato Black** (19 340 B,
+el rastre de l'anell anterior. La pàgina dels botons passa a **vuit botons blancs** i a **Lato Black** (19 340 B,
 llicència OFL), una rodona de debò: el seu `g` té noranta-un punts i no capia al bloc d'arestes amb sis trossos
 per corba, i per això el lector ara **torna a tallar les corbes amb quatre i després tres trossos** abans de
 refusar un glif (docs/30, docs/50, docs/75).
@@ -415,7 +413,7 @@ un LED normal i no un WS2812 (s'encén o s'apaga, el color no hi cap), no té ca
 firmware llegeixi (l'únic botó és RST) i la **microSD** va al grup HSPI que la serigrafia del fabricant posa al
 costat de la ranura (CS 15, SCK 14, MOSI 13, MISO 12). El PSRAM és el del xip i `heap_limit_kb()` en
 contesta 4 096 només si el xip respon; una versió WROOM sense PSRAM no promet memòria que no té. La
-bateria no s'anuncia fins que el divisor no estigui mesurat (docs/50, docs/95). El banc té el mateix
+bateria no s'anuncia fins que el divisor no estigui mesurat (docs/50, docs/95). L'emulador té el mateix
 model, amb una targeta i sense vidre (docs/85).
 
 **I una cara és un fitxer, que és el que aquella taula deia que faltava** (1/11, de la 0.36.0 a la
@@ -431,9 +429,8 @@ d'un servidor X (`STARTFONT`, les files del `BITMAP` en hexadecimal), el **PCF**
 (`bdftopcf`), amb les taules indexades i cada taula en l'ordre de bytes que ella mateixa diu, i el **TTF**,
 que no és una taula de bits sinó **contorns** (`lib/ttf`): una cara d'aquest últim no té cel·la, el seu bloc
 és el fitxer sencer i `scale` vol dir la mida del cos en vuitens de píxel. Un fitxer que
-no és ni una cosa ni l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de setze columnes. Sis
-apps ho ensenyen (`run sheet`, `run fonts`, `run font-sizes`, `run font-mix`, `run font-bdf`, `run
-font-pcf`) més `run font-ttf` i `run fonts-ttf`, i vuit casos de `test/test_font` i tres de `test/test_ttf` ho proven, refusos
+no és ni una cosa ni l'altra es refusa amb el motiu, i també un BDF d'una caixa de més de setze columnes.
+Vuit casos de `test/test_font` i tres de `test/test_ttf` ho proven, refusos
 inclosos, amb el `.pcf` de debò que surt **idèntic al `.bdf`** del qual es va compilar i amb la `A` del `.ttf`
 que surt **amb les vuit files del `.bdf`**. **Qui converteix una cara en píxels és el nucli i no l'app**:
 Lua demana `text` i prou, perquè el retall, les escales i la comptabilitat del dany viuen en un sol lloc.
@@ -456,6 +453,13 @@ canvas fets.
 un control sense vista —una graella, una caixa, un espaiador— **pinta al canvas que el conté, tallat al seu
 marc**, i els seus fills es componen amb el desplaçament de cada capa sumat. Això és el que fa possible una
 pàgina amb vint etiquetes, i és el que fa que un `UILabel` no necessiti cap buffer.
+
+**I des de la 0.102.0 el sostre de 32 no hi és**: la taula de canvas es pren de la memòria extra a l'arrencada
+—**512 KB, 2 978 ranures de 176 B**, ampliable o retallada per la memòria de la placa— i la llista de fills és
+enllaçada (docs/30). **El que queda pendent és el preu d'aquesta taula en una placa sense memòria extra**: la
+crida prefereix la PSRAM i cau a la RAM del xip, o sigui que a l'ATOM la taula es menja RAM interna abans que
+cap app corri. El risc, els números i què s'hi farà són a [`75`](75-pressupost-de-memoria.md) §«La taula de
+canvas i la RAM interna».
 
 El **registre d'events i gestos per control**, amb les coordenades locals, és el següent pas: el punt, el
 `dx`/`dy` i el començament del gest es calculen **sobre el marc** (el lloc i la cadena de pares) i no sobre

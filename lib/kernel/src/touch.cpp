@@ -210,7 +210,7 @@ bool gesture_for_lua(const char** kind, uint16_t& x, uint16_t& y, int16_t& dx, i
 // **A frame that is not there yet is not a finger that left.** The chip hands the frame of a scan over once and the
 // driver takes it away, so a caller that asks faster than the glass reads "nobody" between two frames of the same
 // finger. Reading those gaps as a lift turned one finger held down into a run of presses, releases and taps —a tap on
-// a menu picked two options, and a held button let go of itself— (found on the bench, 3/11). Only a glass that has said
+// a menu picked two options, and a held button let go of itself— (found on the emulator, 3/11). Only a glass that has said
 // nothing for a whole scan is a finger that went away; a scan of this panel is ten milliseconds and the window is
 // three of them.
 const int32_t kQuietMs = 30;
@@ -246,14 +246,14 @@ void poll() {
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any
     // more. The keyboard hears that release before the press, or the tap after one whose release was missed —while a
-    // paint held the turns— lands on a finger that is still held and nobody types it (found on the bench, 4/11,
+    // paint held the turns— lands on a finger that is still held and nobody types it (found on the emulator, 4/11,
     // docs/50, docs/90).
     if (!g_glass->finger_still_down()) ui::keyboard_touch(0, 0, false);
     g_count = taken;
     g_seen_ms = now;
     // **The turn is for the frame that just came and for nothing else**: `turn_frame` writes the view's coordinates over
     // the chip's in the same buffer, so turning a frame that is being kept turned it again on every poll and the finger
-    // walked away on its own (found on the bench, 3/11).
+    // walked away on its own (found on the emulator, 3/11).
     turn_frame();
   } else if (g_seen_ms < 0 || (now - g_seen_ms) >= kQuietMs) {
     g_count = 0;

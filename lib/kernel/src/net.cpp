@@ -523,7 +523,7 @@ void start_next() {
     // (ESP_ERR_NO_MEM)` is not a busy radio—. **The driver speaks only when it has something to say**: this line used
     // to write `E_BUSY` over the `E_NONET` of `begin` whenever the driver was silent, which is the normal case, so
     // `ntp` without a network answered `no time came back, E_BUSY` and sent a person to look at the radio for a
-    // network that was not there (found by the two tests of the bench that had been red for it, 8/11).
+    // network that was not there (found by the two tests of the emulator that had been red for it, 8/11).
     const char* why = g_net->last_error();
     if (why != nullptr && why[0] != '\0') g_refuse = why;
     g_phase = kRefused;

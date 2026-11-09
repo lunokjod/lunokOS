@@ -155,7 +155,7 @@ De la resta de propietats, el que s'ha de copiar tal com és:
 
 - **Cada port porta una prova que arrenca l'app de debò** (`test_apps`, docs/80): es copia l'app del
   repositori al disc de la prova, es corre amb `run <id>`, es premen les tecles o es toca el vidre
-  del banc, i es llegeix el que l'app diu per consola. Una app que no s'ha arrencat mai no està
+  de l'emulador, i es llegeix el que l'app diu per consola. Una app que no s'ha arrencat mai no està
   portada.
 - **L'app puja la seva pròpia versió** (`version` del manifest) cada cop que canvia, com el sistema
   puja la seva: la calculadora va néixer en 0.1.0 i és a 0.2.0, i `about` va d'0.1.0 a 0.3.0. Una app
@@ -201,7 +201,7 @@ en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla 
    amb les mateixes propietats, mides en píxels de línia.
 4. Escriure el manifest: `title`, `author`, `version` (**0.1.0 la primera vegada**), `entry`,
    `boards`, `icon`, `splash` si n'hi ha, `description`.
-5. Fer-la córrer al banc: `--flash build/disk/emulator --sd` l'arbre, i mirar el log i els pintats.
+5. Fer-la córrer a l'emulador: `--flash build/disk/emulator --sd` l'arbre, i mirar el log i els pintats.
 6. Escriure la prova a `test_apps` i compilar-la (executar-la vol permís, docs/80).
 7. Posar-la a la llista de la placa si hi ha de viatjar (`custom_apps`, docs/70).
 8. Pujar la versió del sistema i escriure el commit amb els números mesurats.
@@ -240,7 +240,7 @@ I a part, **dues que no són ports**:
   fletxes apagades). La pàgina es torna de dues maneres: el dit a sobre d'una fletxa, o el dial fins a la fletxa i el
   centre; la volta la fa el bucle de l'app i no el clic, perquè el control que l'ha pres no es pot donar a si mateix
   mentre corre.
-- **`probe`**, que **no és una pantalla**: és un instrument temporal del banc que repeteix l'arrencada del lector
+- **`probe`**, que **no és una pantalla**: és un instrument temporal de l'emulador que repeteix l'arrencada del lector
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 

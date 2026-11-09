@@ -1,4 +1,4 @@
-// **The battery of the machine this bench runs on**, which is a battery the board does not have
+// **The battery of the machine this emulator runs on**, which is a battery the board does not have
 // (docs/85).
 //
 // The Paper carries a cell of 1150 mAh at 3,7 V and reads it as millivolts behind a divider on GPIO35;
@@ -25,7 +25,7 @@ HostBattery host_battery();
 HostBattery host_battery_in(const char* dir);
 
 // Where the cell of a board that has a gauge starts when the run typed no voltage: the nominal charge of a
-// cell that has been on a shelf, which is the 3 700 mV row of the curve of `hal/battery.h`. A bench on a
+// cell that has been on a shelf, which is the 3 700 mV row of the curve of `hal/battery.h`. An emulator on a
 // desk is still a Paper, and a Paper with no battery at all is a board nobody can buy (docs/85).
 const int kNominalCellPct = 42;
 

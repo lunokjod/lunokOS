@@ -135,7 +135,7 @@ sense app a sota. Serveix per programar i per fer proves sense escriure un fitxe
   `fs.data()` responent en blanc).
 - **Un error no es menja la sessió**: surt `lua: prompt:1: …` i les variables que ja tenies hi són.
 - **La sessió és una banda amb nom propi**: `sys.board` és el de la placa (o el del model que el
-  banc imita, docs/85), el seu `fs.data()` és `/data/lua` i la llista de `boards` no la mira ningú (no
+  emulador imita, docs/85), el seu `fs.data()` és `/data/lua` i la llista de `boards` no la mira ningú (no
   hi ha manifest). Un rellotge que hi armin no té app a qui tornar quan tanques la sessió.
 - **Sortir**: `exit` (o `quit`), i el que la sessió havia pres —el llum— es deixa anar, com quan
   marxa una app (docs/75).
@@ -149,7 +149,7 @@ sembra amb `time(NULL)` i amb l'adreça de l'estat, i ningú no la toca després
 arrencades **no** donen la mateixa seqüència (a la placa, a més, `time(NULL)` és 0 mentre l'època no
 s'ha posat, i si l'adreça de l'estat és la mateixa, la seqüència sí que es pot repetir: **no s'ha
 mesurat**). Una prova que vulgui reproduir-se crida `math.randomseed(n)` i prou, que és el que fa la
-suite. El `--seed` del banc **es llegeix i no fa res encara**; quan ho faci, ho dirà `docs/85`.
+suite. El `--seed` de l'emulador **es llegeix i no fa res encara**; quan ho faci, ho dirà `docs/85`.
 
 ## Errors
 

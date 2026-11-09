@@ -138,7 +138,7 @@ char g_app[32] = {0};
 Entry g_app_start = {0, 0, 0, 0, 0};
 
 // **The clock the `last` column counts from**: the moment the table was last put to zero. A board has
-// been off for nobody knows how long and the bench is a PC that has been up for days, so an absolute
+// been off for nobody knows how long and the emulator is a PC that has been up for days, so an absolute
 // millisecond is a number nobody can read; since the zero it is a number that answers "how long ago".
 uint32_t g_zero_ms = 0;
 bool g_zeroed = false;

@@ -91,7 +91,7 @@ void print_banner() {
   out(kVersion);
   out("  ");
   out(g_platform->id());
-  // On the PC both are true: the name is the board the bench was told to be, and the
+  // On the PC both are true: the name is the board the emulator was told to be, and the
   // word says the hardware under it is a fake (docs/85).
   if (g_platform->emulator()) out(" (emulator)");
   out("\r\n");
@@ -377,7 +377,7 @@ void boot(hal::IPlatform& platform) {
   }
   // **The prompt is the last thing the boot writes**, and it is not a detail: the lines of the hardware
   // say what this board is, and one of them after the prompt is a line that looks like an answer to
-  // something the person has not typed (measured on the board and on the bench, 1/11: `ui: view ...`
+  // something the person has not typed (measured on the board and on the emulator, 1/11: `ui: view ...`
   // came out after `lunok> `).
   shell::start();
   // Last, because it speaks to the console and may bring an app back: a board that wakes from a deep

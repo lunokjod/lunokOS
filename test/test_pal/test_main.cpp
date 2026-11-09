@@ -1,9 +1,9 @@
 // **The floor of the board's own RAM, held by a test** (0.151.20).
 //
 // The rule lives in `pal::take_from_the_extra` (`pal/pal.h`) and both PALs obey it: the chip's, which reads the
-// internal pool, and the bench's, which has two homes of its own with a ceiling each. This suite is the reason the
+// internal pool, and the emulator's, which has two homes of its own with a ceiling each. This suite is the reason the
 // rule is in the PAL and not inside `pal_esp32`: the consequence that bricked the board —an app taking the pool the
-// file system needs— can be held here, without a board, with the two ceilings the bench already knows how to set.
+// file system needs— can be held here, without a board, with the two ceilings the emulator already knows how to set.
 //
 // What was measured on the Paper on 8/11, and is what these cases are shaped like: `mem` says the board's RAM has
 // **125 464 B** free with nothing running, and the Lua machine of the reader asks for about **120 KB** in small
@@ -39,8 +39,8 @@ void test_the_home_keeps_its_floor_and_the_app_goes_to_the_extra_memory(void) {
   pal::set_memory_bytes(kHomeBytes, kExtraBytes);
   const pal::MemoryLeft start_home = pal::memory_left(false);
   const pal::MemoryLeft start_extra = pal::memory_left(true);
-  TEST_ASSERT_TRUE_MESSAGE(start_home.counted, "the bench did not take the ceilings");
-  TEST_ASSERT_TRUE_MESSAGE(start_extra.counted, "the bench did not take the ceilings");
+  TEST_ASSERT_TRUE_MESSAGE(start_home.counted, "the emulator did not take the ceilings");
+  TEST_ASSERT_TRUE_MESSAGE(start_extra.counted, "the emulator did not take the ceilings");
 
   size_t taken = 0;
   for (size_t i = 0; i < sizeof(g_blocks) / sizeof(g_blocks[0]); ++i) {

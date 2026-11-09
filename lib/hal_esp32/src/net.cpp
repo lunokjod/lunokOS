@@ -427,7 +427,7 @@ HttpError http_error_for(esp_err_t err) {
 // sixteen kilobytes taken from the RAM the chip keeps for itself is exactly what the TLS handshake that comes next does
 // not have to spare. On the board the page was `malloc`ed from the internal memory and the handshake then failed with
 // `mbedtls_ssl_setup returned -0x7F00` —`MBEDTLS_ERR_SSL_ALLOC_FAILED`, which names the allocator and says nothing
-// about the page or about this line—, while the same command in the bench worked because the bench has all the memory of
+// about the page or about this line—, while the same command in the emulator worked because the emulator has all the memory of
 // a PC. The policy is the one of the interpreter: a big block goes where there is room and the small ones stay home
 // (docs/75, docs/85).
 char* page_block(uint32_t bytes) {

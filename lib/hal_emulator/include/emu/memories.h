@@ -20,7 +20,7 @@
 namespace emu {
 
 // The RTC memory a program can own, in bytes: 8 KB in the chip and 7 KB that the ROM and the IDF
-// leave to the application (measured on the ATOM, 31/10: all 8 KB overflowed by 536 bytes). The bench
+// leave to the application (measured on the ATOM, 31/10: all 8 KB overflowed by 536 bytes). The emulator
 // gives the same number the board gives, so a write that fits on the PC fits on the glass (docs/85).
 const size_t kRtcRamBytes = 7 * 1024;
 // The FM24C02 of the Paper, in bytes (docs/50).
@@ -38,7 +38,7 @@ uint8_t* fram();
 // reads with a hex viewer to see what the board kept.
 void flush_memories();
 
-// **The hour the board keeps**, in milliseconds since the epoch, or 0 when the bench never knew one.
+// **The hour the board keeps**, in milliseconds since the epoch, or 0 when the emulator never knew one.
 // A board whose hour lives in a chip with a coin cell behind it comes back knowing the hour, and so
 // does a run that said `--persist` —which is a board that was not unplugged—, so the number lives
 // next to the memories as `<state_dir>/clock.bin` and not in the RTC RAM: the chip keeps it even when

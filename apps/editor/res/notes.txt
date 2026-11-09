@@ -1,5 +1,5 @@
-Notes for the bench
-===================
+Notes for the emulator
+======================
 
 This is a page to try the editor with. It is long on purpose: some of its
 lines run past the edge of the glass so that wrapping has something to do,

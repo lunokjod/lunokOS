@@ -16,7 +16,7 @@ Hi ha dues maneres i **només una és interactiva**:
 | Via | Què passa |
 |---|---|
 | El binari directament, en un terminal | És la bona: stdin i stdout són el terminal i el prompt respon |
-| `pio run -e emulator -t exec` o `-t upload` | No poden passar `--board`, i el binari es refusa abans de fer res (`which board is this bench?`). Encara que se'ls donés, PlatformIO executa el programa amb la sortida conductada: el prompt es queda al buffer i **el que escrius no arriba enlloc** |
+| `pio run -e emulator -t exec` o `-t upload` | No poden passar `--board`, i el binari es refusa abans de fer res (`which board is this emulator?`). Encara que se'ls donés, PlatformIO executa el programa amb la sortida conductada: el prompt es queda al buffer i **el que escrius no arriba enlloc** |
 
 Al repositori hi ha la tasca de VS Code **lunokOS: emulator**, que compila i executa el binari amb el terminal connectat de debò. També es pot fer a mà:
 
@@ -25,12 +25,12 @@ pio run -e emulator
 .pio/build/emulator/program --board m5stack-paper
 ```
 
-**La placa és obligatòria i diu el maquinari**: `--board m5stack-paper` dona el banc amb vidre, GT911,
+**La placa és obligatòria i diu el maquinari**: `--board m5stack-paper` dona l'emulador amb vidre, GT911,
 targeta, FRAM, rellotge amb pila i bateria; sense l'opció el binari es refusa i en llista les quatre.
 
 **I `--board ttgo-t-koala` és la LilyGO T-Koala** (0.94.0): el model del WROVER-B amb **4 MB de PSRAM
 mapejada** (8 MB al xip), una targeta al seu directori i un llum. No té vidre ni tàctil i el
-banc tampoc no els hi dona; la bateria no s'anuncia perquè el divisor del carregador no està documentat
+emulador tampoc no els hi dona; la bateria no s'anuncia perquè el divisor del carregador no està documentat
 ni mesurat (docs/50, docs/95). És el mateix model que el firmware respon com a `sys.board`, o sigui que
 una app pot portar `"boards": ["ttgo-t-koala"]` i provar-se aquí abans de flashejar.
 
@@ -42,7 +42,7 @@ fan el mateix amb mitjans diferents (docs/30, docs/75). Al prompt `lua>`, **Ctrl
 de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descarta.
 
 **I al prompt del shell, `exit`, `logout` i Ctrl+D tanquen la sessió** (8/11, 0.158.0, demanat per l'amo), i
-**què vol dir tancar ho diu la consola i no el shell** —`IConsole::virtual_terminal`, que el banc encén des de
+**què vol dir tancar ho diu la consola i no el shell** —`IConsole::virtual_terminal`, que l'emulador encén des de
 `main_host` amb `pal::set_virtual_terminal(true)`—:
 
 - **En un port sèrie**, que és la consola d'una placa, **la sessió no es tanca de veritat**: no hi ha ningú a
@@ -50,9 +50,9 @@ de l'intèrpret igual que `exit`; la línia que s'estigués escrivint es descart
   session is closed; press Enter to open a new one`, la línia que s'estigués escrivint es descarta, **el que
   arriba no és cap línia** —ni una lletra, ni una fletxa— i **l'Enter obre una sessió nova** (`login: a new
   session`) i la consola torna a començar. És el que fa un *getty*.
-- **En un terminal virtual**, que és la consola del banc —un programa d'un PC que algú ha arrencat i pot
+- **En un terminal virtual**, que és la consola de l'emulador —un programa d'un PC que algú ha arrencat i pot
   penjar—, **la sessió es tanca de debò**: la línia es diu, el port s'escorre (`flush`) i **l'execució
-  s'atura**, que al banc és el mateix que fa `poweroff`.
+  s'atura**, que a l'emulador és el mateix que fa `poweroff`.
 
 **Ctrl+D al prompt del shell** és el mateix que `exit`; al de `lua` segueix volent dir «surt de l'intèrpret».
 
@@ -68,8 +68,8 @@ ANSI** del començament, i `ansi [on|off]` diu què s'ha detectat o ho força qu
 —que és el cas d'un `clear` que ara no envia `ESC [ 2 J` a una línia que no ha dit que el sàpiga llegir
 (docs/30, docs/50).
 
-**La pàgina del banc és la de debò** (3/11, 0.61.0): `http <url>` al prompt i `http.get` d'una app
-baixen l'adreça de veritat. El banc la dona a `curl` en un procés seu —`-q`, sense `~/.curlrc`, fins a
+**La pàgina de l'emulador és la de debò** (3/11, 0.61.0): `http <url>` al prompt i `http.get` d'una app
+baixen l'adreça de veritat. L'emulador la dona a `curl` en un procés seu —`-q`, sense `~/.curlrc`, fins a
 deu redireccions, amb el certificat comprovat contra les autoritats d'**aquesta** màquina— i el cos i el
 codi tornen del servidor, o sigui que la comanda ensenya el començament de la pàgina que algú ha
 demanat i no una línia que digui l'adreça. El camí no canvia gens: la cua, la promesa, el termini de
@@ -84,15 +84,15 @@ vol una prova que no ha de dependre de la xarxa. I cada run ho diu una vegada a 
 que comença per `emulator:` i diu que `http` baixa la pàgina de debò—, perquè una petició que surt
 d'aquesta màquina no ha de ser una sorpresa.
 
-**Un banc que només sap contestar una pàgina no pot provar una cadena** (4/11, 0.88.6): `repo install <app>`
+**Un emulador que només sap contestar una pàgina no pot provar una cadena** (4/11, 0.88.6): `repo install <app>`
 demana el llistat de l'app, el llistat de cada carpeta i cada fitxer, i tots són respostes diferents del mateix
 servidor. Per això la xarxa falsa té, a més de la pàgina dels `--http-*`, **una taula de respostes per adreça**:
 `emu::http_canned(<tros d'adreça>, <cos>, <codi>)` n'hi afegeix una —la primera que encaixa amb l'adreça
 demanada és la que contesta, i si no n'hi ha cap, contesta la pàgina de sempre— i `emu::http_canned_clear()`
-deixa la xarxa sense cap, que és com comença una prova la seva pròpia cadena. La taula és del banc i no del
+deixa la xarxa sense cap, que és com comença una prova la seva pròpia cadena. La taula és de l'emulador i no del
 nucli: el nucli no en sap res, i la baixada que arriba és la de debò, amb el fitxer escrivint-se pel camí dels
 volums. **Un cos que no cap a la taula es refusa** i no es talla, perquè mig llistat és un install que falla
-per un motiu que no és el de la prova. Amb això, la cadena d'un `repo install` es prova sencera al banc
+per un motiu que no és el de la prova. Amb això, la cadena d'un `repo install` es prova sencera a l'emulador
 (`test_the_repo_command_installs_an_app_with_its_folders` i
 `test_an_install_that_hits_a_404_says_so_and_can_be_tried_again`).
 
@@ -100,18 +100,18 @@ Aquestes són les opcions del binari:
 
 | Opció | Què fa |
 |---|---|
-| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` i prou: **el banc no porta apps**, 0.88.2); `/littlefs/res` és `data/res` i no es copia res |
+| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` i prou: **l'emulador no porta apps**, 0.88.2); `/littlefs/res` és `data/res` i no es copia res |
 | `--state <dir>` | On viuen les memòries que no són un volum: `nvs/` i, quan n'hi hagi, la RTC, la FRAM i l'hora que el xip recorda (per defecte `emulator/`) |
 | `--persist` | **La placa no s'ha desendollat**: el run arrenca on el run anterior va deixar la placa, o sigui que la **RTC RAM** no s'esborra ni a l'ATOM (un reinici no apaga el domini del RTC) i **l'hora** de `clock.bin` es llegeix també als models sense pila, amb `source` = `"soc"`. La NVS i la FRAM no depenen d'això: són flash i ferrita i es guarden sempre (docs/60, docs/85) |
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
-| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, que **el banc no crea i que no porta cap app** (0.88.2): si no hi és, la ranura és buida i `apps` diu `no apps`; si hi és, el que hi hagi és el que el banc té (docs/70) |
+| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, que **l'emulador no crea i que no porta cap app** (0.88.2): si no hi és, la ranura és buida i `apps` diu `no apps`; si hi és, el que hi hagi és el que l'emulador té (docs/70) |
 | `--battery-mv <mv>` | **Una bateria de mentida**: el que llegeix `power.battery()`. **Mana sobre la de la màquina** (la del punt de sota), i el `%` no es posa: surt de la corba de `hal/battery.h`, la mateixa que fa servir el Paper. Un model **sense indicador** (els ATOM) dona `nil` encara que se li digui un número, que és el que faria la placa (docs/30) |
-| `--battery-host` | **La bateria d'aquesta màquina, prestada a la placa, i la demana poques vegades perquè ja ve sola**: en un Linux, un model amb indicador llegeix el `%` de `/sys/class/power_supply` a l'arrencada sense cap bandera (en un altre amfitrió no hi ha res a llegir i la cel·la comença al nominal) i el passa per la **corba de la cel·la del model** (1150 mAh, 4,2 V plena), o sigui que 99 % d'aquest portàtil són **4 190 mV del Paper** i no 12 V d'una bateria de tres cel·les. Si la màquina no en té cap, la cel·la comença al **seu càrrec nominal (3 700 mV, 42 %)** i el banc ho diu, perquè una placa amb indicador sempre llegeix alguna cosa. La bandera serveix per **demanar-ho en veu alta** (i perquè se't digui que un ATOM no té indicador); amb `--battery-mv` alhora, el banc el refusa (docs/50, docs/85) |
-| `--board <nom>` | **Quina placa és el banc, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, i el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila — el mateix que diu la fitxa de docs/50, ni més ni menys |
+| `--battery-host` | **La bateria d'aquesta màquina, prestada a la placa, i la demana poques vegades perquè ja ve sola**: en un Linux, un model amb indicador llegeix el `%` de `/sys/class/power_supply` a l'arrencada sense cap bandera (en un altre amfitrió no hi ha res a llegir i la cel·la comença al nominal) i el passa per la **corba de la cel·la del model** (1150 mAh, 4,2 V plena), o sigui que 99 % d'aquest portàtil són **4 190 mV del Paper** i no 12 V d'una bateria de tres cel·les. Si la màquina no en té cap, la cel·la comença al **seu càrrec nominal (3 700 mV, 42 %)** i l'emulador ho diu, perquè una placa amb indicador sempre llegeix alguna cosa. La bandera serveix per **demanar-ho en veu alta** (i perquè se't digui que un ATOM no té indicador); amb `--battery-mv` alhora, l'emulador el refusa (docs/50, docs/85) |
+| `--board <nom>` | **Quina placa és l'emulador, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, i el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila — el mateix que diu la fitxa de docs/50, ni més ni menys |
 | `--mem-cap <KB>` | **Baixa** el sostre de la VM (mai per sobre del que té el model, que es refusa: 320 KB als ATOM i 4 096 KB al Paper, docs/75): posa-hi el del model per veure-hi el pic. És el pressupost **de l'app**, i per sota hi ha el de la placa: des de la 0.58.0 el PAL compta la RAM interna i la PSRAM del model i refusa el bloc que no hi cap encara que el sostre de l'app el deixés passar (docs/75, docs/85) |
 | `--baud <n>` | La velocitat del port sèrie, en baud: **115 200** per defecte, la de l'UART de la placa, o sigui **86,8 µs per byte** (10 bits a 8N1). `0` treu l'espera, que és el que vol una prova, perquè el seu console és un fitxer i no un cable |
-| `--wake-early <ms>` | Que el banc torni d'un son **aquesta estona abans** de l'hora que se li ha donat: `0` (per defecte) és el rellotge honrat, i qualsevol altra cosa és un son que s'ha tallat —un dit al botó, un cable, una alimentació que parpelleja— per poder provar el cas en què la placa no arriba a la seva hora (docs/60) |
-| `--now <època>` | Fixa l'hora d'arrencada, i **mana sobre el que la placa recorda**. **Es llegeix on es llegeix l'hora i no només en arrencar** (0.152.5): la placa té un rellotge i el banc també —un sol objecte per procés—, i la suite en fa molts d'«arrencaments» dins del mateix procés, o sigui que una prova que demanava les nou del matí es trobava un rellotge construït al primer arrencament amb les opcions per defecte i la placa «mai sincronitzada» (`source` = `"none"`, època 0). Sense aquesta opció l'hora surt de `clock.bin` quan la placa té pila darrere el rellotge (el Paper, `source` = `"rtc"`) o quan el run diu `--persist` (`source` = `"soc"`); si no hi ha res a recordar, el rellotge val 0 i `time.caps().source` és `"none"`, com una placa que mai s'ha sincronitzat, fins que algú la posi (`ntp` o una app) |
+| `--wake-early <ms>` | Que l'emulador torni d'un son **aquesta estona abans** de l'hora que se li ha donat: `0` (per defecte) és el rellotge honrat, i qualsevol altra cosa és un son que s'ha tallat —un dit al botó, un cable, una alimentació que parpelleja— per poder provar el cas en què la placa no arriba a la seva hora (docs/60) |
+| `--now <època>` | Fixa l'hora d'arrencada, i **mana sobre el que la placa recorda**. **Es llegeix on es llegeix l'hora i no només en arrencar** (0.152.5): la placa té un rellotge i l'emulador també —un sol objecte per procés—, i la suite en fa molts d'«arrencaments» dins del mateix procés, o sigui que una prova que demanava les nou del matí es trobava un rellotge construït al primer arrencament amb les opcions per defecte i la placa «mai sincronitzada» (`source` = `"none"`, època 0). Sense aquesta opció l'hora surt de `clock.bin` quan la placa té pila darrere el rellotge (el Paper, `source` = `"rtc"`) o quan el run diu `--persist` (`source` = `"soc"`); si no hi ha res a recordar, el rellotge val 0 i `time.caps().source` és `"none"`, com una placa que mai s'ha sincronitzat, fins que algú la posi (`ntp` o una app) |
 | `--time-scale <N>` | Accelera el temps N vegades (1000 = un dia en 86 segons) |
 | `--seed <n>` | Llavor del generador aleatori — **encara no fa res**: es llegeix i ningú no el fa servir (docs/20) |
 | `--wifi <ms>` | Quant triga la **xarxa de mentida** a pujar (per defecte 300 ms simulats) |
@@ -135,18 +135,18 @@ Aquestes són les opcions del binari:
 | `--env-fail` | Un sensor d'ambient que hi és i no contesta: `env.read()` respon `E_IO`, que no és el mateix que una placa sense sensor |
 | `--run <id>` | Arrenca una app pel mateix camí que `run <id>` de la shell i **surt** amb el resultat: `0` si l'app ha acabat bé i `1` si no s'ha pogut arrencar, ha mort amb un error o ha sortit amb un codi diferent de zero |
 | `--script <fitxer>` | Mode lot: executa ordres i surt |
-| `--display` | **El vidre del model, que hi és sol**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i el banc deia que no—. Qui ho diu és el model (`Model::glass`): el Paper en té i els ATOM no, i un `--display` a un ATOM es refusa dient que aquella placa no té pantalla. La bandera serveix perquè un guió digui que necessita vidre; el que apaga és `--no-display` (docs/30, docs/50) |
-| `--no-display` | **Una placa sense pantalla, amb tota la resta del model**: només consola, i **sense el panell del banc ni la vista de l'app** —ni els 246 240 B del canvas de la vista ni els 259 200 B de la imatge del panell ni els 518 400 B dels dos buffers de tinta, que no es creen. És el que vol una mesura que no és de píxels (docs/85) |
+| `--display` | **El vidre del model, que hi és sol**: el panell del Paper, 960x540 i quatre bits per píxel, en un buffer d'aquest costat (`emu::MemorySurface`), **i la capacitat `display` amb ell** —`sys.caps().display` diu la veritat, que no deia fins a la 0.19.0: el vidre hi era i l'emulador deia que no—. Qui ho diu és el model (`Model::glass`): el Paper en té i els ATOM no, i un `--display` a un ATOM es refusa dient que aquella placa no té pantalla. La bandera serveix perquè un guió digui que necessita vidre; el que apaga és `--no-display` (docs/30, docs/50) |
+| `--no-display` | **Una placa sense pantalla, amb tota la resta del model**: només consola, i **sense el panell de l'emulador ni la vista de l'app** —ni els 246 240 B del canvas de la vista ni els 259 200 B de la imatge del panell ni els 518 400 B dels dos buffers de tinta, que no es creen. És el que vol una mesura que no és de píxels (docs/85) |
 | `--gui-scale <1..4>` | **Quants píxels de la pàgina és un píxel de la finestra**, forçat: `1` és la pàgina tal com és i `2` és la pàgina a la meitat, encara que la pantalla la hi deixi sencera. Sense l'opció la finestra tria **l'escala entera més petita que hi cap** (1 a 4), que és el que fa que una pantalla petita ensenyi la pàgina sencera i no un tros. No canvia la pàgina (540×960): només com es veu (docs/85) |
-| `--gui` | **Una sola finestra amb tot el que la placa té per tocar i per veure** (0.34.0). Si el model té vidre, **la pàgina en una finestra (SDL2, o X11 de reserva)**, pintada cada cop que el panell es pinta o una **fase del parpelleig** canvia —el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), amb els setze nivells en els colors del paper— i **les tecles al costat que diu el descriptor de l'entrada**, un botó per tecla del model; una placa sense pantalla en treu només les tecles, que és el que sí que té. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu i el parpelleig d'un `gc16` o d'un `a2` hi passa per les seves fases. El ratolí és el dit a la pàgina i és el dit que prem a un botó. **El banc d'aquest build l'obre sol** (0.155.0, `LUNOK_GUI_BY_DEFAULT` a `platformio.ini`): un run sense arguments ja ensenya la pàgina, i `--no-gui` és la manera de tenir el banc de consola. **Una demanda i un defecte no són el mateix**: el `--gui` que s'ha demanat es refusa amb `--no-delay` i amb `--no-ink`, i el defecte que ningú ha demanat se'n va amb una línia (`gui: no window, --no-delay is a bench without the times of the hardware`) i el run segueix; s'obre quan hi ha una pantalla on obrir-la i, si no n'hi ha, el banc ho diu i segueix sense finestra (docs/85) |
-| `--no-gui` | **Cap finestra**, ni la del build (0.155.0): el run és la consola i, si vol la pàgina, `--dump`. És el banc d'una mesura i el que fa que un guió no depengui d'una pantalla on obrir-la (docs/85) |
-| `--ink-refuse` | **Un vidre que diu que no com el panell de la Paper** (0.118.2): mentre la tinta del pintat anterior encara es mou, `flush` contesta **fals** amb el motiu del driver (`last_error()` = `the previous paint did not finish`), que és el que fa el controlador de debò quan un pintat arriba a mitges d'un altre. Serveix per provar els camins que esperen la tinta: sense aquesta bandera el banc sempre espera i un que no espera passa igual (vegeu `test_the_splash_waits_for_the_ink_of_the_page_before` i `test_a_page_the_panel_refused_is_painted_when_it_can`). **Necessita el temps engegat** (`--ink` o una prova amb `delays`): sense temps de tinta no hi ha res a refusar |
+| `--gui` | **Una sola finestra amb tot el que la placa té per tocar i per veure** (0.34.0). Si el model té vidre, **la pàgina en una finestra (SDL2, o X11 de reserva)**, pintada cada cop que el panell es pinta o una **fase del parpelleig** canvia —el mateix buffer del `MemorySurface` i **la pàgina com la dibuixa l'app** (540x960), amb els setze nivells en els colors del paper— i **les tecles al costat que diu el descriptor de l'entrada**, un botó per tecla del model; una placa sense pantalla en treu només les tecles, que és el que sí que té. La finestra ensenya **el que el vidre mostra** i no el que es va pintar, o sigui que el fantasma d'un `du` s'hi veu i el parpelleig d'un `gc16` o d'un `a2` hi passa per les seves fases. El ratolí és el dit a la pàgina i és el dit que prem a un botó. **L'emulador d'aquest build l'obre sol** (0.155.0, `LUNOK_GUI_BY_DEFAULT` a `platformio.ini`): un run sense arguments ja ensenya la pàgina, i `--no-gui` és la manera de tenir l'emulador de consola. **Una demanda i un defecte no són el mateix**: el `--gui` que s'ha demanat es refusa amb `--no-delay` i amb `--no-ink`, i el defecte que ningú ha demanat se'n va amb una línia (`gui: no window, --no-delay is an emulator without the times of the hardware`) i el run segueix; s'obre quan hi ha una pantalla on obrir-la i, si no n'hi ha, l'emulador ho diu i segueix sense finestra (docs/85) |
+| `--no-gui` | **Cap finestra**, ni la del build (0.155.0): el run és la consola i, si vol la pàgina, `--dump`. És l'emulador d'una mesura i el que fa que un guió no depengui d'una pantalla on obrir-la (docs/85) |
+| `--ink-refuse` | **Un vidre que diu que no com el panell de la Paper** (0.118.2): mentre la tinta del pintat anterior encara es mou, `flush` contesta **fals** amb el motiu del driver (`last_error()` = `the previous paint did not finish`), que és el que fa el controlador de debò quan un pintat arriba a mitges d'un altre. Serveix per provar els camins que esperen la tinta: sense aquesta bandera l'emulador sempre espera i un que no espera passa igual (vegeu `test_the_splash_waits_for_the_ink_of_the_page_before` i `test_a_page_the_panel_refused_is_painted_when_it_can`). **Necessita el temps engegat** (`--ink` o una prova amb `delays`): sense temps de tinta no hi ha res a refusar |
 | `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, la pàgina és la que s'ha pintat sense res del que hi havia abans i **no s'envia res al bus**. És el que fan servir les proves —no paguen mig megabyte de buffers, ni mig segon de tinta, ni un segon de bus per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
 | `--touch` | **El tàctil del model, que hi és sol**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —800 µs per torn sense dit, 2 550 amb dos— i que **dona el marc una vegada**, amb la capacitat `touch`. Qui ho diu és el model (`Model::touch`): el Paper en té i un `--touch` a un ATOM es refusa. El que apaga és `--no-touch`, i llavors el panell d'aquella Paper és un xip que no contesta, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
 | `--no-touch` | **Cap dit**: el panell del model no es llegeix i no costa els 800 µs de cada torn (docs/85) |
 | `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms) i un número més gran que el torn del nucli és un vidre que contesta «ningú» a la meitat de les lectures, que és exactament el cas que es vol poder reproduir (docs/85) |
 | `--no-delay` | **Cap espera**: el model del disc, del port, de la tinta i del tàctil és el mateix i el rellotge no es toca — ni el torn del nucli, que deixa de costar els 850 µs que costa a la placa (`kTurnOverheadUs`). És el que fa servir una prova o una mesura que no és de temps; un run amb `--gui` **no el pot** demanar (es refusa) i el run que no l'ha demanat es queda sense la finestra del build, dient-ho (docs/85) |
-| `--lua-cpu <ns>` | Què costa **una instrucció de l'intèrpret** a 160 MHz: **60 ns** per defecte (el model; la mesura de la placa encara es deu, docs/95), i `0` perquè el codi de l'app sigui gratis, que és el que era el banc fins a la 0.29.0. Es divideix per la freqüència simulada, o sigui que a 240 MHz una instrucció costa 40 ns i a 80, 120 |
+| `--lua-cpu <ns>` | Què costa **una instrucció de l'intèrpret** a 160 MHz: **60 ns** per defecte (el model; la mesura de la placa encara es deu, docs/95), i `0` perquè el codi de l'app sigui gratis, que és el que era l'emulador fins a la 0.29.0. Es divideix per la freqüència simulada, o sigui que a 240 MHz una instrucció costa 40 ns i a 80, 120 |
 | `--verbose` | El log també surt per la consola, i amb ell **cada pintat del vidre**: `gui: paint 12,9 116x28 gld16` és la regió i la qualitat que s'ha demanat, que és com es comprova que un títol nou no repinta la franja sencera (0.85.2) |
 
 En mode lot, cada app que arrenca es deixa acabar abans de la línia següent, i **també cada ordre que
@@ -159,32 +159,32 @@ arrenca una app que llegeix, l'entrada es pot encaminar per stdin, i ha d'arriba
 corre**:
 
 ```sh
-printf 'run echo\n' > /tmp/s.txt
+printf 'run calculator\n' > /tmp/s.txt
 ( sleep 0.4; printf 'hola mon\r' ) | ./.pio/build/emulator/program --board m5stack-atom --script /tmp/s.txt
 ```
 
 ## El disc de treball
 
-**El disc del banc és el del seu build, `build/disk/emulator`**, i el camí li arriba compilat
-(`-DLUNOK_DISK_DIR` a `platformio.ini`), o sigui que dos builds no comparteixen disc i el banc no llegeix el
+**El disc de l'emulador és el del seu build, `build/disk/emulator`**, i el camí li arriba compilat
+(`-DLUNOK_DISK_DIR` a `platformio.ini`), o sigui que dos builds no comparteixen disc i l'emulador no llegeix el
 que les proves acaben d'escriure. `/littlefs` és `data/` i prou —`/littlefs/res` és `data/res`—, i el que una
 app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.gitignore`.
 
-**El banc porta totes les apps d'`apps/`** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*). Fins avui en
+**L'emulador porta totes les apps d'`apps/`** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*). Fins avui en
 portava una —el llançador, que és l'app amb què arrenca i que ha de ser al disc que llegeix— i la resta quedava
-fora, o sigui que un banc acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
-`run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que el banc **no té placa**, el filtre de
-`tools/make_disk.py` les hi posa totes: **8 carpetes, 39 fitxers, 305 615 B** mesurats el 8/11 a `apps/` (about,
-calculator, editor, home_eink, probe, reader, shell i timeclock) i **56 fitxers i 438 116 B** d'imatge segons la línia
-del mateix `make_disk` (`build/disk/emulator is 438116 B in 56 files, 8 apps`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
-banc el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i
+fora, o sigui que un emulador acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
+`run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador **no té placa**, el filtre de
+`tools/make_disk.py` les hi posa totes: **7 carpetes, 34 fitxers, 290 501 B** mesurats el 12/11 a `apps/` (about,
+calculator, editor, home_eink, reader, shell i timeclock) i **55 fitxers i 1 981 991 B** d'imatge segons la línia
+del mateix `make_disk` (`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
+emulador el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i
 una app nova a `apps/` hi és amb un `pio run -e emulator` i sense tocar cap línia de configuració. Les plaques no
 són així i no poden ser-ho: la seva imatge és el sistema sol, i la Paper nomena les seves set perquè 4 MB de
 LittleFS no hi caben (docs/70).
 **I durant el desenvolupament la targeta és el propi repositori** (0.118.3, quan la imatge de les plaques va
-deixar de portar apps): `--sd .` posa `apps/` de l'arrel a `/sd/apps` i el banc executa el que hi ha al
-repositori sense copiar res ni refer el disc —`--flash build/disk/m5-paper --sd .` i `run images` arrenca
-l'app del dia—. És el camí per provar una app al banc quan el disc que es llegeix és el d'una placa, que no en
+deixar de portar apps): `--sd .` posa `apps/` de l'arrel a `/sd/apps` i l'emulador executa el que hi ha al
+repositori sense copiar res ni refer el disc —`--flash build/disk/m5-paper --sd .` i el lector arrenca
+l'app del dia—. És el camí per provar una app a l'emulador quan el disc que es llegeix és el d'una placa, que no en
 porta cap (`repo install` i una targeta pròpia amb `--sd <dir>` són els altres dos, docs/70).
 A part del disc hi ha les memòries que **no són un volum**, i totes viuen en un sol directori
 (`--state emulator`, per defecte):
@@ -219,10 +219,10 @@ execucions com la memòria d'un aparell (`emu/memories.h`):
 
 L'hora **no és dins de `rtc.bin`**, perquè no és un byte de la memòria del xip: és el que un xip amb
 pila de botó compta mentre la placa és morta. El fitxer porta l'època i el segon del PC en què es va
-escriure, i en llegir-lo el banc hi suma el temps que la placa ha estat desendollada — que és
+escriure, i en llegir-lo l'emulador hi suma el temps que la placa ha estat desendollada — que és
 exactament el que fa la pila (docs/60).
 
-**Els fitxers els crea el banc sol, i només els que el model té** (`emu/model.h` és l'única llista de
+**Els fitxers els crea l'emulador sol, i només els que el model té** (`emu/model.h` és l'única llista de
 què porta cada placa): un ATOM té `rtc.bin` i, si el run va arribar a saber l'hora, `clock.bin`; un
 Paper té `rtc.bin`, `fram.bin`, `clock.bin` i la targeta. Un model sense FRAM no rep `fram.bin`, i
 `emu::fram()` torna `nullptr` — el mateix que una placa sense aquest xip.
@@ -232,7 +232,7 @@ RTC si la placa no té pila darrere el rellotge (ATOM i Matrix) i la conserva si
 `--persist` el cicle és un **reinici** i no un cicle d'alimentació —el domini del RTC no s'apaga— i la
 RTC es conserva a tots quatre models; la NVS i la FRAM no canvien mai, perquè són flash i ferrita.
 
-**La memòria i el rellotge són dues coses diferents**, però totes dues tenen el mateix patró: el banc
+**La memòria i el rellotge són dues coses diferents**, però totes dues tenen el mateix patró: l'emulador
 no té la BM8563 i el que fa és el que fa el xip que sí que hi és. L'època surt de `--now` quan el run
 la diu; si no, surt de `clock.bin` quan la placa té pila (el Paper, amb `source` = `"rtc"`) o quan el
 run diu `--persist` (a l'ATOM, amb `source` = `"soc"`, que és el comptador del SoC que sobreviu a un
@@ -240,20 +240,20 @@ reinici); i si no hi ha cap de les dues, val **0** i `source` és `"none"`, que 
 no ha posat (docs/60). El que es conserva al Paper és també el contingut de `/rtc`, que una app pot
 llegir i escriure.
 
-**La targeta la posa el banc sol si el model té ranura**: un Paper arrenca amb `emulator/sd` creat, o
+**La targeta la posa l'emulador sol si el model té ranura**: un Paper arrenca amb `emulator/sd` creat, o
 sigui que `/sd` hi és i el muntatge i la capacitat `sd` també, com a la placa de debò. Un ATOM o una
 Matrix no tenen ranura i no reben res; i si el directori s'esborra, la ranura queda buida i `/sd`
 desapareix, que és el cas d'una targeta treta (docs/70). `--sd <dir>` canvia el directori (i també
 s'hi crea). Amb la targeta posada, `cfg auto` hi desa els ajustos, i això és el que fa que el camí de
 la targeta es pugui provar sencer al PC.
 
-**La bateria al banc ve de fora, i ve sola**: a la placa és un divisor connectat a un pin, i aquí no hi ha
+**La bateria a l'emulador ve de fora, i ve sola**: a la placa és un divisor connectat a un pin, i aquí no hi ha
 ADC; el que hi ha és **el `%` d'aquesta màquina** (`/sys/class/power_supply/*/capacity`), que un model amb
 indicador es presta a l'arrencada sense que ningú ho demani i que passa per la corba de la cel·la del
 Paper. Una màquina sense bateria (un sobretaula) deixa la cel·la al **seu càrrec nominal, 3 700 mV**, i ho
 diu; `--battery-mv` hi posa el número que vulguis i mana sobre el préstec.
 
-Un banc que vulgui el seu propi disc (una prova, un joc de dades) diu `--flash <dir>` i posa el volum
+Un emulador que vulgui el seu propi disc (una prova, un joc de dades) diu `--flash <dir>` i posa el volum
 allà. `tools/sync_emulator.sh` i la tasca **lunokOS: seed emulator disk** segueixen funcionant per a
 aquest cas, però amb el disc real (`data/`) ja no fan falta.
 
@@ -274,10 +274,10 @@ tools/sync_emulator.sh
 Fa el mateix que `mkdir -p emulator/littlefs && cp -rL build/disk/emulator/apps emulator/littlefs/`, però
 **esborra primer** `apps/` i `res/` del disc de l'emulador: és una còpia, no una fusió, i una app treta de
 `apps/` ha de desaparèixer també d'aquí. També hi ha la tasca de VS Code **lunokOS: seed emulator disk**.
-**El disc del banc no en té, d'`apps/`** (0.88.2), o sigui que amb el disc per defecte aquest script no hi
+**El disc de l'emulador no en té, d'`apps/`** (0.88.2), o sigui que amb el disc per defecte aquest script no hi
 posa cap app i ho diu.
 
-**Per què cal recordar-ho** (només per a un banc que copiï el seu disc, `--flash emulator/littlefs`):
+**Per què cal recordar-ho** (només per a un emulador que copiï el seu disc, `--flash emulator/littlefs`):
 editar una app a `apps/` **no canvia res** en aquella còpia; el que corre és el disc de treball.
 Amb el disc del build —el camí per defecte, `build/disk/emulator`— això no passa, perquè les seves
 apps són enllaços al repositori.
@@ -285,9 +285,9 @@ apps són enllaços al repositori.
 ## Una sola sortida, i en ordre
 
 El nucli escriu les seves línies amb `printf` i la consola amb `IConsole::write`. A la placa les dues
-surten pel mateix UART, o sigui que l'ordre és l'ordre en què s'han escrit; al banc són dos fluxos
+surten pel mateix UART, o sigui que l'ordre és l'ordre en què s'han escrit; a l'emulador són dos fluxos
 diferents i les línies de l'arrencada sortien **després del prompt** i després del que havia escrit una
-app (mesurat l'1/11). La consola del banc buida `stdout` abans d'escriure, i així el que es veu és el
+app (mesurat l'1/11). La consola de l'emulador buida `stdout` abans d'escriure, i així el que es veu és el
 mateix que veuria una persona amb la placa endollada (docs/85).
 
 ## Temps virtual
@@ -322,7 +322,7 @@ Res de comparar text a ulls.
 
 ## La finestra: mirar el vidre en lloc d'endevinar-lo (1/11)
 
-Sense finestra, el vidre del banc és un buffer que només veuen les proves. Amb **`--gui`** el mateix
+Sense finestra, el vidre de l'emulador és un buffer que només veuen les proves. Amb **`--gui`** el mateix
 buffer es copia a una finestra **SDL2** —o X11, si el build no té SDL2— cada cop que el panell es pinta
 —es pregunta pel comptador de pintades del `MemorySurface`, o sigui que un torn sense pintada no costa ni
 una conversió— i el que l'app ha dibuixat es veu:
@@ -337,7 +337,7 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   funciona a X11, Wayland, macOS i Windows; Xlib continua sent el camí de les màquines POSIX que no
   tenen SDL2. Es pot forçar amb `LUNOK_GUI=sdl`, `LUNOK_GUI=x11` o `LUNOK_GUI=none`; per a una còpia de
   SDL2 que `pkg-config` no conegui, `SDL2_CFLAGS` i `SDL2_LIBS`. El selector mira `sdl2-config`, després
-  `pkg-config` i, si no hi són, aquestes dues variables. Sense cap de les dues, el banc compila i corre
+  `pkg-config` i, si no hi són, aquestes dues variables. Sense cap de les dues, l'emulador compila i corre
   igual, dient que no té finestra. A Debian/Ubuntu la dependència de desenvolupament és `libsdl2-dev`; a
   macOS, `brew install sdl2`; a Windows, un SDL2 amb `sdl2-config` al `PATH` (MSYS2) o els dos camins i
   les dues llibreries a `SDL2_CFLAGS`/`SDL2_LIBS`.
@@ -348,7 +348,7 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
 - **El que encara és POSIX**: la consola (`termios`/`select`) i el disc (`dirent`/`statvfs`) no són
   portables encara; SDL només és la finestra. La fase següent és la capa d'amfitrió comuna per a
   consola, fitxers, rellotge i bateria, amb una implementació Win32 a més de la POSIX. Fins que hi
-  sigui, el banc corre sencer a Linux i macOS, i a Windows només quan aquestes peces hi hagin estat
+  sigui, l'emulador corre sencer a Linux i macOS, i a Windows només quan aquestes peces hi hagin estat
   portades.
 - **La finestra ensenya la pàgina, no el vidre ajagut**: el `MemorySurface` viu en el marc en què l'app
   dibuixa (540 × 960 amb la pàgina de fàbrica), i la finestra fa el mateix. El vidre físic és 960 × 540 i
@@ -372,10 +372,10 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
 
   ```sh
   xvfb-run -a -s "-screen 0 800x600x24" ./.pio/build/emulator/program \
-    --board m5stack-paper --gui --run label
+    --board m5stack-paper --gui --run editor
   ```
 
-  Per a una sessió amb captures o clics, s'encén `Xvfb :99` a part i s'hi executa el banc amb
+  Per a una sessió amb captures o clics, s'encén `Xvfb :99` a part i s'hi executa l'emulador amb
   `DISPLAY=:99`; així no es mou el ratolí de l'usuari, no es roba el focus i no s'hi obre cap finestra.
   La mida de la pantalla virtual decideix l'escala automàtica (800x600 deixa la pàgina a la meitat;
   1920x1080 la deixa sencera), o sigui que una prova gràfica ha de fixar la mida que vol o passar
@@ -391,10 +391,10 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   llegeixen les proves). Amb escala 2, el píxel de la finestra és un bloc de 2 × 2 de la pàgina i el dit
   cau **al mig del bloc** (`emu::gui_page_point`, amb prova a `test_ui`); un punter fora de la pàgina
   s'enganxa a la vora.
-  Sense `--touch` no s'hi envia res, i amb el vidre girat en un altre marc el banc ho diu una vegada en
+  Sense `--touch` no s'hi envia res, i amb el vidre girat en un altre marc l'emulador ho diu una vegada en
   comptes de callar. **El que el ratolí no pot fer és un pessic de dos dits**: això és del test o del guió.
   **Un clic és un dit i no un marc**: el xip escombra cada deu mil·lisegons i qui no hi és en un escombrat no
-  hi és enlloc, o sigui que el banc guarda el toc fins que una lectura se l'emporta i la cua del nucli
+  hi és enlloc, o sigui que l'emulador guarda el toc fins que una lectura se l'emporta i la cua del nucli
   s'escurça a vint mil·lisegons amb la finestra oberta (0.83.0). Mesurat a la banqueta, dotze clics de 90 ms
   sobre la mateixa tecla del teclat: **una lletra abans de les tres arregles i deu ara**, amb una tecla
   premuda 1,8 s que escriu **una** lletra i no una ratxa. Les dues que falten són clics que entren plegats
@@ -405,9 +405,9 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   clic té una resposta que es veu; i amb `--verbose` cada tecla deixa una línia (`gui: key 0 (Centre) down` i
   el seu `up`), que és el que distingeix un botó que no fa res d'un botó que ningú no ha premut.
 - **Les tecles, a la mateixa finestra** (0.33.0 → 0.34.2): el vidre a la pantalla no deixa prémer el dial, i
-  `run keys` demanava una tecla que ningú no podia donar. Ara hi ha **un botó per tecla del model** dins de la
+  la tira de tecles demanava una tecla que ningú no podia donar. Ara hi ha **un botó per tecla del model** dins de la
   finestra del vidre, col·locat **on ho diu el descriptor de l'entrada**: `IInput::face()` dona la cara de la
-  tecla i `IInput::spot()` la seva posició, i el banc en fa una **columna a aquell costat** —el dial del
+  tecla i `IInput::spot()` la seva posició, i l'emulador en fa una **columna a aquell costat** —el dial del
   Paper és a la cara **dreta**, amb `Spot::kUp` a dalt i `Spot::kDown` a baix (docs/50)— o una **fila sota la
   pàgina** quan la tecla és a la cara de dalt, com la d'un ATOM. És **la mateixa finestra que el vidre**: la
   pàgina es pinta al costat que les tecles deixen lliure i no hi ha res a col·locar ni dues coses per mirar;
@@ -426,7 +426,7 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   la paraula. I els botons són de **quaranta per quaranta amb sis de buit** (eren vuitanta per
   cinquanta-quatre amb vuit): el que cal amb un ratolí és que la columna no es mengi la pàgina.
 - **El que no s'hi veu**: el **temps** de la tinta, que només es nota perquè la finestra s'espera i el
-  prompt no torna —el número es llegeix amb `stats` o amb `run panel`, no a l'ull—, i el moviment del
+  prompt no torna —el número es llegeix amb `stats` o pintant una pàgina sencera, no a l'ull—, i el moviment del
   pigment dins de cada moment (la finestra ensenya blanc, negre i la imatge, no els passos entremig). Per
   això la finestra serveix per **veure què dibuixa una app**, i el que es veu a l'ull continua essent el de
   la placa (docs/95).
@@ -434,7 +434,7 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
 ## La tinta del vidre: la pàgina que ningú ha vist (1/11)
 
 Un panell d'e-ink no encén píxels: mou pigment. El que hi havia **no desapareix en una pintada**, i
-només les qualitats que netegen (`gc16` i companyia) tornen la pàgina. El banc ho simula amb una taula i
+només les qualitats que netegen (`gc16` i companyia) tornen la pàgina. L'emulador ho simula amb una taula i
 una barreja d'enters (`lib/hal_emulator/src/emu_ink.cpp`):
 
 | Qualitat | Quant tarda | Què deixa | Blincades |
@@ -463,14 +463,14 @@ congela**: una pàgina que es queda quieta no és una pàgina, i el que fa el vi
   forma d'ona que no parpelleja tampoc no es recupera la pàgina: aterra a prop del nivell i no al nivell.
   Deixa **dos setzens** del que hi havia —un vuitè, més clar que un `du` i molt més fosc que un `gc16`— i
   un setzè de brutícia per pintada, o sigui que una caixa que canvia cada minut acaba ensenyant el minut
-  deabans. **Fins a la 0.88.18 el banc deia el contrari** («netegen sense ensordir la pàgina») i això feia
+  deabans. **Fins a la 0.88.18 l'emulador deia el contrari** («netegen sense ensordir la pàgina») i això feia
   gratis, aquí, l'única decisió que el sistema pren a tot arreu: una pàgina que no s'embruta mai.
   La prova que ho separa és `test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away`.- **El gra**: **vuit de cada mil** píxels d'una pintada de `du` no arriben al nivell que se'ls va demanar
 (quinze de cada mil amb `du4`), i **una de cada quatre vegades la fallada és de dos nivells** i no d'un.
 El píxel s'hi queda fins que alguna cosa neteja la zona. És determinista —un hash del lloc i no un
 `random`— perquè una pàgina que canvia a cada tirada no es pot provar.
-- **I la pintada ocupa el seu temps**: `idle()` no diu que sí fins que el rellotge del banc passa el bus
-  de la regió **i** la durada de la qualitat, o sigui que `run panel` al banc dona el número de la placa
+- **I la pintada ocupa el seu temps**: `idle()` no diu que sí fins que el rellotge de l'emulador passa el bus
+  de la regió **i** la durada de la qualitat, o sigui que una pàgina sencera a l'emulador dona el número de la placa
   (vegeu el bus, a sota).
 - **El color és el del paper i no el d'una pantalla**: el nivell 15 és `#EFEADC` (paper calent), el 0 és
   `#1A1B18` (la tinta més fosca que arriba el pigment) i els catorze del mig són la recta entre els dos.
@@ -484,16 +484,16 @@ El píxel s'hi queda fins que alguna cosa neteja la zona. És determinista —un
   dibuixa no és un parpelleig. **I les qualitats que no parpellegen ho diuen amb el temps**: un `du` no
   canvia la pàgina fins que els seus 120 ms han passat, perquè la tinta no hi és abans. Les blincades i
   els temps són els del full del fabricant i no d'aquesta unitat: a la placa, `a2` es va mesurar com a no
-  pintar res (docs/95, E-7), o sigui que aquí el banc és més optimista que el vidre que té algú a les mans.
+  pintar res (docs/95, E-7), o sigui que aquí l'emulador és més optimista que el vidre que té algú a les mans.
 - **El vidre treballa mentre el driver espera** (0.64.0). Una pintada té el seu cridador parat **més d'un
   segon** —el bus de la pàgina sencera, i la tinta— i el panell no s'atura: el controlador continua fent
-  les blincades de la regió que li han donat. El banc dibuixava la finestra **un cop per torn**, i un torn
+  les blincades de la regió que li han donat. L'emulador dibuixava la finestra **un cop per torn**, i un torn
   és una pintada, o sigui que s'empassava justament el que la finestra havia d'ensenyar: entre la pàgina
-  d'abans i la de després no hi havia cap fotograma (trobat a la finestra, 4/11: `run images` passava de
+  d'abans i la de després no hi havia cap fotograma (trobat a la finestra, 4/11: una pàgina amb imatges passava de
   la pàgina del shell a la imatge sense un negre). Des d'aquí `MemorySurface::wait_and_pump()` parteix
   cada espera del vidre —el `wait_paint` de la pintada anterior i l'enviament pel bus— en trossos de
   **10 ms** i crida el *pump* de la finestra entre tros i tros, que és `pump_gui` i la mateixa
-  `step_ink()` de sempre. Amb una gravació a 25 fotogrames per segon de `run ghost` al `--gui`: **dos
+  `step_ink()` de sempre. Amb una gravació a 25 fotogrames per segon d'una pàgina de text al `--gui`: **dos
   fotogrames negres, dos de blancs, dos de negres, dos de blancs** i després els sis trossos de l'arribada
   —que són els 450 ms del `gc16`—, i la finestra respon al teclat durant tot el temps. El model no canvia
   cap número: només qui mira i quan.
@@ -506,15 +506,15 @@ demanar-li que pinti (`It8951::flush`), i aquell enviament té dos preus: els by
 | Peça | Quant costa | D'on surt |
 |---|---|---|
 | Un byte | **0,8 µs** | el bus del driver, **10 MHz** (`kSpiHz`): quatre bits per píxel, o sigui dos píxels per byte |
-| Una fila | **1 100 µs** | **d'una mesura** i no d'un full del fabricant: la pàgina de `run panel` va costar **1 985 ms** a la placa l'1/11, i els seus comptes —570 ms de tinta, 233 ms de cable i 1 080 files— deixen uns 1 095 µs per fila. El driver envia **una fila per transacció**, i per què una transacció costa un mil·lisegon fora del cable no es respon aquí (docs/95) |
+| Una fila | **1 100 µs** | **d'una mesura** i no d'un full del fabricant: una pàgina sencera de text va costar **1 985 ms** a la placa l'1/11, i els seus comptes —570 ms de tinta, 233 ms de cable i 1 080 files— deixen uns 1 095 µs per fila. El driver envia **una fila per transacció**, i per què una transacció costa un mil·lisegon fora del cable no es respon aquí (docs/95) |
 
 - **La pàgina sencera, amb la barra de 48 files, són 1 200 ms de bus**: **912 files** de 270 bytes a
   0,8 µs més les 912 transaccions (la vista d'una app fa 540 × 912). La barra dels setze nivells, 157 ms.
-  Amb la tinta (120 del `du` i 450 del `gc16`), la pàgina de `run panel` dona **1 927 ms** al model.
-  **La mesura de l'1/11, amb la barra de 28 files**, era d'**1 954 ms al model** i **1 970 ms al banc**
+  Amb la tinta (120 del `du` i 450 del `gc16`), una pàgina sencera de text dona **1 927 ms** al model.
+  **La mesura de l'1/11, amb la barra de 28 files**, era d'**1 954 ms al model** i **1 970 ms a l'emulador**
   —`stats` deia 1 240 ms pel pintat de `du`, 280 pel de `gc16` i 450 de tinta—, contra els **1 985 ms**
   de la placa: **un 0,8 %** (docs/95, E-7). És la mateixa aritmètica amb una altra vista.
-- **I el que `run panel` imprimeix al banc és més gran, i amb raó**: **al voltant de 2 840 ms** el 3/11 amb la barra de
+- **I el que una pàgina sencera imprimeix a l'emulador és més gran, i amb raó**: **al voltant de 2 840 ms** el 3/11 amb la barra de
   48 files, perquè la **barra del sistema** es repinta amb `gc16` mentre l'app espera la tinta i
   `ui.idle()` de l'app espera també aquella tinta. `stats` en compta **cinc `glass.flush`**: el `du` de
   la pàgina i quatre `gc16` —el de l'escala i els de la barra que es repinta. És el que fa la placa quan
@@ -523,7 +523,7 @@ demanar-li que pinti (`It8951::flush`), i aquell enviament té dos preus: els by
   envia res fins que el primer ha acabat la tinta (`wait_paint`, docs/50). És el que fa que la pàgina sigui
   la **suma** —1 200 de bus del `du`, 120 de la seva tinta, 157 de bus del `gc16` i 450 de la seva— i no
   una cursa entre dues coses que al vidre van d'una en una.
-- **I el bus atura el nucli, com a la placa**: el banc fa l'espera dins del `flush` amb `pal::delay_us`
+- **I el bus atura el nucli, com a la placa**: l'emulador fa l'espera dins del `flush` amb `pal::delay_us`
   —`std::this_thread::sleep_for` al PC— i el fil no avança, que és el que passa mentre el bus està
   ocupat. És el mateix criteri que el port sèrie a 115 200 baud i que les lectures del disc: el cost
   s'hi paga, no es desa en un número.
@@ -532,18 +532,18 @@ aquests milisegons, i el PC a un gigahertz, o sigui que un bucle que al vidre du
 un mil·lisegon. El ganxo de l'intèrpret en compta **dos mil** i en paga el preu 
 (`--lua-cpu`, **60 ns** a 160 MHz, dividit per la freqüència simulada) quan la suma passa de mig
 mil·lisegon, i el que queda es paga al final del torn; amb això, `lua.own` i `lua.run` de `stats` diuen
-a la placa i al banc el mateix ordre de número. És el número del model i no una mesura: es pren a la
+a la placa i a l'emulador el mateix ordre de número. És el número del model i no una mesura: es pren a la
 placa amb un bucle i la fila `lua.own` (docs/95).
 - **I el torn també costa** (0.58.0, 0.60.0): un torn del nucli és **1 ms** a la placa —FreeRTOS, els
 controladors i la volta al bucle— i **0,15 ms** al PC, i la diferència es paga **després de cada
 torn** (`kTurnOverheadUs` = 850 µs, `--no-delay` la treu). I **un venciment es despatxa al torn
-següent**: quan l'espera s'acaba, el banc encara paga el torn que la placa triga a reprendre la tasca
+següent**: quan l'espera s'acaba, l'emulador encara paga el torn que la placa triga a reprendre la tasca
 (`kDispatchUs` = 1 000 µs), que és el mil·lisegon de més que fa que cent esperes d'1 ms costin 199 ms
 a la placa i 115 al PC (docs/75). No es modela la instrucció del Xtensa: es modela el **torn**.
-Mesurat el 3/11: 1 000 esperes d'1 ms triguen **2 107 ms** al banc amb el model encès i **1 064 ms**
+Mesurat el 3/11: 1 000 esperes d'1 ms triguen **2 107 ms** a l'emulador amb el model encès i **1 064 ms**
 amb `--no-delay`, contra els **1 990 ms** de la placa: un **+5 %**, que és la resolució del despertar
 d'aquest PC i no una decisió.
-- **Per això una pàgina al banc es nota**: amb `--gui`, una pintada de pàgina sencera té el cridador quiet
+- **Per això una pàgina a l'emulador es nota**: amb `--gui`, una pintada de pàgina sencera té el cridador quiet
   més d'un segon. No és un defecte de la finestra: és el que fa la placa. I des de la 0.64.0 la finestra
   **no s'hi queda quieta**: el vidre camina la seva tinta durant l'espera i les blincades es veuen.
 
@@ -607,9 +607,9 @@ char 48
   comptes de llegir un bloc que ja no hi és.
 - **I una cara es pot fer d'una font de debò**: `tools/ttf_to_lfont.py` converteix un `.ttf` en un `.lfont`
   a una mida triada (Pillow, el glif centrat a la cel·la perquè la taula és d'amplada fixa, el traç opcional)
-  i refusa el que no cap a setze; és el que carrega `run fonts` (docs/30). I una app també pot carregar el
-  `.ttf` sencer: `run buttons` ho fa amb Lato Black a 24 px i el nucli en dibuixa els outlines, que és el camí
-  que no té taula de bits (docs/30).
+  i refusa el que no cap a setze; és el que carrega el lector amb la cara que el llibre porta (docs/30). I una app també pot carregar el
+  `.ttf` sencer: una pàgina de botons ho fa amb Lato Black a 24 px i el nucli en dibuixa els outlines, que és el
+  camí que no té taula de bits (docs/30).
 - **I una cara pot portar els accents** (7/11, 0.127.0): `tools/ttf_latin1.py` retalla un `.ttf` a Latin-1 i
   **escriu els glifs que estan fets de peces**, que és la meitat que no es veu. El lector del sistema llegeix
   un glif com una llista de contorns i refusa un glif muntat de trossos, i mitja Europa de les fonts escriuen
@@ -619,8 +619,8 @@ char 48
   232 glifs, 55 aplanats, el més gran de 85 punts i 5 contorns, **23 856 B**. La mateixa ordre amb `--set ascii`
   fa les cares del sistema tal com són ara, i el que la prova mesura és el cas
   `test_a_latin1_face_draws_the_accented_letters` de `test_font`.
-- **I es mira amb dues apps**: `run fonts` posa la font del sistema i una cara carregada a la mateixa pàgina,
-  amb el que cada cara diu de si mateixa i l'amplada d'una línia a la consola; `run sheet` dibuixa tots els
+- **I es mira en una pàgina**: la font del sistema i una cara carregada a la mateixa pàgina, amb el que cada cara diu
+  de si mateixa i l'amplada d'una línia a la consola, i tots els
   glifs del sistema dins de la seva cel·la, que és el que diu si els bits cauen on toca. Totes dues van amb
   `--display` (o `--gui`) i s'acaben soles.
 - **El que no hi és**: ni kerning, ni una taula per sota de `0x20` o per sobre de `0x7F` **en una cara de
@@ -630,18 +630,18 @@ char 48
 
 ## El tàctil: un dit que costa el que costa (1/11)
 
-El vidre del banc tenia ulls i no dits. **El panell és del model** (`Model::touch`): una Paper del banc porta
+El vidre de l'emulador tenia ulls i no dits. **El panell és del model** (`Model::touch`): una Paper de l'emulador porta
 el seu **GT911** des que arrenca, i el que se simula no és «on és el dit» sinó el xip: en aquesta placa el
 que escanya una app és el que hi ha entre el dit i el full de dades
 (`lib/hal_emulator/src/emu_gt911.cpp`, docs/50). Amb `--no-touch` el panell hi és i no contesta, que és el
 cas d'una prova que no és sobre el tàctil.
 
-| Què | El banc | D'on surt |
+| Què | L'emulador | D'on surt |
 |---|---|---|
 | El marc | **540 × 960**, i és el de la pàgina: un dit a (100, 200) és a (100, 152) de la vista, sota les 48 files de la barra | la configuració d'aquesta unitat, mesurada amb quatre tocs l'1/11 (docs/95, E-6) |
 | Els dits | **2**, no els cinc que caben al marc | `0x804C` = 2 a la config 66 d'aquesta unitat |
 | La mida del contacte | **28** al primer dit i **30** al segon | els dos números que va donar la placa amb dos dits (docs/95, E-6) |
-| Què costa una lectura | **800 µs** sense dit, **1 830** amb un i **2 550** amb dos: l'estat, el marc i el zero que el tanca, a 100 kHz i nou bits per byte. Mesurat al banc, `touch.read` diu **935 µs – 1,1 ms** per a una lectura de 800: l'espera és `pal::delay_us` (`std::this_thread::sleep_for` al PC) i el planificador hi afegeix la resta | la física del bus del xip (docs/50) |
+| Què costa una lectura | **800 µs** sense dit, **1 830** amb un i **2 550** amb dos: l'estat, el marc i el zero que el tanca, a 100 kHz i nou bits per byte. Mesurat a l'emulador, `touch.read` diu **935 µs – 1,1 ms** per a una lectura de 800: l'espera és `pal::delay_us` (`std::this_thread::sleep_for` al PC) i el planificador hi afegeix la resta | la física del bus del xip (docs/50) |
 | El probe de l'arrencada | **~17 ms**, una vegada: el producte id i els 186 bytes de configuració, i la línia `[I][TOUCH] GT911 at 0x5d, config 66, 540x960, 2 fingers` | el driver de la placa (docs/50) |
 | El temps entre mostres | **10 ms** (`--touch-scan`), i una lectura es pot trobar el marc ja pres | el full del fabricant; **la placa encara no ho ha comptat** (docs/95, E-6) |
 
@@ -649,14 +649,14 @@ cas d'una prova que no és sobre el tàctil.
 driver se l'emporta amb un zero al registre d'estat, i una lectura que arriba dins de la mateixa finestra
 troba **ningú** encara que hi hagi un dit a sobre. Si el que llegeix va més de pressa que el vidre —un
 torn de 20 ms contra un xip de 40— la meitat de les lectures diuen que no hi ha ningú, i el que ha de
-sobreviure això és el nucli, no el banc. `--touch-scan 40` és exactament aquest cas, i
+sobreviure això és el nucli, no l'emulador. `--touch-scan 40` és exactament aquest cas, i
 `Gt911Panel::missed()` compta les vegades que el marc ja era pres.
 
 - **Els dits són del test, del guió o del ratolí**, com les tecles: `emu::touch_panel()->finger_down(0, 100,
   200)`, `finger_move`, `finger_up`, i amb `--gui` el botó esquerre de la finestra fa el mateix en el píxel
   que assenyala. Un punt fora del marc no és un dit i es refusa; el tercer dit també.
 - **Un toc que comença i s'acaba entre dues lectures és encara el marc de l'últim escombrat** (0.83.0): el
-  xip escombra sol i **guarda el que hi ha trobat** fins que una lectura se l'emporta, i el banc fa el
+  xip escombra sol i **guarda el que hi ha trobat** fins que una lectura se l'emporta, i l'emulador fa el
   mateix. Sense això, el ratolí de la finestra —que deixa anar el botó en el mateix torn en què el va
   prémer— no arribava mai al vidre: **una de cada vuit premudes** a la banqueta, mesurat amb vuit clics de
   90 ms sobre una tecla (docs/90). El toc es lliura **una vegada i prou**: la lectura següent diu que no hi
@@ -670,17 +670,17 @@ sobreviure això és el nucli, no el banc. `--touch-scan 40` és exactament aque
   —sis-cents mil·lisegons en una app que espera—, i la finestra només es mira entre esperes, o sigui que
   dos clics podien entrar plegats al panell i sortir-ne com un de sol. La retallada és el doble del període
   d'escombrat del xip i no toca ni el model ni les proves, que la deixen a zero.
-- **El que no hi és, i s'ha de saber**: al banc **no hi ha bus**, o sigui que el tàctil no comparteix res
-  amb el rellotge, la FRAM ni el SHT30 i no hi ha cap NAK ni cap conflict; el xip del banc contesta
+- **El que no hi és, i s'ha de saber**: a l'emulador **no hi ha bus**, o sigui que el tàctil no comparteix res
+  amb el rellotge, la FRAM ni el SHT30 i no hi ha cap NAK ni cap conflict; el xip de l'emulador contesta
   sempre a la primera, quan a la placa el probe va haver de preguntar a dues adreces (docs/50); i el marc
   que dona és el de fa menys de `--touch-scan` ms i no el d'un escombrat concret.
 - **El que la placa ha de dir encara**: la **velocitat de mostra** (comptar marcs amb el dit, docs/95
-  E-6) i **el cost d'una lectura**, que al banc és la física del bus i que `stats` ja compta a la fila
+  E-6) i **el cost d'una lectura**, que a l'emulador és la física del bus i que `stats` ja compta a la fila
   `touch.read` a les dues bandes.
 
-## Els temps del banc, i el commutador que els apaga (1/11)
+## Els temps de l'emulador, i el commutador que els apaga (1/11)
 
-Un run del banc **paga la mateixa estona que la placa**, perquè una app que aquí va bé i allà va malament
+Un run de l'emulador **paga la mateixa estona que la placa**, perquè una app que aquí va bé i allà va malament
 no serveix de res: el disc (**819 µs** per bloc de 4 KB de flash i **45 ms** d'esborrat per cada sector que
 s'escriu, 410 µs per sector de targeta, **90 µs per byte** de FRAM), el **port sèrie** (86,8 µs per byte
 a 115 200), la **tinta** (0,8 µs per byte i 1 100 µs per fila, i la qualitat de cada pintada) i el
@@ -690,9 +690,9 @@ paga la meitat no mesura res:
 
 | Com s'engega | Els temps | Per a què |
 |---|---|---|
-| **el binari, per defecte** | **es paguen** | mirar què costa una placa: `run panel` diu **al voltant de 2 840 ms** de pintada (3/11, barra de 48 files) |
+| **el binari, per defecte** | **es paguen** | mirar què costa una placa: una pàgina sencera diu **al voltant de 2 840 ms** de pintada (3/11, barra de 48 files) |
 | **`--gui`** | **es paguen, i és obligatori** | una finestra és per veure què costa una placa; `--gui --no-delay` es refusa sempre i `--gui --no-ink` quan hi ha vidre, amb una línia que diu per què |
-| **`--no-delay`** | **cap espera** | un guió o una mesura que no sigui de temps: el mateix `run panel` dona **11 ms**, que és el sondeig de 10 ms de l'app i res del maquinari |
+| **`--no-delay`** | **cap espera** | un guió o una mesura que no sigui de temps: la mateixa pàgina sencera dona **11 ms**, que és el sondeig de 10 ms de l'app i res del maquinari |
 | **les proves** | **cap espera** (el camp neix fals) | cap suite paga el rellotge; la que mesura temps (`test_ui`, `test_touch`) el posa a cert |
 
 **El model no canvia amb el commutador**: el fantasma d'un `du`, la brutícia, la mida del contacte i el
@@ -701,7 +701,7 @@ exactament el que vol una prova de píxels.
 
 ## El disc: cada dispositiu amb el seu temps (1/11)
 
-Un sol mil·lisegon per lectura era el número del banc per a tot, i no és el d'enlloc: el disc del Paper
+Un sol mil·lisegon per lectura era el número de l'emulador per a tot, i no és el d'enlloc: el disc del Paper
 són **tres aparells diferents** i un no s'assembla a l'altre (`emu/disk.h`, docs/50).
 
 | Dispositiu | Unitat | Llegir-ne una | Escriure-la | D'on surt |
@@ -714,10 +714,10 @@ són **tres aparells diferents** i un no s'assembla a l'altre (`emu/disk.h`, doc
 
 - **Per què una escriptura és tan cara**: littlefs **no escriu a sobre** del que hi ha. Desar un fitxer
   petit pren un bloc nou, i un bloc nou vol dir **esborrar el sector sencer abans** —45 ms—. És el que fa
-  que desar sigui una cosa que es pensa dues vegades, i al banc es paga igual.
+  que desar sigui una cosa que es pensa dues vegades, i a l'emulador es paga igual.
 - **La PSRAM paga el que es pot pagar**: el bloc que el nucli demana costa el **recorregut de
   l'assignador (20 µs)**. Els bytes no es cobren: llegir i escriure PSRAM és un fallo de cau i un bus,
-  que és temps de CPU, i aquest banc no té rellotge de CPU. On la PSRAM sí que es paga és al bus del
+  que és temps de CPU, i aquest emulador no té rellotge de CPU. On la PSRAM sí que es paga és al bus del
   panell, perquè cada fila que s'envia es copia de la PSRAM (docs/85).
 - **`--read-delay` ja no hi és**: era el rellotge pla que s'ha arreglat. El que fa anar de pressa és
   `--no-delay`, que apaga el disc sencer amb la resta.
@@ -727,7 +727,7 @@ són **tres aparells diferents** i un no s'assembla a l'altre (`emu/disk.h`, doc
 ## La bateria: la d'on tu, al cos de la placa (1/11)
 
 El Paper porta **una cel·la de 1150 mAh a 3,7 V** i la llegeix com a mil·livolts darrere d'un divisor a
-**GPIO35** (×2), amb quatre conversions de l'ADC; el portàtil on corre el banc porta el que porti i el nucli
+**GPIO35** (×2), amb quatre conversions de l'ADC; el portàtil on corre l'emulador porta el que porti i el nucli
 en diu un **percentatge**. El que es presta és **el percentatge i no la tensió**, i es presta **sol** (un
 model amb indicador el llegeix a l'arrencada; `--battery-host` només ho demana en veu alta): 63 %
 d'aquí són 63 % d'allà, i la corba de `hal/battery.h` —la mateixa que fa servir la placa— diu que això és
@@ -736,19 +736,19 @@ llegeix 11 V.
 
 - **Es llegeix del nucli, i només quan el nucli és Linux**: `/sys/class/power_supply/*/capacity` i
   `/status`, el primer aparell de la llista que sigui una bateria i tingui percentatge. Un `150` o un `0`
-  no és cap bateria i el banc no se'l creu; i si la màquina no en té cap —o el sistema és macOS o
+  no és cap bateria i l'emulador no se'l creu; i si la màquina no en té cap —o el sistema és macOS o
   Windows, on aquest camí no existeix—, la cel·la del model comença al **seu càrrec nominal (3 700 mV,
   42 %)**, que és el que una Paper amb una cel·la de fàbrica diria —no `nil`, perquè una Paper no té
   aquest estat.
-- **El cable es diu però no es diu a l'app**: `status` diu si la màquina està carregant, i el banc ho
+- **El cable es diu però no es diu a l'app**: `status` diu si la màquina està carregant, i l'emulador ho
   escriu a la línia d'engegada; `power.battery().charging` segueix essent **fals**, perquè el Paper no té
   cap pin per preguntar-ho i una app no ha de rebre una cosa que la placa no sap (docs/30, docs/50).
 - **I el rellotge es paga**: quatre conversions d'ADC a ~100 µs i la caracterització del canal la primera
   vegada (~1 ms), o sigui **400 µs per lectura** amb els temps engegats. Amb `--no-delay`, res.
 - **L'opció explícita no hi és per comoditat**: el préstec ve sol, però `--battery-mv` mana i una prova no
   en depèn (una prova construeix les seves opcions i no llegeix mai aquesta màquina).
-- **Es llegeix una vegada, a l'arrencada**: el percentatge del portàtil no va baixant dins del banc,
-  perquè el banc no dibuixa el consum de la placa —té una fila pròpia a la taula de fidelitat— i una
+- **Es llegeix una vegada, a l'arrencada**: el percentatge del portàtil no va baixant dins de l'emulador,
+  perquè l'emulador no dibuixa el consum de la placa —té una fila pròpia a la taula de fidelitat— i una
   bateria que baixa sola seria un número inventat.
 
 ## El rentat entre dues apps: el sistema mira què ha ensenyat la pàgina (1/11, 0.37.0)
@@ -773,7 +773,7 @@ sistema ho compta sol, i no ho pregunta a l'app, perquè **cap app sap què hi h
 - **I qui paga**: el rentat es demana a `ui::attach()`, quan la vista passa a l'app següent, i **no s'espera**:
   la primera pintada de l'app que ve s'encua darrere. El número `32` és una constant dita en un sol lloc
   (`kManyPaints`, `ui.cpp`) perquè algú la compti a la placa i la canviï (docs/50).
-- **Què es veu al banc**: `docs/85` ja sap com costa cada qualitat; el que això afegeix és que el canvi d'app
+- **Què es veu a l'emulador**: `docs/85` ja sap com costa cada qualitat; el que això afegeix és que el canvi d'app
   costa 290 ms i no 450 quan l'app era de text, i que una app que no hagi pintat res no costa res.
 
 ## El terminal es pregunta, no s'endevina (2/11, 0.53.0)
@@ -803,66 +803,56 @@ Tres detalls que són la diferència entre detectar i fer veure que es detecta:
 - **La regla és pura** (`kernel::shell::ansi_reply`) i la suite la prova amb la resposta d'un VT100
   (`ESC [ ? 1 ; 2 c`), la d'un xterm, una fletxa, un informe de cursor, una tecla i un text qualsevol.
 
-Mesurat al banc: amb una canonada, `no terminal, ansi not asked`; dins d'un pseudo-terminal que no contesta,
+Mesurat a l'emulador: amb una canonada, `no terminal, ansi not asked`; dins d'un pseudo-terminal que no contesta,
 `no ansi, spaces and backspaces`; i donant-li la resposta pel seu `stdin`, `ansi`.
 
 ## Què mirar, i amb quina app (1/11)
 
-**Al banc, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que `run draw` i `run glass` van amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.
+**A l'emulador, el maquinari del model hi és des de l'arrencada**: el vidre i el GT911 d'una Paper són allà sense cap bandera (i `--no-display` / `--no-touch` els treuen), o sigui que una app que dibuixa amb el dit va amb `--board m5stack-paper` i prou. **I amb `--gui` el dit és el ratolí**: es prem i s'arrossega damunt de la finestra. El que no hi és mai és el que el model no té: un `--display` a un ATOM es refusa dient que aquella placa no té pantalla.
 
 **`cat` imprimeix el fitxer sencer** des de la 0.82.2 (abans s'aturava als primers 1 024 B sense dir-ho) i
 `hexdump` el llegia sencer des de sempre: el que triga una pàgina gran és el **cable** —1,3 MB a 115 200
-baudes són uns dos minuts— i no un sostre amagat. Al banc, `cat /sd/http/watch` amb una targeta de debò
+baudes són uns dos minuts— i no un sostre amagat. A l'emulador, `cat /sd/http/watch` amb una targeta de debò
 (`--sd emulator/sd`) treu els 1 327 963 B i l'última línia hi és; `hexdump /sd/http/apps` dona 2 783 files i
 l'última comença a `0000ade0`, que és l'últim tros de 16 B del fitxer (docs/30, docs/70).
 
 **El que va fer falta perquè els editors obrissin un fitxer de debò**: un bloc de la PSRAM que no podia créixer
-on era es movia només a l'altra memòria, i si el veí estava ocupat el banc deia `not enough memory` amb quatre
-megabytes lliures (docs/75, la secció del heap del banc). Ara pot anar a qualsevol taca de la seva.
+on era es movia només a l'altra memòria, i si el veí estava ocupat l'emulador deia `not enough memory` amb quatre
+megabytes lliures (docs/75, la secció del heap de l'emulador). Ara pot anar a qualsevol taca de la seva.
 
-Cada cosa que el banc simula té una app que la fa servir, i totes **corren igual a la placa**: el que es
-veu al banc i el que es veu al vidre és la mateixa pàgina, i els números s'hi poden comparar.
+**Les set apps del disc són les que es veuen a l'emulador i al vidre, i són les mateixes**: el que es veu a
+un costat i a l'altre és la mateixa pàgina, i els números s'hi poden comparar. Les apps de demostració que
+provaven cada control una per una ja no hi són —el que queda és el que una persona fa servir— i el que
+provava cadascuna ho diuen les taules de docs/50 i docs/92.
 
 | App | Què prova | Què mirar |
 |---|---|---|
-| `run panel` | la pàgina, la vora i les setze qualitats | que el dibuix hi és i recte, i `the ink took N ms` |
-| `run squares` | una pintada per qualitat, cronometrada | `painted with du in N ms` contra `erased with du in N ms`, i cada vint quadrats un `erased with gc16 in N ms`: el rastre gris que queda és el dany, i el quadrat del `gc16` torna blanc |
-| **`run ghost`** | **el fantasma**: vuit passades de `du` sobre el mateix bloc i un `gc16` al final | el bloc que guarda la forma de cada passada i el comptador amb els números dels passats a sota; al banc, a més, la finestra |
-| **`run draw`** | **el tàctil**: un traç que segueix el dit, i un quadre que neteja la pàgina | que el punt cau on és el dit —amb `--gui`, el del ratolí—, el traç de la vora del gest i el temps de cada pintada |
-| **`run cost`** | **el que costa tot**: `stat`, `list`, llegir, escriure, una pintada de cada qualitat, la bateria, el tàctil i la memòria | les dues taules (placa i banc) al costat: si no s'assemblen, algú menteix i `docs/85` diu qui |
-| **`run images`** | **les imatges**: una de cada família que el sistema llegeix —JPEG, dos BMP (8 i 24 bits), GIF, ICO, PNG i els netpbm PGM/PPM/PBM— i **cada una ensenya el que aquell format sap fer**: una fotografia, tinta plana, una paleta, una cantonada transparent, una icona amb alfa, línies primes, dos degradats i un bit. Cada pàgina en diu la família, la mida, els bytes i per què és aquell format | que les nou imatges són **diferents**, que la transparència del GIF i de l'ICO es veu sobre el fons gris, que el degradat del `pgm` no fa franges i que el `pbm` és només tinta i paper. **El que han de dibuixar igual —el mateix pla en sis formats— es prova a `test_img`, amb les seves còpies a `test/test_img/data/plan.*`**. Des de la 0.64.1 els tres botons tenen `on_focus` i el focus es renta amb un `gc16` de la fila dels botons: l'anell que arriba surt nítid, el que se'n va desapareix, i el parpelleig és aquella fila i no la pàgina (docs/30) |
-| **`run edit <path>`** | **l'editor de text** (0.65.0, i des de la 0.66.0 **sense sostre de mida**): modal com el vim, amb `h j k l`, `i a o`, `x dd yy p`, `u`, `/` i `:w :q`, sobre el teclat **en mode cru** (`console.raw`, `console.read_byte`) i dibuixat amb `term`. **El fitxer no es carrega mai sencer**: l'editor en fa un **índex de línies** llegint-lo a trossos de 64 KB (`fs.read_at`), llegeix només les línies que es veuen i desa copiant de l'original els trossos que no han canviat; una línia de més de 8 KB es veu per **finestra** i no s'hi escriu | que el fitxer s'obre i es desa **on el prompt l'ha nomenat**, que `Ctrl+L` torna a pintar la pàgina si una línia del log del sistema l'ha trencada, —l'app rep l'autoritat d'aquell camí i de cap altre—, que `ESC` torna al mode normal, que `dd` i `u` fan el que diuen i que la línia d'estat diu la fila, la columna i si hi ha canvis sense desar. **Pel port sèrie de la placa i per la consola nadiua és el mateix codi** |
-| **`run editor [path]`** | **l'editor gràfic** (0.87.0): una pàgina que s'escriu amb el teclat del sistema i que es comanda amb la **barra de menús del sistema** —**File** obre, desa, desa com i tanca, i **View** porta `Read Only` i `Word wrap` amb una casella dins del menú—. El camí d'obertura i el de desar s'escriuen en una targeta amb el teclat, i el que no és el camí que el prompt ha nomenat ni el propi de l'app es refusa i es diu per què | que el menú es plega sol i no deixa la targeta pintada al paper, que passar d'un títol a un altre canvia el menú (i no dos), que `Read Only` amaga el teclat i la pàgina creix sense deixar les lletres de quan era petita, que un dit sobre el text de només lectura **no** torna a obrir la banda (0.91.0), que `Word wrap` mou les files del text i que desar **escriu el fitxer de debò** |
-| **`run hexedit <path>`** | **l'editor hexadecimal** (0.65.0, i des de la 0.66.0 **sense sostre de mida**): la graella de setze bytes amb el desplaçament i l'ASCII, el cursor amb dos nibli, `0`–`9`/`a`–`f` per escriure, `x` esborra, `i` insereix, `u` desfà i `:w :q` per desar. Fins a 256 KB el fitxer és a la memòria (i `x`/`i` hi mouen els bytes); més gran, llegeix **la finestra que es veu** i desa cada byte al seu desplaçament amb un mànec, o sigui que un binari d'1,5 MB es pedaça sense tenir-lo sencer enlloc | que un fitxer binari s'obre sencer i sense pèrdua, que `41` sobre el byte `48` el deixa en `41`, que esborrar i inserir mouen el que hi ha darrere, i que `:w` escriu exactament els bytes que es veuen |
-| **`run controls`** | **el que dibuixa el sistema** (0.69.0–0.81.1): una barra de progrés que s'omple, un `slider` que mou el dial i les files del panell | que el dial mou el control que té el focus i no un altre, que el valor es veu a la barra i que cada control respon a la tecla que li toca |
-| **`run menu`** / `run menubar` | el menú contextual i la barra de menús: el menú s'obre **on és el dit** i la barra té el mot de baix invertit i un menú penjant | que tocar una nota obre el menú al seu lloc, que l'entrada marcada és la que s'activa i que el menú es tanca sol |
-| **`run typing`** / `run notes` | el teclat del sistema dins d'un `textbox` i d'un `textbox_multiline`: el cursor hi parpalleja, el dial camina les tecles i `Enter` parteix la línia (o baixa la finestra) | que cada tecla surt on toca, que el text del camp és el que s'ha escrit, que el bloc del cursor parpelleja sol (0.92.0), i que un dit fora de la caixa tanca la banda i un dit a dins la torna a obrir (0.91.0) |
-| **`run dialog`** / `run form` / `run checkbox` | el diàleg amb dues portes, els camps que es trien i la casella que s'encén | que el dial recorre les portes i les opcions, que el centre n'activa una i que el que queda triat és el que l'app llegeix |
-| **`run trend`** / `run grid` | el `sparkline` d'una finestra de mostres, el pastís i la graella de cel·les amb pàgines | que el gràfic segueix les mostres, que el pastís reparteix el total i que la graella passa de pàgina amb el cursor |
-| `run glass` | el tàctil a la consola | els punts de cada frame i els gestos amb la seva durada |
-| `run keys` | les tecles del dial | que la posició que prems és la que surt al compte, i a dalt/centre/baix amb la tira de tecles de `--gui` |
-| `run battery` | el gauge | mV, `%` i que `charging` no hi és |
-| `run mtab` | el disc i l'espai | que quatre noms de la mateixa partició són quatre passejades |
+| **`run home_eink`** | **el launcher** (0.153.0): la graella de les apps del disc, amb la pàgina que arriba abans que les imatges i les pàgines que es passen amb la banda de sota | que la primera pàgina surt de seguida amb el nom de cada app i una imatge genèrica, que les imatges arriben una a una, que un dit sobre una imatge arrenca aquella app i que el launcher torna quan l'app marxa |
+| **`run calculator`** | **la calculadora** (0.121.0): el teclat de dinou tecles pintat a mà, els signes de l'original i una línia de resultat | que les tecles són on han de ser i que un número i una operació donen el que donaven a l'original |
+| **`run editor [path]`** | **l'editor gràfic** (0.87.0): una pàgina que s'escriu amb el teclat del sistema i que es comanda amb la **barra de menús del sistema** —**File** obre, desa, desa com i tanca, i **View** porta `Read Only` i `Word wrap` amb una casella dins del menú—, amb el camí en una targeta | que el menú es plega sol i no deixa la targeta pintada al paper, que `Read Only` amaga el teclat i la pàgina creix, que `Word wrap` mou les files, que **un fitxer llarg porta la barra de desplaçament al cantó dret i el swipe la mou** i que desar **escriu el fitxer de debò** |
+| **`run reader [path]`** | **el lector d'EPUB** (0.120.0 i enllà): el zip del llibre, l'HTML de cada capítol i la pàgina composta amb la cara i les imatges que el llibre porta | que un llibre de debò s'obre sencer i es pot fullejar, que les imatges hi són, que **la pinça de gran a petit el tanca** i que la pàgina dura el que dura un canvi de pàgina i no mitja hora |
+| **`run shell`** | **el terminal al vidre** (0.163.0): el prompt del sistema amb pestanyes que es tanquen i la cara petita fixa | que una ordre s'escriu i respon a la pàgina, que les pestanyes es tanquen i que **sortir d'un app torna a la vista de sota abans de tancar** |
+| **`run timeclock`** | **el rellotge de fitxar** (0.125.0): tres tecles, el dia a sota i la setmana darrere d'un ull | que les tres tecles obren, tanquen i aturen el dia, que la llista de marques creix i que la setmana es dibuixa |
 | **`cfg keyboard`** | **els teclats** (0.93.0): `cfg keyboard` en dona la llista —`qwerty` i `azerty`— i `cfg keyboard azerty` en tria un, el desa a l'NVS (`cfg/keyboard`) i l'arrencada el torna a posar; `cfg` mostra el que hi ha amb la resta d'ajustos | que la primera tecla de la fila de dalt és una `q` amb qwerty i una `a` amb azerty, que la llista refusa un nom que no hi és, i que la tria sobreviu a un reinici |
-| **`cfg boot`** | **el dibuix del logotip de l'arrencada** (0.115.0): `cfg boot` en dona la llista amb el mot, el camí de la imatge i una estrella al que surt ara; `cfg boot boot-alt` el desa a l'NVS (`cfg/boot`) i la propera arrencada pinta el clipart. L'emulador té la targeta i l'NVS a `emulator/`, o sigui que la tria sobreviu entre execucions | que el log del segon arrencada diu `CFG ... boot boot-alt` i `SPLASH /res/splash/boot-alt.png`, i que la prova del banc compara el píxel del mig del vidre amb la imatge que ha escrit ella |
-| **`repo`** (comanda del prompt, no app) | **les apps que té el repositori, dites pel repositori** (0.82.0): demana a l'API de continguts de GitHub el directori `apps/` de `lunokjod/lunokOS` —la versió crua d'aquella pàgina del navegador— i en llista les carpetes; **`repo info <app>`** (0.82.1) en llegeix el `manifest.json` cru i en fa una fitxa amb títol, versió, autor, entrada, extensió, plaques i descripció; **`repo install <app>`** (0.86.0) baixa el directori sencer —carpetes incloses— al disc que `cfg` diu, i al banc es comprova amb una targeta de debò (`--sd`) i el curl d'aquesta màquina: `repo: images in /sd/apps/images, 11 files, 1 folder, 67494 bytes` | que el llistat arriba **sencer** (45 KB de JSON, o sigui que va amb `http_download` a `/littlefs/http/apps` i es llegeix a trossos de 2 KB) i que surten les 60 carpetes amb el seu nom; que la fitxa cap en **2 KB de memòria** i que una app sense `entry` es diu `not a usable app`; al banc necessita xarxa de debò o `--http-fake`, i amb `--no-wifi` diu que la placa no té ràdio |
+| **`cfg boot`** | **el dibuix del logotip de l'arrencada** (0.115.0): `cfg boot` en dona la llista amb el mot, el camí de la imatge i una estrella al que surt ara; `cfg boot boot-alt` el desa a l'NVS (`cfg/boot`) i la propera arrencada pinta el clipart. L'emulador té la targeta i l'NVS a `emulator/`, o sigui que la tria sobreviu entre execucions | que el log del segon arrencada diu `CFG ... boot boot-alt` i `SPLASH /res/splash/boot-alt.png`, i que la prova de l'emulador compara el píxel del mig del vidre amb la imatge que ha escrit ella |
+| **`repo`** (comanda del prompt, no app) | **les apps que té el repositori, dites pel repositori** (0.82.0): demana a l'API de continguts de GitHub el directori `apps/` de `lunokjod/lunokOS` —la versió crua d'aquella pàgina del navegador— i en llista les carpetes; **`repo info <app>`** (0.82.1) en llegeix el `manifest.json` cru i en fa una fitxa amb títol, versió, autor, entrada, extensió, plaques i descripció; **`repo install <app>`** (0.86.0) baixa el directori sencer —carpetes incloses— al disc que `cfg` diu, i a l'emulador es comprova amb una targeta de debò (`--sd`) i el curl d'aquesta màquina: `repo: images in /sd/apps/images, 11 files, 1 folder, 67494 bytes` | que el llistat arriba **sencer** (45 KB de JSON, o sigui que va amb `http_download` a `/littlefs/http/apps` i es llegeix a trossos de 2 KB) i que surten les 60 carpetes amb el seu nom; que la fitxa cap en **2 KB de memòria** i que una app sense `entry` es diu `not a usable app`; a l'emulador necessita xarxa de debò o `--http-fake`, i amb `--no-wifi` diu que la placa no té ràdio |
 
 ## Fidelitat: què s'assembla i què no
 
 | Aspecte | A l'emulador | A la placa |
 |---|---|---|
 | Nucli, Lua, VFS, promeses | **Idèntic** | Idèntic |
-| **L'arrencada** (0.60.2) | **El que la placa fa abans que existeixi el nucli**: el bootloader llegeix la imatge de la placa —**2 097 008 B** a l'ATOM, **2 182 672 B** al Paper (3/11) i **2 286 000 B** al T-Koala (5/11), els `firmware.bin` de cada entorn— a **10 MB/s** (dual a 40 MHz, el mode amb què arrenca), i després el **test de PSRAM** d'ESP-IDF (`CONFIG_SPIRAM_MEMTEST`, actiu per defecte) escriu i llegeix els 4 MB mapejats a **20 MB/s** (quad a 40 MHz): **210 ms a l'ATOM i 638 ms al Paper**. El banc els paga abans del banner, i el prompt arriba quan arribaria al vidre: **0,39 s i 0,84 s** fins al prompt (abans, 0,19 i 0,20). `--no-delay` no els paga. El que **no** és del model: el que el ROM i el bootloader triguen a més de llegir la imatge, i el primer refresc del panell | El mateix, més el que triga el propi ROM |
+| **L'arrencada** (0.60.2) | **El que la placa fa abans que existeixi el nucli**: el bootloader llegeix la imatge de la placa —**2 097 008 B** a l'ATOM, **2 182 672 B** al Paper (3/11) i **2 286 000 B** al T-Koala (5/11), els `firmware.bin` de cada entorn— a **10 MB/s** (dual a 40 MHz, el mode amb què arrenca), i després el **test de PSRAM** d'ESP-IDF (`CONFIG_SPIRAM_MEMTEST`, actiu per defecte) escriu i llegeix els 4 MB mapejats a **20 MB/s** (quad a 40 MHz): **210 ms a l'ATOM i 638 ms al Paper**. L'emulador els paga abans del banner, i el prompt arriba quan arribaria al vidre: **0,39 s i 0,84 s** fins al prompt (abans, 0,19 i 0,20). `--no-delay` no els paga. El que **no** és del model: el que el ROM i el bootloader triguen a més de llegir la imatge, i el primer refresc del panell | El mateix, més el que triga el propi ROM |
 | Resolució de camins i permisos | Idèntic | Idèntic |
 | Sostre de memòria | **El de la placa, i no més**: l'ATOM contesta el sostre per defecte (64 KB, `Model::app_limit_kb` = 0, que vol dir «la placa no en diu cap»), el **Paper i el T-Koala contesten la PSRAM mapejada (4 096 KB, de 8 MB que en té el xip)**. `--mem-cap` el pot **baixar** per veure-hi el pic, i demanar-ne més es refusa amb el número que té el model. `sys.heap()` dona el pressupost de l'app (`free`, `used`, `limit`, `peak`) i la memòria extra del model (`extra_total`, `extra_free`), i `mem` escriu els tres números del model (`Model::psram_kb` mapejats i `Model::psram_chip_kb` del xip) | 320 KB de SRAM al xip i, al Paper, **4 MB de PSRAM mapejada** on van els blocs de 4 KB en amunt (docs/75) |
-| **RAM de debò, un heap de debò** (0.58.0, 0.60.0) | **Els dos casals del xip i un heap dins de cadascun** (`pal::set_memory_bytes`, `pal::memory_left`): `Model::free_heap_bytes` (338 864 B a l'ATOM, al Matrix i al T-Koala, 162 728 B al Paper) i `Model::extra_free_bytes` (4 095 KB al Paper i al T-Koala, cap als ATOM). El T-Koala hereta els dos números —la mateixa RAM del xip i la mateixa finestra de PSRAM— perquè encara no se n'ha pres cap al maquinari; docs/95 té l'ordre per fer-ho. Un casal és **una regió de bytes tallada en trossos** amb capçalera de 16 B —mida, mida del tros anterior, casal i si és pres— i els lliures van en una llista que l'assignador recorre: **el primer que hi cap es parteix** si el que en queda val la pena (48 B), i quan un bloc es deixa anar **es torna a ajuntar amb el veí lliure d'abans i el de després**. Els trossos que ja no es toquen queden separats, que és el que fa que una pàgina **no hi capigue amb el lliure total de sobres**: `mem` en diu el **bloc més gran** que hi cap ara (`HeapInfo::largest_free_bytes`, com `heap_caps_get_largest_free_block`) i no només el lliure. Un bloc que no cap al casal que vol va a l'altre, i un que no cap a cap dels dos **es refusa**. **El temps també es paga**: cada node de la llista que es recorre són **100 ns** (fins a setze, que és el que costa la cerca del xip) i un bloc que canvia de casal es copia a **20 MB/s**, que és el que dona la PSRAM en quad SPI a 40 MHz. Mesurat el 3/11: una taula de 400 000 enters (~6,4 MB) al Paper mor amb `lua: not enough memory` i la PSRAM torna sencera quan el bloc es deixa anar; 64 blocs de mides que no lliguen donen **cada byte** en alliberar-se. El que **no** és del model és la **pila de les tasques**: al banc no n'hi ha (és el procés del PC) i `stack_free` torna −1 en lloc d'un número inventat (docs/75) | El `heap_caps_malloc` d'ESP-IDF amb les seves regions i el seu bitmap de nivells; i cada tasca té la seva pila, comptada en aquests 320 KB |
-| **Rellotge de la CPU: el torn** (0.58.0) | **El que costa un torn del nucli, pagat després de cada torn** (`kTurnOverheadUs` = **850 µs**, la diferència mesurada a `docs/75`: 100 esperes d'1 ms triguen 199 ms a la placa i 115 ms al PC). Amb el model encès i el despatxament del venciment, 1 000 esperes d'1 ms triguen **2 107 ms** al banc (1 064 ms amb `--no-delay`), i el que **no** es modela és la instrucció: no hi ha cap Xtensa aquí i el que costa una línia de Lua es cobra amb `--lua-cpu`, no amb el rellotge del PC | FreeRTOS despertant cada mil·lisegon amb els seus canvis de context, i la instrucció al ritme del vidre |
-| **Imatges (0.63.0)** | **Els mateixos descodificadors, byte a byte**: `ui.image` obre el fitxer pel VFS del banc i el passa per `lib/img`, que és el codi que compila també per a la placa —PNG, JPEG, BMP, GIF, ICO i netpbm—, i les files cauen al canvas amb el mateix empaquetament de quatre bits. **El que no és igual**: la transformada del JPEG és en coma flotant, i el banc en té de doble precisió i el xip de simple —les setze tintes són molt més gruixudes que la diferència, i les proves ho comproven amb un marge d'un nivell—; i el disc de la imatge es paga per la mateixa capa que cobra les lectures (docs/70, docs/75) | El mateix codi a 240 MHz: el que triga és la transformada i l'inflate, i el refresc de la tinta és molt més llarg |
+| **RAM de debò, un heap de debò** (0.58.0, 0.60.0) | **Els dos casals del xip i un heap dins de cadascun** (`pal::set_memory_bytes`, `pal::memory_left`): `Model::free_heap_bytes` (338 864 B a l'ATOM, al Matrix i al T-Koala, 162 728 B al Paper) i `Model::extra_free_bytes` (4 095 KB al Paper i al T-Koala, cap als ATOM). El T-Koala hereta els dos números —la mateixa RAM del xip i la mateixa finestra de PSRAM— perquè encara no se n'ha pres cap al maquinari; docs/95 té l'ordre per fer-ho. Un casal és **una regió de bytes tallada en trossos** amb capçalera de 16 B —mida, mida del tros anterior, casal i si és pres— i els lliures van en una llista que l'assignador recorre: **el primer que hi cap es parteix** si el que en queda val la pena (48 B), i quan un bloc es deixa anar **es torna a ajuntar amb el veí lliure d'abans i el de després**. Els trossos que ja no es toquen queden separats, que és el que fa que una pàgina **no hi capigue amb el lliure total de sobres**: `mem` en diu el **bloc més gran** que hi cap ara (`HeapInfo::largest_free_bytes`, com `heap_caps_get_largest_free_block`) i no només el lliure. Un bloc que no cap al casal que vol va a l'altre, i un que no cap a cap dels dos **es refusa**. **El temps també es paga**: cada node de la llista que es recorre són **100 ns** (fins a setze, que és el que costa la cerca del xip) i un bloc que canvia de casal es copia a **20 MB/s**, que és el que dona la PSRAM en quad SPI a 40 MHz. Mesurat el 3/11: una taula de 400 000 enters (~6,4 MB) al Paper mor amb `lua: not enough memory` i la PSRAM torna sencera quan el bloc es deixa anar; 64 blocs de mides que no lliguen donen **cada byte** en alliberar-se. El que **no** és del model és la **pila de les tasques**: a l'emulador no n'hi ha (és el procés del PC) i `stack_free` torna −1 en lloc d'un número inventat (docs/75) | El `heap_caps_malloc` d'ESP-IDF amb les seves regions i el seu bitmap de nivells; i cada tasca té la seva pila, comptada en aquests 320 KB |
+| **Rellotge de la CPU: el torn** (0.58.0) | **El que costa un torn del nucli, pagat després de cada torn** (`kTurnOverheadUs` = **850 µs**, la diferència mesurada a `docs/75`: 100 esperes d'1 ms triguen 199 ms a la placa i 115 ms al PC). Amb el model encès i el despatxament del venciment, 1 000 esperes d'1 ms triguen **2 107 ms** a l'emulador (1 064 ms amb `--no-delay`), i el que **no** es modela és la instrucció: no hi ha cap Xtensa aquí i el que costa una línia de Lua es cobra amb `--lua-cpu`, no amb el rellotge del PC | FreeRTOS despertant cada mil·lisegon amb els seus canvis de context, i la instrucció al ritme del vidre |
+| **Imatges (0.63.0)** | **Els mateixos descodificadors, byte a byte**: `ui.image` obre el fitxer pel VFS de l'emulador i el passa per `lib/img`, que és el codi que compila també per a la placa —PNG, JPEG, BMP, GIF, ICO i netpbm—, i les files cauen al canvas amb el mateix empaquetament de quatre bits. **El que no és igual**: la transformada del JPEG és en coma flotant, i l'emulador en té de doble precisió i el xip de simple —les setze tintes són molt més gruixudes que la diferència, i les proves ho comproven amb un marge d'un nivell—; i el disc de la imatge es paga per la mateixa capa que cobra les lectures (docs/70, docs/75) | El mateix codi a 240 MHz: el que triga és la transformada i l'inflate, i el refresc de la tinta és molt més llarg |
 | Cost d'una lectura | **Simulat per dispositiu** (`emu/disk.h`): la flash llegeix **blocs de 4 KB en 819 µs** (SPI nor a 40 MHz) més 60 de comanda, la targeta **sectors de 512 B en 410 µs** (10 MHz) més 200 de comanda, i la FRAM **90 µs per byte** (I2C a 100 kHz). Una escriptura a la flash paga els **setze programes de pàgina de 0,7 ms** que té un bloc de 4 KB —**11,2 ms**, el tPP típic del W25Q32JV, no els 0,4 ms que deia la primera taula— **i els 45 000 del sector que s'ha d'esborrar** (el tSE típic del mateix full de dades), que és d'on vénen els segons d'escriure un fitxer. **La NVS no paga el sector a cada clau**: el magatzem del xip afegeix entrades de 32 B a una pàgina de 4 KB i l'esborra quan s'omple, o sigui que una clau és **un programa de pàgina (0,7 ms)** i el sector de 45 ms cau **una vegada cada 126 claus** (`emu_nvs.cpp`), que és el que fa `nvs_set` i no el que fa un commit de littlefs (docs/70, docs/85) | Mil·lisegons de flash o SD |
-| Cost d'un xip de la I2C | **Pels bytes que mou, a 100 kHz**: un byte són nou bits al fil —**90 µs**, el vuitè i l'acknowledge—, i la suma dels bytes de cada transacció és el que es paga. **Una mesura de l'aire** (SHT30, `env.read`) és el **tMEAS,m del full de dades, 4,5 ms típics i 6 de màxim**, més els deu bytes de la comanda i la resposta: **5,4 ms** mesurats a `stats`. **Una mesura del sensor de la Matrix** (MPU6886, `imu.read`) és l'adreça, el registre i els catorze bytes de la mesura, **1,5 ms**. **El rellotge** (BM8563) són deu bytes quan es llegeix a l'arrencada i quan s'hi escriu l'hora (`set_epoch`), **0,9 ms**. I el **FRAM** ja els pagava. La temperatura i la humitat triguen el que triguen perquè el xip mesura de debò; el banc no les inventa (docs/50, docs/85) | Unes desenes de mil·lisegons per mesura al xip de veritat (docs/95) |
+| Cost d'un xip de la I2C | **Pels bytes que mou, a 100 kHz**: un byte són nou bits al fil —**90 µs**, el vuitè i l'acknowledge—, i la suma dels bytes de cada transacció és el que es paga. **Una mesura de l'aire** (SHT30, `env.read`) és el **tMEAS,m del full de dades, 4,5 ms típics i 6 de màxim**, més els deu bytes de la comanda i la resposta: **5,4 ms** mesurats a `stats`. **Una mesura del sensor de la Matrix** (MPU6886, `imu.read`) és l'adreça, el registre i els catorze bytes de la mesura, **1,5 ms**. **El rellotge** (BM8563) són deu bytes quan es llegeix a l'arrencada i quan s'hi escriu l'hora (`set_epoch`), **0,9 ms**. I el **FRAM** ja els pagava. La temperatura i la humitat triguen el que triguen perquè el xip mesura de debò; l'emulador no les inventa (docs/50, docs/85) | Unes desenes de mil·lisegons per mesura al xip de veritat (docs/95) |
 | Cost d'un llum | **El que tarda el RMT a escriure el fil**: vint-i-quatre bits per llum a 1,25 µs són **30 µs per llum** i **80 µs de tancament**, o sigui **110 µs** al botó de l'Atom i **830 µs** al panell de 25 del Matrix, amb les interrupcions parades mentre dura (`led.show`). Mesurat a `stats`: **906 µs** de mitjana al Matrix, que inclou la resolució del despertar del PC (docs/50, docs/85) | El mateix, i un fil que no torna fins que el RMT ha acabat |
 | Targeta (SD) | **Un directori del disc, i només si el model té ranura** (el Paper i el T-Koala): el mateix backend POSIX que la flash, o sigui que el que llegeix aquí llegeix a la placa. Es presenta com una targeta de **16 GB** amb el lliure del PC, i el que falta fins a 16 GB és l'ocupat | FATFS per SPI a la Paper: CS GPIO4, 10 MHz i el CS del panell (GPIO15) deseleccionat abans de tocar el bus. Al T-Koala: CS GPIO15, SCK GPIO14, MOSI GPIO13 i MISO GPIO12, a 10 MHz (docs/50) |
-| El vidre del banc (`Model::glass`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. Des de la 0.22.0 **la pintada mou tinta** —un `du` deixa una part del que hi havia i acumula brutícia, un `gc16` neteja, i vuit de cada mil píxels fallen un nivell o dos— i des de la 0.23.0 **paga el bus**: 0,8 µs per byte a 10 MHz i 1 100 µs per fila, i `idle()` no diu que sí fins que han passat el bus i la tinta (docs/85). Des de la 0.64.0 **el parpelleig arriba a la finestra**: les esperes del vidre es fan a trossos de 10 ms i `pump_gui` hi entra entremig, o sigui que un `gc16` són dos fotogrames negres, dos de blancs, dos de negres i dos de blancs abans de la imatge (gravat a 25 fps, 4/11). Les proves hi corren amb el model fora (`--no-ink`). **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que el banc s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda i un gir obliga a tornar a enviar la pàgina sencera. La mesura de l'1/11, amb la barra de 28 files, era la mateixa a les dues bandes (1 985 ms a la placa, 1 970 al banc, 1 954 al model); amb la barra de 48 la pàgina del banc és una altra i el que queda obert és el perquè del cost d'una fila (docs/95, E-7) |
+| El vidre de l'emulador (`Model::glass`) | **Un buffer que és el panell** (`emu::MemorySurface`, 4 bits per píxel): recorda **el rectangle brut de cada pintat** —el mateix que el driver del panell envia, marcat per cada escriptura i buidat a `flush`— i la qualitat que es va demanar, i en guarda els **vuit últims**. Des de la 0.22.0 **la pintada mou tinta** —un `du` deixa una part del que hi havia i acumula brutícia, un `gc16` neteja, i vuit de cada mil píxels fallen un nivell o dos— i des de la 0.23.0 **paga el bus**: 0,8 µs per byte a 10 MHz i 1 100 µs per fila, i `idle()` no diu que sí fins que han passat el bus i la tinta (docs/85). Des de la 0.64.0 **el parpelleig arriba a la finestra**: les esperes del vidre es fan a trossos de 10 ms i `pump_gui` hi entra entremig, o sigui que un `gc16` són dos fotogrames negres, dos de blancs, dos de negres i dos de blancs abans de la imatge (gravat a 25 fps, 4/11). Les proves hi corren amb el model fora (`--no-ink`). **I el gir és diferent**: girar-lo torna a fer el buffer, o sigui que l'emulador s'oblida del que hi havia, cosa que un vidre de tinta no fa mai | El vidre de veritat: la tinta hi queda i un gir obliga a tornar a enviar la pàgina sencera. La mesura de l'1/11, amb la barra de 28 files, era la mateixa a les dues bandes (1 985 ms a la placa, 1 970 a l'emulador, 1 954 al model); amb la barra de 48 la pàgina de l'emulador és una altra i el que queda obert és el perquè del cost d'una fila (docs/95, E-7) |
 | Desgast de la flash | No existeix | Existeix |
 | Consum | No existeix | Existeix |
 | Despertar de son | Simulat | Real o inexistent segons la placa |
@@ -871,43 +861,43 @@ veu al banc i el que es veu al vidre és la mateixa pàgina, i els números s'hi
 | Port sèrie | stdin/stdout en mode cru, **i a la velocitat de la placa en les dues direccions**: 115 200 baud, o sigui 86,8 µs per byte. Els bytes **surten** per tandes de dos mil·lisegons com sortirien del cable en lloc de sortir tots de cop, i els que **arriben** es lliuren al nucli quan el fil els hauria portat, o sigui que una línia enganxada al terminal arriba durant el temps que trigaria a teclejar-se (0.60.1). Mesurat: 2 563 B costen 0,21 s (86,8 µs × 2 563 = 0,22 s); i un `help` sencer en un pseudo-terminal, **2 577 B en 0,79 s**, que és el fil (0,22 s) més les esperes del propi nucli entre línies. `--baud <n>` la canvia i `--baud 0` treu l'espera de les dues bandes | UART a 115 200 |
 | Xarxa | **De mentida**: connecta a res en `--wifi` ms i no surt enlloc. **El que no és de mentida és el que es recorda**: des de la 0.59.0 el nom i la contrasenya van a la NVS (`lunoknet/ssid` i `wifidrv/pass`, com els desa la placa), o sigui que un run que arrenca després diu el mateix `network:` i `wifi connect` s'hi torna a posar | La de debò (`WiFi.begin`, que no espera) |
 | Provisioning | **De mentida**: un AP que no existeix i unes credencials que surten de les opcions | El component d'Espressif: l'app ESP SoftAP Provisioning del telèfon el troba de debò |
-| Pàgines (`http.get`) | **La pàgina és la de debò i el camí és el mateix**: la cua de peticions, la promesa, el termini que compta el nucli, el cos màxim i els codis `E_*` són els del nucli, i el cos i el codi són els que contesta el servidor. Qui la demana és `curl` en un procés d'aquesta màquina (`-q`, sense `~/.curlrc`, seguint fins a 10 redireccions, amb el certificat verificat contra les autoritats **d'aquesta màquina** i no contra el paquet del build), i el banc paga el que el servidor trigui de debò. Un `curl` que no hi és dona `E_HTTP` i ho diu a la consola; `--http-fake` torna la pàgina de mentida per a una prova que no ha de dependre de la xarxa. **El que no és igual**: els errors de certificat són els del magatzem d'aquesta màquina —un servidor amb una autoritat que el build no porta passa aquí i no a la placa, i al revés— i el banc no té la ràdio del model, o sigui que no paga el temps de l'associació ni el del paquet. **Una pàgina que va a un volum sí que paga el disc**: el cos es copia del fitxer de `curl` al volum per la mateixa capa que cobra les escriptures, o sigui que mig megabyte de flash són els seus 0,7 ms per cada 819 B (docs/70, docs/75) | `esp_http_client` amb TLS i el paquet d'autoritats del build; el codi, el cos i els errors de certificat són els de debò |
-| Energia (`power.*`) | **De mentida i ho diu**: un model amb indicador (el Paper) contesta la bateria **sense que calgui res** —el `%` d'aquesta màquina passat per la corba de la cel·la, o 3 700 mV si la màquina no en té— i `--battery-mv` hi posa un número i mana; un model sense indicador (els ATOM) contesta `nil` sempre. I dormir vol dir que **el rellotge virtual salta** fins a l'hora demanada. El PC no s'atura. `poweroff` sí que és de debò en el que importa: **el model del Paper contesta que sí i el procés s'acaba** (l'estat de les memòries es desa en sortir, com en una apagada), i el model de l'ATOM contesta que no perquè no té control del seu corrent — el banc diu el que diu la placa | Bateria si la placa en té; el son és el de debò: `esp_light_sleep_start` i, en profund, la placa es reinicia; `poweroff` fa la seqüència del fabricant (GPIO23, GPIO5, GPIO2 i son profund) i la placa es queda sense corrent |
+| Pàgines (`http.get`) | **La pàgina és la de debò i el camí és el mateix**: la cua de peticions, la promesa, el termini que compta el nucli, el cos màxim i els codis `E_*` són els del nucli, i el cos i el codi són els que contesta el servidor. Qui la demana és `curl` en un procés d'aquesta màquina (`-q`, sense `~/.curlrc`, seguint fins a 10 redireccions, amb el certificat verificat contra les autoritats **d'aquesta màquina** i no contra el paquet del build), i l'emulador paga el que el servidor trigui de debò. Un `curl` que no hi és dona `E_HTTP` i ho diu a la consola; `--http-fake` torna la pàgina de mentida per a una prova que no ha de dependre de la xarxa. **El que no és igual**: els errors de certificat són els del magatzem d'aquesta màquina —un servidor amb una autoritat que el build no porta passa aquí i no a la placa, i al revés— i l'emulador no té la ràdio del model, o sigui que no paga el temps de l'associació ni el del paquet. **Una pàgina que va a un volum sí que paga el disc**: el cos es copia del fitxer de `curl` al volum per la mateixa capa que cobra les escriptures, o sigui que mig megabyte de flash són els seus 0,7 ms per cada 819 B (docs/70, docs/75) | `esp_http_client` amb TLS i el paquet d'autoritats del build; el codi, el cos i els errors de certificat són els de debò |
+| Energia (`power.*`) | **De mentida i ho diu**: un model amb indicador (el Paper) contesta la bateria **sense que calgui res** —el `%` d'aquesta màquina passat per la corba de la cel·la, o 3 700 mV si la màquina no en té— i `--battery-mv` hi posa un número i mana; un model sense indicador (els ATOM) contesta `nil` sempre. I dormir vol dir que **el rellotge virtual salta** fins a l'hora demanada. El PC no s'atura. `poweroff` sí que és de debò en el que importa: **el model del Paper contesta que sí i el procés s'acaba** (l'estat de les memòries es desa en sortir, com en una apagada), i el model de l'ATOM contesta que no perquè no té control del seu corrent — l'emulador diu el que diu la placa | Bateria si la placa en té; el son és el de debò: `esp_light_sleep_start` i, en profund, la placa es reinicia; `poweroff` fa la seqüència del fabricant (GPIO23, GPIO5, GPIO2 i son profund) i la placa es queda sense corrent |
 | Tornar d'un son profund | **No passa**: l'emulador no es reinicia enmig d'una crida, i per això les proves criden `kernel::power::restore_session()` a mà, que és exactament el que fa l'arrencada | El xip es reinicia i arrenca: l'arrencada llegeix la nota del son i torna a obrir l'app amb `app.args.restore` |
 | Velocitat del processador | **De mentida en el rellotge i de debò en el preu**: el PC no canvia de marxa, però el número es desa (arrenca a **160** i accepta 80, 160 i 240) i **el codi de l'app es cobra a aquesta velocitat** (`--lua-cpu`, 60 ns per instrucció a 160 MHz): un bucle que al vidre dura un segon aquí dura un mil·lisegon amb el model apagat i el que toqui amb ell encès. I el **torn** també es cobra: 850 µs després de cada torn (vegeu la fila del rellotge de la CPU) | `setCpuFrequencyMhz` de debò, amb l'APB i el tick de FreeRTOS movent-se amb ell |
 | Llum (`led.*`) | **De mentida**: el color es desa i el test el pot preguntar (`emu::led_red()`… i `emu::led_frames()`, que compta els frames). El **nombre de llums és el del model** (1 a l'ATOM, 25 al Matrix, cap al Paper) i el sostre del canal és **20**, el del panell, a tots tres; `emu::led_pixel(i, …)` en llegeix un: així una app escrita per al panell es pot provar al PC. Els efectes es proven **movent el rellotge a mà** (`emu::advance_ms`), que és la mateixa hora que llegeix el nucli: una respiració de cinc segons es mira en un mil·lisegon | El `neopixelWrite` i el frame d'RMT de debò, sobre el WS2812 o els 25 del panell a GPIO27 |
-| Apps i manifest (`boards`) | **El banc és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
+| Apps i manifest (`boards`) | **L'emulador és una placa, la que se li diu i és obligatori dir-la**: `--board m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`, i respon **aquell** nom i la família `esp32`. Una app del seu model corre sense dir `emulator` al manifest; una d'un altre model hi surt llistada amb l'avís i `run` la refusa dient les plaques que vol i quina és aquesta. És el mateix criteri que a la placa, i per això provar-ho al PC vol dir alguna cosa (docs/40) | `apps` la llista amb el que necessita i `run` la refusa dient les plaques que vol i quina és aquesta |
 | Sensor (`imu.read`) | **De mentida i a la mà del test**: contesta el que diuen les opcions (`--imu-*`), i `--imu-fail` és un xip que no hi és. El que es prova aquí és el camí de la dada —de Lua al HAL i de tornada a l'app— i no la qualitat de la mesura, que només es pot veure al maquinari | L'MPU6886 per la I2C interna, amb les escales del full del fabricant (docs/50) |
-| Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **El banc no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que el banc llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
+| Aire (`env.read`) | **De mentida i a la mà del test**: el model del Paper té sensor i els ATOM no, i les dues xifres són el que diuen `--env-celsius` i `--env-humidity`; `--env-fail` és un xip que hi és i no contesta, que és `E_IO` i no `E_UNSUPPORTED` | El SHT30 per la I2C interna: una comanda, sis bytes i dos CRCs (docs/50). **L'emulador no té bus**: no hi ha cap clock stretching que es pugui comptar, així que un sensor que l'emulador llegeix bé pot ser un sensor que la placa dona per mort (va passar l'1/11: `env yes` al PC i `env no` a la placa, docs/50) |
 | Tecles (`button.*`, `on_button`) | **De mentida i a la mà del test o del ratolí**: `emu::press_button(true/false)` prem la principal i `emu::press_key(n, true/false)` qualsevol de les tecles **del model** (fins a tres; una a l'ATOM i al Matrix, tres al Paper, cap al T-Koala), i amb `--gui` els botons de la finestra fan el mateix amb un clic. El temps que es compta és el del PC. La forma, però, encara és la de la Paper a tots els models: un dial compost a la cara **dreta** (`centre`, `up` i `down`), o sigui que una app que tria per posició es pot provar al PC. Fer que la forma segueixi el model és el que queda de M8 (docs/90) | El GPIO39 de l'ATOM i les tres de la Paper; el T-Koala només té RST, que no és una tecla, amb 10 ms de rebot |
 | Tàctil (`touch.*`) | **Un GT911 simulat** (`Model::touch`, `emu::Gt911Panel`): el marc de la pàgina, dos dits, la mida del contacte i les tres transaccions del bus a 100 kHz (**800, 1 830 i 2 550 µs** segons els dits). **Escombra sol i dona el marc una vegada**, o sigui que un lector més ràpid que el vidre llegeix «ningú» la meitat de les vegades (docs/85) | El GT911 de debò: el mateix protocol, i a sobre un bus que comparteix amb el rellotge, la FRAM i el SHT30, amb clock stretching de fins a 6 ms del sensor i NAKs possibles |
 
-**I el que sobreviu d'un run a l'altre, comprovat al banc el 3/11 amb la 0.59.0** i el mateix
+**I el que sobreviu d'un run a l'altre, comprovat a l'emulador el 3/11 amb la 0.59.0** i el mateix
 `--state` a cada run: `wifi add mynet secret` deixa `nvs/lunoknet/ssid` (`mynet`) i
 `nvs/wifidrv/pass` (`secret`), i el run següent diu **`network: mynet`** abans de fer res i
 `wifi connect` s'hi torna a posar; `wifi forget` esborra el nom i `wifi` torna a dir `network: none`. A l'ATOM, un `rtc.bin` començat amb `ABCD` torna a zeros
 després d'un run sense `--persist` i **hi és amb `--persist`** (un reinici no apaga el domini del
 RTC); al Paper hi és sempre. I l'hora: `--now 1700000000` al Paper i, al run següent sense `--now`,
-la línia és **`[CLOCK] source rtc epoch …`** i el número ha crescut amb el temps que el banc ha estat
+la línia és **`[CLOCK] source rtc epoch …`** i el número ha crescut amb el temps que l'emulador ha estat
 parat (la pila compta); a l'ATOM sense `--persist` torna a **`source none epoch 0`** i amb
 `--persist` a **`source soc`**.
 
-**Comprovat al banc el 31/10 amb la 0.8.2**, amb `--board m5stack-paper --sd <dir>` i un guió:
+**Comprovat a l'emulador el 31/10 amb la 0.8.2**, amb `--board m5stack-paper --sd <dir>` i un guió:
 `mem` diu `extra memory 4096 of 4096 KB usable, of 8192 KB on the chip (psram)`, `mounts` diu
-**`mounts: 9`** (amb `/rtc` i `/fram` entremig, i `/nvs` donant `entries 1`), `run mtab` en llista
+**`mounts: 9`** (amb `/rtc` i `/fram` entremig, i `/nvs` donant `entries 1`), `mounts` en llista
 nou amb els bytes de cadascun, i `help` ensenya `sleep at <epoch seconds>`. La línia `free heap`
 **també hi és des de la 0.58.0** i dona **el número del model i no un d'inventat** —`free heap
 162728` al Paper, `338864` als ATOM, que és el que la placa diu al prompt (docs/75)—, perquè el
-banc porta el llibre dels dos casals de la memòria (vegeu la fila de la RAM). I des de la 0.60.0 la
+emulador porta el llibre dels dos casals de la memòria (vegeu la fila de la RAM). I des de la 0.60.0 la
 línia del **`largest block`** hi és i diu el que el lliure no diu: al prompt del Paper, `free heap
-162728` i `largest block 162712` (el bloc sencer menys la capçalera); després de `run heap` i del
+162728` i `largest block 162712` (el bloc sencer menys la capçalera); després d'una app que demana memòria i del
 seu `sys.gc('full')`, el lliure torna a **162728** i el bloc més gran es queda a **154416**, que és
 la fragmentació que deixa un app d'un megabyte (mesurat el 3/11).
 
-**I la capa de controls diu el mateix a les dues bandes** (1/11, 0.19.0): `run layers` dona **les sis
-línies iguals** al banc amb el vidre del model i a la Paper —els comptes `1 / 1 / 2`, el pare al slot 3, el marc
+**I la capa de controls diu el mateix a les dues bandes** (1/11, 0.19.0): una pàgina amb capes dona **les sis
+línies iguals** a l'emulador amb el vidre del model i a la Paper —els comptes `1 / 1 / 2`, el pare al slot 3, el marc
 sense vista i `canvas (gone)`—, o sigui que la composició i el dany que es proven aquí són els que passen
-allà (docs/95, E-8). L'única cosa que el banc no pot dir és el **temps de tinta**, que és justament el que
+allà (docs/95, E-8). L'única cosa que l'emulador no pot dir és el **temps de tinta**, que és justament el que
 `docs/95` encara té pendent.
 
 **El que encara no fa.** El maquinari fals **ja segueix el model** —capacitats, llums, nombre de tecles,
@@ -917,9 +907,9 @@ de tenir una de simple a la cara de dalt. Prémer una tecla **a mà** sí que es
 sobre la tira de tecles crida `emu::press_key` (i la secció de la finestra ho diu). La forma de les
 tecles és a [`90 · Full de ruta`](90-full-de-ruta.md), M8.
 
-**I el log del banc és el de la placa** (1/11, 0.20.0): les mateixes línies amb la mateixa forma
+**I el log de l'emulador és el de la placa** (1/11, 0.20.0): les mateixes línies amb la mateixa forma
 (`[I][CFG] /cfg on littlefs (asked for littlefs)`, `[I][UI] view 540x912 at 0,48, 246240 bytes of
-canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **al banc el temps
+canvas`) i els mateixos comptadors, amb una diferència que és honesta i s'ha de saber: **a l'emulador el temps
 d'un dispositiu és el del PC**. `vfs.list` pot costar 40 ms aquí per la lectura simulada d'1 ms per
 fitxer. Des de la 0.22.0 una pintada **sí que costa** el que costa la seva qualitat —450 ms un `gc16`,
 120 un `du`— i des de la 0.23.0 hi entra també el bus de la regió, 0,8 µs per byte i 1 100 µs per fila,
@@ -949,8 +939,8 @@ es mesura a la placa (docs/95).
 
 `--dump <fitxer>` escriu **el vidre sencer** a un PGM de vuit bits per píxel després de cada pintada, o sigui que el
 fitxer que queda és l'última pantalla de la tirada. És la manera de mirar què dibuixa el sistema des d'una sessió que
-no té finestra: `run showcase 3` amb `--dump /tmp/p3.pgm` i el PGM es converteix amb qualsevol eina (amb Python,
-`PIL.Image.open('/tmp/p3.pgm').save('/tmp/p3.png')`). No canvia res del que el banc simula; encén el vidre com ho fa
+no té finestra: `run editor` amb `--dump /tmp/p3.pgm` i el PGM es converteix amb qualsevol eina (amb Python,
+`PIL.Image.open('/tmp/p3.pgm').save('/tmp/p3.png')`). No canvia res del que l'emulador simula; encén el vidre com ho fa
 `--gui` i prou.
 
 **`--dump` no és mai el que hi ha a la pila (8/11).** `emu::Options` és una estructura plana, sense constructor, i
@@ -960,5 +950,5 @@ Paper, cada fitxer fa exactament 518 415 octets (15 de capçalera i 518 400 de p
 quaranta a l'arrel del projecte en una tarda de proves: cinc fitxers de prova que deien `emu::Options opts;` i la
 línia del `tearDown` que en deia `emu::Options fresh;`. Ara **cada camp té el seu valor per defecte** (`nullptr`,
 `0`, `false`, que és el que ja tenia el global `g_options`, que s'inicialitza a zero, així que res no es comporta
-diferent) i tot lloc que en declara un ho diu amb claus (`emu::Options opts{};`). El banc ja ho tapava des del
+diferent) i tot lloc que en declara un ho diu amb claus (`emu::Options opts{};`). L'emulador ja ho tapava des del
 principi: `parse()` posa `opts.dump = nullptr` abans de mirar els arguments.

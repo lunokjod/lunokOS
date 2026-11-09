@@ -133,14 +133,14 @@ void tearDown(void) {
   // picture without anybody having asked (docs/30, docs/50, docs/70).
   kernel::cfg::set_boot_splash("boot");
   // **And the app the board starts by itself** (0.119.0, found leaking on 8/11): a case that names a home app and then
-  // fails has not cleared it, so the next boot of the bench starts that app —an app running before the case has asked for
-  // one, and every "cannot start the interpreter" after it—. The empty name is no home app, which is the bench's.
+  // fails has not cleared it, so the next boot of the emulator starts that app —an app running before the case has asked for
+  // one, and every "cannot start the interpreter" after it—. The empty name is no home app, which is the emulator's.
   kernel::cfg::set_home_app(nullptr);
-  // And the bench goes back to the ATOM: one binary is one bench, and a test that was
+  // And the emulator goes back to the ATOM: one binary is one emulator, and a test that was
   // the Matrix would make the next one refuse an app for no reason (docs/85).
   const bool had_card = emu::options().sd_dir != nullptr;
   const bool was_another_board = emu::options().board != nullptr;
-  // **The bench goes back whole and not field by field** (0.151.0): a case that aborted halfway leaves whatever it had
+  // **The emulator goes back whole and not field by field** (0.151.0): a case that aborted halfway leaves whatever it had
   // turned on —`delays`, `ink_refuse`, `display`, `touch`, a card, a battery— and the case after it inherits that. A
   // glass that refuses paints while an app starts makes the interpreter's own setup raise, and the next case then reads
   // "cannot start the interpreter" and blames code that is fine: it is the leak that hid a dozen cases for days. What is
@@ -243,8 +243,8 @@ bool add_app(hal::IStorage* storage, const char* id, const char* manifest, const
   return add_app_file(storage, id, manifest, source, "app.lua");
 }
 
-// **A face of the repository, in the disk of this bench** (4/11): the suite keeps its own volume, so what it
-// lists has to be written here — `data/res/fonts/` is the disk's `/res/fonts` and the bench does not read the
+// **A face of the repository, in the disk of this emulator** (4/11): the suite keeps its own volume, so what it
+// lists has to be written here — `data/res/fonts/` is the disk's `/res/fonts` and the emulator does not read the
 // disk of the build (docs/70, docs/85). Binary and not text: a `.ttf` is outlines with zero bytes inside.
 bool copy_a_face(hal::IStorage* storage, const char* name) {
   static char bytes[65536];
@@ -263,7 +263,7 @@ bool copy_a_face(hal::IStorage* storage, const char* name) {
   return ok;
 }
 
-// **A file of the repository, in the disk of this bench**: the suite keeps its own volume, so an app that is a page of
+// **A file of the repository, in the disk of this emulator**: the suite keeps its own volume, so an app that is a page of
 // `apps/` and not something a test writes by hand comes from there —with the pictures it ships— and not from a copy
 // that goes stale (docs/85).
 bool copy_a_host_file(hal::IStorage* storage, const char* host, const char* disk) {
@@ -348,7 +348,7 @@ void sleep_one_ms() {
   nanosleep(&ts, nullptr);
 }
 
-// A card in the slot of the bench, or none. The mount table is built at boot, so a card
+// A card in the slot of the emulator, or none. The mount table is built at boot, so a card
 // that arrives later is the same two calls boot makes —the table and the settings door—
 // and not a path of its own: on the board the card is in the slot or it is not, and the
 // far side has to be told either way (docs/70, docs/85).
@@ -361,7 +361,7 @@ bool card_on(const char* dir) {
   return hal::platform().storage("/sd") != nullptr;
 }
 
-// The board this test is about: a board is chosen and never assumed, because the bench answers with
+// The board this test is about: a board is chosen and never assumed, because the emulator answers with
 // the hardware of the model it was told to be, and a test that expects a gauge on an ATOM is a test
 // that would pass on a board nobody has (docs/50, docs/85).
 // **The board comes with its parts** (0.152.4): the binary gives a model the glass it has —`Options` has it off because a
@@ -543,14 +543,14 @@ void close_any_app() {
 
 }  // namespace
 
-// **The bench's options start empty** (0.151.1): `emu::Options` is a plain struct with no constructor, and a `dump`
+// **The emulator's options start empty** (0.151.1): `emu::Options` is a plain struct with no constructor, and a `dump`
 // that is not nullptr is a picture of the glass —518 415 bytes of it— written to whatever name it holds, once per
 // paint. An uninitialised one filled the root of the repository with files on 8/11 (docs/85). The defaults are the
 // guard; this is the case that says the guard is still there. It needs no boot: it is the struct, nothing else.
-void test_the_options_of_the_bench_start_empty(void) {
+void test_the_options_of_the_emulator_start_empty(void) {
   const emu::Options one{};
   TEST_ASSERT_NULL(one.dump);
-  // **`fs_dir` is not null and never was** (0.152.3): the constructor of the bench gives it `"emulator"`, which is the
+  // **`fs_dir` is not null and never was** (0.152.3): the constructor of the emulator gives it `"emulator"`, which is the
   // folder the emulated disks live in when nobody says otherwise, and this test asserted null from the day it was
   // written —it was red from 0.151.1 and I did not see it, which is what a suite of fifteen reds hides—. What the case is
   // about is that **no field comes out as rubbish**, not that every one is zero.
@@ -572,7 +572,7 @@ void test_the_options_of_the_bench_start_empty(void) {
   TEST_ASSERT_FALSE(one.ink_refuse);
   TEST_ASSERT_FALSE(one.persist);
   // **And the sensors of a board that is lying still**: a g downwards, twenty-five degrees and half the air, which is what
-  // the constructor of this bench has always given them —the header leaves those nine to it on purpose— and what an app
+  // the constructor of this emulator has always given them —the header leaves those nine to it on purpose— and what an app
   // asking an IMU nobody configured has to find (docs/85).
   TEST_ASSERT_EQUAL_FLOAT(0.0f, one.imu_ax);
   TEST_ASSERT_EQUAL_FLOAT(1.0f, one.imu_az);
@@ -1262,7 +1262,7 @@ void test_the_settings_of_an_app_go_behind_the_door_of_cfg(void) {
 // The card is a volume of its own: `/sd` is there because a card is in the slot, an app
 // may read it and may not write it, and what the test put on the card is what the app
 // reads — the whole path, from FATFS on the board and from a directory on the PC, which
-// is the point of having a card on the bench (docs/70, docs/85).
+// is the point of having a card on the emulator (docs/70, docs/85).
 void test_a_card_in_the_slot_is_at_sd_and_an_app_may_only_read_it(void) {
   TEST_ASSERT_TRUE(boot_once());
   // The slot is a thing the model has: the Paper has one and the ATOMs do not, so a card is a card
@@ -1850,7 +1850,7 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
-  // **The faces of the repository, on this disk**: the bench does not read the disk of the build, so the two this
+  // **The faces of the repository, on this disk**: the emulator does not read the disk of the build, so the two this
   // test names are written here (docs/70, docs/85).
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
   TEST_ASSERT_TRUE(copy_a_face(storage, "LICENCE.txt"));
@@ -1878,8 +1878,8 @@ void test_the_faces_of_the_disk_are_at_fonts_for_every_app(void) {
   // The file is reachable: sixty-four bytes of the licence come back and no error with them.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read 64 nil"), g_out);
   // **The face arrives whole as well** (4096 B of the `.ttf` that is behind the door). Whether the reader turns it into
-  // a face that can be carried is another test and another bench: `ui.load_font` needs the glass of the app —the
-  // `ui::boot` that installs the operations— and this bench is an ATOM with no screen, where `E_UNSUPPORTED` is the
+  // a face that can be carried is another test and another emulator: `ui.load_font` needs the glass of the app —the
+  // `ui::boot` that installs the operations— and this emulator is an ATOM with no screen, where `E_UNSUPPORTED` is the
   // truth of the board and not a failure. The reader of `.ttf` has its own suite (`test_ttf`, with two real files) and
   // `test_font` tests the faces of `/res` (docs/30, docs/50).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "face 4096"), g_out);
@@ -1964,7 +1964,7 @@ void test_the_battery_curve_falls_and_is_clamped(void) {
   }
 }
 
-// The battery of the bench is a number the person sets, and with no number the whole
+// The battery of the emulator is a number the person sets, and with no number the whole
 // answer is nil, which is not zero volts (docs/30, docs/85).
 void test_the_battery_reaches_the_app_as_a_measurement(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -2215,7 +2215,7 @@ void test_an_app_asks_what_is_mounted_and_how_much_room_is_left(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mounts 8"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/data littlefs true"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/nvs nvs false"), g_out);
-  // The flash of the bench is a directory, but the board's is a partition of a size its own table
+  // The flash of the emulator is a directory, but the board's is a partition of a size its own table
   // says, so `/data` answers the real number (0x0E0000, the littlefs partition of partitions.csv).
   // `/nvs` still cannot: it holds entries and not bytes (docs/70, docs/85).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "room 917504 free "), g_out);
@@ -2276,7 +2276,7 @@ void test_a_path_with_spaces_reaches_the_app_in_quotes(void) {
 
 // **A turn budget and not a kill** (0.90.0): a loop long enough to pass the 100 000 instructions of a
 // turn gives the kernel its turn, so the console is read and the app can be closed. The infinite version
-// (`while true do end`) was checked on the bench; this one is finite so a regression fails the test instead
+// (`while true do end`) was checked on the emulator; this one is finite so a regression fails the test instead
 // of hanging the suite (docs/20, docs/75).
 void test_a_long_loop_gives_the_turn_back(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -2685,7 +2685,7 @@ void test_ntp_without_a_network_is_refused(void) {
   emu::set_options(opts);
 
   // A board with no network stored: `ntp` cannot even get on one.
-  // **And the radio is a job that has to end first** (0.152.4): `wifi forget` spends `wifi_ms` —a hundred in this bench—
+  // **And the radio is a job that has to end first** (0.152.4): `wifi forget` spends `wifi_ms` —a hundred in this emulator—
   // and a command that arrives while it is still running answers `E_BUSY`, which is true and is not what this case is
   // about. Twenty milliseconds was the whole wait, so the case was asking the wrong question and has been red for it.
   char forgot[512];
@@ -2726,7 +2726,7 @@ void test_the_http_command_downloads_a_page(void) {
 
 // **`repo info <app>` reads the manifest and makes a card of it** (0.82.1): the command asks GitHub for the raw file
 // and paints it with the JSON reader of the system, which is the same one that reads the manifests of the disk. The
-// network is the fake one of the bench —a canned answer— because what is tested is the command and not the address
+// network is the fake one of the emulator —a canned answer— because what is tested is the command and not the address
 // (docs/30, docs/40).
 void test_the_repo_command_shows_the_manifest_of_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -2779,7 +2779,7 @@ const char* const kChainManifest =
 const char* const kChainSource = "console.print('chain ok')\n";
 const char* const kChainNotes = "one line\n";
 const char* const kChainNumbers = "42\n";
-// **The address of a file is the one the listing gives it**, and the bench answers by a part of it: what the address of
+// **The address of a file is the one the listing gives it**, and the emulator answers by a part of it: what the address of
 // GitHub looks like is GitHub's business and not the chain's (docs/30).
 const char* const kChainAppListing =
     "[{\"name\":\"manifest.json\",\"download_url\":\"https://h/a/manifest.json\",\"type\":\"file\"},"
@@ -2804,7 +2804,7 @@ bool install_the_chain(int32_t numbers_status) {
 // **An app of ten folders and a folder inside a folder** (0.88.9): the queue of folders was a table of six, and the
 // seventh folder of an app was the install that said so and stopped; a folder inside a folder had no room in the table at
 // all. The queue is a file of the app's folder now, so ten folders cost what one costs, and the path a folder has inside
-// the app is the path its files land on (docs/30, docs/70, docs/75). The bench answers one address per folder and per
+// the app is the path its files land on (docs/30, docs/70, docs/75). The emulator answers one address per folder and per
 // file, which is the whole of the chain.
 const char* const kWideManifest =
     "{\"title\":\"Wide\",\"version\":\"1.0.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}";
@@ -2861,7 +2861,7 @@ bool install_a_wide_app(void) {
 
 // **`repo install <app>` is a chain of downloads and it ends with the app on the disk** (0.88.6): the listing of the app,
 // the listing of its folder and each one of its files are a download each, the reader walks every listing once and gives
-// it back, and what the summary says is what the disk has. The bench answers per address, which is what makes a chain
+// it back, and what the summary says is what the disk has. The emulator answers per address, which is what makes a chain
 // testable at all: one page for every URL would be the same file saved four times, and a listing read as a file (docs/30,
 // docs/70, docs/85).
 void test_the_repo_command_installs_an_app_with_its_folders(void) {
@@ -3756,7 +3756,7 @@ void test_a_disabled_control_is_drawn_lighter_and_answers_nothing(void) {
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
   opts.display = true;
-  // The finger is one of the three ways in, so the bench has a glass that takes one.
+  // The finger is one of the three ways in, so the emulator has a glass that takes one.
   opts.touch = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
@@ -3875,7 +3875,7 @@ void test_a_disabled_control_is_drawn_lighter_and_answers_nothing(void) {
   storage->remove("/apps/off/manifest.json");
   storage->remove("/apps/off");
 
-  // The next test gets the default bench back: the display and the finger were this test's.
+  // The next test gets the default emulator back: the display and the finger were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -3995,7 +3995,7 @@ void test_each_tab_of_a_strip_is_a_stop_of_the_dial(void) {
   storage->remove("/apps/stops/manifest.json");
   storage->remove("/apps/stops");
 
-  // The next test gets the default bench back: the display was this test's.
+  // The next test gets the default emulator back: the display was this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -4056,7 +4056,7 @@ void test_a_key_paints_the_ring_the_app_cannot_see(void) {
   storage->remove("/apps/ring/manifest.json");
   storage->remove("/apps/ring");
 
-  // The next test gets the default bench back: the display was this test's.
+  // The next test gets the default emulator back: the display was this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -4165,9 +4165,9 @@ void test_an_app_downloads_a_page_to_a_file(void) {
   storage->remove("/apps/dl");
 }
 
-// **A file is read in pieces and the bench does not say no** (0.66.0): `fs.read_at` asks the interpreter that grows for
-// a block, and the heap of the bench answered `not enough memory` with megabytes free because a block that could not
-// grow where it was only tried the other memory (docs/75, docs/85). The ceiling of this test bench is the one of the ATOM
+// **A file is read in pieces and the emulator does not say no** (0.66.0): `fs.read_at` asks the interpreter that grows for
+// a block, and the heap of the emulator answered `not enough memory` with megabytes free because a block that could not
+// grow where it was only tried the other memory (docs/75, docs/85). The ceiling of this test emulator is the one of the ATOM
 // (64 KB per app), so the piece is 12 KB and the file is 60: what is tested is that every piece arrives whole.
 void test_a_big_file_is_read_in_chunks(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -4486,7 +4486,7 @@ void test_led_play_refuses_what_it_cannot_do(void) {
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run wrong", g_out, sizeof(g_out)), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "kind E_INVAL"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "table E_INVAL"), g_out);
-  // The bench is the ATOM here: one light, so light number five is not there.
+  // The emulator is the ATOM here: one light, so light number five is not there.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pixel E_INVAL"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stop true"), g_out);
 
@@ -4519,7 +4519,7 @@ void test_the_air_is_read_from_the_board_that_has_it(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "env cap false"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no air E_UNSUPPORTED"), g_out);
 
-  // The Paper: the chip answers the two numbers the bench was told (docs/85).
+  // The Paper: the chip answers the two numbers the emulator was told (docs/85).
   use_board("m5stack-paper");
   emu::Options opts = emu::options();
   opts.env_celsius = 21.5f;
@@ -4555,7 +4555,7 @@ void test_the_air_is_read_from_the_board_that_has_it(void) {
 
 // What makes an app an app **of this board**: the boards it lists, and the chip
 // family, which every board of it accepts. The discard happens in `apps::load()`,
-// and no PC can walk that branch because the bench discards nothing (docs/85), so
+// and no PC can walk that branch because the emulator discards nothing (docs/85), so
 // the rule is asked here the way the kernel asks it (docs/40).
 void test_an_app_belongs_to_the_boards_it_declares(void) {
   kernel::apps::Entry entry = {};
@@ -4580,7 +4580,7 @@ void test_an_app_belongs_to_the_boards_it_declares(void) {
 
 // A manifest that does not say which boards it runs on is not an app anywhere —the
 // PC included—: "no list" is not "every board" (docs/40). The other half of the
-// rule, a list that is not this board's, is the unit test above, because the bench
+// rule, a list that is not this board's, is the unit test above, because the emulator
 // discards nothing by the list (docs/85).
 void test_a_manifest_without_boards_is_not_an_app(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -4660,7 +4660,7 @@ void test_the_lua_command_opens_the_interpreter(void) {
 // An app of a board this build is not is not hidden: `apps` lists it with what it
 // needs, and `run` refuses it by name, says which boards it wants and which board this
 // is. Losing an app without a word is exactly what this list is here to avoid
-// (docs/40). The board named in the refusal is the one the bench was told to be —the
+// (docs/40). The board named in the refusal is the one the emulator was told to be —the
 // ATOM here— and not the word "emulator", which is not a board (docs/85).
 void test_an_app_for_another_board_is_listed_and_refused(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -4693,11 +4693,11 @@ void test_an_app_for_another_board_is_listed_and_refused(void) {
   storage->remove("/apps/elsewhere");
 }
 
-// The bench is not a board, and a manifest does not name it: the person says which one it
-// stands in for and the bench answers that name, so an app runs here with the list it
+// The emulator is not a board, and a manifest does not name it: the person says which one it
+// stands in for and the emulator answers that name, so an app runs here with the list it
 // would carry on the glass — and an app of another board is refused, which is the half
 // that proves the answer is the model and not "yes to everything" (docs/40, docs/85).
-void test_the_bench_is_the_board_it_was_told_to_be(void) {
+void test_the_emulator_is_the_board_it_was_told_to_be(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
@@ -4727,7 +4727,7 @@ void test_the_bench_is_the_board_it_was_told_to_be(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the paper"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app never ended");
 
-  // And the Matrix's app, on the same bench, is refused before a VM exists.
+  // And the Matrix's app, on the same emulator, is refused before a VM exists.
   capture_begin();
   const bool refused = kernel::execute("run panelish");
   pump_turns(20);
@@ -4756,7 +4756,7 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
   opts.display = true;
-  // **The finger is one of the ways a launcher is used**, so the bench has a glass that takes one (docs/50).
+  // **The finger is one of the ways a launcher is used**, so the emulator has a glass that takes one (docs/50).
   opts.touch = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
@@ -4799,7 +4799,7 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
                            "while true do sys.delay(20):await() end\n"));
 
   // **A turn per app in the queue and fifty milliseconds between turns**: the ten names of this disk are read in about
-  // a second of the bench's time, so the capture has to be longer than the queue and not as long as one page.
+  // a second of the emulator's time, so the capture has to be longer than the queue and not as long as one page.
   pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
   // **The page arrives before its pictures** (0.154.0): the names of the door are said first, the whole glass is painted
   // with a placeholder in every cell, and only then does the queue read the manifests —one app per turn— and say the
@@ -5195,7 +5195,7 @@ void test_app_run_says_why_it_cannot_start_an_app(void) {
 }
 
 // Every app of the repository says which boards it runs on, and none of them names
-// the bench: the bench is not a board, it is told which one it is, so writing
+// the emulator: the emulator is not a board, it is told which one it is, so writing
 // `emulator` in a list is a name no board would ever answer (docs/40, docs/85).
 // A manifest that forgot the list would still be caught here, because no list is not
 // "every board" (docs/40).
@@ -5206,7 +5206,7 @@ void test_app_run_says_why_it_cannot_start_an_app(void) {
 // `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`, `FRAM`, `Files`, `ImageViewer`,
 // `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`, `Snake`, `Tamagotchi`, `Tetris`,
 // `Timeclock` and `2048`), ported one by one, and `reader` is the port of `EPUB`. The ids below are the ones
-// `platformio.ini` carries on the Paper (`custom_apps`) plus `probe`, which is a temporary instrument of the bench
+// `platformio.ini` carries on the Paper (`custom_apps`) plus `probe`, which is a temporary instrument of the emulator
 // and says so in its own description: **an id goes out of this list in the same commit as the app** (docs/40, docs/45).
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
@@ -5488,7 +5488,7 @@ void test_a_button_is_navigated_and_touched(void) {
   storage->remove("/apps/nav/manifest.json");
   storage->remove("/apps/nav");
 
-  // The next test gets the default bench back: the display and the panel were this test's.
+  // The next test gets the default emulator back: the display and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -5586,7 +5586,7 @@ void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void
   storage->remove("/apps/swiper/manifest.json");
   storage->remove("/apps/swiper");
 
-  // The next test gets the default bench back: the display and the panel were this test's.
+  // The next test gets the default emulator back: the display and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -5612,7 +5612,7 @@ void test_the_document_of_the_editor_scrolls_with_a_finger(void) {
   emu::Gt911Panel* panel = emu::touch_panel();
   TEST_ASSERT_NOT_NULL(panel);
 
-  // **The editor of the disk, copied into the disk of the bench**: it is a page of `apps/` and not something this test
+  // **The editor of the disk, copied into the disk of the emulator**: it is a page of `apps/` and not something this test
   // writes, so it comes from the repository with its sample (docs/85).
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
@@ -5928,7 +5928,7 @@ void test_a_box_that_is_given_back_leaves_no_swipe_to_the_one_that_follows(void)
 // **The quality an app asks for at the present is the quality of the paint** (docs/30, docs/50): a
 // page that must look uniform asks for `gc16` once, and the controls —which ask for `du` on their own—
 // do not leave the ghost of what moved. The mode was read from a stack the root had been pushed on,
-// so every `ui.present('gc16')` was a present with no mode (found on the bench, 3/11).
+// so every `ui.present('gc16')` was a present with no mode (found on the emulator, 3/11).
 void test_a_present_with_a_mode_paints_with_that_mode(void) {
   TEST_ASSERT_TRUE(boot_once());
   emu::Options opts = emu::options();
@@ -5971,7 +5971,7 @@ void test_a_present_with_a_mode_paints_with_that_mode(void) {
   storage->remove("/apps/washed/manifest.json");
   storage->remove("/apps/washed");
 
-  // The next test gets the default bench back: the display was this test's.
+  // The next test gets the default emulator back: the display was this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -6326,7 +6326,7 @@ void test_the_dial_moves_the_value_of_a_slider(void) {
   pump_turns(20);
   emu::press_key(2, false);
   pump_turns(20);
-  // The centre enters it, and then down twice and up once —the bench has the Paper's dial, where key 2 is down— are
+  // The centre enters it, and then down twice and up once —the emulator has the Paper's dial, where key 2 is down— are
   // +10, +20 and back to 10, which is what proves both directions and not only that a number changed.
   emu::press_button(true);
   pump_turns(20);
@@ -6474,7 +6474,7 @@ void test_a_list_turns_its_page_with_the_dial(void) {
 // one white— so the pixels say where it landed and that nothing around it was touched, and a moment whose picture
 // the disk does not carry says so instead of painting a guess (docs/30, docs/50, docs/92).
 // **A BMP of two by two pixels**, twenty-four bits, the rows the other way up: seventy bytes, the top row black and
-// the bottom one white. The splash tests write it on the disk of the bench, which is a volume of its own and does not
+// the bottom one white. The splash tests write it on the disk of the emulator, which is a volume of its own and does not
 // read the pictures of the build (docs/85).
 const uint8_t kTwoByTwoBmp[] = {
     66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
@@ -6505,7 +6505,7 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   const uint8_t* const bmp = kTwoByTwoBmp;
-  // **The bench writes its own pictures**: the disk of the tests is its own copy and what a build carries is not
+  // **The emulator writes its own pictures**: the disk of the tests is its own copy and what a build carries is not
   // what this volume has, so the folder is made here and the file is this test's (docs/85).
   storage->mkdir("/res");
   storage->mkdir("/res/splash");
@@ -6597,7 +6597,7 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
 // break (docs/30, docs/40).
 void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   TEST_ASSERT_TRUE(boot_once());
-  // **The glass is the model's and a test that reads pixels has to turn it on**: the bench is born with everything off
+  // **The glass is the model's and a test that reads pixels has to turn it on**: the emulator is born with everything off
   // because that is what a measure of the board's work wants, and `use_board` renames the model without lighting it
   // (docs/85). Found by running this test for the first time: `hal::platform().display()` was null and nothing was
   // painted (0.118.0).
@@ -6720,7 +6720,7 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
   storage->remove("/apps/escaper/manifest.json");
   storage->remove("/apps/escaper");
 
-  // The next test gets the default bench back: the display was this test's.
+  // The next test gets the default emulator back: the display was this test's.
   emu::Options opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -6866,7 +6866,7 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   kernel::cfg::boot(hal::platform());
   TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
 
-  // The setting and the pictures go back, so the tests after this one find the bench as it was.
+  // The setting and the pictures go back, so the tests after this one find the emulator as it was.
   TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
   storage->remove("/res/splash/boot.bmp");
   storage->remove("/res/splash/boot-alt.bmp");
@@ -6880,7 +6880,7 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
 // **The splash waits for the ink of the page before** (0.118.2): the panel of the Paper refuses a paint that arrives
 // while another one is still moving ink (`wait_paint`, three seconds) and that refusal reached the person as `the panel
 // did not take the picture` — seen on the board with `splash boot-alt` typed two seconds after the boot, where the wash
-// of the whole glass was still running. **The glass of the bench says that no too** (`--ink-refuse`), which is what
+// of the whole glass was still running. **The glass of the emulator says that no too** (`--ink-refuse`), which is what
 // makes this a test and not a hope: with the waiting in `splash::show` the second picture lands, and without it the
 // call answers false and the glass keeps the first one (docs/50, docs/85, docs/92 §33).
 void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
@@ -6889,7 +6889,7 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   opts.board = "m5stack-paper";
   opts.display = true;
   // **The ink costs what it costs and the panel says no while it moves it**: without the first there is nothing to wait
-  // for and without the second the waiting cannot be seen. **And the glass has to move ink at all** (0.152.5): a bench
+  // for and without the second the waiting cannot be seen. **And the glass has to move ink at all** (0.152.5): an emulator
   // with `ink` off keeps no second buffer to show what the ink has done, so there is never anything in flight to refuse —
   // `--ink-refuse` implies `--ink` in the binary and this case set only half of it—.
   opts.delays = true;
@@ -6925,7 +6925,7 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBoot));
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
 
-  // **The bench refuses a paint while the ink runs and says why**, which is the panel of the Paper.
+  // **The emulator refuses a paint while the ink runs and says why**, which is the panel of the Paper.
   glass->fill_rect(0, 0, 8, 8, 0);
   TEST_ASSERT_FALSE(glass->flush(hal::UpdateMode::kDu));
   TEST_ASSERT_EQUAL_STRING("the previous paint did not finish", glass->last_error());
@@ -6935,7 +6935,7 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
 
-  // The bench goes back as it was for the tests that come after this one.
+  // The emulator goes back as it was for the tests that come after this one.
   storage->remove("/res/splash/boot.bmp");
   storage->remove("/res/splash/boot-alt.bmp");
   opts = emu::options();
@@ -7029,7 +7029,7 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
   storage->remove("/apps/once");
   storage->remove("/res/splash/boot.bmp");
 
-  // The next test gets the bench it expects: no waiting, no refusals, no glass.
+  // The next test gets the emulator it expects: no waiting, no refusals, no glass.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -7049,7 +7049,7 @@ void test_a_page_the_panel_refused_is_painted_when_it_can(void) {
 // device is added, and the boot's own "park the pin" call (`deselect_panel`) ran **after** it —the boot asks
 // for the capabilities right after the splash—, so the controller was never selected again: every read came
 // back `ffff` and the glass kept the logo of the boot for ever while the apps ran and showed nothing
-// (docs/50, docs/95). The bench can measure the first half of that, and it is the half a board cannot say
+// (docs/50, docs/95). The emulator can measure the first half of that, and it is the half a board cannot say
 // out loud: two asks, one surface.
 void test_the_glass_is_one_surface_however_often_it_is_asked(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -7265,7 +7265,7 @@ void test_the_keys_walk_the_letters_of_a_line(void) {
 // page has nothing to be framed by, which is what the owner asked for with the editor in his hand (docs/30, docs/92).
 void test_a_box_without_a_frame_leaves_its_edge_in_paper(void) {
   TEST_ASSERT_TRUE(boot_once());
-  // **The glass on**: the four edges are read from the panel and a bench born with the panel off paints nothing
+  // **The glass on**: the four edges are read from the panel and an emulator born with the panel off paints nothing
   // (0.118.0, found by running it, docs/85).
   emu::Options glass_opts = emu::options();
   glass_opts.board = "m5stack-paper";
@@ -7744,7 +7744,7 @@ void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
 // own store, a boot reads it and starts that app instead of leaving a person at the prompt —which is what every board
 // did until now— and `cfg home none` puts the prompt back. The default of a board comes from the build
 // (`LUNOK_HOME_APP` in `platformio.ini`: empty in the environments of this suite, the launcher on the Paper and on the
-// bench since 0.155.0), so what this measures is the setting and the boot that honours it (docs/30, docs/40).
+// emulator since 0.155.0), so what this measures is the setting and the boot that honours it (docs/30, docs/40).
 void test_the_home_app_comes_up_with_the_board(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -8165,7 +8165,7 @@ void test_a_menu_skips_the_option_the_app_hid(void) {
   storage->remove("/apps/picker/manifest.json");
   storage->remove("/apps/picker");
 
-  // The next test gets the default bench back: the display and the panel were this test's.
+  // The next test gets the default emulator back: the display and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -8250,7 +8250,7 @@ void test_a_menu_bar_answers_with_the_title_and_the_entry(void) {
   storage->remove("/apps/barfly/manifest.json");
   storage->remove("/apps/barfly");
 
-  // The next test gets the default bench back: the display and the panel were this test's.
+  // The next test gets the default emulator back: the display and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -8432,7 +8432,7 @@ void test_the_cross_of_a_notice_dismisses_the_newest(void) {
   storage->remove("/apps/ringer/manifest.json");
   storage->remove("/apps/ringer");
 
-  // The next test gets the default bench back: the display and the panel were this test's.
+  // The next test gets the default emulator back: the display and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -8514,7 +8514,7 @@ void test_the_board_says_where_its_keys_are(void) {
                            "  .. tostring(err and err.code))\n"));
 
   TEST_ASSERT_TRUE(run_captured("run keymap", g_out, sizeof(g_out)));
-  // The bench is the Paper here: one compound dial of three keys on the **right** face of the page, with the
+  // The emulator is the Paper here: one compound dial of three keys on the **right** face of the page, with the
   // middle one in the middle. It said `left` until 0.34.2, which is the face the maker's sheet guesses and
   // not the one a person with the board in their hands sees (docs/50, docs/85).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "0 right/centre compound 0"), g_out);
@@ -8568,7 +8568,7 @@ void test_a_sleep_cut_short_is_not_a_measurement(void) {
   nvs->erase("power", "drift");
   nvs->erase("power", "cause");
 
-  // The bench comes back 243 s before the hour it was given, which is what a board whose supply
+  // The emulator comes back 243 s before the hour it was given, which is what a board whose supply
   // blinks does: the sleep is over and the hour was never reached.
   emu::Options opts = emu::options();
   opts.wake_early_ms = 243530;
@@ -8795,7 +8795,7 @@ void test_the_fram_is_one_file_of_its_bytes(void) {
            static_cast<unsigned>(emu::kFramBytes));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, line), g_out);
   // And the settings door is still there: the table had exactly eight rows and the FRAM took the
-  // eighth, which is how `/cfg` disappeared on the bench (31/10, docs/70).
+  // eighth, which is how `/cfg` disappeared on the emulator (31/10, docs/70).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/cfg"), g_out);
 
   // And the command of the shell looks at it when it is told which file: `hexdump /fram`.
@@ -8804,7 +8804,7 @@ void test_the_fram_is_one_file_of_its_bytes(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(
       strstr(g_out, "00000000  6b 65 70 74 20 69 6e 20 74 68 65 20 66 72 61 6d"), g_out);
 
-  // The memory that does not need the power: a power cycle of the bench does not touch it.
+  // The memory that does not need the power: a power cycle of the emulator does not touch it.
   memset(emu::fram(), 0, emu::kFramBytes);
 }
 
@@ -8904,7 +8904,7 @@ void test_the_alarm_is_the_hour_and_the_minute(void) {
   TEST_ASSERT_EQUAL_UINT8(0x01, over.minute);
   TEST_ASSERT_EQUAL_UINT8(0x00, over.hour);
 
-  // The bench keeps the board powered, so its deep sleep is a sleep and not a power off. A
+  // The emulator keeps the board powered, so its deep sleep is a sleep and not a power off. A
   // board that switches itself off has to say so, or the system would promise an app a wake
   // from a board that is not there (docs/50).
   TEST_ASSERT_FALSE(hal::platform().power()->deep_powers_off());
@@ -9024,7 +9024,7 @@ void test_the_last_wake_is_measured_and_kept(void) {
   pump_captured(10, g_out, sizeof(g_out), "power last");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "no sleep has been measured yet"), g_out);
 
-  // A light sleep on the bench is the clock jumping: the number is what came out, and it
+  // A light sleep on the emulator is the clock jumping: the number is what came out, and it
   // is the timer that brought it back.
   pump_captured(20, g_out, sizeof(g_out), "sleep light 1000");
   pump_captured(10, g_out, sizeof(g_out), "power last");
@@ -9042,8 +9042,8 @@ void test_the_last_wake_is_measured_and_kept(void) {
 }
 
 // The idle policy: a board that keeps the hour in a chip puts itself to sleep until the next
-// alarm, and a person can turn that off while working at the prompt. This bench has no chip,
-// so what is proved here is the switch and that the bench is honest about not sleeping by
+// alarm, and a person can turn that off while working at the prompt. This emulator has no chip,
+// so what is proved here is the switch and that the emulator is honest about not sleeping by
 // itself (docs/60).
 void test_the_idle_sleep_is_a_switch(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -9070,7 +9070,7 @@ void test_the_idle_sleep_is_a_switch(void) {
 
 // Off is not a sleep: on a board that holds its own supply the command ends the system, and on a
 // board that does not the board says so instead of looking like it worked (docs/50, docs/85). The
-// ATOM has no hold on its supply; the Paper has one, and the model of the bench says so.
+// ATOM has no hold on its supply; the Paper has one, and the model of the emulator says so.
 void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
   TEST_ASSERT_TRUE(boot_once());
 
@@ -9081,7 +9081,7 @@ void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cannot cut its own power"), g_out);
   TEST_ASSERT_TRUE(kernel::running());
 
-  // The Paper: the supply is cut, and the bench ends because a board that is off is a board that is
+  // The Paper: the supply is cut, and the emulator ends because a board that is off is a board that is
   // off. There is nothing to say after the cut, so the system is not running any more.
   use_board("m5stack-paper");
   TEST_ASSERT_TRUE(run_captured("poweroff", g_out, sizeof(g_out)));
@@ -9099,7 +9099,7 @@ void test_poweroff_cuts_the_power_of_the_board_that_can(void) {
 
 // A sensor that is not there is an error and not a number: an app cannot be left
 // believing it read 0 g and is level (docs/30). The board without a sensor says
-// E_UNSUPPORTED and this bench cannot walk that branch —it always has one— so what
+// E_UNSUPPORTED and this emulator cannot walk that branch —it always has one— so what
 // is measured here is the chip that stops answering.
 void test_a_sensor_that_does_not_answer_is_said(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -9169,7 +9169,7 @@ void test_the_face_of_the_system_comes_from_the_disk(void) {
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
 
-  // The bench's disk carries no font, so what the glass has is the table of the flash: a face of bits, seven pixels of
+  // The emulator's disk carries no font, so what the glass has is the table of the flash: a face of bits, seven pixels of
   // body for every step of `scale`.
   TEST_ASSERT_NULL(kernel::font::system_face().outline);
   TEST_ASSERT_EQUAL_UINT8(7, kernel::font::system_face().height);
@@ -9181,7 +9181,7 @@ void test_the_face_of_the_system_comes_from_the_disk(void) {
   TEST_ASSERT_NOT_NULL(kernel::font::system_face().outline);
   TEST_ASSERT_EQUAL_UINT8(11, kernel::font::system_face().height);
 
-  // **And the bench is left as it was**: the face is one global of the whole glass, and a test that changed it for the
+  // **And the emulator is left as it was**: the face is one global of the whole glass, and a test that changed it for the
   // ones after it would be a test that decides what the others measure.
   kernel::font::set_system_face(nullptr);
   storage->remove("/res/fonts/dejavusans-bold.ttf");
@@ -9373,7 +9373,7 @@ void test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so(
 
 // **The calculator of the paper project, key for key** (0.121.0): the app is painted by hand, so the test
 // asks the app where its keys are —`run calculator keys` prints the display box and the centre of every
-// one— and presses them with the finger of the bench. What comes back is the line the app prints at every
+// one— and presses them with the finger of the emulator. What comes back is the line the app prints at every
 // `=`, which is the whole path at once: the frame of the glass, the hit test by rectangle, the arithmetic
 // and the console.
 //
@@ -9383,17 +9383,17 @@ void test_a_manifest_that_names_more_extensions_than_the_system_carries_says_so(
 void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   TEST_ASSERT_TRUE(boot_once());
 
-  // **The face of the board is on this bench's disk for this case** (0.158.0): the keys carry the four signs
+  // **The face of the board is on this emulator's disk for this case** (0.158.0): the keys carry the four signs
   // of the original —`←`, `±`, `÷`, `×`— and the five by seven of the flash carries the printable ASCII, so
   // a sign there would be a hole and a key that looks broken. The suite's disk has no face of its own ("the
-  // bench's disk carries no font", the case of the face of the system), so it is copied here and the boot of
+  // emulator's disk carries no font", the case of the face of the system), so it is copied here and the boot of
   // this case is the one that loads it (docs/30, docs/85).
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
 
   // **The glass and the panel are of the model and a test's `Options()` has them off** (docs/85): an app
-  // that needs a glass says so and stops, which is right on a headless bench and is not what this reads.
+  // that needs a glass says so and stops, which is right on a headless emulator and is not what this reads.
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
   opts.display = true;
@@ -9584,7 +9584,7 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   storage->remove("/apps/calculator/manifest.json");
   storage->remove("/apps/calculator");
 
-  // **The bench is left as it was found**: the face of the system is one global of the glass, and a case that
+  // **The emulator is left as it was found**: the face of the system is one global of the glass, and a case that
   // left the bold face behind would decide what the cases after it measure (docs/30).
   kernel::font::set_system_face(nullptr);
   storage->remove("/res/fonts/dejavusans-bold.ttf");
@@ -9856,7 +9856,7 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   storage->remove("/data/timeclock/notes.txt");
   storage->remove("/data/timeclock");
 
-  // The next test gets the default bench back: the glass and the panel were this test's.
+  // The next test gets the default emulator back: the glass and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -10008,12 +10008,12 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   // has. Before the centre the arrows are the walk of the dial, and this page carries no control to walk, so nothing
   // moves; after it, up goes back and down goes forward.
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the reader died before the keys");
-  TEST_ASSERT_NOT_NULL_MESSAGE(hal::platform().input(), "the bench has no keys at all");
+  TEST_ASSERT_NOT_NULL_MESSAGE(hal::platform().input(), "the emulator has no keys at all");
   TEST_ASSERT_EQUAL_INT_MESSAGE(3, (int)hal::platform().input()->count(), "the paper has three keys");
   emu::press_key(2, true);
-  TEST_ASSERT_TRUE_MESSAGE(hal::platform().input()->pressed(2), "the bench did not see the key go down");
+  TEST_ASSERT_TRUE_MESSAGE(hal::platform().input()->pressed(2), "the emulator did not see the key go down");
   emu::press_key(2, false);
-  TEST_ASSERT_FALSE_MESSAGE(hal::platform().input()->pressed(2), "the bench did not see the key come up");
+  TEST_ASSERT_FALSE_MESSAGE(hal::platform().input()->pressed(2), "the emulator did not see the key come up");
   auto press = [&](int key) {
     emu::press_key(key, true);
     pump_turns(60);
@@ -10080,7 +10080,7 @@ void test_the_reader_turns_its_page_with_a_finger_and_with_the_keys(void) {
   storage->remove("/data/reader/reading.txt");
   storage->remove("/data/reader");
 
-  // The next test gets the default bench back: the glass and the panel were this test's.
+  // The next test gets the default emulator back: the glass and the panel were this test's.
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -10419,7 +10419,7 @@ void test_a_pinch_from_big_to_small_goes_back_and_then_closes(void) {
 // **A strip that closes its tabs draws its crosses** (0.163.2): `closeable = true` is a field the painter has to read
 // **while the fields table is still on the stack**. It was read after the pops —on whatever was under it— and every
 // app with a strip that can be closed died on its first present with `attempt to index a boolean value`, which is
-// what the shell app did on the bench on 8/11. The case runs a page with two tabs and a cross and asks for the
+// what the shell app did on the emulator on 8/11. The case runs a page with two tabs and a cross and asks for the
 // present; a page that dies leaves no `present true` in the log (docs/30, docs/46).
 void test_a_strip_that_closes_its_tabs_draws_its_crosses(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -10488,7 +10488,7 @@ static bool runs_now(const char* name) {
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
-  RUN_TEST(test_the_options_of_the_bench_start_empty);
+  RUN_TEST(test_the_options_of_the_emulator_start_empty);
   RUN_TEST(test_an_app_runs_and_writes);
   RUN_TEST(test_a_failing_app_says_why_and_the_shell_survives);
   RUN_TEST(test_the_exit_code_reaches_the_shell);
@@ -10583,7 +10583,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_manifest_without_boards_is_not_an_app);
   RUN_TEST(test_the_lua_command_opens_the_interpreter);
   RUN_TEST(test_an_app_for_another_board_is_listed_and_refused);
-  RUN_TEST(test_the_bench_is_the_board_it_was_told_to_be);
+  RUN_TEST(test_the_emulator_is_the_board_it_was_told_to_be);
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);

@@ -1,4 +1,4 @@
-// **The touch panel of the bench**: a GT911 that scans by itself, hands a frame over once, and costs
+// **The touch panel of the emulator**: a GT911 that scans by itself, hands a frame over once, and costs
 // what the bus of the board costs (docs/50, docs/85).
 //
 // The chip is checked here and not on the board because what it has to say is arithmetic and timing: a
@@ -30,7 +30,7 @@ namespace {
 
 bool g_booted = false;
 
-// A bench that is the Paper with its panel on and the factory page up: the chip counts in 540x960 and
+// An emulator that is the Paper with its panel on and the factory page up: the chip counts in 540x960 and
 // that is the page's own frame, so a finger lands where it looks like it lands (docs/50, docs/95 E-6).
 void boot_with_a_touch_panel() {
   if (g_booted) {
@@ -39,7 +39,7 @@ void boot_with_a_touch_panel() {
   }
   emu::Options opts = emu::options();
   // **The board that has the panel**, and the frame it counts in: a GT911 is the Paper's and the
-  // default model of the bench is the ATOM, which has no glass to put a finger on (docs/50, docs/85).
+  // default model of the emulator is the ATOM, which has no glass to put a finger on (docs/50, docs/85).
   opts.board = "m5stack-paper";
   opts.display = true;
   opts.touch = true;
@@ -172,9 +172,9 @@ static void test_a_finger_that_leaves_is_gone_after_a_scan() {
 }
 
 // **A tap that begins and ends between two reads is still the frame of the last scan**: the chip scans the glass by
-// itself and holds what it found until a read takes it, so a quick click of the window —which the bench pours into
+// itself and holds what it found until a read takes it, so a quick click of the window —which the emulator pours into
 // the panel whole, a press and a release inside one turn of the kernel— is a press and not nothing at all (found on
-// the bench, 4/11, docs/50, docs/85).
+// the emulator, 4/11, docs/50, docs/85).
 static void test_a_tap_between_two_reads_is_still_a_frame() {
   boot_with_a_touch_panel();
   chip().reset();
@@ -223,7 +223,7 @@ static void test_a_panel_slower_than_the_turn_answers_nothing_half_the_time() {
 
 // **The whole path**: a finger on the panel, the kernel reading it in its turns, and the gesture coming
 // out in the frame of the view —the page starts under the bar of the system— with the length of the
-// press. The threshold is a second, so this is a second of the bench's own time (docs/30, docs/50).
+// press. The threshold is a second, so this is a second of the emulator's own time (docs/30, docs/50).
 static void test_the_kernel_turns_a_finger_into_a_long_press() {
   boot_with_a_touch_panel();
   chip().reset();
@@ -266,7 +266,7 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
   TEST_ASSERT_EQUAL_UINT16(960, ui::canvas().height);
 
   // **Three taps of a hand**, each one inside the window of the one before, with the turn of the kernel after each of
-  // them. Twenty milliseconds a turn because the panel of the bench scans every ten and a read inside a window whose
+  // them. Twenty milliseconds a turn because the panel of the emulator scans every ten and a read inside a window whose
   // frame was taken finds nobody (docs/50, docs/85).
   for (int i = 0; i < 3; ++i) {
     TEST_ASSERT_TRUE(chip().finger_down(0, 200, 300));
@@ -283,7 +283,7 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
     }
   }
 
-  // The bar is back and the view is the one of every app: the page of this bench is **960 high** because it
+  // The bar is back and the view is the one of every app: the page of this emulator is **960 high** because it
   // is turned a quarter (the panel is 540x960 and the test sets the rotation to 270), so the bar takes the
   // first forty-eight rows off the top and the view is the rest. The case said `540 - 48`, which was the
   // page of before the turn.
@@ -298,7 +298,7 @@ static void test_three_taps_take_the_app_out_of_the_whole_glass() {
   }
 }
 
-// **One switch for every wait of this bench**: with the times on, a read of the panel sleeps the bus it
+// **One switch for every wait of this emulator**: with the times on, a read of the panel sleeps the bus it
 // uses; with them off —`--no-delay`, and every test— the same read is the model and asks the clock for
 // nothing (docs/85).
 static void test_the_waits_are_one_switch() {

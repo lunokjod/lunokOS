@@ -1,4 +1,4 @@
-// The window of the bench through SDL2, which is the portable one: X11 is a Linux/Unix detail and SDL
+// The window of the emulator through SDL2, which is the portable one: X11 is a Linux/Unix detail and SDL
 // talks to X11, Wayland, Quartz and the Windows desktop with the same calls (docs/85).
 #if defined(LUNOK_GUI_SDL)
 

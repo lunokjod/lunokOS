@@ -252,7 +252,7 @@ build_cover = function()
   -- the panel has left after the two lines above it **and two rows less** (0.167.0): the head is measured by the app with
   -- `ui.text_width` and placed by the panel with the face it draws with, and the two disagreed by a line of the big size —
   -- the list of the first version ended 20 px under the glass and its foot of dots was **off the page**, found on the
-  -- bench on 8/11 with a dump of the page—. A row of slack is cheaper than a page whose only sign of where it is falls off
+  -- emulator on 8/11 with a dump of the page—. A row of slack is cheaper than a page whose only sign of where it is falls off
   -- the glass (docs/30).
   local room = view.height - used - 2 * kRow
   if room < kRow then room = kRow end

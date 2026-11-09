@@ -572,7 +572,7 @@ bool g_owed_paint = false;
 // damage of the page the app has just built (docs/30, docs/50).
 bool g_owe_all = false;
 
-// **And a paint is never asked for from inside a paint** (0.118.2): the wait for the ink turns the kernel on the bench
+// **And a paint is never asked for from inside a paint** (0.118.2): the wait for the ink turns the kernel on the emulator
 // —`wait_and_pump`, docs/85— and the turn asks whether something is owed, so without this flag a refused page would be
 // asked for again in the middle of the paint that is asking for it.
 bool g_painting = false;
@@ -1044,7 +1044,7 @@ DrawTarget open_draw(int16_t slot) {
   // above it, and not added one at a time (found by this suite, 1/11).
   // **The walk is a slot of the table and the table is as long as the memory** (0.110.0): this was an `int8_t`, so a
   // control past the hundred and twenty-seventh of a page walked its chain as a negative number, read the table before
-  // its first slot and **took the process down** —the whole bench stopped at the test of a page of a hundred and forty
+  // its first slot and **took the process down** —the whole emulator stopped at the test of a page of a hundred and forty
   // buttons, and it is the same fault the slot of the dial had until 0.106.0— (docs/90, docs/92).
   int32_t offset_x = 0;
   int32_t offset_y = 0;
@@ -1073,7 +1073,7 @@ DrawTarget open_draw(int16_t slot) {
     // **And what the control owes, brought into the canvas that draws it** (0.168.2): a control without a view of its own
     // paints straight into the nearest canvas that has one, so the rectangle of its redraw —two letters of a text box, one
     // ring of a button— has to be cut here as well, in the pixels of that canvas. Without this the redraw box lived on the
-    // control and nothing applied it, which is why a blink of the caret went on painting the whole box (found on the bench,
+    // control and nothing applied it, which is why a blink of the caret went on painting the whole box (found on the emulator,
     // 8/11: `paint 20,40 420x64` for a caret of `9x33`) (docs/30, docs/90).
     const Canvas& control = g_canvases[slot];
     if (control.redraw_w > 0 && control.redraw_h > 0) {
@@ -1523,7 +1523,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   (void)platform;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
   // system's and not the panel's, and a board whose model has no screen still asks for the same text —a run with no
-  // display writes to the console and the pages of a window on the bench are drawn with it too— (docs/30, docs/92).
+  // display writes to the console and the pages of a window on the emulator are drawn with it too— (docs/30, docs/92).
   load_system_face();
   // **The table of canvases first**: it is the extra memory's and its size is the number of controls this board can
   // hold, so everything after it —the view, the buffers— is taken knowing that this much is spoken for (0.102.0,
@@ -3412,7 +3412,7 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
   // **The tail starts empty** (0.84.1): it is a buffer kept between paints —a control draws on the stack of the turn,
   // and half a kilobyte of text in it is half a kilobyte the board does not always have— and it was never emptied, so
   // every paint **appended** the text it was given to the text of the one before: `run typing` with five keys showed
-  // "h", then "hhe", then "hhehel", and a box that looked like a ghost of every word typed so far (found on the bench,
+  // "h", then "hhe", then "hhehel", and a box that looked like a ghost of every word typed so far (found on the emulator,
   // 4/11, docs/90).
   //
   // **And what comes after the caret** (0.87.0): the rest of the text from the caret on, measured against what is
@@ -3805,13 +3805,13 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
 
 // **The box of the caret the last draw put down** (0.168.2): the block and the letter under it, in the control's own
 // pixels. The system turns the block twice a second, and a blink that dirtied the whole box of the text was repainting a
-// page for a letter —measured on the bench, 8/11: fifteen paints in twelve seconds with the keyboard's target and five
+// page for a letter —measured on the emulator, 8/11: fifteen paints in twelve seconds with the keyboard's target and five
 // without it—. A box that drew no block answers no, and then the system marks the whole control, which is what it did
 // before this existed (docs/30, docs/90).
 bool textbox_caret_box(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h) {
   if (!live(slot)) return false;
   // **The block is recorded where it was drawn**, and a control without a view of its own draws into the nearest canvas that
-  // has one: on the bench, 8/11, a box of text put its caret on canvas 0, which is the page, and asking the control for a
+  // has one: on the emulator, 8/11, a box of text put its caret on canvas 0, which is the page, and asking the control for a
   // box it never had is why the blink went on painting the whole control. The rectangle is read from the canvas that drew
   // it and **brought back to the pixels of the control**, which is what `invalidate_rect` takes (docs/30, docs/90).
   const int16_t holder = painting_holder(slot);
@@ -5492,7 +5492,7 @@ const RowDef kQwertyRows[] = {{kQwertyRow0, 10, 0}, {kQwertyRow1, 9, 1}, {kQwert
 const RowDef kAzertyRows[] = {{kAzertyRow0, 10, 0}, {kAzertyRow1, 10, 0}, {kAzertyRow2, 8, 1}, {kQwertyRow3, 4, 0}};
 // **Four rows in both alphabets**: the band of the keyboard is a piece of the page an app lays itself out around, so
 // one that changes height when the digits come would move everything above it —and the strip it left behind would be
-// the old row nobody painted over— (found on the bench, 4/11, docs/90).
+// the old row nobody painted over— (found on the emulator, 4/11, docs/90).
 const RowDef kNumericRows[] = {
     {kNumericRow0, 10, 0}, {kNumericRow1, 10, 0}, {kNumericRow2, 10, 0}, {kNumericRow3, 4, 0}};
 
@@ -5731,7 +5731,7 @@ void aa_row(Canvas& view, int32_t x, int32_t y, uint16_t row, uint16_t width, ui
 }
 
 // The text of a key from a face of outlines, with its four steps of ink. False when the glyphs do not fit the block of
-// the bench, and then the caller draws them the plain way.
+// the emulator, and then the caller draws them the plain way.
 bool outline_key_text(Canvas& view, const font::Face& face, int32_t x, int32_t y, const char* text, uint8_t scale,
                       uint8_t ink, uint8_t paper) {
   const ttf::Face& font = *face.outline;
@@ -5964,7 +5964,7 @@ void flat_place(const LayoutDef& layout, int32_t index, int8_t& row, int8_t& key
 
 // **An app is told when the band takes part of its page and when it gives it back** (0.84.0): `on_resize` is the hook
 // that already means "the view is another one, draw it again", and the height it carries is the one `ui.height()` says.
-// It is not called from the `attach` of a new page —the band went before that— and a bench with no interpreter answers
+// It is not called from the `attach` of a new page —the band went before that— and an emulator with no interpreter answers
 // nothing, which is what `luabind::call_resize` does with no state (docs/30, docs/90).
 void tell_the_app(uint16_t before) {
   if (!g_attached) return;
@@ -6174,7 +6174,7 @@ void Keyboard::paint() {
   needs_paint_ = false;
   // **The band is painted with the wash of the levels and not with the quick one**: a key that changes the number
   // or the case of the letters puts new ink where the old letters were, and a `du` leaves the old ones showing
-  // through —two keyboards on one band, which is what the bench showed when the mode was switched— (docs/50,
+  // through —two keyboards on one band, which is what the emulator showed when the mode was switched— (docs/50,
   // docs/90). It costs the nine or ten thousand pixels of the band and not the page.
   // **And the wash is `gld16` and not `gl16`** (0.85.4): both clean the sixteen levels the letters are drawn in, and
   // `gl16` does it with two blinks of the whole band —which is what a person sees on every MAY and every `123`— and
@@ -6293,7 +6293,7 @@ bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
   }
   // **One press is one key**: the glass hands a frame over once per scan while the finger is there, and a
   // keyboard that typed on every one of them would type a letter per scan of a held finger (docs/50,
-  // docs/90). The finger of the bench is the same: a click is a frame and a held button is a run of them.
+  // docs/90). The finger of the emulator is the same: a click is a frame and a held button is a run of them.
   if (held_) return true;
   int8_t row = 0;
   int8_t index = 0;
@@ -6572,7 +6572,7 @@ bool present_all(hal::UpdateMode mode) {
 
 // **The same quality for everything pending, and every box where it is** (0.168.1): a focus that moves dirties **two**
 // controls —the one that loses the ring and the one that takes it— and both have to be cleaned, because a ring that goes
-// away is ink that goes away. Merging the two boxes would clean the air between them too —measured on the bench, 8/11:
+// away is ink that goes away. Merging the two boxes would clean the air between them too —measured on the emulator, 8/11:
 // two rows of `300x64` became one region of `300x344`, which is 103 200 pixels of ink where 38 400 are owed— so the mode
 // is written into each region that is already there and the boxes stay apart. An app that wants a uniform page calls
 // `present_all` and gets the merge it asked for (docs/30, docs/50).

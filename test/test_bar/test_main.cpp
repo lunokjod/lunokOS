@@ -1,7 +1,7 @@
 // The bar of the system: the strip at the top that is nobody's app, and the view an app gets under it
 // (docs/30, docs/50, docs/85).
 //
-// It is checked against the **bench's own panel** (`emu::MemorySurface`), which speaks the same
+// It is checked against the **emulator's own panel** (`emu::MemorySurface`), which speaks the same
 // `hal::ISurface` contract as the Paper's controller and remembers each paint it was asked for: a bar
 // that paints when nothing changed, or that does not paint when the hour did, is a failed assertion
 // here instead of a page nobody can read on the board.
@@ -32,7 +32,7 @@ bool g_booted = false;
 void boot_with_a_panel() {
   if (g_booted) return;
   emu::Options opts = emu::options();
-  // **The board that has the panel** (`Model::glass`): an ATOM of the bench has no screen, and
+  // **The board that has the panel** (`Model::glass`): an ATOM of the emulator has no screen, and
   // `display()` says so even with the option on (docs/50, docs/85).
   opts.board = "m5stack-paper";
   opts.display = true;
@@ -157,7 +157,7 @@ static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
   TEST_ASSERT_NOT_NULL(clock);
   const int64_t was = clock->epoch_ms();
   TEST_ASSERT_TRUE(clock->set_epoch_ms(was + 60000));
-  // The bar reads the chip every two seconds, so the hour is looked at again after them: the turn of the bench is a
+  // The bar reads the chip every two seconds, so the hour is looked at again after them: the turn of the emulator is a
   // wait on the queue, which is what a turn with nothing to do is (docs/85).
   const uint32_t before = glass().paint_count();
   pal::Event event;

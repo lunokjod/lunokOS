@@ -1,8 +1,8 @@
-// **What each storage device of the bench costs, in microseconds** (docs/50, docs/85).
+// **What each storage device of the emulator costs, in microseconds** (docs/50, docs/85).
 //
 // On the board nothing of the disk is free: a flash read is a block out of the SPI nor, a card read is a
 // sector at ten megahertz after a command the card has to answer, and the FRAM is an I2C chip where **a
-// byte is ninety microseconds**. One flat millisecond a read was the bench's guess; this is the table of
+// byte is ninety microseconds**. One flat millisecond a read was the emulator's guess; this is the table of
 // what each device really does, and one function that pays it —or does not, when the run asked for no
 // waits (docs/85).
 #ifndef LUNOK_EMU_DISK_H
@@ -33,7 +33,7 @@ DiskTiming disk_timing(Disk disk);
 // **The time of one operation, paid here and nowhere else**: the transaction and the blocks of its
 // bytes and, when it writes, the programming and the sector it took. Nothing is paid when the run is not
 // paying the times of the hardware (`--no-delay`, every test), which is the same switch as the rest of
-// the bench (docs/85).
+// the emulator (docs/85).
 void disk_pay(Disk disk, uint32_t bytes, bool writing);
 
 // **A write that does not take the sector it writes into**: the NVS appends thirty-two-byte entries to a

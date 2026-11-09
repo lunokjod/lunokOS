@@ -46,9 +46,9 @@ const uint32_t kNetpbmCount = sizeof(kNetpbm) / sizeof(kNetpbm[0]);
 bool g_booted = false;
 char g_root[96];
 
-// **A bench with the glass of the Paper and the disk of the repository's `data`**: the pictures are copied
+// **An emulator with the glass of the Paper and the disk of the repository's `data`**: the pictures are copied
 // into a little filesystem of this run so nothing of the machine's own state is touched (docs/85).
-bool boot_bench() {
+bool boot_emulator() {
   if (g_booted) return true;
   snprintf(g_root, sizeof(g_root), "/tmp/lunok-img-XXXXXX");
   if (mkdtemp(g_root) == nullptr) return false;
@@ -308,7 +308,7 @@ void test_the_info_of_every_family(void) {
 
 // A picture drawn where the app says, at the size of the file.
 void test_a_picture_lands_where_it_is_put(void) {
-  TEST_ASSERT_TRUE(boot_bench());
+  TEST_ASSERT_TRUE(boot_emulator());
   wipe();
   const char* code = nullptr;
   const char* reason = nullptr;
@@ -327,7 +327,7 @@ void test_a_picture_lands_where_it_is_put(void) {
 
 // A size that is not the picture's is the picture scaled, quadrant by quadrant.
 void test_a_picture_scales_to_the_size_it_is_given(void) {
-  TEST_ASSERT_TRUE(boot_bench());
+  TEST_ASSERT_TRUE(boot_emulator());
   wipe();
   const char* code = nullptr;
   const char* reason = nullptr;
@@ -343,7 +343,7 @@ void test_a_picture_scales_to_the_size_it_is_given(void) {
 // **Every family draws the same plan through the canvas too**, which is the whole path: the volume, the
 // decoder, the rows and the pixels of the app (docs/30, docs/70).
 void test_every_family_reaches_the_canvas(void) {
-  TEST_ASSERT_TRUE(boot_bench());
+  TEST_ASSERT_TRUE(boot_emulator());
   for (uint32_t i = 0; i < kPlanCount; ++i) {
     char path[128];
     snprintf(path, sizeof(path), "/littlefs/img/%s", kPlan[i]);
@@ -369,7 +369,7 @@ void test_every_family_reaches_the_canvas(void) {
 // A path an app may not name, a file that is not there, and a file that is not a picture: three refusals
 // with a reason, which is what an app shows a person (docs/30, docs/70).
 void test_a_picture_that_cannot_be_read_says_why(void) {
-  TEST_ASSERT_TRUE(boot_bench());
+  TEST_ASSERT_TRUE(boot_emulator());
   wipe();
   const char* code = nullptr;
   const char* reason = nullptr;
@@ -388,7 +388,7 @@ void test_a_picture_that_cannot_be_read_says_why(void) {
 
 // What a picture is, from the page's point of view (docs/30).
 void test_the_info_of_a_picture_on_the_volume(void) {
-  TEST_ASSERT_TRUE(boot_bench());
+  TEST_ASSERT_TRUE(boot_emulator());
   char format[8];
   uint16_t width = 0;
   uint16_t height = 0;

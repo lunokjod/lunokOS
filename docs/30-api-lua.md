@@ -122,9 +122,9 @@ bateria llegida **o** la targeta, **17** amb totes dues, que és el sostre d'aqu
 xip, `littlefs`, `sd`, `input`, `battery`, `env`, `touch` i `display`— i l'emulador **el que diu el
 model que imita**: 13 al model de l'ATOM (12 si el terminal no és ANSI), 14 al del Matrix i **17** al
 del Paper (16 sense ANSI), que ja porta la targeta `emulator/sd`, el vidre, el GT911 i la bateria que el
-banc es presta sol, i els treu amb `--no-display` / `--no-touch` (docs/50, docs/85). Els números del
+emulador es presta sol, i els treu amb `--no-display` / `--no-touch` (docs/50, docs/85). Els números del
 Paper **no són una previsió**: l'1/11 la placa va dir **15 de 18** amb la 0.10.1 (bateria i targeta
-dins) i `run air` va donar `air 21.1 C 63.5 %` (docs/95, E-5).
+dins) i una lectura de l'aire hi va donar `air 21.1 C 63.5 %` (docs/95, E-5).
 
 ---
 
@@ -137,7 +137,7 @@ funció.
 |---|---|---|
 | `sys.name` | cadena | `"lunokOS"` |
 | `sys.version` | cadena | La versió del sistema, la mateixa que respon `version` |
-| `sys.board` | cadena | El nom de la placa **tal com surt a `board =` de `platformio.ini`** (`m5stack-atom`), o el nom propi de la placa de la família que canvia què es pot tocar (`m5stack-atom-matrix`). Al PC és el model que el banc ha rebut a `--board` (docs/85) |
+| `sys.board` | cadena | El nom de la placa **tal com surt a `board =` de `platformio.ini`** (`m5stack-atom`), o el nom propi de la placa de la família que canvia què es pot tocar (`m5stack-atom-matrix`). Al PC és el model que l'emulador ha rebut a `--board` (docs/85) |
 | `sys.emulator` | booleà | Cert només al PC: diu que la placa de `sys.board` és de mentida |
 | `sys.lua` | cadena | La versió de Lua que porta el sistema |
 | `sys.caps()` | taula de capacitats | Vegeu a dalt |
@@ -217,7 +217,7 @@ s'assembla a cap document del sistema: aquí no es llegeix, aquí s'escriu.
 Una app pot acabar corrent en una placa que no ha vist mai. `sys.board` és l'única cosa que li diu
 on és, i és **el nom que la placa té a `platformio.ini`** (`board = m5stack-atom`), no cap àlies
 inventat pel sistema. Al PC no hi ha cap placa ni cap línia `board =`, i la manera de no inventar-ne
-cap nom és dir quin model fa el banc: `sys.board` respon aquest model (l'ATOM si no es diu res) i
+cap nom és dir quin model fa l'emulador: `sys.board` respon aquest model (l'ATOM si no es diu res) i
 `sys.emulator` diu, a part, que el maquinari de sota és fals.
 
 | `sys.board` | Què hi ha | Què no hi ha |
@@ -227,7 +227,7 @@ cap nom és dir quin model fa el banc: `sys.board` respon aquest model (l'ATOM s
 | `m5stack-paper` | el mateix que el Lite pel que fa al xip (consola, disc, NVS, ràdio amb TLS, provisioning, son), amb **tres tecles**, **targeta SD** al slot (a `/sd`) i sense cap llum | pantalla, bateria, toc i sensor, encara (docs/90) |
 | `ttgo-t-koala` | el mateix que el Lite pel que fa al xip, amb **4 MB de PSRAM mapejada** (8 MB al xip), **targeta SD** a `/sd` i un **LED verd** a GPIO5 | pantalla, tàctil, sensor, tecles, indicador de bateria i apagar-se, encara (docs/50, docs/95) |
 
-Al PC la taula d'un model és la de la placa **amb les peces falses a sobre** (docs/85): el banc té el
+Al PC la taula d'un model és la de la placa **amb les peces falses a sobre** (docs/85): l'emulador té el
 dial de tecles, el panell i el sensor alhora perquè el que no hi és no es pot provar. Aquí és on entra
 `sys.emulator`, que és **cert només al PC** i no és el mateix que preguntar `sys.board == "emulator"`
 (que ja no passa mai): el nom diu on ets, el booleà diu que el maquinari és de mentida.
@@ -277,7 +277,7 @@ sistema i és el primer client d'aquestes dues crides.
 | Crida | Torna | Notes |
 |---|---|---|
 | `app.id` | cadena | El nom del directori de l'app |
-| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run txt res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
+| `app.args` | taula o `nil` | `{path, ext, source}` quan l'app s'obre per obrir un fitxer, o quan el prompt la hi apunta: `run editor res/notes.txt` i `open txt res/notes.txt` són el mateix per a l'app. **Des de la 0.120.0 hi ha també `flags`** quan el manifest declara `opensArgs`: la línia de commutadors de l'app (`-ro`), tal com està escrita i sense que el sistema en llegeixi res |
 | `app.info()` | taula | `{id, title, version, opens}` de l'app: el que el nucli en guarda, **no** el manifest sencer. **`opens` és la llista sencera** que el manifest declara, amb els noms separats per espais —`"txt md lua"`—; una app que no n'obre cap rep `""` (0.120.0) |
 | `app.spawn(fn)` ⏳ | promesa | Crea una tasca; la promesa es resol amb el que torni `fn` |
 | `app.exit([code])` | no torna | Tanca l'app; `code` per defecte `0`, i la shell diu `app exit N` si no és zero |
@@ -353,7 +353,7 @@ if b ~= 27 then console.write(string.char(b)) end
 console.raw(false)
 ```
 
-Els dos editors del sistema (`run edit` i `run hexedit`) són exactament això: `term` per dibuixar i
+Això és el que fa una app que vol el teclat sencer per a ella: `term` per dibuixar i
 `console.read_byte` per llegir (docs/85).
 
 ### Mentre una app viu, el teclat és seu
@@ -491,8 +491,7 @@ s'han perdut mentre el sistema era apagat.
   tan sols s'analitza (`unexpected symbol near 'in'`, mesurat el 31/10). La forma antiga
   `{["in"] = 1000}` encara funciona, però el nom bo és `in_ms`, com a `power.sleep`.
 - **I `a.repeat` tampoc no es pot escriure**: el camp que torna `alarm.list()` s'anomena `repeat` i
-  és una paraula reservada, o sigui que es llegeix `a["repeat"]`. Ho fa així l'exemple
-  `apps/alarmqueue/`.
+  és una paraula reservada, o sigui que es llegeix `a["repeat"]`.
 - **El payload és una cadena o un número.** Una taula dona `E_INVAL` fins que hi hagi un codificador
   JSON; dir-ho és millor que tornar una cosa diferent de la que es va desar.
 - **`on_alarm` no pot esperar**: es crida entre dos torns de l'app, quan la coroutine de l'app està
@@ -510,14 +509,12 @@ function on_alarm(id, payload, meta) ... end
 if not console.is_foreground() then return end   -- dins una finestra, res més
 ```
 
-Tres exemples més, i cada un ensenya una cosa diferent: `run alarmqueue` (`apps/alarmqueue/`)
-obre la **cua del sistema** —quantes n'hi caben, quines hi ha i en quin ordre, cancel·lar-ne una del
-mig—; `run timers` (`apps/timers/`) arma tres temporitzadors i demostra que l'app suspesa no
-atura el nucli; i `run alarmset` (`apps/alarmset/`) demana per consola quants segons falten i
-arma una alarma **persistent i amb `raise`**, que és la que fa que el sistema apagui la placa i la
-torni a encendre amb el rellotge (docs/60). I `run later` (`apps/later/`) és el cas complet:
-arma una alarma, **surt amb `app.exit()`** i torna per la finestra d'alarma, on diu quants
-mil·lisegons s'ha desviat.
+Les tres crides d'una alarma, una a una: `alarm.list()` és la **cua del sistema** —quantes n'hi caben,
+quines hi ha i en quin ordre, i cancel·lar-ne una del mig—; `alarm.after(ms)` arma un temporitzador que
+demostra que l'app suspesa no atura el nucli; i una alarma **persistent i amb `raise`** és la que fa que
+el sistema apagui la placa i la torni a encendre amb el rellotge (docs/60). `app.exit()` a dins d'un
+`on_alarm` és el cas complet: l'app arma l'alarma, marxa i torna per la finestra d'alarma quan l'hora
+arriba.
 
 **`persist` sí que hi és**: una alarma persistent es desa a la NVS amb l'**època a dins** (el
 monòton torna a començar a cada arrencada), i en arrencar les vençudes es disparen amb el seu
@@ -727,7 +724,8 @@ console.print(f:read(200))
 f:close()
 ```
 
-L'exemple de mà és `run page` (`apps/page/`), que baixa una pàgina i n'ensenya l'estat i el cos.
+El que es veu en una app és el que torna la promesa: `{status, body, bytes}`, amb el cos sencer a la
+memòria quan hi cap.
 
 ## `fs`
 
@@ -790,7 +788,7 @@ El que una app ha de saber:
   si no—, i `fs.cfg()` ho diu (`{unit = "sd"|"littlefs", dir = "/sd/cfg/<id>"}`) quan a l'app li
   interessa ensenyar-ho. `fs.cfg("sd")` ho mou; una unitat que no hi és respon `nil, E_UNAVAIL`, i
   els fitxers que ja hi havia **no es mouen** (docs/70).
-- **Per veure-ho de mà**: `run mtab` llista els muntatges i l'espai de cadascun.
+- **Per veure-ho de mà**: `mounts` al prompt llista els muntatges i l'espai de cadascun.
 - **`fs.mounts()` no pregunta l'espai**: la llista surt del que el nucli té muntat, i prou. Preguntar
   l'espai vol dir passejar pel sistema de fitxers, i una app que només vol la llista no ho ha de
   pagar.
@@ -939,7 +937,7 @@ gust que el nucli es quedi.
   el d'una app és 255 si no diu res): un llum que diu una cosa no ha de ser el més brillant de la
   taula.
 - Amb `sys.caps().led` una app sap si tot això existeix abans de demanar-ho, i l'exemple és l'app
-  `glow` (`run glow`), que juga els quatre efectes i marxa amb un fade.
+  quin efecte juga i quant dura.
 
 
 ## `env`
@@ -964,7 +962,7 @@ rellotge i la FRAM (docs/50). Una sola crida perquè la mateixa lectura dona les
   per mort i `env.read()` responia `E_IO` amb la placa sencera dient que no hi havia sensor (docs/50).
 - **Dos CRCs** se supervisen abans de donar el número: una lectura amb el CRC creuat és una lectura
   que no ha passat i torna `E_IO`, perquè cap número és millor que un número fals.
-- L'exemple és l'app `air` (`run air`), que la llegeix cada dos segons.
+- Una app que la llegeixi cada dos segons en té prou amb `env.read()` dins del seu bucle.
 
 ## `ui`
 
@@ -1044,7 +1042,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   espera el vidre: **torna de seguida** i la tinta continua pel seu compte, i `ui.idle()` és el que diu
   quan ha acabat. Per mesurar quant triga una pàgina es compta **des d'abans del `present`** fins que
   `idle()` diu que sí, i **no s'hi posa cap dormida pel mig**: una app que dorm 120 ms i després pregunta
-  treu un 120 ms que és seu i no de la tinta (és el que va passar amb `run panel` fins a la 0.19.2, i
+  treu un 120 ms que és seu i no de la tinta (és el que va passar amb una pàgina sencera fins a la 0.19.2, i
   està escrit a `docs/95`, E-7). El motor del controlador no es marca ocupat en el mateix instant que rep
   la comanda, i per això el sistema no respon «ha acabat» fins passats uns mil·lisegons: és una guarda
   del conductor i no una mesura (`docs/50`).
@@ -1102,9 +1100,9 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   que no són text (`01 66 63 70`), porta les taules indexades —mètriques, bitmaps i codificació— i els
   números de cada taula van en l'ordre de bytes que diu **aquella** taula (el directori, sempre petit). El
   que en surt és **el mateix bloc de sempre** —setze per setze, fins a 96 codis del 0x20 al 0x7F, en ordre— i
-  per tant res del que dibuixa no canvia: `run font-bdf` i `run font-pcf` ensenyen la cara del fitxer al
-  costat de la del sistema, i les dues surten del **mateix font** (el `.pcf` de l'app està fet amb
-  `bdftopcf` del `.bdf` de l'altra, i la prova comprova que el bloc és idèntic byte a byte). Un fitxer que
+  per tant res del que dibuixa no canvia: la cara del fitxer es dibuixa al costat de la del sistema i surt
+  del **mateix font** tant si ve d'un `.bdf` com d'un `.pcf` (el `.pcf` és el `.bdf` passat per `bdftopcf`, i
+  la prova comprova que el bloc de les dues és idèntic byte a byte). Un fitxer que
   no comença per cap de les tres coses es refusa amb `E_INVAL` i el motiu (`not a font: neither a lunok
   font, a bdf nor a pcf`), i també un BDF o un PCF amb un glif de més de setze columnes
   (`a bdf glyph is up to sixteen columns wide`, `a pcf glyph is up to sixteen columns wide`). D'un PCF no es
@@ -1128,13 +1126,12 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   glifs no es gasten) i **`scale` vol dir la mida del cos en vuitens de píxel** (`kOutlineBody` = 8), o sigui que
   `text(x, y, s, 3)` és una línia de 24 píxels de cos. `font:text_width` suma els passos de cada glif en lloc
   de multiplicar una cel·la, `font:size()` diu `0, 8, 0` (l'amplada és de cada glif i el nombre de glifs és
-  del fitxer). **Hi ha dues apps i no fan el mateix**: `run font-ttf` dibuixa el `.ttf` d'aquest repositori
-  —les mateixes sis lletres de `font-bdf` i `font-pcf`, a dues, quatre i sis mides—, que és el que prova que
-  el lector llegeix el que han de llegir els altres dos; i `run fonts-ttf` dibuixa **fonts de debò**: DejaVu
-  Sans, Serif i Sans Mono, retallades a l'ASCII imprimible amb `pyftsubset --unicodes=U+0020-007E` (8 084 a
-  10 896 B cada una) i amb la seva llicència al costat (`/res/LICENCE.txt`). Són tres perquè **tres és el que
-  el sistema guarda alhora**, i la quarta —la negreta— hi entra quan l'app torna el mono: `release()` és el
-  que fa lloc.
+  del fitxer). El lector de contorns llegeix el mateix que els de bits: un `.ttf` amb les mateixes sis lletres
+  que la cara de prova dona els mateixos traços a dues, quatre i sis mides. Les cares de debò són al disc
+  (`/fonts`): DejaVu Sans, Serif i Sans Mono, retallades a l'ASCII imprimible amb
+  `pyftsubset --unicodes=U+0020-007E` (8 084 a 10 896 B cada una), amb la llicència al costat
+  (`/fonts/LICENCE.txt`). Són tres perquè **tres és el que el sistema guarda alhora**, i la quarta —la
+  negreta— hi entra quan l'app torna una de les altres: `release()` és el que fa lloc.
 - **Quan el sistema canvia la mida de la vista** —una rotació del vidre, un dia, o la banda del teclat que hi
   entra i en surt (0.84.0)— l'app rep `on_resize(width, height)`. El sistema no sap què hi va: la feina de tornar a
   dibuixar és de l'app, i `cv:resize(w, h)` és el que necessita un `panel` per prendre la mida nova. Una app sense
@@ -1163,8 +1160,8 @@ end
   porta els dos alfabets (els codis `' '` a `'z'`), i per això una lletra escrita amb minúscula es veu
   minúscula a la caixa, a l'etiqueta i a l'editor. Una app pot carregar-ne d'altres amb `ui.load_font` des de
   `/res/fonts`, que són fitxers de text (vegeu la secció de les cares, més avall).
-- L'exemple és l'app `panel` (`run panel`), que dibuixa una pàgina de prova a la seva vista i espera que
-  el vidre acabi.
+- Una app que dibuixa a la seva vista i espera que el vidre acabi té el patró sencer aquí: `ui.clear`,
+  `cv:text`, `cv:present` i `ui.wait`.
 
 ### Les cares: un tipus de lletra que és un fitxer de text
 
@@ -1183,8 +1180,8 @@ i el contracte.
   (8 084 B), `dejavuserif.ttf` (10 896 B), `dejavusans-latin1.ttf` (21 360 B) i `dejavuserif-latin1.ttf`
   (23 856 B) —les quatre primeres retallades a l'ASCII imprimible amb `pyftsubset`, i les dues `-latin1` amb
   `tools/ttf_latin1.py`, la del serif amb `--set latin1` (per als llibres) i la del sans amb `--set signs`
-  (la del sistema, més avall)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`—. `run fonts-ttf` i
-  `run label` les fan servir i no en guarden cap còpia.
+  (la del sistema, més avall)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`—. El lector i
+  l'editor les fan servir i no en guarden cap còpia.
 
 - **La cara del sistema porta també els signes d'una tecla** (8/11, 0.158.0). `dejavusans-bold.ttf` era
   l'ASCII imprimible i prou, i un signe com `÷`, `×` o `±` **no hi era**: el byte s'escrivia, la línia
@@ -1249,8 +1246,8 @@ i el contracte.
 - **La memòria és de l'app**: el bloc de glifs (`96 × 16 × 2 = 3 072` bytes) compta al pressupost
   (docs/75) i torna quan l'app crida `font:release()` o quan l'app s'acaba; un canvas que la feia servir
   torna a la font del sistema en comptes de llegir un bloc que ja no hi és.
-- **Dues apps per mirar-ho**: `run fonts` (la font del sistema i una cara carregada a la mateixa pàgina, amb
-  els números de cada cara a la consola) i `run sheet` (tots els glifs del sistema amb la seva cel·la).
+- **Per mirar-ho**: el lector carrega una cara del disc i la dibuixa al costat de la del sistema, i diu a la
+  consola els números de cada cara (mida, amplada de la línia i bytes del bloc).
 
 ### `ui.canvas`: el canvas d'una app, que és un control
 
@@ -1339,8 +1336,8 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   d'escriure al canvas que hagi ocupat el seu lloc.
 - **Moure un canvas sí que torna a pintar el que deixa enrere**: el pare (o el primer control que pinta,
   si el pare no té buffer) rep exactament el rectangle que el fill ocupava, i el fill es compon al lloc nou.
-- L'exemple és l'app `layers` (`run layers`), que fa dos canvas, els col·loca i els compon amb un sol
-  `ui.present`.
+- Dos canvas col·locats i compostos amb un sol `ui.present` és el que fa un editor de text amb el full i la
+  barra de desplaçament a sobre: cada un té el seu buffer i el pare els compon.
 
 ### `UILabel`: una línia de text dins d'un marc
 
@@ -1384,9 +1381,8 @@ title:font(face)          -- una cara de ui.load_font, o nil per la del sistema
 ui.present()
 ```
 
-L'app `label` (`run label`) és una pàgina de trenta labels: les tres cares carregades i la del sistema,
-quatre tamanys, les dues alineacions, dos retalls amb `...`, els setze nivells i els comptes de redibuix:
-un present sense canvis no dibuixa res, i canviar el text o el color en dibuixa un.
+El que fa un `UILabel` és el text d'una pàgina: canviar-ne el text o el color en dibuixa un, i un present
+sense canvis no dibuixa res.
 
 ### `UIButton`: un marc amb un fill a dins
 
@@ -1419,9 +1415,7 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
   **3 072 B** i el que no canvia és el camí que el dibuixa. I per tenir una lletra gran, arrodonida i amb
   majúscules i minúscules sense pagar un rasteritzador a cada pàgina, hi ha **`tools/ttf_to_lfont.py`**:
   converteix un `.ttf` en un `.lfont` a una mida triada (Pillow, el glif centrat a la cel·la perquè la taula és
-  d'amplada fixa, el traç opcional) i refusa el que no cap a setze. `run fonts` carrega el
-  `digits-8x8.lfont` que viatja amb l'app i en diu la mida i l'amplada de la línia, i `run font-mix` fa el
-  mateix amb un `abc-6x7.lfont`. El preu de la taula fixa: cada glif ocupa tota la cel·la, o sigui que un
+  d'amplada fixa, el traç opcional) i refusa el que no cap a setze. El preu de la taula fixa: cada glif ocupa tota la cel·la, o sigui que un
   text amb una `.lfont` és més ample que el mateix text amb el `.ttf` (169 px contra 138 per a
   `Handgloves`), i per això les dues cares existeixen.
 
@@ -1438,8 +1432,8 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
   al torn següent: un `du` hi deixa l'anell anterior a un quart de la tinta, que és un anell gris que ningú no
   ha demanat (docs/50, docs/90).
 
-- **La pàgina dels botons ja no porta una taula de bits** (3/11, 0.56.2): `run buttons` carrega **Lato
-  Black** d'un `.ttf` d'outlines retallat a l'ascii imprimible (`pyftsubset --unicodes=U+0020-007E`,
+- **La pàgina dels botons ja no porta una taula de bits** (3/11, 0.56.2): una pàgina de botons carrega
+  **Lato Black** d'un `.ttf` d'outlines retallat a l'ascii imprimible (`pyftsubset --unicodes=U+0020-007E`,
   **19 340 B**, la llicència OFL al costat, `/res/LICENCE-lato.txt`) i dibuixa els vuit labels a **24 px**
   (`scale = 3`), el títol a 32 i les notes a 16, amb el mateix tipus de lletra. És una **rodona** de debò —el
   `g` té noranta-un punts i és el glif que va fer falta tallar amb menys trossos de corba— i una cara
@@ -1510,8 +1504,8 @@ end
 ui.present()
 ```
 
-L'app `buttons` (`run buttons`) posa vuit labels de la mateixa cara —Lato Black, la del títol i les
-notes— a **tres tamanys** (16, 24 i 32 px) dins de **vuit botons blancs**. El vuitè es prem i es deixa anar amb
+Vuit labels de la mateixa cara —Lato Black, la del títol i les notes— a **tres tamanys** (16, 24 i 32 px)
+dins de **vuit botons blancs** és el que fa una pàgina de botons. El vuitè es prem i es deixa anar amb
 un `gc16` que neteja el forat, el focus es renta quan es mou, i els comptes de la consola mostren que un botó
 que canvia també torna a dibuixar el seu fill.
 
@@ -1580,9 +1574,9 @@ end
 ui.present('gc16')
 ```
 
-L'app `checkbox` (`run checkbox`) és una pàgina de cinc files: **les paraules dins de cada fila**, una fila que
-**neix marcada**, una que el dial **no pot tocar** (`focusable = false`, i el recorregut del sistema la salta),
-una de fosca amb la X i la vora blanques, i una línia que compta quantes estan enceses. Cada canvi diu a la
+Una pàgina de cinc files: **les paraules dins de cada fila**, una fila que **neix marcada**, una que el dial
+**no pot tocar** (`focusable = false`, i el recorregut del sistema la salta), una de fosca amb la X i la vora
+blanques, i una línia que compta quantes estan enceses. Cada canvi diu a la
 consola el nom i l'estat nou, i la pàgina es renta amb `gc16` perquè l'anell que s'ha mogut no hi deixi el
 rastre.
 
@@ -1632,8 +1626,8 @@ row:place(20, 190)
 ui.present('gc16')
 ```
 
-`run controls` és una pàgina amb els tres: una barra a mig fer, un slider que el dial mou, i quatre files de
-llista amb la tercera marcada. Les proves que mesuren la conseqüència són `test_a_progress_bar_fills_a_prefix_of_its_track`,
+Una barra a mig fer, un slider que el dial mou i quatre files de llista amb la tercera marcada són els tres
+controls alhora. Les proves que mesuren la conseqüència són `test_a_progress_bar_fills_a_prefix_of_its_track`,
 `test_a_slider_puts_the_knob_where_the_value_says` i
 `test_a_row_puts_its_detail_on_the_right_and_inverts_when_it_is_marked` a `test_ui`, i
 `test_the_dial_moves_the_value_of_a_slider` a `test_apps` (docs/80).
@@ -1768,17 +1762,20 @@ focusable»*)—, i el centre és qui tria la pestanya on és el cercle:
 - `focus_index` diu quina pestanya té el cercle (1 a n, i 0 quan el cercle és en un altre
   control), i una app pot llegir-lo.
 
-**La prova del vidre** és al banc: dues proves noves —una parada per pestanya, i la inversió
+**La prova del vidre** és a l'emulador: dues proves noves —una parada per pestanya, i la inversió
 llegida píxel a píxel de la superfície— i totes dues es posen vermelles quan se'ls treu la línia
 que proven.
 
 ### Quants controls hi caben: els que la memòria deixi (0.102.0)
 
 **No hi ha cap número de controls.** La taula de controls la pren el nucli de la **memòria extra** (la PSRAM de la
-Paper) quan arrenca, i `ui::canvas_count()` diu quants n'hi ha: mig megabyte de taula són **3 276 controls** de 160
-bytes cada un (mesurat al registre, `[I][UI] the table of canvases`, i el que sobra de PSRAM queda per als buffers, que és el que de debò costa (una vista de 540 × 912
-són 246 KB). Si el bloc no hi cap, la mida es parteix per dos fins que hi càpiga, o sigui que una placa amb poca
-memòria extra en té menys i no es queda sense pantalla.
+Paper) quan arrenca, i `ui::canvas_count()` diu quants n'hi ha: mig megabyte de taula són **2 978 controls** de 176
+bytes cada un (mesurat al registre, `[I][UI] the table of canvases: 2978 slots of 176 bytes`, i el que sobra de PSRAM
+queda per als buffers, que és el que de debò costa (una vista de 540 × 912 són 246 KB). Si el bloc no hi cap, la mida
+es parteix per dos fins que hi càpiga, o sigui que una placa amb poca memòria extra en té menys i no es queda sense
+pantalla. **`allocate` cau a la RAM del xip quan no hi ha memòria extra**, i això és el que fa que en una placa sense
+PSRAM la taula mengi RAM interna abans que cap app corri: és el risc pendent que explica
+[`75`](75-pressupost-de-memoria.md) §«La taula de canvas i la RAM interna».
 
 **Un control no té cap sostre de fills**: la llista de fills és enllaçada (el primer i el següent), i un panel de
 quaranta files es col·loca sencer. Abans hi havia `kMaxControls = 32` escrit al capçal, i era **tres** coses alhora:
@@ -1908,7 +1905,7 @@ s'amaga, perquè una targeta és la llista del que es pot fer **ara** (docs/92 �
 baixada d'un botó són canvis de l'arbre, i l'app només pinta quan demana un `ui.present`: una
 app que espera dins d'un `sys.delay` no en demana cap, o sigui que el cercle es movia i el
 vidre no deia res. Amb la placa a la mà, l'amo ho va llegir com el que és: *«l'app Showcase no
-respon a l'usuari»*. Mesurat al banc, la volta ja hi era —tres parades a la pàgina i el centre
+respon a l'usuari»*. Mesurat a l'emulador, la volta ja hi era —tres parades a la pàgina i el centre
 rebut— i el vidre no es movia ni un píxel.
 
 Per això **el sistema pinta el que ell ha canviat**, i ho fa pel mateix camí que l'app: dibuixa
@@ -2176,7 +2173,7 @@ end
 - **Una pàgina que es tecleja ha de pintar el que ha teclejat, i amb una qualitat que neteja** (0.84.1). Un `du`
   deixa **cinc setzens** del que hi havia —és la gràcia del mode ràpid i el que fa que la pàgina es vegi com una
   pàgina de tinta— i en una caixa de text això són les lletres de la tecla anterior a sota de les noves, que és el que
-  es va veure a `run typing` amb cinc tecles. El que fa una app que escriu és `ui.present('gl16')` al seu `on_change`
+  es va veure en una pàgina que es teclejava amb cinc tecles. El que fa una app que escriu és `ui.present('gl16')` al seu `on_change`
   —una neteja amb un parpelleig— i deixar el `du` per al cursor, que és un bloc i el neteja la tecla següent.
   **Una app que no presenta no pinta res**: la caixa guarda el text i el vidre no se n'assabenta fins al pròxim
   `present`, o sigui que un teclat que «no funciona» pot ser una pàgina que no es torna a pintar mai.
@@ -2197,7 +2194,7 @@ view = ui.caps()                  -- i el que la pàgina té és el que queda: 6
 ui.present('gc16')
 ```
 
-`run typing` és la pàgina sencera: una caixa, el teclat, el cursor que parpelleja i el que diu el `on_enter`.
+Una caixa, el teclat, el cursor que parpelleja i el que diu el `on_enter` són la pàgina sencera.
 
 ### `ui.dialog`: una targeta i dues portes (0.73.0)
 
@@ -2230,7 +2227,8 @@ card.on_cancel = function(self) console.print('kept') end
 ui.present('gc16')
 ```
 
-`run dialog` és una pàgina amb una targeta i prou, per provar-la amb el dial i amb el dit.
+Una targeta i prou és el que cal per provar el diàleg amb el dial i amb el dit: `ui.dialog` torna la porta
+que l'usuari ha triat, o `nil` si l'ha tancada.
 
 ### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
 
@@ -2695,7 +2693,7 @@ fila que no existeix en aquesta placa, i una fila a zero és una fila que existe
   la seva va arrencar — això és el «per app».
 - **I una crida que torna una promesa es mesura fins que la promesa es resol**, no fins que la crida
   torna. `sys.delay(50)` torna de seguida i no costa els vuit microsegons de la trucada: costa els
-  **cinquanta mil·lisegons** que l'app va esperar. Mesurat al banc: `lua.call 2 51.1ms` i
+  **cinquanta mil·lisegons** que l'app va esperar. Mesurat a l'emulador: `lua.call 2 51.1ms` i
   `probe: 1 calls into the system, 50.8ms in them`.
 - **El compte és complet, i res no es conta dues vegades.** Les tres línies del final ho diuen:
   - `turns N, kernel X of Y up, idle Z` — els torns del nucli, el que hi ha costat, i el que queda de
@@ -2806,8 +2804,8 @@ vidre i es poden provar al PC (docs/85).
   conversió la fa el sistema en un sol lloc (`turn_frame()` de `lib/kernel/src/touch.cpp`) i el `dx`/`dy`
   dels gestos surten ja girats: **una app no ha de girar mai res**. Un dit que cau a la barra arriba
   filtrat a la vora de la vista i no desapareix (docs/50).
-- L'exemple és l'app `glass` (`run glass`), que llegeix el panell en bucle i escriu els dits i els
-  gestos.
+- El que llegeix el panell en bucle i escriu els dits i els gestos ho té al davant: `ui.touch()` torna la
+  posició i `ui.touch_progress()` el gest que s'hi està fent.
 
 ## `imu`
 
@@ -2928,7 +2926,7 @@ end
 | Crida | Torna | Notes |
 |---|---|---|
 | `power.caps()` | `{sleep_light, sleep_deep, battery, charging, wake}` | Un bit només és cert si la placa ho té de debò; `wake` diu de **què** es pot despertar (`"timer, button"`, `"timer"`, `"timer, clock"` o `"none"`) |
-| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i al banc és sempre fals. **De mà**: `run battery` (`apps/battery/`) ensenya els dos camins |
+| `power.battery()` | `{mv, pct, charging}` o `nil` | `nil` és **"aquesta placa no ho sap"**, i no és el mateix que zero volts. `mv` és una mesura i `pct` una **corba** (una cel·la de liti no és una línia recta, `hal/battery.h`); `charging` només és cert si la placa ho pot preguntar, i al Paper i a l'emulador és sempre fals. **De mà**: `lua` amb `power.battery()` ensenya els dos camins |
 | `power.sleep(opts)` | **promesa** | `{mode="light" o "deep", in_ms=<ms> o until=<època en segons>}`; es resol `true` quan la placa torna |
 | `power.keep_awake(b)` | booleà | L'app diu que està fent una cosa que no s'ha d'interrompre |
 | `power.cpu()` | número | La velocitat del processador, en MHz |
@@ -2986,11 +2984,10 @@ end
 power.sleep({ mode = 'deep', in_ms = 300000 }):await()   -- cinc minuts
 ```
 
-L'exemple de mà és `run sleepy` (`apps/sleepy/`), que dorm cinc minuts, desa quantes vegades ho ha
-fet i ho torna a llegir quan la placa arrenca. I `run rtccheck` (`apps/rtccheck/`) és el que
-mesura: diu d'on surt l'hora, què pot despertar la placa, on és la bateria, quant ha durat de debò
-una espera d'un segon i, després d'un son de vint segons, **quants mil·lisegons s'ha desviat** el
-despert de l'hora demanada.
+El que dorm cinc minuts, desa quantes vegades ho ha fet i ho torna a llegir quan la placa arrenca és
+`env` (docs/46). I el que es mesura amb un son és **quant s'ha desviat el despert** de l'hora demanada:
+`rtc.now()` abans d'adormir-se, `rtc.now()` en tornar, i la diferència contra els mil·lisegons que es van
+demanar.
 
 ## `log` ⏳
 

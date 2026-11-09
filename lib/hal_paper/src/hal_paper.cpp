@@ -103,7 +103,7 @@ void hold_power() {
 //
 // **The dial is on the right of the page as an app draws it** (1/11): whoever has the board in their
 // hands says the three keys are on the right of the portrait page, not on the left, and that is what
-// `Face::kRight` says. It used to say `kLeft`, which put the bench's buttons on the wrong side of the
+// `Face::kRight` says. It used to say `kLeft`, which put the emulator's buttons on the wrong side of the
 // page (docs/50, docs/85).
 const KeySpot kKeys[] = {
     {38, Face::kRight, Spot::kCentre, KeyKind::kCompound, 0},  // centre (PWR)

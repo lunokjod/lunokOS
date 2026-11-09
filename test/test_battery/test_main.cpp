@@ -1,8 +1,8 @@
-// **The battery of the bench**: the cell's curve read the other way, the battery of the machine the
-// bench runs on, and what it costs to ask the chip (docs/50, docs/85).
+// **The battery of the emulator**: the cell's curve read the other way, the battery of the machine the
+// emulator runs on, and what it costs to ask the chip (docs/50, docs/85).
 //
 // The board carries a cell of 1150 mAh that says millivolts behind a divider on GPIO35, and the machine
-// this runs on says a percentage: what the bench lends is the percentage and not the voltage, and it is
+// this runs on says a percentage: what the emulator lends is the percentage and not the voltage, and it is
 // the curve of `hal/battery.h` that turns one into the other. The curve is tried here in both
 // directions, and the reading of the kernel's files is tried on a directory of a test, so it is proof
 // without a laptop.
@@ -107,7 +107,7 @@ static void test_the_host_battery_is_read_from_the_kernel_files() {
 
 // **A machine with no battery still has a cell to lend**: the charge of this machine through the curve of
 // the board's cell, and the nominal charge of the cell when there is no battery at all — because a Paper
-// always has one, and a bench whose Paper says it does not know its battery is a board nobody can buy
+// always has one, and an emulator whose Paper says it does not know its battery is a board nobody can buy
 // (docs/85). It is the number `run battery` reads on a Paper with no flags.
 static void test_the_lent_cell_is_the_charge_of_this_machine() {
   emu::HostBattery host;

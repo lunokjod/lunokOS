@@ -2,7 +2,7 @@
 // what it does when its cycles run out, and what happens when an app stops it or the
 // system has something of its own to say.
 //
-// The clock is the bench's and the test moves it by hand (`emu::advance_ms`), so a
+// The clock is the emulator's and the test moves it by hand (`emu::advance_ms`), so a
 // five-second breath is watched in no time at all and the frames are the ones the board
 // would paint. The light is read from the band and not from the policy, so an effect that
 // is computed and never painted is caught here (docs/30, docs/85).
@@ -97,7 +97,7 @@ uint8_t level() {
   return brightest;
 }
 
-// Moves the bench's clock and paints, which is exactly what a turn does when the light has
+// Moves the emulator's clock and paints, which is exactly what a turn does when the light has
 // something to say (docs/30).
 void step(uint32_t ms) {
   emu::advance_ms(static_cast<int64_t>(ms));
@@ -133,7 +133,7 @@ void take_the_light() {
 void test_a_breath_goes_up_and_down(void) {
   TEST_ASSERT_TRUE(boot_once());
   take_the_light();
-  // Ten and not two hundred: the bench is a panel and its ceiling is 20, so a level has to be
+  // Ten and not two hundred: the emulator is a panel and its ceiling is 20, so a level has to be
   // **below** it to be seen as a level and not as the ceiling. And the colour is at full scale,
   // because `level` is a dimmer over the colour and not a second colour (docs/30, docs/85).
   play(kernel::led::EffectKind::kBreathe, 0, 0, 255, 1000, 0, 10);
@@ -266,7 +266,7 @@ void test_a_stop_is_immediate_or_fades_to_black(void) {
 // is not there is refused instead of painting somewhere else (docs/30, docs/50).
 void test_one_light_of_the_strip_and_the_rest_is_dark(void) {
   TEST_ASSERT_TRUE(boot_once());
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, kernel::led::count(), "the bench is the ATOM here");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, kernel::led::count(), "the emulator is the ATOM here");
   kernel::led::Effect effect;
   effect.kind = kernel::led::EffectKind::kBlink;
   effect.red = 255;
@@ -291,7 +291,7 @@ void test_one_light_of_the_strip_and_the_rest_is_dark(void) {
   TEST_ASSERT_TRUE(emu::led_pixel(0, r, g, b));
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, r, "and the first light of the strip is dark");
 
-  // Back to the ATOM for the tests that come after: one bench, one board (docs/85).
+  // Back to the ATOM for the tests that come after: one emulator, one board (docs/85).
   TEST_ASSERT_TRUE(be_board("m5stack-atom"));
 }
 

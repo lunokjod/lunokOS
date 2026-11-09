@@ -28,7 +28,7 @@ namespace {
 
 const size_t kLineBytes = 128;
 
-// **What the heap of the bench costs**: one node of the allocator's free-list walk, in nanoseconds —a
+// **What the heap of the emulator costs**: one node of the allocator's free-list walk, in nanoseconds —a
 // pointer chase and a compare at 160 MHz— and what the PSRAM moves in a microsecond, which is **twenty
 // bytes**: quad SPI at forty megahertz is 20 MB/s, and a block of the extra memory that has to change
 // home is a copy through that bus (docs/75, docs/85).
@@ -43,7 +43,7 @@ const uint32_t kDispatchUs = 1000;
 // bits a clock at forty megahertz— and then ESP-IDF's PSRAM test writes and reads every byte the chip
 // maps (`CONFIG_SPIRAM_MEMTEST`, on by default in this IDF), which on the Paper's four megabytes is
 // eight megabytes at the **twenty** of quad SPI. Turning a board on is not a syscall and the system does
-// not pay it: the bench does, so the prompt arrives when it arrives on the glass.
+// not pay it: the emulator does, so the prompt arrives when it arrives on the glass.
 uint32_t boot_us(const emu::Model& hw) {
   const uint32_t image_us = hw.boot_image_bytes / 10;          // 10 B/us = 10 MB/s, dual at 40 MHz
   const uint32_t psram_us = (hw.psram_kb * 1024u * 2u) / 20u;  // 20 B/us = 20 MB/s, quad at 40 MHz
@@ -51,20 +51,20 @@ uint32_t boot_us(const emu::Model& hw) {
 }
 
 // **The cell of the model**, which is what an M5Paper carries: 1150 mAh at 3,7 V, full at 4,2 V
-// (docs/50). It is here for the line the bench says when it lends the battery of the machine it runs
+// (docs/50). It is here for the line the emulator says when it lends the battery of the machine it runs
 // on: the voltage itself is the curve's business (`hal/battery.h`).
 const uint32_t kBoardMilliampHours = 1150;
 const int kCellFullMv = 4200;
 
 // **What one instruction of the interpreter costs at 160 MHz**, in nanoseconds: the model's number for
-// an ESP32 running Lua, and the one the bench pays so that a loop costs here what it costs on the glass.
+// an ESP32 running Lua, and the one the emulator pays so that a loop costs here what it costs on the glass.
 // It is not a measurement of this unit, and docs/95 says how to take one (docs/85).
 const int32_t kLuaInstructionNs = 60;
 
 // **What a turn of the kernel costs on the board and not here**, in microseconds: a turn of the loop is
 // **1 ms** on the ATOM and **0.15 ms** on the PC (measured, docs/75: a hundred awaits of one
 // millisecond take 199 ms on the glass and 115 ms here). The difference is paid after every turn while
-// the bench is paying the times of the hardware, so a loop of awaits takes here what it takes on the
+// the emulator is paying the times of the hardware, so a loop of awaits takes here what it takes on the
 // board. It is the **turn** that is paced, and not one instruction of it (docs/85).
 const int32_t kTurnOverheadUs = 850;
 // **How often a run with a window comes back to it while it has nothing else to do**: the glass of the board
@@ -72,17 +72,17 @@ const int32_t kTurnOverheadUs = 850;
 // taps in one batch (docs/85, docs/90).
 const uint32_t kGuiSliceMs = 20;
 
-// What a turn pays: the constant above while the bench is paying the times of the hardware, and nothing
+// What a turn pays: the constant above while the emulator is paying the times of the hardware, and nothing
 // at all when it is not, because `--no-delay` is a run about what the code does and not about what the
 // board costs (docs/85).
 int32_t g_turn_us = 0;
 
-// The UART of the board, in baud: the console of the bench is a terminal and not a wire, but the
+// The UART of the board, in baud: the console of the emulator is a terminal and not a wire, but the
 // speed is part of what a person sees —a screen of text is a third of a second on the glass— so the
-// bench waits the wire out instead of being faster than the board (docs/85).
+// emulator waits the wire out instead of being faster than the board (docs/85).
 const int32_t kUartBaud = 115200;
 
-// A card in the slot, as a directory: a board that has a slot gets one when the bench starts, the
+// A card in the slot, as a directory: a board that has a slot gets one when the emulator starts, the
 // same as a card being in it, and it is always the same directory (docs/85).
 void make_slot(const char* path) {
   if (path == nullptr) return;
@@ -110,12 +110,12 @@ void usage() {
   printf("                    this build was made for, assembled by tools/make_disk.py)\n");
   printf("  --state <dir>     where the memories that are not a volume live: the key-value store\n");
   printf("                    and, when they exist, the RTC RAM and the FRAM (default: emulator)\n");
-  printf("  --fs <dir>        working disk for a bench that copies its own (default: emulator)\n");
+  printf("  --fs <dir>        working disk for an emulator that copies its own (default: emulator)\n");
   printf("  --sd <dir>        the card in the slot, as a directory (default: emulator/sd, and a\n");
   printf("                    card is a directory that exists: without it the slot is empty)\n");
   printf("  --battery-mv <mv> the cell the board reads, in millivolts; it wins over this machine's\n");
   printf("  --battery-host    say it aloud: a board with a gauge lends this machine's battery by itself\n");
-  printf("  --board <name>    which board this bench is (required): %s", board::model(0));
+  printf("  --board <name>    which board this emulator is (required): %s", board::model(0));
   for (uint32_t i = 1; i < board::models_count(); ++i) printf(", %s", board::model(i));
   printf("\n");
   printf("  --mem-cap <KB>    Lua heap ceiling, never above the board's memory\n");
@@ -196,11 +196,11 @@ bool parse_real(const char* text, float& out) {
 }
 
 bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
-  // **The switch of every wait in this bench**: one flag and not one per device, because a run either
+  // **The switch of every wait in this emulator**: one flag and not one per device, because a run either
   // pays the hardware's time or it is a test, and a test that pays half of it measures nothing
   // (docs/85).
   bool no_delay = false;
-  // The hardware of the model comes on by itself and these take it away: a bench that is a Paper and
+  // The hardware of the model comes on by itself and these take it away: an emulator that is a Paper and
   // has no glass and no fingers is a board nobody can buy (docs/85).
   bool no_display = false;
   bool no_touch = false;
@@ -214,7 +214,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   bool gui_asked = false;
   bool no_gui = false;
   // **No picture of the page unless the run asks for one**, which is what the rest of these start as well: a
-  // binary that writes files nobody asked for is a bench that surprises whoever runs it (docs/85).
+  // binary that writes files nobody asked for is an emulator that surprises whoever runs it (docs/85).
   opts.dump = nullptr;
   for (int i = 1; i < argc; ++i) {
     const char* arg = argv[i];
@@ -240,7 +240,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       continue;
     }
     if (strcmp(arg, "--no-ink") == 0) {
-      // The bench of the tests: a paint is instant and exact, and the page is whatever was painted with
+      // The emulator of the tests: a paint is instant and exact, and the page is whatever was painted with
       // nothing left of the one before (docs/85).
       opts.ink = -1;  // asked for: a glass that switches pixels
       continue;
@@ -253,14 +253,14 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       continue;
     }
     if (strcmp(arg, "--lua-cpu") == 0) {
-      // What one instruction of an app costs, in nanoseconds at 160 MHz: zero is a bench that does not
+      // What one instruction of an app costs, in nanoseconds at 160 MHz: zero is an emulator that does not
       // price the app's own code at all (docs/85).
       if (!next_value(i, argc, argv, value) || !parse_number(value, number) || number < 0) return false;
       opts.lua_ns_160 = static_cast<int32_t>(number);
       continue;
     }
     if (strcmp(arg, "--battery-host") == 0) {
-      // **The battery of the machine this bench runs on**, lent to the board: what is lent is the charge
+      // **The battery of the machine this emulator runs on**, lent to the board: what is lent is the charge
       // and not the voltage, because 63 % of a laptop is 63 % of the Paper's cell (docs/85).
       opts.battery_from_host = true;
       continue;
@@ -359,7 +359,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     }
     if (strcmp(arg, "--board") == 0) {
       if (!next_value(i, argc, argv, value)) return false;
-      // Refused here and not at boot: a bench told to be a board that does not exist
+      // Refused here and not at boot: an emulator told to be a board that does not exist
       // would answer a name no manifest could ever match, and the person would see an
       // app refused by a board they never asked for (docs/85).
       bool known = false;
@@ -549,16 +549,16 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     return false;
   }
 
-  // Which board this bench is has no default: a board that is not named is a board nobody chose,
-  // and the whole point of the bench is that what it answers is the model asked for (docs/85).
+  // Which board this emulator is has no default: a board that is not named is a board nobody chose,
+  // and the whole point of the emulator is that what it answers is the model asked for (docs/85).
   if (opts.board == nullptr) {
-    fprintf(stderr, "which board is this bench? --board <name>, one of: %s", board::model(0));
+    fprintf(stderr, "which board is this emulator? --board <name>, one of: %s", board::model(0));
     for (uint32_t i = 1; i < board::models_count(); ++i) fprintf(stderr, ", %s", board::model(i));
     fprintf(stderr, "\n");
     return false;
   }
 
-  // The memory of the model is a wall: a bench asked for more than the board has is a bench that
+  // The memory of the model is a wall: an emulator asked for more than the board has is an emulator that
   // would pass an app the glass would refuse (docs/75, docs/85). The PSRAM counts: the Paper has 8 MB
   // of it and that is where an app's big blocks go.
   const emu::Model memory = emu::model_of(opts.board);
@@ -569,20 +569,20 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     return false;
   }
 
-  // **The glass and the fingers are the model's, and they come on by themselves**: a bench of a Paper
+  // **The glass and the fingers are the model's, and they come on by themselves**: an emulator of a Paper
   // with no screen and no touch panel is a board nobody can buy, and the flags to take them away exist
   // for the run that only wants the console. A test builds its own options and pays neither (docs/85).
   if (ask_display && !memory.glass) {
-    fprintf(stderr, "--display: %s has no glass, and a bench of it has no screen\n", memory.name);
+    fprintf(stderr, "--display: %s has no glass, and an emulator of it has no screen\n", memory.name);
     return false;
   }
   if (ask_touch && !memory.touch) {
-    fprintf(stderr, "--touch: %s has no touch panel, and a bench of it has no finger\n", memory.name);
+    fprintf(stderr, "--touch: %s has no touch panel, and an emulator of it has no finger\n", memory.name);
     return false;
   }
   // **A window of what the board has**: a model with a glass shows it, and every model of this family has
   // at least one key, so `--gui` on a board with no screen is the window of its button and not an error —
-  // the bench of an ATOM still has the button a person presses (docs/85).
+  // the emulator of an ATOM still has the button a person presses (docs/85).
   opts.display = memory.glass && !no_display;
   opts.touch = memory.touch && !no_touch;
 #ifdef LUNOK_GUI_BY_DEFAULT
@@ -603,8 +603,8 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   //
   // The flash is **the disk this build was made for**, `build/disk/<env>`: `data/` is what the repository
   // holds, `apps/` is where the apps live and `tools/make_disk.py` is what puts the two together for the
-  // boards and the bench that can hold them (docs/80). It is a tree of links to those two, so what a person
-  // edits is what the bench runs and nothing has to be copied. The key-value store and the memories that are
+  // boards and the emulator that can hold them (docs/80). It is a tree of links to those two, so what a person
+  // edits is what the emulator runs and nothing has to be copied. The key-value store and the memories that are
   // not a volume go to `emulator`, next to the card, which is always the same directory: a card is a
   // directory that exists, so making it puts a card in the slot and removing it empties it (docs/85).
   if (opts.flash_dir == nullptr) opts.flash_dir = LUNOK_DISK_DIR;
@@ -617,7 +617,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // at the rate it would over the cable (docs/85).
   if (opts.baud < 0) opts.baud = kUartBaud;
   // **The battery of the machine, lent to the board, and by itself**: a board with a gauge reads a cell,
-  // and the only cell the bench has to offer is this machine's. What is lent is the percentage, because a
+  // and the only cell the emulator has to offer is this machine's. What is lent is the percentage, because a
   // laptop speaks in percentages and the Paper in millivolts, and the curve of the board's cell turns it
   // into a voltage. It happens without asking because a Paper with no battery is a board nobody has, and
   // a run that wants another one types it with `--battery-mv` (docs/85).
@@ -630,7 +630,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     opts.battery_mv = emu::lent_cell_mv(host);
     if (!host.present) {
       // A desk has no cell to lend and the board still has one: the cell starts at its nominal charge and
-      // the bench says the number it made up, because a number nobody typed has to be announced
+      // the emulator says the number it made up, because a number nobody typed has to be announced
       // (docs/85).
       fprintf(stderr,
               "battery: this machine has no battery to lend; the cell of the board starts at %d mV (%d %%)\n",
@@ -660,7 +660,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
       fprintf(stderr, "--gui needs the times of the hardware: a window is for watching what a board costs\n");
       return false;
     }
-    fprintf(stderr, "gui: no window, --no-delay is a bench without the times of the hardware\n");
+    fprintf(stderr, "gui: no window, --no-delay is an emulator without the times of the hardware\n");
     opts.gui = false;
   }
   if (opts.gui && opts.ink < 0 && opts.display) {
@@ -672,7 +672,7 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     opts.gui = false;
   }
   // **The glass of a run moves ink unless the run says it does not**: a paint takes what the quality
-  // takes and leaves what it leaves. Instant and perfect is the bench of the tests, which is where the
+  // takes and leaves what it leaves. Instant and perfect is the emulator of the tests, which is where the
   // option starts (docs/85).
   opts.ink = (opts.ink < 0) ? 0 : 1;
   return true;
@@ -680,11 +680,11 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
 
 // **The window, once per turn.** The glass is copied into it only when it has something new to show —a
 // paint, or one of the blinks of an `a2`, which is a frame without a paint— and the events of the window
-// are taken without waiting, because a bench that blocks on the keyboard of a window is a bench that
+// are taken without waiting, because an emulator that blocks on the keyboard of a window is an emulator that
 // stopped (docs/85).
 void pump_gui(uint32_t& shown_frames) {
   emu::gui_pump();
-  // **A bench without a glass has no page to show**: the panel is not even made, and the window of a
+  // **An emulator without a glass has no page to show**: the panel is not even made, and the window of a
   // model with keys is the window of its keys. Making the panel here also gave an ATOM a page it does
   // not have and paid its buffers on every headless run (docs/85).
   if (!emu::options().display) return;
@@ -711,7 +711,7 @@ void wait_pump(void*) {
 }
 
 // **One turn of the system, and what a turn costs on the board**: FreeRTOS switches, the drivers get
-// their look-in and the loop comes back a millisecond later, where this bench comes back in a tenth of
+// their look-in and the loop comes back a millisecond later, where this emulator comes back in a tenth of
 // one. The difference is paid here —after the turn, because a turn that has painted has already spent
 // its time (docs/75, docs/85). What is **not** modelled is the instruction: that is the interpreter's
 // business and `--lua-cpu` prices it one block of instructions at a time (docs/85).
@@ -783,7 +783,7 @@ int main(int argc, char** argv) {
 
   emu::set_options(opts);
 
-  // The hardware of the model is there when the bench starts, exactly as on the board: a card in the
+  // The hardware of the model is there when the emulator starts, exactly as on the board: a card in the
   // slot of a board that has a slot, and the memories the model is made of, created at the size they
   // really are (docs/50, docs/85).
   const emu::Model hw = emu::model();
@@ -804,12 +804,12 @@ int main(int argc, char** argv) {
   pal::set_virtual_terminal(true);
   // **A block of the extra memory is not free either**: the board's allocator walks its free lists and
   // the PC's answers at once, and a block that changes home is copied through the PSRAM's bus, so the
-  // bench is told what both cost when it is paying the times of the hardware (docs/85).
+  // emulator is told what both cost when it is paying the times of the hardware (docs/85).
   pal::set_heap_timing(opts.delays ? kHeapStepNs : 0, opts.delays ? kPsramBytesPerUs : 0);
   // **A deadline is delivered on the turn after it expires**, which is the extra millisecond the board
   // pays for a promise of one (docs/75, docs/85).
   pal::set_dispatch_us(opts.delays ? kDispatchUs : 0);
-  // **Which bench this is, said out loud**: a run that pays the times of the hardware and one that does
+  // **Which emulator this is, said out loud**: a run that pays the times of the hardware and one that does
   // not look the same until somebody times a screen, and that is exactly the doubt this line answers
   // (docs/85). It goes to stderr because it is this band talking about itself.
   if (opts.delays) {
@@ -823,7 +823,7 @@ int main(int argc, char** argv) {
             "emulator: the times of the hardware are NOT paid (--no-delay): the console answers at once, "
             "no bus, instant ink\n");
   }
-  // **The page of this bench is the one the address answers, and that is said once**: a person who does
+  // **The page of this emulator is the one the address answers, and that is said once**: a person who does
   // not expect a request to leave the machine has to know it, and `--http-fake` is the way back (docs/85).
   if (!opts.http_fake) {
     fprintf(stderr,
@@ -861,11 +861,11 @@ int main(int argc, char** argv) {
     }
   }
 
-  // **The window, when the run asked for one.** If there is no display to open it on, the bench says so
+  // **The window, when the run asked for one.** If there is no display to open it on, the emulator says so
   // and carries on without it: a run is not lost because a screen is missing (docs/85).
   uint32_t shown_frames = 0xFFFFFFFFu;
   if (opts.gui) {
-    // **Where the keys go is the descriptor's to say**, not this bench's: the board's input names the face a
+    // **Where the keys go is the descriptor's to say**, not this emulator's: the board's input names the face a
     // key is on and the spot it holds, and a dial on a side face is a column down that side while a key on
     // the top is a row under the page (docs/50, docs/85).
     emu::KeySide side = emu::KeySide::kBottom;
@@ -876,7 +876,7 @@ int main(int argc, char** argv) {
       if (face == hal::Face::kRight) side = emu::KeySide::kRight;
     }
     if (!emu::gui_available()) {
-      fprintf(stderr, "this bench was built without a window backend: no window\n");
+      fprintf(stderr, "this emulator was built without a window backend: no window\n");
     } else if (opts.display && (hal::platform().display() == nullptr ||
                                 !emu::gui_open(emu::memory_surface()->width(),
                                                emu::memory_surface()->height(),

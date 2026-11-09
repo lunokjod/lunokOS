@@ -6,7 +6,7 @@
 
 // **The disk this binary was built to read**, given by its environment (`platformio.ini`): every build has its
 // own, `build/disk/<env>`, which `tools/make_disk.py` assembles from `data/` and the apps of `apps/` (docs/80).
-// The bench and the tests are two builds and do not share a disk, so one cannot write over what the other is
+// The emulator and the tests are two builds and do not share a disk, so one cannot write over what the other is
 // about to read (docs/85).
 #ifndef LUNOK_DISK_DIR
 #define LUNOK_DISK_DIR "build/disk"
@@ -29,25 +29,25 @@ struct Options {
   // The directory that **is** the emulated flash volume, or nullptr for `<fs_dir>/littlefs`. **nullptr is
   // the default here and the disk of the build is the binary's default** (`main_host`, `LUNOK_DISK_DIR`):
   // `data/` plus the apps this build carries, assembled by `tools/make_disk.py`, so what a person edits is
-  // what the bench runs and nothing has to be copied. A test builds its own options and wants the volume
+  // what the emulator runs and nothing has to be copied. A test builds its own options and wants the volume
   // next to `fs_dir`, which is where it copied its fixtures — with the build's disk as the default of this
   // struct, every suite read the repository's disk and its own copy was never looked at (found the 4/11
-  // with `test_img`: five pictures that were there and a bench that said they were not) (docs/85).
+  // with `test_img`: five pictures that were there and an emulator that said they were not) (docs/85).
   const char* flash_dir = nullptr;
   const char* fs_dir;    // where the emulated disks live
-  // Which board this bench is, by the name the board has in platformio.ini. nullptr is
+  // Which board this emulator is, by the name the board has in platformio.ini. nullptr is
   // the default (`board::default_model()`, the ATOM): an app asks `sys.board` and gets a
   // board that exists, never a name invented by the system (docs/50, docs/85).
   const char* board = nullptr;
   // The card in the slot: the directory that is its volume, or nullptr for a board with
   // an empty slot —which is a board with no `/sd` at all, the same as the real one
-  // (docs/70, docs/85). A card's data is somebody's, so the bench never invents one.
+  // (docs/70, docs/85). A card's data is somebody's, so the emulator never invents one.
   const char* sd_dir = nullptr;
   // What the fake battery reads, in millivolts, or 0 for a board with no battery to
   // report. The percentage is the curve of a cell and not a second number to set, so the
-  // bench cannot say 3,9 V and 100 % at once (docs/50, docs/85).
+  // emulator cannot say 3,9 V and 100 % at once (docs/50, docs/85).
   int32_t battery_mv = 0;
-  // **A battery lent by the machine the bench runs on** (`--battery-host`): its percentage on the curve
+  // **A battery lent by the machine the emulator runs on** (`--battery-host`): its percentage on the curve
   // of the board's cell, which is 1150 mAh and full at 4,2 V (docs/85). Off by default, because a test
   // that changed its answer with the hardware of whoever runs it is not a test.
   bool battery_from_host = false;
@@ -56,7 +56,7 @@ struct Options {
   int64_t now_epoch;     // 0 = no epoch at all (source "none"), like a board that
                          //     never synced; anything else is the start time
   int32_t mem_cap_kb;    // 0 = board default
-  // How much earlier than its hour the bench comes back from a sleep, in milliseconds: zero is the
+  // How much earlier than its hour the emulator comes back from a sleep, in milliseconds: zero is the
   // honest clock and anything else is a sleep that was cut short —a finger on the button, a cable
   // that blinked— so the case where the board never reaches its hour can be tried on the PC
   // (docs/60, docs/85).
@@ -70,12 +70,12 @@ struct Options {
   uint32_t seed;         // 0 = seed from the system
   bool verbose;          // mirror the log to the console
   // A board with a glass. **Off in `Options()`, which is what a test builds**: the binary turns it on
-  // when the model has one (`Model::glass`, the Paper) and `--no-display` takes it away, because a bench
+  // when the model has one (`Model::glass`, the Paper) and `--no-display` takes it away, because an emulator
   // of a Paper with no screen is a board nobody can buy (docs/85). The glass is the Paper's: 960x540
   // and four bits per pixel.
   bool display = false;
   // **A window with the glass in it**, for the runs that are looked at instead of read: it needs the
-  // glass (`--display` is turned on with it) and it changes nothing of what the bench simulates —the
+  // glass (`--display` is turned on with it) and it changes nothing of what the emulator simulates —the
   // window is a way to look, and the ink is still not there (docs/85).
   bool gui = false;
   // **How big the page is in the window** (`--gui-scale`): zero is the smallest scale that fits the
@@ -85,11 +85,11 @@ struct Options {
   // **A picture of the glass on this machine's disk** (`--dump <file>`, a PGM of eight bits per pixel): every
   // paint writes the whole page over the file, so the last one is the screen the run ended with. It is how the
   // look of this system is looked at from a session that has no window, and it changes nothing of what the
-  // bench simulates (docs/85).
+  // emulator simulates (docs/85).
   const char* dump = nullptr;
   // **Whether the glass moves ink or switches pixels.** On —one— a paint takes what the mode takes, a
   // `du` keeps a quarter of the page before it and the traces add up; off —zero— a paint is instant and
-  // exact, which is what a test wants and what the bench was before this (docs/85). `main` turns it on.
+  // exact, which is what a test wants and what the emulator was before this (docs/85). `main` turns it on.
   int32_t ink = 0;
   // **A board with a touch panel**: the same as the glass —off in `Options()` and on in the binary when
   // the model has one (`Model::touch`, the Paper)— and `--no-touch` takes it away. Without it the model's
@@ -99,14 +99,14 @@ struct Options {
   // a measurement the board still owes, docs/95 E-6). A larger number is a chip slower than the turn of
   // the kernel, which is the hardware problem a caller that polls too fast has to survive (docs/85).
   int32_t touch_scan_ms = 0;
-  // **Whether the bench pays the time the hardware takes.** On —the binary— a read of the disk sleeps
+  // **Whether the emulator pays the time the hardware takes.** On —the binary— a read of the disk sleeps
   // what the flash sleeps, a paint sleeps the bus and the ink, a read of the panel sleeps its three
   // transactions and the console goes out at the speed of the UART: that is what makes a run with
   // `--gui` cost what the board costs. Off —`--no-delay`, and every test— the model is the same one and
   // only the clock is skipped, which is what a test that is not about time wants (docs/85).
   bool delays = false;
   // **A glass that says no like the panel of the Paper** (`--ink-refuse`, 0.118.2): the driver of the board refuses a
-  // paint that arrives while another one is still moving ink (`wait_paint`, three seconds), and a bench that always
+  // paint that arrives while another one is still moving ink (`wait_paint`, three seconds), and an emulator that always
   // waits cannot tell a caller that waits for the ink from one that gets lucky. On, `flush` answers false with the
   // driver's own reason while the ink of the paint before is running; the callers that are right wait and ask again
   // (docs/50, docs/85).
@@ -118,7 +118,7 @@ struct Options {
   // RAM and the hour are the ones of the run before, which is what a reset does to the chip and what
   // a cold start does not (docs/60, docs/85).
   bool persist = false;
-  // **What one instruction of the app costs at 160 MHz**, in nanoseconds: zero is a bench that does not
+  // **What one instruction of the app costs at 160 MHz**, in nanoseconds: zero is an emulator that does not
   // price the app's own code. It is the number that makes a loop cost here what it costs on the glass,
   // and it is the model's —a measurement of this board's interpreter is still owed (docs/95)—
   // (docs/85).
@@ -131,7 +131,7 @@ struct Options {
   bool wifi_fail = false;
   // **A radio that refuses and says why** (0.118.10): when it is not nullptr, a scan and a provisioning
   // are turned down and `last_error()` answers this sentence, which is what a real driver does with the
-  // name of the framework's error. It is how the bench checks that the reason of the hardware reaches
+  // name of the framework's error. It is how the emulator checks that the reason of the hardware reaches
   // the person at the prompt instead of a `E_BUSY` that hides four different faults (docs/85).
   const char* refuse_why = nullptr;
   // How many networks the fake radio sees in a scan. Zero is a board in a field
@@ -145,7 +145,7 @@ struct Options {
   const char* prov_pass = nullptr;
   bool prov_never = false;
   bool prov_fail = false;
-  // **The page of this band is the one the address really answers**: the bench hands the URL to
+  // **The page of this band is the one the address really answers**: the emulator hands the URL to
   // `curl` and the body and the status come back from the wire, with the certificate checked
   // against the roots of this machine (docs/85). `http_fake` puts the canned page back — and the
   // other four options are that same canned page: after http_ms it answers http_status with
@@ -199,7 +199,7 @@ void http_canned_clear();
 // The keys of this band are the test's to press: there is no finger on a PC, and a
 // scripted press is what makes the path through the kernel runnable (docs/85).
 // Key 0 is the main one —the ATOM's only button, the Paper's middle key— and the
-// bench has three, so a board with more than one can be tried on the PC.
+// emulator has three, so a board with more than one can be tried on the PC.
 void press_button(bool down);            // key 0
 void press_key(int key, bool down);      // 0, 1 or 2
 bool button_down();                      // key 0
@@ -215,7 +215,7 @@ uint32_t led_frames();
 // when there is no such light (docs/85).
 bool led_pixel(uint32_t index, uint8_t& r, uint8_t& g, uint8_t& b);
 
-// Moves the bench's clock forward without waiting. It is the only way a test can watch a
+// Moves the emulator's clock forward without waiting. It is the only way a test can watch a
 // five-second breath in a millisecond, and it moves **the same clock the kernel reads**,
 // so the effect and the turn that paints it agree (docs/30, docs/85).
 void advance_ms(int64_t delta);

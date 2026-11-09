@@ -1,4 +1,4 @@
-// A bench with no window library: the emulator still boots, still runs apps and still says that this
+// An emulator with no window library: the emulator still boots, still runs apps and still says that this
 // build has no window instead of failing at the first `--gui` (docs/85). The pure part of the GUI lives
 // in `gui_common.cpp` and is always compiled; this file is only the answer of the window functions.
 #if !defined(LUNOK_GUI_X11) && !defined(LUNOK_GUI_SDL)

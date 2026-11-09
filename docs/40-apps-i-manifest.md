@@ -30,7 +30,7 @@ directori real d'una unitat. L'ordre és la flash primer i la targeta després.
 
 **Un nom que els dos discs tenen es presenta dues vegades.** `<id>` és la còpia de la flash i
 **`*<id>`** la de la targeta —**l'asterisc és la marca d'una app redirigida**—, o sigui que les dues es poden llegir
-i córrer per separat: `run squares` corre l'app de la flash i `run *squares` la de la targeta, i
+i córrer per separat: `run editor` corre l'app de la flash i `run *editor` la de la targeta, i
 el `res/` de cadascuna surt del seu disc. És el que fa que instal·lar una app que ja ve al firmware
 sigui una actualització que es pot comparar amb l'original en lloc d'un reemplaçament cec, i que
 treure la targeta esborri el nom amb la marca i deixi el de la flash. Un id que només és en un dels
@@ -43,7 +43,7 @@ si la còpia fos la de la flash—. Les dues es fan servir per coses diferents: 
 el nom és el que **una persona llegeix** a la graella del llançador i a la barra del sistema. Abans
 d'això el sufix anava a l'id (`editor-SD`) i el camí de la imatge era el d'una carpeta que cap disc té:
 el llançador deia `editor-SD has no picture` i la cel·la sortia amb la lletra del placeholder (trobat al
-banc el 8/11). El sistema resol la marca amb la mateixa pregunta que fa el llistat —quina còpia és la
+emulador el 8/11). El sistema resol la marca amb la mateixa pregunta que fa el llistat —quina còpia és la
 que **no** és la simple—, o sigui que el nom i el camí no es poden contradir mai.
 
 **La targeta només es camina si hi és** (0.87.1): la pregunta és al muntatge de `/sd` i no a una
@@ -54,8 +54,8 @@ una versió ha de poder llegir quina de les dues li ensenya. Una app que no es t
 buscat**, que és la porta:
 
 ```
-lunok> run timerss
-no such app: timerss
+lunok> run edit
+no such app: edit
   apps are in /apps, and there is no card in the slot
 ```
 
@@ -81,8 +81,8 @@ que porti a `res/`, carpetes incloses— al disc que la persona ha triat amb `cf
 l'API de continguts de GitHub és el que diu quins fitxers té cada carpeta i des d'on baixar-los
 (docs/30, docs/70, docs/75).
 
-**`apps remove <id>` esborra l'app** (0.89.0), i el nom és el que surt al llistat: `squares` per a la
-còpia de la flash i `*squares` per a la de la targeta, o sigui que una de les dues còpies se'n va i
+**`apps remove <id>` esborra l'app** (0.89.0), i el nom és el que surt al llistat: `editor` per a la
+còpia de la flash i `*editor` per a la de la targeta, o sigui que una de les dues còpies se'n va i
 l'altra es queda —i quan la de la flash ja no hi és, la de la targeta perd el sufix—. Se'n va **la
 carpeta de l'app i res més**: el que ha deixat a `/data/<id>` i a `/cfg/<id>` és el seu passat i no
 l'app, i qui ho vulgui esborrar ha de dir aquell camí. Una carpeta de `/apps` que no porta
@@ -109,10 +109,11 @@ app: Editor (/apps/editor)
   boards      esp32
   icon        --
   description A graphical text editor on the glass, with the menu bar of the
-              system: File opens, saves and closes a page, and View turns it
-              read-only and turns word wrap on and off, the two of them with a
-              tick in the menu. `run edit` is the modal editor of the serial
-              terminal.
+              system: File opens, saves, saves as and closes a page, and View
+              turns it read-only and turns word wrap on and off, the two of them
+              with a tick in the menu. A long file carries a scroll bar on the
+              right of the box, and the gesture that moves it is the app's to
+              register.
 ```
 
 El que el manifest no diu surt amb un guió llarg i no s'amaga, i un nom que la porta no té és
@@ -184,8 +185,8 @@ Regles de validació, totes amb error clar i el nom del camp:
 - **`esp32` és el xip, no una placa amb tot.** Una ESP32 pelada no porta cap botó, o sigui que una app
   que **necessita** tecles les ha de nomenar pel seu nom (`m5stack-atom`, `m5stack-paper`) i no pot
   dir `esp32`: el manifest diu on l'app **funciona**, i la família sencera inclouria una placa sense
-  res per prémer. L'app `keys` és el cas: nomena les tres plaques que en tenen.
-- **El banc no és cap placa i no es nomena, però diu quina és.** `sys.board` a l'emulador diu el
+  res per prémer. Una app que demani les tecles nomena les tres plaques que en tenen, una per una.
+- **L'emulador no és cap placa i no es nomena, però diu quina és.** `sys.board` a l'emulador diu el
   **model que se li ha dit que sigui** —`--board m5stack-paper`, que és obligatori—, i
   `sys.emulator` continua cert (docs/85). Com que respon **un** nom i no tres, `boards` es compara al
   PC exactament com a la placa: una app del model corre i una d'un altre model es refusa, dient les
@@ -261,15 +262,15 @@ vegada. Una app nova la veu la petició següent, sense reiniciar.
 Una app pot acabar corrent en una placa que no ha vist mai. El que li ho diu és `sys.board`, amb **el
 nom que la placa té a `platformio.ini`** (`board = m5stack-atom`) o el nom propi de la placa de la
 família que canvia què es pot tocar (`m5stack-atom-matrix`). Al PC, el nom és el de la placa que el
-banc ha rebut amb `--board`, i `sys.emulator` és el que diu que el maquinari de sota és fals. Una app
+emulador ha rebut amb `--board`, i `sys.emulator` és el que diu que el maquinari de sota és fals. Una app
 que toca maquinari mira això abans de res i decideix el camí; mai suposa que és a la placa on es va
 escriure. El detall i les regles són a [`30 · API de Lua`](30-api-lua.md#saber-on-sexecuta).
 
 **I `boards` no és només per al `run`**: és el que decideix **què porta el disc de cada placa**. El disc
 d'un entorn el munta `tools/make_disk.py` amb les apps el manifest de les quals nomena **aquella placa o la
-seva família** —l'ATOM porta les genèriques (`esp32`) més `light` i `keys`, que són les que demanen el seu
-maquinari, i la Paper les genèriques més `keys`—, i cada carpeta del disc és un enllaç a `apps/` de l'arrel.
-El banc i les proves no són cap placa i en porten totes (docs/70, docs/80).
+seva família** —avui totes les del repositori nomenen `esp32`, o sigui que qualsevol placa les pot portar
+si el seu entorn les demana—, i cada carpeta del disc és un enllaç a `apps/` de l'arrel.
+L'emulador i les proves no són cap placa i en porten totes (docs/70, docs/80).
 
 ## Handlers d'extensió
 
@@ -415,7 +416,7 @@ arriba cap `app.args.restore`: no ve de cap son, ve d'un arrencada.
 ## Una app mínima
 
 ```lua
--- apps/hello/hello.lua: l'app més curta que té sentit
+-- apps/<id>/<id>.lua: l'app més curta que té sentit
 console.print("Hola. Escriu 'sortir' i Enter.")
 while true do
   local line = console.read_line()

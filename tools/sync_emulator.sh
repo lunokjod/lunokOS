@@ -9,10 +9,10 @@
 #
 # The copy is a replacement, not a merge: an app removed from the repository is
 # removed from the emulator too, or the two disks drift apart in silence. What the
-# bench itself wrote stays where it is: only `apps/` and `res/` are replaced.
+# emulator itself wrote stays where it is: only `apps/` and `res/` are replaced.
 #
 # **`-L` because the assembled disk carries the apps as a link**: `make_disk` puts
-# `apps/` there as a symbolic link, which `mklittlefs` and the bench follow
+# `apps/` there as a symbolic link, which `mklittlefs` and the emulator follow
 # (measured 3/11, docs/70) but which would point nowhere from inside
 # `emulator/littlefs`, so the copy materialises it.
 set -e

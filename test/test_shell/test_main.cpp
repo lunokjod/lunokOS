@@ -117,7 +117,7 @@ uint32_t storage_calls(meter::Op op) {
 // **The disk of this suite, and only of this suite** (4/11): a directory of its own that the run makes and
 // wipes, because these tests write apps and files and then ask the shell to find them. They used to write
 // into whatever disk the options happened to name —`data/` and then the build's— which is why four of them
-// were red for days and why one default elsewhere in the bench could turn them green without touching them:
+// were red for days and why one default elsewhere in the emulator could turn them green without touching them:
 // a test that writes in the repository is not testing the repository (docs/85).
 char g_root[96];
 
@@ -152,7 +152,7 @@ void ensure_booted() {
   // **The three doors of a disk that has just been formatted**: an empty volume has no `/apps`, `/res` or
   // `/data`, and the shell's paths are those, so the suite makes them once for every test in it. **`/apps` is not made
   // here on purpose** (0.88.19): `vfs::init` creates it, because the door of the apps has to be there on a disk that
-  // never had one —the bench carries no app at all, and `repo install` writes the first one—. A suite that made the
+  // never had one —the emulator carries no app at all, and `repo install` writes the first one—. A suite that made the
   // folder itself would not ask the question, and the question was a real bug: the install worked and `run` said
   // `cannot read: /apps/<id>/<entry>` (docs/70, docs/85).
   if (hal::IStorage* storage = hal::platform().storage("/littlefs")) {
@@ -232,13 +232,13 @@ void test_mem_command_is_known(void) {  ensure_booted();
 }
 
 // **The ceilings of the two homes are the board's and the books are exact** (docs/75, docs/85): the
-// bench hands out the board's own RAM and its extra memory from the machine's heap, and a block that
+// emulator hands out the board's own RAM and its extra memory from the machine's heap, and a block that
 // does not fit either home is refused here, before the board would have refused it. The bytes that come
 // back are the bytes that went out, a block that has to move keeps what it held, and a home that is
 // asked for and full is not the other home's refusal.
 static void test_a_block_that_does_not_fit_the_ceilings_is_refused() {
   ensure_booted();
-  // **The books start here and not at boot**: the blocks the boot took were handed out by a bench with no
+  // **The books start here and not at boot**: the blocks the boot took were handed out by an emulator with no
   // ceiling, and counting them now would make this test's arithmetic the boot's (docs/85).
   // **The home of this case is the floor plus four kilobytes** and not four kilobytes: a block goes to the
   // chip's own RAM only while sixty-four kilobytes are left after it (0.151.20, `pal::kHomeReserveBytes`), so a
@@ -304,7 +304,7 @@ static void test_a_block_that_does_not_fit_the_ceilings_is_refused() {
   // the floor, because the floor says the order and not the refusal.
   TEST_ASSERT_EQUAL_UINT32(kHome - 4016 - 8016, pal::memory_left(false).lowest_free_bytes);
 
-  // **And a bench with no model is a bench with no ceiling**, which is what every other test of this
+  // **And an emulator with no model is an emulator with no ceiling**, which is what every other test of this
   // suite is and what the PC's own heap is (docs/85).
   pal::set_memory_bytes(0, 0);
   TEST_ASSERT_FALSE(pal::memory_left(false).counted);
@@ -430,7 +430,7 @@ void test_an_ampersand_runs_an_app_in_the_background(void) {
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "only an app goes to the background"), said);
 
-  // The bench is left as it was found: the app in the background is closed, with its goodbye hooks.
+  // The emulator is left as it was found: the app in the background is closed, with its goodbye hooks.
   kernel::shell::close_app();
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app is closed");
   storage->remove("/apps/lunok-bg/app.lua");
@@ -507,8 +507,8 @@ void test_a_session_of_the_shell_is_a_shell_with_three_pipes(void) {
 // Ctrl+D ask for a closed session, and **what closing means is the console's business** (`IConsole::virtual_terminal`).
 // On a **serial port** nobody is at the other end to close the wire and it is the only way into a board with no
 // glass, so the session is not closed at all: the board says so, nothing that arrives is a line, and the **Enter** of
-// the terminal opens a new one. On a **virtual terminal** —the console of the bench, a program on a PC that somebody
-// started— the session really closes and the run stops, which is what `poweroff` does on the bench (docs/30, docs/50,
+// the terminal opens a new one. On a **virtual terminal** —the console of the emulator, a program on a PC that somebody
+// started— the session really closes and the run stops, which is what `poweroff` does on the emulator (docs/30, docs/50,
 // docs/85).
 void test_the_session_of_the_console_closes_and_opens_again(void) {
   ensure_booted();
@@ -557,8 +557,8 @@ void test_the_session_of_the_console_closes_and_opens_again(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "logout: the session is closed"), said);
   TEST_ASSERT_NULL_MESSAGE(strstr(said, "lunokOS "), said);  // `version` was not run
 
-  // **And the console of the bench is a virtual terminal**: `logout` closes the session for real and the run stops.
-  // The case boots again so that the ones after it find the bench running with its console open (docs/85).
+  // **And the console of the emulator is a virtual terminal**: `logout` closes the session for real and the run stops.
+  // The case boots again so that the ones after it find the emulator running with its console open (docs/85).
   kernel::shell::feed("\r", 1);
   pal::set_virtual_terminal(true);
   capture_begin();
@@ -567,7 +567,7 @@ void test_the_session_of_the_console_closes_and_opens_again(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "logout: the session is closed"), said);
   TEST_ASSERT_FALSE_MESSAGE(kernel::running(), said);
   kernel::boot(hal::platform());
-  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the bench is running again");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::running(), "the emulator is running again");
 
   // **`help` answers each of the two names**: they are two lines of the list and not one with a comma, because a
   // word of the list has to be the whole command —`help pow` is not `power`— (docs/30).
@@ -576,7 +576,7 @@ void test_the_session_of_the_console_closes_and_opens_again(void) {
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "the same as exit"), said);
 
-  // The bench is left as it was found: a console that cannot be hung up, which is what the cases after this one have.
+  // The emulator is left as it was found: a console that cannot be hung up, which is what the cases after this one have.
   pal::set_virtual_terminal(false);
 }
 
@@ -943,7 +943,7 @@ void test_the_listing_is_one_object_and_not_a_frame_of_the_stack(void) {
 // **A listing is walked once and not once per entry** (0.88.5): `entry_at` answers an index by reading the document from
 // its first byte, so asking it for the twenty files of an app was twenty opens and twenty passes over forty-four
 // kilobytes of JSON. `start` / `next` / `stop` walk it in order —one open, one pass— and give the same entries, which is
-// what an install asks for. The two ways are measured here on a document of forty entries: the numbers are of the bench
+// what an install asks for. The two ways are measured here on a document of forty entries: the numbers are of the emulator
 // and not of the board, but the ratio is the point (docs/75).
 void test_a_listing_is_walked_once_and_not_once_per_entry(void) {
   ensure_booted();
@@ -1091,7 +1091,7 @@ void test_a_key_longer_than_the_buffer_is_dropped_and_does_not_match(void) {
 void test_the_terminal_comes_back_after_more_than_one_init(void) {
   // **No terminal, nothing to save**: the suite can run with its stdin on a file, and then this is not a thing.
   if (isatty(STDIN_FILENO) == 0) return;
-  // Whatever the test before left, this starts from a terminal the bench has given back.
+  // Whatever the test before left, this starts from a terminal the emulator has given back.
   pal::shutdown();
   struct termios before;
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, tcgetattr(STDIN_FILENO, &before), "the terminal cannot be read");
@@ -1103,7 +1103,7 @@ void test_the_terminal_comes_back_after_more_than_one_init(void) {
   // And the raw mode is on, which is what lets a key be read without a line.
   struct termios during;
   TEST_ASSERT_EQUAL_INT(0, tcgetattr(STDIN_FILENO, &during));
-  TEST_ASSERT_TRUE_MESSAGE((during.c_lflag & ECHO) == 0, "the bench did not put stdin in raw mode");
+  TEST_ASSERT_TRUE_MESSAGE((during.c_lflag & ECHO) == 0, "the emulator did not put stdin in raw mode");
 
   pal::shutdown();
   struct termios after;
@@ -1116,10 +1116,10 @@ void test_the_terminal_comes_back_after_more_than_one_init(void) {
 }
 
 // **The door of the apps opens on a disk that never had one** (0.88.19): `/apps` is the virtual directory that puts
-// `littlefs/apps` and `sd/apps` together, and the bench carries no app at all, so `repo install` writes the first app
+// `littlefs/apps` and `sd/apps` together, and the emulator carries no app at all, so `repo install` writes the first app
 // into a disk that has no `apps/`. The row was decided at boot and nothing looked again: the install worked, `apps`
 // listed the app (it walks the drive) and `run` answered `cannot read: /apps/<id>/<entry>` because the door was shut
-// (found on the bench, 4/11, docs/40, docs/70).
+// (found on the emulator, 4/11, docs/40, docs/70).
 void test_the_door_of_the_apps_opens_on_a_disk_that_had_none(void) {
   ensure_booted();
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -1263,7 +1263,7 @@ static void test_stats_prints_the_meters_that_were_never_called() {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(row, "-"), said);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "kernel.loop"), said);
   // And the meters the board does not have are not rows: asking the platform is what makes the test true
-  // on the ATOM and on the Paper without knowing which one the bench is.
+  // on the ATOM and on the Paper without knowing which one the emulator is.
   const hal::Caps& caps = hal::platform().caps();
   TEST_ASSERT_EQUAL(caps.has(hal::kCapDisplay) ? 1 : 0, strstr(said, "glass.flush") != nullptr ? 1 : 0);
   TEST_ASSERT_EQUAL(caps.has(hal::kCapSd) ? 1 : 0, strstr(said, "sd.read") != nullptr ? 1 : 0);
@@ -1384,7 +1384,7 @@ static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
   kernel::shell::prompt();
   capture_end(said, sizeof(said));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "\x1b[1;32mlunok\x1b[0m"), said);
-  // The bench goes back to being a pipe, so nothing after this test reads an escape byte.
+  // The emulator goes back to being a pipe, so nothing after this test reads an escape byte.
   kernel::shell::set_ansi(false);
 }
 

@@ -34,7 +34,7 @@ namespace kernel {
 // read as a bug (docs/75, docs/90).
 // 0.8.2 (31/10): a pass over every document against the code, with the code winning: the
 // error table, app.info, fs.mounts (which stopped the list at eight of the ten rows), the
-// seed of math.random, the RTC chip of the Paper, the keys and lights of the bench, the
+// seed of math.random, the RTC chip of the Paper, the keys and lights of the emulator, the
 // memories of the emulator and three numbers that did not add up (docs/30...docs/95).
 // 0.9.0 (31/10): the light has effects. `led.play` runs breathe, blink, sos and bounce on the
 // turn clock —no thread, no queue of frames it owes— with a colour ramp, `led.stop` hands it back
@@ -101,9 +101,9 @@ namespace kernel {
 // per touch is not a console a system can be used with (docs/50, docs/95 E-6).
 // 0.18.3 (1/11): **the four holes the native suite found, the first time it was run.** A rectangle that
 // starts or ends at an odd pixel painted its neighbour —the text of the bar got one column fatter per
-// letter— in the canvas, in the panel driver and in the bench; the damage list that runs full threw the
+// letter— in the canvas, in the panel driver and in the emulator; the damage list that runs full threw the
 // last region away instead of growing to hold it (eight pieces at the top and one at the bottom came out
-// as 430 rows); the bench's glass recorded the last `blit` instead of the rectangle that changed, so the
+// as 430 rows); the emulator's glass recorded the last `blit` instead of the rectangle that changed, so the
 // bar's paint carried another copy's region; and `orientation::turn` read its own output when a caller
 // chained a turn into the same point. 230 cases in 10 suites, green (docs/30, docs/50, docs/85).
 // 0.19.0 (1/11): **the canvas of an app, which is the first piece of the control layer.** `ui.canvas(w, h)`
@@ -115,9 +115,9 @@ namespace kernel {
 // into the canvas that took its slot. `font::draw` grew the `Clip` a label will be made of (docs/30,
 // docs/90), and the app `layers` shows it.
 //
-// Running it said three things that were not so: the bench **never announced `display`**, so an app that
-// asked `sys.caps().display` was told no on a bench whose glass was there —and the view behind it was
-// built anyway—; the console of the bench and the kernel's `printf` were two streams, so the boot lines
+// Running it said three things that were not so: the emulator **never announced `display`**, so an app that
+// asked `sys.caps().display` was told no on an emulator whose glass was there —and the view behind it was
+// built anyway—; the console of the emulator and the kernel's `printf` were two streams, so the boot lines
 // came out after the prompt; and the prompt was written **before** the hardware boot, so every line the
 // board says about itself looked like an answer to something nobody had typed. The first is the
 // capability that was missing, the other two are one order (docs/85).
@@ -167,7 +167,7 @@ namespace kernel {
 // the object carries the slot and the generation, every call checks both, and an object whose control is
 // no longer there answers `nil, E_INVAL` —`canvas (gone)` from `tostring`— while a new canvas in that slot
 // can never be written through it, because the generation of that slot has moved on (docs/30, docs/90).
-// 0.19.1 (1/11): **the day on the board, written down**. The control layer says the same on the bench and on the Paper
+// 0.19.1 (1/11): **the day on the board, written down**. The control layer says the same on the emulator and on the Paper
 // —`run layers` gives the six lines the same, the counts `1 / 1 / 2` included—, and the numbers that were missing are
 // in their place: `ui: view 540x932 at 0,28, 251640 bytes of canvas`, the touch with two points and the long press
 // gesture with 1002 ms of real time. And two things the run brought out and the documentation said the other way
@@ -202,7 +202,7 @@ namespace kernel {
 // while the system boots. And **the time of a call is counted until it resolves**: a call that returns a promise has
 // not finished when it returns, and `sys.delay(50)` costs fifty milliseconds in `lua.call` and not the eight
 // microseconds of the call. The review of every door of the HAL —what is counted and what is not, with the reason— is
-// in `docs/50`. **And one error the bench brought out**: the memory of a Lua *userdata* does not come at zero, and the
+// in `docs/50`. **And one error the emulator brought out**: the memory of a Lua *userdata* does not come at zero, and the
 // field of the counter of a promise carried rubbish in it; a promise without a time put **an hour and a half** there
 // from five calls (`lua.call 4988744 ms`, measured on the board on 1/11). The field is started when the promise is made
 // and the closure refuses a beginning that has never happened. And **every time of `stats` is written in the scale it
@@ -219,42 +219,42 @@ namespace kernel {
 // (the turn of the kernel), `lua.run`/`lua.own` (the turn of the app and what is its own code), `psram.alloc`/`psram.free`
 // (the extra memory is a device of this board), and **the least and the most** of every row on top of the average. **And
 // `boot` was a dead counter** —the identifier was there and nobody pointed anything at it, so the row would never have
-// come out— and it counts now what the system takes to come up: 108 ms on the bench. And the meters that **contain**
+// come out— and it counts now what the system takes to come up: 108 ms on the emulator. And the meters that **contain**
 // others (`boot`, `kernel.loop`, `lua.run`, `lua.own`, `lua.call`) do not go into the sum of the doors, or the same
 // microsecond was counted three times and the total went past a hundred per cent (138 %, measured). It costs **1 208 B
 // of RAM and 9 076 B of flash** on the Paper (docs/30, docs/50, docs/75, docs/80, docs/85).
-// 0.21.0 (1/11): **the glass of the bench in a window**. `--gui` opens an X11 window with the buffer of the
+// 0.21.0 (1/11): **the glass of the emulator in a window**. `--gui` opens an X11 window with the buffer of the
 // `MemorySurface` inside, and paints it every time the panel paints —the counter of paints is the question, so a turn
 // with no paint costs nothing— with the sixteen levels in greys and the page as the app draws it (540x960, not the
 // glass lying down). It carries `--display` with it, it says no if there is no `DISPLAY`, and closing it ends the run
-// like three ESC. It is X11 and a `-lX11` behind `-DLUNOK_GUI_X11`; without Xlib the bench compiles the same and says it
+// like three ESC. It is X11 and a `-lX11` behind `-DLUNOK_GUI_X11`; without Xlib the emulator compiles the same and says it
 // has no window. **The window is not the panel**: there is no ink, no ghost and no blink in it, and the conversion of
 // four bits to a pixel —the part that can be tested with no screen— has its test in `test_ui` (docs/85).
-// 0.22.0 (1/11): **the glass of the bench moves ink**. An e-ink panel does not light pixels: a paint of `du` leaves a
+// 0.22.0 (1/11): **the glass of the emulator moves ink**. An e-ink panel does not light pixels: a paint of `du` leaves a
 // quarter of what was there, the dirt piles up if nothing cleans, one in a thousand misses a level, and a paint lasts
-// as long as its quality (450 ms a `gc16`, 120 a `du`), so `idle()` on the bench tells the truth and `run panel` gives
+// as long as its quality (450 ms a `gc16`, 120 a `du`), so `idle()` on the emulator tells the truth and `run panel` gives
 // 480 ms there instead of 1. The paper is warm (`#EFEADC`) and the ink is not completely black (`#1A1B18`), because a
 // page read in a perfect monochrome is a page that looks better than the one the person will have in their hands. The
 // whole model is a table (`emu_ink.cpp`) and `--no-ink` takes it out; the tests run with it out and two of them try it
 // —the trace of a `du`, the clean of a `gc16`, and the time of each quality— (docs/50, docs/85).
-// 0.23.0 (1/11): **the bench pays the bus and draws the blink**. A paint is worth now what it is worth on the board:
+// 0.23.0 (1/11): **the emulator pays the bus and draws the blink**. A paint is worth now what it is worth on the board:
 // the region that changes is sent before the paint is asked for (`ink_transfer_us`) at 0.8 µs a byte —the bus of the
 // driver, 10 MHz— **plus 1 100 µs per row**, which is the only number of this model that comes out of a measurement:
-// the page of `run panel` cost 1 985 ms on the board and its counts leave that per row, and the whole path on the bench
+// the page of `run panel` cost 1 985 ms on the board and its counts leave that per row, and the whole path on the emulator
 // gives 1 970 ms (docs/95, E-7). The wait is inside `flush`, the way it is on the board: the bus stops the kernel and
-// the bench does the same with a `usleep`, and a paint waits for the ink of the one before (`wait_paint`). And **`a2`
+// the emulator does the same with a `usleep`, and a paint waits for the ink of the one before (`wait_paint`). And **`a2`
 // blinks**: white, then black and then the image (`step_ink`), which is what the sheet of the maker says and not what
 // this unit did, where `a2` painted nothing (docs/95, E-7). `--no-ink` is still the glass of the tests: there is nothing
 // to send either (docs/50, docs/85).
-// 0.24.0 (1/11): **the glass of the bench has fingers**. `--touch` gives the Paper's model its GT911
+// 0.24.0 (1/11): **the glass of the emulator has fingers**. `--touch` gives the Paper's model its GT911
 // (`emu::Gt911Panel`): the frame of the page —a finger at (100,200) is at (100,172) of the view—, the **two** fingers
 // of its configuration, the size of the contact the board gave (28 and 30) and what it costs to read it: **800 µs**
 // with no finger, **1 830** with one and **2 550** with two, three transactions at 100 kHz and nine bits per byte, plus
 // the ~17 ms of the probe of 186 bytes. **And the real problem**: the chip scans by itself and gives the frame **once**,
 // so a reader faster than the glass reads "nobody" with a finger on it; `--touch-scan <ms>` is how that is reproduced
-// (40 ms against a turn of 20) and `Gt911Panel::missed()` counts it. On the bench there is no bus, and that is said
+// (40 ms against a turn of 20) and `Gt911Panel::missed()` counts it. On the emulator there is no bus, and that is said
 // too (docs/50, docs/85, docs/95).
-// 0.25.0 (1/11): **one switch for every time of the bench**. `Options::delays` —which is born **false**, which is how
+// 0.25.0 (1/11): **one switch for every time of the emulator**. `Options::delays` —which is born **false**, which is how
 // the tests have always run, and which the binary turns on— decides whether a read of the disk, a byte of the port, the
 // bus and the ink of a paint and the three transactions of the touch are paid or not. The model does not change: the
 // ghost, the dirt and the frame of one time are still there the same. `--no-delay` leaves it off, and `--gui`
@@ -266,15 +266,15 @@ namespace kernel {
 // (819 µs of wire), pages of 256 B (0.4 ms) and **sectors of 45 ms that have to be erased before writing**; the card at
 // 10 MHz, sectors of 512 B (410 µs) and an order of 200; and the FRAM, which is I2C at 100 kHz and where **one byte is
 // 90 µs**. The NVS is a partition of the flash and pays the same. And the block of the PSRAM the kernel asks for costs
-// the walk of the allocator (20 µs): the bytes are CPU time and this bench has no CPU clock, and it says so.
+// the walk of the allocator (20 µs): the bytes are CPU time and this emulator has no CPU clock, and it says so.
 // `--read-delay` disappears because the flat clock was part of what was fixed (docs/50, docs/85).
-// 0.27.0 (1/11): **the battery the bench runs on, borrowed from the board**. The cell of the Paper is **1150 mAh** and
-// it is read as millivolts behind a divider on GPIO35; the machine of the bench says a percentage. `--battery-host`
+// 0.27.0 (1/11): **the battery the emulator runs on, borrowed from the board**. The cell of the Paper is **1150 mAh** and
+// it is read as millivolts behind a divider on GPIO35; the machine of the emulator says a percentage. `--battery-host`
 // takes that percentage and runs it through **the curve of the cell of the model** (`hal::battery_mv`, the inverse of
 // `battery_percent`), so 63 % of the laptop is 3 847 mV of the Paper and not the 11 V of its battery. And what it costs
 // to ask is paid: **four conversions of ADC at ~100 µs and ~1 ms of characterisation the first time**. With
 // `--no-delay`, nothing (docs/50, docs/85).
-// 0.28.0 (1/11): **three apps that try the bench and the board with the same page**. `ghost` paints eight passes of
+// 0.28.0 (1/11): **three apps that try the emulator and the board with the same page**. `ghost` paints eight passes of
 // `du` over the same block and cleans them with a `gc16` —the ghost, with the time of every paint—; `draw` makes a
 // stroke that follows the finger and has a box that cleans the page, and says where every point lands; and `cost`
 // measures where it runs what a `stat`, a listing, a read, a write, a paint of each quality, the gauge, the touch and
@@ -285,24 +285,24 @@ namespace kernel {
 // ceiling of eleven —the stuck image, which is what the glass does and not a pixel that stops— and the grain is **eight
 // in a thousand** with a miss of two levels once in every four. The test that measures it: a step of sixteen levels
 // repainted with `du` leaves five levels of travel on the bands, and the same paint over a flat page leaves zero.
-// 0.29.0 (1/11): **the code of the app costs too**. The bench ran the instructions of Lua at the speed of a PC, so a
+// 0.29.0 (1/11): **the code of the app costs too**. The emulator ran the instructions of Lua at the speed of a PC, so a
 // loop that lasts a second on the glass lasted one millisecond here and no number of `lua.own` meant anything. The hook
 // of the interpreter counts **two thousand** of them and pays the price when the sum passes half a millisecond, and what
 // is left is paid at the end of the turn (`--lua-cpu`, **60 ns at 160 MHz**, divided by the simulated frequency). The
-// band says what one instruction costs —zero on a board, where the time is the real one— and the bench is the one that
+// band says what one instruction costs —zero on a board, where the time is the real one— and the emulator is the one that
 // says sixty (docs/85).
-// 0.30.0 (1/11): **the battery of the bench does not have to be asked for any more**. A model with a gauge answers
+// 0.30.0 (1/11): **the battery of the emulator does not have to be asked for any more**. A model with a gauge answers
 // `power.battery()` on the first try, because the `%` of this machine is read by itself at the boot and goes through the
 // curve of the cell of the Paper; a machine with no battery leaves the cell at **its nominal charge (3 700 mV, 42 %)**, says
 // so, and `--battery-mv` rules over the loan. Before this, `run battery` on the Paper said "this board does not know its
 // battery", which is what the board says only when it has none (docs/50, docs/85).
 // 0.31.0 (1/11): **the hardware of the model is there from the boot, and does not have to be asked for**. The glass and
-// the GT911 were opt-in, and `run draw` on a Paper of the bench said "this board needs a touch panel and a glass for
+// the GT911 were opt-in, and `run draw` on a Paper of the emulator said "this board needs a touch panel and a glass for
 // this": a board somebody has in their hands does not have that state. `Model::glass` says which board draws now (the
 // Paper; the ATOMs have no screen), the binary turns on the glass and the fingers the model has, and `--no-display` /
 // `--no-touch` take them out for a measurement that is not of pixels. A `--display` or a `--gui` on an ATOM is refused
 // saying so, and `sys.caps()` only announces what the board has (docs/50, docs/85).
-// 0.32.0 (1/11): **the mouse of the window is a finger of the GT911**. A Paper of the bench with `--gui` had the glass on
+// 0.32.0 (1/11): **the mouse of the window is a finger of the GT911**. A Paper of the emulator with `--gui` had the glass on
 // the screen and no way of touching it: `run draw` and `run glass` asked for a finger nobody could put there. Pressing is
 // the finger that goes down, moving with the button down is the finger that moves and letting it go is the finger that
 // comes up, in the frame of the chip —and the pixel of the window is turned into the pixel of the page through the centre
@@ -320,7 +320,7 @@ namespace kernel {
 // look at, and the window manager put them wherever it wanted. The keys are now inside the window of the glass, and a
 // click on a button is a key and a click on the page is a finger, with the buttons measured in pixels of the window so
 // that they do not shrink with the scale (docs/85).
-// 0.34.1 (1/11): **the side of the buttons is said by the descriptor of the input, and not by the bench**. In 0.34.0 the
+// 0.34.1 (1/11): **the side of the buttons is said by the descriptor of the input, and not by the emulator**. In 0.34.0 the
 // strip was on the left and that was it, when what rules is `IInput::face()`: the dial of the Paper is on the **left
 // face** (key 0 = GPIO38 centre, key 1 = GPIO37 `Spot::kUp`, key 2 = GPIO39 `Spot::kDown`) and the key of an ATOM is on
 // the **top face**. The side comes out of the face now and out of the order of the spots, so a dial is a column on that
@@ -328,7 +328,7 @@ namespace kernel {
 // (docs/50, docs/85).
 // 0.34.2 (1/11): **the dial of the Paper is on the right of the page, and the descriptor said on the left**. Whoever has
 // the board in their hands says it plainly, and `Face::kLeft` was a guess of the sheet of the maker (their README
-// contradicts itself about left and right, docs/50). `hal_paper` and the bench say `Face::kRight` now, and the window
+// contradicts itself about left and right, docs/50). `hal_paper` and the emulator say `Face::kRight` now, and the window
 // draws the three buttons on the right of the page, which is where they are. Which of the two side keys is `up` is still
 // waiting for somebody to press them (docs/95, E-1).
 // 0.35.0 (1/11): **the window looks like a board and says whether a click arrives**. What is not the page is painted in
@@ -392,7 +392,7 @@ namespace kernel {
 // buffer and answered with a face. Every check of a number that comes from a file is now a subtraction from
 // the length (`at > length || length - at < size`), in both readers. Of 299 cases, **this one was the only
 // red**: the first run of the two formats was 297 green and one that had found a real hole (docs/30, docs/80).
-// 0.43.0 (2/11): **the window of the bench at the size a person asked for** (`--gui-scale <1..4>`): the page
+// 0.43.0 (2/11): **the window of the emulator at the size a person asked for** (`--gui-scale <1..4>`): the page
 // at half —`2`— even on a screen that would hold it whole, which until now only happened when the display was
 // too small. The choice of scale is a pure function (`emu::gui_fit_scale`) with proof in `test_ui`, and the
 // page itself does not change: 540x960 is the model's glass (docs/85). The same day, the turn of the page
@@ -416,7 +416,7 @@ namespace kernel {
 // any file go out as offset, sixteen bytes in hex and the same sixteen in visible text, with the empty
 // tail left out. Like `cat`, it works before the interpreter starts and does not depend on what is
 // installed on the disk (docs/30, docs/70).
-// 0.48.0 (2/11): **the window of the bench is portable**. The pure colours, scaling and key geometry are
+// 0.48.0 (2/11): **the window of the emulator is portable**. The pure colours, scaling and key geometry are
 // one common file; the window itself has an SDL2 backend for X11, Wayland, Quartz and Windows, and the
 // old Xlib backend stays as the POSIX fallback. The build picks SDL2 when it is installed and X11 when
 // only Xlib is there; `LUNOK_GUI=sdl|x11|none` forces one. The host clock and waits are C++11's
@@ -461,7 +461,7 @@ namespace kernel {
 // asked, so nothing pays 150 ms for an answer nobody was going to give— and what arrived while the question was
 // in the air is fed to the line, so the first key a person presses is not eaten by the boot. The rule is pure
 // (`shell::ansi_reply`) and the suite tries it with the replies of a VT100, an xterm, an arrow and a keystroke
-// (docs/85). Measured on the bench: a pipe says `no terminal, ansi not asked`, a pseudo-terminal that does not
+// (docs/85). Measured on the emulator: a pipe says `no terminal, ansi not asked`, a pseudo-terminal that does not
 // answer says `no ansi, spaces and backspaces`, and one that is handed the reply says `ansi`.
 // 0.53.1 (2/11): **a page of controls on the board rebooted with a corrupted backtrace.** `run buttons` on the
 // Paper died before its first line: the UI of a page, the reader of a TrueType font and the interpreter all run
@@ -500,7 +500,7 @@ namespace kernel {
 // out (docs/50, docs/80). And the buffer that holds an app's Lua while it is compiled is **asked from the heap
 // and given back the moment the interpreter has it**: the ATOM Matrix came out **1 184 B over `dram0`** with
 // the static one, and the ATOM goes from **123 392 to 107 008 B of static RAM** (docs/75).
-// 0.56.1 (3/11): **the bench tells the truth about a run that failed, and a bench without a glass has no
+// 0.56.1 (3/11): **the emulator tells the truth about a run that failed, and an emulator without a glass has no
 // page.** `--script` and `--run` answer **1** when an app has died or has exited with a code that is not
 // zero —and a line that does not finish in 30 s is a `1` too—, which is what docs/85 already promised.
 // `--gui` on a model with no glass (an ATOM) is the window of its keys: the panel is not made and no page
@@ -543,16 +543,16 @@ namespace kernel {
 // has passed, because the ink is not there before. `step_ink()` walks the phases, `idle()` waits for the
 // last one, and the window redraws every frame of it: a blink nobody draws is a blink nobody sees
 // (docs/85).
-// 0.58.0 (3/11): **the bench has the memory of the board and the clock of its turns.** The PC's heap is
+// 0.58.0 (3/11): **the emulator has the memory of the board and the clock of its turns.** The PC's heap is
 // handed out against the two homes of the model —the RAM the board reports free at the prompt (338 864 B
 // on an ATOM, 162 728 B on the Paper) and the PSRAM it can map (4 095 KB, none on the ATOMs)— with
 // sixteen bytes of header per block and the board's own rule: the other home before a refusal, and a
 // block that fits neither is refused. `mem` and `sys.heap()` now say what the glass says, a table of
 // 400 000 entries dies on the Paper with `not enough memory`, and `run heap` gives its megabyte back to
 // the byte. And a turn of the kernel pays what it costs on the board: 850 µs after every turn while the
-// bench pays the times of the hardware, so a thousand awaits of a millisecond take 1 888 ms here and
+// emulator pays the times of the hardware, so a thousand awaits of a millisecond take 1 888 ms here and
 // 1 990 ms on the glass instead of the 1 080 ms they took before (docs/75, docs/85, docs/90).
-// 0.59.0 (3/11): **what the board remembers, the bench remembers too.** The credentials of a network go
+// 0.59.0 (3/11): **what the board remembers, the emulator remembers too.** The credentials of a network go
 // to the key-value store —`lunoknet/ssid` for the name and `wifidrv/pass` for the pair, the board's own
 // split— instead of two strings of the run, so `wifi` after a restart says the same network and
 // `wifi connect` gets back on it; provisioning writes them too and `wifi forget` erases the name, which
@@ -561,7 +561,7 @@ namespace kernel {
 // so the Paper comes back saying `source rtc`; and `--persist` is a board that was never unplugged: the
 // RTC RAM is not wiped on the ATOMs and the hour comes back there as `soc`. The NVS and the FRAM needed
 // nothing: they are flash and ferrite (docs/60, docs/70, docs/85, docs/90).
-// 0.60.0 (3/11): **the bench pays what each chip costs, with the numbers of its datasheet.** The heap of
+// 0.60.0 (3/11): **the emulator pays what each chip costs, with the numbers of its datasheet.** The heap of
 // a home is a heap and not a counter —a region cut into chunks with a free list, a split that leaves the
 // rest for somebody else, a merge with a free neighbour on the way out, and a largest block that is not
 // the free total—, so a page fails where the board's would fail with room to spare, `mem` says the
@@ -577,14 +577,14 @@ namespace kernel {
 // 0.60.1 (3/11): **the serial port pays its two directions.** The bytes that go out already cost 86,8
 // microseconds each; now the ones that come in do too, so a line pasted into the terminal is a line that
 // arrives at the speed of the wire and not a block that appears at once (docs/85).
-// 0.60.2 (3/11): **turning the board on is not free either.** The bench pays what the board does before
+// 0.60.2 (3/11): **turning the board on is not free either.** The emulator pays what the board does before
 // the kernel exists: the bootloader reads the image out of the flash (2 097 008 B on an ATOM, 2 182 672 on
 // the Paper, at the ten megabytes a second of dual SPI at forty megahertz) and ESP-IDF's PSRAM test
 // writes and reads every mapped byte at the twenty of quad SPI, so the prompt arrives 210 ms later on an
 // ATOM and 638 ms later on the Paper —0,39 s and 0,84 s from the start instead of 0,19 and 0,20— and the
 // run says whether it is paying (docs/75, docs/85).
-// 0.61.0 (3/11): **the page of the bench is the page the address answers.** `http` from the prompt and
-// `http.get` from an app fetch the real URL: the bench hands it to `curl` in a child of its own —`-q`,
+// 0.61.0 (3/11): **the page of the emulator is the page the address answers.** `http` from the prompt and
+// `http.get` from an app fetch the real URL: the emulator hands it to `curl` in a child of its own —`-q`,
 // without a `~/.curlrc`, following up to ten redirections, with the certificate checked against the
 // roots of this machine— and the body and the status come back from the wire, so
 // `http https://github.com/...` shows the beginning of that page instead of a line saying the
@@ -604,7 +604,7 @@ namespace kernel {
 // back from there—, and `http <url> <path>` writes it wherever it is told. On the board the page streams
 // from `esp_http_client` into the file in 512 B chunks, the first `max_bytes` stay in memory when the
 // caller wanted a body, and a page that cannot fit in the volume is refused from its `Content-Length`
-// instead of being written halfway; on the bench the file `curl` already wrote is copied through the
+// instead of being written halfway; on the emulator the file `curl` already wrote is copied through the
 // storage that charges the disk, so half a megabyte of flash costs what it costs. **A download is a
 // write**: it lands where the same caller could write a file —`/data/<id>/` for an app, any mounted
 // drive for the prompt—, so a page cannot go where `fs.write` would answer `E_INVAL`, and a path that is
@@ -632,7 +632,7 @@ namespace kernel {
 // 0.64.0 (4/11): **the blink of the glass reaches the window**. The model of the ink was already there since 0.22.0 —a
 // `du` leaves a part of what was there, a `gc16` blinks and cleans, and the dirt piles up—, but the window was drawn once
 // per turn and a turn is one paint: between the page before and the one after there was no frame at all, and what a person
-// saw was a page that changed in one go. The fault was the bench's and not the model's: a paint has its caller stopped for
+// saw was a page that changed in one go. The fault was the emulator's and not the model's: a paint has its caller stopped for
 // more than a second —the bus of the region that is sent and the ink that has to move— and the panel, all that time, keeps
 // doing the blinks of the quality it has been asked for. `MemorySurface::wait_and_pump()` splits every wait of the glass
 // into pieces of **10 ms** now and calls the *pump* of the window in between, which is `pump_gui` with the same `step_ink()`
@@ -685,7 +685,7 @@ namespace kernel {
 //     it still holds the whole file in memory, which is what lets `x` and `i` move what is behind.
 //   - **The temporary of the named path is the named path too**: `fs.open('/littlefs/x.txt.tmp', 'w')` was forbidden and
 //     an atomic save from an app could not exist; it is the same permission as the file now (docs/70).
-//   - And **an error of the heap of the bench**, which is what brought the problem out: a block of the PSRAM that could
+//   - And **an error of the heap of the emulator**, which is what brought the problem out: a block of the PSRAM that could
 //     not grow in its place only tried the other home and said `not enough memory` with four megabytes free in the same
 //     PSRAM (docs/75). `move_into` moves it to any spot of its own.
 // 0.66.1 (4/11): **the apps leave `data/` and move to `apps/`**, at the root of the project, one folder
@@ -696,10 +696,10 @@ namespace kernel {
 // been going out short of apps, in silence, for as long as the apps have been there—. The system's own
 // `data/` (`res/` and `data/`) fits that partition with room to spare. So the disk is now **assembled per
 // board** by `tools/make_disk.py` into `build/disk` (`data_dir` in platformio.ini): `data/` for the 4 MB
-// boards, and `data/` plus a **live link** to `apps/` for the Paper (11,9 MB) and the bench. Measured the
-// same day: `mklittlefs` **follows** a symbolic link to a directory, and so does the bench (`emu_storage`
+// boards, and `data/` plus a **live link** to `apps/` for the Paper (11,9 MB) and the emulator. Measured the
+// same day: `mklittlefs` **follows** a symbolic link to a directory, and so does the emulator (`emu_storage`
 // uses `stat()` and `S_ISDIR()`), so there is one source, no copy to go stale, and the Paper's image does
-// carry the apps. The bench reads `build/disk` by default, the tests read `apps/…` instead of
+// carry the apps. The emulator reads `build/disk` by default, the tests read `apps/…` instead of
 // `data/apps/…`, and `tools/check_fs_names.py` walks the assembled disk with `followlinks` so the names
 // inside an app are still looked at (docs/10, docs/70, docs/80, docs/85).
 // 0.67.0 (4/11): **`ui.checkbox`**. A checkbox is a row —a square box at its left and the room for the words
@@ -718,7 +718,7 @@ namespace kernel {
 // their words inside, one the dial skips and one that is dark (docs/30, docs/90).
 // 0.67.1 (4/11): **every build has its own disk.** `PROJECT_DATA_DIR` is one value for the whole project, so a
 // single `build/disk` meant that building the ATOM after the Paper changed the disk the Paper was built from
-// —and the one the bench reads— behind its back. `tools/make_disk.py` now assembles `build/disk/<env>` and
+// —and the one the emulator reads— behind its back. `tools/make_disk.py` now assembles `build/disk/<env>` and
 // points `PROJECT_DATA_DIR` at it from a pre-script, which runs before the filesystem target is made (read in
 // PlatformIO's own `builder/main.py`: the pre-scripts come after the `PROJECT_DATA_DIR` default and before
 // `DataToBin`), so `-t buildfs` and `-t uploadfs` take the tree of their own environment. Inside it, `apps/`
@@ -727,7 +727,7 @@ namespace kernel {
 // follows every one of them (measured on 3/11). **The tests copy instead of linking** (`custom_apps_copied`
 // on that environment) because a test creates and deletes apps in the disk it mounts, and writing through a
 // link would write into the repository. The native binaries learn which disk is theirs at build time
-// (`-DLUNOK_DISK_DIR`), so the bench reads `build/disk/emulator` and the suite `build/disk/test` and neither
+// (`-DLUNOK_DISK_DIR`), so the emulator reads `build/disk/emulator` and the suite `build/disk/test` and neither
 // can leave the other reading its leftovers (docs/70, docs/80, docs/85).
 // 0.67.2 (4/11): **each board's disk carries the apps that name it.** `tools/make_disk.py` reads the manifest
 // of every app of `apps/` and keeps the ones whose `boards` lists **the board's id or its chip family** —the
@@ -871,7 +871,7 @@ namespace kernel {
 //     when the package is not there and does not throw, and `os.path.join(None, "mklittlefs")` was a `TypeError` that
 //     stopped the build of `atom`, `paper` and `atom_matrix` right after the line that says the size is not checked. The
 //     disk is assembled the same now and only the check is skipped.
-//   - **The disk of the bench is the one of whoever asks for it again.** `Options::flash_dir` had `LUNOK_DISK_DIR`
+//   - **The disk of the emulator is the one of whoever asks for it again.** `Options::flash_dir` had `LUNOK_DISK_DIR`
 //     serialised into it, so it **covered `fs_dir`** and every test read the disk of the build and not its own: five
 //     tests of `test_img` said the pictures that were there were not. The disk of the build is the default of the
 //     **binary** (`main_host` already sets it) and not of the structure of options.
@@ -879,7 +879,7 @@ namespace kernel {
 //     library (13 021 of Lua, 13 200 of the UI and 3 600 of the other globals), and on the ATOM that left 35 KB for the
 //     app: the same `writer` of the test that wrote six files of 15 000 B began to say `not enough memory`, and
 //     `run edit` did not start. The ATOM answers **338 864 B free**, and 128 KB is 39 % (docs/75, docs/85).
-//   - **The test benches are their own for real**: `test_shell` had no disk —it wrote what it found, and that is why its
+//   - **Each suite has its own disk, and for real**: `test_shell` had no disk —it wrote what it found, and that is why its
 //     four tests had been red for days and turned green by accident when an error of the options made them write
 //     inside the repository—; a temporary directory with the three doors (`/apps`, `/res`, `/data`) is made now. The
 //     test of the faces of `/fonts` writes its two faces on its own disk and leaves the reader of `.ttf` to its suite,
@@ -927,7 +927,7 @@ namespace kernel {
 // cases** (0x20 to 0x7A, 455 B) and does not fold the lower case into the capital, so what is typed is seen as typed, in
 // the box and in the editor. The band is **four rows in both sets** and it is painted with `gl16`: a `du` left the
 // letters of the old set half erased and two keyboards could be seen in it.
-// **And it works**: three things of the bench were hiding the finger. The GT911 of the bench scans by itself and **keeps
+// **And it works**: three things of the emulator were hiding the finger. The GT911 of the emulator scans by itself and **keeps
 // the frame** until a read takes it away (a touch that starts and ends between two reads is still one frame, not
 // nothing); `ITouch::finger_still_down()` says whether the frame is of a finger that is still there, and the kernel then
 // delivers the touch and its lift together; and the queue of the kernel is cut at twenty milliseconds when there is a
@@ -969,14 +969,14 @@ namespace kernel {
 // `hexdump_file` in the shell, from the beginning— and there is no app on the disk with those names: there was nothing to
 // take out, and what the system does from here is say it, with the test of the command and without an `apps/cat` or an
 // `apps/hexdump` folder (docs/30, docs/85).
-// 0.84.3 (4/11): **the tests give back what they ask for.** Two things of the bench were not of the process but of the
+// 0.84.3 (4/11): **the tests give back what they ask for.** Two things of the emulator were not of the process but of the
 // terminal of whoever starts it, and both were left broken. The first: `pump_captured` and the other captures put
 // `stdout` in a file with `dup2`, and a `TEST_ASSERT` that fails goes out through a `longjmp` of Unity and does not pass
 // through the line that puts it back —the failure and the rest of the run were written to the file, `pio test` waited for
 // a summary that did not arrive and killed it with SIGHUP—; the console is put back in `tearDown` now, which Unity calls
 // whatever happens, and what had been captured is said again when the test has failed. The second: `pal::init()` puts
 // the terminal in raw mode and `pal::shutdown()` puts it back, but no suite says anything about it, so the terminal of
-// whoever had started the tests was left without echo until a `reset`; the PAL of the bench installs `atexit` when it
+// whoever had started the tests was left without echo until a `reset`; the PAL of the emulator installs `atexit` when it
 // turns raw mode on and puts it back even when the process ends in the `exit` of a failure. And the last wait without a
 // ceiling of a test —`while (app_running()) poll()`— has the turn budget of the others (docs/80).
 // 0.85.0 (4/11): **the keyboard, drawn for real.** The letters of the keys were the 5 × 7 table of the bar —the same one
@@ -1087,11 +1087,11 @@ namespace kernel {
 // is only the beginning of a command is not the command (`help pow` is not `power`), and a word that answers to nothing
 // says `no such command: x` and that `help` lists them all. On the way, the line of `http` in the list **had a single
 // space** and that is why it came out flat and was no command, not even for `help http` (docs/30, docs/85).
-// 0.88.2 (4/11): **the bench has no app at all**. Neither on the flash nor on the card: its disk is the system (`res/`,
-// `http/`, `data/`) and the slot is empty until somebody puts a card in it, so `apps` on a bench just made says
-// `no apps` and `run` says it does not know the name. An app arrives at the bench as it arrives at a board: with
+// 0.88.2 (4/11): **the emulator has no app at all**. Neither on the flash nor on the card: its disk is the system (`res/`,
+// `http/`, `data/`) and the slot is empty until somebody puts a card in it, so `apps` on an emulator just made says
+// `no apps` and `run` says it does not know the name. An app arrives at the emulator as it arrives at a board: with
 // `repo install <app>`, or with a card of its own through `--sd`. **And `/apps` is a mount only when the directory is
-// there**: a disk with no apps has no such row, so `ls /` and `mounts` do not show a door that leads nowhere (the bench
+// there**: a disk with no apps has no such row, so `ls /` and `mounts` do not show a door that leads nowhere (the emulator
 // found it, saying `no such directory: /apps` and right after `/ has: apps`); the tests mount their disk with the
 // folders before the boot, like a disk that comes with the apps inside (docs/70, docs/80, docs/85).
 // 0.88.3 (4/11): **the code speaks English.** The law says every comment in this repository is in English, and the work of
@@ -1115,10 +1115,10 @@ namespace kernel {
 // twenty files paid twenty opens and twenty parses of the same forty-four kilobytes of JSON, which is O(n²) in the
 // number of entries. The install walks the listing it has open now —`repository::start`, `next` and `stop`, over the
 // same static reader `entry_at` uses— and the index it used to carry between turns (`g_install_entry`) is gone, because
-// the reader knows where it is. **Measured on the bench** with forty entries of about a hundred bytes: **3 131 µs** one
+// the reader knows where it is. **Measured on the emulator** with forty entries of about a hundred bytes: **3 131 µs** one
 // call each against **110 µs** in one walk, **28 times less**, and the gap grows with the number of entries. The reader
 // gives its file back when the folder is finished and also when an install dies in the middle of one (docs/70, docs/75).
-// 0.88.6 (4/11): **`repo install` has a test of the whole chain, and the bench answers per address to make it possible.**
+// 0.88.6 (4/11): **`repo install` has a test of the whole chain, and the emulator answers per address to make it possible.**
 // The fake wire had one canned page for every URL, which is a page and not a chain: an install asks for the listing of
 // the app, the listing of each folder and every file, and all of them are different answers of the same server.
 // **`emu::http_canned(key, body, status)`** adds an answer whose key is a part of the address —the first that matches
@@ -1193,7 +1193,7 @@ namespace kernel {
 // It skipped the copy when `url == g_install_url`, which works and was written down, but it is a rule about the caller's
 // buffer that neither the compiler nor a reader can check: two callers build the address in the state and one hands over
 // a buffer of its own, and now each one says which it is with a word of the call (found in the review of 4/11, docs/75).
-// 0.88.16 (4/11): **two lines that said something that is not true.** The window of the bench answered a mouse that
+// 0.88.16 (4/11): **two lines that said something that is not true.** The window of the emulator answered a mouse that
 // cannot reach the panel with `gui: the window is 540x960 …`, and the number it printed is the **page** and not the
 // window —the window is that plus the strip of the keys, five hundred and ninety-two on the Paper— so whoever read it
 // went looking for a window that size. Both backends say `the page is` now. And the rule written over `kRowUnits` was
@@ -1206,28 +1206,28 @@ namespace kernel {
 // interpreter once per test call it forty-three times in one run (`test_luabind`), and **the second call saved the raw
 // mode that the first had just put there**: the restore at the end then put the raw mode back, and the terminal was left
 // with no echo and no line until a `reset`. The save is done once now —a `tcgetattr` that runs only when the mode is not
-// already this bench's— and the test that guards it asks `tcgetattr` for the flags of before and of after, with three
+// already this emulator's— and the test that guards it asks `tcgetattr` for the flags of before and of after, with three
 // `init`s in the middle (measured: `c_lflag` 35387 before and 35377 after with the defect, which is `ECHO` and `ICANON`
-// gone; 35387 and 35387 with the fix) (found on the bench, 4/11, docs/80, docs/85).
-// 0.88.18 (4/11): **the bench says what not blinking costs.** `glr16` and `gld16` —the qualities an app presents with,
+// gone; 35387 and 35387 with the fix) (found on the emulator, 4/11, docs/80, docs/85).
+// 0.88.18 (4/11): **the emulator says what not blinking costs.** `glr16` and `gld16` —the qualities an app presents with,
 // the bar repaints a box with and the band of the keyboard is washed with, chosen **because they do not blink**, which
 // is the rule of this project— were modelled as a perfect clean: no ghost, no dirt, no speckle. With that, the one
 // decision this system takes everywhere was free here, and a page could be painted a thousand times without showing a
-// mark, which is the one thing a bench must not say. A waveform that does not blink does not take the page back: it
+// mark, which is the one thing an emulator must not say. A waveform that does not blink does not take the page back: it
 // lands close to the level and not on it, so the model gives them **two sixteenths** of what was there and **one
 // sixteenth of dirt per paint** (lighter than a `du`, which is five and one, and not the clean a `gc16` is), with a
 // speckle of two in a thousand. **The numbers are the model's and not a measurement** (docs/95): the test that guards
 // them paints black with `du`, white over it with `gld16` and reads the glass (docs/85, docs/92).
 // 0.88.19 (4/11): **`/apps` is the two disks in one directory, and it is there from the boot.** The row was added only
-// when `littlefs/apps` existed at `vfs::init`, and the bench is a disk with no app at all: `repo install squares` wrote
+// when `littlefs/apps` existed at `vfs::init`, and the emulator is a disk with no app at all: `repo install squares` wrote
 // the first one, the install said `2 files, 4028 bytes`, `apps` listed it —it walks the drive— and `run` answered
 // `cannot read: /apps/squares/squares.lua`, because the door of the apps had never been opened. The folder is **made**
 // now on every mounted disk (a card too), so the door is always a row, and it is what its name promises: `ls /apps`
 // shows `littlefs/apps` and `sd/apps` together —the card first, an app of the card is the one that runs, and no name
 // twice— and a path under it reads the disk that runs that app, which is the same rule `apps` and `root_of` already
-// followed. **Measured on the bench**: a disk with no `apps/` boots with 8 mounts instead of 7 and `ls /` shows it,
+// followed. **Measured on the emulator**: a disk with no `apps/` boots with 8 mounts instead of 7 and `ls /` shows it,
 // and the two tests that guard it —the door on a disk that had none, and the card and the flash in one listing— fall
-// when either half is taken away (found on the bench, 4/11, docs/40, docs/70).
+// when either half is taken away (found on the emulator, 4/11, docs/40, docs/70).
 // 0.88.20 (4/11): **`/apps` is the only entry point of the apps, and it presents what the system wants.** One name on
 // both disks is now presented **twice** —`squares` is the copy of the flash and `squares-SD` the copy of the card, and
 // each name reads and runs its own— instead of the card's copy hiding the flash's, which is what made installing an app
@@ -1242,7 +1242,7 @@ namespace kernel {
 // that names another board is still presented with its `[needs …]`, because hiding it would leave a person with an app
 // on their disk and no trace of it. **The id grew to 40 bytes** (`apps::Entry::id`, `luabind`'s `kAppIdBytes`, the
 // shell's choice table and `open`) because the suffix rides on it and `/cfg` and `/res` hang from that name. **Measured
-// on the bench**: the suite is **419 cases and all of them pass**, and each half of this was taken away on purpose to
+// on the emulator**: the suite is **419 cases and all of them pass**, and each half of this was taken away on purpose to
 // see it fall —without the suffix in `CardSink` the three tests that read a name twice go red (the two disks, the door
 // and the thirty apps of a card); with the flash's half listed without the presenter the test of the folder that is not
 // an app goes red; and with `root_of` answering `/littlefs/apps/<id>` an app cannot read its own `res/` any more —
@@ -1256,7 +1256,7 @@ namespace kernel {
 // same minute). **Only the app goes** —`/data/<id>` and `/cfg/<id>` are what it left behind and not the app— and a folder
 // of `/apps` that carries no `manifest.json` cannot be deleted by typing its name. The message says the disk, not the
 // door: `apps: squares removed from /littlefs/apps/squares, 2 files, 4 028 bytes`, which is what `vfs::on_disk` is for
-// —the mount row that is a disk and not an alias—. Measured on the bench: the suite is **420 cases and all of them
+// —the mount row that is a disk and not an alias—. Measured on the emulator: the suite is **420 cases and all of them
 // pass**, and with the manifest question taken out the test of the folder that is not an app goes red, and with the disk
 // asked twice instead of once the delete says the app is still there (docs/30, docs/40, docs/70).
 // 0.89.1 (5/11): **the two metering scopes that sat after their `return`**. `power::mono_now` and `net::now_ms`
@@ -1266,7 +1266,7 @@ namespace kernel {
 // and docs/50 promise (docs/30, docs/50, docs/75).
 // 0.89.2 (5/11): **the boot does not walk `/apps` any more**. The `[APPS] N found` line counted every app at every
 // boot —a manifest read, a JSON parse and a `stat` of the entry for each— and the boot was therefore a function of how
-// many apps the disk carried, which docs/10 and docs/40 say it is not: measured on the bench with the repository's
+// many apps the disk carried, which docs/10 and docs/40 say it is not: measured on the emulator with the repository's
 // sixty apps, the boot went from **495.8 ms to about 176 ms**, the same boot of a disk with no app at all, and the
 // line of the log goes with the count. `apps::count()` had no other caller and went too; what a person asks for is
 // still answered by `apps`, `ls` and `run`, which walk the door when they are asked (docs/10, docs/40, docs/75, docs/85).
@@ -1281,7 +1281,7 @@ namespace kernel {
 // The two commits of 0.88.2 that escaped —the reused number and the tool that did not touch the header— stay where
 // git put them; this is for the ones that come next (docs/80, law 10 of the README).
 // 0.89.6 (5/11): **the test of the quoted path does not assume the directory order**. The selector lists the handlers
-// in the order the disk gives them, and the CI's file system put `txt` before `txts` where the bench put `txts` first,
+// in the order the disk gives them, and the CI's file system put `txt` before `txts` where the emulator put `txts` first,
 // so `1` started the other app and the assertion failed; the test now reads the number the selector printed for `txts`
 // and answers that. The kernel was right; the test was the one that depended on readdir (docs/40, docs/80).
 // 0.89.7 (5/11): **the ESP32 platform is pinned to 6.5.0**. A fresh CI runner took the latest espressif32, whose
@@ -1290,7 +1290,7 @@ namespace kernel {
 // here. The numbers of docs/75 and the README are measured with a toolchain, and the toolchain is now the one
 // `platformio.ini` names (docs/75, docs/80).
 // 0.90.0 (5/11): **an app that never yields no longer takes the board with it**. The interpreter installs the count
-// hook on every band —not only where the bench prices instructions— and a turn is 100 000 instructions; when it
+// hook on every band —not only where the emulator prices instructions— and a turn is 100 000 instructions; when it
 // reaches them the hook yields the coroutine (`lua_yield` from a hook is supported by 5.4, and `lua_isyieldable`
 // keeps it out of a C call) and `poll` sees a turn and not a promise, so the kernel reads the console, delivers the
 // alarms and asks the button and the radio before the app goes on. **The app is not killed**: a `while true do end`
@@ -1326,7 +1326,7 @@ namespace kernel {
 // que es diu i cap altre**: la targeta contesta `/sd` i prou, perquè la placa **no té FRAM** i el camí que el Paper fa
 // servir —«si no és la flash, prova la targeta»— donava a `/fram` la targeta sencera, una memòria crua que no hi és
 // amb els fitxers d'algú sota un nom que promet 256 bytes (trobat en revisar la placa, 5/11). `sys.board` answers
-// `ttgo-t-koala`, the bench has the same model so an app of this board can be tried on the PC, and the CI
+// `ttgo-t-koala`, the emulator has the same model so an app of this board can be tried on the PC, and the CI
 // builds it with the other five bands (docs/50, docs/70, docs/80, docs/85).
 // 0.94.1 (5/11): **the dots of a page are the counter the old project settled on, and they stay inside their box.** The
 // strip was a row of solid discs —all of them in the same tone, the open one only bigger— and with more pages than fit it
@@ -1339,7 +1339,7 @@ namespace kernel {
 // on, so the strip never leaves its frame and the open page is always one of the balls. The whole strip owes **one**
 // damaged region and not one per ball: with a ball made of two discs the marks would pass the eight a canvas holds and
 // the page would be served the wash of the panel for a page turn (docs/30, docs/90).
-// Measured on the bench: 431 native cases green, and each half of it falls when it is taken away —without the paper
+// Measured on the emulator: 431 native cases green, and each half of it falls when it is taken away —without the paper
 // inside a ring the two new tests of `test_ui` go red, without the window the one of the narrow strip goes red, and
 // without the rod the one of the three balls goes red—.
 // 0.95.0 (5/11): **the system ships `gallery`, the page that shows every control it has.** Twenty of them in eight pages
@@ -1353,7 +1353,7 @@ namespace kernel {
 // bridge and not of the drawing —the strip of 0.94.1 already shows a window of what fits— so a book with forty pages
 // cannot say so on its strip. It is written down here because the day it matters it is a line, and because the app that
 // exists to show what the system has is the one that says what the system cannot do.
-// Measured on the bench: 432 native cases green, the app builds on the Paper with no field refused and each of its eight
+// Measured on the emulator: 432 native cases green, the app builds on the Paper with no field refused and each of its eight
 // pages says its own name; the suite runs one `run gallery <n>` per page and asserts that name, so a page that dies says
 // so instead of looking like a page nobody looked at.
 // 0.95.1 (5/11): **`run gallery` with no word at all is the way a person opens an app, and it was the one that broke.**
@@ -1374,7 +1374,7 @@ namespace kernel {
 // it is in the log.** The step of a face of outlines is eight pixels of body and the table's is seven, so the bar asks the
 // face for the height of a line instead of counting seven: its text is 32 px now and not 28, inside the same 48 rows
 // (docs/30, docs/50, docs/92).
-// Measured on the bench: `[I][UI] face /fonts/dejavusans-bold.ttf, 8 px of body at scale 1`, 433 native cases green, and
+// Measured on the emulator: `[I][UI] face /fonts/dejavusans-bold.ttf, 8 px of body at scale 1`, 433 native cases green, and
 // the test falls when the path does not exist (docs/85).
 // **What this does NOT do, and is the next block**: the numbers. A step is still 8 px, so an app that says `scale` 2 draws
 // 16 px of body and the paper project's text is 32 px —the 43 px line—. Changing that is the theme of the controls
@@ -1407,7 +1407,7 @@ namespace kernel {
 // **What this does NOT do**: the face is still 8 px of body at `scale` 1, so the words are smaller than the original's
 // until the theme of the numbers lands; the row, the list, the tabs, the slider, the text boxes, the selector, the
 // notification bar, the icon grid, the month, the sparkline and the pie keep their old drawing and are the next blocks.
-// **And the same day the amber of the owner made the bench able to SHOW the page**: `--dump <file>` writes the glass to
+// **And the same day the amber of the owner made the emulator able to SHOW the page**: `--dump <file>` writes the glass to
 // a PGM after every paint (docs/85), so what the system draws is looked at instead of guessed. Looking at it found five
 // things that no test was saying and that the owner had been saying with words: the strip of tabs cut every word to
 // "T... N..." because eight columns of a page of five hundred and forty pixels are sixty-seven each —**the bookmarks of
@@ -1420,13 +1420,13 @@ namespace kernel {
 // tone of the theme, with the ring of ink the paper project draws on it, and the track is the paper of the page; and the
 // **captions of the catalogue** were at half the size of the text, which is the "it is all too small" the owner had said
 // twice (docs/92).
-// Measured on the bench: **433 native cases green** (90 of them in `test_ui`), the tests of the button and of the keyboard
+// Measured on the emulator: **433 native cases green** (90 of them in `test_ui`), the tests of the button and of the keyboard
 // fall when their drawing is broken on purpose (`drop = 0` and the margin taken away), and the emulator, `paper` and
 // `atom_matrix` build with no warning.
 // 0.97.1 (7/11): **a page of the network no longer takes the memory the TLS handshake needs, and the handshake itself
 // goes to the extra memory.** On the M5Paper the owner ran `repo` and the board answered `mbedtls_ssl_setup returned
 // -0x7F00` —`MBEDTLS_ERR_SSL_ALLOC_FAILED`, the library saying it could not have a block— with the network up and the
-// address resolved; in the bench the same command brought sixty folders down, because a bench has the memory of a PC.
+// address resolved; in the emulator the same command brought sixty folders down, because an emulator has the memory of a PC.
 // The first measure said where the memory was not: **28 500 B free of the chip's own RAM (26 612 in one piece) beside
 // **3 650 839 B** of extra memory that nobody was using, and a handshake asks for **two buffers of sixteen kilobytes**
 // plus its session. Two things changed. The **page** of a download is asked to the extra memory of the board and not to
@@ -1449,7 +1449,7 @@ namespace kernel {
 // and a line of 44, `scale` 3 is 27 —the original's dense text is 24— and `scale` 5 is 45, near its title of 48. And the
 // **bar** went from four steps to **three**: its letters are a line of **33 px**, which is exactly the `fontSmall` the
 // original puts in a title bar, inside the same 48 rows.
-// Measured on the bench: 433 native cases green, and the pages of the catalogue drawn with `--dump` compare with the
+// Measured on the emulator: 433 native cases green, and the pages of the catalogue drawn with `--dump` compare with the
 // captures of the original at the same size (docs/85, docs/92).
 // 0.97.3 (7/11): **el sistema té una sola aparença, i viu als valors per defecte dels controls.** The owner asked for it
 // in one line —*«vull que tot el sistema usi el mateix tipus de lletra i estètica dels controls… si una app decideix
@@ -1461,7 +1461,7 @@ namespace kernel {
 // heights of their labels went to a line of the system, and the three apps that keep a size say why —`gallery` is the
 // catalogue of the three sizes, `buttons` and `label` are the pages of every size of their control—. The `dim` tone of a
 // secondary word stays, because it is the theme's own (docs/92).
-// Measured on the bench: 433 native cases green, the twelve apps run with no error of Lua, and two of them looked at with
+// Measured on the emulator: 433 native cases green, the twelve apps run with no error of Lua, and two of them looked at with
 // `--dump` —which is how a button with a cut word and a list whose rows walked over each other were found (docs/85).
 // 0.97.4 (7/11): **the page of a catalogue can be pressed, and it changes whole.** The owner opened the app that shows every
 // control on the board and said three things in one line: *«no puc pitjar res, i els botons físics només em mouen per les
@@ -1472,13 +1472,13 @@ namespace kernel {
 // has just built (docs/30). **The change of page left a mix of two pages** because a control paints its own rectangle and
 // no more: the app wipes the page with `ui.clear(15)` before building the next one. And the app is called **`showcase`**,
 // which says what it is, and not `gallery`.
-// Measured on the bench: 434 native cases green —the one of `ui.focus` presses the centre key with and without the call and
+// Measured on the emulator: 434 native cases green —the one of `ui.focus` presses the centre key with and without the call and
 // sees which button answers—, the app runs in five pages with no error of Lua, and the Paper builds with no warning.
 // 0.97.5 (7/11): **the environments are named after the boards.** The owner asked for `M5 Atom`, `M5 Atom Matrix`,
 // `M5 Paper`…, and PlatformIO has a rule that makes that name its own: *«the name can contain alphanumeric, underscore,
 // and hyphen characters (a-z, 0-9, -, _)»* —it says so and refuses the build—, so the boards are **`m5-atom`**,
 // **`m5-atom-matrix`**, **`m5-paper`**, **`esp32-devkit`** (a bare module, which is the one that has no name of a
-// product) and **`ttgo-t-koala`** (the LilyGO, which is not an M5). The bench keeps `emulator` and the suite `test`,
+// product) and **`ttgo-t-koala`** (the LilyGO, which is not an M5). The emulator keeps `emulator` and the suite `test`,
 // which are not boards. The five build, the CI and every command of the documentation and the README use the new names,
 // and the directories of the old ones are gone from `build/` (docs/80).
 // Measured: `m5-atom`, `m5-atom-matrix`, `m5-paper`, `esp32-devkit` and `ttgo-t-koala` build (five SUCCESS, from a clean
@@ -1488,7 +1488,7 @@ namespace kernel {
 // anything, so the ring moving to the next control and a button going down were changes in the tree that nobody put
 // on the glass: the app only paints when it asks for a present, and an app waiting in `sys.delay` asks for nothing.
 // The owner pressed the dial on the board and read it as *«l'app Showcase no respon a l'usuari»* — the walk was
-// working (three stops and the centre delivered, measured on the bench) and the glass said nothing. This is the
+// working (three stops and the centre delivered, measured on the emulator) and the glass said nothing. This is the
 // paper project's `feedback()` (`src/ui/button.cpp`: *"the pressed state is immediate feedback: it is what the user
 // is waiting for"*), and it goes the same way in as the app's own present —draw what owes a draw, then compose and
 // paint— so a ring costs its control's box and not the page. The showcase app also answers now: every control it
@@ -1685,11 +1685,11 @@ namespace kernel {
 // `test_the_two_symbols_of_the_band_are_one_piece_each` measures both, and the break that turns it red is the stroke
 // pinned at its corner again (docs/30, docs/92 §24).
 //
-// 0.110.0 (8/11): **the suite runs, and the bench gives the terminal back.** With the owner's leave the whole native suite
+// 0.110.0 (8/11): **the suite runs, and the emulator gives the terminal back.** With the owner's leave the whole native suite
 // was run for the first time since 0.104.0, and it found three things that no reading had found:
 //   - **A page of more than a hundred and twenty-seven controls took the process down.** The two walks of `open_draw`
 //     held the slot in an `int8_t`: past the hundred and twenty-seventh the chain was a negative number, the table was
-//     read before its first slot and the bench died with a segmentation fault in `button_draw` —the same `int8_t` the
+//     read before its first slot and the emulator died with a segmentation fault in `button_draw` —the same `int8_t` the
 //     slot of the dial had until 0.106.0—. It is an `int16_t` now, and the page of a hundred and forty buttons of the
 //     new test walks and takes its ring.
 //   - **A cell that is not in the list had a place.** `icon_grid_cell` answered for any cell of the page, so an app that
@@ -1698,7 +1698,7 @@ namespace kernel {
 //     `disabled` the app had set, so `panel.disabled = true` and `false` around it lost the app's decision; only the
 //     child the father is the one turning off is his now.
 // And `pal_host` **puts the terminal back when the process dies on a signal**: `atexit` is not reached by a fault, so a
-// suite that stopped on the segmentation fault above (or a bench killed with a `kill`) left the terminal of the person
+// suite that stopped on the segmentation fault above (or an emulator killed with a `kill`) left the terminal of the person
 // with no echo and no line until a `reset`. The handler restores what was there with `ioctl` —the one of the two calls
 // a handler may make— and lets the signal kill the process as it would have.
 // Measured: **452 native cases, 452 green** in 1 min 28 s (test_ui 94, test_apps 159); the firmware of the Paper builds
@@ -1720,7 +1720,7 @@ namespace kernel {
 // into one block of the extra memory the size of what fits; the file and the block the decoder asks for live there
 // too and go back when the picture is on the glass.
 // **The moments are words and the word is the name of the file**: `/res/splash/<moment>.png` (and `.bmp`, `.jpg`)
-// and `/res/splash.png` for every one. `boot`, `shutdown`, `charging` and `sleep`; the bench carries three pictures of
+// and `/res/splash.png` for every one. `boot`, `shutdown`, `charging` and `sleep`; the emulator carries three pictures of
 // 460 x 200 drawn with the system's face, and `sleep` has none, which is what the test uses to see that a moment
 // without a picture paints nothing and says why. It is turned on at `kernel::boot` right after `display::boot`, and
 // at `power::sleep` before the chip stops its clocks —only on a deep sleep, because a light one is a nap—. The
@@ -1771,7 +1771,7 @@ namespace kernel {
 // **Also found and said**: `ui.focus(box)` does nothing, because `ui.focus` walks the stops of the dial and a box of
 // text is only a stop of the finger (`ui_target_is_focusable`), so an app that wants the dial out of a box has to hand
 // it to a button. It is left as it is, and docs/30 says so.
-// Measured: the editor on the bench with the band up has a page of **540 x 656** and a band of **256** px, and the
+// Measured: the editor on the emulator with the band up has a page of **540 x 656** and a band of **256** px, and the
 // finger makes the app print `editor: row N of M`; in the kernel test a box of 200 x 100 at scale 2 with ten lines of
 // forty letters has **11 rows** without `wrap` (the ten lines and the empty row of the last break), **more** with it,
 // **6** rows that fit, a **shorter thumb** for the wrapped page and its **last window at total - 6** in both cases.
@@ -1805,7 +1805,7 @@ namespace kernel {
 // Measured: the photograph is 1273 x 1280 and the mark it becomes is 460 x 200 and **18,8 KB**; the emulator and the
 // Paper build with zero warnings. The tests written: the six words in `test_the_splash_paints_a_picture_in_the_middle_
 // of_the_glass` (`count()` is 6 and `kind_of("boot-alt")` is not `boot`) and
-// `test_an_app_that_names_a_picture_has_it_painted_before_it_starts`, which runs an app of the bench and reads the
+// `test_an_app_that_names_a_picture_has_it_painted_before_it_starts`, which runs an app of the emulator and reads the
 // glass: the two pixels of the picture in the middle, paper at the rim, the ink of a corner washed away, and an app
 // without the field that leaves the corner as it was.
 // **Pending**: the whole suite (this turn's tests and the ones of 0.113.0, which have not run yet) and the two
@@ -1829,7 +1829,7 @@ namespace kernel {
 // where it is typed, with the list, and the one that was there stays. **It is a word and not a path** on purpose:
 // what is stored is a moment of the splash, and a path in the settings would be a way to make the board open any
 // file at its first breath (`cfg::is_a_boot_word` asks the list of moments and not a second list that could drift).
-// Measured on the bench: `[I][CFG] /cfg on sd (asked for sd), keyboard qwerty, boot boot-alt`,
+// Measured on the emulator: `[I][CFG] /cfg on sd (asked for sd), keyboard qwerty, boot boot-alt`,
 // `[I][SPLASH] /res/splash/boot-alt.png, 460x200 at 40,380` and then `[I][BOOT] board=m5stack-paper caps=16/19`,
 // which is the splash **before** the line that used to be among the first; the dump shows the clipart in the middle
 // of the panel and paper at the rims, and `cfg boot boot` brings the photograph back. The test
@@ -1866,7 +1866,7 @@ namespace kernel {
 // hands the second as the first and the paper reaches the edge. A flag and not a fourth colour, because what an app says
 // is "no frame".
 // The editor was looked at and changed: `box.framed = false`, `box.readonly = doc.readonly` and an `on_move` that keeps
-// the row of the line under the page. Measured on the bench: the page of the editor has no frame and the text starts at
+// the row of the line under the page. Measured on the emulator: the page of the editor has no frame and the text starts at
 // the edge of the glass, and the emulator and the Paper build with zero warnings.
 // The tests written: `test_the_dial_stops_on_a_text_box_and_the_centre_enters_it` (band off on arrival, on on entering,
 // and the button still reachable), `test_a_read_only_box_has_a_caret_and_never_a_band` (both boxes),
@@ -1945,7 +1945,7 @@ namespace kernel {
 // focus on the paragraph —the first focusable control it builds— instead of the grid, so the first arrow key walked the
 // rows of the text. It forward-declares `draw` and asks `ui.focus(grid)` after the three places, and the test presses
 // one key, picks the second family and reads `2 of 9` and `BMP` in the console.
-// **Three tests could not have passed and had never run**: two read pixels of a panel that was off —the bench is born
+// **Three tests could not have passed and had never run**: two read pixels of a panel that was off —the emulator is born
 // with everything off, so a test that reads the glass has to turn it on with `emu::Options.display`— and the third, of
 // 0.116.0, expected the centre to *leave* a box that has the band up, where the three keys belong to the keyboard: it
 // now types a letter, the app hides the band, the centre leaves the field and the up key walks to the button.
@@ -1963,11 +1963,11 @@ namespace kernel {
 // **the splash waits for the ink** (`settle` in `splash.cpp`: `idle()` every 20 ms up to 6 s) before asking for its
 // own paint — nobody is waiting on a page while a logo goes up, and losing the drawing to two seconds is the bad
 // trade—; **the message carries the HAL's reason** (`the panel did not take the picture: the previous paint did not
-// finish`), because a no without a reason is an afternoon finding out which of the five cases it was; and **the bench
+// finish`), because a no without a reason is an afternoon finding out which of the five cases it was; and **the emulator
 // can say no too** (`--ink-refuse`): while the ink moves, `flush` answers false with the driver's own reason, which is
 // what makes the waiting testable instead of lucky.
 // The test written is `test_the_splash_waits_for_the_ink_of_the_page_before`: the first drawing leaves the whole page
-// moving ink, the bench refuses a paint, and the second drawing lands anyway because the splash waited; taking `settle`
+// moving ink, the emulator refuses a paint, and the second drawing lands anyway because the splash waited; taking `settle`
 // out answers false and the glass keeps the first drawing (docs/50, docs/85, docs/92 §33).
 // **And the second half of it was worse**: the owner, the same turn, with the board on: *«l'splash sembla que bloqueja
 // l'eink? les apps s'executen però no mostren res a pantalla»*. The splash blocks nothing — **the page the panel refused
@@ -1980,7 +1980,7 @@ namespace kernel {
 // is where the page is asked for again with nobody doing anything; `ui.idle()` of an app does it too, so a page that
 // waits for the ink sees its own page arrive; and the paint is only asked for **when the panel says the ink is over**,
 // which is what keeps a turn from spending three seconds inside `wait_paint`.
-// The second test is `test_a_page_the_panel_refused_is_painted_when_it_can`: the bench says no while the boot's picture
+// The second test is `test_a_page_the_panel_refused_is_painted_when_it_can`: the emulator says no while the boot's picture
 // moves the ink, an app presents once and stays, the console says `present nil the previous paint did not finish`, the
 // glass is still paper where the square goes… and after a few turns **the square is there**, with the app presenting
 // nothing else. Emptying the list again leaves it without the square for ever (docs/30, docs/50, docs/92 §33).
@@ -1995,7 +1995,7 @@ namespace kernel {
 // the filter and every name that does not name the board stays out **and says so**, which was not true of the option
 // before: `custom_apps` was documented as "exactly those, whatever the manifests say" and the board filter applied to
 // it all the same (found by asking the file what it really does, 8/11). `test` keeps
-// carrying every app as copies (its own tests write to the disk they mount) and the bench carries none, as it has since
+// carrying every app as copies (its own tests write to the disk they mount) and the emulator carries none, as it has since
 // 0.88.2. The two ways of asking for apps are still there, and are documented now instead of being the default:
 // `custom_apps = id1,id2` for an exact list, and `custom_apps_in_disk = yes` for the ones that name the board by id or
 // by family — measured at **29 files and 90 182 B with eight apps** against the 1 441 792 B partition of a 4 MB board
@@ -2127,7 +2127,7 @@ namespace kernel {
 // can fail, and the kernel hands it to the person instead of `E_BUSY`, with **the free heap and the
 // largest block** next to it: `ESP_ERR_NO_MEM` with 4 KB free is a fragmented heap and not a fault, and
 // the number is what tells them apart without another flash (docs/30, docs/50, docs/75).
-// The bench can reproduce it (`Options::refuse_why`) and the new case is
+// The emulator can reproduce it (`Options::refuse_why`) and the new case is
 // `test_a_radio_that_refuses_says_why`.
 // **Pending**: the ATOM's line, the tests of the turn and the commit.
 // 0.119.0 (8/11): **the home app**: the board can come up inside a Lua app instead of at the prompt. That is what
@@ -2175,7 +2175,7 @@ namespace kernel {
 // apps that lacked a description being described from their own code, one line each), and `editor` —the app that
 // hands a person somebody else's file— is the first that uses the two new keys for something: `"opens"` with eight
 // extensions and `"opensArgs": "-ro"`, so `open` of a `.md`, a `.json` or a `.lua` finds it and the page starts read
-// only until View turns it off. Measured on the bench (m5stack-paper, `--flash` the tree): `apps info editor` shows
+// only until View turns it off. Measured on the emulator (m5stack-paper, `--flash` the tree): `apps info editor` shows
 // the nine rows, and `open editor data/res/hola.txt` prints `editor: -ro, the page is read only` and paints.
 //
 // **Two kilobytes moved from the stack to the RAM** (a decision taken here, and it is reversible): the buffer that
@@ -2194,7 +2194,7 @@ namespace kernel {
 // is the paper's pocket calculator, key for key: nineteen keys painted by hand, a display box with the waiting
 // operation above and the number below, the twelve digits of the original, `-0` shown as `0`, the font stepping
 // down until the number fits, an error that clears on the next key, and `nil` as the only answer to a division
-// by zero. Measured on the bench (m5stack-paper, `--flash` the tree): `run calculator keys` prints
+// by zero. Measured on the emulator (m5stack-paper, `--flash` the tree): `run calculator keys` prints
 // `Calculator display 16 16 508 200` and the centre of the nineteen keys, and the page is painted once with
 // `gl16` (540x912); a key paints the box alone (508x200) with `a2`, which is the original's rule —a digit costs
 // a box and not nineteen keys— said with this system's qualities (docs/30, docs/50).
@@ -2211,9 +2211,9 @@ namespace kernel {
 // pixels of line per step and the five by seven of the flash is seven— (docs/30, docs/92). The kernel answer is
 // `ui::font_line_height`, which is the same `face.height * scale` that `draw_text` puts down as damage.
 //
-// Two new cases, `test_the_line_height_of_a_face_is_what_centres_a_text` (the call, against the face the bench
+// Two new cases, `test_the_line_height_of_a_face_is_what_centres_a_text` (the call, against the face the emulator
 // boots with) and `test_the_calculator_of_the_paper_project_adds_with_the_finger` (the app from the disk, run
-// with real fingers on the bench's panel: `7 + 3 = 10`, `8 / 0 = Error` and the key that clears it,
+// with real fingers on the emulator's panel: `7 + 3 = 10`, `8 / 0 = Error` and the key that clears it,
 // `12 = 12` after the backspace, `5.5 + 1 = 6.5` and `-5 + 1 = -4`), so 477 -> 479 cases. **A key repaints the
 // display box and not the page is asserted with the region the log prints** —under 508x200, and never the
 // 540x912 of the page— (docs/50).
@@ -2228,7 +2228,7 @@ namespace kernel {
 // The app asks for the size in pixels now and turns it into steps with the call of 0.121.0 —`scale_for()` is
 // `pixels / ui.line_height(1)`, rounded— so the page is the same physical size on a board with the face of
 // outlines (a step of 11) and on one with the table of the flash (a step of 7), and the ladder of the number
-// is the original's: big, title, body, small. Measured on the bench with the font of the disk (m5stack-paper,
+// is the original's: big, title, body, small. Measured on the emulator with the font of the disk (m5stack-paper,
 // `--flash build/disk/emulator --sd` the tree): `Calculator sizes 33 44 55 77` against the 33/43/57/82 of the
 // original —the exact number of the hint, the keys at 55 instead of 57 and the number at 77 instead of 82,
 // which is the closest whole step of eleven to eighty-two—. `run calculator keys` prints that line, so a page
@@ -2251,7 +2251,7 @@ namespace kernel {
 // not wrap** —a text that does not fit ends in "..."— so the sentences are broken in the app with `ui.text_width`.
 // The sizes are the paper project's in pixels of line, through `ui.line_height`, as 0.121.1 taught.
 //
-// Measured on the bench with the font of the disk (m5stack-paper, `--flash build/disk/emulator` and the tree as
+// Measured on the emulator with the font of the disk (m5stack-paper, `--flash build/disk/emulator` and the tree as
 // the card): `run about` prints `about: 7 pieces, lunokOS 0.122.0 on m5stack-paper` and one `about: piece …` line
 // per row —`Lua 5.4.7`, `The glass 540 x 912`, `The finger 2 points`, `The disk 10 mounts`,
 // `The radio wifi, http, tls, provisioning`, `The cell 99 %`— and paints the page once (540x912); the middle key
@@ -2290,7 +2290,7 @@ namespace kernel {
 // that bit here (no `visible`, no wrapping label, printable ascii only, the merged taps, the page that is the
 // app's, the focus that is born set, and the hooks that exist and the ones that do not).
 //
-// Measured on the bench (m5stack-paper, `--flash build/disk/emulator` and the tree as the card): `apps info
+// Measured on the emulator (m5stack-paper, `--flash build/disk/emulator` and the tree as the card): `apps info
 // calculator` and `apps info about` print `icon        res/icon.png`; `run about` paints 540x912 once for the
 // cover and, with the two screens exercised by hand, three paints for three pages; `run calculator keys` still
 // prints `Calculator sizes 33 44 55 77` and its nineteen keys. The About case now also asserts that the reader
@@ -2330,7 +2330,7 @@ namespace kernel {
 // and the licence, an empty line, and what the library says about itself. The summary lost its "tap a piece" and
 // says the page it is on, and the paging row says which libraries it holds (`More   7 to 12 of 23`).
 //
-// Measured on the bench (m5stack-paper, the font of the disk, the tree as the card): `run about` prints the
+// Measured on the emulator (m5stack-paper, the font of the disk, the tree as the card): `run about` prints the
 // headline, six `about: row <name> <version>` lines and `about: cover page 1 of 4`, and paints 540x912 once;
 // with the middle key on the cover it prints `about: open alarms 0.1.0` and paints, and again for `about: back`
 // and `about: page 2`, four whole paints and no `lua:` error. `python3 tools/gen_about.py --check` says the file
@@ -2369,7 +2369,7 @@ namespace kernel {
 // a date is `kernel::calendar::weekday_of` through a hook and the day of the year is `hal::days_from_civil`: the rule of
 // the leap years does not get a second copy, which is the thing docs/60 exists to prevent.
 //
-// Measured on the bench (m5stack-paper, the font of the disk, the app on the card, the clock fixed at 2026-11-01
+// Measured on the emulator (m5stack-paper, the font of the disk, the app on the card, the clock fixed at 2026-11-01
 // 09:00): `run timeclock` prints `timeclock: day 2026-11-01, 0 marks, work 0h 00m, rest 0h 00m, Not started today` and
 // paints **540x912 once**; a day written by hand of four marks reads `work 9h 00m, rest 1h 00m, Day closed at 18:00`
 // and repaints **one region of 500x705** —the controls, not the page—; the eye turns the sheet with **one 540x912** and
@@ -2422,7 +2422,7 @@ namespace kernel {
 // something other than what its header promised, a compressed entry bigger than its own contents (a bomb wearing the
 // size of a chapter) and a **checksum that does not match** —which is exactly what a card with a bad block gives—.
 //
-// Measured on the bench of the computer: `lib/zip` is **a header of 109 lines and 293 of C++**, with `-Wall -Wextra
+// Measured on the emulator of the computer: `lib/zip` is **a header of 109 lines and 293 of C++**, with `-Wall -Wextra
 // -Werror` from its own `library.json`, and `test/test_zip` builds 7 cases: a zip of three entries built **byte by byte
 // inside the test** (a folder, a stored `mimetype` and a deflated chapter), the same file read by python's `zipfile` to
 // prove that what the test writes is a legal zip —`['mimetype', 'META-INF/', 'OEBPS/text/cap1.xhtml']` and the chapter
@@ -2458,7 +2458,7 @@ namespace kernel {
 // is the face a book is read with —the printable ASCII, `U+00A0` to `U+00FF`, the long dashes, the quotation marks,
 // the ellipsis and the bullet—.
 //
-// Measured on the glass of the bench, with a probe app that loads the face and paints three lines: `caf` is **54 px**
+// Measured on the glass of the emulator, with a probe app that loads the face and paints three lines: `caf` is **54 px**
 // and `caf\xE9` is **75 px** at step one —the same 54 and 54 of before the fix—, and the page shows `café, pera i
 // poma`, `aà è é í ò ó ú ü ç · « »` and `guixos amb accent: À È É Í Ò` with the accents above the letters and not
 // beside them. `test_font` gets a case that measures the two widths, the ink of the accent above the ink of the `e`
@@ -2495,7 +2495,7 @@ namespace kernel {
 // and `class` of the tag itself, and only for the side of a picture), there are no columns and no right-to-left,
 // and the words are not hyphenated.
 //
-// Measured on the bench of the computer: `lib/epub` is **186 lines of header and 805 of C++**, with `-Wall
+// Measured on the emulator of the computer: `lib/epub` is **186 lines of header and 805 of C++**, with `-Wall
 // -Wextra -Werror` from its own `library.json`, and `test/test_epub` has **12 cases**: the byte of every word and
 // the block that opens it, the entities in all three forms and the ones nobody knows, a chapter of raw UTF-8 and
 // a chapter already in Latin-1, a script and a style and a comment skipped whole (with the byte of the word that
@@ -2531,7 +2531,7 @@ namespace kernel {
 // needs a bold is the reader of books, which is the system's, and an app does not have to be able to ask a face
 // that has one weight for one it does not have (docs/30, docs/46).
 //
-// Measured on the bench of the computer: `test/test_font` has **four cases more** —a bold run is exactly one pixel
+// Measured on the emulator of the computer: `test/test_font` has **four cases more** —a bold run is exactly one pixel
 // wider than the same run plain and the advance of the word does not change, an italic moves the first row of the
 // cell and not the last, a `sup` of a line of ten pixels goes up three and a `sub` down two, and the same three on
 // the face of a book at step four with a slant of a fifth of the glyph—, and `pio test -e test --without-testing`
@@ -2567,7 +2567,7 @@ namespace kernel {
 // its owner read. The tokenizer now **counts** quotations, figures and definitions and the token carries `inset`.
 // Which is also why the probe of a table starts at one cell and not at zero: the cell being placed is the first.
 //
-// Measured on the bench of the computer: `lib/epub/page.h` is **138 lines** and `page.cpp` **646**, with `-Wall
+// Measured on the emulator of the computer: `lib/epub/page.h` is **138 lines** and `page.cpp` **646**, with `-Wall
 // -Wextra -Werror`, and `test/test_layout` has **12 cases**: a paragraph with the place of every word, a line that
 // wraps where the word does not fit, a page that ends at the byte of the word it could not hold and a second page
 // composed from that same byte, a title of its own face and step with the air of a block, a quotation inset and a
@@ -2600,7 +2600,7 @@ namespace kernel {
 // a page asks of each one —the width of a word and the height of a line— are `font::width` and the height of the
 // face times the step, which is what the whole system already means by a line (docs/30).
 //
-// Measured on the bench of the computer: **88 lines of header and 390 of C++**, with `-Wall -Wextra -Werror`, and
+// Measured on the emulator of the computer: **88 lines of header and 390 of C++**, with `-Wall -Wextra -Werror`, and
 // `test/test_book` has **4 cases**, and they are the whole road: **a `.epub` written byte by byte by the test on the
 // disk of the test** (a `mimetype` and two chapters, all stored, with the checksums of `inflate::crc32`), opened by
 // the path of a person, with its three entries, its `find` by name and its first chapter found by looking like one;
@@ -2636,7 +2636,7 @@ namespace kernel {
 // are the objects `ui.load_font` gives**, not numbers, so reading them as numbers fell back to the face of the
 // system, which is ASCII and has no `ç`. The accent then painted as a gap and the word closed up: `camí` was `cam`.
 //
-// Measured on the bench of the computer, with the emulator's glass and `--dump`: the sample book is
+// Measured on the emulator of the computer, with the emulator's glass and `--dump`: the sample book is
 // `data/epub/la-vaca-cega.epub`, **2 275 bytes**, two chapters of **308 words**, built by `tools/make_epub.py` from
 // the text in `tools/epub-sources/la-vaca-cega.txt` —«La vaca cega», of Joan Maragall, 1893, public domain—. The
 // probe app reads it: **5 entries**, the first chapter `OEBPS/ch01.xhtml` of **1 107 bytes**; the first page is
@@ -2667,7 +2667,7 @@ namespace kernel {
 // The scratch of the decoder is the block of the compressed stream, which is free at that moment: a chapter and a
 // picture are not decoded at once, and the block is the board's either way.
 //
-// Measured on the bench of the computer, looking at the glass: the sample book grew a plate drawn by
+// Measured on the emulator of the computer, looking at the glass: the sample book grew a plate drawn by
 // `tools/make_epub.py` itself (`--figure`: a frame, a mountain and a sun, 240 × 150 PNG) and it is **3 421 bytes**;
 // the first page of the poem now ends at **byte 586 instead of 625** —the picture took its room— and says
 // `picture=true`; the image is on the glass, centred under the title, with the words flowing under it. `test_book`
@@ -2704,7 +2704,7 @@ namespace kernel {
 // book can be asked for a canvas of any size —which is what lets the app keep a foot and a bar of buttons under the
 // page it paints—.
 //
-// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **316 lines** of Lua and
+// Measured on the emulator of the computer, looking at the glass: `apps/reader/reader.lua` is **316 lines** of Lua and
 // its manifest declares `opens: epub`. Run with `run reader /littlefs/epub/la-vaca-cega.epub` the app opens the book,
 // composes page one with the statue of the poem under the title and writes `ch01 0%` in the foot, with the two
 // buttons under it; with the position of the book set to byte **586** the app opens **at that byte**, the page starts
@@ -2715,7 +2715,7 @@ namespace kernel {
 // own —it was looked at, which is said here as it is—; and the two pieces the reader of the paper had and this one
 // does not are the full screen (D1) and the dark page (C9), which want the bar of the system to be able to go away.
 // **And one thing for the owner**: `apps/reader` has to be named in `custom_apps` of `platformio.ini` for a built
-// disk to carry it —that file is his—, and until then the app of the bench runs from the card.
+// disk to carry it —that file is his—, and until then the app of the emulator runs from the card.
 //
 // 0.135.0 (7/11): **the reader without a single button, turned with a finger and with the keys**.
 //
@@ -2737,11 +2737,11 @@ namespace kernel {
 // a foot—, which is exactly what a reader is. The foot stays: it is the chapter and how far in, and it is
 // information and not a control.
 //
-// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **332 lines** of Lua, the
+// Measured on the emulator of the computer, looking at the glass: `apps/reader/reader.lua` is **332 lines** of Lua, the
 // page is composed into a canvas of **540 × 872** (the view is 912 and the foot takes 40) and the foot says
 // `ch01 0%` with nothing under it. `apps/reader` is named in `custom_apps` of `platformio.ini`, which its owner asked
 // for in the same breath, so a built disk carries the app and not only the card.
-// **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); **the bench cannot press a key
+// **Pending**: the 521 cases are **not executed** (that wants the owner's word for it); **the emulator cannot press a key
 // nor lay a finger** —`--script` runs shell lines and the panel of the emulator only takes fingers from a test—, so
 // the two ways of turning a page are wired to the hooks the system documents and **were not exercised on the glass**;
 // and the app still has no full screen, no dark page, no cover and no thumbnails (docs/46, C9, C11 and D1).
@@ -2774,7 +2774,7 @@ namespace kernel {
 //     time, so a page emptied to black counted as a page of nothing and the wash between two apps —and the one after
 //     the whole glass— chose `du` for a page that was black. One line, and the black page of C9 will need it.
 //
-// Measured on the bench of the computer, looking at the glass: `apps/reader/reader.lua` is **375 lines** of Lua and asks
+// Measured on the emulator of the computer, looking at the glass: `apps/reader/reader.lua` is **375 lines** of Lua and asks
 // for the whole glass one line after it starts. Run with `run reader /littlefs/epub/la-vaca-cega.epub` the log says
 // `whole glass: the view is 540x960 at 0,0`, the wash after it is the two-level one (`a2`, the bar's ink went with it)
 // and **the page is the whole panel**: the ink of the poem starts at row 8 and the foot `ch01 0%` ends at row 935, where
@@ -2784,7 +2784,7 @@ namespace kernel {
 // SUCCESS with 0 warnings and `pio test -e test --without-testing` builds the **23 suites and 527 cases** with 0
 // warnings, five of them new (four in `test_bar`, one in `test_touch`).
 // **Pending**: the 527 cases are **not executed** (that wants the owner's word for it); **the three taps were not
-// exercised on the glass**, because the bench lays no fingers —`--script` runs shell lines and the panel of the emulator
+// exercised on the glass**, because the emulator lays no fingers —`--script` runs shell lines and the panel of the emulator
 // only takes fingers from a test— and the case that covers them is the one in `test_touch`; and the reader still has no
 // dark page, no cover, no thumbnails and no menus (docs/46, C4, C9, C11).
 // 0.136.1 (7/11): **the roadmap said the reader was missing what it already has**. `docs/90` still named
@@ -2819,7 +2819,7 @@ namespace kernel {
 // —the way anybody writes a switch— would have done nothing and said nothing. `epub_opt_number` takes a boolean now, and
 // `measure = true` works for the same reason (docs/30).
 //
-// Measured on the bench, looking at the glass: a probe that opens the book, clears its canvas to 0 and asks for
+// Measured on the emulator, looking at the glass: a probe that opens the book, clears its canvas to 0 and asks for
 // `{dark = true}` gives **black paper and white words**, with the plate of the poem inverted (its white paper is black
 // and its lines are white); the same page with the menu over it shows the row `Book View` —with the View inverted, and
 // a black card with white words on the dark page— and the two entries with their boxes, `Full screen` checked. The
@@ -2828,7 +2828,7 @@ namespace kernel {
 // 529 cases** with 0 warnings, two of them new in `test_ui` (a bitmap inverted on a dark page and a page of a book
 // painted with the ink it is given).
 // **Pending**: the 529 cases are **not executed** (that wants the owner's word for it); **the long press was not
-// exercised on the glass** —the bench lays no fingers—, so what is proven there is the paint of the menu and of the dark
+// exercised on the glass** —the emulator lays no fingers—, so what is proven there is the paint of the menu and of the dark
 // page, and the gesture has to be tried on the board; the Contents of the Book menu waits for the real chapters of the
 // book (C2, C14); and the reader still has no cover, no thumbnails and no count of pages (docs/46, C5, C11).
 // 0.138.0 (7/11): **the foot of the reader counts the pages of its chapter** (docs/46 C5).
@@ -2855,7 +2855,7 @@ namespace kernel {
 // is not drawn again (docs/30, docs/90). The label and the dots are released now, and the same two lines keep the dots
 // of a dark page from outliving it.
 //
-// Measured on the bench, looking at the glass: the chapter of `la-vaca-cega.epub` is **1154 B and 2 pages**, and with
+// Measured on the emulator, looking at the glass: the chapter of `la-vaca-cega.epub` is **1154 B and 2 pages**, and with
 // the position at byte **586** the foot says **`ch01 2/2 51%`** with the second ball solid. A probe book of **6160
 // words** —the poem twenty times— is **27 pages**: the foot says `ch01 1/27 0%` and the strip shows **8 balls** with the
 // first one solid, and the count landed over the turns of the loop with one repaint of the foot and no repaint of the
@@ -2892,7 +2892,7 @@ namespace kernel {
 // because this system composes the page inside the turn of the app and a word on the glass for thirty milliseconds is ink
 // spent on nothing (the screen of a book that is opening is C8).
 //
-// Measured on the bench, looking at the glass: `la-vaca-cega.epub` says **`Chapter 1/2 - 0%`** with three balls and the
+// Measured on the emulator, looking at the glass: `la-vaca-cega.epub` says **`Chapter 1/2 - 0%`** with three balls and the
 // first one solid, and the chapter is 3 pages with the taller foot —the page is 876 rows now—; a probe book of 6160 words
 // says **`Chapter 1/1 - 18%`** with a window of **14 balls** —the fifth of them solid— and **three smaller ones** after it,
 // which are the pages the window does not show; the same foot on a dark page is a black band with a white line, white words
@@ -2932,7 +2932,7 @@ namespace kernel {
 // (`test_ui`: forty pages in five hundred and forty pixels, the window of twelve, the marks at 57, 35, 17 and 481, 503,
 // 521, the first page with marks only on the right, and seventeen pages with none at all).
 // **Pending**: the 531 cases are **not executed** (that wants the owner's word for it); **the drawing has not been seen
-// on the glass** this turn —the bench was not run—, and what is proven is the arithmetic of the test; and the foot of the
+// on the glass** this turn —the emulator was not run—, and what is proven is the arithmetic of the test; and the foot of the
 // reader of the paper still draws its own strip in Lua with balls of 12 (docs/46, C5), which is the same drawing at the
 // size of a foot and could be this control the day the foot is a control and not a canvas.
 // 0.140.0 (8/11): **the frame of the reader of the paper**, and five of its pending fitxes in one go.
@@ -2970,7 +2970,7 @@ namespace kernel {
 // now, and `pio test -e test --without-testing` builds the 23 of them with **0 warnings** —the app suite with its object
 // thrown away first, so the new test was compiled and not read from a cache—.
 // **Pending, and said out loud**: the **532 cases are not executed** —that wants the owner's word for it— and **the
-// glass has not been looked at** this turn: the bench was not run, so the loading page, the band of the notice and the
+// glass has not been looked at** this turn: the emulator was not run, so the loading page, the band of the notice and the
 // titles in the sans are proven by the code and the test and not by a photograph of the panel. The page count the test
 // assumes (three pages in the first chapter of `la-vaca-cega.epub`) comes from the app's own count and is the first
 // thing to check on the first run. Still missing, with their fitxes in docs/46: C7 (the cover as a state), C15 (a page
@@ -3345,7 +3345,7 @@ namespace kernel {
 //     home app and fails before it can clear it, so **every boot after it starts that app**. An app running before the
 //     case asked for one is `cannot start the interpreter` for the case, and that message —which reads like a broken
 //     kernel— was the leak. The tear-down now puts the home app back to empty, where it was;
-//   - **and the bench goes back whole**: the tear-down reset three fields of `emu::Options` by hand, so `delays`,
+//   - **and the emulator goes back whole**: the tear-down reset three fields of `emu::Options` by hand, so `delays`,
 //     `ink_refuse`, `display` and `touch` stayed on for the next case, and a glass that refuses paints while an app
 //     starts makes the interpreter's own setup raise — the same message again, from the other side. It now builds a
 //     fresh `Options` and keeps only where the suite keeps its disks;
@@ -3362,7 +3362,7 @@ namespace kernel {
 //
 // **Pending**: those fourteen, the eight of `test_layout`, the five of `test_font`, and the four single ones. The glass
 // has still not been looked at.
-// 0.151.1 (8/11): **a bench that cannot write rubbish: `emu::Options` has a default in every one of its 35 plain fields**.
+// 0.151.1 (8/11): **an emulator that cannot write rubbish: `emu::Options` has a default in every one of its 35 plain fields**.
 //
 // The root of the repository filled with more than forty files of exactly **518 415 bytes** — a PGM of the glass (15-byte
 // header plus 540x960 pixels) — whose names were raw stack bytes. The writer was not a mystery: a commit of the glass
@@ -3375,7 +3375,7 @@ namespace kernel {
 // Fixed where it comes from: all 35 plain fields of the struct have a default now (`nullptr`, `0`, `false`), which is
 // **exactly what the global `g_options` already was** — it is zero-initialised — so no behaviour changes and no
 // declaration of it can come out as rubbish again; and every declaration that exists says so with braces
-// (`emu::Options opts{};`) so the next reader sees the danger. The bench itself was already safe: `parse()` sets
+// (`emu::Options opts{};`) so the next reader sees the danger. The emulator itself was already safe: `parse()` sets
 // `opts.dump = nullptr` before it looks at the arguments. It is written in `docs/85` next to `--dump`.
 //
 // **Measured**: `pio test -e test --without-testing` builds all 23 suites with **no warning**; the tree has no file left
@@ -3464,7 +3464,7 @@ namespace kernel {
 //   more**: a page waits the measured 1051 ms, a caret or the clock of the bar takes the mode's own time (0.151.4).
 //
 //   **Pending**: flash it again; `run reader` has to open the shelf and the book. If the glass still says the boot logo and
-//   the bar and nothing else, that is what a healthy boot of this system looks like on the bench too (the logo stays until
+//   the bar and nothing else, that is what a healthy boot of this system looks like on the emulator too (the logo stays until
 //   an app paints), and what is wrong is something else — the serial log is the only witness then.
 // 0.151.5 (8/11): **a glass that is gone costs nothing, and the measurements stop lying — the trigger is still unknown**.
 //
@@ -3873,19 +3873,19 @@ namespace kernel {
 //   **Still open, and seen while measuring**: the cover of `Don quijote` is named `OEBPS/Images/don quijote-
 //   cervantes.png` and cannot be read (`[W][BOOK] the picture … cannot be read`), which is the reader resolving an
 //   `href` with a space in it and not this version's business.
-// 0.152.0 (8/11): **the floor of the board's RAM is a rule of the PAL —so the bench obeys it and a test can hold
+// 0.152.0 (8/11): **the floor of the board's RAM is a rule of the PAL —so the emulator obeys it and a test can hold
 // it— and a picture that does not come up says which of the seven reasons it was**.
 //
 //     - **The rule moved out of the chip and into `pal/pal.h`** (`kHomeReserveBytes`, the same 64 KB, and
-//       `pal::take_from_the_extra(free_home, bytes, prefer_extra)`), and **the bench obeys it too**. It did not before:
-//       `pal_host` sent every small block to the home it was asked for, which is why a test could pass on the bench while
+//       `pal::take_from_the_extra(free_home, bytes, prefer_extra)`), and **the emulator obeys it too**. It did not before:
+//       `pal_host` sent every small block to the home it was asked for, which is why a test could pass on the emulator while
 //       the board failed — and it is exactly what one of the `/data` theories of 0.151.18 did, with a test that passed
 //       over a broken change;
 //     - **`test/test_pal` is the proof, and it is a whole suite because the rule is the PAL's**: the home's free bytes
 //       never cross the floor while a hundred and twenty-eight small blocks are taken (the shape of what the reader
 //       asked for), a board with no extra memory takes everything home —the ATOM must not be refused a block for a floor
 //       it cannot jump over— and a block that asked for the extra memory still pays the slow one. **Broken on purpose by
-//       taking the rule out of `allocate`** (the bench goes back to `prefer_extra ? extra : home`): the first two cases
+//       taking the rule out of `allocate`** (the emulator goes back to `prefer_extra ? extra : home`): the first two cases
 //       go red, and they are green again with it. *Not yet run on the board or in the suite when this was written*: the
 //       two runs are the next thing, and if they say otherwise this block is wrong and gets fixed with them;
 //     - **a picture says why**: `book::picture_why()` names the reason `load_picture_named` refused —there is no book
@@ -3949,8 +3949,8 @@ namespace kernel {
 //
 //   The owner asked whether everything was green and it was not: fifteen of the hundred and seventy-six cases of
 //   `test_apps`, and I had been calling them «the working tree's». **One was mine and had been red since 0.151.1**, the
-//   version written to stop the bench writing files under a garbage name: `test_the_options_of_the_bench_start_empty`
-//   asked that every field of `emu::Options` be null, and the constructor of the bench gives `fs_dir` the word
+//   version written to stop the emulator writing files under a garbage name: `test_the_options_of_the_emulator_start_empty`
+//   asked that every field of `emu::Options` be null, and the constructor of the emulator gives `fs_dir` the word
 //   **`"emulator"`** —the folder the emulated disks live in— from the day it was written. A case that asks the wrong
 //   question is red whatever the code does, and fifteen reds is what hides one of your own.
 //
@@ -3974,7 +3974,7 @@ namespace kernel {
 //     - **an extension was normalised on one side and not the other** (`apps.cpp`, `find_for_extension`): a manifest's
 //       `opens` goes through `normalise_extension` (`"TXT"`, `".txt"` and `"txt"` are one thing) and the **query** did
 //       not, so a file called `NOTES.TXT` opened nothing. Both go through the same door now;
-//     - **the bench's `use_board` gave the board's name and not its glass**: the binary gives a model the parts it has
+//     - **the emulator's `use_board` gave the board's name and not its glass**: the binary gives a model the parts it has
 //       (`docs/85`) and the helper did not, so a case that ran an app that presents was running it on a board with no
 //       screen and the app died inside `ui.present` — `test_ui_focus_puts_the_dial_where_the_app_says` was red for that
 //       and nothing else;
@@ -3984,18 +3984,18 @@ namespace kernel {
 //
 //   **What is left, counted**: eight, and they are named —`test_every_app_of_the_repository_declares_its_boards` wants
 //   seventeen apps in `apps/` and this working tree has six (the owner's uncommitted deletions); the splash-waits-for-the-
-//   ink case and the panel-refused one are about the ink of the bench and are the next to look at; the About, the
+//   ink case and the panel-refused one are about the ink of the emulator and are the next to look at; the About, the
 //   timeclock, the home app and the reader-with-a-finger ones run a real app and fail after it has painted. Each needs its
 //   own measurement and none of them is left as «the working tree's».
 // 0.152.5 (8/11): **the last eight red cases are gone and three of them were not the tests' fault**. The count is
 // now **175 of 176**, and the one that is left is not a question of code (see the end).
 //
-//   - **the bench's hour was read once, at the first boot of the process** (`hal_emulator`, `HostClock`): the board
-//     has one clock and so has the bench, so `emu::Options::now_epoch` was taken by the constructor —built on the
+//   - **the emulator's hour was read once, at the first boot of the process** (`hal_emulator`, `HostClock`): the board
+//     has one clock and so has the emulator, so `emu::Options::now_epoch` was taken by the constructor —built on the
 //     first boot of the suite, with the default options— and a case that asked for nine in the morning of a Sunday
 //     got the board that never synced (`[I][CLOCK] source none epoch 0`) and the app printed a day with no date.
-//     The hour is now read where the hour is read, `epoch_ms()`, and applied when the options change, so a bench
-//     moved by `bench_advance_clock` keeps the hour it was moved to (docs/85);
+//     The hour is now read where the hour is read, `epoch_ms()`, and applied when the options change, so an emulator
+//     moved by `emulator_advance_clock` keeps the hour it was moved to (docs/85);
 //   - **the About page listed 23 of the 25 libraries** (`apps/about/res/libs.txt`, a defect of mine): `epub` and
 //     `zip` went into `lib/` for the reader and `tools/gen_about.py` was never run, so the page of every board was
 //     missing the two libraries the reader is made of, and the test that reads the tree and the page and compares
@@ -4007,7 +4007,7 @@ namespace kernel {
 //     it stopped earlier, on a line the app has not printed since 0.151.11;
 //   - **four cases asked their question at the wrong moment**: the splash and the panel-refused ones wanted a glass
 //     that moves ink (`--ink-refuse` implies `--ink` in the binary and they set half of it: with `ink == 0` the
-//     bench keeps no second buffer, so nothing is ever in flight to refuse, and `level_at` —the page drawn— is not
+//     emulator keeps no second buffer, so nothing is ever in flight to refuse, and `level_at` —the page drawn— is not
 //     `shown_at` —what the glass shows—); the home-app case opened its capture **after** `kernel::boot`, and the
 //     first line of an app is printed inside `run_app`; the shelf case asked `mkdir` for `/apps/reader`, which the
 //     reader case before it leaves behind, so it was red only when the suite ran whole;
@@ -4029,7 +4029,7 @@ namespace kernel {
 //   - **the app set of this repository is the twenty-four apps of `OLD/PaperOS/data/app`**, ported one by one, and the
 //     sixty folders `apps/` had were not from there: they are deleted, and the deletion is this commit's (136 files).
 //     Five ports fly today —`about`, `calculator`, `editor`, `reader` (which is `EPUB`) and `timeclock`— plus `probe`,
-//     a temporary instrument of the bench that says in its own description that it is not a screen and is not meant to
+//     a temporary instrument of the emulator that says in its own description that it is not a screen and is not meant to
 //     stay. The nineteen that are left are the queue, and they are named in docs/45 §8 with the ids and the state;
 //   - **the guard of that audit was a count** (`seen >= 17`), which said nothing about *which* app was missing and was
 //     the number of a set that is being made again —it was red for six apps and would have gone green again for six
@@ -4124,7 +4124,7 @@ namespace kernel {
 //     first pixel— and one app whose picture could not be read held up the ones behind it. Now the grid is up with a
 //     **generic picture** —a box with the first letter of the name, drawn by the app and not shipped as a file, so a cell
 //     whose picture fails keeps the letter and not a hole— and the queue fills in the real name and the real picture one
-//     cell at a time, measured on the board and on the bench: `paint 0,0 540x912` (the whole page) and then one
+//     cell at a time, measured on the board and on the emulator: `paint 0,0 540x912` (the whole page) and then one
 //     `158x96` per cell as each manifest lands;
 //   - the queue takes **one app per turn** and the page is only laid out again when an app has to leave it (a launcher of
 //     its own, an app of another board), which is once and at the end; an app whose manifest cannot be read keeps its name
@@ -4152,22 +4152,22 @@ namespace kernel {
 //   - and **a view inside a cell of a grid survives the page**: `test_a_canvas_inside_a_cell_of_a_grid_survives_the_page`
 //     paints twice and asks all six pictures whether they are still there, which is what a launcher of badges needs and
 //     what no test said before. 179 of 179 green.
-// 0.155.0 (8/11): **the bench comes up in a window and in the launcher**, which is the owner's ask —*«que l'emulador
+// 0.155.0 (8/11): **the emulator comes up in a window and in the launcher**, which is the owner's ask —*«que l'emulador
 // arrenqui amb el paràmetre --gui i l'app per defecte home_eink»*— and two things of `platformio.ini` plus the one it
-// needed in the bench.
+// needed in the emulator.
 //
 //   - **`LUNOK_GUI_BY_DEFAULT`** makes a run open the glass in a window without being asked, and **`--no-gui`** is the
 //     new flag that takes it away. **A demand and a default are not the same thing**: `--gui` asked for by hand still
 //     refuses `--no-delay` and `--no-ink` and still refuses a board with no glass and no key, and the default —which
 //     nobody asked for— steps aside with a line and the run goes on. Without that, every script of this project that
 //     says `--no-delay` would have stopped working the day the window became the default;
-//   - `LUNOK_HOME_APP` is `home_eink` in the environment of the bench and the disk of that build carries it
-//     (`custom_apps = home_eink`), because an app that is not on the disk the bench reads is a boot that lands on the
+//   - `LUNOK_HOME_APP` is `home_eink` in the environment of the emulator and the disk of that build carries it
+//     (`custom_apps = home_eink`), because an app that is not on the disk the emulator reads is a boot that lands on the
 //     prompt. **No test is touched**: the suite has its own environment, its own disk and its home app empty;
 //   - measured on this machine: `run` without arguments says `gui: the page 540x960 is in a window at half, one pixel of
 //     the window is 2 of the page` and `gui: the 3 keys of the board are a column on the right of the page`, and then
-//     `home: page 1 / 1 (2 cells)` (the two apps of the card of this bench, which is a directory that exists);
-//     `--no-delay` says `gui: no window, --no-delay is a bench without the times of the hardware` and runs; and
+//     `home: page 1 / 1 (2 cells)` (the two apps of the card of this emulator, which is a directory that exists);
+//     `--no-delay` says `gui: no window, --no-delay is an emulator without the times of the hardware` and runs; and
 //     `--gui --no-delay` is refused with the sentence it always had. 179 of 179 green.
 // 0.156.0 (8/11): **the eighteen red cases of the suite are seventeen repairs and one case that was wrong**, and
 // three of them were not the tests' fault. The count is exact and every one of them was measured with `pio test
@@ -4179,7 +4179,7 @@ namespace kernel {
 //     the dash vanished from the page (docs/30, docs/46 A2);
 //   - **the last 256 bytes of a Lua ceiling are not the app's** (`luabind::kErrorReserve`): a state whose ceiling is
 //     exactly full cannot write the sentence `not enough memory` and **Lua aborts the process** instead of raising at
-//     the app. On the bench that was the SIGABRT of `test_luabind`; on the board it would be the kernel restarting in
+//     the app. On the emulator that was the SIGABRT of `test_luabind`; on the board it would be the kernel restarting in
 //     the middle of an app that asked for too much (docs/75);
 //   - **the task of a chunk is made inside a protected call** (`luabind::make_the_task`): `lua_newthread` outside a
 //     `lua_pcall` is the same abort with no message at all, and it was the case of a chunk over the ceiling that
@@ -4189,7 +4189,7 @@ namespace kernel {
 //     header inside a header that says forty bytes, so its picture was refused; the layouts of `test_layout` asked
 //     for a page of step one and got the reader's four; `café` counted five bytes when the reader writes four; the
 //     samples of the netpbm family lived in an app that the purge of 0.152.6 took away; the three taps of the glass
-//     inherited the finger of the case before them, and the page of that bench is 960 high because it is turned;
+//     inherited the finger of the case before them, and the page of that emulator is 960 high because it is turned;
 //   - what the cases said of the two homes of memory was written before the floor of 64 KB (0.151.20): the case of
 //     the ceilings now says that the floor decides **the order and not the refusal** (docs/75).
 // 0.156.1 (8/11): **the page is a ring, and a box is not a stop**. The owner, with the launcher in his hand: *«el focus
@@ -4200,7 +4200,7 @@ namespace kernel {
 //     items —there the cells are the control's and `index` walks them— and wrong for a grid that holds the app's cells,
 //     where the stops are the cells. The ring landed on the whole box of the grid, the control paints no ring for that,
 //     and the walk then went on in the order of the tree: a person reads that as the focus leaving the page. Measured
-//     on the bench with the launcher: eleven stops for ten cells, and the eleventh was `icon grid 500x818 at 20,8`;
+//     on the emulator with the launcher: eleven stops for ten cells, and the eleventh was `icon grid 500x818 at 20,8`;
 //   - **the ends of the ring are the ends of the page** and the walk wraps (`(current + direction + count) % count`),
 //     which it already did —what it lacked was a list without phantoms in it—, so no key leaves the page at either end;
 //   - the case `test_the_dial_walks_the_controls_of_the_page_in_a_ring` walks three cells and two buttons with the keys
@@ -4254,40 +4254,40 @@ namespace kernel {
 //     operations keep the **light grey 12** of the original, so the page reads «these three change the state and
 //     those four are the arithmetic». The two levels are `kOperatorGrey` and `kActionGrey` at the top of the page,
 //     one place each (`key_grey`), and the white letter comes out of the same test (docs/30, docs/92 §34);
-//   - **the bench carries every app** (asked for by the owner: «afegeix totes les apps a l'emulador»): the disk of
-//     `[env:emulator]` is `custom_apps_in_disk = yes` and, as the bench has no board, the filter of `make_disk`
+//   - **the emulator carries every app** (asked for by the owner: «afegeix totes les apps a l'emulador»): the disk of
+//     `[env:emulator]` is `custom_apps_in_disk = yes` and, as the emulator has no board, the filter of `make_disk`
 //     keeps every folder of `apps/` —**7 apps, 35 files, 295 793 B** measured on this machine: about, calculator,
 //     editor, home_eink, probe, reader and timeclock—, so the launcher shows seven cells instead of one and an app
-//     added tomorrow is on the bench without touching a line of configuration. They go in as **links**, so an edit
+//     added tomorrow is on the emulator without touching a line of configuration. They go in as **links**, so an edit
 //     is what the next run reads; the boards keep a short list, which is what their 4 MB of LittleFS allow
 //     (docs/70, docs/85);
 //   - **every line of a paint says the quality by its name** (asked for by the owner): `mode 3 gl16` and not
 //     `mode 3`, because a number has to be looked up in a header and the question «which quality painted this
 //     rectangle?» is the one the log is read for. `hal::mode_name` is the only table of the eight words
 //     (`lib/hal/include/hal/hal.h`) and the panel, the UI, the refusal of a page and the emulator all read it —
-//     the bench had its own copy, which is a second truth— (docs/50, docs/85);
+//     the emulator had its own copy, which is a second truth— (docs/50, docs/85);
 //   - **`exit`, `logout` and Ctrl+D close the session of the console, and what closing means is the console's
 //     business** (asked for by the owner): they are one verb with two names plus the byte a terminal ends its input
-//     with, and they ask `IConsole::virtual_terminal` —a policy the bench turns on from `main_host` with
+//     with, and they ask `IConsole::virtual_terminal` —a policy the emulator turns on from `main_host` with
 //     `pal::set_virtual_terminal(true)`— because the two consoles of this system are not the same thing:
 //     - **a serial port** is the console of a board **and it cannot be hung up**: nobody is at the other end to
 //       close the wire and it is the only way into a system with no glass. There **the session is not closed at
 //       all** — the board answers `logout: the session is closed; press Enter to open a new one`, throws the half
 //       line away, stops taking lines (a letter is not a line and an arrow is not a key) and **the Enter of the
 //       terminal opens a new one**, `login: a new session`, which is what a getty does;
-//     - **a virtual terminal** —the console of the bench, a program on a PC that somebody started— **really
+//     - **a virtual terminal** —the console of the emulator, a program on a PC that somebody started— **really
 //       closes**: the line is written, the port is flushed and the run stops, which is what `poweroff` does on the
-//       bench too;
+//       emulator too;
 //     - inside `lua`, Ctrl+D keeps its meaning: it leaves the interpreter. The case
 //       `test_the_session_of_the_console_closes_and_opens_again` says all of it, the two consoles one after the
-//       other, and boots the bench again so the cases after it find it running (test_shell, docs/30, docs/50,
+//       other, and boots the emulator again so the cases after it find it running (test_shell, docs/30, docs/50,
 //       docs/85);
 //   - **and the size of a disk, corrected**: `docs/70`, `docs/80` and the comment of `platformio.ini` said that an
 //     image with all of `apps/` was *148 files and 418 720 B* and that the tool left two of them out. `apps/` is
 //     **35 files and 295 793 B** and the system alone **16 files and 130 217 B** (measured on 8/11), so that figure
 //     is withdrawn —it is not this tree's— and what fits is what `check_it_fits` prints on every build, not a
 //     number written in a document (docs/70, docs/80);
-//   - the case of the calculator **loads the bold face of the disk for itself** (the suite's bench carries
+//   - the case of the calculator **loads the bold face of the disk for itself** (the suite's emulator carries
 //     none), asserts the four signs have a width on it, presses them by the byte they carry —`0xF7`, `0xD7`,
 //     `0xB1` and `0x81`— and reads the display as the original writes it, `Calculator: 8 ÷ 0 = Error` and
 //     `Calculator: 6 × 7 = 42`.
@@ -4375,7 +4375,7 @@ namespace kernel {
 //   - **the cross keeps its promise**: `on_close` closes the session before the tab goes away. One session at a time is
 //     the kernel's rule (`kMaxSessions`), so a tab that left its session open would also leave the page without a
 //     second tab (docs/30, docs/75);
-//   - **the Paper carries it** (its list goes from six apps to seven, **34 files and 278 127 B**) and the bench carries
+//   - **the Paper carries it** (its list goes from six apps to seven, **34 files and 278 127 B**) and the emulator carries
 //     every app of `apps/` as before (**8 folders, 39 files, 305 615 B**), all of it measured on 8/11; **the image is
 //     what `make_disk` wrote that day and not the sum of those two numbers** —*`build/disk/m5-paper is 410534 B in 50
 //     files, 7 apps`* and *`build/disk/emulator is 438116 B in 56 files, 8 apps`*— and the figures of docs/70, docs/80,
@@ -4417,7 +4417,7 @@ namespace kernel {
 //     has one page that proves it. `home_eink` already says `"launcher": true`, so it is the first page a pinch does
 //     not close (docs/40);
 //   - the case `test_a_pinch_from_big_to_small_goes_back_and_then_closes` (test_apps) makes the gesture with two fingers
-//     of the bench —eighty pixels either side of the middle, four steps of fifteen coming back— and measures the three
+//     of the emulator —eighty pixels either side of the middle, four steps of fifteen coming back— and measures the three
 //     wishes: the counter goes 1 → 0 and the app hears `on_back(0)` and stays, the next pinch closes it, and a launcher
 //     with the same gesture is still there with its line in the log.
 // 0.163.1 (8/11): **the ways out go back one view before they close**. The owner saw the log of the middle key
@@ -4450,10 +4450,10 @@ namespace kernel {
 //     over the id of their session, and they looked for their argument at index one —so `s.stdout:read()`, which is
 //     how docs/30 and the app write it, passed the pipe table and answered `calling 'read' on bad self (number
 //     expected, got table)`—. A table in front is stepped over, and both `s.stdout:read()` and `s.stdout.read()` work;
-//   - **measured on the bench, 8/11**: the shell app comes up (`paint 12,12 516x888 gc16`) and runs twenty seconds with
+//   - **measured on the emulator, 8/11**: the shell app comes up (`paint 12,12 516x888 gc16`) and runs twenty seconds with
 //     **no line of `lua:`**, and a probe app that writes `version\n` into its own session reads the answer back
 //     (`lunokOS 0.163.1  board m5stack-paper (emulator)`), so the pipes are a round trip and not a wish. Typing into the
-//     app's box was not exercised: the bench had no finger and no key in that run;
+//     app's box was not exercised: the emulator had no finger and no key in that run;
 //   - the case `test_a_strip_that_closes_its_tabs_draws_its_crosses` (test_apps) is the one that would have caught the
 //     first of them: a page with two tabs and `closeable = true` is presented, and the log has to say `present true`.
 // 0.164.0 (8/11): **a redirected app is an id with an asterisk and a name with the word of its unit**. The owner
@@ -4464,7 +4464,7 @@ namespace kernel {
 //     `unit_word`): the id is a **path** —`/apps/*editor/res/icon.png` has to exist or the launcher cannot paint that
 //     cell— and the name is what **a person reads** in the grid and in the bar. The `-SD` used to be on the id, and then
 //     the picture of the duplicated app was the path of a folder no disk has: `editor-SD has no picture`, and the cell
-//     fell back to the letter of the placeholder (found on the bench on 8/11, docs/40);
+//     fell back to the letter of the placeholder (found on the emulator on 8/11, docs/40);
 //   - **the same code that presents the duplicate does both**: the `/apps` listing of the card (`CardSink`) writes
 //     `*<folder>` instead of `<folder>-SD`, and `apps::load` appends `-<unit>` to the title of a marked id —`SD` for the
 //     card and `Littlefs` for the flash— so a board whose default were the card would name the flash copy the same way
@@ -4473,7 +4473,7 @@ namespace kernel {
 //     carry `<folder>` as a plain app —the card when the flash has that folder, the flash when it does not— so the name
 //     and the path cannot disagree, and the old `-SD` stripping is gone (one rule and not two);
 //   - **the shell says the new name** where it told a person to run `-SD` after an install: it says `run *<id>`;
-//   - **measured on the bench, 8/11**: with a card carrying a copy of `editor`, the launcher logs
+//   - **measured on the emulator, 8/11**: with a card carrying a copy of `editor`, the launcher logs
 //     `8 ids: *editor about calculator editor probe reader shell timeclock`, then `home: app *editor Editor-SD`, paints
 //     its cell (`paint 24,12 158x96`) and **no `has no picture` line for it**, which is the bug;
 //   - the case `test_an_app_on_the_two_disks_is_listed_twice_and_the_card_one_says_SD` asks the three things this
@@ -4505,7 +4505,7 @@ namespace kernel {
 //     strip with no tab left its words on the glass for ever— and `l_tabs_draw` skipped the painter for a count of zero
 //     as well (`count > 0`). Both are gone: a strip with no tab is a page state of its own and it washes itself
 //     (docs/30, docs/90);
-//   - **what is measured and is not fixed**: on the bench, **assigning a field of a strip does not repaint it**. A page
+//   - **what is measured and is not fixed**: on the emulator, **assigning a field of a strip does not repaint it**. A page
 //     with one strip presents, then `s.items = { 'Only' }` (or `s.index = 2`) and presents again: the second present
 //     paints **nothing** —one `paint 20,20 500x60` in the whole run, and no line after the second `present true`— while
 //     a label's `text` does repaint the page. That is why closing a tab leaves the strip as it was, and it is the defect
@@ -4525,7 +4525,7 @@ namespace kernel {
 //   - **the moments that put the board down still do not ask for it**: `poweroff`, `reboot` and the deep sleep paint
 //     their picture through `power.cpp` and the strip does not come back on it —it must not, until the next boot—.
 //     The wish lives in the two places that put a page back on the glass and nowhere else;
-//   - **measured on the bench, 8/11**: an app whose manifest names a splash gives
+//   - **measured on the emulator, 8/11**: an app whose manifest names a splash gives
 //     `[I][SPLASH] /apps/sp/res/start.png, 460x200 at 40,380` and then `gui: paint 0,0 540x48 gc16`, which is the strip
 //     painted whole over the picture; before this version the line after the splash was the box of the title only;
 //   - the case `test_an_app_that_names_a_picture_has_it_painted_before_it_starts` now reads two more pixels: the line
@@ -4554,7 +4554,7 @@ namespace kernel {
 //     fits as it came, so the size has to be the panel's— (docs/30, docs/50);
 //   - **BMP and not PNG**: a picture of the boot is read at every boot and an uncompressed **8-bit paletted** file is a
 //     row and a table lookup per pixel, with no decompressor in the way —519 478 B each, and the decoder already hands
-//     4-bit rows to the glass—. The three are measured on the bench: `[I][SPLASH] /res/splash/boot-2.bmp, 540x960 at
+//     4-bit rows to the glass—. The three are measured on the emulator: `[I][SPLASH] /res/splash/boot-2.bmp, 540x960 at
 //     0,0` (docs/50);
 //   - **the stamp**: `lunokOS v<version>` drawn by `draw_version` after the picture is on the surface and before the one
 //     `gc16` that takes both to the panel, **black, at scale 2 of the face the system draws with and a margin of sixteen
@@ -4563,7 +4563,7 @@ namespace kernel {
 //   - **what is still to come, and the owner said so**: an argument with a **list of pictures** among which the splash
 //     picks one at random, and **formatted text**. The three files are named so that list has something to name, and the
 //     stamp is the first text a splash draws;
-//   - **measured on the bench, 8/11**: the page dumped after `splash /res/splash/boot-2.bmp` is 540 × 960 and its bottom
+//   - **measured on the emulator, 8/11**: the page dumped after `splash /res/splash/boot-2.bmp` is 540 × 960 and its bottom
 //     right corner carries **980 dark pixels** of the stamp, which reads `lunokOS v0.164.4` in the crop.
 // 0.165.1 (8/11): **the picture of a moment is on the glass before the board goes**. The owner: the reboot picture opens
 // too late and is never seen.
@@ -4578,10 +4578,10 @@ namespace kernel {
 //   - **the three moments that put the board down ask it**: `reboot` (after writing its line, so the wire and the glass
 //     say the same thing), `poweroff` (after flushing the console and before cutting the supply) and the deep sleep
 //     (`power.cpp`). A light sleep paints nothing and waits for nothing (docs/50, docs/60);
-//   - **measured on the bench, 8/11**: `reboot` with the page dumped at the end leaves the picture of the moment on the
+//   - **measured on the emulator, 8/11**: `reboot` with the page dumped at the end leaves the picture of the moment on the
 //     glass —`reboot`, the line and `restarting`, and the stamp `lunokOS v0.165.0` in the corner, 5 158 dark pixels—
-//     where before the dump was the page of the prompt. **The bench cannot measure the wait itself**: its glass paints
-//     what it is given in the same call and the ink is not paid, so what the bench proves is that the picture is asked
+//     where before the dump was the page of the prompt. **The emulator cannot measure the wait itself**: its glass paints
+//     what it is given in the same call and the ink is not paid, so what the emulator proves is that the picture is asked
 //     for and up at the end, and the waiting is what a real panel needs (docs/50, docs/85);
 // 0.166.0 (8/11): **the page of About is a list, one row a library with its name and its version**. The owner: *«usa una
 // llista i afegeix el nom de la llibrería i versió a l'entrada, així pots tenir més elements que els que caben a pantalla
@@ -4597,7 +4597,7 @@ namespace kernel {
 //     (docs/30);
 //   - **the list is given one row less than the room left**: its foot is a band of its own and a list that ends at the
 //     last pixel of the page leaves it cut at the edge, which is what the first version did (`1 / 4` half off the glass);
-//   - **measured on the bench, 8/11**: the dumped page reads `alarms 0.1.0`, `board_atom 0.1.0`, `board_esp32 0.1.0`,
+//   - **measured on the emulator, 8/11**: the dumped page reads `alarms 0.1.0`, `board_atom 0.1.0`, `board_esp32 0.1.0`,
 //     `board_matrix 0.1.0`, `board_paper 0.1.0`… with the separator of each row, and the foot of the list says `1 / 4`
 //     with the chevron of the pages after it; the app logs `about: 25 rows in a list of 567 px` and no `lua:` line;
 //   - the case `test_the_about_app_lists_the_libraries_of_the_project` now asserts that **the app's own paginator is
@@ -4612,7 +4612,7 @@ namespace kernel {
 //     recomputed in `build()` from the width of the view, so a narrow glass gets narrower cells instead of a name that
 //     runs off the edge (docs/30, docs/90);
 //   - **the mark of the cell stays 72 px, and that was measured three times**: the cap of `icon_grid_cells` was raised to
-//     120 and then to 96 and the bench gave **exactly the same two cells without a picture in all three runs** (`Squares`
+//     120 and then to 96 and the emulator gave **exactly the same two cells without a picture in all three runs** (`Squares`
 //     and `Timeclock`), so the size of the canvas was never the cause and a canvas of 120 x 120 at four bits is 7 200 B
 //     of a page for no measured gain (docs/75);
 //   - **why those cells are empty is in the disk, not in the grid**: `squares` is an app of the emulator's SD card
@@ -4620,12 +4620,12 @@ namespace kernel {
 //     all**, and the card's `editor` and the workspace's `probe` are the same, so the cell is a name and no picture and
 //     that is what the manifest says (docs/40);
 //   - **one cell is still open and it is not explained**: `timeclock` lives in `apps/timeclock` **with** a
-//     `res/icon.png` and comes out with its name and without its picture in all three runs of the bench (docs/90);
+//     `res/icon.png` and comes out with its name and without its picture in all three runs of the emulator (docs/90);
 //   - **the present is one per app, right after its picture** (the app's loop): a single paint of the whole page when the
 //     queue is over was tried and measured wrong —it lands **before** the cells arrive, so the last pictures of the grid
 //     stay unwritten—, and the owner's sentence asks for the opposite: the cell that has just been filled is the one that
 //     goes to the glass;
-//   - **measured on the bench, 8/11**: `home: 9 cells`, `lua: 0`, one `[I][UI] paint 0,0 540x912 mode 1 du` for the wash
+//   - **measured on the emulator, 8/11**: `home: 9 cells`, `lua: 0`, one `[I][UI] paint 0,0 540x912 mode 1 du` for the wash
 //     of the page and then a `gc16` per cell, and the dumped page shows the apps of the disk in two columns with their
 //     names at 33 px (`Editor-SD` from the card, `About`, `Calculator`, `Editor`, `Probe`, `EPUB reader`, `Shell`);
 //   - **and a defect is left open and named here** (measured, not fixed): with a state built from nothing the grid of the
@@ -4642,7 +4642,7 @@ namespace kernel {
 //     name, and hiding one of the two would be the lie— (docs/40, docs/70);
 //   - **the paths are still the door's**: the word decides what the name says and `vfs` decides which disk a file comes
 //     from, so a name that disagrees with its disk cannot send an app to read the other copy's files (docs/70);
-//   - **measured on the bench, 8/11**: the launcher logs `home: app *editor Editor-SD` with `[I][APPS] *editor`, and with
+//   - **measured on the emulator, 8/11**: the launcher logs `home: app *editor Editor-SD` with `[I][APPS] *editor`, and with
 //     `cfg home none` the same id runs —`editor: File opens, saves and closes...`— which is the card's
 //     `emulator/sd/apps/editor`. The `cannot start the interpreter` that `--run '*editor'` gives **with the launcher
 //     still in front** is the interpreter of the launcher holding the heap and the second one not fitting, not a name
@@ -4659,12 +4659,12 @@ namespace kernel {
 //
 //   - **`run_app` closes the app in front first**: `luabind::start` answers no while a state is alive —`if (g_state !=
 //     nullptr) return false`—, so `run <id>` with an app in front said `cannot start the interpreter` **for every id of
-//     the disk** —`editor`, `shell`, `about`, `*editor`, all four measured on the bench on 8/11—, which a person reads as
+//     the disk** —`editor`, `shell`, `about`, `*editor`, all four measured on the emulator on 8/11—, which a person reads as
 //     «`Editor-SD` does not resolve» and is a start that never happened (docs/30, docs/40);
 //   - **and it is the same road an app that asks for another one takes**: the goodbye hooks, the views, the colour and the
 //     bar go with the app that leaves, so the app that comes up is in the same state as one the launcher asked for by a
 //     tap (docs/30, docs/90);
-//   - **measured on the bench, 8/11**, with the launcher in front and `run <id>` from a script: before, `cannot start the
+//   - **measured on the emulator, 8/11**, with the launcher in front and `run <id>` from a script: before, `cannot start the
 //     interpreter` for all four; after, `app closed` then `[I][APPS] *editor` and `editor: File opens, saves and closes;
 //     View is read only and wrapping`, which is the card's copy of `emulator/sd/apps/editor`;
 //   - **and the two halves of the owner's report are answered**: the id `*editor` **does** resolve —`/apps/*editor` is
@@ -4698,11 +4698,11 @@ namespace kernel {
 //     horizontal, left for the page after and right for the one before, and the list clamps the number (docs/30);
 //   - **and the room of that list is two rows less**: the head is measured by the app with `ui.text_width` and placed by
 //     the panel with the face it draws with, and the two disagreed by one line of the big size —the list of 0.166.0 ended
-//     20 px under the glass and the foot of the page was **off the page**, found on the bench on 8/11 with a dump— (docs/30);
+//     20 px under the glass and the foot of the page was **off the page**, found on the emulator on 8/11 with a dump— (docs/30);
 //   - **the card's editor has a picture**: `OLD/PaperOS/data/app/Editor/icon.icn` is a square of four bits a pixel without
 //     a header —4 418 bytes are 94 x 94— and it is `emulator/sd/apps/editor/res/icon.png` now, named by that copy's
 //     manifest, so `home: *editor has no picture` is gone (docs/40);
-//   - **measured on the bench, 8/11**: the About page dumps one full dot and three hollow ones at `x 247..292, y 849..854`
+//   - **measured on the emulator, 8/11**: the About page dumps one full dot and three hollow ones at `x 247..292, y 849..854`
 //     under a list of `25 rows in a list of 503 px`, `lua: 0`, and the eight separators of the rows at `615, 679, 743,
 //     807, 861` with the band of dots under the last one (docs/30, docs/85).
 //
@@ -4710,7 +4710,7 @@ namespace kernel {
 // d'About»*. The focus of a list is drawn as a two-pixel frame around it, which is right for a list whose rows the system
 // paints —there the frame is the only thing that says where the list is— and wrong for a list of entries: those rows are
 // controls of the app, each with its own paper and its own ring, so the frame was a box nobody asked for around the whole
-// column. Measured on the bench with a dump of the page: the two pixels at `x 20` and `x 518` along the list are gone and
+// column. Measured on the emulator with a dump of the page: the two pixels at `x 20` and `x 518` along the list are gone and
 // the rows, the separators and the dots are where they were (docs/30, docs/90).
 //
 // 0.168.0 (8/11): **the law of the redraw, written down, and the first half of it made true**. The owner: *«els UIControl
@@ -4724,12 +4724,12 @@ namespace kernel {
 //     and for a part when a part of the view is dirtied (docs/30, docs/50);
 //   - **`attach()` already did the system's half**: it releases every control of the app before, fills the view with white,
 //     clears the damage and asks the glass for the whole page with the cleaner the last page deserves —one pass, before a
-//     single control of the new app exists—. It is measured on the bench: `gui: paint 0,0 540x960 gc16`, once, and nothing
+//     single control of the new app exists—. It is measured on the emulator: `gui: paint 0,0 540x960 gc16`, once, and nothing
 //     else until the app presents (docs/30, docs/50);
 //   - **and a `ui.clear(15, …)` on a page the system has just handed white costs nothing** (0.168.0): `g_page_owes_nothing`
 //     is set by `attach()` and cleared by the first control composed into the page or by any other wash, so the eleven
 //     `ui.clear` calls of six apps —About 2, Editor 2, Shell 2, Timeclock 3, Calculator 1, Home 1— stop paying a second
-//     whole-page clean for paper that is already clean. **Measured on the bench, 8/11**: running About logs
+//     whole-page clean for paper that is already clean. **Measured on the emulator, 8/11**: running About logs
 //     `a clear of a page the system handed white: nothing to wash` once and the whole-page paints of the run are **one**
 //     (the system's) instead of two, with the page still whole —separators at `551, 615, 679, 743, 807` and the four dots
 //     at `y 850..853`— (docs/30, docs/50);
@@ -4743,18 +4743,18 @@ namespace kernel {
 // *«al moure el focus s'han de redibuixar dos controls, el nou per dibuixar-lo amb focus i l'anterior que s'ha de
 // dibuixar sense focus»*.
 //
-//   - **the two controls were already the two**, and it was measured with a bench app of two buttons: `ui.focus(two)`
+//   - **the two controls were already the two**, and it was measured with an emulator app of two buttons: `ui.focus(two)`
 //     invalidates the one that loses the ring and the one that takes it, and nothing else (`ui_apply_focus`). What was
 //     wrong was the **quality** and the **area** (docs/30);
 //   - **the quality was `du`, which paints and does not take ink away**: the ring that went stayed on the glass as a ghost,
 //     which is what the owner saw. `ui_feedback` —the paint of a focus and of a press— presents now with **`gl16`**, that
 //     cleans the box without the flash of `gc16` (docs/30, docs/50);
 //   - **and the two boxes were merged into one**: presenting everything pending with one quality went through
-//     `merge_all`, which turns the two regions into the rectangle around both —measured on the bench, 8/11: two boxes of
+//     `merge_all`, which turns the two regions into the rectangle around both —measured on the emulator, 8/11: two boxes of
 //     `300x64` at `y 40` and `y 320` became **one of `300x344`**, 103 200 pixels of ink where 38 400 are owed—. The new
 //     `ui::present_each` writes the quality into each region that already exists and leaves the boxes where they are, and
 //     `ui_feedback` goes through it with the ops table (docs/30, docs/50);
-//   - **measured on the bench, 8/11**: moving the ring from `One` to `Two` paints `20,40 300x64 gl16` and
+//   - **measured on the emulator, 8/11**: moving the ring from `One` to `Two` paints `20,40 300x64 gl16` and
 //     `20,320 300x64 gl16` — two regions, the two controls, the air between them untouched — and the log of the run has no
 //     other paint between the two names (docs/30, docs/85);
 //   - `present_all` keeps merging, because an app that asks for a whole page with one quality asked for exactly that.
@@ -4775,7 +4775,7 @@ namespace kernel {
 //     —a box with no view drew its caret on canvas 0, which is the page, and asking the control for a box it never had is
 //     why the blink went on painting everything— and `caret_poll` invalidates **that** rectangle instead of the control. A
 //     whole invalidate forgets the block, because the text or the cursor moved and the old rectangle is a guess (docs/30);
-//   - **measured on the bench, 8/11**, a box of text of `420x64` with the ring on it and the caret blinking every 600 ms:
+//   - **measured on the emulator, 8/11**, a box of text of `420x64` with the ring on it and the caret blinking every 600 ms:
 //     before, **8 paints of `420x64`** —215 040 pixels of ink for nine seconds of a blinking cursor—; after, **one paint of
 //     the page and seven of `10x33`**, which is 2 310 pixels: **98,8 % less ink** for the same blink (docs/30, docs/50);
 //   - **what is left for the same law**, said so it is not forgotten: the fields of the other controls still invalidate the
@@ -4789,7 +4789,7 @@ namespace kernel {
 //   - `on_resize` compares the size with the page on the glass and returns when it is the same one: rebuilding threw seven
 //     picture canvases of 72 x 72 (18 144 B) and a whole-page paint to end in the same page (docs/30, docs/50);
 //   - **and the lost pictures were measured, not guessed**: with the app started **twice** —`lunokOS` boots its home app
-//     and a bench asked for it again with `--run home_eink`, which the log says with `[I][APPS] home_eink` twice— the first
+//     and an emulator asked for it again with `--run home_eink`, which the log says with `[I][APPS] home_eink` twice— the first
 //     instance's grid and its seven canvases are released while its queue of manifests is still filling the cells, and
 //     every picture that arrives after that answers `this canvas is not on the screen any more`. **Started once, the page is
 //     built once and all seven pictures are there** (`home: 7 ids`, `home: 7 cells`, `no picture` zero times, measured with
@@ -4810,7 +4810,7 @@ namespace kernel {
 //     `invalidate_rect()` makes a control **with bits** owe its rectangle as damage again —`gl16`, because the paper that
 //     covered it was a wash—. A control without bits needs no damage of its own: drawing is what marks it, and `needs_draw`
 //     is what makes it draw (docs/30);
-//   - **measured on the bench, 8/11**, a `ui.icon_grid` of two cells with a black picture of `72x72` and a name in each, the
+//   - **measured on the emulator, 8/11**, a `ui.icon_grid` of two cells with a black picture of `72x72` and a name in each, the
 //     grid invalidated as the ring does: before, the grid painted `20,20 400x220` and the ink inside it fell to **2 376**
 //     pixels —the frames and nothing else—; after, the same paint and then `40,30 72x72 gl16` and `240,30 72x72 gl16`, with
 //     **12 744** pixels of ink inside the grid. The two pictures and the two names are back (docs/30, docs/50);
@@ -4831,13 +4831,39 @@ namespace kernel {
 //     without it the white of the alpha is painted over the canvas as it always was, with it the pixels stay as the canvas
 //     had them. The manifest does not change, no file is added, and a picture without transparency is drawn the same either
 //     way (docs/30);
-//   - **measured on the bench, 8/11**, a `72x72` PNG with a transparent ring and a black square in the middle, drawn twice
+//   - **measured on the emulator, 8/11**, a `72x72` PNG with a transparent ring and a black square in the middle, drawn twice
 //     over a canvas of grey 8: **without** the mask the ring is `255` —white paper painted over the grey— and **with** it the
 //     ring is `136`, the grey of the canvas; the square is `0` in both. The whole feature is one row of 271 bytes and a
 //     branch in the row writer (docs/30, docs/50);
 //   - **and a picture of a family that carries no transparency gives no mask**: it is drawn as if everything were there,
 //     which is what a BMP or a JPEG is (docs/30).
-static const char kVersion[] = "0.169.0";
+//
+// 0.169.1 (12/11): **`help <command>` no longer cuts a command that has two lines, and the documents name the apps that
+// exist**. The owner: *«1- arregla-ho … 2- treu les apps antigues de la documentació … 6- Documenta-ho i ja ho farem»*.
+//
+//   - **`help splash` and `help cfg` printed the first line of the entry and nothing else**: the list is
+//     `"  <syntax>  <description>"` and the entry of a command with a second line is two of them, so the second hung from no
+//     syntax and was dropped. `help_continuation()` is the new mark —a line that hangs from the one before—, `g_help_previous`
+//     remembers which that was, and both lines come out now. `help poweroff` still does not print the advice that closes the
+//     list, which is what the old guard was for (lib/kernel/src/shell.cpp, docs/80);
+//   - **the documents no longer send anybody to an app that is not on the disk**: sixty apps were deleted between 0.94.0 and
+//     0.169.0 and the manuals still said `run air`, `run panel`, `run fonts`, `run heap` and a hundred and fifty more. Every
+//     one of them is now the call that was measured (`env.read()`, `power.battery()`, a `lua` loop, a page of the shape it
+//     describes) or the app of today that does the same job, and the two that are only a historical log are quoted and said
+//     to be so (docs/30, docs/40, docs/50, docs/60, docs/70, docs/75, docs/80, docs/85, docs/90, docs/92, docs/95);
+//   - **the numbers of the disk are the ones the tool printed on 12/11**: the system alone is 19 files and 1 688 651 B —of
+//     which 1 595 456 B are three splash bitmaps— and the seven apps are 34 files and 290 501 B, so `build/disk/m5-paper` is
+//     53 files and 1 979 152 B and `build/disk/emulator` 55 files and 1 981 991 B (docs/70, docs/80, docs/85). **And the four
+//     4 MB boards do not fit**: 1 688 651 B of system against the 1 441 792 B of `partitions.csv`, so `-t buildfs` stops with
+//     `this disk does not fit` until the splash bitmaps are not carried (docs/70);
+//   - **the table of canvases is 2 978 slots of 176 bytes and not 3 276 of 160**, and the document says what happens when the
+//     board has no extra memory: `allocate(..., true)` falls back to the internal RAM, so the half megabyte lands there and the
+//     halving leaves the board with what fits —**744 slots would be 130 944 B, 39 % of what an ATOM reports free**—. It is
+//     written down as the pending risk it is, with the numbers that are measured and the one that is not (docs/75, docs/90);
+//   - **the emulator is the emulator everywhere**: the manuals called it *banc* and the code called it *bench*, and both are
+//     now `emulador` and `emulator`, including the two messages a person reads (README, docs/85). The himem *banks* of 32 KB
+//     keep their name, because a bank is not a machine (docs/50).
+static const char kVersion[] = "0.169.1";
 
 }  // namespace kernel
 

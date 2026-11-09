@@ -117,7 +117,7 @@ void draw_keys() {
   XFlush(g_display);
 }
 
-// **A mouse on the window is a finger on the glass**: the glass of this bench is the panel of the model,
+// **A mouse on the window is a finger on the glass**: the glass of this emulator is the panel of the model,
 // and an app that draws with a finger has no way to be tried on a machine that has no touch screen. A
 // press is the finger coming down, the move while the button is held is the finger moving, and letting go
 // is the finger coming up — in the frame the chip counts in, which on this board is the page's own
@@ -359,7 +359,7 @@ uint8_t gui_scale() { return (g_display != nullptr) ? g_scale : 0; }
 
 void gui_close() {
   if (g_display == nullptr) return;
-  // A key the pointer was holding is let go: a window that goes away with a key down would leave the bench
+  // A key the pointer was holding is let go: a window that goes away with a key down would leave the emulator
   // with a key nobody can lift, and the same goes for a finger the pointer was dragging (docs/85).
   if (g_key_held >= 0) {
     press_key(g_key_held, false);

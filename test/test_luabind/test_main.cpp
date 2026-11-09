@@ -655,7 +655,7 @@ void test_the_heap_numbers_match_the_ceiling(void) {
   luabind::stop();
 }
 
-// The board's memory is a wall: a bench told to give a megabyte gives the board's 320 KB, because
+// The board's memory is a wall: an emulator told to give a megabyte gives the board's 320 KB, because
 // the firmware being emulated is the one on the glass (docs/75, docs/85).
 void test_a_ceiling_above_the_board_is_the_board(void) {
   pal::init();
@@ -669,7 +669,7 @@ void test_a_ceiling_above_the_board_is_the_board(void) {
 }
 
 // The app is told the board the platform says, not a name the shell invents: on the
-// bench that is the model it was told to be, and `sys.emulator` is the flag that says the
+// emulator that is the model it was told to be, and `sys.emulator` is the flag that says the
 // hardware under it is a fake (docs/50, docs/85).
 void test_the_app_sees_the_board_the_platform_says(void) {
   pal::init();
@@ -940,7 +940,7 @@ uint32_t price_of_an_instruction() { return g_instruction_ns; }
 
 // **The instructions of an app are CPU time** (docs/85): the interpreter asks the band what one costs and
 // pays for them, so a loop costs here what it costs on the glass. On a board the answer is zero —its
-// instruction already takes the time it takes— and nothing is spent; on the bench it is the sixty
+// instruction already takes the time it takes— and nothing is spent; on the emulator it is the sixty
 // nanoseconds of the model, times what the turn did.
 static void test_the_instructions_of_an_app_are_paid_for(void) {
   // **The ops go in before the interpreter opens**, because the count hook is only installed on a band

@@ -1,8 +1,8 @@
-// **The ink of the bench's glass, as a model and not as a photograph** (docs/85).
+// **The ink of the emulator's glass, as a model and not as a photograph** (docs/85).
 //
 // An e-ink panel does not switch pixels: it moves pigment. What was there does not go away in one paint
 // —`du` leaves a trace of the page before, and the traces add up— and only the modes that clean (`gc16`
-// and its family) take the page back. This is that, in one table and one integer blend, so the bench can
+// and its family) take the page back. This is that, in one table and one integer blend, so the emulator can
 // show what the board shows instead of a perfect picture nobody has ever seen.
 //
 // **The numbers are the maker's, not a measurement of this unit**: 450 ms for a `gc16` and 120 for a

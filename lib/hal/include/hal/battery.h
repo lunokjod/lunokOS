@@ -13,7 +13,7 @@
 namespace hal {
 
 // The curve of the cell, in one place for both directions: a percentage is turned into millivolts by
-// the bench when it lends the battery of the machine it runs on to the board it imitates, and back by
+// the emulator when it lends the battery of the machine it runs on to the board it imitates, and back by
 // the board when it reads its own divider (docs/50, docs/85).
 namespace battery_curve {
 
@@ -59,7 +59,7 @@ inline uint32_t battery_percent(int mv) {
 }
 
 // **The millivolts a percentage is**, which is the same curve read the other way: it is what a battery
-// that speaks in percentages needs to become one of these cells, which is how the bench lends the
+// that speaks in percentages needs to become one of these cells, which is how the emulator lends the
 // laptop's battery to the Paper (docs/85). Straight between two rows, exactly as `battery_percent`
 // does it, so a percentage that goes out comes back.
 inline int battery_mv(uint32_t pct) {

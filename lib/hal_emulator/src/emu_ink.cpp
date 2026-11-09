@@ -10,7 +10,7 @@ namespace {
 // of ink and 227 ms of wire over the 1 068 rows of the glass, so the rows cost the rest, about **1 112 µs
 // each**. A row is sent by a transaction of its own (`It8951::flush` hands the bus one row at a time), and
 // why that transaction costs a millisecond outside the wire is not answered here; the number is, and it is
-// the number the bench uses so that a page here costs what a page costs there (docs/85, docs/95).
+// the number the emulator uses so that a page here costs what a page costs there (docs/85, docs/95).
 const uint32_t kBusHz = 10000000;
 const uint32_t kRowUs = 1100;
 
@@ -50,8 +50,8 @@ InkMode ink_mode(hal::UpdateMode mode) {
       // of what was there stays and the paint adds a little dirt. It is lighter than a `du` (two sixteenths against
       // five) and it is not the clean a `gc16` is: the ghost of a page painted this way goes away with a blink and with
       // nothing else. **The model said the opposite until now** —"they clean without deafening the page"— and that made
-      // the one choice this project takes everywhere (`gld16` instead of `gc16`, so nothing flickers) free on the bench,
-      // which is the one thing a bench must not do (docs/85, docs/92).
+      // the one choice this project takes everywhere (`gld16` instead of `gc16`, so nothing flickers) free on the emulator,
+      // which is the one thing an emulator must not do (docs/85, docs/92).
       return InkMode{450, 2, 1, 2, false, 0, {0, 0, 0, 0, 0, 0}, 0};
     case hal::UpdateMode::kDu:
       // The quick one: **almost a third of what was there stays** and it leaves a little dirt, so a page

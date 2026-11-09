@@ -25,7 +25,7 @@ namespace {
 uint32_t g_flushes = 0;
 
 // **What the terminal was, in a place a signal handler may read** (0.110.0): `atexit` is not reached by a process that
-// dies on a fault or on a signal, and the raw mode of this bench —a key at a time, no echo, no line— then stays in the
+// dies on a fault or on a signal, and the raw mode of this emulator —a key at a time, no echo, no line— then stays in the
 // terminal of whoever ran the tests until a `reset`. The handler restores this and lets the signal kill the process as
 // it would have (docs/80, docs/85, docs/92).
 struct termios g_saved_terminal;
@@ -184,8 +184,8 @@ size_t home_largest(uint8_t home) {
 // **What a walk costs**, in nanoseconds, saved until it is a microsecond or more: a heap that is not
 // walking does not sleep, and the walks of a script add up to what they would cost on the board. The
 // board's allocator is not a list of every block —a bitmap of levels finds a free chunk in a handful of
-// steps—, so **a walk stops costing after sixteen nodes**: what the bench charges is what the chip's
-// allocator costs and not the length of this bench's own list (docs/75, docs/85).
+// steps—, so **a walk stops costing after sixteen nodes**: what the emulator charges is what the chip's
+// allocator costs and not the length of this emulator's own list (docs/75, docs/85).
 const size_t kMaxWalkSteps = 16;
 
 void pay_walk(size_t steps) {
@@ -285,7 +285,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   }
 
   HeapInfo heap() const override {
-    // **The board's own RAM, with the board's books**: when the run gave the bench the memory of the
+    // **The board's own RAM, with the board's books**: when the run gave the emulator the memory of the
     // model, these are the two numbers `mem` reads on the glass —what is left and the least that was
     // left— counted on everything the system and the apps took through `pal::extra_memory()` (docs/75,
     // docs/85). A run with no ceilings says so instead of inventing a number.
@@ -330,7 +330,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     // **One wire, and in the order it was written.** On the board the kernel's own lines (`printf`) and
     // the console go out of the same UART, so the order of the two is the order they were produced
     // here a `printf` sits in a buffer of its own while the console writes with `::write`, and the boot
-    // lines came out after the prompt and after an app's output (measured on the bench, 1/11). What is
+    // lines came out after the prompt and after an app's output (measured on the emulator, 1/11). What is
     // buffered is pushed out first (docs/85).
     ::fflush(stdout);
     if (g_baud == 0 || len == 0) {
@@ -412,7 +412,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
     return isatty(STDOUT_FILENO) != 0 && getenv("TERM") != nullptr;
   }
 
-  // **The console of the bench is a virtual terminal** (0.158.0) when the program that carries it says so: it is a
+  // **The console of the emulator is a virtual terminal** (0.158.0) when the program that carries it says so: it is a
   // session somebody opened on a PC and can hang up, so `logout` ends the run. The default is a serial port, which
   // cannot hang up, and that is what a test wants —its console is a file and its case models the board— (docs/30,
   // docs/85). What the console is belongs to the console; what `logout` does with it is the shell's decision.
@@ -420,7 +420,7 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
 
  private:
   void wait_for_input(int32_t timeout_ms) {
-    // **A wait is cut to the slice of the bench**, when there is one: the window of the run and the finger on
+    // **A wait is cut to the slice of the emulator**, when there is one: the window of the run and the finger on
     // its glass are looked at between waits, and a wait of six hundred milliseconds would be six hundred
     // milliseconds of a mouse that is not seen (docs/85, docs/90). The deadline is not lost: it is dispatched
     // on the slice that reaches it, and the next turn asks the queue again.
@@ -528,7 +528,7 @@ class HostExtraMemory : public IExtraMemory {
   void* allocate(size_t bytes, bool prefer_extra) override {
     if (bytes == 0) return nullptr;
     // **The same rule as the board** (0.151.20, `pal::take_from_the_extra`): a small block goes home while the
-    // home keeps its floor and to the extra memory when it would lose it. A bench that did otherwise would let a
+    // home keeps its floor and to the extra memory when it would lose it. An emulator that did otherwise would let a
     // test pass on a board that fails —which is exactly what this cost to find (docs/75, docs/85).
     const uint8_t first = take_from_the_extra(home_free(kHome), bytes, prefer_extra) ? kExtra : kHome;
     if (void* block = take(first, bytes)) return block;
@@ -672,7 +672,7 @@ class HostExtraMemory : public IExtraMemory {
   }
 
   // **A block that does not grow where it is can go to any other spot of its memory**, not only to the other one: a
-  // real heap does not ask that the block have the free room right behind it, and the one of the PSRAM of this bench
+  // real heap does not ask that the block have the free room right behind it, and the one of the PSRAM of this emulator
   // said no to a block of 88 572 B with **four megabytes free** because the neighbour was taken and it only tried the
   // other home, which is the small one (found with the editor opening a file of 1.3 MB, 4/11) (docs/75).
   void* move_into(void* block, size_t bytes, uint8_t home) {
@@ -734,7 +734,7 @@ HostExtraMemory g_extra;
 
 }  // namespace
 
-// **The terminal goes back the way it was when the process ends, however it ends**: the raw mode is this bench's —a key
+// **The terminal goes back the way it was when the process ends, however it ends**: the raw mode is this emulator's —a key
 // read one at a time, without echo and without a line— and it is not the shell's. `shutdown` puts it back, but a suite
 // of this machine ends in `UNITY_END` and a program that stops on a failing assertion ends in `exit`, and neither of
 // them calls it: the terminal of the person who ran the tests was left with no echo until a `reset` (found the 4/11,
@@ -747,7 +747,7 @@ bool init() {
   if (!hooked) {
     hooked = true;
     atexit(&the_terminal_back);
-    // **And a run that dies on a fault puts it back too**: a suite that stops on a segmentation fault, or a bench killed
+    // **And a run that dies on a fault puts it back too**: a suite that stops on a segmentation fault, or an emulator killed
     // with a signal, ends without `atexit` and left the terminal of the person with no echo until a `reset`
     // (docs/80, docs/85).
     const int kFatal[] = {SIGSEGV, SIGBUS, SIGABRT, SIGTERM, SIGINT, SIGHUP, SIGQUIT};
@@ -809,7 +809,7 @@ void set_console_baud(uint32_t baud) {
 }
 
 // **What the console is** (0.158.0): a virtual terminal can hang up and a serial port cannot. It is the program that
-// carries the console who says so —`main_host` says yes for the bench— and a test leaves it off, because its console
+// carries the console who says so —`main_host` says yes for the emulator— and a test leaves it off, because its console
 // is a file and its case is the board (docs/30, docs/85).
 void set_virtual_terminal(bool on) { g_virtual_terminal = on; }
 

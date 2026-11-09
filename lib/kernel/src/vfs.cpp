@@ -14,7 +14,7 @@ namespace {
 const size_t kMaxPathBytes = 128;
 // The rows the table can hold. It was 8, which was exactly what the Paper had —littlefs, apps, res,
 // data, sd, rtc, nvs and the `/cfg` door— so the FRAM did not fit and `/cfg` disappeared without a
-// word (found on the bench the 31/10, writing a setting: `E_INVAL`). Ten leaves the room of two more
+// word (found on the emulator the 31/10, writing a setting: `E_INVAL`). Ten leaves the room of two more
 // mounts, and a table that is full now says so in the log instead of dropping a row (docs/70).
 // Twelve since 3/11: the Paper has every row it can have —the flash, its three aliases, the faces,
 // the card, the two memories, the key-value store and `/cfg`— and that is ten, which left no room
@@ -109,7 +109,7 @@ bool join_apps(char* out, size_t cap, const char* name) {
 // in front of its id —`*editor`— and the word of the unit it lives on at the end of its **name** —`Editor-SD`—, which
 // is what the door reads to say which disk a picture comes from. It used to be a `-SD` on the id, and then
 // `/apps/editor-SD/res/icon.png` was a path nothing could resolve: the launcher asked for the icon of an id that is not
-// a folder of any disk (found on the bench on 8/11, docs/40, docs/70).
+// a folder of any disk (found on the emulator on 8/11, docs/40, docs/70).
 const char kRedirect[] = "*";
 
 // **The two halves of the door, whole** (0.88.20): the presenter is asked about a name and the disk it came from, because
@@ -214,10 +214,10 @@ uint32_t init(hal::IPlatform& platform) {
     //
     // **`/apps` is the virtual directory of the two disks** (0.88.19): what a person lists there is `littlefs/apps`
     // and `sd/apps` in one, and the card goes first —an app of the card is the one that runs—. The folder is **made**
-    // when the disk does not have it: the bench carries no app at all (0.88.2) and `repo install` writes one into a
+    // when the disk does not have it: the emulator carries no app at all (0.88.2) and `repo install` writes one into a
     // disk that had none, so a row that only appeared when the folder was there at boot was a door that stayed shut
     // until the next boot —the install worked, `apps` listed the app (it walks the drive) and `run` answered `cannot
-    // read: /apps/<id>/<entry>` (found on the bench, 4/11, docs/40, docs/70).
+    // read: /apps/<id>/<entry>` (found on the emulator, 4/11, docs/40, docs/70).
     hal::Stat apps_dir;
     littlefs->mkdir("apps");  // there is no folder to make when there already is one
     if (littlefs->stat("apps", apps_dir) && apps_dir.type == hal::NodeType::kDir) {

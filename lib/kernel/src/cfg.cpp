@@ -136,7 +136,7 @@ void boot(hal::IPlatform& platform) {
   // **The home app starts at the name the build carries** (0.119.0) and only the store can move it: a second boot
   // of the same object —the tests boot the kernel again— must not inherit the name of the run before.
   snprintf(g_home, sizeof(g_home), "%s", LUNOK_HOME_APP);
-  // The hour starts at UTC for the same reason: a bench that boots twice must not inherit the offset of the run before.
+  // The hour starts at UTC for the same reason: an emulator that boots twice must not inherit the offset of the run before.
   g_tz_minutes = 0;
 
   char raw[kNameCap] = {0};

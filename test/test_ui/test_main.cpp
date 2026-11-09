@@ -2,7 +2,7 @@
 // translation to where the view sits on the glass, and what happens when the system changes its size
 // (docs/30, docs/50, docs/85).
 //
-// It is checked against the **bench's own panel** (`emu::MemorySurface`), which speaks the same
+// It is checked against the **emulator's own panel** (`emu::MemorySurface`), which speaks the same
 // `hal::ISurface` contract as the Paper's controller and remembers each paint it was asked for: a
 // canvas that copies itself with the wrong region or the wrong quality is a failed assertion here,
 // instead of a page nobody can read on the board.
@@ -35,14 +35,14 @@ namespace {
 
 bool g_booted = false;
 
-// A bench **with a glass**: the glass is the model's (`Model::glass`, the Paper) and it is on unless the
+// An emulator **with a glass**: the glass is the model's (`Model::glass`, the Paper) and it is on unless the
 // run says no, which is what the binary does by itself. Only the two pieces this suite is about are
 // booted —the board's surface and the app's canvas— because a full boot drags the disk and the radio in
 // for nothing.
 void boot_with_a_panel() {
   if (g_booted) return;
   emu::Options opts = emu::options();
-  // **The board that has the panel**: the default model of the bench is the ATOM, which has no screen to
+  // **The board that has the panel**: the default model of the emulator is the ATOM, which has no screen to
   // try anything against (docs/50, docs/85).
   opts.board = "m5stack-paper";
   opts.display = true;
@@ -70,7 +70,7 @@ uint8_t view_level(uint16_t x, uint16_t y) {
 
 // Every test starts from the same place: an app attached, the view at the corner, nothing pending and
 // **a white glass**. The glass is wiped through the app's own path —a clear and a present— because the
-// bench keeps what the last test painted, and a pixel *outside* the region of a test then answers
+// emulator keeps what the last test painted, and a pixel *outside* the region of a test then answers
 // about the test before it (it did: the `nothing beyond the region` assertion failed with 0).
 void fresh_view() {
   boot_with_a_panel();
@@ -80,7 +80,7 @@ void fresh_view() {
   ui::present();
 }
 
-// **Waiting for ink is waiting on this machine**: the bench's clock is the PC's, so the only way to see a
+// **Waiting for ink is waiting on this machine**: the emulator's clock is the PC's, so the only way to see a
 // paint end is to let time pass, which is what the kernel's own queue does when it has nothing to do
 // (docs/85).
 void wait_ms(int32_t ms) {
@@ -878,7 +878,7 @@ static void test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it(void) {
 // **A `du` of the whole glass goes up as a wash** (0.151.2, docs/50): the two-level waveform of this panel is a
 // *partial* one, and the controller of the Paper stops answering on the bus when the whole page is asked of it in it
 // —`ffff` on every word from that moment and not one paint more, which is the frozen glass the reader and the splash
-// both left on the board (measured 8/11, docs/92 §33). The kernel turns a `du` that big into a `gc16`, and the bench
+// both left on the board (measured 8/11, docs/92 §33). The kernel turns a `du` that big into a `gc16`, and the emulator
 // can say it twice: in the quality the glass was told, and in the trace a `du` would have left behind.
 static void test_a_du_of_the_whole_glass_is_painted_as_a_wash(void) {
   fresh_view();
@@ -972,7 +972,7 @@ static void test_the_trace_of_a_rich_page_is_richer_than_a_flat_one(void) {
 
 // **A paint takes as long as the quality takes**: a `du` is about a tenth of a second and a `gc16` about
 // half of one, and `ui.idle()` is the question that says when the ink has stopped moving — which is what
-// makes a measurement taken on the bench mean something (docs/30, docs/85).
+// makes a measurement taken on the emulator mean something (docs/30, docs/85).
 static void test_a_paint_takes_the_time_of_its_quality(void) {
   fresh_view();
   TEST_ASSERT_TRUE(glass().set_ink(true));
@@ -1016,9 +1016,9 @@ static void test_with_the_waits_off_a_paint_is_instant_and_still_leaves_ink() {
   emu::set_options(opts);
 }
 
-// **The bus is part of the paint, and not a detail of the bench**: the page of `run panel` is the whole
+// **The bus is part of the paint, and not a detail of the emulator**: the page of `run panel` is the whole
 // view with `du` (540 x 932) and the ladder of sixteen levels with `gc16` (528 x 120), and on 1/11 it
-// came to **1 970 ms at the bench** and **1 985 ms on the board** (docs/95, E-7). This is the arithmetic
+// came to **1 970 ms at the emulator** and **1 985 ms on the board** (docs/95, E-7). This is the arithmetic
 // that makes those two numbers the same number: if it moves, a constant in `emu_ink.cpp` moved and the
 // documents have to move with it (docs/85).
 static void test_a_page_costs_what_the_board_says_a_page_costs(void) {
@@ -1026,7 +1026,7 @@ static void test_a_page_costs_what_the_board_says_a_page_costs(void) {
   const uint32_t gc16_ms = emu::ink_mode(hal::UpdateMode::kGc16).ms;
   const uint32_t bus = emu::ink_transfer_us(540, 932) + emu::ink_transfer_us(528, 120);
   const uint32_t page = bus + (du_ms + gc16_ms) * 1000u;
-  TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 1970000, page, "the page of run panel is not the page the bench painted");
+  TEST_ASSERT_UINT32_WITHIN_MESSAGE(20000, 1970000, page, "the page of run panel is not the page the emulator painted");
   TEST_ASSERT_UINT32_WITHIN_MESSAGE(40000, 1985000, page, "the page of run panel is not the page the board painted");
   // A region of nothing costs nothing, and a full page of the glass is over half a second of wire and rows.
   TEST_ASSERT_EQUAL_UINT32(0, emu::ink_transfer_us(0, 540));
@@ -1092,7 +1092,7 @@ static void test_a_gc16_blinks_before_the_image_arrives() {
 // **The panel keeps blinking while the driver waits** (docs/85). A paint holds its caller for the wire of
 // the next one and for the ink, and that is where the blinks of a `gc16` were lost: the window was redrawn
 // once per turn, a turn is one paint, and a person saw the page before and the page after with nothing in
-// between (found on the window, 4/11). The bench that has a window installs a pump —`pump_gui`— and the
+// between (found on the window, 4/11). The emulator that has a window installs a pump —`pump_gui`— and the
 // glass calls it from inside its own waits, so this is the same question a window asks: does the ink move
 // while nobody's code is running?
 static uint32_t g_pumps = 0;
@@ -1130,7 +1130,7 @@ static void test_the_glass_is_walked_while_the_paint_waits(void) {
 
 // **Only the board that has a glass announces one**, and the same for the finger: the hardware is the
 // model's (`Model::glass`, `Model::touch`) and an option cannot give a screen to a board that has none —
-// a bench that did is a board nobody can buy. It is the rule the binary obeys to turn both on by itself
+// an emulator that did is a board nobody can buy. It is the rule the binary obeys to turn both on by itself
 // on a Paper, and the reason `run draw` works there without a flag (docs/50, docs/85).
 static void test_only_the_board_that_has_a_glass_announces_one() {
   // The model is the one list of the hardware, and nothing else needs to be asked.
@@ -1158,7 +1158,7 @@ static void test_only_the_board_that_has_a_glass_announces_one() {
   emu::set_options(before);
 }
 
-// **The T-Koala is one light, no key, a card slot and the mapped PSRAM**: the bench asks its model list
+// **The T-Koala is one light, no key, a card slot and the mapped PSRAM**: the emulator asks its model list
 // for the board by the name the firmware answers, and the board has no screen to fake (docs/50, docs/85).
 static void test_the_t_koala_model_is_one_light_a_slot_and_four_megabytes_of_psram() {
   const emu::Model koala = emu::model_of("ttgo-t-koala");
@@ -1370,11 +1370,11 @@ static void test_a_turn_does_not_keep_the_damage_of_the_old_frame() {
 // sees —the light blinks and the number does not move— so the map is a function with proof of its own
 // (docs/50, docs/85).
 static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
-  // **The descriptor of the bench says what the board says** (1/11): the dial is on the right of the page and
+  // **The descriptor of the emulator says what the board says** (1/11): the dial is on the right of the page and
   // the two side keys are up and down, which is what the window reads to place the buttons (docs/50).
   TEST_ASSERT_NOT_NULL(hal::platform().input());
   TEST_ASSERT_TRUE_MESSAGE(hal::platform().input()->face(0) == hal::Face::kRight,
-                           "the bench's dial is not on the right of the page");
+                           "the emulator's dial is not on the right of the page");
   TEST_ASSERT_TRUE(hal::platform().input()->spot(1) == hal::Spot::kUp);
   TEST_ASSERT_TRUE(hal::platform().input()->spot(2) == hal::Spot::kDown);
   TEST_ASSERT_TRUE(hal::platform().input()->spot(0) == hal::Spot::kCentre);
@@ -1387,7 +1387,7 @@ static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
   TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_of_slot(3, 3));
 
   // **A column takes 52 of window** (a button of 40 and two margins of 6), a row takes 52 of height, the buttons are
-  // square with 6 between: a column of three is 132 and one button is 40 —small, because the pointer of a bench is a
+  // square with 6 between: a column of three is 132 and one button is 40 —small, because the pointer of an emulator is a
   // mouse and not a finger— (0.85.1, docs/85).
   TEST_ASSERT_EQUAL_UINT16(52, emu::gui_key_strip_width());
   TEST_ASSERT_EQUAL_UINT16(52, emu::gui_key_row_height());
@@ -2305,9 +2305,9 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
 // what the bar repaints a box with and what the band of the keyboard is washed with, and they are chosen **because they
 // do not blink** —the rule of this project is that nothing that flickers reaches the glass—. A waveform that does not
 // blink does not take the page back either: it lands close to the level and not on it, so a share of the page before
-// stays and the paint adds a little dirt. **The bench said the opposite until now**, and with that the one choice this
+// stays and the paint adds a little dirt. **The emulator said the opposite until now**, and with that the one choice this
 // system takes everywhere was free here —a page that never gets dirty no matter how many times it is painted—, which is
-// the one thing a bench must not say (docs/85, docs/92).
+// the one thing an emulator must not say (docs/85, docs/92).
 void test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away(void) {
   fresh_view();
   TEST_ASSERT_TRUE(glass().set_ink(true));
@@ -2444,8 +2444,8 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
 // **The window of a text box carries the width of the tail and does not measure it again** (0.88.13): to know how much
 // of the rest fits, the paint asked `font::width` for the whole accumulated tail after every letter it added, which is
 // O(n²) in the letters the window shows, and `strlen` for the same buffer. The width is carried in a variable now, the
-// way `advance_of` carries it for a row of a box of several lines, and what a paint costs on the bench is the number
-// this test prints —the bench's numbers and not the board's, but the shape of the loop is the same— (docs/75, docs/90).
+// way `advance_of` carries it for a row of a box of several lines, and what a paint costs on the emulator is the number
+// this test prints —the emulator's numbers and not the board's, but the shape of the loop is the same— (docs/75, docs/90).
 void test_the_window_of_a_textbox_carries_the_width_of_the_tail(void) {
   fresh_view();
   int16_t wide = -1;
@@ -2983,7 +2983,7 @@ static void test_a_text_that_ends_in_a_break_has_a_row_for_the_caret() {
 // **A box paints the text it was given and not the one before it** (0.84.1): the tail of the line is a buffer kept
 // between paints and it was never emptied, so every paint appended its text to the last one —a box with "h", then "he",
 // then "hel" showed "h", "hhe", "hhehel", which on the glass is a box full of ghosts of every word typed so far— (found
-// on the bench with `run typing`, 4/11, docs/90).
+// on the emulator with `run typing`, 4/11, docs/90).
 static void test_a_box_paints_its_text_and_not_the_one_before_it() {
   fresh_view();
   int16_t box = -1;
@@ -3397,7 +3397,7 @@ void test_a_pie_is_two_halves_when_the_slices_are_equal() {
 // cannot be written in the app (docs/30, docs/92).
 void test_the_line_height_of_a_face_is_what_centres_a_text() {
   boot_with_a_panel();
-  // This bench's disk carries no font, so the face is the table of the flash: seven pixels of line per step.
+  // This emulator's disk carries no font, so the face is the table of the flash: seven pixels of line per step.
   const kernel::font::Face& face = kernel::font::system_face();
   TEST_ASSERT_EQUAL_UINT8(7, face.height);
   TEST_ASSERT_EQUAL_UINT16(7, ui::font_line_height(-1, 1));

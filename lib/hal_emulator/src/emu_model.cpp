@@ -107,7 +107,7 @@ Model model_of(const char* name) {
     return out;
   }
   // The ATOM: one light, one button, and nothing else of its own. A name that is not one of the
-  // models is checked when `--board` is parsed, so this is the honest answer for a bench built by
+  // models is checked when `--board` is parsed, so this is the honest answer for an emulator built by
   // hand as well (docs/85).
   out.lights = 1;
   out.keys = 1;
