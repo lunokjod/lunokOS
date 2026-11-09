@@ -5053,7 +5053,28 @@ namespace kernel {
 //   - **and the kernel keeps the field optional**, which is a different thing: an app from outside may arrive without a
 //     picture and its cell shows the letter, and what it lacks is the drawing and not the permission. The rule is this
 //     project's, and `docs/40`, `docs/45` (what a ported app carries) and `docs/85` (the nine apps of the disk) say so.
-static const char kVersion[] = "0.170.1";
+//
+// 0.170.2 (9/11): **the documents of the calls that came with the map, and the icon that is optional and is always
+// there**. The owner asked whether the documents had the new calls of the system, and left a rule of work for the
+// pictures: *«l'icona es opcional, però et demano que si generes alguna app o la modifiques, revisa si l'icona no hi es
+// per posar-ne una (amb l'estil de les altres)»*.
+//
+//   - **`time.leap` and `time.week` are in every list that counts the calls** (docs/30): the table of `time`, the
+//     paragraph that says what there is today, and the section of its own with the two words each takes and what it
+//     does **not** move —the weekday of a date—. And the two settings of the calendar are in the table of «Què hi ha
+//     avui» of docs/60 and in the door of `/cfg` of docs/70, with their keys `cfg/leap` and `cfg/week` and the words a
+//     person reads with `nvs` (docs/30, docs/60, docs/70);
+//   - **and the prompt's list of settings says all six** (README): `cfg keyboard`, `cfg boot`, `cfg home`, `cfg tz`,
+//     `cfg leap` and `cfg week`, which is what `help` prints and what a person can change without opening a document
+//     (the shell's help has carried them since the day each one arrived);
+//   - **the icon is optional and is always there** (docs/40): a manifest without `icon` is accepted by the kernel and its
+//     cell shows the first letter of the name, which is what an app from outside may do; **the rule of work is another
+//     one**: an app that is created, ported or touched is looked at for its picture, and an app without one gets one **in
+//     the style of the others** —448 x 448 of four greys in `res/icon-source.png`, and `tools/make_icon.py` down to the
+//     94 x 94 the manifest names— instead of a new shape. The nine apps of `apps/` were checked one by one and all nine
+//     answer with a 94 x 94 picture; `luaperf` is the one without a master of its own, because its drawing is the shared
+//     lunokhod of `tools/icons/` (docs/40, docs/85).
+static const char kVersion[] = "0.170.2";
 
 }  // namespace kernel
 

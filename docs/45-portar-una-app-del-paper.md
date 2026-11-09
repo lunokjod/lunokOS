@@ -183,7 +183,7 @@ port va ensenyar i que valen per al següent:
   i U+F04D d'un `keys.pof` propi, i aquest sistema només coneix `lfont`, BDF, PCF i TTF **de l'ASCII imprimible**: les
   tecles diuen `Start`, `Pause`/`Resume` i `End`, que és el que l'original mateix feia quan li faltava la cara.
 - **L'hora d'una persona no és l'hora del xip**, i això va ser una crida nova del sistema: `time.utc()`, `time.date()`
-  i `time.tz()` amb `cfg tz +01:00` (docs/30, docs/60). Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
+  i `time.tz()` amb `cfg tz +01:00`, i el calendari té els seus dos ajustos a `cfg leap` i `cfg week` (docs/30, docs/60). Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
   llegeix, i el desfasament és una cosa que el sistema ha de saber, no cada app.
 
 **I el que sí que es va poder copiar sencer**: el format del fitxer d'apunts (`2026-11-01|09:00:00|S`, només creix,

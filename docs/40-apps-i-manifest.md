@@ -514,6 +514,11 @@ costat de les altres.
 - **El nucli no refusa un manifest sense `icon`**: el camp és opcional per al sistema —una app de fora pot no dur-ne i
   la seva cel·la ensenya la lletra— i la norma és del projecte. El dia que una app de fora vulgui entrar aquí, el que
   li falta és el dibuix, no el permís (docs/30, docs/85).
+- **I qui toca una app mira la icona** (9/11, l'amo: *«si generes alguna app o la modifiques, revisa si l'icona no hi és
+  per posar-ne una (amb l'estil de les altres)»*): crear una app, portar-ne una o canviar-ne la pàgina vol dir mirar si
+  el manifest en declara una i si el PNG hi és; si no hi és, s'hi posa **amb l'estil de les altres** —el dibuix a
+  `res/icon-source.png`, 448 × 448, els quatre grisos del projecte del paper, i la recepta de `tools/make_icon.py`— i no
+  una forma nova. És el que fa que la graella del llançador sembli una graella i no una llista de deures.
 
 ## Instal·lació
 

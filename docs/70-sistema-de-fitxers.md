@@ -367,6 +367,12 @@ ho demani). Un nom que la porta de les apps no presenta es refusa allà on s'esc
 —una targeta que no hi és, una app esborrada— és una línia al log i el prompt: la placa no s'hi queda engegant una
 app que no hi és (docs/30, docs/40, docs/90).
 
+**I el calendari té dos ajustos més, que són del sistema i no d'una app** (0.170.0): `cfg leap on|off` i
+`cfg week monday|sunday` —o `time.leap` i `time.week` des de Lua— amb les claus `cfg/leap` i `cfg/week` a l'NVS,
+escrites amb les paraules que una persona llegeix (`on`/`off`, `monday`/`sunday`) i llegides **abans de la primera
+pàgina**, perquè `ui.month` i el calendari d'una app han de comptar el mateix. La regla i el que cada ajust mou són a
+docs/60, i les crides a docs/30.
+
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
 que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen

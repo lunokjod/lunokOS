@@ -240,7 +240,9 @@ sempre),
 `ntp`, `http <url>`, `repo [owner/repo] [dir]` i `repo info <app>` (les carpetes d'un directori del repositori i el manifest d'una app, de GitHub), `repo install <app>` (el directori sencer d'una app, al disc que `cfg` diu), `power [cpu [mhz]]`, `power last` (quant es va desviar l'últim son), `power
 idle [on|off]` (si la placa pot dormir-se sola fins a la pròxima alarma), `led`,
 `button`, `sleep [light|deep] <ms>` (o `sleep at <hora>` per a una hora concreta), `cfg`
-(`auto`, `sd` o `littlefs`: on van els ajustos de les apps), `log`,
+(`auto`, `sd` o `littlefs`: on van els ajustos de les apps; i `cfg keyboard`, `cfg boot`, `cfg home`,
+`cfg tz`, `cfg leap` i `cfg week`: els ajustos del sistema, el de l'hora de la persona i els dos del
+calendari), `log`,
 `verbose on|off`, `clear`, `reboot` i `poweroff` (talla el corrent de la placa si en té el control; si
 no, ho diu). **`exit` i `logout`** tanquen la sessió de la consola, i què vol dir tancar depèn de la consola:
 **en un port sèrie** (la placa) la sessió no es pot tancar de debò, així que el sistema ho diu i espera un
