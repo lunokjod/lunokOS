@@ -348,10 +348,18 @@ class TimedStorage : public IStorage {
     return inner_->space(total, free);
   }
   bool format(uint32_t& removed) override {
-    // **A format is not free and it is not one block either**: the walk reads the directory and every removal writes
-    // the table of blocks, which is what the model prices at a block each (docs/85).
-    emu::disk_pay(disk_, emu::disk_timing(disk_).block_bytes, true);
-    return inner_->format(removed);
+    // **A format costs what its entries cost** (0.171.2): the walk reads the directory —one command, and that is paid
+    // before— and every removal writes the table of blocks, so the price is **one block per thing that goes** and not one
+    // for the whole volume. The comment used to say that and the code paid a single block: a page that empties four
+    // hundred files and one that empties two came out at the same millisecond, which is not what the model is for
+    // (docs/70, docs/85).
+    const emu::DiskTiming timing = emu::disk_timing(disk_);
+    emu::disk_pay(disk_, timing.block_bytes, false);
+    const bool ok = inner_->format(removed);
+    for (uint32_t i = 0; i < removed; ++i) {
+      emu::disk_pay_write(disk_, timing.block_bytes, true);
+    }
+    return ok;
   }
 
  private:

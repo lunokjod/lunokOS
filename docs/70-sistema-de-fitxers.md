@@ -166,6 +166,11 @@ resposta (docs/30).
   (`opendir`/`unlink`/`rmdir`, el FATFS que hi ha muntat al VFS) i a l'emulador és el mateix passeig
   sobre el directori que fa de targeta; **no es crida `f_mkfs`**: reconstruir el FAT demana desmuntar i
   tornar a muntar, i no hi ha placa per provar-ho (docs/90).
+- **I el preu d'un format és el dels seus trossos, no el d'un sol bloc** (0.171.2): l'emulador cobra una
+  escriptura de bloc **per cada cosa que hi entra** —el mateix que cobra un `remove`— i una lectura del
+  directori per començar, o sigui que buidar seixanta fitxers es noten i buidar-ne dos no. El model deia
+  això al comentari i cobrava un bloc per volum sencer. Mesurat el 9/11 a l'emulador: **3 entrades en
+  77 ms i 61 en 181 ms** (docs/85).
 - **Una targeta que no hi és no és un volum buit**: sense targeta al sòl, `/sd` no és a la taula i el
   camí respon `E_INVAL` —i la pàgina de `wipe` ni tan sols obre la porta, perquè mira `fs.mounts`
   abans de dibuixar el botó (docs/40)—.

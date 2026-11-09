@@ -5135,7 +5135,18 @@ namespace kernel {
 //     of the middle key inside a second and a half are the way out of an app** (`kTapsToClose`), so the case that answers a
 //     second card waits 1.7 s before the press that would otherwise close the page (docs/30, docs/85).
 
-static const char kVersion[] = "0.171.1";
+// 0.171.2 (9/11): **what a format costs in the model**. The owner asked whether the emulator's format was only emptying a
+// directory —it is— and the answer turned up a lie in a comment: `TimedStorage::format` said *«it is not one block either,
+// every removal writes the table of blocks»* and paid **one** block for the whole volume.
+//
+//   - **the price is now one block per thing that goes**, which is what a `remove` costs in the same file, plus one
+//     directory read at the start: emptying sixty files is not the same millisecond as emptying two, and the page of the
+//     eraser with a full card is the one that shows it (docs/70, docs/85). Measured on the emulator: three entries in
+//     77 ms and sixty-one in 181 ms;
+//   - **and it is still a walk of the directory and not a `f_mkfs`/`lfs_format`**, on both sides: the volume keeps its FAT
+//     and its superblock and what leaves is the content. That is the contract of the call (docs/70) and it did not move.
+
+static const char kVersion[] = "0.171.2";
 
 }  // namespace kernel
 
