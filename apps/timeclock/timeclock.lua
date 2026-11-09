@@ -24,10 +24,20 @@
 --      2026-11-02|09:00:00|what it was           the notes, a second file, because a note is edited and an edit
 --                                                is a rewrite
 --
--- **The three keys say words and not figures**: the original painted a play, two bars and a square from `keys.pof`, a
--- face of the private use area. This system's faces are a lunok face, a BDF, a PCF or a TrueType and its glyph table
--- covers printable ASCII, so U+F04B is not a letter here: the buttons carry `Start`, `Pause`/`Resume` and `End`, the
--- fallback the original itself had, and the eye says `Week` or `Day` (docs/30, docs/45).
+-- **The three keys are marks and not words**, which is what the owner asked for in the original (27/10, *«USA ICONES
+-- PER ESTALVIAR ESPAI»*): a play, two bars, a square, the eye that opens the week and the arrow that comes back are
+-- five glyphs of `res/keys.ttf`, a face of the app's own folder that `tools/make_keys.py` takes out of the same
+-- `FontAwesome.otf` the original's `keys.pof` was rasterised from.
+--
+-- **And they are the codes 1 to 5 and not the private use area of `U+F04B`**, because a text here is **one byte a
+-- character** and a code point of that area is three bytes of UTF-8: the room no text of a page means is the codes
+-- below space in this system, and the face is the one that says what a code draws (docs/30). **When the face is not
+-- there the keys say the words** —`Start`, `Pause`/`Resume`, `End`, `Week`/`Day`—, the fallback the original itself
+-- had, because half an app is worse than one that needs reading (docs/45).
+--
+-- **The mark is the `title` of the button and not a label laid on it**, which is the original's `set_text()`: a button
+-- paints its own title with the ink of the state it is in, so a key that the focus or a finger turns black says its
+-- figure in paper white instead of showing a hole (docs/30).
 --
 -- **The hours are the chip's and the day is the person's**: `time.now()` is the epoch the coin cell keeps, so a stretch
 -- that crosses a reboot still measures what it measured, and `time.date()` says what that epoch is in the hour of the
@@ -49,7 +59,6 @@ if not caps.display then
 end
 
 local view = ui.caps()
-ui.title('Timeclock')
 
 -- A step of the face is eleven pixels of line with the bold face of the disk and seven with the table of the flash, so
 -- the sizes of the original are asked in pixels and the face answers with the steps it has (docs/45).
@@ -72,6 +81,25 @@ local function line(scale)
   return scale * ui.line_height(1)
 end
 
+-- **The face of the marks**, read before any control exists because a control keeps the face it was given when it was
+-- built: `res/keys.ttf` is five shapes —a play, a pause, a stop, an eye and an arrow back— and no letter at all, so it
+-- is the mark of a key and not the text of the page (docs/30).
+local keys_face, keys_why = ui.load_font('/res/keys.ttf')
+local icons = (keys_face ~= nil)
+
+if not icons then
+  console.print('timeclock: /res/keys.ttf: ' .. tostring(keys_why) .. ': the keys say words')
+end
+
+-- **The five marks, one byte each**, and the byte is the code the face answers to and not a letter of any alphabet:
+-- the file says which of them is a picture, so a key cannot show the wrong figure (docs/30).
+local kPlay, kPauseMark, kStopMark = '\1', '\2', '\3'
+local kEyeMark, kBackMark = '\4', '\5'
+
+-- **The size of a mark**: the figure of the original is 41 px in a key of 84, and five steps of a body of nine are
+-- 45 px of em, which is the 39 px of the play triangle and the 29 of the eye, measured on the file (docs/45).
+local kMarkScale = 5
+
 -- The padding and the gaps of the original, and the height of a key: the line of the body plus twice the vertical
 -- padding of a button of the paper project (`lineHeight() + 2 * padY`), which is 63 px there and 64 here (docs/45).
 local kMargin = 20
@@ -82,9 +110,11 @@ local kRow = line(kBody) + 20
 local kNoteH = 63
 local kHintH = line(kSmall) + 6
 local kKeyW = math.floor((view.width - 2 * kMargin - 2 * kKeyGap) / 3)
--- **The eye is a word here and not the paper's glyph**, so it is as wide as the word and not as wide as a finger:
--- `Week` at the small size is about seventy pixels and the button keeps a margin around it (docs/45).
-local kEyeW = 96
+-- **The eye is a key of the top row**: 78 px wide with the face —the mark is forty-five and a button keeps sixteen of
+-- padding on each side of its title—, and as wide as the word `Week` when the face is not there and the key has to say
+-- it (docs/45).
+local kEyeH = 63
+local kEyeW = icons and 78 or 96
 
 -- ============================================================================ the data (the original's `day.lua`)
 
@@ -598,7 +628,6 @@ local refresh, turn, build_day, build_week
 -- different one without the numbers saying so (docs/30, docs/85).
 local spots = {}
 local list_y, list_height, max_rows = 0, 0, 0
-local pause_label, start_label, end_label, eye_btn_label
 
 local function give_back()
   for i = 1, #screen do
@@ -623,22 +652,37 @@ local function make_label(width, height, text, scale, align, valign)
   return label
 end
 
--- A key of the row: a button a finger can press with its words centred inside it. The label is set in and not on the
--- button, because the ring of the focus is a band inside the border (docs/30).
-local function make_key(width, height, text)
+-- **What one key says**, when the same key says two things: the middle one is a pause while the day works and a play
+-- while it rests, and the eye is an eye on the day and an arrow back on the week. The mark is the shape and the word is
+-- what is left when the face is not on the disk, and the two need different sizes (docs/45).
+local function key_cell(button, mark, word, word_scale)
+  if button == nil then return end
+
+  if icons then
+    button.title = mark
+    button.scale = kMarkScale
+  else
+    button.title = word
+    button.scale = word_scale or kBody
+  end
+end
+
+-- A key of the row, and **its mark is the title of the button and not a label laid on it**, which is what the
+-- original did (`set_text()` of a button of the paper project): a button paints its own title with the ink of the
+-- state it is in —black on paper, and the paper's white when the focus or a finger turns the face black— so a key
+-- that is walked to and pressed says the same figure at rest and while it is held. A label of its own would be
+-- another control, with the colours of the app, that the button cannot turn over (docs/30, docs/45).
+local function make_key(width, height, mark, word)
   local button = ui.button(width, height)
-  if button == nil then return nil, nil end
+  if button == nil then return nil end
 
   button.background = 15
   button.border = 0
+  button.color = 0
+  if icons then button:font(keys_face) end
+  key_cell(button, mark, word)
 
-  local label = make_label(width - 24, height - 8, text, kBody, 'center', 'middle')
-  if label ~= nil then
-    label:place(12, 4)
-    button:add(label)
-  end
-
-  return button, label
+  return button
 end
 
 -- =================================================================================== the clock and the day, read again
@@ -848,7 +892,7 @@ refresh = function(t)
         line_text = string.format('avg %s in %d day(s)', duration(week_data.average), week_data.count)
       end
       status_label.text = line_text
-      eye_btn_label.text = 'Day'
+      key_cell(eye_btn, kBackMark, 'Day', kSmall)
       ui.title(week_data and ('Week ' .. week_data.label) or 'Week')
       if week_canvas ~= nil then week_canvas:invalidate() end
     end
@@ -870,7 +914,7 @@ refresh = function(t)
     start_btn.enabled = false
     pause_btn.enabled = false
     end_btn.enabled = false
-    pause_label.text = 'Pause'
+    key_cell(pause_btn, kPauseMark, 'Pause')
 
     loading = true
     note_box.text = ''
@@ -948,11 +992,12 @@ refresh = function(t)
   -- The play key always opens today, so it is alive on a day of the past even when that day was left open.
   start_btn.enabled = (not today_is) or can_start(state)
 
-  -- One key for two things, and the words on it are the truth: while the day rests the middle key says `Resume`.
+  -- One key for two things, and the mark on it is the truth: while the day rests the middle key is a play —go back to
+  -- work—, and a pause figure on a paused day would be a key that does nothing.
   if state == 'paused' then
-    pause_label.text = 'Resume'
+    key_cell(pause_btn, kPlay, 'Resume')
   else
-    pause_label.text = 'Pause'
+    key_cell(pause_btn, kPauseMark, 'Pause')
   end
 
   pause_btn.enabled = today_is and can_pause(state)
@@ -1091,24 +1136,24 @@ console.print('timeclock: three keys, the day under them and the week behind the
 build_day = function()
   local top = kMargin
 
-  status_label = make_label(view.width - 2 * kMargin - kEyeW - 12, 63, '', kSmall, 'left', 'middle')
+  status_label = make_label(view.width - 2 * kMargin - kEyeW - 12, kEyeH, '', kSmall, 'left', 'middle')
   status_label:place(kMargin, top)
   screen[#screen + 1] = status_label
 
-  eye_btn = ui.button(kEyeW, 63)
+  eye_btn = ui.button(kEyeW, kEyeH)
   eye_btn.background = 15
   eye_btn.border = 0
-  eye_btn_label = make_label(kEyeW - 8, 63 - 8, 'Week', kSmall, 'center', 'middle')
-  if eye_btn_label ~= nil then
-    eye_btn_label:place(4, 4)
-    eye_btn:add(eye_btn_label)
-  end
+  eye_btn.color = 0
+  if icons then eye_btn:font(keys_face) end
+  -- **The eye is a mark and the top row is the word**: the figure is `U+F06E` of the original, which is the eye that
+  -- opens the week, and the same key carries the arrow back when the week is the sheet on the glass (docs/45).
+  key_cell(eye_btn, kEyeMark, 'Week', kSmall)
   eye_btn:place(view.width - kMargin - kEyeW, top)
   eye_btn.on_click = function() turn(true) end
   screen[#screen + 1] = eye_btn
-  spots.eye = {x = view.width - kMargin - kEyeW, y = top, w = kEyeW, h = 63}
+  spots.eye = {x = view.width - kMargin - kEyeW, y = top, w = kEyeW, h = kEyeH}
 
-  local y = top + 63 + kGap
+  local y = top + kEyeH + kGap
 
   since_label = make_label(view.width - 2 * kMargin, kHintH, '', kSmall, 'left', 'middle')
   since_label:place(kMargin, y)
@@ -1151,9 +1196,11 @@ build_day = function()
   spots.note = {x = kMargin, y = box_y, w = view.width - 2 * kMargin, h = kNoteH}
   spots.list = {x = kMargin, y = list_y, w = view.width - 2 * kMargin, h = list_height}
 
-  start_btn, start_label = make_key(kKeyW, kKeyH, 'Start')
-  pause_btn, pause_label = make_key(kKeyW, kKeyH, 'Pause')
-  end_btn, end_label = make_key(kKeyW, kKeyH, 'End')
+  -- **The three keys of the original, mark and word**: a play opens the day, two bars rest it and a square closes it,
+  -- and each of them says its word when the face is not on the disk (docs/45).
+  start_btn = make_key(kKeyW, kKeyH, kPlay, 'Start')
+  pause_btn = make_key(kKeyW, kKeyH, kPauseMark, 'Pause')
+  end_btn = make_key(kKeyW, kKeyH, kStopMark, 'End')
 
   start_btn:place(kMargin, keys_y)
   pause_btn:place(kMargin + kKeyW + kKeyGap, keys_y)
@@ -1174,23 +1221,23 @@ end
 build_week = function()
   local top = kMargin
 
-  status_label = make_label(view.width - 2 * kMargin - kEyeW - 12, 63, '', kSmall, 'left', 'middle')
+  status_label = make_label(view.width - 2 * kMargin - kEyeW - 12, kEyeH, '', kSmall, 'left', 'middle')
   status_label:place(kMargin, top)
   screen[#screen + 1] = status_label
 
-  eye_btn = ui.button(kEyeW, 63)
+  eye_btn = ui.button(kEyeW, kEyeH)
   eye_btn.background = 15
   eye_btn.border = 0
-  eye_btn_label = make_label(kEyeW - 8, 63 - 8, 'Day', kSmall, 'center', 'middle')
-  if eye_btn_label ~= nil then
-    eye_btn_label:place(4, 4)
-    eye_btn:add(eye_btn_label)
-  end
+  eye_btn.color = 0
+  if icons then eye_btn:font(keys_face) end
+  -- **The same key, going back**: on the week the figure is `U+F060` of the original —the arrow that comes back to the
+  -- day— and it is the one the top row keeps, because a key that changes its place is a key to look for (docs/45).
+  key_cell(eye_btn, kBackMark, 'Day', kSmall)
   eye_btn:place(view.width - kMargin - kEyeW, top)
   eye_btn.on_click = function() turn(true) end
   screen[#screen + 1] = eye_btn
 
-  local y = top + 63 + kGap
+  local y = top + kEyeH + kGap
   local height = view.height - kMargin - y
 
   week_canvas = ui.canvas(view.width - 2 * kMargin, height)

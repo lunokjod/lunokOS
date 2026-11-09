@@ -179,9 +179,15 @@ port va ensenyar i que valen per al següent:
 - **Dibuixar un gràfic és un `ui.canvas`.** L'original el pintava a `on_draw()`, que aquí no existeix; un canvas amb
   `on_draw` propi fa la mateixa feina i a sobre té el seu buffer i el seu dany (docs/30). Les quatre tintes
   (paper 15, graella 11, descans 8, feina 0) hi caben a la mateixa taula de setze grisos.
-- **Una icona de la zona privada d'Unicode no es pot portar.** Les tres tecles de l'original eren glifs U+F04B, U+F04C
-  i U+F04D d'un `keys.pof` propi, i aquest sistema només coneix `lfont`, BDF, PCF i TTF **de l'ASCII imprimible**: les
-  tecles diuen `Start`, `Pause`/`Resume` i `End`, que és el que l'original mateix feia quan li faltava la cara.
+- **Una icona de la zona privada d'Unicode es pot portar, i el camí és el de l'original** (9/11, 0.173.0). Les tres
+  tecles de l'original eren glifs U+F04B, U+F04C i U+F04D d'un `keys.pof` que **no era cap dibuix**: era
+  `tools/fontgen.py` passat per **`FontAwesome.otf`**, i el codi de la zona privada només deia on vivia la figura
+  (README de l'original, 27/10). Aquí el text és **d'un byte per caràcter**, i la cambra equivalent és la dels codis
+  per sota de l'espai (docs/30): les cinc figures —play, pausa, stop, l'ull que obre la setmana i la fletxa enrere— són
+  els codis `1` a `5` de `apps/timeclock/res/keys.ttf`, que fa `tools/make_keys.py` **amb els glifs del mateix
+  `FontAwesome.otf`**, i les pinta el `title` de cada botó amb `botó:font(cara)` —el que l'original feia amb
+  `set_text()` en una tecla que ja era un botó del sistema—. I si la cara no hi és, les tecles
+  diuen `Start`, `Pause`/`Resume`, `End` i `Week`/`Day`, que és el que l'original mateix feia quan li faltava la cara.
 - **L'hora d'una persona no és l'hora del xip**, i això va ser una crida nova del sistema: `time.utc()`, `time.date()`
   i `time.tz()` amb `cfg tz +01:00`, i el calendari té els seus dos ajustos a `cfg leap` i `cfg week` (docs/30, docs/60). Una app que diu «de 7 a 19» ha de dir-ho en l'hora de qui la
   llegeix, i el desfasament és una cosa que el sistema ha de saber, no cada app.
@@ -190,7 +196,8 @@ port va ensenyar i que valen per al següent:
 el dia es llegeix com el cul del fitxer), el de les notes (un fitxer a part perquè una nota s'edita i una edició és
 una reescriptura), la finestra de feina de 07:00 a 19:00 que retalla cada interval abans de sumar-lo, el dia que es
 pinta (l'últim amb apunts i no avui) i la mitjana dels dies que tenen apunts. Les mides tornen a ser les de l'original
-en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla fa 84 px.
+en píxels de línia: `small` 33, `body` 43 i `title` 57, i la fila d'una tecla fa 84 px —i la figura d'una tecla fa 39
+px, que és el 41 de l'original, mesurat sobre els contorns del fitxer (0.173.0)—.
 
 ## 7 · La llista, en ordre
 

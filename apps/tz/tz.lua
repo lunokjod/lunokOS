@@ -254,8 +254,6 @@ end
 
 -- --------------------------------------------------------------------- the app
 
-ui.title('Time zone')
-
 build_layout()
 
 local chosen_hour = 0

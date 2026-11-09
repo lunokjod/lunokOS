@@ -377,7 +377,12 @@ Status glyph_of(const Face& face, uint8_t code, uint16_t& glyph) {
     const int32_t delta = s16(p + deltas + i * 2);
     const uint32_t range = u16(p + ranges + i * 2);
     if (range == 0) {
-      if (delta == 0) return kNoGlyph;
+      // **A segment of delta zero is not a gap** (0.173.0): `idDelta` 0 with no table of glyph ids is the map saying
+      // that **the glyph is the code**, which is how a face of five marks written by a tool says "code 1 is glyph 1"
+      // (`tools/make_keys.py`). This line used to answer a gap for it, as a shortcut for the last segment of every map
+      // —`0xFFFF` with a delta of one, the code the standard does not give a picture to— and the shortcut was the
+      // whole reason the marks of the time clock measured zero and drew nothing. The sentinel needs no shortcut: the
+      // arithmetic below turns it into glyph zero, which is the `kNoGlyph` at the end of the line (docs/30, docs/45).
       glyph = static_cast<uint16_t>((wanted + delta) & 0xFFFF);
       return glyph == 0 ? kNoGlyph : kOk;
     }

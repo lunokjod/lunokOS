@@ -1036,7 +1036,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
 | `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
-| `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema** |
+| `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
 | `ui.full_screen([on])` | si té la pantalla sencera, amb argument; `true` o `nil, error`, sense | **La pantalla sencera** (0.136.0): la barra de les 48 files marxa i la vista és tot el vidre, `540 × 960` des de la fila 0, i l'app rep `on_resize`. Sense argument només respon si la té (la mateixa forma que `ui.rotation`). **El camí de tornada és del sistema i no de l'app**: tres tocs seguits al vidre tornen la barra, l'app no els sent mai i només rep `on_resize` amb la mida de tornada; i una app que s'acaba —per les bones o per un error— torna el vidre tota sola |
 | `ui.idle()` | booleà | Si el pintat anterior ha acabat. **No diu que sí abans que el motor hagi tingut temps de marcar-se ocupat**, o sigui que es pot preguntar de seguida després del `present`. **I és el moment en què el sistema pinta el que el panell li va refusar** (0.118.2): esperar aquí una pàgina que no ha pujat és la manera de veure-la arribar (docs/50) |
@@ -1275,6 +1275,17 @@ i el contracte.
   era UTF-8 i les seves cares s'indexaven per punt de codi (`OLD/PaperOS/src/gfx/text.cpp` decodifica la
   cadena abans de buscar el glif); aquí el byte és el codi i prou, i aquests cinc són l'únic lloc on una fletxa
   pot viure (la taula és a `lib/ttf/src/ttf.cpp`, docs/92 §34).
+- **I els codis per sota de l'espai són el lloc de les marques** (9/11, 0.173.0). Un byte de `0x01` a `0x1F`
+  no és cap dibuix —fins a 0.172.2 l'amplada i el dibuix d'una cara d'outlines el saltaven—, però tampoc no
+  és res que un text de debò pugui voler dir, i quan el text és d'un byte per caràcter és l'única cambra que
+  cap pàgina ni cap llibre no farà servir mai. **Una cara d'outlines que porti una figura en un d'aquests
+  codis la dibuixa**; la que no la porti respon un forat, exactament com abans, i per això cap text existent
+  canvia ni de mida ni de tinta. Les cinc marques del rellotge de fitxatge —el play, la pausa, el stop, l'ull
+  que obre la setmana i la fletxa enrere— són els codis `1` a `5` de `apps/timeclock/res/keys.ttf`, que fa
+  `tools/make_keys.py` amb els glifs de `FontAwesome.otf` (els mateixos de què sortia el `keys.pof` del
+  projecte del paper), i les pinta **el títol del botó** amb `botó:font(cara)` —la cara que el botó fa servir per
+  mesurar i per dibuixar el seu `title`—, que és el que fa la tecla d'aquell projecte amb el seu `set_text()`
+  (docs/45).
 - **Qui converteix la cara en píxels és el nucli, i ningú més.** La cadena sencera és
   `cv:text`/`ui.text` → `luabind` (`text_at`) → `ui::canvas_text` (`lib/kernel/src/ui.cpp`) → `draw_text` →
   `font::runs(face_of(canvas.face), …)`, que camina els glifs i deixa cada tros com un rectangle al buffer
@@ -1443,6 +1454,11 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
 |---|---|---|
 | `button.background` | 0–15 (15 per defecte) | El nivell del fons del marc |
 | `button.border` | 0–15 (0 per defecte) | El nivell de la vora |
+| `button.title` | cadena o `nil` | **El mot del botó, pintat pel botó mateix** i centrat al que queda del marc: el mesura i el dibuixa amb la cara del control (`button:font(f)`), el talla amb `...` com un label, i **canvia de tinta amb l'estat** —el `color` quan està tranquil i el nivell del fons quan el focus o un dit l'inverteixen—, que és el que un fill posat a sobre no sap fer (0.173.0, docs/45) |
+| `button.tag` | cadena o `nil` | Una etiqueta petita dins d'un requadre a l'esquerra del `title`, amb la mateixa tinta i la mateixa cara |
+| `button.color` | 0–15 (0 per defecte) | El nivell del `title` i del `tag` |
+| `button.scale` | 1–16 (1 per defecte) | La mida del `title`, com el `scale` d'un label |
+| `button.primary` | `true` o `false` (fals per defecte) | El marc del botó fa **tres** píxels en comptes d'un |
 | `button.pressed` | `true` o `false` (fals per defecte) | Mentre és cert, **el relleu s'inverteix** i el botó sembla enfonsat |
 | `button.focused` | `true` o `false` (fals per defecte) | **L'estat del focus**, que porta el sistema: mentre és cert, el marc pinta **una pausa de dos píxels i una banda de set** —el doble marc del control seleccionat—, negra sobre fons clar i blanca sobre fons fosc |
 | `button.focusable` | `true` o `false` (cert per defecte) | Si el dial i el tàctil poden aturar-s'hi. Un botó amb `false` continua pintant-se i pot rebre clics de l'app, però no entra al recorregut del sistema |

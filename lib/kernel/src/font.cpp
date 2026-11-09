@@ -191,8 +191,16 @@ uint16_t width(const Face& face, const char* text, uint8_t scale) {
       // come with the letters of Latin-1, and dropping everything above ASCII here was the one line that
       // forbade an `e acute` in the whole system whatever the file had inside (docs/30, docs/46 D3). What
       // the file does not carry is still a gap, because that is what `glyph_of` answers.
+      //
+      // **And a code below space is the face's business and not this loop's** (0.173.0): a byte of one to
+      // thirty-one is nothing a page or a book ever holds, because a text is written by somebody, and the
+      // paper project's icon faces kept their marks in the private use area of a code point for the same
+      // reason -the room no text means-. A text here is one byte a character, so that room is these codes,
+      // and a face that carries a picture for one of them is a face whose author meant it: the keys of the
+      // time clock are a play, a pause, a stop, an eye and an arrow, and they are five glyphs of a face of
+      // the app's own folder (docs/30, docs/45). A face that does not carry it answers a gap, which is what
+      // this loop did for every one of them before.
       const uint8_t code = static_cast<uint8_t>(*at);
-      if (code < 0x20) continue;
       uint16_t glyph = 0;
       if (ttf::glyph_of(*face.outline, code, glyph) != ttf::kOk) continue;
       total = static_cast<uint16_t>(total + ttf::advance(*face.outline, glyph, px));
@@ -243,8 +251,11 @@ uint16_t outline_runs(const Face& face, const char* text, int32_t x, int32_t y, 
   for (const char* at = text; *at != '\0'; ++at) {
     // The same rule as the measurement (0.127.0): a byte is a code and the face decides. A face of the
     // flash or of a file of bits is ASCII and answers nothing above it, so nothing changes for them.
+    //
+    // **And the codes below space are drawn when the face carries them** (0.173.0, and `width()` says
+    // why): the five marks of the time clock live there, one glyph each, and a face that has nothing for a
+    // code still answers nothing, so a page that writes a stray `\n` in a label is a page with a gap.
     const uint8_t code = static_cast<uint8_t>(*at);
-    if (code < 0x20) continue;
     uint16_t glyph = 0;
     if (ttf::glyph_of(font, code, glyph) != ttf::kOk) continue;
     ttf::Bitmap box;

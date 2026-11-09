@@ -1351,6 +1351,13 @@ bool canvas_alive_for_lua(int16_t slot, uint16_t generation) {
   return target != nullptr && target->generation == generation;
 }
 
+// **A control on its way out** (0.172.1): given back by the app and still on the glass until the paint that covers it, which is
+// the question the focus asks about a card that is closing (docs/30, docs/90).
+bool canvas_pending_for_lua(int16_t slot) {
+  const Canvas* target = find(slot);
+  return target != nullptr && target->pending_release;
+}
+
 // Two wrappers and not the public names: `place` is also the move of the view, and a pointer taken from an
 // overloaded name is a thing the next reader has to work out (docs/30).
 bool canvas_place_for_lua(int16_t slot, uint16_t x, uint16_t y) { return place(slot, x, y); }
@@ -1563,6 +1570,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      is_full_screen_for_lua,
                                      canvas_create_for_lua,
                                      canvas_alive_for_lua,
+                                     canvas_pending_for_lua,
                                      canvas_release_for_lua,
                                      canvas_place_for_lua,
                                      canvas_clear,

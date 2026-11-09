@@ -9844,6 +9844,12 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   TEST_ASSERT_TRUE(storage->mkdir("/apps/timeclock"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/timeclock/timeclock.lua", "/apps/timeclock/timeclock.lua"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/timeclock/manifest.json", "/apps/timeclock/manifest.json"));
+  // **And the face of its three keys** (0.173.0): without the file the app says the words `Start` and `Pause` —which is
+  // its fallback and not a failure— and this case is about the marks, so the face is in the disk and the log has to say
+  // that it was read (docs/30, docs/45).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/timeclock/res"));
+  TEST_ASSERT_TRUE(
+      copy_a_host_file(storage, "apps/timeclock/res/keys.ttf", "/apps/timeclock/res/keys.ttf"));
 
   // **The app says where its controls are** when it is asked with `keys`, so the finger of the test goes where the page
   // drew them and not where a layout of this file guessed they would be (docs/30, docs/85).
@@ -9861,6 +9867,8 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
     char name[8];
     int x;
     int y;
+    int w;
+    int h;
   };
   Spot spots[8] = {};
   int spot_count = 0;
@@ -9875,6 +9883,8 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
     snprintf(spots[spot_count].name, sizeof(spots[0].name), "%s", name);
     spots[spot_count].x = x;
     spots[spot_count].y = y;
+    spots[spot_count].w = w;
+    spots[spot_count].h = h;
     ++spot_count;
   }
   // The three keys, the eye and the box of the note: five controls, and the row of the list and the chart are the
@@ -9882,6 +9892,28 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(6, spot_count, g_out);
 
   const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The three keys are figures and not words** (0.173.0): the face is in the disk, so the line that says the keys say
+  // the words is not in the log, and the ink of each key is a shape at its middle —the play triangle 35 x 39 px, the two
+  // bars, the square— and not a blank rectangle. The numbers are the count of level 0 pixels inside the middle of the
+  // key, where a mark of forty-odd pixels and no letter of a word of the fallback paints (docs/30, docs/45, docs/85).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "the keys say words"), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  static const char* const kPainted[] = {"start", "pause", "stop"};
+  for (size_t key = 0; key < sizeof(kPainted) / sizeof(kPainted[0]); ++key) {
+    int inked = 0;
+    for (int i = 0; i < spot_count; ++i) {
+      if (strcmp(spots[i].name, kPainted[key]) != 0) continue;
+      for (int y = spots[i].y - 22; y <= spots[i].y + 22; ++y) {
+        for (int x = spots[i].x - 30; x <= spots[i].x + 30; ++x) {
+          if (glass->level_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y)) == 0) ++inked;
+        }
+      }
+    }
+    TEST_ASSERT_GREATER_THAN_MESSAGE(150, inked, kPainted[key]);
+  }
+
   // A control is pressed where the app says it is, and the panel counts in the frame of the page: the point of the view
   // is the point of the glass plus where the view sits under the bar (docs/30, docs/50).
   int taps_since_a_pause = 0;
@@ -9954,6 +9986,8 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
 
   storage->remove("/apps/timeclock/timeclock.lua");
   storage->remove("/apps/timeclock/manifest.json");
+  storage->remove("/apps/timeclock/res/keys.ttf");
+  storage->remove("/apps/timeclock/res");
   storage->remove("/apps/timeclock");
   storage->remove("/data/timeclock/marks.txt");
   storage->remove("/data/timeclock/notes.txt");

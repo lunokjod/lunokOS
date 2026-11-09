@@ -40,7 +40,6 @@ if not caps.display then
 end
 
 local view = ui.caps()
-ui.title('Home')
 
 -- A step of the face is eleven pixels of line with the bold face of the disk and seven with the table of the flash, so
 -- the sizes of the page are asked in pixels and the face answers with the steps it has (docs/30).

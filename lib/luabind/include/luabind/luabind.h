@@ -515,6 +515,9 @@ struct UIOps {
   bool (*canvas_create)(uint16_t width, uint16_t height, bool with_view, int16_t& slot,
                         uint16_t& generation);
   bool (*canvas_alive)(int16_t slot, uint16_t generation);
+  // **Whether a control is on its way out** (0.172.1): it was given back and its pixels are still on the glass until the paint
+  // that covers them. A card that is closing is a card that is not a card any more for the focus (docs/30).
+  bool (*canvas_pending)(int16_t slot);
   bool (*canvas_release)(int16_t slot);
   bool (*canvas_place)(int16_t slot, uint16_t x, uint16_t y);
   bool (*canvas_clear)(int16_t slot, uint8_t level, const char* mode);

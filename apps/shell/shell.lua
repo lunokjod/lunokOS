@@ -22,7 +22,6 @@ if not caps.display then
 end
 
 local view = ui.caps()
-ui.title('Shell')
 
 --  The sizes of the paper: the line of a face of `line_px` pixels, as every app of
 --  this system does it (`apps/about/about.lua`), because the step of the face is not 1.

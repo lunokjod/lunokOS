@@ -50,7 +50,6 @@ local card, card_title, card_field, card_ok, card_cancel
 local resume, layout, accept_card, ask_path
 
 local view = ui.caps()
-ui.title('Editor')
 
 -- **The document**: the text, where it came from, and the two switches of View. `dirty` is the `*` of the status
 -- line, `readonly` is the absence of the keyboard, and `wrap` is the field of the box (docs/30, docs/90).

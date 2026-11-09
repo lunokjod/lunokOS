@@ -432,7 +432,6 @@ end
 
 -- ------------------------------------------------------------------ the app
 
-ui.title('Wipe')
 layout()
 dress_doors()
 say('Nothing has been touched yet.', 8)

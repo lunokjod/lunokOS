@@ -417,8 +417,6 @@ end
 
 -- --------------------------------------------------------------------- the app
 
-ui.title('Calculator')
-
 W, H = ui.caps().width, ui.caps().height
 build_layout()
 

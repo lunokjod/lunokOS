@@ -106,7 +106,7 @@ if not caps.display then
 end
 
 local screen = ui.caps()
-ui.title('Lua perf')
+
 -- **The page is the app's and the app owns all of it**: a control paints inside its own box, so the air around the panel
 -- would keep whatever the glass had before it unless the app washes the page first (docs/30, docs/50).
 ui.clear(15, 'gc16')

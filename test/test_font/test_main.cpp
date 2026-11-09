@@ -632,6 +632,52 @@ static void test_a_pcf_that_is_not_one_says_why() {
   TEST_ASSERT_NOT_NULL(kernel::font::load_pcf(scratch, length, g_bits, face));
 }
 
+// **The marks of the time clock are glyphs of its own face** (0.173.0): the three keys of the app of the paper project
+// were a play, two bars and a square, and they were glyphs of `keys.pof` and not shapes the app drew. The port ships
+// `apps/timeclock/res/keys.ttf`, five shapes of `FontAwesome.otf` —the font the original's marks come from— and the app
+// carries them at the codes one to five, because **a text here is one byte a character** and the private use area of
+// `U+F04B` is three bytes of UTF-8.
+//
+// What is measured here is what a label of a key measures: `font::width` of one byte, and the ink that byte leaves.
+// **A code below space was skipped by both of them until this version**, so the width of a mark was zero and the key
+// drew nothing —that is exactly the failure this case exists to catch— (docs/30, docs/45).
+static void test_the_marks_of_the_time_clock_are_glyphs_of_its_face() {
+  static char face_file[8192];
+  const uint32_t length = read_file("apps/timeclock/res/keys.ttf", face_file, sizeof(face_file));
+  TEST_ASSERT_GREATER_THAN(0, length);
+  ttf::Face storage;
+  kernel::font::Face face = kernel::font::system_face();
+  TEST_ASSERT_NULL_MESSAGE(kernel::font::load_ttf(face_file, length, storage, face), "the face of the keys");
+
+  // Five marks and `.notdef`, at the size of the em of the font they come from.
+  TEST_ASSERT_EQUAL_UINT16(6, storage.glyphs);
+  TEST_ASSERT_EQUAL_UINT16(1792, storage.units_per_em);
+
+  // **The five codes the app writes**, each with a width at the step the app draws with (`kMarkScale` of the app is
+  // five, and a step of a face of outlines is nine pixels of body, so forty-five of em).
+  static const char* const kMarks[] = {"\1", "\2", "\3", "\4", "\5"};
+  static uint8_t rows[8 * 64];
+  for (size_t i = 0; i < sizeof(kMarks) / sizeof(kMarks[0]); ++i) {
+    const uint16_t measured = kernel::font::width(face, kMarks[i], 5);
+    TEST_ASSERT_TRUE_MESSAGE(measured >= 20, "a mark has no width");
+    uint16_t glyph = 0;
+    const ttf::Status found = ttf::glyph_of(storage, static_cast<uint8_t>(i + 1), glyph);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(ttf::kOk), static_cast<int>(found), "a code with no glyph");
+    ttf::Bitmap box{0, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ttf::kOk),
+                          static_cast<int>(ttf::render(storage, glyph, 45, rows, 8, 64, 64, box)));
+    // The figure of the original's keys is 41 px in a key of 84, and the flattest of the five —the eye— is 29 here.
+    TEST_ASSERT_GREATER_THAN_MESSAGE(19, static_cast<int>(box.height), "a mark has no height");
+    TEST_ASSERT_LESS_THAN_MESSAGE(51, static_cast<int>(box.height), "a mark is bigger than its key");
+    TEST_ASSERT_TRUE_MESSAGE(box.width > 0, "a mark has no ink");
+  }
+
+  // **And a code the face does not carry is still a gap**: a label given a byte the face has no shape for draws nothing
+  // there, which is what every code below space did before the marks arrived.
+  TEST_ASSERT_EQUAL_UINT16(0, kernel::font::width(face, "\6", 5));
+  TEST_ASSERT_EQUAL_UINT16(0, kernel::font::width(face, "\n", 5));
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -649,5 +695,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_an_italic_word_leans_row_by_row);
   RUN_TEST(test_a_sup_goes_up_and_a_sub_goes_down);
   RUN_TEST(test_the_ink_of_a_book_on_a_face_of_outlines);
+  RUN_TEST(test_the_marks_of_the_time_clock_are_glyphs_of_its_face);
   return UNITY_END();
 }

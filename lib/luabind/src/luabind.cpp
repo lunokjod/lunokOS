@@ -1571,6 +1571,24 @@ int l_fs_mkdir(lua_State* L) {
     return push_nil_error(L, "E_UNSUPPORTED", "there is no file system");
   }
   FsError err = FsError::kOk;
+  if (g_file_ops.mkdir(path, err)) {
+    lua_pushboolean(L, 1);
+    return 1;
+  }
+  // **A folder whose father is not there is made with its fathers** (0.172.2): `fs.data()` is `/data/<app>` and the image of a
+  // board carries no `/data` until something writes there, so the first mark of the time clock answered *«not saved»* on the
+  // Paper while the bench made it —the bench's disk happens to have a `/data`, from the apps that were installed—. The chain is
+  // walked from the root, each piece is asked for and a piece that refuses is not a fault of this call, and the whole path is
+  // asked for again at the end so the answer is still the callers' (docs/30, docs/70).
+  char piece[160];
+  size_t used = 0;
+  for (const char* p = path; *p != '\0' && used + 1 < sizeof(piece); ++p) {
+    piece[used++] = *p;
+    piece[used] = '\0';
+    if (*p != '/' || used < 2) continue;
+    FsError ignored = FsError::kOk;
+    g_file_ops.mkdir(piece, ignored);
+  }
   if (!g_file_ops.mkdir(path, err)) return push_fs_error(L, err);
   lua_pushboolean(L, 1);
   return 1;
@@ -3517,10 +3535,19 @@ uint32_t g_caret_present_mark = 0;
 // be painted. **Without a mode each region is painted with the quality it was drawn with**; with one,
 // that quality is used for everything pending, which is what a page that must look uniform wants
 // (docs/30, docs/50).
+// **The ring comes back on the turn after a card goes** (0.172.0): the focus machinery lives further down this file —it is
+// written where the walks are— and the present is the one place every app passes through after closing its card (docs/30).
+void ui_restore_the_ring_if_a_card_went(lua_State* L);
+
 int l_ui_present(lua_State* L) {
   if (g_ui_ops.present == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
   }
+  // **A card that has gone gives the ring back in the present that follows** (0.172.0): the walk that notices the card is the
+  // same one that hands the ring back, and it only runs when a key or a finger asks for the stops —so an app that closed its
+  // card and then only waits would keep a page with no ring anywhere—. It is one check per present and one walk once, and it
+  // is the turn where the card is not on the page any more (docs/30, docs/90).
+  ui_restore_the_ring_if_a_card_went(L);
   // **What changed is drawn first**: the view draws itself and asks its children, and a control with
   // nothing changed is not asked to draw at all. Then the tree is composed and the glass asked for the
   // paint, so an app that presents on every turn pays only for what it touched (docs/30, docs/90).
@@ -8905,12 +8932,23 @@ bool ui_grid_has_cells(lua_State* L, int object) {
 // Walks the tree the drawing walks: the children of the app, in their order, cut at the frame of
 // their fathers. A control is a target when it is a button or when the app said `focusable`; a label
 // inside a button is not one, which is what makes the button the thing a person lands on.
+// **The card that is over the page** (0.172.0) and whether a control is it or inside it: the walk of the focus asks this for
+// every control while a card is up, following the chain of fathers —the same chain the clipping follows— (docs/30).
+extern int16_t g_modal_slot;
+bool ui_in_the_card(int16_t slot);
+bool ui_leads_to_the_card(int16_t slot);
+
 void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, int32_t clip_x0,
                      int32_t clip_y0, int32_t clip_x1, int32_t clip_y1, int depth,
                      FocusTarget* targets, int capacity, int& count, int& order, int objects) {
   object = lua_absindex(L, object);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (!ui_control_alive(canvas)) return;
+  // **While a card is up the walk is the card's** (0.172.0): a control that is not in the card and does not lead to it is not a
+  // stop and its children are not walked, which is what keeps a key press from landing on a page behind a question nobody
+  // answered. The page and the fathers of the card are walked **through** —the card's boxes have to be in the page's pixels—
+  // and they are not stops themselves (docs/30, docs/90).
+  if (!ui_in_the_card(canvas->slot) && !ui_leads_to_the_card(canvas->slot)) return;
 
   // **The cells of a grid are stops even when they are on another page of it** (0.157.0): the promise of a grid is
   // that **the page follows the cursor**, so the dial has to be able to walk out of the first page into the second —the
@@ -8964,7 +9002,7 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
       }
     }
 
-    if (ui_target_is_focusable(L, -1) && !ui_grid_has_cells(L, -1)) {
+    if (ui_in_the_card(child->slot) && ui_target_is_focusable(L, -1) && !ui_grid_has_cells(L, -1)) {
       // **A strip of tabs is one stop per tab** (0.99.0): the arrows walk into the strip and from one tab to the
       // next, out of it at either end, and the centre chooses the tab the ring is on. One stop for the whole strip
       // made the arrows change the tab instead of moving the dial, which is the owner's complaint of 7/11 and what
@@ -9016,6 +9054,134 @@ void ui_walk_targets(lua_State* L, int object, int32_t base_x, int32_t base_y, i
 // Builds the list and **leaves the Lua objects in a table on top of the stack**: both the event and
 // the thing the event changes live in Lua, and finding a slot again after a callback is a search that
 // can hit a released control. The caller pops the table.
+// **The card that is over the page** (0.172.0): while a `ui.dialog` is up, the dial, the finger and the middle key belong to
+// it and to nothing else. The owner saw the failure on the eraser: *«els botons físics continuen amb el focus de l'app quan hi
+// ha un diàleg modal obert»*, which is a page where a key press can start something **under** a question nobody answered. The
+// app does not have to hide its controls while a card is up —an app that had to would be an app that forgets— because the walk
+// of the focus is the system's and the system is what knows there is a card (docs/30, docs/90).
+int16_t g_modal_slot = -1;
+// **Who had the ring when the card came up** (0.172.0): a card is a question and the ring goes to its first door; when the card
+// goes the ring goes back to the control it was on, which is what the owner asked for —*«quan el modal desapareix, tornen els
+// focus de l'app»*—. The three numbers are the three of a stop, because a slot alone is a number a released control forgets
+// (docs/30, docs/90).
+// **The card that was up, with its generation** (0.172.1): a present asks whether it is still alive before it does anything, and
+// a slot alone cannot answer that —a released control gives its slot to the next one— (docs/90).
+int16_t g_modal_card_slot = -1;
+uint16_t g_modal_card_generation = 0;
+int16_t g_modal_was_slot = -1;
+uint16_t g_modal_was_generation = 0;
+uint8_t g_modal_was_item = 0;
+bool g_modal_was_up = false;
+
+// **The two questions about a stop and the one that moves the ring** (0.172.0): they are defined below with the rest of the
+// focus machinery, and the collection of stops needs them before that.
+int ui_target_index(const FocusTarget* targets, int count, int16_t slot, uint16_t generation, uint8_t item);
+void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int objects, int index);
+
+bool ui_in_the_card(int16_t slot) {
+  if (g_modal_slot < 0) return true;
+  if (g_ui_ops.canvas_parent == nullptr) return false;
+  for (int16_t walk = slot; walk >= 0; walk = g_ui_ops.canvas_parent(walk)) {
+    if (walk == g_modal_slot) return true;
+  }
+  return false;
+}
+
+// **Whether this control is on the way to the card** (0.172.0), asked while a card is up: the walk has to go **through** the
+// page and through every father of the card to reach it, and it must not go anywhere else.
+bool ui_leads_to_the_card(int16_t slot) {
+  if (g_modal_slot < 0 || g_ui_ops.canvas_parent == nullptr) return false;
+  for (int16_t walk = g_modal_slot; walk >= 0; walk = g_ui_ops.canvas_parent(walk)) {
+    if (walk == slot) return true;
+  }
+  return false;
+}
+
+// **The control that has a slot, wherever it is in the tree** (0.172.0): it is what lets the system take the ring off the
+// control that had it when a card comes up. The app cannot be asked to do it —it is the one that would forget— so the walk
+// gives the object and the ring is written here (docs/30, docs/90). The three lines of the stack are the ones the finder of
+// the card needed three tries to get right: `replace` to put the found object where the levels of the walk were and `settop`
+// after it, because `replace` alone leaves the levels above.
+bool ui_push_slot_from(lua_State* L, int object, int16_t slot, int depth) {
+  object = lua_absindex(L, object);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (!ui_control_alive(canvas)) return false;
+  if (canvas->slot == slot) {
+    lua_pushvalue(L, object);
+    return true;
+  }
+  if (depth >= 8) return false;
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return false;
+  }
+  lua_getfield(L, -1, "children");
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return false;
+  }
+  const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  for (lua_Integer i = 1; i <= children; ++i) {
+    lua_rawgeti(L, -1, i);
+    const bool found = ui_push_slot_from(L, lua_gettop(L), slot, depth + 1);
+    if (found) {
+      lua_replace(L, base + 1);
+      lua_settop(L, base + 1);
+      return true;
+    }
+    lua_pop(L, 1);  // the child, and the table of children stays for the next one
+  }
+  lua_settop(L, base);
+  return false;
+}
+
+// Pushes the card if there is one, walking the tree the way the dial walks it; the object stays on the stack and nothing else
+// does. A nested card is the one that answers, which is why the walk stops at the first one it finds.
+bool ui_push_modal_from(lua_State* L, int object, int depth) {
+  object = lua_absindex(L, object);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (!ui_control_alive(canvas)) return false;
+  if (ui_field_bool(L, object, "__dialog", false)) {
+    lua_pushvalue(L, object);
+    return true;
+  }
+  if (depth >= 8) return false;
+  const int base = lua_gettop(L);
+  lua_getiuservalue(L, object, 1);
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return false;
+  }
+  lua_getfield(L, -1, "children");
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return false;
+  }
+  const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
+  for (lua_Integer i = 1; i <= children; ++i) {
+    lua_rawgeti(L, -1, i);
+    const bool found = ui_push_modal_from(L, lua_gettop(L), depth + 1);
+    if (found) {
+      // **The card goes down to where the walk was and the walk's own levels go**: `lua_replace` is the one that keeps the
+      // value and drops everything above it. Two earlier versions of these three lines were wrong in two different ways —a
+      // `settop` that dropped the card and kept the last table of the tree, and a `remove(-2)` that took the table of children
+      // away when the answer was «no»— and both ended in a segmentation fault; the bench is what said so (docs/90).
+      lua_replace(L, base + 1);
+      // **And what the walk pushed above it goes**: `lua_replace` puts the card where the levels of the finder were and pops the
+      // copy, but the levels themselves are still above it, so the stack is cut to the card. Without this the card never came
+      // back to the caller —the `settop` and the `remove` of the two earlier versions each broke the stack in its own way, and
+      // this is the third and the one that the bench says is right— (docs/90).
+      lua_settop(L, base + 1);
+      return true;
+    }
+    lua_pop(L, 1);  // the child, and nothing else: the table of children stays for the next one
+  }
+  lua_settop(L, base);
+  return false;
+}
+
 int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
   const int top = lua_gettop(L);
   lua_createtable(L, 0, 0);
@@ -9028,10 +9194,93 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
   }
   int count = 0;
   int order = 0;
-  ui_walk_targets(L, -1, 0, 0, 0, 0, info.width, info.height, 0, targets, capacity, count,
-                  order, objects);
+  const int root_at = lua_gettop(L);
+  // **A card over the page takes the whole walk** (0.172.0): the list of stops is the card's doors and nothing else, so the
+  // dial cannot leave a question unanswered and a finger on the page behind it is not a press of what is there (docs/30).
+  g_modal_slot = -1;
+  // **The walk is the root's and the card is a filter** (0.172.0): walking **from** the card was the first attempt and it gave
+  // no stops at all —the walk adds a control after its children, so starting at the card asked for the doors of a card that
+  // has none in the tree—, and every box of the walk has to be in the page's own pixels anyway. So the tree is walked whole
+  // and every control that is not the card, or inside it, is not a stop (docs/30, docs/90).
+  if (ui_push_modal_from(L, root_at, 0)) {
+    const int modal = lua_gettop(L);
+    LuaCanvas* card = static_cast<LuaCanvas*>(luaL_testudata(L, modal, kCanvasMeta));
+    if (card != nullptr) {
+      g_modal_slot = card->slot;
+      g_modal_card_slot = card->slot;
+      g_modal_card_generation = card->generation;
+    }
+    lua_pop(L, 1);  // the card
+  }
+  ui_walk_targets(L, root_at, 0, 0, 0, 0, info.width, info.height, 0, targets, capacity, count, order, objects);
+  // **The ring is the card's while the card is up** (0.172.0): the control that had it is found in the tree —it is not in the
+  // list of stops any more, which is the whole point— and its ring is taken away here; the card then takes it. The owner asked
+  // for exactly this: *«quan es mostra el modal, es busca a l'arbre quina té el focus, li treus i li dones al botó per defecte
+  // del modal»* (docs/30, docs/90).
+  if (g_modal_slot >= 0) {
+    if (!g_modal_was_up) {
+      g_modal_was_up = true;
+      g_modal_was_slot = g_ui_focus_slot;
+      g_modal_was_generation = g_ui_focus_generation;
+      g_modal_was_item = g_ui_focus_item;
+    }
+    if (count > 0 && ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item) < 0) {
+      if (g_ui_focus_slot >= 0 && ui_push_slot_from(L, root_at, g_ui_focus_slot, 0)) {
+        const int had_it = lua_gettop(L);
+        if (ui_set_field_bool(L, had_it, "focused", false)) ui_invalidate(L, had_it);
+        lua_settop(L, root_at);
+      }
+      ui_apply_focus(L, targets, count, objects, 0);
+    }
+    lua_pop(L, 1);  // the root
+    return count;
+  }
   lua_pop(L, 1);  // the root
+  if (g_modal_was_up) {
+    g_modal_was_up = false;
+    const int back = ui_target_index(targets, count, g_modal_was_slot, g_modal_was_generation, g_modal_was_item);
+    if (back >= 0) ui_apply_focus(L, targets, count, objects, back);
+    g_modal_was_slot = -1;
+    g_modal_was_generation = 0;
+    g_modal_was_item = 0;
+    g_modal_card_slot = -1;
+    g_modal_card_generation = 0;
+  }
+  // **And the card gone gives the ring back** (0.172.0): the control that had it takes it again if it is still there, and a
+  // page that was built again in the meantime leaves the ring where the app put it (docs/30, docs/90).
+  if (g_modal_was_up) {
+    g_modal_was_up = false;
+    const int back = ui_target_index(targets, count, g_modal_was_slot, g_modal_was_generation, g_modal_was_item);
+    if (back >= 0) ui_apply_focus(L, targets, count, objects, back);
+    g_modal_was_slot = -1;
+    g_modal_was_generation = 0;
+    g_modal_was_item = 0;
+    g_modal_card_slot = -1;
+    g_modal_card_generation = 0;
+  }
   return count;
+}
+
+// **A card that has gone gives the ring back**: the walk that notices it is the one that hands it back, and an app that closed
+// its card and then only waits would keep a page with no ring anywhere (0.172.0, docs/30).
+void ui_restore_the_ring_if_a_card_went(lua_State* L) {
+  if (!g_modal_was_up) return;
+  // **And only when the card is really gone** (0.172.1): asking for the stops on every present while the card is up put a walk
+  // and a focus —and the hooks of the app behind them— inside the app's own draw, which is what the owner saw as *«el focus fa
+  // coses rares»*. The card's slot and generation say whether it is still there (docs/30, docs/90).
+  if (g_ui_ops.canvas_alive != nullptr && g_modal_card_slot >= 0 &&
+      g_ui_ops.canvas_alive(g_modal_card_slot, g_modal_card_generation) &&
+      (g_ui_ops.canvas_pending == nullptr || !g_ui_ops.canvas_pending(g_modal_card_slot))) {
+    return;
+  }
+  const int top = lua_gettop(L);
+  FocusList list;
+  ui_collect_targets(L, list.items, list.capacity);
+  // **The table the collection leaves behind goes**: it is the objects of the stops, and its callers keep it on purpose —they
+  // read the objects out of it— and cut the stack themselves. A call from here is not one of them, and the first version of
+  // this left it on the stack: `ui.present('gc16')` then read the table as its mode and the bench said
+  // `bad argument #1 to 'present' (string expected, got table)` (docs/90).
+  lua_settop(L, top);
 }
 
 int ui_target_index(const FocusTarget* targets, int count, int16_t slot, uint16_t generation,
@@ -11565,6 +11814,20 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   }
 
   const int hit = ui_hit(targets, count, x, y);
+  if (hit < 0 && g_modal_slot >= 0) {
+    // **A finger outside the card is a «no»** (0.172.0): the card is a question and the page behind it is not an answer, so a
+    // touch that lands nowhere on it is the cancel door —the app hears `on_cancel` and closes the card, which is the same
+    // rule the two doors follow, read and then close and then run (docs/30, docs/90).
+    for (int i = 0; i < count; ++i) {
+      if (targets[i].slot != g_modal_slot) continue;
+      lua_rawgeti(g_state, objects, i + 1);
+      ui_call_hook(g_state, -1, "on_cancel", false, false);
+      lua_pop(g_state, 1);
+      break;
+    }
+    lua_settop(g_state, top);
+    return;
+  }
   if (hit >= 0) {
     ui_apply_focus(g_state, targets, count, objects, hit);
     g_ui_touch_slot = targets[hit].slot;

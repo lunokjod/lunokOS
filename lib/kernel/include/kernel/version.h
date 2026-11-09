@@ -5146,7 +5146,96 @@ namespace kernel {
 //   - **and it is still a walk of the directory and not a `f_mkfs`/`lfs_format`**, on both sides: the volume keeps its FAT
 //     and its superblock and what leaves is the content. That is the contract of the call (docs/70) and it did not move.
 
-static const char kVersion[] = "0.171.2";
+//
+// 0.172.0 (9/11): **a card takes the ring while it is up, and gives it back when it goes**. The owner: *«a l'app wipe veig
+// que els botons físics continuen amb el focus de l'app quan hi ha un diàleg modal obert... quan es mostra el modal, es busca a
+// l'arbre quina té el focus, li treus i li dones al botó per defecte del modal. Al tancar li tornes el focus al control que hi
+// havia»*.
+//
+//   - **the walk of the focus knows the card** (`ui_collect_targets`): while a `ui.dialog` is alive the stops are the card and
+//     what is inside it, and nothing else. A control that is not the card and does not lead to it is not a stop and its children
+//     are not walked, so the dial, the finger and the middle key cannot land on a page behind a question nobody answered
+//     (docs/30);
+//   - **the ring is taken from the control that had it and given to the card**: that control is no longer in the list of stops,
+//     so it is found **in the tree by its slot** (`ui_push_slot_from`), its `focused` is put down and the card takes it. The
+//     three numbers of the stop it had are kept, and the turn after the card goes the same walk gives them back (docs/30, 90);
+//   - **a finger outside the card is a «no»**: a touch that lands on no stop while a card is up is the cancel door, and the app
+//     hears `on_cancel` and closes its own card, the same rule the two doors follow (docs/30);
+//   - **measured on the bench, 9/11**, a page with a button behind and a card over it: `card up -> behind false card true` and
+//     `card closed -> behind true`, with the walk seeing **one** stop where it used to see eleven (docs/30, docs/85);
+//   - and three stack mistakes of my own were found by that bench before this was written down —`settop` that dropped the card,
+//     `remove(-2)` that took the table of children, and a collection whose objects table was left on the stack so that
+//     `ui.present('gc16')` read it as its mode— and each one is a comment where it happened, because the next person to touch
+//     this walk will make the same three (docs/90).
+//
+// 0.172.1 (9/11): **the card of the eraser, taken one by one**. The owner, with the board in his hand: *«a Wipe no sembla que
+// pugui picar els botons i el focus fa coses rares. Picar fora del modal tampoc torna a l'app»*.
+//
+//   - **the ring came back one present late**, and a present that the app did not make after it —the eraser paints once and
+//     waits— left the page with no ring anywhere. The question «is the card still there?» is now answered by the kernel with
+//     `canvas_pending`: a card the app has **given back** is on its way out and is not a card any more for the focus, so the ring
+//     comes back **in the same present** that closes it (docs/30, docs/90);
+//   - **and the walk asked for the stops on every present while the card was up**, which put a walk, a focus and the app's
+//     `on_focus` hooks inside the app's own draw: that is what the owner saw as *«el focus fa coses rares»*. The check is now
+//     «the card is alive and not on its way out» and it costs a number (docs/30);
+//   - **measured on the bench, 9/11**: `card up -> behind false card true`, `still up` the same, and `closed (1st present) ->
+//     behind true` —the ring is back in the paint that closes the card— (docs/30, docs/85);
+//   - **what this does not prove and the board will say**: a finger on the card's doors and a finger outside the card. Both go
+//     through `ui_hit` over a list of stops that is now the card alone, and a tap on no stop calls `on_cancel`; the bench has no
+//     way to put a finger on the glass, so the next `uploadfs` is the measurement (docs/85).
+//
+// 0.172.2 (9/11): **the first mark of the time clock can reach the disk on a board**. The owner: *«al polsar Start no veig que
+// passi res»* and `timeclock: not saved`.
+//
+//   - **the cause was a folder without its father**: `fs.data()` is `/data/<app>` and the image of a board carries **no
+//     `/data`** until something writes there —the bench's disk has one because of the apps installed in it—, so `fs.mkdir`
+//     answered no, `fs.open(path, 'a')` answered no, the app said `not saved` and the page did not change: a key that seems to
+//     do nothing (docs/30, docs/70);
+//   - **`fs.mkdir` now makes the chain**: it walks the path from the root, asks for every piece and asks for the whole path again
+//     at the end, so the answer is still the caller's. Measured on the bench, 9/11: `fs.mkdir('/data/mkbench/deep')` answers
+//     `true` and a file written inside it arrives —`build/disk/emulator/data/mkbench/deep/x.txt`—, which is the same call the
+//     time clock makes with `fs.data()` (docs/30, docs/70);
+//   - **and the two `fopen` errors of that log were not a missing font**: `build/disk/m5-paper/res/fonts/dejavusans-bold.ttf`
+//     **is** in the image of the Paper (measured today), so those two lines come from the board running an older filesystem —
+//     the same thing the launcher's missing pictures taught on 8/11: `uploadfs` is what carries a change of an app or of `res/`
+//     (docs/70, docs/85).
+// 0.173.0 (9/11): **the keys of the time clock are marks again, and a face may carry the codes below space**. The
+// owner: *«FES LA PUTA APP»*, after the port drew `Start`, `Pause` and `End` where the original drew a play, two bars
+// and a square.
+//
+//   - **where those figures come from, in the original**: they were not a drawing and not a picture —
+//     `data/app/Timeclock/keys.pof` was `tools/fontgen.py` run over **`FontAwesome.otf`**, as its README of 27/10
+//     says— and the marks were the code points U+F04B play, U+F04C pause, U+F04D stop, U+F06E the eye that opens the
+//     week and U+F060 the arrow back (docs/45);
+//   - **`tools/make_keys.py` takes those five glyphs out of that font** instead of drawing polygons: the same
+//     characters of the same font, CFF outlines turned into quadratic ones, written into
+//     `apps/timeclock/res/keys.ttf` —1 500 B, `.notdef` and five glyphs, 1 792 units to the em—, and the tool reads the
+//     file back and prints the width and the contours of each mark, because the file is what the app gets (docs/80);
+//   - **and they live at the codes 1 to 5 and not at U+F04B**, because a text here is one byte a character: the room
+//     no page and no book means is the codes below space, so `font::width` and `font::runs` stop skipping them and let
+//     the face answer —a face with no shape for a code answers a gap exactly as before— (docs/30);
+//   - **the fallback of the original is kept**: when `ui.load_font('/res/keys.ttf')` answers nil the keys say `Start`,
+//     `Pause`/`Resume`, `End` and `Week`/`Day`, because half an app is worse than one that needs reading (docs/45);
+//   - **the new case of the suite is the consequence**: `test_font` reads the file the app ships, measures
+//     `font::width` of each of the five codes at the five steps the app draws with and the ink `ttf::render` leaves
+//     —39 px of play and 29 of the eye, from the contours of the file—, and checks that code 6 and a newline are gaps
+//     (docs/80);
+//   - **and the reader refused the face, which is why no mark was ever seen**: `ttf::glyph_of` answered "no glyph" for
+//     any segment of the character map whose `idDelta` is **zero**, and zero is exactly what a face of five marks
+//     writes when the glyph *is* the code (code 1 to glyph 1). The shortcut was meant for the last segment of every
+//     map —`0xFFFF`, the code the standard gives no picture to— and the sentinel needs no shortcut: the arithmetic
+//     already turns it into glyph zero, which is the answer that line gives. Measured on the bench, 9/11, after the
+//     fix: `code 1 -> glyph 1 advance 35`, `2 -> 39`, `3 -> 39`, `4 -> 45`, `5 -> 39`, `6 -> kNoGlyph`;
+//   - **the page of the time clock, counted on the dump of the bench** (540x960 `P5`, the app's own frame): the play
+//     triangle, the two bars and the square are there, 1 782, 2 306 and 2 536 pixels of level 0 inside the box of each
+//     key, and the eye 4 087 in its —the eye focused, so its key is black with the mark in paper— (docs/85);
+//   - **and the apps stop naming themselves in the bar**: eight of them wrote `ui.title('About')` and its siblings while
+//     the system has already written the `title` of the manifest there before the first line of the app runs, so the
+//     call was doing nothing. What is left is what has a reason —the reader's `Library` and the title of the book, the
+//     time clock's day and week— (docs/30);
+//   - **what this does not prove and the board will say**: the mark on the glass. The suite can read the face and
+//     measure it; the title of a button drawn at 45 px of em is a picture only the panel shows (docs/85).
+static const char kVersion[] = "0.173.0";
 
 }  // namespace kernel
 
