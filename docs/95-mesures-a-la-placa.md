@@ -737,7 +737,24 @@ lunok> stats
 | `doors` a prop del 100 % de la vida | el sistema no fa res més que esperar dispositius: el coll és al maquinari |
 | `lua.run` alt i `lua.own` baix | l'app passa el temps demanant coses, no calculant |
 | `turns` alt amb `kernel` baix | el nucli dona moltes voltes curtes: el que espera és un esdeveniment |
-| `lua.own` d'un bucle conegut | **el preu d'una instrucció d'aquest intèrpret**: un bucle de deu mil sumes i la fila `lua.own` dona els ns per instrucció que s'han de posar a `--lua-cpu` (avui el model en diu **60 ns a 160 MHz**, docs/85) |
+| `lua.own` d'un bucle conegut | **el preu d'una instrucció d'aquest intèrpret**: un bucle de deu mil sumes i la fila `lua.own` dona els ns per instrucció que s'han de posar a `--lua-cpu` (avui el model en diu **60 ns a 160 MHz**, docs/85). Des de la 0.169.3 no cal escriure el bucle: **`run luaperf`** el mesura i diu el número |
+
+**I el número que decideix si el pressupost d'un torn és massa gran és el de `run luaperf`** (0.169.3): el bucle de
+tres instruccions que compta el bytecode —el mínim de tres tirades, amb el vidre quiet— i, després, mitja segona de
+voltes per saber què val una tanda de 100 000 instruccions. Surt per consola i a la pàgina:
+
+```
+luaperf: two lengths, 500000 and 2525252 laps: 198 and 198 ns a lap
+luaperf: 2525252 laps in 500 ms: 75.8 turns, 66.0 ns an instruction
+luaperf: a turn of 100000 instructions is worth 6.6 ms, the kernel's own turn in it
+luaperf: a key waits at most 6.6 ms, against the 120 ms a page of ink costs
+luaperf: the budget is nothing next to the glass: do not touch it
+```
+
+Aquell **6,6 ms és l'emulador** (el seu model de 60 ns per instrucció i el torn de 850 µs); a la placa serà el que
+sigui que digui la placa, i per això l'app existeix. **La decisió és la comparació amb els 120 ms d'una pàgina de
+tinta**: si la tanda en surt molt per sota, el pressupost no toca res i no s'ha de retallar; si en surt a prop o per
+damunt, retallar-lo es notaria en un botó.
 
 **Què diu l'emulador i què no**: des de la 0.26.0 l'emulador **paga els temps de cada dispositiu** —blocs de
 flash i sectors de targeta, el bus i la tinta del panell, les tres transaccions del tàctil, les quatre

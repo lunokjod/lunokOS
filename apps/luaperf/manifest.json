@@ -1,0 +1,9 @@
+{
+  "title": "Lua perf",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "luaperf.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "What one instruction of Lua costs on this board, and what the turn budget is worth in milliseconds.\nIt prints the numbers and paints them: the price of an instruction, the slice a turn gets and what a turn of the kernel costs around it."
+}

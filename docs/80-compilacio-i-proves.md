@@ -195,17 +195,17 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 
 - **La imatge d'una placa no porta apps** (0.118.3, l'amo: *«cap placa ha de contenir apps al littlefs al
   flashejar»*): el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** amb el `data/`
-  del sistema i res més. L'única excepció és la Paper, que en nomena **set** (`custom_apps =
-  editor,calculator,about,timeclock,reader,home_eink,shell`, **34 fitxers i 278 127 B** mesurats el 8/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
+  del sistema i res més. L'única excepció és la Paper, que en nomena **vuit** (`custom_apps =
+  editor,calculator,about,timeclock,reader,home_eink,shell,luaperf`, **38 fitxers i 305 737 B** mesurats el 9/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
   id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que nomenen la placa per l'id o per
   la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i llavors cada app del disc és
   **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves proves escriuen al
   disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
 - **L'emulador sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
   `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador no té placa, el filtre de `make_disk` les
-  hi deixa passar totes —**7 apps, 34 fitxers, 290 501 B** mesurats el 9/11— i les posa **enllaçades**, o
+  hi deixa passar totes —**8 apps, 38 fitxers, 305 737 B** mesurats el 9/11— i les posa **enllaçades**, o
   sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
-  `apps` en un emulador acabat de fer deia `no apps`; ara diu set noms i la graella del llançador té set cel·les.
+  `apps` en un emulador acabat de fer deia `no apps`; ara diu vuit noms i la graella del llançador té vuit cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
   (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
 - **Si un build en demana massa, ho diu i no perd fitxers en silenci.** `make_disk` munta la imatge amb
@@ -214,10 +214,10 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   PlatformIO donaria per bona (el guard és `check_it_fits`, a `tools/make_disk.py`). A cada build la línia ho
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
-  **El que hi ha avui, mesurat el 9/11**: `apps/` són **34 fitxers i 290 501 B**, i el `data/` del sistema
+  **El que hi ha avui, mesurat el 9/11**: `apps/` són **38 fitxers i 305 737 B**, i el `data/` del sistema
   **20 fitxers i 1 688 656 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 9/11 va
-  escriure *`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`* i *`build/disk/m5-paper is
-  1979152 B in 53 files, 7 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
+  escriure *`build/disk/emulator is 1998650 B in 60 files, 8 apps, linked to apps/`* i *`build/disk/m5-paper is
+  1994388 B in 57 files, 8 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
   12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 688 651 B en
   19 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
   tres bitmaps de splash (`data/res/splash`, 1 595 456 B) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant

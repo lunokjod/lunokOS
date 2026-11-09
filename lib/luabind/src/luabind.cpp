@@ -646,7 +646,11 @@ uint32_t g_pending_us = 0;
 // **The turn budget** (0.90.0): when a turn reaches `kTurnBudgetInstructions`, the count hook yields the
 // coroutine back to the kernel. It is a slice and not a kill: an app that never yields keeps running, but
 // the console, the alarms, the button and the radio get a turn between slices (docs/20, docs/75).
-const uint32_t kTurnBudgetInstructions = 100000;  // 50 blocks of kHookInstructions, ~0.6 ms at 160 MHz
+// **What the budget is worth in milliseconds is a measurement and not a guess**: the emulator's model prices an
+// instruction at `kLuaInstructionNs` (60 ns, `--lua-cpu`), so 100 000 of them are **6 ms** there and a slice of
+// "~0.6 ms" —what this comment said until 0.169.3— was the same arithmetic with a zero lost. A board says its own
+// with `run luaperf` (docs/95), which is the only number worth deciding on.
+const uint32_t kTurnBudgetInstructions = 100000;  // 50 blocks of kHookInstructions
 uint32_t g_turn_instructions = 0;
 bool g_budget_pending = false;
 bool g_budget_yielded = false;

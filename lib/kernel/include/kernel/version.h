@@ -4897,7 +4897,31 @@ namespace kernel {
 //     what the launcher does with its first cell (apps/about, docs/30);
 //   - **the suite is 548 cases and none of them is red**: the twelve of 0.169.0 included a crash that hid forty-nine cases —
 //     everything after `test_book` in `test_apps`— and those are the ones that had aged.
-static const char kVersion[] = "0.169.2";
+//
+// 0.169.3 (9/11): **what one instruction of Lua costs is a measurement and not a comment**. The owner asked whether a
+// smaller budget before the yield would make the buttons and the glass faster, and then: *«arregla el comentari i fes
+// una app de mesura»*.
+//
+//   - **the comment of `kTurnBudgetInstructions` was wrong by ten**: it said "~0.6 ms at 160 MHz" and 100 000
+//     instructions at the 60 ns the emulator prices them are **6 ms**. It is corrected, it no longer hides that the 60 ns
+//     is a model, and it points at the app that says the board's number (lib/luabind, docs/85);
+//   - **`apps/luaperf`** (a new app, and a dial for an icon): a loop of `for i = 1, n do k = k + 1 end`, **three
+//     instructions a lap** counted on the bytecode of Lua 5.4.7 —`ADDI`, `MMBINI` and `FORLOOP`— timed with `sys.time_ms()`
+//     after a warm-up thrown away and as **the smallest of three tries with the glass quiet**, and then half a second of
+//     laps to price a whole turn. On the emulator it says **66 ns an instruction and 6.6 ms a turn**, which is the model
+//     of 60 ns with its 850 µs turn inside, and it prints the verdict against the **120 ms** a page of ink costs: the
+//     budget of a turn is nothing next to the glass (apps/luaperf, docs/95 E-9, docs/85);
+//   - **and the number it does *not* print is the turn of the kernel alone**, because it cannot be had from here: a turn
+//     falls on every 33 333rd lap, so both costs grow with the number of laps and only their sum is visible. The first
+//     version of the app subtracted a figure from itself and said "a turn costs 0.0 ms more"; the measurement is one
+//     number now, and the comment says why (apps/luaperf);
+//   - **the first version was also measured on a moving glass**: the same loop read 195 ns a lap in one run and 2 085 in
+//     another, the second with the page of the boot still being painted, which is why a sample now waits for `ui.idle()`
+//     and the smallest one is kept —a paint only ever adds time— (apps/luaperf);
+//   - **the Paper carries it** (its list of apps goes from seven to eight) and the counts of docs/70, docs/80, docs/85
+//     and `platformio.ini` are today's measurement: `apps/` is **38 files and 305 737 B**, `build/disk/m5-paper` is **57
+//     files and 1 994 388 B** and `build/disk/emulator` **60 files and 1 998 650 B** (docs/70, docs/80, docs/85).
+static const char kVersion[] = "0.169.3";
 
 }  // namespace kernel
 
