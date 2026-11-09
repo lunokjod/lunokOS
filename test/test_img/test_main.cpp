@@ -77,10 +77,12 @@ bool boot_emulator() {
   return true;
 }
 
-// **The call a page makes**: a path, where it lands and how big, in the order the kernel has it (docs/30).
+// **The call a page makes**: a path, where it lands and how big, in the order the kernel has it (docs/30). The `mask`
+// of the seventh argument is the transparency the app has to ask for (0.169.0): a page of this suite draws the picture
+// as it always was, flattening what is transparent on the canvas.
 bool draw(const char* path, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char*& code,
           const char*& reason) {
-  return ui::image(x, y, w, h, path, nullptr, code, reason);
+  return ui::image(x, y, w, h, path, nullptr, false, code, reason);
 }
 
 // The level of a pixel of the app's view (docs/30).

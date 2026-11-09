@@ -160,10 +160,10 @@ que el 6 % que semblava el son).
 lua
 f = fs.open('/rtc', 'w') f:write('hola') f:close()
 exit
-hexdump
+hexdump /rtc
 ```
 
-Després `sleep deep 20000` (o l'alarma de A-2) i, en tornar, `hexdump` una altra vegada: els
+Després `sleep deep 20000` (o l'alarma de A-2) i, en tornar, `hexdump /rtc` una altra vegada: els
 mateixos bytes han de ser-hi.
 
 | Què apuntar | On va |

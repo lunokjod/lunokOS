@@ -15,8 +15,8 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **486 proves natives**
-> en **24 suites**, i **12 de vermelles** que la 0.169.0 va deixar obertes.
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **548 proves natives**
+> en **24 suites**, totes verdes.
 > A l'ATOM (9/11): **2 265 753 B** de flash (86,4 % de la partició d'aplicació, 2 621 440 B) i **122 704 B**
 > de RAM estàtica (37,4 % de 327 680 B).
 >

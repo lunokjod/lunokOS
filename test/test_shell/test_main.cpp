@@ -408,6 +408,11 @@ void test_an_ampersand_runs_an_app_in_the_background(void) {
   TEST_ASSERT_TRUE(write_text(storage, "/apps/lunok-bg/app.lua",
                               "console.print('bg started')\nwhile true do sys.delay(20):await() end\n"));
 
+  // **The mirror of the log is turned off for this case** (0.169.2): a detached app's console is the log, and the log is
+  // echoed to the console by default —so its lines do reach this wire, prefixed and one at a time—. What `&` promises is
+  // that the app does not *own* the console, and that is what is measured here: the mirror is a thing of the system and a
+  // session that leaves it on prints every line of it, its own or an app's (docs/30, docs/50).
+  kernel::log_echo(false);
   capture_begin();
   TEST_ASSERT_TRUE(kernel::execute("run lunok-bg &"));
   capture_end(said, sizeof(said));
@@ -436,6 +441,7 @@ void test_an_ampersand_runs_an_app_in_the_background(void) {
   storage->remove("/apps/lunok-bg/app.lua");
   storage->remove("/apps/lunok-bg/manifest.json");
   storage->remove("/apps/lunok-bg");
+  kernel::log_echo(true);
 }
 
 // **The shell is the system's and not the wire's** (0.159.0): anybody can ask for a session —an app asks for it with

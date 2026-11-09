@@ -62,16 +62,20 @@ struct Cursor {
 // **A row being made**: `(width + 1) / 2` bytes, the left pixel of a pair in the high nibble — the packing
 // of the glass, of a canvas and of a glyph's blob, so a picture drawn on a page is a copy (docs/50).
 struct Row {
-  uint8_t* bytes;
-  uint16_t width;
-  uint16_t at;
-  uint16_t y;  // which row of the picture this is, for the dither
+  // **A row starts empty and has no mask** (0.169.2): every decoder says `Row row;` and then `row_start`, and a member
+  // without a value is whatever the stack had —so the mask of a BMP was a pointer to nowhere and `row_start` wrote `15`
+  // through it—. The four values `row_start` is about to give are given here too, so a row that is declared and not
+  // started is a row with no pixels instead of a row with the wrong ones (docs/75).
+  uint8_t* bytes = nullptr;
+  uint16_t width = 0;
+  uint16_t at = 0;
+  uint16_t y = 0;  // which row of the picture this is, for the dither
 
   // **The mask of the picture, when the caller asked for one** (0.169.0): one nibble a pixel, `15` for a pixel that is
   // there and `0` for one the picture leaves to whatever is under it. It is a row of the caller's and not of this library,
   // and it is `nullptr` for a caller that does not want it —which is every caller that does not ask, and that is how the
   // memory of a mask is paid only by an app that uses one— (docs/30, docs/75).
-  uint8_t* alpha;
+  uint8_t* alpha = nullptr;
 };
 
 void row_start(Row& row, uint8_t* bytes, uint16_t width, uint16_t y);

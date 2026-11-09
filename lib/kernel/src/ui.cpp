@@ -512,6 +512,12 @@ void compose_region(Canvas& parent, const Canvas& child, int32_t origin_x, int32
 // is the tree and the one that composes it.
 bool g_page_owes_nothing = false;
 
+// **And the ink that reached the view from a control's own canvas** (0.169.2): `g_levels` is what the page's primitives
+// drew, and a control's pixels are composed into the view without passing through one of them —so a page that painted
+// only in canvases read as white paper and was not washed between two apps, and the next one started on the ghost of
+// it—. This flag is set by the composition and cleared by the wash that pays for it (docs/50, docs/90).
+bool g_ink_on_the_view = false;
+
 // **The tree, and the controls without a view are not a hole in it.** Depth first, in the order the
 // controls were added —the one added later is in front—, and each view is composed into the first canvas
 // that holds it: the offset is what every control between the two adds with its place, so a label inside a
@@ -520,7 +526,10 @@ void compose_tree(int16_t slot, int16_t destination, int32_t origin_x, int32_t o
   Canvas& control = g_canvases[slot];
   // **The page is not the white one the system handed over any more** (0.168.0): the moment a control is composed into it
   // there is ink on the paper, and a `ui.clear` that came after it has something to erase again (docs/30, docs/50).
-  if (slot == 0) g_page_owes_nothing = false;
+  if (slot == 0) {
+    g_page_owes_nothing = false;
+    g_ink_on_the_view = true;
+  }
   // **The children first.** A father's buffer has to be complete before it travels up: composing him into
   // his own father and *then* composing his children into him was a father that reached the glass without
   // what his children had just put in him (found by this suite, 1/11).
@@ -1685,21 +1694,37 @@ void attach() {
   release_faces();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
-  // **The page is the system's white one until the app draws in it** (0.168.0): the wash above is the one pass the owner
-  // asked for —the view and the screen erased before it is handed over— and this is what says so, so the app's first
-  // `ui.clear(15, …)` does not pay for it a second time (docs/30, docs/50).
-  g_page_owes_nothing = true;
   // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
   // here painted something and the next one starts on white paper, and what that wash costs is the
   // system's to choose —`a2` for a page of text, `gl16` for a few grays, `gc16` for a photograph— and not
   // the app's, because no app knows what the one before it left (docs/50, docs/90). The paint is asked for
   // and not waited on: the next app's own paint queues behind it.
-  if (g_levels != 0) {
-    damage_add(root(), 0, 0, root().width, root().height, cleaner_for(g_levels, g_paints));
+  //
+  // **And what says whether there is anything to clean is the page and not only its counters** (0.169.2): `g_levels` is
+  // what the page's own primitives drew, and the pixels of a control arrive through its canvas, composed into the view
+  // without passing through one of them —so a page that painted only in canvases read as white paper and was not washed
+  // between two apps, and the next one started on the ghost of it—. `g_page_owes_nothing` is false the moment anything
+  // reaches the view, composed or drawn, and when it says there is ink that nobody counted the wash is the sixteen-level
+  // one, which cleans without the flash of the full one (found by this suite, 9/11).
+  const bool ink_on_the_glass = g_levels != 0 || g_ink_on_the_view;
+  if (ink_on_the_glass) {
+    hal::UpdateMode mode = cleaner_for(g_levels, g_paints);
+    // **Ink that nobody counted is at least a wash of sixteen levels**: `cleaner_for` answers `du` for nothing painted, and
+    // a `du` over a page that has pixels in it keeps the ghost of them (docs/50).
+    if (g_levels == 0) mode = hal::UpdateMode::kGl16;
+    damage_add(root(), 0, 0, root().width, root().height, mode);
     paint_root();
   }
   g_levels = 0;
   g_paints = 0;
+  g_ink_on_the_view = false;
+  // **The page is the system's white one until the app draws in it** (0.168.0): the wash above is the one pass the owner
+  // asked for —the view and the screen erased before it is handed over— and this is what says so, so the app's first
+  // `ui.clear(15, …)` does not pay for it a second time (docs/30, docs/50).
+  // **A page that was not washed is not white** (0.169.2): at the boot of a run there is nothing in the counters to wash —the
+  // picture of the splash is on the glass and it never passed through a primitive of the page— and the app's own
+  // `ui.clear(15, …)` is then the pass that paints the page whole, which is what it is for (docs/30, docs/50).
+  g_page_owes_nothing = ink_on_the_glass;
   // **A view that has never been drawn owes a draw**, like a canvas that has just been made: the app that
   // is starting is the one that has to fill it (docs/90).
   root().needs_draw = true;
@@ -1879,12 +1904,6 @@ bool invalidate_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t 
   Canvas* canvas = find(slot);
   if (canvas == nullptr) return false;
   canvas->needs_draw = true;
-  // **A control with bits that is asked to draw again owes its pixels to the glass once more** (0.168.4): its content lives in
-  // its own canvas and it is composed by its damage, so a father that painted paper over it —the grid over the cells of a
-  // launcher— leaves it invisible unless the child puts its rectangle back in the damage list. A control without bits does not
-  // need this: its drawing is what marks damage, and it draws again because `needs_draw` is set (docs/30, docs/90). The
-  // quality is `gl16` because the paper that covered it was painted with a wash and a `du` on top of it keeps the ghost.
-  if (canvas->bits != nullptr) damage_add(*canvas, x, y, w, h, hal::UpdateMode::kGl16);
   if (canvas->redraw_w <= 0 || canvas->redraw_h <= 0) {
     canvas->redraw_x = x;
     canvas->redraw_y = y;
@@ -1922,8 +1941,22 @@ bool invalidate(int16_t slot) {
   // *«l'efecte de perdre el contingut és quan uso el focus»*: the ring of a cell invalidates the grid, the grid paints its
   // whole box and the cells it holds are not asked for their buffers. Asking them is exactly the rule of the composition,
   // the father asks every child, and it is done here so that no control has to remember it (docs/30, docs/90).
+  //
+  // **The rectangle of a child goes back to the damage list here and not in `invalidate_rect`** (0.169.2): that call is
+  // also how a father is told which hole a child left behind —a move, a canvas going away—, and its rectangle is in the
+  // father's pixels and not in the child's, so damaging it there painted the page at the wrong place *and* twice: the case
+  // the suite found was two paints of a whole page where one control had moved (docs/30, docs/90). The quality is `gl16`
+  // because the paper that covered the child was painted with a wash and a `du` on top of it keeps the ghost.
+  //
+  // **And only a father that paints into the canvas that holds it can cover them**: a control with a buffer of its own
+  // composes its children into it, so its own drawing never takes their pixels away; one without a buffer paints straight
+  // into the canvas of the glass, which is the paper of the grid over the cells of the launcher (docs/30, docs/90).
   for (int16_t index = canvas->first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
     if (!live(index) || g_canvases[index].pending_release) continue;
+    Canvas& child = g_canvases[index];
+    if (canvas->bits == nullptr && child.bits != nullptr) {
+      damage_add(child, 0, 0, child.width, child.height, hal::UpdateMode::kGl16);
+    }
     invalidate(index);
   }
   return invalidate_rect(slot, 0, 0, canvas->width, canvas->height);
@@ -3038,6 +3071,10 @@ int32_t tab_cross_side(int32_t height, int32_t column) {
 bool tabs_paint(int16_t slot, const char* const* labels, uint8_t count, uint8_t index, uint8_t lit,
                 uint8_t text, uint8_t background, uint8_t scale, bool closeable) {
   if (!live(slot) || text > 15 || background > 15) return false;
+  // **A strip that says how many tabs it has and hands no name is not a strip** (0.169.2): `count == 0` is the empty
+  // page state that washes itself (0.164.2) and it is a different thing from three tabs with nothing to write in them,
+  // which is a control asked for something nobody can see and is refused here (docs/30, docs/90).
+  if (count > 0 && labels == nullptr) return false;
   const Canvas& strip = g_canvases[slot];
   const int32_t width = strip.width;
   const int32_t height = strip.height;
@@ -6619,6 +6656,12 @@ bool resize(uint16_t width, uint16_t height) {
   // The place survives a resize and the view keeps it; **the canvases inside it do not**, because they
   // are the app's and the app is told to draw again (docs/30, docs/90).
   if (!make_root(width, height)) return false;
+  // **The new view is white paper and the glass still shows the page of the size before** (0.169.2): a page that is 420 wide
+  // over a glass that held 540 leaves the old one around it, so the page is not the system's white one any more and the
+  // app's `ui.clear(15, …)` —the one its `on_resize` does before drawing— has the old page to erase. **Nothing is marked
+  // here**: a view that has just been made owes nothing, and a paint asked for in the middle of the keyboard coming up is a
+  // flash of the glass at every key and holds the finger behind it (found by these suites, 9/11) (docs/30, docs/50, docs/90).
+  g_page_owes_nothing = false;
   luabind::call_resize(root().width, root().height);
   return true;
 }

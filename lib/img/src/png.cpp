@@ -349,12 +349,14 @@ Status decode_png(const uint8_t* data, uint32_t len, const RowSink& sink, uint8_
   if (read != kOk) return read;
   if (header.width > kMaxSide || header.height > kMaxSide) return kUnsupported;
   const uint32_t need = (header.row_bytes + 1) * header.height;
-  // **Two rows after the state when a mask is asked for** (0.169.0): the colours and the transparency of the same row, one
-  // after the other, in the block the caller gave —a decoder's memory lives in the caller's scratch and never in the static
-  // data of the firmware, which is what the DRAM of the Paper answered with an overflow of 1 064 bytes when the mask row
-  // was a `static` here— (docs/75).
-  const uint32_t rows = (mask != nullptr) ? 2u * kRowBytes : kRowBytes;
-  if (scratch == nullptr || cap < png_state_at(need) + rows) return kNoRoom;
+  // **Two rows after the state, asked for whether or not the mask is wanted** (0.169.0): the colours and the transparency
+  // of the same row, one after the other, in the block the caller gave —a decoder's memory lives in the caller's scratch
+  // and never in the static data of the firmware, which is what the DRAM of the Paper answered with an overflow of 1 064
+  // bytes when the mask row was a `static` here— (docs/75). **The check is the number `png_scratch` asked for and not one
+  // of its own** (0.169.2): a caller that allocates what it was told and gets a byte less has to be told `kNoRoom`, and
+  // here the two rows were only counted when a mask was asked, so a block one byte short of the answer was accepted
+  // (found by this suite, 9/11).
+  if (scratch == nullptr || cap < png_state_at(need) + 2u * kRowBytes) return kNoRoom;
   uint32_t written = 0;
   const inflate::Status status =
       inflate::zlib(data + header.idat_at, header.idat_len, scratch, need, written);

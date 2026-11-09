@@ -174,7 +174,7 @@ app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.
 portava una —el llançador, que és l'app amb què arrenca i que ha de ser al disc que llegeix— i la resta quedava
 fora, o sigui que un emulador acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
 `run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador **no té placa**, el filtre de
-`tools/make_disk.py` les hi posa totes: **7 carpetes, 34 fitxers, 290 501 B** mesurats el 12/11 a `apps/` (about,
+`tools/make_disk.py` les hi posa totes: **7 carpetes, 34 fitxers, 290 501 B** mesurats el 9/11 a `apps/` (about,
 calculator, editor, home_eink, reader, shell i timeclock) i **55 fitxers i 1 981 991 B** d'imatge segons la línia
 del mateix `make_disk` (`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
 emulador el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i

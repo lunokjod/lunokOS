@@ -4838,7 +4838,7 @@ namespace kernel {
 //   - **and a picture of a family that carries no transparency gives no mask**: it is drawn as if everything were there,
 //     which is what a BMP or a JPEG is (docs/30).
 //
-// 0.169.1 (12/11): **`help <command>` no longer cuts a command that has two lines, and the documents name the apps that
+// 0.169.1 (9/11): **`help <command>` no longer cuts a command that has two lines, and the documents name the apps that
 // exist**. The owner: *«1- arregla-ho … 2- treu les apps antigues de la documentació … 6- Documenta-ho i ja ho farem»*.
 //
 //   - **`help splash` and `help cfg` printed the first line of the entry and nothing else**: the list is
@@ -4851,7 +4851,7 @@ namespace kernel {
 //     one of them is now the call that was measured (`env.read()`, `power.battery()`, a `lua` loop, a page of the shape it
 //     describes) or the app of today that does the same job, and the two that are only a historical log are quoted and said
 //     to be so (docs/30, docs/40, docs/50, docs/60, docs/70, docs/75, docs/80, docs/85, docs/90, docs/92, docs/95);
-//   - **the numbers of the disk are the ones the tool printed on 12/11**: the system alone is 19 files and 1 688 651 B —of
+//   - **the numbers of the disk are the ones the tool printed on 9/11**: the system alone is 19 files and 1 688 651 B —of
 //     which 1 595 456 B are three splash bitmaps— and the seven apps are 34 files and 290 501 B, so `build/disk/m5-paper` is
 //     53 files and 1 979 152 B and `build/disk/emulator` 55 files and 1 981 991 B (docs/70, docs/80, docs/85). **And the four
 //     4 MB boards do not fit**: 1 688 651 B of system against the 1 441 792 B of `partitions.csv`, so `-t buildfs` stops with
@@ -4863,7 +4863,41 @@ namespace kernel {
 //   - **the emulator is the emulator everywhere**: the manuals called it *banc* and the code called it *bench*, and both are
 //     now `emulador` and `emulator`, including the two messages a person reads (README, docs/85). The himem *banks* of 32 KB
 //     keep their name, because a bank is not a machine (docs/50).
-static const char kVersion[] = "0.169.1";
+//
+// 0.169.2 (9/11): **the twelve red cases of 0.169.0 are green, and four of them were the code's fault**. The owner: *«els
+// test han de passar nets. Analitza les proves en vermell, i el codi a veure qui te raò»*.
+//
+//   - **a row of a picture had no mask** (lib/img): `Row` is declared and then started by every decoder, and `alpha` —the mask
+//     of 0.169.0— had no value, so the row of a BMP wrote fifteen through a pointer of the stack. `test_book` died with a
+//     segmentation fault on the first picture of a book, and `bmp`, `ico`, `jpeg` and `pnm` carried the same fault (docs/75);
+//   - **and the scratch the caller was told to give is the one the decoder asks for**: `png_scratch` counted two rows —the
+//     colours and the mask— and `decode_png` counted one of them when no mask was asked, so a block one byte short of the
+//     answer was accepted. A caller that allocates what it was told has to be refused, and now is (docs/30);
+//   - **the damage of a hole is not the damage of a control** (kernel/ui): 0.168.4 put a `damage_add` inside
+//     `invalidate_rect`, and that call is also how a father is told which hole a child left behind —in the *father's* pixels—
+//     so a control that moved painted a whole page twice, the first time at the wrong place. The rectangle of a child that
+//     must come back is now added where a father invalidates its children, and only when the father has no buffer of its own
+//     to compose them into: the paper of the grid over the cells of the launcher is the case the owner met, and it is kept
+//     (docs/30, docs/90);
+//   - **a page that painted only in canvases is not white paper**: `g_levels` counts the primitives of the page, and the
+//     pixels of a control arrive composed, so the wash between two apps was skipped over the ghost of the last one. The
+//     composition says so now and the wash is the sixteen-level one (docs/50, docs/90);
+//   - **the page a resize makes is not white on the glass**: the view is white and the glass holds the page of the size
+//     before, so `ui.clear(15, …)` is not free after a resize —a launcher that grew a page kept the old one around it— and a
+//     view that has just been made still owes nothing (docs/30, docs/90);
+//   - **a strip of tabs that says three tabs and hands no name is refused** instead of washing itself in silence (docs/30);
+//   - **and the cases that were the test's**: the card's copy of an app is `*<id>` and the word of its unit is at the end of
+//     its *name* (0.164.0); `hexdump` asks for its path (0.164.4); the instrument app of the emulator is not in the list of
+//     the apps of the repository; three taps on the glass or three presses of the centre are the system's way out (0.163.0,
+//     0.167.0), so a case that taps three times lets the window pass; a detached app's console is the log and the log is
+//     echoed, so the case of `&` turns the mirror off; `ui.image` takes the mask of 0.169.0; and the sentence a launcher
+//     answers to a pinch is the one road out of a page's (0.167.0) (docs/30, docs/40, docs/70, docs/92);
+//   - **and the About page had no ring on its first row**: the list takes the dial when it is built, so the middle key
+//     pressed the list and the page could only be opened with a finger. The app gives the ring to the first row, which is
+//     what the launcher does with its first cell (apps/about, docs/30);
+//   - **the suite is 548 cases and none of them is red**: the twelve of 0.169.0 included a crash that hid forty-nine cases —
+//     everything after `test_book` in `test_apps`— and those are the ones that had aged.
+static const char kVersion[] = "0.169.2";
 
 }  // namespace kernel
 

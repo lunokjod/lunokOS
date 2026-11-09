@@ -715,12 +715,12 @@ fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i 
 `apps/` són les **set** apps —`about`, `calculator`, `editor`, `home_eink`, `reader`, `shell` i `timeclock`— i
 **34 fitxers i 290 501 B**, i el `data/` del sistema **20 fitxers i 1 688 656 B**, dels quals **1 595 456 B són
 tres bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un). **La mida
-del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 12/11, va escriure
+del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va escriure
 *`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`* i *`build/disk/m5-paper is 1979152 B in
 53 files, 7 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
 `partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 688 651 B en 19 fitxers sense cap app**, o
 sigui que `pio run -e m5-atom -t buildfs` **s'atura amb `this disk does not fit`** mentre els tres bitmaps de
-splash siguin a `data/` (mesurat el 12/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
+splash siguin a `data/` (mesurat el 9/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
 l'eina i no aquest document**: `make_disk` munta la imatge amb `mklittlefs` —la partició de la taula, pàgina de
 `0x100` i bloc de `0x1000`— i escriu una de dues línies a cada build, `the tool takes every one of the N files in P
 B of partition, so it fits` o **`this disk does not fit`** amb quants fitxers deixa fora (`check_it_fits`,
@@ -741,7 +741,7 @@ que es toca una app:
 
 | Al `platformio.ini` de l'entorn | Què hi va |
 |---|---|
-| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **19 fitxers i 1 688 651 B** (mesurats el 12/11 a `build/disk/m5-atom`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
+| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **19 fitxers i 1 688 651 B** (mesurats el 9/11 a `build/disk/m5-atom`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
 | `custom_apps = calculator,reader` | **Aquestes**, i només les que nomenen la placa: el filtre de sota s'aplica a les dues opcions, perquè portar una app que el nucli refusaria al `run` és una imatge que menteix. Un nom que es queda fora **ho diu** (p. ex. `make_disk: there is no app called light, so it stays out`) |
 | `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` — set |
 
@@ -760,12 +760,12 @@ pio run -e m5-paper -t uploadfs    # i la puja
   que `-t buildfs` s'ha de tornar a fer **després de tocar una app**; el que es puja és el que hi havia quan es va
   fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
   disc que munta.
-- **El que hi ha avui, mesurat el 12/11**: el sistema sol són **19 fitxers i 1 688 651 B**; `apps/` sencer són
+- **El que hi ha avui, mesurat el 9/11**: el sistema sol són **19 fitxers i 1 688 651 B**; `apps/` sencer són
   **34 fitxers i 290 501 B**; les **set** apps de la Paper —`editor`, `calculator`, `about`, `timeclock`, `reader`,
   `home_eink` i `shell`— són totes les que hi ha, o sigui que la Paper, que és l'única placa que en porta, fa
   **53 fitxers i 1 979 152 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
   execucions, **55 fitxers i 1 981 991 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
-  **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 12/11, i el que fa créixer el
+  **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 9/11, i el que fa créixer el
   sistema són els tres bitmaps de splash (`data/res/splash`): **1 595 456 B** dels 1 688 651.
 - **Quantes hi caben**: la partició de les quatre plaques de 4 MB (`partitions.csv`, `0x160000`) és de **1 441 792 B**
   i la de la Paper (`partitions_16mb.csv`, `0xBE0000`) de **12 451 840 B**; els dos números són de la taula i no d'una

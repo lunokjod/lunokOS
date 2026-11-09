@@ -226,6 +226,7 @@ local function add_entry(the_list, library, index)
   entry.on_click = function() show(index) end
   the_list:add(entry)
   console.print(string.format('about: row %s %s', library.name, library.version))
+  return entry
 end
 
 build_cover = function()
@@ -262,7 +263,15 @@ build_cover = function()
   else
     the_list.row_height = kRow
     page_control:add(the_list)
-    for i = 1, #libs do add_entry(the_list, libs[i], i) end
+    local first = nil
+    for i = 1, #libs do
+      local entry = add_entry(the_list, libs[i], i)
+      if i == 1 then first = entry end
+    end
+    -- **The ring is on the first row** (0.169.2): the list takes the dial when it is built, and the rows are the stops, so
+    -- the page has to say which one the middle key would open —the same call the launcher makes for its first cell—.
+    -- Without it the centre pressed the list and the page could only be opened with a finger (found by test_apps, 9/11).
+    if first ~= nil then ui.focus(first) end
     cover_list = the_list
     console.print(string.format('about: %d rows in a list of %d px', #libs, room))
   end

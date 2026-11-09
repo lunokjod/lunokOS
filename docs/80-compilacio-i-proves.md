@@ -175,8 +175,9 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **486 proves natives** (`pio test -e test`), de les quals **12 són vermelles** des de la 0.169.0 (les del
-  `apps`, les de la porta de les apps i les de la caixa de redibuixat; docs/90 les porta);
+- les **548 proves natives** (`pio test -e test`), i **cap de vermella** (0.169.2): les dotze de la 0.169.0 eren quatre
+  errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
+  que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.
@@ -202,7 +203,7 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
 - **L'emulador sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
   `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador no té placa, el filtre de `make_disk` les
-  hi deixa passar totes —**7 apps, 34 fitxers, 290 501 B** mesurats el 12/11— i les posa **enllaçades**, o
+  hi deixa passar totes —**7 apps, 34 fitxers, 290 501 B** mesurats el 9/11— i les posa **enllaçades**, o
   sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
   `apps` en un emulador acabat de fer deia `no apps`; ara diu set noms i la graella del llançador té set cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
@@ -213,8 +214,8 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   PlatformIO donaria per bona (el guard és `check_it_fits`, a `tools/make_disk.py`). A cada build la línia ho
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
-  **El que hi ha avui, mesurat el 12/11**: `apps/` són **34 fitxers i 290 501 B**, i el `data/` del sistema
-  **20 fitxers i 1 688 656 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 12/11 va
+  **El que hi ha avui, mesurat el 9/11**: `apps/` són **34 fitxers i 290 501 B**, i el `data/` del sistema
+  **20 fitxers i 1 688 656 B**. **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 9/11 va
   escriure *`build/disk/emulator is 1981991 B in 55 files, 7 apps, linked to apps/`* i *`build/disk/m5-paper is
   1979152 B in 53 files, 7 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
   12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 688 651 B en

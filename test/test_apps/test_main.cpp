@@ -465,7 +465,14 @@ void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
 
 // The console of a call that is not a command: a boot that brings an app back is a
 // function and not a line of the shell, and what it says has to be read too.
-void capture_begin() { console_take_away(); }
+// **A capture is a capture of the log, and the log's mirror is asked for here** (0.169.2): an app test turns the mirror off
+// when it has read what it needed, and the next case that captures then reads an empty window and blames the app —it was
+// the order the tests happened to run in—. Asking for it at the door makes every case stand on its own (found by this
+// suite, 9/11).
+void capture_begin() {
+  kernel::log_echo(true);
+  console_take_away();
+}
 
 void capture_end(char* out, size_t cap) {
   console_give_back(false);
@@ -1518,9 +1525,11 @@ void test_a_manifest_of_nine_boards_says_it_names_too_many(void) {
 }
 
 // **`/apps` is the two disks in one directory** (0.88.19): the flash's apps and the card's in one listing, with the names
-// the flash also has presented twice —`both` and `both-SD`— so neither copy disappears behind the other (0.88.20). It is
-// the rule `apps` already follows to list and to run, and the door has to answer the same thing: a page that lists one app
-// and reads another is a page nobody can trust (docs/40, docs/70).
+// the flash also has presented twice —`both` for the flash's copy and `*both` for the card's— so neither copy disappears
+// behind the other (0.88.20, 0.164.0). The mark in front of the id is a folder that exists (`/apps/*both`), which a
+// `-SD` on the id never was, and the word of the unit is at the end of the **name** —`Both card-SD`— and not of the id. It
+// is the rule `apps` already follows to list and to run, and the door has to answer the same thing: a page that lists one
+// app and reads another is a page nobody can trust (docs/40, docs/70).
 void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
@@ -1540,8 +1549,8 @@ void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
       add_app(storage, "onflash",
               "{\"title\":\"On flash\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
               "console.print('the one of the flash')\n"));
-  // **The same id on both disks**: the door presents the two of them, `both` for the flash's copy and `both-SD` for the
-  // card's (0.88.20, docs/40).
+  // **The same id on both disks**: the door presents the two of them, `both` for the flash's copy and `*both` for the
+  // card's (0.88.20, 0.164.0, docs/40).
   TEST_ASSERT_TRUE(add_app(card, "both",
                            "{\"title\":\"Both card\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('both, from the card')\n"));
@@ -1567,16 +1576,16 @@ void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
   bool card_suffixed = false;
   for (uint8_t i = 0; i < names.count && i < 32; ++i) {
     if (strcmp(names.rows[i], "both") == 0) ++both;
-    if (strcmp(names.rows[i], "both-SD") == 0) card_suffixed = true;
+    if (strcmp(names.rows[i], "*both") == 0) card_suffixed = true;
     if (strcmp(names.rows[i], "oncard") == 0) card_one = true;
     if (strcmp(names.rows[i], "onflash") == 0) flash_one = true;
   }
   TEST_ASSERT_TRUE_MESSAGE(card_one, "the app of the card is not in the door");
   TEST_ASSERT_TRUE_MESSAGE(flash_one, "the app of the flash is not in the door");
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, both, "the app of the flash is not listed once under its own name");
-  TEST_ASSERT_TRUE_MESSAGE(card_suffixed, "the app of the card is not listed as <name>-SD");
+  TEST_ASSERT_TRUE_MESSAGE(card_suffixed, "the app of the card is not listed with the mark in front of its id");
 
-  // **And a path of the door reads the copy its name says**: `/apps/both` is the flash's, `/apps/both-SD` is the card's,
+  // **And a path of the door reads the copy its name says**: `/apps/both` is the flash's, `/apps/*both` is the card's,
   // and the one only the flash has is the flash's (docs/70). `read_file` hands back how many bytes it read and does not
   // terminate the buffer —the caller owns the room—, so each read is terminated here or the previous name's tail would
   // be read as part of this one.
@@ -1585,7 +1594,7 @@ void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
   TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/both/app.lua", text, sizeof(text), len));
   text[len] = '\0';
   TEST_ASSERT_EQUAL_STRING("console.print('both, from the flash')\n", text);
-  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/both-SD/app.lua", text, sizeof(text), len));
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/*both/app.lua", text, sizeof(text), len));
   text[len] = '\0';
   TEST_ASSERT_EQUAL_STRING("console.print('both, from the card')\n", text);
   TEST_ASSERT_TRUE(kernel::vfs::read_file("/apps/onflash/app.lua", text, sizeof(text), len));
@@ -1671,8 +1680,8 @@ void test_the_door_of_the_apps_presents_no_folder_that_is_not_an_app(void) {
 }
 
 // **`apps remove <id>` takes the copy the name says** (0.89.0): the id is what the listing shows —`both` for the flash
-// and `both-SD` for the card— so one of two copies leaves the disk and the other stays, and once the flash's copy is
-// gone the card's one loses the suffix and `run both` is the app of the card: what the door presents is what exists.
+// and `*both` for the card (0.164.0)— so one of two copies leaves the disk and the other stays, and once the flash's copy
+// is gone the card's one loses the mark and `run both` is the app of the card: what the door presents is what exists.
 // **Only the app goes**: what it left in `/data` is not the app, and a folder of `/apps` that carries no manifest is not
 // an app and cannot be deleted by typing its name (docs/30, docs/40, docs/70).
 void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
@@ -1709,7 +1718,7 @@ void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
   // **The card's copy is now the only one, and it is the one without the suffix**.
   pump_captured(20, g_out, sizeof(g_out), "apps");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Gone card"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gone-SD"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "*gone"), g_out);
   TEST_ASSERT_TRUE(run_captured("run gone", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "gone, from the card"), g_out);
 
@@ -1730,16 +1739,16 @@ void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: gone removed from /sd/apps/gone"), g_out);
   TEST_ASSERT_FALSE(card->stat("apps/gone", info));
 
-  // **The suffix picks the copy of the card**: with both disks carrying `pair`, `pair-SD` takes the card's one away and the
-  // flash's stays under its own name (docs/40, docs/70).
+  // **The mark picks the copy of the card**: with both disks carrying `pair`, `*pair` takes the card's one away and the
+  // flash's stays under its own name (0.164.0, docs/40, docs/70).
   TEST_ASSERT_TRUE(add_app(storage, "pair",
                            "{\"title\":\"Flash pair\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('pair, from the flash')\n"));
   TEST_ASSERT_TRUE(add_app(card, "pair",
                            "{\"title\":\"Gone pair\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
                            "console.print('pair, from the card')\n"));
-  TEST_ASSERT_TRUE(run_captured("apps remove pair-SD", g_out, sizeof(g_out)));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: pair-SD removed from /sd/apps/pair"), g_out);
+  TEST_ASSERT_TRUE(run_captured("apps remove *pair", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "apps: *pair removed from /sd/apps/pair"), g_out);
   TEST_ASSERT_FALSE(card->stat("apps/pair", info));
   TEST_ASSERT_TRUE_MESSAGE(storage->stat("apps/pair", info), "the copy of the flash went with the card's");
 
@@ -1754,7 +1763,7 @@ void test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest(void) {
 // **A card of more than two dozen apps lists the one of the flash too** (0.88.10, 0.88.20): the walk once remembered the
 // ids of the card in a table of twenty-four, so from the twenty-fifth on an app of two disks was presented by a rule and
 // not by the door. Now the suffix is decided by the listing of the door, one name at a time: the flash's copy is
-// `shared` and the card's `shared-SD` whatever place they take in the folder, and the thirty of the card are all there
+// `shared` and the card's `*shared` whatever place they take in the folder, and the thirty of the card are all there
 // (docs/40, docs/70, docs/75).
 void test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -1793,7 +1802,7 @@ void test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too(void
   // twenty-fourth id of the card as well (0.88.20, docs/40).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Shared card"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "Shared flash"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "shared-SD"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "*shared"), g_out);
   // **And the thirty of the card are all there, each one once**: the count of what a person can read on the listing.
   int shown = 0;
   for (const char* p = g_out; (p = strstr(p, "Card ")) != nullptr; p += 5) ++shown;
@@ -1801,7 +1810,7 @@ void test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too(void
   // **And each name runs its own copy** (0.88.20, docs/40, docs/70).
   TEST_ASSERT_TRUE(run_captured("run shared", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the flash"), g_out);
-  TEST_ASSERT_TRUE(run_captured("run shared-SD", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("run *shared", g_out, sizeof(g_out)));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "from the card"), g_out);
 
   for (int i = 1; i <= 30; ++i) {
@@ -5206,12 +5215,11 @@ void test_app_run_says_why_it_cannot_start_an_app(void) {
 // `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`, `FRAM`, `Files`, `ImageViewer`,
 // `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`, `Snake`, `Tamagotchi`, `Tetris`,
 // `Timeclock` and `2048`), ported one by one, and `reader` is the port of `EPUB`. The ids below are the ones
-// `platformio.ini` carries on the Paper (`custom_apps`) plus `probe`, which is a temporary instrument of the emulator
-// and says so in its own description: **an id goes out of this list in the same commit as the app** (docs/40, docs/45).
+// `platformio.ini` carries on the Paper (`custom_apps`): **an id goes out of this list in the same commit as the app**
+// (docs/40, docs/45), which is what happened to the instrument app of the emulator when the owner deleted it.
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
-  static const char* const kMustShip[] = {"about", "calculator", "editor", "home_eink", "probe", "reader",
-                                          "timeclock"};
+  static const char* const kMustShip[] = {"about", "calculator", "editor", "home_eink", "reader", "timeclock"};
   static char text[1024];
   bool ship_seen[sizeof(kMustShip) / sizeof(kMustShip[0])] = {false};
   const uint32_t kMust = sizeof(kMustShip) / sizeof(kMustShip[0]);
@@ -7365,6 +7373,10 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   pump_turns(20);
   emu::press_key(2, false);
   pump_turns(20);
+  // **The third letter waits out the window of the way out** (0.167.0): three presses of the centre inside a second and a
+  // half are the system's —the page with the ring gives a view back, the only page closes the app— and this case types
+  // three letters with the same key, so the reading pause is what keeps the third one a letter (docs/30, docs/92).
+  pump_turns(1600);
   emu::press_button(true);
   pump_turns(20);
   emu::press_button(false);
@@ -7518,6 +7530,9 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "two w"), g_out);
 
   // A button is not a box: the band goes and the view grows before the release clicks it.
+  // **Two taps are a `double` and three a `triple`** (0.136.0), and this case taps the glass four times: the window of the
+  // gesture is let past here so that every tap arrives as a tap of a control (docs/30, docs/92).
+  pump_turns(400);
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
                                       static_cast<uint16_t>(view.y + 230)));
@@ -7530,6 +7545,7 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click button"), g_out);
 
   // The first box again: a finger on it brings the keyboard back.
+  pump_turns(400);
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
                                       static_cast<uint16_t>(view.y + 80)));
@@ -7541,6 +7557,7 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one focus true"), g_out);
 
   // And the empty page ends the edition: no ring and no keyboard.
+  pump_turns(400);
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 400),
                                       static_cast<uint16_t>(view.y + 400)));
@@ -7918,6 +7935,10 @@ void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   pump_turns(20);
   emu::press_button(false);
   pump_turns(20);
+  // **The third press of the centre waits out the system's window** (0.167.0): three of them inside a second and a half are
+  // the way out of the page —a view back, or the app closed when it is the only one— and this case presses the centre three
+  // times to say three things to the app (docs/30, docs/92).
+  pump_turns(1600);
   emu::press_button(true);
   pump_turns(20);
   emu::press_button(false);
@@ -8701,14 +8722,18 @@ void test_a_failing_app_says_its_error_once(void) {
 
 // The dump command of the shell, native C++ and not an app: the memory is read as hex and as text, a
 // byte that cannot be printed is a dot, and the empty tail is not printed at all (docs/50, docs/70).
+// **The command is given the file it dumps** (0.164.4): the default of `/rtc` was a guess, and a command
+// that opens a file says which one.
 void test_the_hexdump_command_shows_the_bytes_of_the_rtc_memory(void) {
   TEST_ASSERT_TRUE(boot_once());
   hal::IStorage* rtc = hal::platform().storage("/rtc");
   TEST_ASSERT_NOT_NULL(rtc);
 
-  // An empty memory is said in one line and not in four hundred rows of zeros.
+  // An empty memory is said in one line and not in four hundred rows of zeros. **The path is asked and not guessed**
+  // (0.164.4): `cat` asks for one and so does `hexdump`, which used to answer with the room of the RTC because nobody had
+  // asked for it (docs/30, docs/70).
   memset(emu::rtc_ram(), 0, emu::kRtcRamBytes);
-  TEST_ASSERT_TRUE(run_captured("hexdump", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("hexdump /rtc", g_out, sizeof(g_out)));
   char empty[96];
   snprintf(empty, sizeof(empty), "is %u B and every one of them is zero",
            static_cast<unsigned>(emu::kRtcRamBytes));
@@ -8724,7 +8749,7 @@ void test_the_hexdump_command_shows_the_bytes_of_the_rtc_memory(void) {
                         rtc->write(slot, kept, sizeof(kept)));
   TEST_ASSERT_TRUE(rtc->close(slot));
 
-  TEST_ASSERT_TRUE(run_captured("hexdump", g_out, sizeof(g_out)));
+  TEST_ASSERT_TRUE(run_captured("hexdump /rtc", g_out, sizeof(g_out)));
   char summary[96];
   snprintf(summary, sizeof(summary), "is %u B, %u in use and %u zero after",
            static_cast<unsigned>(emu::kRtcRamBytes), static_cast<unsigned>(sizeof(kept)),
@@ -9478,6 +9503,7 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
   const kernel::ui::Canvas& view = kernel::ui::canvas();
   // A key is pressed where the app says it is, and the panel counts in the frame of the page: the point of
   // the view is the point of the glass plus where the view sits under the bar (docs/30, docs/50).
+  int taps_since_a_pause = 0;
   auto press = [&](const char* want) {
     for (int i = 0; i < spot_count; ++i) {
       if (strcmp(spots[i].label, want) != 0) continue;
@@ -9491,7 +9517,16 @@ void test_the_calculator_of_the_paper_project_adds_with_the_finger(void) {
       // finger until the glass has been quiet for thirty milliseconds, and the calculator presses a key on the first
       // frame that sees a finger and not while it believes one is still there. Forty turns were the edge of that
       // window and the last key of the case was lost one run in five (found on the 8/11, docs/30, docs/50).
-      pump_turns(90);
+      //
+      // **And every second key waits out the window of the double and the triple** (0.136.0): two taps inside three
+      // hundred and fifty milliseconds are a `double` and three a `triple`, gestures of the glass that a key of this page
+      // does not read as a press —the third of four presses was swallowed and the sum came out short— (docs/30, docs/92).
+      if (++taps_since_a_pause >= 2) {
+        taps_since_a_pause = 0;
+        pump_turns(400);
+      } else {
+        pump_turns(90);
+      }
       return true;
     }
     return false;
@@ -9790,6 +9825,7 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
   const kernel::ui::Canvas& view = kernel::ui::canvas();
   // A control is pressed where the app says it is, and the panel counts in the frame of the page: the point of the view
   // is the point of the glass plus where the view sits under the bar (docs/30, docs/50).
+  int taps_since_a_pause = 0;
   auto press = [&](const char* want) {
     for (int i = 0; i < spot_count; ++i) {
       if (strcmp(spots[i].name, want) != 0) continue;
@@ -9799,7 +9835,15 @@ void test_the_timeclock_of_the_paper_project_keeps_the_day(void) {
       }
       pump_turns(60);
       if (!panel->finger_up(0)) return false;
-      pump_turns(60);
+      // **Every second key waits out the window of the double and the triple** (0.136.0): three taps inside three hundred
+      // and fifty milliseconds are a `triple` of the glass, which a key of this page does not read as a press, and the
+      // third key of this case was the one that never arrived (docs/30, docs/92).
+      if (++taps_since_a_pause >= 2) {
+        taps_since_a_pause = 0;
+        pump_turns(400);
+      } else {
+        pump_turns(60);
+      }
       return true;
     }
     return false;
@@ -10366,7 +10410,9 @@ void test_a_pinch_from_big_to_small_goes_back_and_then_closes(void) {
   pinch();
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a launcher stays where it is");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "is a launcher: a pinch does not close it"), g_out);
+  // **The sentence is the one road out of a page says** (0.167.0): the pinch, the three presses of the middle key and the
+  // three taps on the glass all go through the same door, and a launcher is the page that is not left (docs/30, docs/90).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "is a launcher: it is the one page that is not left"), g_out);
 
   // **And the middle key goes by the same road** (0.163.1): its three taps on an app with a view give the view back and
   // keep the app, and only the next three close it. The page of this case has no control on it, so the middle key
