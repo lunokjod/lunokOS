@@ -144,6 +144,15 @@ Regles que se'n dedueixen i que són fàcils de trencar si no es diuen:
 - El que **no** és nostre no es toca: `/nvs` no esborra ni escriu res de moment, i quan ho faci serà
   només a l'espai que li demanin.
 
+**Buidar l'NVS i formatejar la targeta** (l'app que ho ha de fer és a docs/90, 9/11): cap de les dues
+coses té porta avui. L'NVS esborra **una clau** i prou (`IKeyValue::erase`; el que hi ha per recórrer
+són `next`/`next_namespace` i `stats`, que dona `used` de `total`), el muntatge `/nvs` és de només
+lectura i **no és terreny d'una app** —respon `E_INVAL`, a dalt—, i un volum **no té format**:
+`IStorage` té `stat`, `list`, `open`, `read`, `write`, `seek`, `close`, `remove`, `mkdir`, `rename` i
+`space`, o sigui que esborrar un arbre a base de `remove` és el que faria una app si el disc fos seu, i
+la targeta no ho és. Les dues portes són feina del nucli i del HAL, amb la seva prova al disc de
+l'emulador, i el reinici que l'app voldria suggerir en acabar tampoc no hi és (`sys.reboot`, docs/90).
+
 ## Resolució de camins
 
 1. El camí és absolut. Un que no comença per `/` no es refusa: se li posa un `/` al davant, perquè des

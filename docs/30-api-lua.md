@@ -461,6 +461,9 @@ time.tz(90)        -- noranta minuts, o sigui +01:30
   i la forma `±HH:MM` és la que porta els dos punts: `0130` no vol dir mai una hora i mitja.
 - **No hi ha taula de zones**: això és un desfasament de dos bytes i no el mapa del món, i una placa on l'hora canvia
   dues vegades l'any s'ha de dir el número nou dues vegades l'any (docs/60).
+- **Escriure-hi el desa a l'acte** (`cfg::set_tz_minutes` → `remember_tz`): no hi ha cap «desa-ho ara» ni cap manera de
+  desfer-ho, o sigui que una app que vulgui desar la tria **en tancar** ha de tenir-la a la memòria i fer la crida a
+  `on_close`, no en tocar el mapa. És el que demana l'app de la zona horària (docs/90).
 
 ## `alarm`
 

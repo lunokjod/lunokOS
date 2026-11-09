@@ -4986,7 +4986,27 @@ namespace kernel {
 //   - **and two comments that lied about their own numbers**: `ui.h` said a slot of the table of canvases is 192 bytes
 //     (176, said by the boot's own line) and `shell.cpp` priced the listing of the repository at forty-four kilobytes
 //     (six today, and forty-four with the sixty apps of 0.88.5) (`kernel/ui.h`, `kernel/shell.cpp`).
-static const char kVersion[] = "0.169.5";
+//
+// 0.169.6 (9/11): **les dues apps que falten, escrites amb el que el sistema encara no els dona**. The owner left the
+// spec of two apps —the time zone with a map and the eraser of the NVS and the card— and asked for the documents to be
+// updated, so the work is on the list with the code that decides how it can be done.
+//
+//   - **`tz`** (docs/90): a map of the world with the zones marked, a tap that says `Selected timezone: <valor>` in a
+//     `ui.label`, a button for `net.ntp`, a checkbox for the leap year that comes on when the hour syncs, and a list of
+//     the first day of the week that has to reach the calendar. **It saves on close and not while it is used**, and
+//     `time.tz` desa a l'acte (`cfg::set_tz_minutes` → `remember_tz`), so the app keeps the choice and calls it in
+//     `on_close` — which is now in the contract (docs/30);
+//   - **and the two things it cannot decide**: `calendar::weekday_of` answers 1 = Monday and `ui.month` lays the first
+//     column from it without asking (`cells_of`), and `days_in_month` counts the 29th of February always. A week that
+//     begins on Sunday and a leap year that can be turned off need **a preference of the system** —a key of `cfg` that
+//     `calendar` reads, beside the one of the time zone— and their test (docs/60);
+//   - **the eraser** (docs/90): modals of warning that a person has to answer, a bar of progress while it erases and one
+//     that suggests restarting when it ends. `ui.dialog` and `ui.progress` are there; **what is not** is a way to empty
+//     the NVS —the HAL erases one key (`IKeyValue::erase`) and `/nvs` is read-only and not an app's ground—, a format of
+//     a volume (`IStorage` has no such call) and `sys.reboot`, so the last modal can only suggest it (docs/70, docs/90);
+//   - **and the two of them are apps and not apps of prova**: the lunokhod of 0.169.4 is the picture of the ones that
+//     exist to measure the system, and an app a person uses draws its own (docs/40).
+static const char kVersion[] = "0.169.6";
 
 }  // namespace kernel
 

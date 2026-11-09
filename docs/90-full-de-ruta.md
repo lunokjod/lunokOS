@@ -37,6 +37,8 @@ perquè:
 | `store` | és un fitxer petit per app, i `fs` ja el pot fer | M4 |
 | `log` | una app escriu a la consola, i l'anell de log del sistema ja existeix per a ell | M1 |
 | `net.softap` | el HAL sap aixecar un AP pel provisioning; falta la crida, i cap app l'ha demanada | M5 |
+| buidar l'NVS (`nvs` a Lua, o una ordre) | el HAL esborra **una clau** i prou, i `/nvs` no és terreny d'una app: ho demana l'app de l'esborrador (a baix) | M4 |
+| `fs.format(<volum>)` | cap volum té format: `IStorage` no en té la crida i la targeta és de la persona; ho demana la mateixa app | M4 |
 
 La llista no és una promesa: **una crida d'aquestes s'afegeix quan una app la demana**, amb la
 política a dins del sistema i la seva prova, com qualsevol altra (docs/10).
@@ -526,6 +528,41 @@ maquetació; i les portes de `zip` (**B7** i **B8**) perquè una altra app —un
 I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el sostre d'un fitxer a **98 304 B**
 (0.149.0), amb el lector partit en **quatre fitxers** —`reader.lua` **49 215 B**, `chapters.lua`, `notice.lua` i
 `library.lua`, **64 411 B** en total—, o sigui **49 089 B** de marge al fitxer més gran.
+
+## Les dues apps que falten (9/11)
+
+L'amo les ha demanades i encara no hi són. El que segueix és què han de fer i **què els falta del sistema**, que és
+el que decideix si es fan tal com estan pensades o s'han de canviar.
+
+### `tz` · la zona horària, amb un mapa
+
+- **Què ha de fer**: un **mapa del món** per triar la zona, amb les zones marcades «com una gràfica, amb una línia a
+  dalt i una a baix»; un toc sobre una zona actualitza un `ui.label` que diu `Selected timezone: <valor>`; un botó per
+  **sincronitzar l'NTP**; una **casella** per a l'any de traspàs, que s'activa sola en sincronitzar; i un
+  **desplegable** del primer dia de la setmana (dilluns per defecte, o diumenge) que ha de manar al generador de
+  calendaris. **La zona es desa en tancar l'app i no durant l'ús**, i **no és una app de prova**: porta la seva icona.
+- **Què ja hi ha**: `time.tz([offset])` llegeix i **desa a l'acte** (`cfg::set_tz_minutes` → `remember_tz`, docs/60),
+  o sigui que l'app ha de **tenir la tria a la memòria i fer la crida a `on_close`**: si la fa en tocar, ja l'ha
+  desada. `net.ntp` és el camí a l'hora de debò, `ui.month` pinta el mes, i una imatge del món és un fitxer de
+  l'app amb `ui.image` (docs/30).
+- **Què no hi ha**: ni el mapa —que és dades de l'app, no del sistema— ni **les dues decisions del calendari**:
+  `calendar::weekday_of` torna **1 = dilluns** i `ui.month` en fa la primera columna sense preguntar ningú
+  (`cells_of`, `lib/kernel/src/ui.cpp`), i `days_in_month` compta el 29 de febrer **sempre**. Ni el primer dia de la
+  setmana ni el traspàs no es poden canviar des de Lua: demanen una **preferència del sistema** —una clau de `cfg`
+  que `calendar` llegeixi, com la de la zona horària— i la seva prova (docs/60).
+
+### L'esborrador · l'NVS i la targeta
+
+- **Què ha de fer**: buidar l'**NVS** i **formatejar l'SD**; les dues coses amb un **modal d'avís** que la persona
+  ha de respondre que sí, una **barra de progrés** mentre s'esborra i, en acabar, un altre modal que **suggereixi
+  reiniciar**.
+- **Què ja hi ha**: `ui.dialog` per als dos modals i `ui.progress` per a la barra; `fs.mounts` i `fs.space` per
+  ensenyar què hi ha abans de tocar-ho; i `ls /nvs` per mirar-s'ho (docs/30, docs/70).
+- **Què no hi ha**: **cap porta per buidar l'NVS** (el HAL esborra una clau, `IKeyValue::erase`, i el muntatge és de
+  només lectura i fora del terreny d'una app), **cap format d'un volum** (`IStorage` no en té la crida) i
+  **`sys.reboot`** —que és a la taula de dalt des de M6—, o sigui que el modal final pot suggerir el reinici i la
+  persona el fa amb el botó o amb `reboot`. Les dues portes són feina del nucli i del HAL amb la seva prova al disc de
+  l'emulador (docs/70).
 
 ## Fora de la v1
 

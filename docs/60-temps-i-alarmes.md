@@ -298,3 +298,11 @@ Per què és al nucli i no a cada app: el vell tenia la mateixa regla a `system/
 còpies de la regla dels traspasos es donen respostes diferents** i un calendari que discrepa amb si mateix ho fa dues
 vegades l'any. `ui.month` i el dial del calendari pregunten aquestes mateixes funcions (docs/30, docs/90). Les proves
 són a `test/test_calendar`: el febrer de 2024, 1900, 2000 i 2100, i sis dates que un calendari ja ha imprès.
+
+**I les dues coses que no són una opció (encara)**: el primer dia de la setmana i el traspàs són **decisions del
+nucli i no d'una app**. `weekday_of` torna 1 = dilluns sempre, i `ui.month` en fa la primera columna del mes sense
+preguntar ningú (`cells_of`, a `lib/kernel/src/ui.cpp`); `days_in_month` compta el 29 de febrer sempre. Una app que
+volgués un calendari que comenci en diumenge, o que pogués apagar el traspàs, no pot: ho ha de demanar al sistema,
+que és una preferència com la de la zona horària —una clau de `cfg` que `calendar` llegeixi— i no una taula de
+l'app. És el que demana l'app de la zona horària (docs/90), i fins que hi sigui el mapa només pot ensenyar el
+calendari que el nucli sap fer.

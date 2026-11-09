@@ -491,6 +491,12 @@ El `res/icon.png` sí que és de l'app —el manifest no pot nomenar res de fora
 buida el camp si ho intenta—, però el dibuix no s'hi copia: una còpia per app seria un lunokhod vell el dia
 que el dibuix canviï.
 
+**I el lunokhod és de les apps de prova, no de les que una persona fa servir** (9/11, l'amo): una app que existeix
+per mesurar o per provar el sistema el porta perquè es vegi d'un cop d'ull quina mena d'app és; una app de debò
+—l'editor, el lector, la calculadora i les que vindran com la de la zona horària o l'esborrador (docs/90)— dibuixa
+la seva, amb el seu `res/icon-source.png` i la recepta de dalt. El que no pot passar és que una app de prova
+s'amagui darrere una icona que sembla d'una app normal.
+
 ## Instal·lació
 
 | Via | Estat |
