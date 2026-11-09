@@ -4921,7 +4921,20 @@ namespace kernel {
 //   - **the Paper carries it** (its list of apps goes from seven to eight) and the counts of docs/70, docs/80, docs/85
 //     and `platformio.ini` are today's measurement: `apps/` is **38 files and 305 737 B**, `build/disk/m5-paper` is **57
 //     files and 1 994 388 B** and `build/disk/emulator` **60 files and 1 998 650 B** (docs/70, docs/80, docs/85).
-static const char kVersion[] = "0.169.3";
+//
+// 0.169.4 (9/11): **the apps of prova carry the lunokhod**. The owner: *«fes una icona específica per totes les apps
+// de prova. Una icona del lunokhod estaria molt guay, però amb l'icona d'un "bug" ja està bé»*.
+//
+//   - **a rover and not a dial**: `luaperf` shipped in 0.169.3 with a dial, which is a fine picture for a measurement
+//     and a bad way of telling a person that an app is one of the ones that exist to measure the system. The drawing is
+//     now the rover the system is named after —body, lid, three of its eight wheels and the antenna— and it says that
+//     at 74 x 72 px on the launcher's grid (apps/luaperf, docs/40);
+//   - **and the drawing is shared and out of the app**: the master is `tools/icons/Lunokhod.png` —448 x 448, in the four
+//     greys of the paper project's masters, beside the other twenty-five— and the app carries only the 94 x 94 the
+//     manifest names, made with `tools/make_icon.py`, because an icon inside the app is the only path a manifest can name
+//     and a copy per app is a lunokhod that goes old the day the drawing changes (docs/40). A second app of prova brings
+//     the same picture with one command and no new drawing.
+static const char kVersion[] = "0.169.4";
 
 }  // namespace kernel
 

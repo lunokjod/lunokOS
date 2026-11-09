@@ -472,9 +472,24 @@ font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala 
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 
-`calculator` i `about` segueixen la mateixa convenció amb el seu `res/icon-source.png` i el seu
-`res/icon.png`; cap altra app declara `icon` avui, perquè el camp existeix perquè el manifest el
-pugui dir el dia que la pàgina de les apps es dibuixi.
+Les altres apps —`about`, `calculator`, `editor`, `home_eink`, `shell` i `timeclock`, a més del `reader` de dalt—
+segueixen la mateixa convenció, amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
+**totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la
+pàgina de les apps es dibuixés, i aquell dia és el llançador, que les posa a la seva graella (docs/30, docs/85).
+
+**Les apps de prova porten el lunokhod** (0.169.4, l'amo: *«una icona del lunokhod estaria molt guay»*): una
+app que existeix per mesurar o per provar el sistema —avui `luaperf`— no dibuixa una icona pròpia, sinó que
+comparteix un sol dibuix, el del rover que dona nom al sistema. El mestre és **fora de l'app**, a
+`tools/icons/Lunokhod.png` (448×448, 2 888 B), perquè és el mateix per a totes, i el que el manifest nomenja
+surt d'ell amb la recepta de sempre:
+
+```
+python3 tools/make_icon.py --png tools/icons/Lunokhod.png --out apps/luaperf/res/icon.png
+```
+
+El `res/icon.png` sí que és de l'app —el manifest no pot nomenar res de fora de la seva carpeta, i el nucli
+buida el camp si ho intenta—, però el dibuix no s'hi copia: una còpia per app seria un lunokhod vell el dia
+que el dibuix canviï.
 
 ## Instal·lació
 
