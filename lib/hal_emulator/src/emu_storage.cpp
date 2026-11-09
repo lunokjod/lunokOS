@@ -71,6 +71,11 @@ const char* mode_name(OpenMode mode) {
 // **A directory and everything under it, gone**, counting the files: the shape of a format here, where a volume is a
 // directory of this machine. A folder is only removed when it is empty, so the walk goes down first and the answer of a
 // folder that refused —somebody's file is open— is false and stops the count (docs/70).
+//
+// **And it does not follow a link** (0.171.1): the disk of this emulator is built with `apps/` as a **symlink** to the
+// repository's own `apps/` (`tools/make_disk.py`), and a walk that followed it emptied the folder of a real app on this
+// machine —it stopped at the first `rmdir` of a link, which is why only one went—. A format takes the link and never what
+// it points at, which is what `rm -rf` does and what a volume never has (docs/85).
 bool wipe(const char* path, uint32_t& removed) {
   DIR* dir = opendir(path);
   if (dir == nullptr) return false;
@@ -86,7 +91,15 @@ bool wipe(const char* path, uint32_t& removed) {
       break;
     }
     struct stat info;
-    if (::stat(child, &info) != 0) continue;
+    if (::lstat(child, &info) != 0) continue;
+    if (S_ISLNK(info.st_mode)) {
+      if (::unlink(child) == 0) {
+        ++removed;
+      } else {
+        ok = false;
+      }
+      continue;
+    }
     if (S_ISDIR(info.st_mode)) {
       if (!wipe(child, removed)) {
         ok = false;

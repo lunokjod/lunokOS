@@ -5112,7 +5112,30 @@ namespace kernel {
 //     card of `wipe` on the emulator (9/11) and fixed where it always meant to be measured; the tests of the dialog only
 //     read the doors, which is why nothing had caught it (docs/30, docs/90).
 
-static const char kVersion[] = "0.171.0";
+// 0.171.1 (9/11): **the flash is a volume too**. The owner asked for one more door on the page of the eraser: *«afegeix
+// també el botó de format per littlefs a l'app wipe»*.
+//
+//   - **`fs.format('/littlefs')` empties the disk the system lives on**, with the same contract as the card: file by file
+//     and folder by folder, **and the superblock stays**, because what is emptied is the content and not the file system.
+//     It is the door that leaves the board with the prompt and nothing else —the apps of the system, their pictures and the
+//     faces of `/fonts` live there— and the warning of `wipe` says so in those words (docs/30, docs/70);
+//   - **and only a volume is a volume** (found while wiring it): `/data`, `/apps`, `/res` and `/fonts` are rows of the same
+//     flash, and `IStorage::format` takes no path, o sigui que `fs.format('/data')` emptied **the whole disk** under the
+//     name of a folder. The door now reads the prefix of the mount (`vfs::mount_sub`) and answers `E_INVAL` for a folder of
+//     a volume (docs/70);
+//   - **the walk of a volume on the board is one function** (`esp32/volume_wipe.h`), shared by the card's backend and the
+//     flash's, so the two filesystems —FATFS and littlefs— are emptied by the same code (docs/70, docs/85);
+//   - **and the emulator's walk does not follow a link**: its disk is built with `apps/` as a symlink to the repository
+//     (`make_disk`), and the walk with `stat` emptied the folder of a real app of this machine —it stopped at the first
+//     `rmdir` of a link, which is why only one went—. `lstat` and `unlink` instead, which is what `rm -rf` does (docs/85).
+//     On the board the walk keeps `stat`: neither FATFS nor the littlefs of this core has links, and this IDF does not
+//     declare `lstat` at all;
+//   - **the page is a column of three doors** —store, card, flash— and the flash one is the last, is open on every board
+//     and its card says what goes with it. And the test of the page learned a rule of the system the hard way: **three taps
+//     of the middle key inside a second and a half are the way out of an app** (`kTapsToClose`), so the case that answers a
+//     second card waits 1.7 s before the press that would otherwise close the page (docs/30, docs/85).
+
+static const char kVersion[] = "0.171.1";
 
 }  // namespace kernel
 

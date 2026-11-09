@@ -10814,20 +10814,26 @@ void test_the_eraser_app_empties_the_store_after_the_card_is_accepted(void) {
   TEST_ASSERT_TRUE(kv->set("eraser", "one", on, sizeof(on)));
   TEST_ASSERT_TRUE(kv->set("eraser", "two", on, sizeof(on)));
 
-  // **Where the two doors are, said by the app** and not by this file (docs/30, docs/85).
+  // **Where the three doors are, said by the app** and not by this file (docs/30, docs/85).
   kernel::log_echo(true);
   pump_captured(120, g_out, sizeof(g_out), "run wipe boxes");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe nvs "), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe nvs open"), g_out);
   // **A board with an empty slot has a door that is closed** and a button that the dial walks past: the page says which
-  // of the two it is, and the test reads it from there.
+  // of the three it is, and the test reads it from there. **The flash is open on every board** (0.171.1).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe sd closed"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "wipe lfs open"), g_out);
 
   int nvs_x = 0, nvs_y = 0, nvs_w = 0, nvs_h = 0;
   const char* nvs_line = strstr(g_out, "wipe nvs ");
   TEST_ASSERT_NOT_NULL(nvs_line);
   TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(nvs_line, "wipe nvs %d %d %d %d", &nvs_x, &nvs_y, &nvs_w, &nvs_h), nvs_line);
   TEST_ASSERT_TRUE_MESSAGE(nvs_w > 0 && nvs_h > 0, nvs_line);
+  int lfs_x = 0, lfs_y = 0, lfs_w = 0, lfs_h = 0;
+  const char* lfs_line = strstr(g_out, "wipe lfs ");
+  TEST_ASSERT_NOT_NULL(lfs_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(lfs_line, "wipe lfs %d %d %d %d", &lfs_x, &lfs_y, &lfs_w, &lfs_h), lfs_line);
+  TEST_ASSERT_TRUE_MESSAGE(lfs_w > 0 && lfs_h > 0, lfs_line);
 
   const kernel::ui::Canvas& view = kernel::ui::canvas();
   auto tap = [&](int x, int y) {
@@ -10885,6 +10891,28 @@ void test_the_eraser_app_empties_the_store_after_the_card_is_accepted(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the app went with the card of the end");
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "wipe: nvs erased"), "the erase ran twice");
+
+  // **Three taps of the middle key inside a second and a half are the system's way out of an app** (`kTapsToClose`,
+  // docs/30): this case has already given two of them —the accept and the `Not now`— and the third would close the page
+  // instead of answering a card. The wait is the rule, not a convenience.
+  pump_turns(1700);
+
+  // **And the door of the flash is wired the same way and asks before it does anything** (0.171.1): the card opens, the
+  // disk is still whole, and the safe door closes it with nothing lost. The erasing itself is not run here —it would take
+  // the apps of this suite with it— and has its own case one level down, on the volume of `test_disk`.
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(lfs_x + lfs_w / 2, lfs_y + lfs_h / 2));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the app went with the tap of the flash");
+  hal::Stat whole;
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("/apps/wipe/wipe.lua", whole), "the flash went with no accept");
+  // **The card opens with the dial on the safe door**, so the centre is the cancel and no arrow is needed.
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(storage->stat("/apps/wipe/wipe.lua", whole), "the flash went with a cancel");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the app went with the card of the flash");
 
   // And the page is closable: three taps of the centre take it away, which is the rule of every app (docs/30).
   for (int i = 0; i < 3 && kernel::app_running(); ++i) {

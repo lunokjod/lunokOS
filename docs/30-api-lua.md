@@ -769,7 +769,7 @@ memòria quan hi cap.
 | `fs.list(path)` | taula | `{name, type, size, mtime}` de cada entrada |
 | `fs.stat(path)` | taula o `nil, error` | `{type, size, mtime}` |
 | `fs.mkdir(path)` / `fs.remove(path)` / `fs.rename(a, b)` | — | El `E_PERM` de la taula d'errors és **reservat**: el model de permisos no existeix encara, i avui escriure el decideix el terreny de l'app, no el manifest |
-| `fs.format(path)` | `{erased}` o `nil, error` | **Buida el muntatge on viu el camí** (0.171.0): cada fitxer i cada carpeta del seu arrel, i `erased` diu quants n'han anat. A `/nvs` esborra **totes les claus** del magatzem; a `/sd` deixa la targeta buida i **amb el seu FAT**, perquè el que s'esborra és el contingut i no el format del sistema de fitxers (docs/70) |
+| `fs.format(path)` | `{erased}` o `nil, error` | **Buida el volum on viu el camí** (0.171.0, i la flash des de la 0.171.1): cada fitxer i cada carpeta de la seva arrel, i `erased` diu quants n'han anat. A `/nvs` esborra **totes les claus** del magatzem; a `/sd` deixa la targeta buida i **amb el seu FAT**, i a `/littlefs` buida la flash del sistema i li deixa el seu superblock, perquè el que s'esborra és el contingut i no el sistema de fitxers. El camí ha de ser un volum i no una carpeta (docs/70) |
 | `fs.open(path[, mode])` | objecte fitxer | `mode`: `"r"`, `"w"`, `"a"`, `"r+"` |
 | `fs.read(path[, max])` | cadena o `nil, error` | El fitxer sencer, o com a molt `max` bytes |
 | `fs.read_at(path, offset, len)` | cadena o `nil, error` | Accés aleatori sense obrir |
@@ -808,10 +808,15 @@ El que una app ha de saber:
   `/nvs/`) no són seves i també responen `E_INVAL` (docs/70).
 - **`fs.format` és l'única porta que arriba fora del terreny de l'app** (0.171.0). No és un forat del
   model: és el que vol dir buidar un volum, i el que la tanca és la targeta d'avís que ha de respondre
-  una persona —la pàgina de `wipe` no fa res sense un accept— (docs/70, docs/90). El camí ha de ser
-  l'arrel d'un muntatge i no una carpeta a dins: `/nvs` i `/sd` són volums, `/sd/notes` respon
-  `E_INVAL`. La flash del sistema (`/littlefs`) respon **`E_UNSUPPORTED`**: reformatar-la es menjaria el
-  sistema que hi viu, i una porta que no es pot desfer no s'obre des d'una app.
+  una persona —la pàgina de `wipe` no fa res sense un accept— (docs/70, docs/90). **El camí ha de ser un
+  volum** i no una carpeta: `/nvs`, `/sd` i `/littlefs` ho són i `/sd/notes` respon `E_INVAL`.
+  **I una carpeta d'un volum tampoc no ho és** (0.171.1): `/data`, `/apps`, `/res` i `/fonts` són files de
+  la mateixa flash, o sigui que buidar-ne una buidaria el disc sencer sota el nom d'una carpeta, i el
+  nucli ho refusa amb `E_INVAL` (docs/70).
+- **`/littlefs` és un volum com la targeta** (0.171.1): es buida fitxer a fitxer i carpeta a carpeta i
+  **conserva el seu superblock**, perquè el que s'esborra és el contingut i no el sistema de fitxers.
+  És la porta que deixa la placa amb el prompt i res més —les apps del sistema, les seves imatges i les
+  cares viuen allà— i per això la targeta d'avís de `wipe` la descriu així (docs/70).
 - **`/rtc` i `/fram` són l'excepció i són memòria crua**: 7 168 B que sobreviuen a un son profund i
   256 B que no necessiten el corrent, sense mapa ni claus, i **el format el decideix l'app que hi
   escriu** (`/rtc` a seques, que és el fitxer sencer). S'hi escriu amb un mànec —`fs.open('/rtc',

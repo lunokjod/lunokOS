@@ -188,6 +188,59 @@ static void test_with_the_waits_off_the_disk_is_free() {
   TEST_ASSERT_TRUE_MESSAGE(spent < 5000, "a write with the waits off asked the clock for a sector");
 }
 
+// **A format empties the volume and the volume stays** (0.171.1, docs/70): the walk takes every file and every folder and
+// counts them —a folder after its contents—, and what is left is the same filesystem with nothing in it. A card and a flash
+// that come back from a format are empty volumes, not volumes that have to be mounted again.
+class CountingSink : public hal::ListSink {
+ public:
+  bool on_entry(const hal::ListEntry& entry) override {
+    (void)entry;
+    ++count;
+    return true;
+  }
+  int count = 0;
+};
+
+static void test_a_format_empties_the_volume_and_keeps_it() {
+  boot_with_a_disk();
+  hal::IStorage* disk = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(disk);
+
+  // **Whatever the cases before left goes first**: the disk of this suite is one directory for all of them, and a count
+  // that depended on it would be a count of the order the cases run in.
+  uint32_t removed = 0;
+  TEST_ASSERT_TRUE(disk->format(removed));
+
+  // Three things: a file at the root, a folder, and a file inside the folder.
+  hal::FileSlot slot;
+  TEST_ASSERT_TRUE(disk->open("/one.txt", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_EQUAL_INT32(3, disk->write(slot, "one", 3));
+  TEST_ASSERT_TRUE(disk->close(slot));
+  TEST_ASSERT_TRUE(disk->mkdir("/notes"));
+  TEST_ASSERT_TRUE(disk->open("/notes/two.txt", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_EQUAL_INT32(3, disk->write(slot, "two", 3));
+  TEST_ASSERT_TRUE(disk->close(slot));
+
+  TEST_ASSERT_TRUE(disk->format(removed));
+  TEST_ASSERT_EQUAL_UINT32(3, removed);
+
+  // **And the volume is still a volume**: the root lists, the three things are not there, and a file can be written again.
+  CountingSink sink;
+  TEST_ASSERT_TRUE(disk->list("/", sink));
+  TEST_ASSERT_EQUAL_INT(0, sink.count);
+  hal::Stat info;
+  TEST_ASSERT_FALSE(disk->stat("/one.txt", info));
+  TEST_ASSERT_FALSE(disk->stat("/notes", info));
+  TEST_ASSERT_TRUE(disk->open("/again.txt", hal::OpenMode::kWrite, slot));
+  TEST_ASSERT_TRUE(disk->close(slot));
+  disk->remove("/again.txt");
+
+  // **A volume with nothing in it is a format that went well and took nothing**, not a failure.
+  removed = 7;
+  TEST_ASSERT_TRUE(disk->format(removed));
+  TEST_ASSERT_EQUAL_UINT32(0, removed);
+}
+
 // **What a board keeps, and what a run that starts again finds** (docs/60, docs/70, docs/85). The emulator
 // keeps the two things the hardware keeps outside a volume: the hour a chip with a coin cell holds and
 // the key-value store of the network. These tests are the two files, one run apart.
@@ -280,5 +333,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_network_that_is_stored_is_written_to_the_key_value_store);
   RUN_TEST(test_forgetting_a_network_erases_the_name_it_trusts);
   RUN_TEST(test_the_hour_a_board_keeps_survives_a_run);
+  // **And the one that empties the volume goes last**, because the disk of this suite is one directory.
+  RUN_TEST(test_a_format_empties_the_volume_and_keeps_it);
   return UNITY_END();
 }

@@ -819,15 +819,20 @@ bool format_volume(const char* path, uint32_t& removed, luabind::FsError& err) {
   }
 
   // **Only the root of a mount is a volume**: emptying `/sd/apps` is emptying one folder, which `fs.remove` is for, and a
-  // call that took a folder for a volume would be a call that erases a card by accident (docs/30).
+  // call that took a folder for a volume would be a call that erases a card by accident (docs/30). **And only a mount that
+  // is the whole storage** (0.171.1): `/data`, `/apps`, `/res` and `/fonts` are rows over the same flash, which means
+  // that `IStorage::format` —which takes no path— would empty the entire disk under the name of one of its folders. A volume is
+  // the row whose prefix inside the backend is empty, and a folder of a volume answers `E_INVAL` (docs/70).
   const char* kind = nullptr;
+  const char* sub = nullptr;
   for (uint32_t i = 0, count = vfs::mount_count(); i < count; ++i) {
     if (strcmp(vfs::mount_path(i), full) == 0) {
       kind = vfs::mount_kind(i);
+      sub = vfs::mount_sub(i);
       break;
     }
   }
-  if (kind == nullptr) {
+  if (kind == nullptr || sub == nullptr || sub[0] != '\0') {
     err = luabind::FsError::kInval;
     return false;
   }

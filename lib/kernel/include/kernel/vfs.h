@@ -22,6 +22,9 @@ void set_cfg_storage(hal::IStorage* storage, const char* kind);
 
 uint32_t mount_count();
 const char* mount_path(uint32_t index);
+// **The prefix inside the backend** ("" or "apps"): `/littlefs` is a whole volume and `/apps` is a folder of it, and the
+// only call that cares is the one that empties a volume —`fs.format`, which refuses a folder— (0.171.1, docs/70).
+const char* mount_sub(uint32_t index);
 const char* mount_kind(uint32_t index);
 bool mount_writable(uint32_t index);
 

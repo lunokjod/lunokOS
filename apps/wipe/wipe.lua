@@ -1,7 +1,8 @@
--- wipe: **the page that empties the store of keys and the card** (0.171.0). Two things the system keeps and no page ever
--- shows, and two doors of `fs` that no app had before: `fs.format('/nvs')` erases every key of the store and
--- `fs.format('/sd')` takes every file and folder of the card. Both are one-way, and that is the whole of this page
--- (docs/30, docs/70).
+-- wipe: **the page that empties the store of keys, the card and the flash** (0.171.0, and the flash from the 0.171.1). The
+-- three places the system keeps and no page ever shows, and the door of `fs` that no app had before: `fs.format()` empties
+-- a volume —`/nvs` erases every key of the store, `/sd` takes every file and folder of the card— and `fs.format('/littlefs')`
+-- does the same with the disk the system itself lives on, which is the one that can leave the board with nothing but the
+-- prompt. All three are one-way, and that is the whole of this page (docs/30, docs/70).
 --
 -- **THE WARNING IS THE SYSTEM'S CARD AND NOT A DRAWING OF THIS APP**: `ui.dialog` brings the frame, the wrapping, the two
 -- doors, the ring and the finger, and the old rule of this project is the shape of the page —read the action, close the
@@ -36,9 +37,10 @@ for _, mount in ipairs(fs.mounts()) do mounted[mount.path] = mount end
 
 local nvs_ready = mounted['/nvs'] ~= nil
 local sd_ready = mounted['/sd'] ~= nil and mounted['/sd'].writable == true
+local lfs_ready = mounted['/littlefs'] ~= nil and mounted['/littlefs'].writable == true
 
--- The words of the two doors, in one place: the page, the warning and the card that ends read from here and not from
--- three copies that can disagree.
+-- The words of the three doors, in one place: the page, the warning and the card that ends read from here and not from
+-- nine copies that can disagree.
 local kDoors = {
   nvs = {
     path = '/nvs',
@@ -50,6 +52,7 @@ local kDoors = {
     ask_note = 'This cannot be undone.',
     accept = 'Erase',
     things = 'keys',
+    what = 'store',
     reason = 'the NVS was erased',
     absent = 'this board has no store',
   },
@@ -63,8 +66,25 @@ local kDoors = {
     ask_note = 'This cannot be undone.',
     accept = 'Format',
     things = 'files and folders',
+    what = 'card',
     reason = 'the card was formatted',
     absent = 'there is no card in the slot',
+  },
+  -- **The one that can leave the board with nothing but the prompt** (0.171.1): the flash carries the apps that came with
+  -- the system, their pictures, the fonts and this very page, so the warning says that and not a list of counts.
+  lfs = {
+    path = '/littlefs',
+    word = 'Format the flash',
+    note = 'The apps and the pictures of the system go.',
+    ask_title = 'Format the flash?',
+    ask_text = 'Every file of the flash goes: the apps that came with the system, their pictures, the fonts and the data. '
+      .. 'The board comes back with the prompt and nothing else, and this page is read from here.',
+    ask_note = 'This cannot be undone.',
+    accept = 'Format',
+    things = 'files and folders',
+    what = 'flash',
+    reason = 'the flash was formatted',
+    absent = 'this board has no flash disk',
   },
 }
 
@@ -126,7 +146,7 @@ end
 
 local head = line('Wipe', scale_for(46), 0)
 if head == nil then return end
-local sub = line('Two places this board keeps and never shows.', scale_for(22), 8)
+local sub = line('Three places this board keeps and never shows.', scale_for(22), 8)
 
 -- **The warning comes later and the doors are made first**: a door says what it does and `ask` is the page below it, so
 -- the name travels and the body is written once.
@@ -150,8 +170,8 @@ local function make_door(kind)
   return door
 end
 
-local door = { nvs = make_door('nvs'), sd = make_door('sd') }
-if door.nvs == nil or door.sd == nil then return end
+local door = { nvs = make_door('nvs'), sd = make_door('sd'), lfs = make_door('lfs') }
+if door.nvs == nil or door.sd == nil or door.lfs == nil then return end
 
 local foot = line('A restart is what makes it true.', scale_for(20), 8)
 local bar = nil
@@ -193,7 +213,7 @@ local function layout()
   sub:place(m, y)
   y = y + sub_h + pad
 
-  for _, kind in ipairs({ 'nvs', 'sd' }) do
+  for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
     local one = door[kind]
     one.box = { x = m, y = y, w = inner, h = door_h }
     one.button:resize(inner, door_h)
@@ -238,9 +258,9 @@ end
 -- **The door that cannot be used is not in the way of the dial**: `disabled` is the state the system knows, and it takes
 -- the control out of the walk and the finger both (docs/30).
 local function dress_doors()
-  for _, kind in ipairs({ 'nvs', 'sd' }) do
+  for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
     local one = door[kind]
-    local ready = (kind == 'nvs') and nvs_ready or sd_ready
+    local ready = (kind == 'nvs' and nvs_ready) or (kind == 'sd' and sd_ready) or (kind == 'lfs' and lfs_ready)
     one.button.disabled = not ready
     -- **The words of a door that is off go to the tone of a note**: the frame of a button knows it is off and a label
     -- inside it is the app's, so the two tones are said here too (docs/30, docs/92).
@@ -280,10 +300,11 @@ end
 -- **The fingers and the dial go back to the page after a card is gone**: the card had the focus and a released control
 -- takes it with it, so the ring is put back where a person can find it (docs/30).
 local function after_card()
-  if not door.nvs.button.disabled then
-    ui.focus(door.nvs.button)
-  elseif not door.sd.button.disabled then
-    ui.focus(door.sd.button)
+  for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
+    if not door[kind].button.disabled then
+      ui.focus(door[kind].button)
+      break
+    end
   end
   ui.present('gc16')
 end
@@ -292,7 +313,7 @@ local function work(kind)
   local words = kDoors[kind]
   busy = true
   for _, one in pairs(door) do one.button.disabled = true end
-  say('Emptying the ' .. ((kind == 'nvs') and 'store' or 'card') .. '...', 8)
+  say('Emptying the ' .. kDoors[kind].what .. '...', 8)
   show_bar(-1)
   ui.present('gc16')
   -- **The turn that paints the bar goes first**: `fs.format` holds the kernel while it walks what it empties, so the
@@ -308,6 +329,7 @@ local function work(kind)
   for _, mount in ipairs(fs.mounts()) do mounted[mount.path] = mount end
   nvs_ready = mounted['/nvs'] ~= nil
   sd_ready = mounted['/sd'] ~= nil and mounted['/sd'].writable == true
+  lfs_ready = mounted['/littlefs'] ~= nil and mounted['/littlefs'].writable == true
   dress_doors()
 
   if answer == nil then
@@ -318,8 +340,7 @@ local function work(kind)
   end
 
   if bar ~= nil then bar.value = 100 end
-  say(string.format('%d %s gone from the %s.', answer.erased, words.things,
-    (kind == 'nvs') and 'store' or 'card'), 0)
+  say(string.format('%d %s gone from the %s.', answer.erased, words.things, words.what), 0)
   console.print('wipe: ' .. kind .. ' erased ' .. answer.erased)
 
   -- **The card that ends**: it says what happened, it offers a restart and it lets the person say no. An empty store is
@@ -421,15 +442,16 @@ ui.present('gc16')
 -- door and which of them can be pressed on this board, so a test presses a door without knowing the layout (docs/30,
 -- docs/85).
 if app.args ~= nil and app.args.path == 'boxes' then
-  for _, kind in ipairs({ 'nvs', 'sd' }) do
+  for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
     local one = door[kind]
     console.print(string.format('wipe %s %d %d %d %d', kind, one.box.x, one.box.y, one.box.w, one.box.h))
   end
   console.print('wipe nvs ' .. (nvs_ready and 'open' or 'closed'))
   console.print('wipe sd ' .. (sd_ready and 'open' or 'closed'))
+  console.print('wipe lfs ' .. (lfs_ready and 'open' or 'closed'))
 end
 
-console.print('wipe: the store of keys and the card, emptied on request')
+console.print('wipe: the store of keys, the card and the flash, emptied on request')
 
 function on_resize(width, height)
   if width == nil then return end

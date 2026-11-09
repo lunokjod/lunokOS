@@ -265,6 +265,11 @@ uint32_t init(hal::IPlatform& platform) {
 
 uint32_t mount_count() { return g_count; }
 
+const char* mount_sub(uint32_t index) {
+  if (index >= g_count) return "";
+  return (g_mounts[index].rel != nullptr) ? g_mounts[index].rel : "";
+}
+
 void set_cfg_storage(hal::IStorage* storage, const char* kind) {
   static const char kPath[] = "/cfg";
   for (uint32_t i = 0; i < g_count; ++i) {

@@ -532,13 +532,19 @@ I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el 
 
 Cap de les dues no falta: **la de la zona horària** hi és des de la 0.170.0 (`tz`, amb `time.leap` i `time.week`) i
 **l'esborrador** des de la 0.171.0 (`wipe`, amb `fs.format` i `sys.reboot`), i totes dues amb icona pròpia i el seu
-cas a `test_apps` (docs/30, docs/40, docs/70).
+cas a `test_apps` (docs/30, docs/40, docs/70). **I el 9/11 el mateix dia en va demanar una tercera porta** —*«afegeix
+també el botó de format per littlefs a l'app wipe»*—, que és la 0.171.1: la flash del sistema és un volum com la
+targeta i es buida amb la mateixa crida (docs/30, docs/70).
 
 ### El que l'esborrador va deixar dit
 
-- **La targeta es buida però no es reformata**: el format deixa el FAT com era i treu tots els fitxers i carpetes.
-  Refer el FAT demana desmuntar i tornar a muntar la targeta, i **no hi ha placa per provar-ho**; queda aquí com a
-  decisió oberta, amb el risc de deixar una targeta que la placa no reconeix si es fa a mitges (docs/70).
+- **La targeta i la flash es buiden però no es reformaten**: el format deixa el FAT de la targeta i el superblock del
+  littlefs com eren i treu tots els fitxers i carpetes. Refer-los demana desmuntar i tornar a muntar el volum, i **no
+  hi ha placa per provar-ho**; queda aquí com a decisió oberta, amb el risc de deixar un volum que la placa no
+  reconeix si es fa a mitges (docs/70).
+- **Un volum i una carpeta d'un volum no són el mateix**: `/data`, `/apps`, `/res` i `/fonts` són files de la mateixa
+  flash, i `IStorage::format` no rep cap camí, o sigui que la porta mira el prefix del muntatge i refusa una carpeta.
+  El dia que hi hagi un format per carpeta serà una altra crida i no aquesta (0.171.1, docs/70).
 - **La barra no pot dir quant falta**: `fs.format` és una crida i prou, o sigui que la pàgina ensenya «encara no ho
   sé» (`value` negatiu) i la posa a 100 quan la resposta arriba. Una barra de debò necessitaria un format a trossos,
   i cap de les dues bandes el té (docs/30).

@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **556 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **557 proves natives**
 > en **24 suites**, totes verdes.
-> A l'ATOM (9/11): **2 269 697 B** de flash (86,6 % de la partició d'aplicació, 2 621 440 B) i **122 744 B**
+> A l'ATOM (9/11): **2 270 301 B** de flash (86,6 % de la partició d'aplicació, 2 621 440 B) i **122 744 B**
 > de RAM estàtica (37,5 % de 327 680 B).
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
@@ -28,9 +28,10 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/`, `/fonts/` (les cares que el disc
 > porta per a tothom) i `/sd/`, que només es llegeixen; i
 > **el límit és el disc**: no hi ha
-> quota. **`fs.format('/nvs')` i `fs.format('/sd')` són l'única porta que arriba fora d'aquest terreny**
-> —buiden el magatzem de claus i la targeta, que és el que fa l'app `wipe` darrere d'una targeta d'avís—, i
-> `sys.reboot()` és el reinici que la mateixa pàgina ofereix en acabar. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
+> quota. **`fs.format('/nvs')`, `fs.format('/sd')` i `fs.format('/littlefs')` són l'única porta que arriba
+> fora d'aquest terreny** —buiden el magatzem de claus, la targeta i la flash del sistema, que és el que fa
+> l'app `wipe` amb tres botons i una targeta d'avís per cadascun—, i `sys.reboot()` és el reinici que la
+> mateixa pàgina ofereix en acabar. Un camí amb espais es pot escriure entre cometes (`cat "res/el meu fitxer.txt"`). **`/cfg/`
 > és una porta i no un disc**: apunta a `cfg/<id>/` de la targeta si n'hi ha i de la flash si no, i qui
 > ho tria és la persona (`cfg` a la consola, `fs.cfg()` a Lua).
 >

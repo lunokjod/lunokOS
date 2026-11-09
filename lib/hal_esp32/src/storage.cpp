@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 
 #include "esp32/storage.h"
+#include "esp32/volume_wipe.h"
 #include "hal/hal.h"
 #include "hal/log.h"
 
@@ -186,6 +187,17 @@ class Esp32Fs : public IStorage {
     fs_path(from, from_path, sizeof(from_path));
     fs_path(to, to_path, sizeof(to_path));
     return LittleFS.rename(from_path, to_path);
+  }
+
+  // **Emptying the flash** (0.171.1): every file and every folder of the volume, counted, and **the superblock stays**. A
+  // person asked for a page that formats the flash the way it formats a card, and the two are the same operation: the
+  // filesystem is the one it was and what goes is what was in it (docs/50, docs/70). The boot keeps its rule and does not
+  // format anything by itself.
+  bool format(uint32_t& removed) override {
+    char path[kPathCap];
+    snprintf(path, sizeof(path), "%s/", kMountPoint);
+    removed = 0;
+    return volume::wipe(path, removed);
   }
 
   bool space(uint64_t& total, uint64_t& free) override {
