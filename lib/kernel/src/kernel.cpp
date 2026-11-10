@@ -286,6 +286,9 @@ void boot(hal::IPlatform& platform) {
   // a handler. The door is the one entry point of the apps —the `run`, the listing and the files of an app all go through
   // it— so a folder the system does not present is a folder nothing reaches (docs/40, docs/70).
   vfs::set_apps_presenter(&apps::is_an_app);
+  // **And the faces of the app that runs are in `/fonts`** (0.174.1): the door joins three places and the third is the
+  // app's own `apps/<id>/fonts`, which is the one the hook answers (docs/30, docs/70).
+  vfs::set_fonts_app(&luabind::app_id);
 
   // `/cfg` is not a disk but a door, and this says which unit is behind it: the card when
   // there is one, the flash otherwise, or whatever the person asked for (docs/70). It

@@ -1220,13 +1220,24 @@ i el contracte.
 - **Les cares del disc són una sola còpia per a tothom** (3/11, 0.68.0). Una cara de debò fa deu a vint
   kilobytes, i fins avui una app que en volia una se la posava a `apps/<id>/res/`: el mateix DejaVu viatjava
   dins de dues apps i el disc el pagava dues vegades. `/fonts` és el `res/fonts/` del disc vist des de
-  l'arrel (docs/70), una fila de la taula de muntatges, i una app **la llegeix i no hi escriu**, com `/apps`.
+  l'arrel (docs/70), i una app **la llegeix i no hi escriu**, com `/apps`.
+- **I des de la 0.174.1 `/fonts` és una porta de tres llocs i no un àlies** (l'amo: *«/fonts ha de ser com /apps
+  ha de juntar /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el seu /apps/<id>/fonts»*):
+  el disc —`res/fonts/`, que és on `ui::boot` busca la cara del sistema—, la targeta —`fonts/`, i la carpeta
+  es crea si no hi és— i, **quan és una app qui llegeix, el seu `apps/<id>/fonts/`**. L'ordre és la de l'app,
+  la del disc i la de la targeta, i un nom que dos llocs tenen es presenta dues vegades amb l'asterisc de
+  `/apps` a la còpia de la targeta (`*dejavusans.ttf`), o sigui que **cada nom és un camí que es pot llegir**.
+  Una app que porta la seva pròpia còpia d'una cara **la veu ella i la resta de la placa no**, i el llistat
+  del disc des del prompt no la inclou: la carpeta és de l'app que corre (docs/70).
   El que hi ha avui: `dejavusans.ttf` (9 948 B), `dejavusans-bold.ttf` (**9 416 B**), `dejavusansmono.ttf`
   (8 084 B), `dejavuserif.ttf` (10 896 B), `dejavusans-latin1.ttf` (21 360 B) i `dejavuserif-latin1.ttf`
   (23 856 B) —les quatre primeres retallades a l'ASCII imprimible amb `pyftsubset`, i les dues `-latin1` amb
   `tools/ttf_latin1.py`, la del serif amb `--set latin1` (per als llibres) i la del sans amb `--set signs`
-  (la del sistema, més avall)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`—. El lector i
-  l'editor les fan servir i no en guarden cap còpia.
+  (la del sistema, més avall)—, **una de cada format de bits que el nucli llegeix** —`sample-8x8.bdf` (862 B),
+  `sample-8x8.pcf` (968 B) i `dejavusansmono-6x12.lfont` (9 017 B, fet amb `tools/ttf_to_lfont.py` a cos de
+  deu píxels)—, i la llicència de DejaVu al costat, `/fonts/LICENCE.txt`. El lector i l'editor les fan
+  servir i no en guarden cap còpia, i **les tres de bits hi són perquè la placa ensenya els quatre lectors
+  en una sola pàgina**: és el que fa l'app `fonts` (docs/40, docs/90).
 
 - **La cara del sistema porta també els signes d'una tecla** (8/11, 0.158.0). `dejavusans-bold.ttf` era
   l'ASCII imprimible i prou, i un signe com `÷`, `×` o `±` **no hi era**: el byte s'escrivia, la línia

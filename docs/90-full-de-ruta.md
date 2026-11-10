@@ -552,6 +552,40 @@ targeta i es buida amb la mateixa crida (docs/30, docs/70).
   app pot cridar la porta quan vulgui. El que la fa honesta és la targeta d'avís amb el dial a la porta segura; el
   dia que hi hagi permisos (el `E_PERM` reservat de docs/30), aquesta és la primera porta que hi hauria de passar.
 
+### `/fonts` és una porta, i el visor de les cares (10/11)
+
+L'amo: *«/fonts ha de ser com /apps ha de juntar /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el
+seu /apps/<id>/fonts»*, i tot seguit: *«fes una app visualitzadora de fonts. Que obri tots els formats suportats per el
+sistema i mostri la font»*. Fins a la 0.174.0 `/fonts` era un **àlies** d'una sola carpeta del disc
+(`res/fonts/`); ara és una **porta de tres llocs** amb la mateixa forma que la de les apps (docs/30, docs/70).
+
+- **Els tres llocs i el seu ordre**: el de l'app primer (`apps/<id>/fonts`, només quan és una app qui llegeix), el del
+  disc després (`res/fonts/`, que és on `ui::boot` busca la cara del sistema i on la busquen tots els documents) i el de
+  la targeta al final (`fonts/`, i la carpeta es crea al boot com la de les apps). **El disc no s'ha mogut**: la cara del
+  sistema és on era i `/fonts/dejavusans-bold.ttf` segueix volent dir el mateix;
+- **un nom en dos llocs es veu dues vegades**, amb l'asterisc de `/apps` a la còpia de la targeta (`*dejavusans.ttf`), i
+  cada nom és un camí que es llegeix — és la mateixa marca i la mateixa resolució, i no n'hi ha dues de diferents per a
+  dues portes (docs/70);
+- **una carpeta d'un app no és de la placa**: la de l'app només la veu l'app, perquè el disc llegeix `/fonts` amb la
+  sessió del prompt i allà no hi ha cap app corrent. El que l'app hi troba, però, **mana sobre el del disc**: una app que
+  porta la seva còpia d'una cara la veu ella, i el llistat del disc no la repeteix (docs/30);
+- **i el visor** (`apps/fonts`, amb icona pròpia: un full amb una `Aa` sobre una regla) obre **els quatre lectors del
+  nucli** —`.lfont`, `.bdf`, `.pcf` i TrueType— perquè el format el diu **el fitxer i no l'extensió**: la mateixa
+  olfacte de quatre signatures que fa servir `font::load_any`. Cada fitxer es carrega una vegada i es torna, perquè
+  aquesta placa en guarda tres alhora, i un fitxer que no és una cara **diu el motiu** en comptes de desaparèixer (el
+  `LICENCE.txt` de la carpeta és el cas que ho ensenya);
+- **la pàgina d'una cara** és el que la cara sap fer: el nom i el que el nucli n'ha tret —outlines o una cel·la de bits,
+  quants codis, quina línia— i després les mateixes paraules dibuixades amb ella a les mides que li toquen. **Una cara de
+  bits es queda a la seva mida i als seus dobles** (una cel·la de 6x12 ampliada quatre vegades és un borrall i no una
+  lletra més gran) i **una cara de contorns es dibuixa a cada mida**; la pàgina ho diu amb una línia i no ho endevina el
+  lector;
+- **i la tornada és el botó i el pessic**, amb `app.view_push` com el detall d'`about`: el gest del sistema baixa una
+  vista i l'app el sent a `on_back` (docs/30);
+- **el disc porta ara una cara de cada format** perquè el visor ensenya els quatre a la placa i no només a l'emulador:
+  `sample-8x8.bdf` (862 B), `sample-8x8.pcf` (968 B) i `dejavusansmono-6x12.lfont` (9 017 B, sortit de
+  `tools/ttf_to_lfont.py` a cos de deu píxels) a més de les sis de DejaVu. Són **9 KB** en un disc d'1,4 MB, i el que
+  compren és que una placa sense PC al costat pugui dir **què sap llegir** (docs/30).
+
 ### La zona horària, amb els controls del sistema (10/11)
 
 L'amo, amb la pàgina a l'emulador: *«el desplegable que hi ha a TimeZone amb "Week stats" no te cap estètica que mostri que

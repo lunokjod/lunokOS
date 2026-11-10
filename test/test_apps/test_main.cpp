@@ -1617,6 +1617,97 @@ void test_the_door_of_the_apps_puts_the_card_and_the_flash_together(void) {
   storage->remove("/apps/both");
 }
 
+// **`/fonts` is the two disks and the app in one directory** (0.174.1, the owner: *«/fonts ha de ser com /apps ha de
+// juntar /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el seu /apps/<id>/fonts»*). The flash's
+// `res/fonts/` —the system's faces, where `ui::boot` looks for them— and the card's `fonts/` are listed together, a name
+// the flash also has is presented from the card with the `*` mark of `/apps`, and a path of the door reads the copy its
+// name says. **The app's own folder is not in the shell's door**: it is the app's, and a person listing `/fonts` from the
+// prompt sees the faces of the board and not the ones of an app that is not running (docs/30, docs/40, docs/70).
+void test_the_door_of_the_fonts_puts_the_flash_and_the_card_together(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+  TEST_ASSERT_TRUE(card_on(card_path));
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  // **Two disks, three names**: one only the flash has, one only the card has, and one on both. **The two folders are
+  // made by the system and are already there** —`res/fonts/` is the disk's and `fonts/` is made at boot like the folder
+  // of the apps— so the `mkdir` is only the case where this suite runs on a disk that has neither (docs/70).
+  storage->mkdir("/res/fonts");
+  card->mkdir("fonts");
+  const char flash_face[] = "FLASH-FACE";
+  const char card_face[] = "CARD-FACE";
+  const char card_both[] = "CARD-BOTH";
+  const char flash_both[] = "FLASH-BOTH";
+  auto write = [](hal::IStorage* where, const char* path, const char* text) {
+    hal::FileSlot slot;
+    if (!where->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = where->write(slot, text, static_cast<uint32_t>(strlen(text))) ==
+                    static_cast<int32_t>(strlen(text));
+    where->close(slot);
+    return ok;
+  };
+  TEST_ASSERT_TRUE(write(storage, "res/fonts/only-flash.lfont", flash_face));
+  TEST_ASSERT_TRUE(write(card, "fonts/only-card.lfont", card_face));
+  TEST_ASSERT_TRUE(write(storage, "res/fonts/both.lfont", flash_both));
+  TEST_ASSERT_TRUE(write(card, "fonts/both.lfont", card_both));
+
+  struct Names : public hal::ListSink {
+    char rows[32][40] = {};
+    uint8_t count = 0;
+    bool on_entry(const hal::ListEntry& entry) override {
+      if (count < 32 && entry.name != nullptr) snprintf(rows[count], sizeof(rows[0]), "%s", entry.name);
+      ++count;
+      return true;
+    }
+  } names;
+  TEST_ASSERT_TRUE(kernel::vfs::list("/fonts", names));
+  bool only_flash = false;
+  bool only_card = false;
+  bool both_plain = false;
+  bool both_marked = false;
+  for (uint8_t i = 0; i < names.count && i < 32; ++i) {
+    if (strcmp(names.rows[i], "only-flash.lfont") == 0) only_flash = true;
+    if (strcmp(names.rows[i], "only-card.lfont") == 0) only_card = true;
+    if (strcmp(names.rows[i], "both.lfont") == 0) both_plain = true;
+    if (strcmp(names.rows[i], "*both.lfont") == 0) both_marked = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(only_flash, "the face of the flash is not in the door");
+  TEST_ASSERT_TRUE_MESSAGE(only_card, "the face of the card is not in the door");
+  TEST_ASSERT_TRUE_MESSAGE(both_plain, "the name the two disks share is not listed once under its own name");
+  TEST_ASSERT_TRUE_MESSAGE(both_marked, "the card's copy of a shared name is not listed with the mark");
+
+  // **And a path of the door reads the copy its name says**: `/fonts/both.lfont` is the flash's and
+  // `/fonts/*both.lfont` is the card's, which is the rule `/apps` already follows (docs/70).
+  static char text[64];
+  size_t len = 0;
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/fonts/both.lfont", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING(flash_both, text);
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/fonts/*both.lfont", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING(card_both, text);
+  TEST_ASSERT_TRUE(kernel::vfs::read_file("/fonts/only-card.lfont", text, sizeof(text), len));
+  text[len] = '\0';
+  TEST_ASSERT_EQUAL_STRING(card_face, text);
+
+  // **The system's own face is still where every document says it is**: the door answers `/fonts/<x>` with the flash's
+  // `res/fonts/` when nobody else has that name, which is what `ui::boot` and the reader depend on (docs/30).
+  hal::Stat info;
+  TEST_ASSERT_TRUE(kernel::vfs::stat("/fonts/only-flash.lfont", info));
+  TEST_ASSERT_EQUAL_UINT32(static_cast<uint32_t>(strlen(flash_face)), info.size);
+
+  card->remove("fonts/only-card.lfont");
+  card->remove("fonts/both.lfont");
+  storage->remove("/res/fonts/only-flash.lfont");
+  storage->remove("/res/fonts/both.lfont");
+}
+
 // **The door presents the apps and nothing else** (0.88.20): a folder of the flash or of the card that carries no
 // `manifest.json` is not an app there, so `/apps` does not show it, `run` does not find it and the search for a handler
 // never reads it —which is the point of the door being the one entry point: a folder the system does not present is a
@@ -8381,6 +8472,135 @@ void test_a_page_that_paints_itself_paints_its_own_hole(void) {
   kernel::boot(hal::platform());
 }
 
+// **The viewer of the faces opens every format the system reads** (0.174.1, the owner: *«fes una app visualitzadora de
+// fonts. Que obri tots els formats suportats per el sistema i mostri la font»*). The shelf asks the kernel to load each
+// file of `/fonts` once and says what it is —a `.lfont`, a `.bdf`, a `.pcf` and a TrueType, which are the four readers of
+// `font::load_any`— and a file that is not a face says the reason instead of disappearing. Then a finger on a row opens
+// the specimen, the face draws its own words at its own sizes, and the way back is a button and the pinch. **The three
+// places of the door are in it**: the flash, the card and the app's own `apps/<id>/fonts` (docs/30, docs/70, docs/85).
+void test_the_font_viewer_opens_every_format_the_system_reads(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  make_card();
+  char card_path[96];
+  snprintf(card_path, sizeof(card_path), "%s/sd", root());
+
+  // **The card is in the slot before the boot**, because the mount table is built at boot: the card of this case is a
+  // folder of the run and the two disks have to be there when the door of the faces is made (docs/70, docs/85).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  opts.sd_dir = card_path;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  hal::IStorage* card = hal::platform().storage("/sd");
+  TEST_ASSERT_NOT_NULL(card);
+
+  // **The app that ships is the app the test runs** (docs/85).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/res/icon.png", "/apps/fonts/res/icon.png"));
+
+  // **One face of each of the four formats the kernel reads**, and the licence that is not a face: the four names are
+  // the four readers of `font::load_any`, and the page has to say which is which (docs/30).
+  storage->mkdir("/res/fonts");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/sample-8x8.bdf", "/res/fonts/bdf-sample.bdf"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/sample-8x8.pcf", "/res/fonts/pcf-sample.pcf"));
+  TEST_ASSERT_TRUE(
+      copy_a_host_file(storage, "data/res/fonts/dejavusansmono-6x12.lfont", "/res/fonts/lfont-sample.lfont"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/dejavusans.ttf", "/res/fonts/ttf-sample.ttf"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/LICENCE.txt", "/res/fonts/LICENCE.txt"));
+  // **And the other two places of the door**: one face on the card and one the app carries itself, which is the half of
+  // the door only that app sees (docs/30, docs/40).
+  card->mkdir("fonts");
+  TEST_ASSERT_TRUE(copy_a_host_file(card, "data/res/fonts/dejavuserif.ttf", "fonts/card-face.ttf"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "data/res/fonts/dejavusansmono.ttf", "/apps/fonts/fonts/own-face.ttf"));
+
+  // `run fonts shelf` prints the box of every row, so a finger lands on a name and not on a coordinate this case would
+  // have to know (docs/30, docs/85).
+  kernel::log_echo(true);
+  pump_captured(400, g_out, sizeof(g_out), "run fonts shelf");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: bdf-sample.bdf BDF"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: pcf-sample.pcf PCF"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: lfont-sample.lfont lunokOS"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: ttf-sample.ttf TrueType"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: LICENCE.txt none"), g_out);
+  // **The card and the app's own folder are the other two places of the door** (0.174.1).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: card-face.ttf TrueType"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: own-face.ttf TrueType"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **The row of the bdf, where the page says it is**: the first page carries all of them and the app prints the centre
+  // of each one.
+  int row_x = -1;
+  int row_y = -1;
+  const char* at = strstr(g_out, "fonts: row bdf-sample.bdf ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(at, g_out);
+  TEST_ASSERT_EQUAL_INT(2, sscanf(at + strlen("fonts: row bdf-sample.bdf "), "%d %d", &row_x, &row_y));
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    pump_turns(400);
+    return true;
+  };
+
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(row_x, row_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open bdf-sample.bdf BDF"), g_out);
+  int back_x = -1;
+  int back_y = -1;
+  at = strstr(g_out, "fonts: backbox ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(at, g_out);
+  TEST_ASSERT_EQUAL_INT(2, sscanf(at + strlen("fonts: backbox "), "%d %d", &back_x, &back_y));
+
+  // **And the way back is a button**, which is the finger's road to the shelf the pinch takes for a person who knows the
+  // gesture (docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(back_x, back_y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: row bdf-sample.bdf"), g_out);
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  card->remove("fonts/card-face.ttf");
+  storage->remove("/apps/fonts/fonts/own-face.ttf");
+  storage->remove("/apps/fonts/fonts");
+  storage->remove("/res/fonts/bdf-sample.bdf");
+  storage->remove("/res/fonts/pcf-sample.pcf");
+  storage->remove("/res/fonts/lfont-sample.lfont");
+  storage->remove("/res/fonts/ttf-sample.ttf");
+  storage->remove("/res/fonts/LICENCE.txt");
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts/res/icon.png");
+  storage->remove("/apps/fonts/res");
+  storage->remove("/apps/fonts");
+  kernel::font::set_system_face(nullptr);
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  after.touch = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
 // **A folder is made with the fathers it needs, and that is the kernel's walk and not the app's** (0.173.1, and the claim
 // of 0.172.2 which is what this case pins): `fs.mkdir` is one call and the chain is made inside the storage by
 // `fs_ops::mkdir` (`make_dirs`) since the import, so an app that writes in its own ground the first time —the marks of the
@@ -11546,6 +11766,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_name_that_already_says_its_unit_keeps_its_word);
   RUN_TEST(test_a_manifest_of_nine_boards_says_it_names_too_many);
   RUN_TEST(test_the_door_of_the_apps_puts_the_card_and_the_flash_together);
+  RUN_TEST(test_the_door_of_the_fonts_puts_the_flash_and_the_card_together);
   RUN_TEST(test_the_door_of_the_apps_presents_no_folder_that_is_not_an_app);
   RUN_TEST(test_apps_remove_takes_the_app_the_name_says_and_leaves_the_rest);
   RUN_TEST(test_a_card_of_more_than_two_dozen_apps_lists_the_one_of_the_flash_too);
@@ -11673,6 +11894,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_card_that_goes_away_takes_its_ink_with_it);
   RUN_TEST(test_a_page_that_paints_itself_paints_its_own_hole);
+  RUN_TEST(test_the_font_viewer_opens_every_format_the_system_reads);
   RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
   RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);

@@ -117,6 +117,32 @@ const char kRedirect[] = "*";
 const char kFlashApps[] = "/littlefs/apps";
 const char kCardApps[] = "/sd/apps";
 
+// **`/fonts` is a door of three places and not an alias** (0.174.1, the owner: *«/fonts ha de ser com /apps ha de juntar
+// /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el seu /apps/<id>/fonts»*). The faces of the system
+// stay where they are —`res/fonts/`, which is what `ui::boot` and every document name—, the card has its own `fonts/`,
+// and an app that ships faces puts them in `apps/<id>/fonts/`. The door joins the three: the app's first, because what an
+// app carries is its own, then the flash and then the card, and a name the flash also has is presented from the card with
+// the same `*` mark `/apps` uses, so both are on the glass and both are a path that resolves (docs/30, docs/70).
+const char kFontsDoor[] = "/fonts";
+const char kFlashFonts[] = "res/fonts";
+const char kCardFonts[] = "fonts";
+
+// **Which app is asking, when one is** (0.174.1): the kernel hands the door the id of the app that runs —`luabind::app_id`,
+// which answers an empty name from the prompt— and the door adds that app's own `fonts/` to the three places. It is a
+// hook and not a copy, so an app that has just started needs nothing to be told (docs/30, docs/70).
+const char* (*g_fonts_app)() = nullptr;
+
+// **The app's own folder of faces, as a path of the door of the apps**: `/apps/<id>/fonts` and what hangs under it. Asking
+// the door of the apps instead of guessing a disk is what makes an app installed on the card work the same as one of the
+// flash, and it is one rule fewer to keep in two places (docs/40, docs/70).
+bool app_fonts_path(char* out, size_t cap, const char* tail) {
+  if (g_fonts_app == nullptr) return false;
+  const char* id = g_fonts_app();
+  if (id == nullptr || id[0] == '\0') return false;
+  const int made = snprintf(out, cap, "/apps/%s/fonts%s", id, (tail != nullptr) ? tail : "");
+  return made > 0 && static_cast<size_t>(made) < cap;
+}
+
 // **What an `/apps` listing presents**: the filesystem cannot know what an app is —a folder that carries a manifest, a
 // board it does not run on— and the door of the apps is where the system says what there is, so the ones it does not
 // want to present are not in the listing at all (0.88.20, docs/40, docs/70). A null presenter presents everything,
@@ -194,9 +220,113 @@ bool list_the_apps(hal::ListSink& sink) {
   return any;
 }
 
+// **One place of the door of the faces, as a sink sees it**: a storage and the folder inside it (0.174.1).
+struct FontPlace {
+  // **A constructor and not a braced list**: this file is compiled as C++11 on the board, and a struct with defaults is
+  // not an aggregate there (docs/50).
+  FontPlace() {}
+  FontPlace(hal::IStorage* where, const char* folder) : storage(where), rel(folder) {}
+  hal::IStorage* storage = nullptr;
+  const char* rel = "";
+  // **Whether this place really has that name**, asked every time and not remembered: a folder of a card is somebody's
+  // and it may change under the door while a person looks at it (docs/70).
+  bool has(const char* name) const {
+    if (storage == nullptr || rel == nullptr || rel[0] == '\0') return false;
+    char path[kMaxPathBytes];
+    hal::Stat info;
+    const int made = snprintf(path, sizeof(path), "%s/%s", rel, name);
+    return made > 0 && static_cast<size_t>(made) < sizeof(path) && storage->stat(path, info);
+  }
+};
+
+// **A face the place above this one already gave is not given again** (0.174.1): an app that carries its own copy of a
+// system face overrides it for its own eyes, and a listing that showed both would be a listing of two names that are the
+// same door (docs/30, docs/70).
+class SkipSink : public hal::ListSink {
+ public:
+  SkipSink(hal::ListSink& inner, FontPlace earlier) : inner_(inner), earlier_(earlier) {}
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name != nullptr && earlier_.has(entry.name)) return true;
+    return inner_.on_entry(entry);
+  }
+
+ private:
+  hal::ListSink& inner_;
+  FontPlace earlier_;
+};
+
+// **And a card's copy of a face that is already in the door is presented with the `*` mark**, which is the rule of `/apps`
+// said for the other door: a person sees both and both are a path that resolves (0.174.1, docs/30, docs/70).
+class MarkedSink : public hal::ListSink {
+ public:
+  MarkedSink(hal::ListSink& inner, FontPlace first, FontPlace second)
+      : inner_(inner), first_(first), second_(second) {}
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.name == nullptr) return true;
+    if (!first_.has(entry.name) && !second_.has(entry.name)) return inner_.on_entry(entry);
+    const size_t len = strlen(entry.name);
+    if (len + 2 > sizeof(renamed_)) return inner_.on_entry(entry);
+    renamed_[0] = kRedirect[0];
+    memcpy(renamed_ + 1, entry.name, len + 1);
+    hal::ListEntry copy = entry;
+    copy.name = renamed_;
+    return inner_.on_entry(copy);
+  }
+
+ private:
+  hal::ListSink& inner_;
+  FontPlace first_;
+  FontPlace second_;
+  char renamed_[64];
+};
+
+// **The three places of `/fonts` in one listing** (0.174.1): the app's own faces, then the flash's `res/fonts/` —the
+// system's, which every disk carries— and then the card's `fonts/`. A name the flash also has is presented from the card
+// with the mark, and a name the app carries is not given again from the flash, because the door answers the app's first
+// (docs/30, docs/40, docs/70).
+bool list_the_fonts(hal::ListSink& sink) {
+  bool any = false;
+  FontPlace app;
+  char app_rel[kMaxPathBytes];
+  app_rel[0] = '\0';
+  char door[96];
+  if (app_fonts_path(door, sizeof(door), "") && resolve(door, app.storage, app_rel, sizeof(app_rel)) &&
+      app.storage != nullptr) {
+    hal::Stat info;
+    if (app.storage->stat(app_rel, info) && info.type == hal::NodeType::kDir) {
+      app.rel = app_rel;
+    } else {
+      app.storage = nullptr;
+    }
+  }
+  if (app.storage != nullptr) {
+    meter::Scope scope(meter::storage_id(meter::kOpList, unit_of(app.storage)));
+    if (app.storage->list(app_rel, sink)) any = true;
+  }
+  FontPlace flash(storage_of(kFontsDoor), kFlashFonts);
+  if (flash.storage != nullptr) {
+    SkipSink skip_apps(sink, app);
+    meter::Scope scope(meter::storage_id(meter::kOpList, meter::kUnitFlash));
+    if (flash.storage->list(kFlashFonts, skip_apps)) any = true;
+  }
+  FontPlace card(storage_of("/sd"), kCardFonts);
+  if (card.storage != nullptr) {
+    MarkedSink marked(sink, flash, app);
+    meter::Scope scope(meter::storage_id(meter::kOpList, meter::kUnitSd));
+    if (card.storage->list(kCardFonts, marked)) any = true;
+  }
+  return any;
+}
+
 }  // namespace
 
 void set_apps_presenter(AppsPresenter presenter) { g_presenter = presenter; }
+
+// **Who is asking, for the app's own faces** (0.174.1): a hook and not an id, so the door follows the app that runs and
+// the kernel has nothing to remember to clear when one closes (docs/30, docs/70).
+void set_fonts_app(const char* (*id)()) { g_fonts_app = id; }
 
 uint32_t init(hal::IPlatform& platform) {
   g_count = 0;
@@ -240,6 +370,10 @@ uint32_t init(hal::IPlatform& platform) {
     // without the folder is a card an install has to make room on —which it does— but the door of the apps is also
     // what a listing goes through (docs/70).
     sd->mkdir("apps");
+    // **And the folder of the faces of the card** (0.174.1): `/fonts` joins the flash's `res/fonts` with the card's
+    // `fonts`, and a card without it is a card a person has to make room on —which `mkdir` does here, the same way the
+    // folder of the apps is made— (docs/30, docs/70).
+    sd->mkdir("fonts");
     add("/sd", "", "sd", sd, true);
   }
 
@@ -393,6 +527,39 @@ bool resolve(const char* path, hal::IStorage*& storage, char* rel_out, size_t re
     }
   }
 
+  // **A name of `/fonts` is answered by the three places of the door** (0.174.1): the app's own `apps/<id>/fonts` first,
+  // because what an app carries is its own, then the flash's `res/fonts/` and then the card's `fonts/`. **A name with the
+  // mark is the card's copy**, which is the one the listing presented with it (docs/30, docs/40, docs/70).
+  if (rest[0] != '\0' && strcmp(best->path, kFontsDoor) == 0) {
+    FontPlace places[3];
+    char own_rel[kMaxPathBytes];
+    own_rel[0] = '\0';
+    char door[96];
+    if (app_fonts_path(door, sizeof(door), "") && resolve(door, places[0].storage, own_rel, sizeof(own_rel))) {
+      places[0].rel = own_rel;
+    }
+    places[1] = FontPlace(storage_of(kFontsDoor), kFlashFonts);
+    places[2] = FontPlace(storage_of("/sd"), kCardFonts);
+    const char* name = rest;
+    // **The mark says the card**: a face the flash or the app already has is presented twice and the second one carries
+    // the asterisk, so `*<name>` is the card's `fonts/<name>` and nothing else (docs/70).
+    if (name[0] == kRedirect[0] && name[1] != '\0') name = name + 1;
+    const bool marked = (name != rest);
+    for (int i = marked ? 2 : 0; i < 3; ++i) {
+      if (places[i].storage == nullptr || places[i].rel == nullptr || places[i].rel[0] == '\0') continue;
+      hal::Stat info;
+      char rel[kMaxPathBytes];
+      const int made = snprintf(rel, sizeof(rel), "%s/%s", places[i].rel, name);
+      if (made <= 0 || static_cast<size_t>(made) >= sizeof(rel)) continue;
+      if (!places[i].storage->stat(rel, info)) continue;
+      if (static_cast<size_t>(made) >= rel_cap) return false;
+      memcpy(rel_out, rel, static_cast<size_t>(made) + 1);
+      storage = places[i].storage;
+      return true;
+    }
+    return false;
+  }
+
   size_t used = 0;
   const char* rel = best->rel;
   while (*rel != '\0') {
@@ -471,6 +638,7 @@ bool list(const char* path, hal::ListSink& sink) {
   // **The door of the apps is the two disks in one listing** (0.88.19): asking for it is not asking one backend, and
   // what a person sees there is the apps of the card and the apps of the flash without one repeated (docs/40, docs/70).
   if (path != nullptr && (strcmp(path, "/apps") == 0 || strcmp(path, "/apps/") == 0)) return list_the_apps(sink);
+  if (path != nullptr && (strcmp(path, kFontsDoor) == 0 || strcmp(path, "/fonts/") == 0)) return list_the_fonts(sink);
   if (!resolve(path, storage, rel, sizeof(rel))) {
     log_printf(pal::kLogWarn, "VFS", "cannot resolve %s", path);
     return false;

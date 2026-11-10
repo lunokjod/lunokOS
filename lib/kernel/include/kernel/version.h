@@ -5345,7 +5345,37 @@ namespace kernel {
 //     prints one `tz stop true` per setting, so a page whose controls the dial could not reach is a red case and not a
 //     person's afternoon (`564 cases`).
 
-static const char kVersion[] = "0.174.0";
+// 0.174.1 (10/11): **`/fonts` is a door of three places, and the viewer that shows what is in it**. The owner:
+// *«/fonts ha de ser com /apps ha de juntar /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el seu
+// /apps/<id>/fonts»*, and then *«fes una app visualitzadora de fonts. Que obri tots formats suportats per el sistema i
+// mostri la font»*.
+//
+//   - **the door**: `/fonts` was an alias of one folder of the disk (`res/fonts/`) and it is now the same shape as
+//     `/apps` —the app's own `apps/<id>/fonts` first, the flash's `res/fonts/` after it and the card's `fonts/` last, and
+//     a name two places carry is presented twice with the `*` mark of `/apps` on the card's copy—. **Nothing moved on the
+//     disk**: `ui::boot` and every document keep naming `/fonts/dejavusans-bold.ttf` (docs/30, docs/70);
+//   - **the card's folder is made at boot**, like the folder of the apps: a card without `fonts/` is a card the system
+//     makes room on, and a door that opened only when the folder was already there would be a door that stays shut until
+//     the next boot (the lesson of 0.88.2, docs/70);
+//   - **an app's folder is the app's**: the door asks the kernel who is reading (`vfs::set_fonts_app(&luabind::app_id)`,
+//     one hook and no copy), so the prompt's `ls /fonts` shows the faces of the board and an app also sees its own. An app
+//     that carries a copy of a system face wins over it for its own eyes and the disk's listing does not show it twice;
+//   - **and `apps/fonts` is the viewer**: the shelf asks the kernel to load every file of `/fonts` once —**the four
+//     readers: `.lfont`, `.bdf`, `.pcf` and TrueType**— and says what each one is and how many bytes it takes, and a file
+//     that is not a face says the reason instead of disappearing. A finger on a row opens the specimen: the name, what the
+//     kernel made of it —outlines or a cell of bits, how many codes, a line of how many pixels— and the same words drawn
+//     with that face at the sizes it has. **A face of bits stays at its size and at doubles of it** (a 6x12 cell blown up
+//     four times is a blob and not a bigger letter) and a face of outlines is drawn at every size, which is the whole
+//     difference between the two families and is said on the glass (docs/30, docs/92);
+//   - **the disk carries one face of each format** so the four readers are seen on the board and not only here:
+//     `sample-8x8.bdf` (862 B), `sample-8x8.pcf` (968 B) and `dejavusansmono-6x12.lfont` (9 017 B, from
+//     `tools/ttf_to_lfont.py` at a body of ten pixels) beside the six of DejaVu (docs/30);
+//   - **two cases**: `test_the_door_of_the_fonts_puts_the_flash_and_the_card_together` holds the two disks, the mark and
+//     the resolution of both copies, and `test_the_font_viewer_opens_every_format_the_system_reads` runs the app, reads
+//     the four formats off the console, presses a row with a finger, opens its specimen and comes back by the button.
+//     Both fail without the door —measured by mutating it— (`566 cases`).
+
+static const char kVersion[] = "0.174.1";
 
 }  // namespace kernel
 

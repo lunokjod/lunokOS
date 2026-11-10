@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **564 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **566 proves natives**
 > en **24 suites**, totes verdes.
-> A l'ATOM (10/11): **2 272 117 B** de flash (86,7 % de la partició d'aplicació, 2 621 440 B) i **122 768 B**
+> A l'ATOM (10/11): **2 273 541 B** de flash (86,7 % de la partició d'aplicació, 2 621 440 B) i **122 776 B**
 > de RAM estàtica (37,5 % de 327 680 B).
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`
@@ -25,8 +25,8 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > al propi racó, i `fs.open` amb un **objecte fitxer** (`read`/`write`/`seek`/`size`/`close`, **vuit
 > oberts** com a màxim). Cada app toca **vuit llocs i prou**: `/data/<id>/` i `/cfg/`, que són
 > escrivibles; `/rtc` i `/fram`, que són **memòria crua** (la del RTC del xip i la FRAM) i també
-> s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/`, `/fonts/` (les cares que el disc
-> porta per a tothom) i `/sd/`, que només es llegeixen; i
+> s'hi pot escriure; i `/res/` (el seu: `apps/<id>/res/`), `/apps/`, `/fonts/` (les cares del disc, les de la
+> targeta i les que l'app mateixa porta) i `/sd/`, que només es llegeixen; i
 > **el límit és el disc**: no hi ha
 > quota. **`fs.format('/nvs')`, `fs.format('/sd')` i `fs.format('/littlefs')` són l'única porta que arriba
 > fora d'aquest terreny** —buiden el magatzem de claus, la targeta i la flash del sistema, que és el que fa

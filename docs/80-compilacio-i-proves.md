@@ -175,7 +175,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **564 proves natives** (`pio test -e test`), i **cap de vermella** (0.174.0): les dotze de la 0.169.0 eren quatre
+- les **566 proves natives** (`pio test -e test`), i **cap de vermella** (0.174.1): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -187,7 +187,10 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   pàgina que **té `on_draw`**: el forat que queda és de l'app —sense cap rentada de paper i amb una sola regió de tinta en
   comptes de dues— i el dibuix de la vista el torna a pintar tallat en aquell requadre (`test_ui` i `test_apps`), i la de
   la 0.174.0 és **`net.ntp` contestant a una app** i no només a la consola (`test_luabind`, que falla sense l'arranjament),
-  amb el cas de la pàgina de la zona horària passejant el dial pels seus tres controls i prement-los (`test_apps`);
+  amb el cas de la pàgina de la zona horària passejant el dial pels seus tres controls i prement-los (`test_apps`), i
+  les dues de la 0.174.1 són **la porta de `/fonts`** amb els dos discs i la marca de la còpia de la targeta (`test_apps`)
+  i **el visor obrint els quatre formats** que el nucli llegeix, amb un dit en una fila i la tornada pel botó
+  (`test_apps`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.
@@ -206,14 +209,14 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
 - **La imatge d'una placa no porta apps** (0.118.3, l'amo: *«cap placa ha de contenir apps al littlefs al
   flashejar»*): el disc de cada entorn el munta `tools/make_disk.py` a **`build/disk/<entorn>`** amb el `data/`
   del sistema i res més. L'única excepció és la Paper, que en nomena **deu** (`custom_apps =
-  editor,calculator,about,timeclock,reader,home_eink,shell,luaperf,tz,wipe`, **47 fitxers i 364 061 B** mesurats el 10/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
+  editor,calculator,about,timeclock,reader,home_eink,shell,luaperf,tz,wipe,fonts`, **51 fitxers i 398 951 B** mesurats el 10/11). Un build que en vulgui portar les demana al seu `platformio.ini` —`custom_apps =
   id1,id2` per a una llista exacta, o `custom_apps_in_disk = yes` per a les que nomenen la placa per l'id o per
   la família `esp32`, que és la regla amb què el nucli refusa una app al `run`— i llavors cada app del disc és
   **un enllaç** a la seva carpeta d'`apps/` (l'entorn `test` les copia, perquè les seves proves escriuen al
   disc). El detall és a docs/70, «Com afegir apps a la imatge del disc».
 - **L'emulador sí que les porta totes** (8/11, l'amo: *«afegeix totes les apps a l'emulador»*): l'entorn
   `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador no té placa, el filtre de `make_disk` les
-  hi deixa passar totes —**10 apps, 47 fitxers, 364 061 B** mesurats el 10/11— i les posa **enllaçades**, o
+  hi deixa passar totes —**11 apps, 51 fitxers, 398 951 B** mesurats el 10/11— i les posa **enllaçades**, o
   sigui que l'emulador llegeix el que hi ha a `apps/` i no una còpia. Fins a l'8/11 en portava una, el llançador, i
   `apps` en un emulador acabat de fer deia `no apps`; ara diu deu noms i la graella del llançador té deu cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
@@ -224,12 +227,12 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   PlatformIO donaria per bona (el guard és `check_it_fits`, a `tools/make_disk.py`). A cada build la línia ho
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
-  **El que hi ha avui, mesurat el 10/11**: `apps/` són **47 fitxers i 364 061 B**, i el `data/` del sistema
-  **19 fitxers i 1 688 651 B** (el que el repositori porta; `data/data/` és estat d'una app i no és al git). **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 9/11 va
-  escriure *`build/disk/emulator is 2057203 B in 69 files, 10 apps, linked to apps/`* i *`build/disk/m5-paper is
-  2052941 B in 66 files, 10 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
-  12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 688 651 B en
-  19 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
+  **El que hi ha avui, mesurat el 10/11**: `apps/` són **51 fitxers i 398 951 B**, i el `data/` del sistema
+  **22 fitxers i 1 699 498 B** (el que el repositori porta; `data/data/` és estat d'una app i no és al git). **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: el 10/11 va
+  escriure *`build/disk/emulator is 2098449 B in 73 files, 11 apps, linked to apps/`* i *`build/disk/m5-paper is
+  2098449 B in 73 files, 11 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
+  12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 699 498 B en
+  22 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
   tres bitmaps de splash (`data/res/splash`, 1 558 434 B dels tres i 1 595 456 B la carpeta) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
   dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 37 el 9/11) i s'ha retirat: el que queda
   d'aquella mesura és el guard, que és cert, i no els números. La raó per la qual cap placa no en porta no és

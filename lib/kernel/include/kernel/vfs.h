@@ -70,6 +70,10 @@ bool read_file(const char* path, char* buf, size_t cap, size_t& out_len);
 // name on the two disks is two different folders and only one of them may be an app.
 using AppsPresenter = bool (*)(const char* disk, const char* name);
 void set_apps_presenter(AppsPresenter presenter);
+// **The app whose own faces are part of `/fonts`** (0.174.1): the door joins the app's `apps/<id>/fonts`, the flash's
+// `res/fonts` and the card's `fonts`, and this is how it knows which app is asking — the hook answers an empty name from
+// the prompt (docs/30, docs/70).
+void set_fonts_app(const char* (*id)());
 
 }  // namespace vfs
 }  // namespace kernel
