@@ -305,9 +305,11 @@ objecte** (`ui.canvas(w, h)` a Lua, `ui::create` al nucli): un buffer de quatre 
 arbre de canvas dins de la vista, la composició en cascada a cada `ui.present` (l'ordre d'aparició és
 l'ordre de les capes), el retall a la vora de cada canvas, i **el que costa és el que ha canviat**: el pare
 només copia el que el fill ha pintat des de l'última composició, o sigui que no hi ha màscares ni alfes i
-un canvas sense res pintat no costa res. Són vuit canvas alhora amb la vista inclosa, i una vista feta de
-nou (una rotació, un `ui.resize`) se'ls emporta: l'objecte que l'app encara té respon `E_INVAL` en lloc
-d'escriure al canvas que hagi ocupat el seu lloc. Una pàgina de dos canvas i un botó és la prova que es veu.
+un canvas sense res pintat no costa res. Eren vuit canvas alhora amb la vista inclosa —**i el 10/11 ja no hi
+són** (`0.174.5`): el sostre és la memòria i no un número del capçal, perquè el launcher d'onze apps demanava
+onze imatges i la vuitena tornava `nil`, o sigui que quatre caselles de la graella es quedaven sense icona—, i una
+vista feta de nou (una rotació, un `ui.resize`) se'ls emporta: l'objecte que l'app encara té respon `E_INVAL` en
+lloc d'escriure al canvas que hagi ocupat el seu lloc. Una pàgina de dos canvas i un botó és la prova que es veu.
 
 **I a la placa diu el mateix, número per número** (1/11, 0.19.0): la pàgina de dos canvas i un botó a la
 Paper dona les sis línies idèntiques a les de l'emulador amb `--display` —els comptes `1 / 1 / 2`, el pare al

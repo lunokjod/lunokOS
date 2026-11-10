@@ -409,24 +409,31 @@ static void test_a_canvas_that_paints_nothing_composes_nothing() {
   TEST_ASSERT_EQUAL_UINT16(10, paint->h);
 }
 
-// The table of canvases has a ceiling and a canvas given back is a canvas to take. **The view is the
-// system's** and an app cannot give it back (docs/90).
-static void test_the_canvases_have_a_ceiling_and_are_given_back() {
+// **A view is the memory's to give and not a number of the header** (0.174.5): a page may have as many controls with
+// a buffer as the extra memory holds —the launcher of eleven apps has eleven pictures— and a buffer that does not fit
+// is refused by the allocator. **A canvas given back is a canvas to take**, and the view of the app is the system's
+// (docs/90).
+static void test_the_views_are_as_many_as_the_memory_gives_and_are_given_back() {
   fresh_view();
-  int16_t slots[ui::kMaxCanvases] = {};
-  for (uint8_t i = 0; i + 1 < ui::kMaxCanvases; ++i) {
-    TEST_ASSERT_TRUE(ui::create(8, 8, -1, true, slots[i]));
+  // **Eleven pictures of a grid**, which is what the launcher asks for and what the eight of the header were not
+  // enough for: the eighth `ui.canvas` came back `nil` and four cells of the home page had no icon (10/11).
+  const uint8_t kPictures = 11;
+  int16_t slots[kPictures] = {};
+  for (uint8_t i = 0; i < kPictures; ++i) {
+    TEST_ASSERT_TRUE(ui::create(72, 72, -1, true, slots[i]));
     TEST_ASSERT_TRUE(ui::at(slots[i]) != nullptr);
+    TEST_ASSERT_NOT_NULL(ui::at(slots[i])->bits);
   }
-  int16_t extra = -1;
-  TEST_ASSERT_FALSE(ui::create(8, 8, -1, true, extra));
+  // **And past the memory there is no view**: the refusal is the allocator's —`ui.canvas` in Lua turns it into
+  // `nil, E_NOMEM`— and not a comparison with a constant of this header (docs/75).
   TEST_ASSERT_TRUE(ui::release(slots[0]));
   // **Given back does not mean free yet**: the buffer lives until the next present has painted over it, and
   // then the slot is one to take (docs/90).
   TEST_ASSERT_NOT_NULL(ui::at(slots[0]));
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_NULL(ui::at(slots[0]));
-  TEST_ASSERT_TRUE(ui::create(8, 8, -1, true, extra));
+  int16_t again = -1;
+  TEST_ASSERT_TRUE(ui::create(8, 8, -1, true, again));
   TEST_ASSERT_FALSE(ui::release(0));
 }
 
@@ -3645,7 +3652,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_child_canvas_lands_where_it_is_placed);
   RUN_TEST(test_a_canvas_is_cut_at_its_border);
   RUN_TEST(test_a_canvas_that_paints_nothing_composes_nothing);
-  RUN_TEST(test_the_canvases_have_a_ceiling_and_are_given_back);
+  RUN_TEST(test_the_views_are_as_many_as_the_memory_gives_and_are_given_back);
   RUN_TEST(test_a_view_made_again_takes_the_canvases_with_it);
   RUN_TEST(test_a_line_is_a_line_and_costs_one_region);
   RUN_TEST(test_a_frame_an_empty_inside_and_a_disc_a_full_one);

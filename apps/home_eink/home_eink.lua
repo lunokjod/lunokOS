@@ -132,12 +132,17 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
 
   cell.background = 15
 
-  local picture = ui.canvas(kIcon, kIcon)
+  -- **A picture with no room says so** (0.174.5): the cell shows the letter and the console says why, because a grid
+  -- of names with four icons missing and no line about it is a page that hides what the memory answered (`ui.canvas`
+  -- gives `nil, error` and not a box that is not there, docs/30).
+  local picture, no_room = ui.canvas(kIcon, kIcon)
   if picture ~= nil then
     picture:place((cell_w - kIcon) // 2, 4)
     placeholder(picture, id)
     if info ~= nil then draw_picture(id, picture, info) end
     cell:add(picture)
+  else
+    console.print('home: ' .. id .. ' has no picture: ' .. tostring(no_room and no_room.message or no_room))
   end
 
   local name = ui.label(name_w, kNameLine)

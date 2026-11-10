@@ -1855,6 +1855,13 @@ quaranta files es col·loca sencer. Abans hi havia `kMaxControls = 32` escrit al
 quants controls cabien, quants fills podia tenir un control, i —al pont— quantes parades podia recórrer el dial. Les
 tres són ara la mateixa: la memòria.
 
+**I una vista amb buffer tampoc** (`0.174.5`): fins llavors hi havia **vuit** controls amb buffer alhora —la vista de
+l'app inclosa—, escrits al capçal com `kMaxCanvases`, i era l'últim número d'aquell fitxer que la memòria no podia
+dir. El launcher d'onze apps en demanava onze de 72 × 72 i la vuitena tornava `nil, E_NOMEM`, o sigui que **quatre
+caselles de la graella es quedaven sense icona** i la pàgina no en deia res (trobat per l'amo, 10/11). Ara el que no
+hi cap ho diu l'assignador, i una app que rep `nil` té el motiu a la segona tornada: `local box, why = ui.canvas(w, h)`
+(docs/75, docs/90).
+
 ### Què pot contenir què: el control que anida (0.101.0)
 
 **Un control que conté un altre control és un canvas amb fills.** Tots els controls són el mateix objecte —una vista o

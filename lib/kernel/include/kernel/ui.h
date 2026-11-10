@@ -49,7 +49,12 @@ const uint8_t kMaxDamage = 8;
 // megabytes idle— and `canvas_count()` says how many slots there are; a hundred and seventy-six bytes each, so
 // thousands. The buffers are the ones that cost: a view is four bits per pixel, a quarter of a megabyte for a
 // page of this size, and **that** is the ceiling that a page meets first (docs/75, docs/90).
-const uint16_t kMaxCanvases = 8;
+//
+// **And a view is the same ceiling** (0.174.5): until this version there were **eight** views at once —the root
+// included— written here as `kMaxCanvases`, and it was the one number of this file that the memory could not say.
+// The launcher of eleven apps asked for eleven pictures of 72 x 72 and the eighth came back `nil`, so four cells
+// of the grid had no icon and the page said nothing about why (found by the owner, 10/11, docs/30, docs/90). A
+// buffer that does not fit is refused by the allocator, which is where the answer belongs.
 // A slot is a number in the table and it is an `int16_t`: the type is the only ceiling left on how many controls a
 // page may have, and it is thirty-two thousand. **`-1` is "no slot" and it is signed**, or a comparison with a slot
 // would be a comparison of 65535 with -1 (docs/90).

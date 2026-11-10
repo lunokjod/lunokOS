@@ -5446,7 +5446,24 @@ namespace kernel {
 //     maker's sequence (docs/50); and the twenty milliseconds of `kAppIdleMs` are the cadence of the board and not a
 //     sleep in it (`567 + 1 cases`, and the suites of the touch, the apps and the ui are green).
 
-static const char kVersion[] = "0.174.4";
+// 0.174.5 (10/11): **a view is as many as the memory gives, and not eight**. The owner: *«al grid no es carreguen les
+// icones Shell, Timeclock, Time zone, Wipe»*.
+//
+//   - **why**: `kMaxCanvases = 8` was the last number of `ui.h` that the memory could not say —the header itself says a
+//     few lines above that the controls are what the memory holds and not a number in the file (0.102.0)—, and the
+//     launcher makes one `ui.canvas` of 72 x 72 per app. With eleven apps the eighth came back `nil`, `add_cell` skipped
+//     it in silence and four cells of the grid were a name with no picture: exactly the four the owner named, and the
+//     seven paints of the page in the log said so (docs/30, docs/90);
+//   - **`kMaxCanvases` is gone**: the buffers are the memory's, the allocator refuses what does not fit, and `ui.canvas`
+//     answers `nil, E_NOMEM` when it does. A page may hold as many views as there is room for —the launcher had eleven
+//     pictures of 72 x 72, which is 28 KB— and nothing of this header decides it any more (docs/75);
+//   - **and the launcher says it** when a picture has no box, like it already said when a manifest cannot be read: a grid
+//     with four icons missing and no line about it is a page that hides what the memory answered (docs/30);
+//   - the case of the suite that pinned the eight is now the other way round —eleven views of a grid at once, and a
+//     canvas given back is one to take— (`103 cases`, and the suite of the ui is green; the emulator's page of the home
+//     has its eleven icons, checked on the dump, 10/11).
+
+static const char kVersion[] = "0.174.5";
 
 }  // namespace kernel
 

@@ -1925,15 +1925,6 @@ bool create(uint16_t width, uint16_t height, int16_t parent, bool with_view, int
     }
   }
   if (free_slot < 0) return false;
-  if (with_view) {
-    // How many views are spoken for already. It is counted here and not kept anywhere else so the number
-    // and the table can never disagree (docs/90).
-    uint8_t views = 0;
-    for (uint16_t i = 0; i < g_canvas_count; ++i) {
-      if (g_canvases[i].in_use && g_canvases[i].bits != nullptr) ++views;
-    }
-    if (views >= kMaxCanvases) return false;
-  }
   Canvas& made = g_canvases[free_slot];
   made = Canvas{};
   made.in_use = true;
