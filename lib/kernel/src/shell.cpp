@@ -566,7 +566,8 @@ void print_help(const char* only) {
   help_continuation(
       "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
   help_continuation(
-      "                    `cfg tz [<offset>]`, `cfg leap [on|off]` and `cfg week [monday|sunday]`", only);
+      "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg week [monday|sunday]` and", only);
+  help_continuation("                    `cfg turn [<instructions>]`, the slice of Lua a turn is worth", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
   help_line("  wifi scan         the networks the radio sees", only);
@@ -3942,7 +3943,7 @@ bool command_cfg(const char* argument) {
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-              "leap [on|off]|week [monday|sunday]]\r\n");
+              "leap [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
     return false;
   }
 
@@ -4025,9 +4026,31 @@ bool command_cfg(const char* argument) {
       if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
       return true;
     }
+    // **The slice of Lua a turn is worth** (0.174.7): the one number that decides how long a finger on the glass and a
+    // key of the board wait for the app to give the turn back. It is applied at once —the next turn of the app already
+    // uses it— and kept in the store for the next boot, like every other setting of this door (docs/20, docs/75).
+    if (strcmp(words[0], "turn") == 0) {
+      uint32_t instructions = 0;
+      if (!cfg::parse_turn(words[1], instructions)) {
+        out("cfg: a turn is ");
+        out_num(cfg::turn_default());
+        out(" instructions by default, and a slice goes from ");
+        out_num(luabind::turn_budget_min());
+        out(" to ");
+        out_num(luabind::turn_budget_max());
+        out("\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_turn_instructions(instructions);
+      out("settings: turn ");
+      out_num(cfg::turn_instructions());
+      out(" instructions per turn\r\n");
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-                "leap [on|off]|week [monday|sunday]]\r\n");
+                "leap [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4099,6 +4122,16 @@ bool command_cfg(const char* argument) {
       say_keyboards();
       return true;
     }
+    // **The slice of a turn, and the default of this build** (0.174.7): the two numbers a person wants to tell apart,
+    // like the home app and its default (docs/20, docs/75).
+    if (strcmp(words[0], "turn") == 0) {
+      out("settings: turn ");
+      out_num(cfg::turn_instructions());
+      out(" instructions per turn (this build's default is ");
+      out_num(cfg::turn_default());
+      out(")\r\n");
+      return true;
+    }
     // **The calendar, read in the same words it is written** (0.170.0).
     if (strcmp(words[0], "leap") == 0) {
       out("settings: leap ");
@@ -4157,6 +4190,9 @@ bool command_cfg(const char* argument) {
   out("  week: ");
   out((cfg::week_start() == 7) ? "sunday" : "monday");
   newline();
+  out("  turn: ");
+  out_num(cfg::turn_instructions());
+  out(" instructions of Lua\r\n");
   char dir[64];
   if (cfg::dir_for_app(dir, sizeof(dir), "<id>")) {
     out("  an app's: ");

@@ -421,6 +421,14 @@ escrites amb les paraules que una persona llegeix (`on`/`off`, `monday`/`sunday`
 pàgina**, perquè `ui.month` i el calendari d'una app han de comptar el mateix. La regla i el que cada ajust mou són a
 docs/60, i les crides a docs/30.
 
+**I el cinquè ajust és el més estrany de tots, perquè no és una preferència sinó una latència** (0.174.7): `cfg turn
+<n>` diu quantes instruccions de Lua val un torn de l'app abans que el nucli el recuperi per al vidre, les tecles i la
+ràdio. Viu a `cfg/turn` com el **text decimal** que una persona llegeix (`20000`) i el número qui el fa servir és
+`luabind`, que és el mòdul que el compta; la porta només en guarda la tria i la hi posa a l'arrencada (com `cfg/tz` fa
+amb el rellotge). El valor de sèrie és **20 000** —deu blocs de dos mil— i el que es desa és el que queda en vigor, que
+és el bloc sencer de dalt: demanar-ne 20 001 en deixa 22 000 i `cfg turn` diu el número de debò. El perquè del número i
+el del seu sostre són a docs/20 i docs/75.
+
 **Els dos fitxers temporals d'una instal·lació** (0.88.9): mentre baixa, `repo install` deixa dins del
 directori de treball el llistat de la carpeta que està llegint (`.listing.json`) i el pla de les carpetes
 que falten (`.folders`, una línia per carpeta amb el camí que té dins de l'app). Tots dos desapareixen

@@ -62,9 +62,11 @@ Del bucle se'n dedueixen quatre coses:
 - **L'app té l'últim torn.** Quan li toca, la consola ja s'ha llegit i les alarmes ja s'han entregat,
   o sigui que un byte que acaba d'arribar ja és a la cua quan l'app desperta.
 
-**El que hi ha és un pressupost d'instruccions per torn**: 100 000, i en esgotar-se la tasca fa
-`lua_yield` i el nucli recupera el torn. Una app que no cedeix no penja la placa: corre a trossos, i
-`!!exit`/3 ESC la tanquen. El matar amb `E_BUDGET` després de dos avisos encara no hi és (docs/20, docs/75).
+**El que hi ha és un pressupost d'instruccions per torn**: 20 000 des de la 0.174.7 —eren 100 000— i
+ajustable amb `cfg turn <n>`, i en esgotar-se la tasca fa `lua_yield` i el nucli recupera el torn. Una app
+que no cedeix no penja la placa: corre a trossos, i `!!exit`/3 ESC la tanquen. El número no és de rendiment
+sinó **de latència**: és el que un dit al vidre o una tecla poden esperar que el nucli torni a mirar.
+El matar amb `E_BUDGET` després de dos avisos encara no hi és (docs/20, docs/75).
 
 ## Esdeveniments
 

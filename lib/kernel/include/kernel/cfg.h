@@ -89,6 +89,21 @@ bool set_leap_years(bool on);
 uint8_t week_start();
 bool set_week_start(uint8_t first);
 
+// **The slice of a turn of Lua, which is the latency of the whole board** (0.174.7, docs/20, docs/75): how many
+// instructions an app runs before the kernel takes the turn back for the glass, the keys and the radio. It is a setting
+// and not a constant because it is a trade between the app's throughput and how long a finger waits, and that trade is
+// this board's to make: `cfg turn 20000` writes it, `sys.turn()` reads it from Lua, and the boot puts it in the module
+// that counts it. The number in force is the block ceiling of what was asked (the hook counts in blocks of 2000), which
+// is why the door answers a number and not the text it was given.
+uint32_t turn_instructions();
+// What this build ships with, so `cfg turn` can say which of the two a person is looking at.
+uint32_t turn_default();
+// A slice is a count of digits: true when `text` is one of the numbers a slice may be. `instructions` holds it then.
+bool parse_turn(const char* text, uint32_t& instructions);
+// Applies the number now —the next turn of the app uses it— and saves it. False when the number is not a slice or when
+// there is nowhere to keep it.
+bool set_turn_instructions(uint32_t instructions);
+
 // The real path of one app's settings, for a person to read: "/sd/cfg/<id>".
 bool dir_for_app(char* out, size_t cap, const char* app);
 

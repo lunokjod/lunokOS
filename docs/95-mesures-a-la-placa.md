@@ -754,10 +754,18 @@ luaperf: a key waits at most 6.6 ms, against the 120 ms a page of ink costs
 luaperf: the budget is nothing next to the glass: do not touch it
 ```
 
-Aquell **6,6 ms és l'emulador** (el seu model de 60 ns per instrucció i el torn de 850 µs); a la placa serà el que
-sigui que digui la placa, i per això l'app existeix. **La decisió és la comparació amb els 120 ms d'una pàgina de
-tinta**: si la tanda en surt molt per sota, el pressupost no toca res i no s'ha de retallar; si en surt a prop o per
-damunt, retallar-lo es notaria en un botó.
+Aquell **6,6 ms és l'emulador** (el seu model de 60 ns per instrucció i el torn de 850 µs) i és d'una tanda de
+100 000 instruccions, que era el pressupost d'aleshores; a la placa serà el que sigui que digui la placa, i per això
+l'app existeix. **Des de la 0.174.7 l'app no porta el número a dins**: el pressupost és un ajust (`cfg turn`, 20 000 de
+sèrie) i `luaperf` el llegeix de `sys.turn()`, o sigui que la línia `a turn of N instructions` diu la tanda que la placa
+té en vigor.
+
+**I la decisió no és la que aquesta pàgina deia**: el 0.169.3 comparava la tanda amb els 120 ms d'una pàgina de tinta i
+concloïa que un pressupost de 6,6 ms no tocava res. És la comparació equivocada, i l'amo la va corregir —*«vull un
+sistema que respongui ràpid als botons i el touch»*—: el que ha de ser curt no és el torn contra la tinta, sinó el torn
+contra **la mà**, perquè és el temps que el nucli triga a tornar a mirar el vidre i les tecles. Per això el de sèrie és
+20 000 (1,2 ms al model) i per això el veredicte de l'app compara ara el que una tecla espera amb deu mil·lisegons i no
+amb la pàgina.
 
 **Què diu l'emulador i què no**: des de la 0.26.0 l'emulador **paga els temps de cada dispositiu** —blocs de
 flash i sectors de targeta, el bus i la tinta del panell, les tres transaccions del tàctil, les quatre

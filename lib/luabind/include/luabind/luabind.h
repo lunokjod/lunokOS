@@ -1031,6 +1031,25 @@ size_t used_bytes();
 size_t peak_bytes();
 size_t limit_bytes();
 
+// **The turn budget: how much of the app's own code a turn is worth before the kernel takes it back** (0.90.0, a
+// setting since 0.174.7). The count hook of the interpreter counts in blocks of two thousand instructions and, when a
+// turn reaches the budget, the app yields to the kernel —it is **a slice and not a kill**— so the console, the
+// alarms, the button, the glass and the radio get their turn between slices (docs/20, docs/75).
+//
+// **Why it can be changed at all**: the budget is the latency of the system. A turn of the app that runs to its end
+// is a turn in which a finger on the glass and a key of the board are not read, and the number that decides it is a
+// decision about this board and not about the code —a person at the prompt changes it with `cfg turn <n>`—. It is
+// **counted in blocks of `kHookInstructions`** (two thousand), so a value between two blocks is the upper one: the
+// hook only looks at its counter every block.
+uint32_t turn_budget();
+// What this build ships with, so `cfg turn` can tell both numbers apart.
+uint32_t turn_budget_default();
+// False when the number is outside what a slice may be —one block at the least, or nothing would ever be cut, and
+// `turn_budget_max()` at the most, or the loop would be the app's and not the kernel's— and then nothing changes.
+uint32_t turn_budget_min();
+uint32_t turn_budget_max();
+bool set_turn_budget(uint32_t instructions);
+
 }  // namespace luabind
 
 #endif  // LUNOK_LUABIND_LUABIND_H

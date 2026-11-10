@@ -5479,7 +5479,29 @@ namespace kernel {
 //   - nothing of the board changed: `--gui` already refused `--no-delay` and `--no-ink`, so a window only ever exists
 //     where the ink and the times are paid (docs/85).
 
-static const char kVersion[] = "0.174.6";
+// 0.174.7 (10/11): **the turn of Lua is short, and it is a setting**. The owner: *«fer més curt el temps de lua per torn
+// (menys instruccions) perquè la responsabilitat de tàctil, pantalla i botons sigui més alta … vull un sistema que
+// respongui ràpid als botons i el touch. Afegeix un paràmetre a la comanda cfg»*.
+//
+//   - **the budget is the latency of the board**, and nobody had said it in those words: a turn of the app that reaches
+//     its end is a turn in which the glass, the keys and the radio were not read. With 100 000 instructions and the 60 ns
+//     of the model that is **6 ms** between two looks; the build ships **20 000** (ten blocks, 1,2 ms) from now on
+//     (docs/20, docs/75);
+//   - **`cfg turn [<n>]`**: the number in force and the default of the build, from **2 000** (one block: below it the
+//     counter would never see the budget and no app would ever be cut) to **200 000** (12 ms: past it the loop is the
+//     app's and the kernel looks once in a while). It is applied at once, kept in the store as the decimal text a person
+//     reads with `nvs` (`cfg/turn`), and put back at boot by `cfg` — which is the module that keeps choices and never the
+//     one that counts them: the count is `luabind`'s (docs/30, docs/70);
+//   - **`sys.turn()`** is the door for an app, and it is what makes `luaperf` honest: the app used to carry a copy of
+//     `kTurnBudgetInstructions` and say it had to be changed by hand; it asks now, so the report it prints is of the
+//     slice the board is really using (docs/30, docs/95);
+//   - the number in force is the **block ceiling** of what was asked —the hook counts in blocks of two thousand— so
+//     `cfg turn 20001` leaves 22 000 and both `cfg turn` and `sys.turn()` say the number of truth (docs/20);
+//   - **and the verdict of `luaperf` compares with the hand and not with the glass**: it said a 6,6 ms turn was "nothing
+//     next to the 120 ms of a page" and that is the comparison that kept the budget long; it compares with the ten
+//     milliseconds a person does not notice now (docs/95).
+
+static const char kVersion[] = "0.174.7";
 
 }  // namespace kernel
 

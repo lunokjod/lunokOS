@@ -10,6 +10,7 @@
 #include "kernel/log.h"
 #include "kernel/splash.h"
 #include "kernel/vfs.h"
+#include "luabind/luabind.h"
 #include "pal/pal.h"
 
 namespace kernel {
@@ -53,6 +54,13 @@ const int32_t kTzMaxMinutes = 14 * 60;
 // (docs/60, docs/70).
 const char kLeapKey[] = "leap";
 const char kWeekKey[] = "week";
+
+// **The slice of a turn of Lua, which is the latency of the system** (0.174.7): how many instructions of an app a turn
+// is worth before the kernel takes the turn back for the glass, the keys and the radio. It is kept as the decimal text a
+// person reads with `nvs` —`20000`— for the same reason the hour is kept as `+01:00`, and the number itself lives in
+// `luabind`, which is the module that counts it: this door keeps the choice and puts it there at boot (docs/20, docs/75).
+const char kTurnKey[] = "turn";
+const size_t kTurnCap = 8;  // "200000" and the null
 const char kOn[] = "on";
 const char kOff[] = "off";
 const char kMonday[] = "monday";
@@ -123,6 +131,14 @@ bool remember_week() {
   const char* word = (g_week_start == 7) ? kSunday : kMonday;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kWeekKey, word, strlen(word));
+}
+
+bool remember_turn() {
+  if (g_nvs == nullptr) return false;
+  char text[kTurnCap] = {0};
+  snprintf(text, sizeof(text), "%u", static_cast<unsigned>(luabind::turn_budget()));
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kTurnKey, text, strlen(text));
 }
 
 bool remember_tz() {
@@ -287,14 +303,64 @@ void boot(hal::IPlatform& platform) {
   }
   calendar::set_leap_years(g_leap_years);
   calendar::set_week_start(g_week_start);
+  // **The slice of a turn, if the store says one** (0.174.7): a number that a slice cannot be —an older build's, a
+  // typo, a zero— falls back to the one this build ships and says so, because an app that is never cut is a board that
+  // stops answering the hand and nobody would know why (docs/20, docs/75).
+  luabind::set_turn_budget(luabind::turn_budget_default());
+  char raw_turn[kTurnCap] = {0};
+  size_t turn_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kTurnKey, raw_turn, sizeof(raw_turn) - 1, turn_len) && turn_len > 0 &&
+        turn_len < sizeof(raw_turn)) {
+      raw_turn[turn_len] = '\0';
+      uint32_t instructions = 0;
+      if (parse_turn(raw_turn, instructions)) {
+        luabind::set_turn_budget(instructions);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "turn '%s' is not a slice of %u to %u instructions; turn stays at %u",
+                   raw_turn, static_cast<unsigned>(luabind::turn_budget_min()),
+                   static_cast<unsigned>(luabind::turn_budget_max()),
+                   static_cast<unsigned>(luabind::turn_budget()));
+      }
+    }
+  }
   apply();
-  log_printf(pal::kLogInfo, "CFG", "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, week %s",
+  log_printf(pal::kLogInfo, "CFG",
+             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, week %s, turn %u",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
              (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
-             g_leap_years ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday);
+             g_leap_years ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
+             static_cast<unsigned>(luabind::turn_budget()));
 }
 
 const char* unit() { return g_unit; }
+
+// **The slice of a turn: read in the module that counts it and written here** (0.174.7). The door answers the number in
+// force —the block ceiling of what was asked— and not the one that was typed, so what `cfg turn` prints is what the hook
+// compares with (docs/20, docs/75).
+uint32_t turn_instructions() { return luabind::turn_budget(); }
+
+uint32_t turn_default() { return luabind::turn_budget_default(); }
+
+bool parse_turn(const char* text, uint32_t& instructions) {
+  if (text == nullptr || text[0] == '\0') return false;
+  // **Digits and nothing else**: a slice is a count of instructions, so a sign, a space or a unit is not one.
+  uint32_t value = 0;
+  for (const char* c = text; *c != '\0'; ++c) {
+    if (*c < '0' || *c > '9') return false;
+    value = value * 10u + static_cast<uint32_t>(*c - '0');
+    if (value > luabind::turn_budget_max()) return false;
+  }
+  if (value < luabind::turn_budget_min() || value > luabind::turn_budget_max()) return false;
+  instructions = value;
+  return true;
+}
+
+bool set_turn_instructions(uint32_t instructions) {
+  if (!luabind::set_turn_budget(instructions)) return false;
+  return remember_turn();
+}
 
 const char* preference() { return g_preference; }
 

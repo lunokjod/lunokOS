@@ -22,7 +22,7 @@ que fragmenta la memòria s'aguanta tres hores i després peta, i això no es po
 | **Terra de l'intèrpret** | Mesurat a l'ATOM de l'emulador, 4/11, amb `sys.heap()` en arrencar una app | **29 842 B** abans que l'app corri una línia: 13 021 de Lua i les seves llibreries, 13 200 de la llibreria d'UI (canvas, teclat, cares) i 3 600 dels altres globals. És el que una app **no** pot fer servir del seu sostre |
 | **Memòria extra (PSRAM)** | `IPlatform::extra_memory()` (torna `{chip_bytes, total_bytes, free_bytes}`) i `pal::IExtraMemory` | **4 096 KB al Paper** (el xip en té 8 MB i l'ESP32 en mapeja la meitat) i res als ATOM. És el sostre d'una app en aquesta placa (docs/50) |
 | Bloc «gran» que va a la memòria extra | `kExtraThreshold` a `lib/luabind/src/luabind.cpp` | **4 096 B**: d'aquí cap amunt el bloc viu a la PSRAM, i per sota a la RAM del xip |
-| Pressupost d'instruccions | **100 000 per torn** (0.90.0) | En esgotar-se, l'app fa `lua_yield` i el nucli recupera el torn; **no es mata** (docs/20, docs/75) |
+| Pressupost d'instruccions | **20 000 per torn** de sèrie des de la 0.174.7 (eren 100 000, 0.90.0) i **ajustable** amb `cfg turn <n>`, de 2 000 a 200 000 | En esgotar-se, l'app fa `lua_yield` i el nucli recupera el torn; **no es mata**. És la latència del sistema, no el seu rendiment: un torn més curt és un dit que espera menys (docs/20, docs/30) |
 | Sostre vist al **Paper** | **Mesurat a la placa, 31/10**, amb cent promeses seguides i `mem` | `heap used 37 883 B, peak 37 883 B`: la mesura és d'abans de la 0.7.0, quan la placa encara contestava el sostre per defecte. **Avui** `IPlatform::heap_limit_kb()` hi diu **4 096 KB** (la PSRAM mapejada) i la mateixa mesura dona `limit 4 194 304 B` |
 
 Nota sobre els 338 864: és més gran que els 320 KB del full de dades del xip perquè el heap de
@@ -460,8 +460,8 @@ sense flashejar.
 Cent promeses seguides costen **11 353 B** a l'ESP32 i **18 236 B** al PC per sobre del punt de
 partida, i el bucle triga **199 ms a la placa contra 115 ms al PC**: això és **1 ms de sobrecost per
 torn** a l'ESP32 (100 esperes d'1 ms → 199 ms) contra 0,15 ms al PC. És el primer número que tenim
-del cost d'un torn del nucli, i el que el pressupost d'instruccions (100 000 per torn) ha de deixar
-passar entre torns.
+del cost d'un torn del nucli, i el que el pressupost d'instruccions (aleshores 100 000 per torn, avui
+20 000 i ajustable) ha de deixar passar entre torns.
 
 **Des de la 0.58.0 l'emulador el paga** (`kTurnOverheadUs` = 850 µs, la diferència mesurada, després de
 cada torn i fora de `--no-delay`), i des de la 0.60.0 **el venciment també es despatxa al torn
@@ -656,9 +656,18 @@ dinàmic: tot és estat fix a `lib/kernel/src/led.cpp`.
 ## Pressupost d'instruccions
 
 **Implementat en la seva primera meitat a la 0.90.0.** `lua_sethook` amb comptador cada 2 000
-instruccions; cada **torn** de l'app té un màxim de **100 000 instruccions** (50 blocs). Quan
-s'esgota, el hook fa `lua_yield` i la tasca torna a la cua; el nucli atén la consola, les alarmes, el
-botó i la ràdio abans de reprendre-la.
+instruccions; cada **torn** de l'app té un màxim de **20 000 instruccions** (deu blocs) des de la
+0.174.7, i abans 100 000. Quan s'esgota, el hook fa `lua_yield` i la tasca torna a la cua; el nucli
+atén la consola, les alarmes, el botó, el vidre i la ràdio abans de reprendre-la.
+
+**El número és un ajust del sistema i es va fer curt per una raó de latència, no de rendiment**
+(0.174.7): la pregunta de l'amo va ser *«vull un sistema que respongui ràpid als botons i el touch»*, i la
+resposta és que el pressupost és exactament el temps que un dit o una tecla poden esperar que el nucli
+torni a mirar. Amb 100 000 instruccions i el model de 60 ns són **6 ms** de codi d'app entre dues mirades del
+vidre; amb 20 000, **1,2 ms**. `cfg turn <n>` el canvia —de 2 000 (un bloc, el terra: per sota el comptador
+no el veuria i no es tallaria mai) a 200 000 (12 ms, el sostre: més enllà el bucle és de l'app)—, el valor
+es desa a `cfg/turn` de l'NVS com a text i `sys.turn()` el diu des de Lua. El que es paga és rendiment:
+menys codi per torn i més torns, i per això el número és de la placa i no d'aquest document.
 
 - Un torn no és un càstig: una app que fa un bucle llarg simplement es reparteix en torns.
 - **No es mata l'app**: un `while true do end` corre per sempre, però la placa no es penja, i

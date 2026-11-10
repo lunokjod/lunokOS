@@ -42,7 +42,7 @@ El contracte d'aquest document és el sencer; el codi encara no. Ja hi són:
 
 - `print(...)`, `console.print(...)` i `console.write(s)`.
 - `sys.name`, `sys.version`, `sys.board`, `sys.emulator`, `sys.lua` (valors, sense cridar res).
-- `sys.heap()`, `sys.gc(mode)`, `sys.time_ms()`, **`sys.delay(ms)`** i **`sys.caps()`**.
+- `sys.heap()`, `sys.gc(mode)`, `sys.time_ms()`, `sys.turn()`, **`sys.delay(ms)`** i **`sys.caps()`**.
 - **`console.read_line()`** i, amb ella, **el teclat de l'app**: mentre una app viu, tot el que s'escriu va a ella i no a la shell.
 - **`term`**: `clear`, `reset`, `color`, `move`, `hide_cursor`, `show_cursor`, `width`, `height` i les constants. Si la consola no fa ANSI, no fan res i no donen error.
 - **`Promise`**: `p:await()`, `p:and_then(ok[, err])`, `p:catch(err)`, `p:finally(fn)`,
@@ -149,6 +149,7 @@ funció.
 | `sys.gc("count")` | enter | KB en ús |
 | `sys.delay(ms)` ⏳ | promesa | Espera sense tocar la cua d'alarmes ni el port sèrie |
 | `sys.time_ms()` | enter | Rellotge monòton en mil·lisegons. **Mai salta enrere** |
+| `sys.turn()` | enter | **Quantes instruccions val un torn de l'app** (0.174.7): el pressupost que el comptador de l'intèrpret compara, que és un ajust de la placa —`cfg turn <n>`— i no una constant. Una app que raoni sobre torns (`luaperf` en mesura el preu) el pregunta aquí i no se'n copia el número, perquè qui el canvia és una persona al prompt (docs/20, docs/75) |
 | `sys.reboot([reason])` | no torna | **Reinicia la placa** (0.171.0): la imatge del moment (el dibuix `reboot` del splash) va al vidre, s'espera la tinta i la placa torna a arrencar. `reason` és el que queda al log —`[I][APPS] wipe restarts the board: the NVS was erased`—, i el que fa la feina és el mateix `reboot` del prompt (docs/50). **No torna**: la VM de l'app mor amb la placa, i per això el que calgui desar s'ha de desar abans |
 | `sys.shell()` | objecte de sessió o `nil, error` | **Una sessió del shell del sistema** (0.159.0): el mateix shell que atén el prompt, amb **tres canonades** en comptes d'un terminal. Vegeu «Una sessió del shell» més avall |
 

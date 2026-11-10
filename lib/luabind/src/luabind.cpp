@@ -643,14 +643,29 @@ const uint32_t kHookInstructions = 2000;
 const uint32_t kPayThresholdUs = 500;
 uint32_t g_pending_us = 0;
 
-// **The turn budget** (0.90.0): when a turn reaches `kTurnBudgetInstructions`, the count hook yields the
-// coroutine back to the kernel. It is a slice and not a kill: an app that never yields keeps running, but
-// the console, the alarms, the button and the radio get a turn between slices (docs/20, docs/75).
-// **What the budget is worth in milliseconds is a measurement and not a guess**: the emulator's model prices an
-// instruction at `kLuaInstructionNs` (60 ns, `--lua-cpu`), so 100 000 of them are **6 ms** there and a slice of
-// "~0.6 ms" —what this comment said until 0.169.3— was the same arithmetic with a zero lost. A board says its own
+// **The turn budget** (0.90.0): when a turn reaches the budget, the count hook yields the coroutine back to the
+// kernel. It is a slice and not a kill: an app that never yields keeps running, but the console, the alarms, the
+// button, the glass and the radio get a turn between slices (docs/20, docs/75).
+//
+// **What a budget is worth in milliseconds is a measurement and not a guess**: the emulator's model prices an
+// instruction at `kLuaInstructionNs` (60 ns, `--lua-cpu`), so 100 000 of them are **6 ms** there —and a slice of
+// "~0.6 ms", what this comment said until 0.169.3, was the same arithmetic with a zero lost—. A board says its own
 // with `run luaperf` (docs/95), which is the only number worth deciding on.
-const uint32_t kTurnBudgetInstructions = 100000;  // 50 blocks of kHookInstructions
+//
+// **And the number is the latency of the board** (0.174.7): a turn of the app that runs to its end is a turn in which
+// nobody read the glass, the keys or the radio, so a budget that takes six milliseconds is a finger that waits six of
+// them. The owner asked for a system that answers the hand and not one that thinks a lot between two looks, so the
+// build now ships **twenty thousand** —ten blocks, about 1,2 ms at 60 ns a instruction— and the number is a setting
+// of the board: `cfg turn <n>` (docs/20, docs/75).
+const uint32_t kTurnBudgetDefault = 20000;    // 10 blocks of kHookInstructions
+// **A slice is at least one block**: below it the hook would never see the counter reach the budget and no app would
+// ever be cut, which is the thing this exists to prevent.
+const uint32_t kTurnBudgetMin = kHookInstructions;
+// **And a slice has a ceiling**: past two hundred thousand instructions (twelve milliseconds here) the loop belongs
+// to the app and the kernel looks once in a while, which is the behaviour this door exists to stop everybody from
+// choosing by accident.
+const uint32_t kTurnBudgetMax = 200000;
+uint32_t g_turn_budget = kTurnBudgetDefault;
 uint32_t g_turn_instructions = 0;
 bool g_budget_pending = false;
 bool g_budget_yielded = false;
@@ -680,7 +695,7 @@ void meter_hook(lua_State* L, lua_Debug* ar) {
     // has no next turn (docs/20, docs/75).
     if (L == g_task && !g_boot.window) {
       g_turn_instructions += kHookInstructions;
-      if (g_turn_instructions >= kTurnBudgetInstructions) g_budget_pending = true;
+      if (g_turn_instructions >= g_turn_budget) g_budget_pending = true;
       if (g_budget_pending && lua_isyieldable(L)) {
         // A call in progress is split: what it cost up to the yield is paid now, and `poll` restarts the
         // clock at the resume, so the wait between turns is not charged to the call (docs/30).
@@ -911,6 +926,14 @@ int l_sys_heap(lua_State* L) {
 
 int l_sys_time_ms(lua_State* L) {
   lua_pushinteger(L, static_cast<lua_Integer>(now_ms()));
+  return 1;
+}
+
+// **sys.turn()**: how many instructions of this app a turn is worth (0.174.7). The number is the board's and it is a
+// setting (`cfg turn <n>`), so an app that reasons about turns —`luaperf` measures the price of one— asks for it here
+// and does not carry a copy of a number that somebody can change at the prompt (docs/30, docs/75).
+int l_sys_turn(lua_State* L) {
+  lua_pushinteger(L, static_cast<lua_Integer>(g_turn_budget));
   return 1;
 }
 int l_sys_gc(lua_State* L) {
@@ -10282,7 +10305,7 @@ void seal_globals(lua_State* L) {
   // back is a handle with the three pipes of one —`stdin`, `stdout` and `stderr`—, so a line written on the first
   // is a command the system runs and what it prints comes out of the other two. The shell is the system's and not
   // the wire's: no console, no prompt and no echo in the middle (docs/30).
-  lua_createtable(L, 0, 10);
+  lua_createtable(L, 0, 11);
   // Who is running this: plain values, so an app can test them without a call.
   lua_pushstring(L, "lunokOS");
   lua_setfield(L, -2, "name");
@@ -10296,6 +10319,7 @@ void seal_globals(lua_State* L) {
   lua_setfield(L, -2, "lua");
   set_function(L, "heap", l_sys_heap);
   set_function(L, "time_ms", l_sys_time_ms);
+  set_function(L, "turn", l_sys_turn);
   set_function(L, "gc", l_sys_gc);
   set_function(L, "caps", l_sys_caps);
   set_function(L, "delay", l_sys_delay);
@@ -12435,5 +12459,23 @@ size_t used_bytes() { return g_alloc.used; }
 size_t peak_bytes() { return g_alloc.peak; }
 
 size_t limit_bytes() { return g_alloc.limit; }
+
+// **The slice of a turn, as the board has it** (0.174.7): the hook counts in blocks and the number it compares with is
+// the block ceiling of what was asked, so `sys.turn()` and `cfg turn` say the number that is really in force and not the
+// one that was typed (docs/20, docs/75).
+uint32_t turn_budget() { return g_turn_budget; }
+
+uint32_t turn_budget_default() { return kTurnBudgetDefault; }
+
+uint32_t turn_budget_min() { return kTurnBudgetMin; }
+
+uint32_t turn_budget_max() { return kTurnBudgetMax; }
+
+bool set_turn_budget(uint32_t instructions) {
+  if (instructions < kTurnBudgetMin || instructions > kTurnBudgetMax) return false;
+  const uint32_t blocks = (instructions + kHookInstructions - 1) / kHookInstructions;
+  g_turn_budget = blocks * kHookInstructions;
+  return true;
+}
 
 }  // namespace luabind

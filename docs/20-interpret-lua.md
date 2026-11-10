@@ -105,8 +105,18 @@ Cada app s'executa amb un `_ENV` propi:
 | Pressupost | Com es compta | Què passa en excedir-lo |
 |---|---|---|
 | **Memòria** | L'assignador de Lua porta el compte del que ha donat i el compara amb el sostre de la placa (`IPlatform::heap_limit_kb()`: si la placa no en diu cap, **131 072 B** —els 128 KB de `kDefaultHeapBytes`, `lib/kernel/src/shell.cpp`— i **4 096 KB al Paper**, que és la PSRAM mapejada) | L'assignador falla, Lua llança `E_NOMEM` i l'app rep l'error |
-| **Instruccions** | `lua_sethook` amb comptador: **100 000 per torn**, en blocs de 2 000 | En esgotar-se, la tasca fa `lua_yield` i torna al nucli; **no es mata**. Un `while true do end` corre a trossos i la placa no es penja; `!!exit`/3 ESC la tanquen (docs/75) |
+| **Instruccions** | `lua_sethook` amb comptador: **20 000 per torn** de sèrie (0.174.7, eren 100 000), en blocs de 2 000, i és **un ajust de la placa**: `cfg turn <n>`, de 2 000 a 200 000, que `sys.turn()` llegeix des de Lua | En esgotar-se, la tasca fa `lua_yield` i torna al nucli; **no es mata**. Un `while true do end` corre a trossos i la placa no es penja; `!!exit`/3 ESC la tanquen (docs/75) |
 | **Temps de torn** | El comptador talla el torn: una app que cedeix torna al nucli a cada espera, i una que no cedeix hi torna igualment quan el comptador s'esgota | Es torna a la cua de tasques |
+
+**Per què el torn és curt** (0.174.7): el pressupost és **la latència del sistema i no el seu rendiment**. Un torn de
+l'app que arriba fins al final és un torn en què ningú no ha llegit el vidre, les tecles ni la ràdio, i la pregunta de
+l'amo va ser exactament aquesta —*«vull un sistema que respongui ràpid als botons i el touch»*—: amb 100 000
+instruccions (6 ms al model de 60 ns) un dit esperava sis mil·lisegons perquè el nucli el mirés; amb 20 000 en són
+1,2. El preu és el de sempre en aquesta casa: menys codi d'app per torn i més torns, o sigui que el que es guanya és
+resposta i el que es paga és una mica de rendiment, i el número el tria la placa perquè és la placa qui ho pateix
+(`cfg turn`). El terra és **un bloc** (2 000: per sota, el comptador no veuria el pressupost i no es tallaria mai) i el
+sostre **200 000** (12 ms: més enllà el bucle és de l'app i el nucli només hi passa de tant en tant, que és just el que
+aquesta porta existeix per no deixar triar sense saber-ho).
 
 El comptador no distingeix una app que pinta un joc d'una que s'ha penjat; per això el que es talla és el
 **torn** i no l'execució: una app pot viure hores. El yield només es fa si `lua_isyieldable` (fora d'una

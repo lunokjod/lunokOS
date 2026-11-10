@@ -1,21 +1,20 @@
 -- luaperf: **what one instruction of Lua costs on this board, and what the turn budget is worth in milliseconds**
 -- (docs/75, docs/85, docs/95). The question it answers is the one the emulator cannot: the emulator *models* the price
 -- of an instruction (`--lua-cpu`, 60 ns at 160 MHz) and the model is a guess until a board says otherwise, so the
--- decision "is 100 000 instructions per turn a lot?" needs this number and not the model's.
+-- decision "is a turn of this many instructions a lot?" needs this number and not the model's.
 --
 -- **What it measures, and how.** A loop whose cost in instructions is known exactly —`for i = 1, n do k = k + 1 end`,
 -- which Lua 5.4.7 compiles to `ADDI`, `MMBINI` and `FORLOOP`: **three instructions a lap**— timed with `sys.time_ms()`.
 -- Nothing else is called in the middle, so the time of `L` laps is `L × 3` instructions and the turns the kernel cut
--- them into. Those turns are `L × 3 / 100 000`, so **one turn falls on every 33 333rd lap and the two costs cannot be
+-- them into. Those turns are `L × 3 / budget`, so **one turn falls every `budget / 3` laps and the two costs cannot be
 -- told apart from here**: only their sum is visible, and the sum is what matters —the price of an instruction with the
 -- kernel's own turn inside it— and it is what the app says (`kTurnOverheadUs`, 850 µs in the emulator, docs/85). The
 -- first run sizes the second; the second, of about half a second, is the measurement.
 --
--- **The budget is a constant of the kernel and not of the app** (`lib/luabind/src/luabind.cpp`,
--- `kTurnBudgetInstructions`): it is written here because a Lua app cannot read it, and the two have to be changed
--- together. If they disagree, the turn and the verdict are wrong and the price of an instruction is not.
+-- **The budget is the board's and it is read, not copied** (0.174.7): it is a setting —`cfg turn <n>`, and the build
+-- ships twenty thousand— so it comes from `sys.turn()` and this app never disagrees with the hook that cuts the turn.
 
-local kBudget = 100000    -- kTurnBudgetInstructions, lib/luabind/src/luabind.cpp
+local kBudget = sys.turn()
 local kInstrPerLap = 3    -- ADDI + MMBINI + FORLOOP, counted on the bytecode of this file's loop
 
 -- **A loop with no call in it**: one lap is three instructions and nothing else, so a second of laps is a second of
@@ -78,9 +77,12 @@ local ns_instr = ns_lap / kInstrPerLap
 local turns = (laps * kInstrPerLap) / kBudget
 local turn_ms = (kBudget * ns_instr) / 1000000.0
 
--- **The verdict, said with the numbers of this board**: a turn budget is worth cutting only if a turn is bigger than
--- what the glass costs to show the answer. A page of ink is about 120 ms with `du` (docs/95, E-7).
+-- **The verdict, said with the numbers of this board**: a turn is the time a finger on the glass and a key of the board
+-- wait before the kernel looks at them again, so the number it is compared with is **the hand** and not the glass. Ten
+-- milliseconds is the threshold a person does not notice; a page of ink is about 120 ms with `du` (docs/95, E-7), and it
+-- is said too because it is the other wait of this board.
 local ink_ms = 120
+local hand_ms = 10
 
 local function say(text)
   console.print('luaperf: ' .. text)
@@ -91,10 +93,10 @@ say(string.format('two lengths, %d and %d laps: %.0f and %.0f ns a lap', probe_l
 say(string.format('%d laps in %d ms: %.1f turns, %.1f ns an instruction', laps, wall_ms, turns, ns_instr))
 say(string.format("a turn of %d instructions is worth %.1f ms, the kernel's own turn in it", kBudget, turn_ms))
 say(string.format('a key waits at most %.1f ms, against the %.0f ms a page of ink costs', turn_ms, ink_ms))
-if turn_ms > ink_ms / 2 then
-  say('the budget is a lot next to the glass: a smaller one would be felt')
+if turn_ms > hand_ms then
+  say(string.format('over %d ms a hand waits: cut the slice with `cfg turn`', hand_ms))
 else
-  say('the budget is nothing next to the glass: do not touch it')
+  say(string.format('under %d ms a hand does not notice it: the slice is not what makes a key slow', hand_ms))
 end
 
 -- **And the same numbers on the glass**, because the console of a board is a cable and a person holding the board is not
@@ -134,7 +136,7 @@ line(string.format('%.1f ns an instruction', ns_instr), 4, 0)
 line(string.format('a turn: %.1f ms', turn_ms), 3, 0)
 line(string.format('a key waits %.1f ms', turn_ms), 3, 0)
 line(string.format('a page of ink: %.0f ms', ink_ms), 2, 8)
-line(turn_ms > ink_ms / 2 and 'cut the budget' or 'leave the budget', 3, 0)
+line(turn_ms > hand_ms and 'the turn is felt' or 'the turn is not felt', 3, 0)
 ui.present('gc16')
 
 -- The page stays until the system takes it: three taps of the middle key, the same way out as any other app.
