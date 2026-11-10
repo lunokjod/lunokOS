@@ -842,17 +842,15 @@ int main(int argc, char** argv) {
   // together are one tap (docs/85, docs/90). It is the chip's own scan period, twice.
   pal::set_wait_slice_ms(opts.gui ? kGuiSliceMs : 0);
 
-  // **The boot of the board and not of this process** (docs/75, docs/85): the banner is not the first
-  // thing a board says, it is the first thing it says after the image has come out of the flash and the
-  // PSRAM has been tested. It happens before the kernel so the prompt arrives when it arrives there.
-  if (opts.delays) pal::delay_us(boot_us(hw));
-
-  kernel::boot(hal::platform());
-
-  // **The glass moves ink unless the run asked for a glass that switches pixels** (`--no-ink`): the model
-  // was parsed, printed and never switched on, so every run painted a page no panel has ever shown —no
-  // blink of a `gc16`, no trace of a `du`— while the line at the top said the ink was on (found on the
-  // window, 3/11). It is turned on here, once the panel exists and before the first paint (docs/85).
+  // **The glass before the board** (0.174.6): the ink model, the window and the pump of the window are put in
+  // place **before** `kernel::boot`, because the boot is the thing that paints the splash. They were set up after
+  // it, so every paint of the boot went to a glass nobody was looking at and the window opened on the page of the
+  // launcher: the owner saw the system drawing and never the splash (found on the window, 10/11, docs/85).
+  //
+  // **The glass moves ink unless the run asked for a glass that switches pixels** (`--no-ink`): the model was
+  // parsed, printed and never switched on, so every run painted a page no panel has ever shown —no blink of a
+  // `gc16`, no trace of a `du`— while the line at the top said the ink was on (found on the window, 3/11). It is
+  // turned on here, before the first paint, and the first paint is the splash of the boot (docs/85).
   if (opts.display) {
     if (emu::MemorySurface* glass = emu::memory_surface()) {
       if (!glass->set_ink(opts.ink > 0) && opts.ink > 0) {
@@ -913,11 +911,21 @@ int main(int argc, char** argv) {
 
   // **The panel asks the window from inside its own waits** (see `wait_and_pump`): a paint is eight
   // hundred milliseconds over the bus and four hundred and fifty of ink for a full `gc16`, and a window
-  // redrawn once per turn is a window that shows the page before and the page after (docs/85).
+  // redrawn once per turn is a window that shows the page before and the page after (docs/85). **And it is asked
+  // from the boot too**, which is what puts the frames of the splash in the window while the rest of the board is
+  // still coming up (0.174.6).
   if (emu::MemorySurface* glass = emu::memory_surface()) {
     g_shown_frames = &shown_frames;
     glass->set_wait_pump(&wait_pump, nullptr);
   }
+
+  // **The boot of the board and not of this process** (docs/75, docs/85): the banner is not the first
+  // thing a board says, it is the first thing it says after the image has come out of the flash and the
+  // PSRAM has been tested. It happens before the kernel so the prompt arrives when it arrives there, and now
+  // after the window, so that the splash of the boot lands in it (0.174.6).
+  if (opts.delays) pal::delay_us(boot_us(hw));
+
+  kernel::boot(hal::platform());
 
   int rc = 0;
   if (opts.run_app != nullptr) {

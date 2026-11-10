@@ -5463,7 +5463,23 @@ namespace kernel {
 //     canvas given back is one to take— (`103 cases`, and the suite of the ui is green; the emulator's page of the home
 //     has its eleven icons, checked on the dump, 10/11).
 
-static const char kVersion[] = "0.174.5";
+// 0.174.6 (10/11): **the window of the emulator is up before the board is**. The owner: *«l'emulador obre la pantalla eink
+// molt tard … no es veu l'splash del boot … per quin motiu hi ha crides a un dispositiu que no s'ha "inicialitzat"?»*.
+//
+//   - **why**: the ink model, the window and the pump of the window were put in place **after** `kernel::boot` —and the
+//     boot is the thing that paints the splash—, so every paint of the boot went to a glass nobody was looking at and the
+//     window opened on the page of the launcher. The log of the owner said it plainly: eight `paint` lines of the boot
+//     before the line that opens the window (docs/85);
+//   - **the three go before the boot, and before the curve of the boot too** (`boot_us`, 637 ms on this model): the
+//     window is white —which is what a panel with nothing written on it is—, the splash arrives in it with its `gc16`
+//     blinking, and the page of the launcher comes behind, which is the order of the board (docs/85);
+//   - **the pump wired before the boot is what makes the splash move**: `MemorySurface::wait_and_pump` asks the window
+//     every ten milliseconds of a paint's bus and of its ink, and the splash is eight hundred milliseconds of bus —before
+//     this version that wait was walked with nobody to show it to;
+//   - nothing of the board changed: `--gui` already refused `--no-delay` and `--no-ink`, so a window only ever exists
+//     where the ink and the times are paid (docs/85).
+
+static const char kVersion[] = "0.174.6";
 
 }  // namespace kernel
 
