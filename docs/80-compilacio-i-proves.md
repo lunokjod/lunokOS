@@ -174,8 +174,16 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   són el motiu (docs/80);
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
-  `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **567 proves natives** (`pio test -e test`), i **cap de vermella** (0.174.2): les dotze de la 0.169.0 eren quatre
+  `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30). **Els directoris d'include es
+  dedueixen de `lib/*/include`** (0.177.2) i no són una llista escrita a mà: la que hi havia es va quedar
+  abans del lector, `kernel/ui.h` va començar a demanar `epub/page.h` i **cada push va fallar aquí** amb
+  `fatal error: 'epub/page.h' file not found` durant quaranta commits. **I els fitxers també es dedueixen de
+  `lib/*/src/*.cpp`** (0.177.3) per la mateixa raó: la llista escrita a mà s'havia quedat a deu llibreries i
+  `epub`, `zip` i `hal` —tres que l'amfitrió compila— no les mirava ningú, que és exactament la trampa que ja
+  havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
+  identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
+  `clang++` i l'intèrpret com a C++ no és el mateix programa;
+- les **572 proves natives** (`pio test -e test`), i **cap de vermella** (0.177.3: comptades el 10/11 en 2 min 40 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -192,10 +200,14 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   i **el visor obrint els quatre formats** que el nucli llegeix, amb un dit en una fila i la tornada pel botó
   (`test_apps`), i la de la 0.174.2 és **el peu d'una llista essent el paginador del sistema** —la bola de la pàgina
   que es llegeix és un disc, les altres una anella i el peu cau sota l'última fila— (`test_ui`, que és vermella amb el
-  codi de la 0.174.1);
+  codi de la 0.174.1), i la de la 0.177.3 és **el que costa moure l'anella d'una graella**: dues cel·les i no la pàgina,
+  comptat en regions de tinta i en píxels del quadre, amb dos píxels de testimoni a les cel·les que l'anella no travessa
+  (`test_ui`). **Mesurades el 10/11: 572 casos verds en 2 min 40 s** (104 de `test_ui` i 197 de `test_apps`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
-  `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
-  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.
+  `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques**, amb
+  guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les sis les compila el CI**
+  (0.177.3): `ttgo-t-koala` no hi era, i una placa fora del job és una placa que pot deixar de compilar sense cap
+  vermell enlloc.
 
 El CI **no flasheja cap placa ni pren cap mesura de camp**: això continua sent d'una persona (docs/95).
 
@@ -306,7 +318,7 @@ Cinc nivells, i cada cosa va al seu:
 | **Unitat** | `test/test_bar/` | La barra: que es quedi les 48 files de dalt, que es pinti quan canvia alguna cosa seva, que **no** es pinti quan no canvia res i que el gir se l'emporti amb la vista |
 | **Contracte** | `test/test_luabind/` | Cada funció de `30 · API`: que existeixi, que torni el que diu, i **què fa quan la capacitat no hi és**. I el que **costa** l'intèrpret: amb una banda que diu el preu d'una instrucció, un bucle de dues mil sumes en paga el doble a quatre mil, i una banda que en diu zero —una placa— no en paga cap (docs/85) |
 | **Shell** | `test/test_shell/` | Les ordres del prompt responen i no peten, `cat` i `hexdump` inclosos, **i el que costa es conta**: una crida pel VFS és una fila del seu comptador amb el seu temps, `stats` l'ensenya i `stats reset` la torna a zero, i una línia de log porta sempre la seva lletra de nivell i la seva etiqueta |
-| **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts, **i el comptador d'una crida que torna una promesa, que ha de portar el temps de l'espera i no el de la trucada**. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra. També **el camí d'una persona pels controls**: el dial canvia el focus, el centre activa el botó i el tàctil fa el mateix amb les coordenades de la vista, amb un `ui.control` genèric que també és enfocable. I **el rellotge de fitxatge amb la cara dels seus botons** (0.173.0): la cara és al disc del test, la línia que diu que les tecles diuen paraules **no** surt al registre, i el vidre té tinta dins de cada una de les tres tecles — comptada sobre `level_at` |
+| **App** | `test/test_apps/` | Apps de Lua senceres: el manifest, l'intèrpret, les promeses, la consola i el codi de sortida junts, **i el comptador d'una crida que torna una promesa, que ha de portar el temps de l'espera i no el de la trucada**. La consola s'escriu a un fitxer (`dup2` sobre `STDOUT_FILENO`) i el que l'app ha escrit es comprova lletra a lletra. També **el camí d'una persona pels controls**: el dial canvia el focus, el centre activa el botó i el tàctil fa el mateix amb les coordenades de la vista, amb un `ui.control` genèric que també és enfocable. I **el rellotge de fitxatge amb la cara dels seus botons** (0.173.0): la cara és al disc del test, la línia que diu que les tecles diuen paraules **no** surt al registre, i el vidre té tinta dins de cada una de les tres tecles — comptada sobre `level_at`. I **les cares d'una pàgina** (0.177.1): l'app `fonts` obre **quatre** mostres seguides, torna a la lleixa entre una i l'altra, i la quarta no pot dir «there is no room for another face» perquè la cara de cada mostra es dona amb la seva pàgina |
 | **Maquinari** | `test/device/` | Una llista de comprovacions que només es poden fer amb la placa a la mà (encara no hi és) |
 
 Regles:

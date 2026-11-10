@@ -1,5 +1,5 @@
 # The safety net of docs/80: every push and every pull request runs the native suite, builds the
-# five environments and refuses code the C++ compiler can see is unreachable. **Nothing here flashes
+# six environments and refuses code the C++ compiler can see is unreachable. **Nothing here flashes
 # a board**: docs/80 says a person does that, and the field measurements stay manual (docs/95).
 name: ci
 
@@ -22,11 +22,11 @@ jobs:
     timeout-minutes: 30
     steps:
       # The full history is what lets the version step walk the commits of this push or pull request.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -45,8 +45,8 @@ jobs:
           fi
           python3 tools/check_version.py "$BASE" HEAD
 
-      # One job and one cache: the four ESP32 environments share the same toolchain, so it is
-      # downloaded once and not four times.
+      # One job and one cache: the five ESP32 environments share the same toolchain, so it is
+      # downloaded once and not five times.
       - name: cache PlatformIO
         uses: actions/cache@v4
         with:
@@ -63,24 +63,39 @@ jobs:
 
       # **The warning GCC does not have**: `-Wunreachable-code` is a no-op there, and the dead
       # scopes of 0.89.1 lived through `-Wall -Wextra -Werror`. Clang sees them (docs/80).
+      #
+      # **The includes are derived and not a list** (10/11): the list that used to be here was written
+      # before the reader, so `lib/kernel/include/kernel/ui.h` asked for `epub/page.h` —and `ui.h` is
+      # included by `ui.cpp`, `shell.cpp`, `button.cpp`, `touch.cpp` and `kernel.cpp`— and this step
+      # failed on **every** run since with `fatal error: 'epub/page.h' file not found`: a red workflow
+      # that said nothing about the code. A list of directories is a list to keep in step with `lib/`,
+      # and nobody kept it; the loop below cannot fall behind. What is left out is the rule of the
+      # emulator's own `lib_ignore` (platformio.ini): the board identities and the ESP32 halves are not
+      # the host's business, and one of them inside the include path hides the host's `board/` (docs/50).
+      #
+      # **And the files are derived for the same reason** (0.177.3): the ten libraries listed here by
+      # hand were the libraries of the day they were written, so `epub`, `zip` and `hal` —three the host
+      # builds and this step never looked at— were outside the one check that sees an unreachable scope.
+      # What is left out is the ESP32 halves, and **Lua, because it is C**: this is `clang++`, and the
+      # interpreter as C++ is not the same program.
       - name: no unreachable code
         run: |
           set -euo pipefail
-          INC="-Ilib/hal/include -Ilib/pal/include -Ilib/kernel/include -Ilib/luabind/include \
-               -Ilib/alarms/include -Ilib/json/include -Ilib/qr/include -Ilib/img/include \
-               -Ilib/ttf/include -Ilib/inflate/include -Ilib/hal_emulator/include \
-               -Ilib/pal_host/include -Ilib/lua/include"
-          for f in \
-            lib/kernel/src/*.cpp \
-            lib/luabind/src/*.cpp \
-            lib/alarms/src/*.cpp \
-            lib/json/src/*.cpp \
-            lib/qr/src/*.cpp \
-            lib/img/src/*.cpp \
-            lib/ttf/src/*.cpp \
-            lib/inflate/src/*.cpp \
-            lib/pal_host/src/*.cpp \
-            lib/hal_emulator/src/*.cpp; do
+          INC="$(for d in lib/*/include; do
+            case "$d" in
+              lib/board_*|lib/hal_atom/include|lib/hal_paper/include|lib/hal_esp32/include|lib/hal_tkoala/include|lib/pal_esp32/include)
+                continue ;;
+            esac
+            printf -- '-I%s ' "$d"
+          done)"
+          FILES="$(for f in lib/*/src/*.cpp; do
+            case "$f" in
+              lib/hal_atom/*|lib/hal_paper/*|lib/hal_esp32/*|lib/hal_tkoala/*|lib/pal_esp32/*)
+                continue ;;
+            esac
+            printf '%s\n' "$f"
+          done)"
+          for f in $FILES; do
             echo "clang: $f"
             clang++ -std=c++11 -fsyntax-only $INC \
               -Wunreachable-code -Wunreachable-code-aggressive \
@@ -106,3 +121,9 @@ jobs:
 
       - name: build esp32
         run: pio run -e esp32-devkit
+
+      # **The sixth band, which this workflow never built** (0.177.3): `ttgo-t-koala` is an
+      # environment of `platformio.ini` like the other five, and a board outside this job is a board
+      # that can stop compiling without a red anywhere (docs/80).
+      - name: build koala
+        run: pio run -e ttgo-t-koala

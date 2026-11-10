@@ -805,6 +805,15 @@ struct UIOps {
   // wrapping (docs/30, docs/90).
   uint8_t (*icon_grid_page_cell)(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
                                  int8_t delta);
+  // **What a move of the ring of a grid costs** (0.177.3): `from` and `to` are the cell that wore the ring and the cell
+  // that wears it now, from 1 and 0 for no ring, so the step of the dial, the focus coming and the focus going say the
+  // same thing with two numbers. **`cursor_moved` says which of the two it is**: a cursor that walked, where the pages are
+  // compared because a cursor that changes page lays the cells out again, or a ring that comes and goes on a cell the
+  // cursor does not leave —the same cell twice—. True when the control owes nothing more than what the kernel damaged
+  // —the two cells and the air between them, in the cells of the kernel, nothing at all in a grid of entries— and false
+  // when the caller has to repaint it whole (docs/30, docs/90).
+  bool (*icon_grid_ring)(int16_t slot, uint8_t count, uint8_t from, uint8_t to, bool cursor_moved, uint8_t columns,
+                         uint8_t scale, bool cells_of_the_kernel);
 };
 
 void set_ui_ops(const UIOps& ops);

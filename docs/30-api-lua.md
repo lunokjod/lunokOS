@@ -1424,7 +1424,10 @@ fons que pinta, i no gasta cap byte de píxel. Es posa amb `place`, s'afegeix a 
 | `label.scale` | 1–16 (1 per defecte) | La mida del cos, com el `scale` de `ui.text` |
 
 - **La cara és la del canvas**: `label:font(f)` (o `label:font(nil)` per la del sistema) li posa una cara de
-  `ui.load_font`; el label la fa servir per mesurar i per dibuixar.
+  `ui.load_font`; el label la fa servir per mesurar i per dibuixar. **I el control en guarda el número i no l'objecte**
+  (0.177.1): si l'app dona la cara mentre el control encara l'ha de dibuixar —o deixa que el recollidor de Lua se
+  l'emporti, que és el mateix—, el control passa a pintar amb la cara del sistema i no ho diu enlloc. Una cara que una
+  pàgina fa servir viu tant com la pàgina, i es dona **després** dels controls (docs/75).
 - **Si el text no hi cap, s'acaba amb `...`**: es queda el prefix més llarg que, amb els tres punts, cap a
   l'amplada del marc; si ni els punts hi caben, els punts són el que es dibuixa i el marc els talla.
 - **Només es redibuixa quan cal**: el label neix amb el senyal de dibuixar-se, i després només quan canvia el
@@ -2448,10 +2451,14 @@ les opcions i el col·loca on vol —normalment on és el dit, i per això és c
   de dues, i les columnes es reparteixen senceres. **Cap caixa fa menys de 52 píxels d'alçada** —el mínim que aquest
   sistema es permet per a res que s'hagi de tocar amb el dit— i les caixes **creixen** fins a omplir la targeta: tres
   opcions en una targeta alta són tres portes altes.
-- **Dos senyals, com al calendari**: l'opció de `primary` s'**inverteix** i el dial dibuixa **l'anella** dins de la
-  caixa on és, en el to de les paraules, que és el que contrasta tant si la caixa és paper com si és tinta.
-- **`tag`** és una paraula curta al davant de l'etiqueta («sys» per a una app del sistema, «lua» per a un guió) i va en
-  el to `dim`, perquè el que una persona llegeix és l'etiqueta.
+- **La fila és una línia de paraules i no una tecla** (0.177.0): la paraula escrita sobre el paper de la targeta, i **la
+  fila on és el dial, una banda de tinta d'extrem a extrem amb la paraula girada** —el menú contextual del projecte del
+  paper, `MenuBar::draw()`, i no una pila de tecles amb la cara aixecada quatre píxels i una ombra a sota— (docs/92).
+- **Dos senyals, com al calendari**: la fila del dial és la banda de tinta, i l'opció de `primary` porta **un filet d'un
+  píxel**, que és tot el que queda del marc de tres d'una tecla. La fila del dial no en porta cap, perquè la banda ja ho
+  diu tot.
+- **`tag`** és una paraula curta **al final de la fila**, a la dreta («sys» per a una app del sistema, «lua» per a un
+  guió), i va en el to `dim`, perquè el que una persona llegeix és l'etiqueta.
 - **Les fletxes caminen les opcions que són a la targeta** (les amagades les salta) i **el centre en tria una** amb
   `on_pick(self, index)`, on `index` és el número de l'opció dins d'`items`. **Un dit tria la caixa que prem**, no la
   que tenia l'anella. **Tancar el menú és de l'app**: la regla de sempre, llegir l'acció, tancar i llavors fer-la.
@@ -2746,6 +2753,12 @@ d'un cop d'ull i el nom és el que ho confirma**, i per això un menú d'apps é
   amb `on_pick(self, index)`. **Un dit tria la cel·la que prem**, no la que tenia l'anella.
 - **`columns = 0`** deixa que el control decideixi les columnes per l'amplada, amb noranta-sis píxels com a cel·la més estreta:
   dues meitats d'un objectiu no són dues coses que es puguin prémer.
+- **Moure l'anella costa dues cel·les i no la pàgina** (0.177.3): quan el dial camina dins la graella, quan el recorregut
+  li dona el focus i quan l'hi treu, l'únic que canvia és l'anella, i el que s'ha de pintar és el rectangle que ocupen la
+  cel·la que deixa i la que entra —les dues senceres, perquè el paper de la graella tapa l'aire del mig—. Una cel·la que
+  salta de pàgina sí que és el control sencer: les cel·les es tornen a col·locar i el peu diu un altre número. I en una
+  graella de controls de l'app (`ui.grid_entry`) no s'ha de pintar **res**: cada cel·la pinta la seva anella ella mateixa,
+  i una app que invalidés la graella a cada canvi de focus estava pintant les nou icones per una anella.
 
 ```lua
 local grid = ui.icon_grid(500, 400)

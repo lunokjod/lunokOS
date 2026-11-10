@@ -788,6 +788,18 @@ uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_
 uint8_t icon_grid_page_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
                             int8_t delta);
 
+// **What a move of the ring of a grid costs** (0.177.3): `from` is the cell that wore it and `to` the cell that wears it
+// now, both from 1 and 0 for no ring at all, so the three things that move it —the dial stepping inside the grid, the
+// walk giving the grid the focus and the walk taking it away— say the same thing with two numbers. **`cursor_moved` says
+// which of the two things the numbers are**: a cursor that walked —and then the two pages are compared, because a cursor
+// that changes page lays every cell out again and moves the footer— or the ring coming and going on a cell the cursor
+// does not leave, which is **the same cell given twice**. The answer is **true when the glass already owes nothing more**
+// than the damage this put down, and false when the caller has to repaint the whole control. **A grid of entries answers
+// true and damages nothing**: its cells are the app's controls and they paint their own ring, so what moves on the paper
+// of the grid is nothing at all —this is what made a launcher repaint its nine pictures for one ring (docs/30, docs/90).
+bool icon_grid_ring(int16_t slot, uint8_t count, uint8_t from, uint8_t to, bool cursor_moved, uint8_t columns,
+                    uint8_t scale, bool cells_of_the_kernel);
+
 // ---- the keyboard: the system's, not a control (docs/30, docs/90) ----
 //
 // **A keyboard is chrome**: it is a band at the bottom of the view that the system paints over the page and that

@@ -4228,6 +4228,9 @@ bool list_field_valid(lua_State* L, const char* key, int value) {
 // painters further down.
 void ui_set_disabled_below(lua_State* L, int object, bool off, int depth);
 bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value);
+// **What a move of the ring of a grid costs** (0.177.3): the field of a grid writes it here, before the paints that own
+// the answer are compiled, and false is "not a grid, or the kernel cannot measure it" (docs/30, docs/90).
+bool ui_invalidate_grid_ring(lua_State* L, int object, uint8_t from, uint8_t to, bool cursor_moved);
 
 int l_canvas_newindex(lua_State* L) {
   lua_getiuservalue(L, 1, 1);
@@ -4237,6 +4240,9 @@ int l_canvas_newindex(lua_State* L) {
   }
   const char* key = lua_type(L, 2) == LUA_TSTRING ? lua_tostring(L, 2) : nullptr;
   bool redraw = false;
+  // **The cell a grid's cursor was on** (0.177.3), read before the field is written: it is one of the two cells a step
+  // inside the page paints (docs/30, docs/90).
+  lua_Integer index_before = 0;
   if (key != nullptr) {
     lua_getfield(L, -1, "__label");
     const bool label = lua_toboolean(L, -1) != 0;
@@ -4545,12 +4551,33 @@ int l_canvas_newindex(lua_State* L) {
         lua_pop(L, 1);
         redraw = !same;
       }
+      // **The cell the dial is on is remembered here** (0.177.3): a step within the page paints the two cells the ring
+      // leaves and enters, and the rectangle of them is asked for after the field is written, so the old number has to be
+      // read before it is gone (docs/30, docs/90).
+      if (strcmp(key, "index") == 0) {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        index_before = lua_isnumber(L, -1) ? lua_tointeger(L, -1) : 0;
+        lua_pop(L, 1);
+      }
     }
   }
   lua_pushvalue(L, 2);
   lua_pushvalue(L, 3);
   lua_rawset(L, -3);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  // **A cursor that walked within its page repaints the cell it left and the cell it entered** (0.177.3): the ring is the
+  // only thing a step changed, and a launcher that repainted its whole page of pictures for it —every cell of a grid of
+  // entries is damaged again by its own invalidation, because the paper of the grid covers them— (docs/30, docs/90).
+  if (key != nullptr && strcmp(key, "index") == 0 && redraw) {
+    const lua_Integer index_after = lua_isnumber(L, 3) ? lua_tointeger(L, 3) : 0;
+    // **The two cells are the numbers of the cursor and not a ring that is there**: the grid of entries has the cursor and
+    // the ring is each cell's own, and it is the **page** that has to be compared in both kinds —two cells of the page, or
+    // the whole control when the page turns— (docs/30, docs/90).
+    const uint8_t from = (index_before >= 1) ? static_cast<uint8_t>(index_before) : 0;
+    const uint8_t to = (index_after >= 1) ? static_cast<uint8_t>(index_after) : 0;
+    if (ui_invalidate_grid_ring(L, 1, from, to, true)) redraw = false;
+  }
   // **A control that stops being focusable gives the focus back**: leaving the ring on it would be a
   // control the dialog says is out of the walk and still looks like the one Enter activates. The first
   // control that becomes focusable takes the empty focus, the same way a new button does.
@@ -8802,6 +8829,48 @@ void ui_invalidate(lua_State* L, int object) {
   }
 }
 
+// **What a move of the ring of a grid costs, asked before the whole control is thrown away** (0.177.3): the cells of a
+// grid are the only thing that changes when the dial steps inside it —or when the walk gives the grid the focus, or takes
+// it away—, so a call to `ui_invalidate` here paints every picture of the page for one ring that moved (docs/30, docs/90).
+// The two numbers are the cell that wore the ring and the cell that wears it, from 1 and 0 for no ring, and
+// `cursor_moved` says whether the cursor walked —the pages are compared and a cursor that changes page is the whole
+// control— or the ring only came or went on the cell the cursor does not leave, which is the same cell twice. False when
+// this control is not a grid or the kernel has no answer for it, and then the caller invalidates it the way it always did.
+bool ui_invalidate_grid_ring(lua_State* L, int object, uint8_t from, uint8_t to, bool cursor_moved) {
+  if (g_ui_ops.icon_grid_ring == nullptr) return false;
+  object = lua_absindex(L, object);
+  if (!ui_field_bool(L, object, "__icon_grid", false)) return false;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (!ui_control_alive(canvas)) return false;
+  // **A grid of entries counts its cells in its own tree** (0.105.0), the same rule the paint and the step follow: a list
+  // of names is the kernel's cells and no list is the controls the app built.
+  lua_Integer cells = 0;
+  lua_Integer entries = 0;
+  lua_getiuservalue(L, object, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "items");
+    if (lua_istable(L, -1)) cells = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    lua_pop(L, 1);
+    lua_getfield(L, -1, "children");
+    if (lua_istable(L, -1)) entries = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  const bool of_the_kernel = cells > 0;
+  lua_Integer total = of_the_kernel ? cells : entries;
+  if (total <= 0) return false;
+  if (total > static_cast<lua_Integer>(kMaxGridCells)) total = static_cast<lua_Integer>(kMaxGridCells);
+  // The same defaults the paint uses, because a box measured with another number is not the box that was drawn.
+  lua_Integer columns = ui_field_number(L, object, "columns", 0);
+  lua_Integer scale = ui_field_number(L, object, "scale", 2);
+  if (columns < 0) columns = 0;
+  if (columns > 255) columns = 255;
+  if (scale < 1) scale = 1;
+  if (scale > 16) scale = 16;
+  return g_ui_ops.icon_grid_ring(canvas->slot, static_cast<uint8_t>(total), from, to, cursor_moved,
+                                 static_cast<uint8_t>(columns), static_cast<uint8_t>(scale), of_the_kernel);
+}
+
 // Calls one of the app's hooks on a control. `with_flag` says whether the hook takes the extra boolean, and
 // `flag` is that boolean: the focus for `on_focus` and whether the box is now checked for `on_change`
 // (docs/30). A hook that throws is said on the console and does not take the app down, the same as
@@ -9341,7 +9410,14 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   if (old_index != index && old_index >= 0) {
     lua_rawgeti(L, objects, old_index + 1);
     if (ui_set_field_bool(L, -1, "focused", false)) {
-      ui_invalidate(L, -1);
+      // **The ring of a grid leaves one cell** (0.177.3): the paper of the control and the other cells of the page did not
+      // change, so the grid is asked for that cell alone —the cursor does not move, so the cell is given twice and no page
+      // is compared— and the whole control is only painted when the kernel has no answer (docs/30, docs/90).
+      const lua_Integer cell = ui_field_number(L, -1, "index", 0);
+      const uint8_t at = (cell >= 1) ? static_cast<uint8_t>(cell) : 0;
+      if (!ui_invalidate_grid_ring(L, -1, at, at, false)) {
+        ui_invalidate(L, -1);
+      }
       ui_call_hook(L, -1, "on_focus", true, false);
     }
     // **A control the dial leaves is not entered any more** (0.116.0 for the boxes, 0.117.0 for the slider): the other
@@ -9369,7 +9445,14 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   g_ui_focus_item = targets[index].item;
   lua_rawgeti(L, objects, index + 1);
   if (ui_set_field_bool(L, -1, "focused", true)) {
-    ui_invalidate(L, -1);
+    // **And the ring of a grid arrives on one cell** (0.177.3), the same rule as the one that leaves: the cell the cursor
+    // is on —given twice, because the cursor does not move— is the one rectangle, and a grid of entries damages nothing at
+    // all because its cells paint their own ring (docs/30, docs/90).
+    const lua_Integer cell = ui_field_number(L, -1, "index", 0);
+    const uint8_t at = (cell >= 1) ? static_cast<uint8_t>(cell) : 0;
+    if (!ui_invalidate_grid_ring(L, -1, at, at, false)) {
+      ui_invalidate(L, -1);
+    }
     ui_call_hook(L, -1, "on_focus", true, true);
   }
   if (targets[index].item != 0 &&
@@ -11404,7 +11487,13 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
         lua_setfield(L, -2, "index");
       }
       lua_pop(L, 1);
-      ui_invalidate(L, object);
+      // **Two cells moved and not the page** (0.177.3): the ring the dial walks is the only thing that changed, so the
+      // grid is asked for the rectangle of the cell it leaves and the cell it enters and only a step that changes the
+      // page —where the cells are laid out again and the footer says another number— repaints the whole control
+      // (docs/30, docs/90).
+      const uint8_t from = (value >= 1) ? static_cast<uint8_t>(value) : 0;
+      const uint8_t to = static_cast<uint8_t>(next);
+      if (!ui_invalidate_grid_ring(L, object, from, to, true)) ui_invalidate(L, object);
     }
     lua_pop(L, 1);
     return moved;

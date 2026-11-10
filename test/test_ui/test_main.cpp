@@ -2750,23 +2750,19 @@ void test_a_menu_hides_the_options_the_app_cannot_do() {
   // The card: three pixels of ink round it and paper inside.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(1, 100));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(12, 100));
-  // **Every option of a menu is a button** (0.97.0, docs/92): paper inside with a frame of ink, **the option the dial
-  // is on inverted** —ink face and paper word—, and the one the app calls primary wearing the frame of three.
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(26, 30));   // the first row, paper inside its frame
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(30, 100));   // the second row, which is the row the dial is on
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(30, 138));  // the third, which is primary and not the one the dial is on
-  // **And the frame of a primary button is three pixels**, in the face and not on the box: three rows of ink and the
-  // fourth the paper of the inside.
-  // **A primary button wears a heavier frame than the others**, counted over the first rows of each option.
-  int thin_frame = 0;
-  int thick_frame = 0;
-  for (uint16_t y = 15; y < 30; ++y) {
-    if (view_level(30, y) == 0) ++thin_frame;
-  }
-  for (uint16_t y = 127; y < 142; ++y) {
-    if (view_level(30, y) == 0) ++thick_frame;
-  }
-  TEST_ASSERT_GREATER_THAN(thin_frame, thick_frame);
+  // **A row of a menu is a line of words and not a key** (0.177.0, docs/92): paper with the word written on it, and
+  // **the row the dial is on is a band of ink from edge to edge**. The samples are taken on the left margin of each row
+  // and not on its middle, because the middle is where the word is —and on the row of the dial the word is the paper
+  // turned over, which would be measured instead of the band—.
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 30));   // the first row: paper, and no frame of its own
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 70));   // and paper right up to where the band of the second one starts
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 74));    // the band of the row of the dial, from its first row
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 100));   // its middle, at the left margin
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(270, 100));  // and its middle at the right, past the word
+  // **A primary option wears a hairline**, the only thing left of the frame of three a key had: the first row of the
+  // third one is the tone of the dim ink, and the row under it is paper again.
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(20, 128));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 138));
   // **The boxes the finger asks**: one per row, the padding round the card is no option at all.
   TEST_ASSERT_EQUAL_UINT8(1, ui::menu_hit(card, "", three, 3, 2, 150, 47));
   TEST_ASSERT_EQUAL_UINT8(2, ui::menu_hit(card, "", three, 3, 2, 150, 101));
@@ -3490,6 +3486,85 @@ void test_a_grid_puts_the_page_where_the_cursor_is() {
   ui::release(grid);
 }
 
+// **A move of the ring of a grid costs the cells it leaves and enters, and not the page** (0.177.3). The ring of a grid is
+// the only thing that changes when the dial steps inside it —or when the walk gives it the focus, or takes it away—, and
+// the paint of a grid covers the air between the cells, so what it owes is the rectangle the two cells span, **whole
+// cells**: nine pictures painted again for one ring was what every step cost. A grid of entries owes nothing at all,
+// because its cells are controls and each one paints its own ring; and a step that turns the page is the whole control,
+// because the cells are laid out again and the footer says another number (docs/30, docs/90).
+void test_a_ring_of_a_grid_damages_the_cells_it_crosses() {
+  fresh_view();
+  int16_t grid = -1;
+  // A grid without a view of its own: the paper of the page is this control's, painted into the view of the app.
+  TEST_ASSERT_TRUE(ui::create(300, 300, 0, false, grid));
+  TEST_ASSERT_TRUE(ui::place(grid, 0, 0));
+  const ui::GridItem names[6] = {{"One", "1"}, {"Two", "2"}, {"Three", "3"},
+                                 {"Four", "4"}, {"Five", "5"}, {"Six", "6"}};
+  // Three columns of a hundred and a cell of a hundred and two: six cells are two rows, one page above the footer.
+  // **What a step of the dial used to cost, measured**: the frame of the control, which is the whole page of pictures.
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, names, 6, 1, 0, 3, 0, 8, 15, 2, true, true));
+  ui::end_draw(grid);
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_TRUE(ui::invalidate(grid));
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, names, 6, 2, 0, 3, 0, 8, 15, 2, true, true));
+  ui::end_draw(grid);
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(300, ui::damage(0).w);
+  TEST_ASSERT_EQUAL_UINT16(300, ui::damage(0).h);
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **And what it costs now**: the ring is on the first cell, and the two cells it crosses are what is owed.
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, names, 6, 1, 0, 3, 0, 8, 15, 2, true, true));
+  ui::end_draw(grid);
+  TEST_ASSERT_TRUE(ui::present());
+  // **The witnesses**: one pixel of a tone the grid never paints, in the middle of the third cell and of the sixth. A paint
+  // of those cells takes them away and a paint of the two cells that wear the ring leaves them alone.
+  TEST_ASSERT_TRUE(ui::pixel(250, 40, 5, nullptr));
+  TEST_ASSERT_TRUE(ui::pixel(250, 140, 5, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+
+  TEST_ASSERT_TRUE(ui::icon_grid_ring(grid, 6, 1, 2, true, 3, 2, true));
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, names, 6, 2, 0, 3, 0, 8, 15, 2, true, true));
+  ui::end_draw(grid);
+  // **The damage is the two cells of the first row and nothing else**, one region and not two hundred by three hundred.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(0, ui::damage(0).x);
+  TEST_ASSERT_EQUAL_UINT16(0, ui::damage(0).y);
+  TEST_ASSERT_EQUAL_UINT16(200, ui::damage(0).w);
+  TEST_ASSERT_EQUAL_UINT16(102, ui::damage(0).h);
+  TEST_ASSERT_TRUE(ui::present());
+  // The ring is on the second cell now and the first one is paper.
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(102, 2));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(2, 2));
+  // **And the cells the ring did not cross were not painted**: their witness is still there, which is the consequence of
+  // the damage and not a number of it.
+  TEST_ASSERT_EQUAL_UINT8(5, view_level(250, 40));
+  TEST_ASSERT_EQUAL_UINT8(5, view_level(250, 140));
+
+  // **A ring that goes does not turn the page either**: it is the cell it was on, and only that one. The cursor does not
+  // move, so the cell is given twice and no page is compared.
+  TEST_ASSERT_TRUE(ui::icon_grid_ring(grid, 6, 2, 2, false, 3, 2, true));
+  TEST_ASSERT_TRUE(ui::icon_grid_draw(grid, names, 6, 2, 0, 3, 0, 8, 15, 2, false, true));
+  ui::end_draw(grid);
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(100, ui::damage(0).x);
+  TEST_ASSERT_EQUAL_UINT16(100, ui::damage(0).w);
+
+  // **A step that turns the page is the whole control**: the cells are laid out again and the footer says another page.
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_FALSE(ui::icon_grid_ring(grid, 9, 6, 7, true, 3, 2, true));
+  // **And a cursor that appears on another page turns it as well** (the case the suite found, `back 0 240`): the grid was
+  // on the page of no cursor, which is the first one, and the cell the app put on it is on the second.
+  TEST_ASSERT_FALSE(ui::icon_grid_ring(grid, 9, 0, 7, true, 3, 2, true));
+  // And a grid of entries owes nothing: its cells are controls of the app and they paint their own ring.
+  TEST_ASSERT_TRUE(ui::icon_grid_ring(grid, 6, 1, 2, true, 3, 2, false));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());
+  // A grid with no cells has nothing to measure, and a slot that is not there is not answered.
+  TEST_ASSERT_FALSE(ui::icon_grid_ring(grid, 0, 1, 2, true, 3, 2, true));
+  TEST_ASSERT_FALSE(ui::icon_grid_ring(-1, 6, 1, 2, true, 3, 2, true));
+  ui::release(grid);
+}
+
 // **A sparkline is the shape of the window and not its numbers**: the bar of the biggest sample touches the top, the
 // others are proportional to it, there is a gap between two bars, and **the second series is an outline** because the
 // two are parts of one total and the ink is the only level a chart may use (docs/30, docs/90).
@@ -3751,6 +3826,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_selector_is_a_field_with_a_door_on_its_right);
   RUN_TEST(test_a_band_of_notifications_puts_the_newest_at_the_bottom);
   RUN_TEST(test_a_grid_puts_the_page_where_the_cursor_is);
+  RUN_TEST(test_a_ring_of_a_grid_damages_the_cells_it_crosses);
   RUN_TEST(test_a_button_that_redraws_asks_its_child_to_draw_again);
   RUN_TEST(test_a_label_inside_a_button_is_clipped_to_the_button);
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);

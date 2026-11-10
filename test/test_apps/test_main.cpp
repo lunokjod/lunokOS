@@ -11823,6 +11823,103 @@ void test_the_eraser_app_empties_the_card_it_may_not_write(void) {
   storage->remove("/apps/wipe");
 }
 
+// **A face that a page draws with lives as long as the page** (0.177.1): the app of the faces is a shelf and a specimen, and
+// the specimen loads a face of `/fonts` and gives it back when it goes. **The board keeps three of them** (`kMaxFaces`), so
+// four specimens opened one after the other are the case: with the face and its page sharing a life, all four open and none
+// is refused. With the face left to the collector of Lua, the fourth is answered «there is no room for another face» —and,
+// worse, the labels of a page whose face was collected draw with the face of the system without a line anywhere— (docs/30,
+// docs/75).
+void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // **Four faces in the disk of this test**, which is what the shelf lists.
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans.ttf"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusansmono.ttf"));
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavuserif.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  // **Where the rows are, from the app** (`run fonts shelf`), and which of them are faces: a file that is not a face has a
+  // row with no door on it, so the case takes the names that end in one of the four a face can have (docs/30, docs/85).
+  kernel::log_echo(true);
+  pump_captured(120, g_out, sizeof(g_out), "run fonts shelf");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: row "), g_out);
+
+  struct Row {
+    char name[64];
+    int x;
+    int y;
+  };
+  Row rows[24] = {};
+  int row_count = 0;
+  for (const char* at = strstr(g_out, "fonts: row "); at != nullptr && row_count < 24;
+       at = strstr(at + 12, "fonts: row ")) {
+    Row one = {};
+    if (sscanf(at, "fonts: row %63s %d %d", one.name, &one.x, &one.y) != 3) continue;
+    if (strstr(one.name, ".ttf") == nullptr && strstr(one.name, ".bdf") == nullptr &&
+        strstr(one.name, ".pcf") == nullptr && strstr(one.name, ".lfont") == nullptr) {
+      continue;
+    }
+    rows[row_count++] = one;
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(3, row_count, g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto tap = [&](int x, int y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y))) return false;
+    pump_turns(40);
+    if (!panel->finger_up(0)) return false;
+    // The window of the double and of the triple, the same as the case of the time clock's keys (docs/30, docs/92).
+    pump_turns(400);
+    return true;
+  };
+
+  // **Four specimens, one after the other**: each one opens its face, is looked at and goes back to the shelf —which is
+  // where the face has to be given back, because the board keeps three (docs/75).
+  for (int i = 0; i < 4 && i < row_count; ++i) {
+    capture_begin();
+    TEST_ASSERT_TRUE_MESSAGE(tap(rows[i].x, rows[i].y), rows[i].name);
+    capture_end(g_out, sizeof(g_out));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: open "), g_out);
+    TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: cannot open"), g_out);
+
+    // And back, from the door the app says where it is.
+    int back_x = 0;
+    int back_y = 0;
+    const char* box = strstr(g_out, "fonts: backbox ");
+    TEST_ASSERT_NOT_NULL_MESSAGE(box, g_out);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(box, "fonts: backbox %d %d", &back_x, &back_y), g_out);
+    capture_begin();
+    TEST_ASSERT_TRUE(tap(back_x, back_y));
+    capture_end(g_out, sizeof(g_out));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: back"), g_out);
+  }
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -12020,6 +12117,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
+  RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
   RUN_TEST(test_the_eraser_app_empties_the_store_after_the_card_is_accepted);
   RUN_TEST(test_the_eraser_app_empties_the_card_it_may_not_write);
   UNITY_END();

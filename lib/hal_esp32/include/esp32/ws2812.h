@@ -17,8 +17,10 @@
 #define LUNOK_ESP32_WS2812_H
 
 #include <cstdio>
+#include <cstring>
 #include <stdint.h>
 
+#include <esp_heap_caps.h>
 #include <esp32-hal-rgb-led.h>
 #include <esp32-hal-rmt.h>
 
@@ -62,6 +64,7 @@ class Ws2812Strip : public ILed {
       return;
     }
     if (!ensure_rmt()) return;
+    if (!ensure_wire()) return;
     for (uint32_t light = 0; light < kCount; ++light) {
       // GRB is the order this family's chips take, and it is the order the core
       // writes in (docs/50).
@@ -89,6 +92,24 @@ class Ws2812Strip : public ILed {
  private:
   // One channel of the RMT, taken the first time a frame has to go out. The core's
   // own writer does the same for the single light (docs/50).
+  // **The frame on the wire is taken when a frame has to go out, and not when the board boots** (0.177.2):
+  // twenty-four entries of four bytes per light are **2 400 bytes of `DRAM` held for ever** on the ATOM Matrix —a board
+  // whose strip is asleep almost all day— and they were the last 584 bytes the linker of that environment did not have
+  // (`region 'dram0_0_seg' overflowed by 584 bytes`, found repairing the workflow of CI). The header of this file already
+  // says that the biggest board is not to be paid for by the smallest: a frame of the strip is the driver's runtime and
+  // not the board's budget (docs/50, docs/75).
+  bool ensure_wire() {
+    if (wire_ != nullptr) return true;
+    const size_t bytes = sizeof(rmt_data_t) * static_cast<size_t>(kCount) * 24u;
+    wire_ = static_cast<rmt_data_t*>(heap_caps_malloc(bytes, MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+    if (wire_ == nullptr) {
+      printf("led: no memory for a frame of the strip; the panel stays dark\n");
+      return false;
+    }
+    memset(wire_, 0, bytes);
+    return true;
+  }
+
   bool ensure_rmt() {
     if (rmt_ != nullptr) return true;
     rmt_ = rmtInit(kPin, RMT_TX_MODE, RMT_MEM_64);
@@ -100,10 +121,10 @@ class Ws2812Strip : public ILed {
     return true;
   }
 
-  // What the strip has to show, three bytes per light, and how it goes on the wire:
-  // 24 entries of four bytes per light.
+  // What the strip has to show, three bytes per light, and how it goes on the wire: 24 entries of four bytes per light,
+  // which are the heap's when the first frame goes out.
   uint8_t colours_[kCount * 3] = {};
-  rmt_data_t wire_[kCount * 24] = {};
+  rmt_data_t* wire_ = nullptr;
   rmt_obj_t* rmt_ = nullptr;
 };
 

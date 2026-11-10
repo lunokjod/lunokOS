@@ -5598,7 +5598,112 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
-static const char kVersion[] = "0.176.1";
+// 0.177.0 (10/11): **the drop-down of a menu is a line of words and not a stack of keys**. An option was drawn with the
+// function that draws a key, so every row of a menu came out with a face lifted four pixels over a shadow, a frame of its
+// own and the tag in a box of air: three raised keys inside a card, where the reference of this system draws one card and a
+// line per entry.
+//
+//   - **a row of a menu was drawn with `paint_button`** since 0.97.0 —"an option of a menu is a button"—, so every entry
+//     came out with a face lifted four pixels over a shadow, its own frame and the tag in a box of air at the left: three
+//     raised keys inside a card. The reference of this system draws the other thing (`OLD/PaperOS/src/ui/menu_bar.cpp`,
+//     `MenuBar::draw()`): one card and, on it, a line per entry, the one the dial is on a **band of ink from edge to edge**
+//     with the word turned over, and a separator as a line (docs/92);
+//   - **the row is now `paint_row`**, the function the list already uses: the word on the paper, the band of ink for the
+//     row of the dial, and **`tag` at the right in the `dim` ink** —which was a parameter of `menu_draw` that went
+//     nowhere— as the shortcut of a row of a menu is read everywhere (docs/30);
+//   - **`primary` is a hairline now**: the frame of three was the frame of a key and a row has no face to wear it on, so
+//     the only thing left of that signal is one pixel of the dim ink (docs/90);
+//   - **and the case of `test_ui` was measuring the keys**: it counted the rows of the frame of three and asked the row
+//     of the dial to be a face of ink inside its box. It now measures the band —its two edges, and the fact that the row
+//     above it is paper with no frame at all— (docs/80);
+//   - **what this does not prove**: the light of the glass. The band and the hairline are measured on the emulator, and
+//     whether a menu reads better as lines than as keys is a question the page answers.
+// 0.177.1 (10/11): **a face that a page draws with lives as long as the page**. Found reviewing the code of the delta
+// since 0.173.0, in the app that shows the faces (`apps/fonts`).
+//
+//   - **the specimen loaded its face and never gave it back**: the comment beside it said it did, and `give_back()`
+//     released the labels and nothing else. `kMaxFaces` is three, so the fourth specimen was answered «there is no room
+//     for another face» —and the console said it, which is how the leak stayed quiet in the log only— (docs/30, docs/75);
+//   - **and the collector was worse than the leak**: a control keeps the **number** of its face and not the object, so a
+//     face that Lua collected left every label of the page drawing with the face of the system, with no line anywhere;
+//   - **the face is of the page now** (`specimen_face`): loaded once, kept while the specimen is on the glass, and given
+//     back **after** the controls, because `face_of()` answers the face of the system for a slot that is gone. Going back
+//     to the shelf goes through `give_back()` too, so the slot is freed on every way out (docs/75);
+//   - **and its case is the consequence**: `test_apps` runs the app, opens **four** specimens one after another, comes
+//     back to the shelf between them, and asks that each one says `fonts: open` and that no line says `fonts: cannot
+//     open` —which is what the fourth one did before this version, with `kMaxFaces` at three—. Written and **not run yet**:
+//     a run of this suite is asked for before it happens, as every run of it does (docs/80).
+// 0.177.2 (10/11): **the workflow of CI was red on every push, and its second red was a board without DRAM**. Two causes,
+// one under the other: a list of include directories that had gone stale, and 2 400 bytes of DRAM that one board held for
+// the whole run of the program.
+//
+//   - **the first red was a list of include directories written by hand**: the step of `clang -Wunreachable-code` had the
+//     libs of the day it was written, and `lib/kernel/include/kernel/ui.h` has asked for `epub/page.h` since the reader
+//     arrived —`ui.h` is included by `ui.cpp`, `shell.cpp`, `button.cpp`, `touch.cpp` and `kernel.cpp`—, so the step failed
+//     on **every** run with `fatal error: 'epub/page.h' file not found`, in 30 to 50 seconds, before the suite and before
+//     the four builds. It was reproduced here with the same command and the same error before it was touched. The list is
+//     now derived from `lib/*/include` minus the rule of the emulator's `lib_ignore` (the board identities and the ESP32
+//     halves), so a new library cannot be forgotten by it again, and the step passes on the ten directories it checks;
+//   - **the second red was under the first one**: `m5-atom-matrix` did not link —`region 'dram0_0_seg' overflowed by 584
+//     bytes`—, and it was not the workflow's fault. Measured with `xtensa-esp32-elf-size` over the two builds of the ATOM:
+//     `.bss` of `hal_atom.cpp.o` was 304 B for the ATOM and 2 680 for the Matrix, the whole difference in one symbol
+//     (`g_platform`, 0x130 against 0xA78): the strip of the Matrix is twenty-five lights and the driver kept **24 entries
+//     of four bytes per light** of the frame on the wire as a member, 2 400 B of `DRAM` reserved for ever (docs/50, docs/75);
+//   - **and the frame is the heap's now** (`ensure_wire()`, `lib/hal_esp32/include/esp32/ws2812.h`): taken the first time
+//     a frame has to go out, with `MALLOC_CAP_DMA`, and said out loud if the memory is not there. It is what the header of
+//     that file already promised —the biggest board is not paid for by the smallest— and it is what puts the Matrix back
+//     inside its segment: **RAM 122 768 B of 327 680 (37,5 %)** against the 122 704 of the ATOM, and the five environments
+//     of this build green: emulator 7,9 s, atom 54,5 s, atom_matrix 4,2 s, paper 61,8 s (123 676 B de RAM, 2 365 385 B de
+//     flash) and esp32-devkit 76,6 s;
+//   - **and the two actions whose majors moved** were updated (`checkout@v5`, `setup-python@v6`), because the run of every
+//     push printed the warning of Node 20 on the three of them;
+//   - **measured, after all of it**: the 571 cases of the native suite green in 2 min 43 s, the workflow's own clang step
+//     green over the ten source directories, and the four builds the workflow runs green here. What is not proven is the
+//     runner itself: the run of this commit is the first one that will reach the suite and the builds at all.
+// 0.177.3 (10/11): **a move of the ring of a grid painted the page instead of the two cells it crosses**. The law of this
+// system is that a control repaints what changed and nothing else, and a grid broke it on its most common gesture: the
+// dial walking through the cells. Three roads asked for the frame of the control —the step of the dial, the walk giving
+// the grid the focus and the walk taking it away—, and the frame of a grid is the whole page of pictures.
+//
+//   - **one call of the kernel says what the move costs** (`ui::icon_grid_ring`): the cell that wore the ring and the cell
+//     that wears it now, from 1 and 0 for no ring, and a flag that says whether those two numbers are a **cursor that
+//     walked** or a **ring that came or went** on the cell the cursor does not leave. The answer is **true when the glass
+//     owes nothing more** than the damage it put down —the rectangle the two cells span, whole cells, because the paper of a
+//     grid covers the air between them and a paint cut in the middle of an icon would tear it— and false when the caller has
+//     to repaint the control whole, which is a cursor that walked onto another page (the cells are laid out again and the
+//     footer says another number) and a grid with no geometry to measure;
+//   - **and a grid of entries owes nothing at all**: its cells are controls of the app (`ui.grid_entry`), each one paints
+//     its own ring, so what moves on the paper of the grid is nothing —and an app that invalidated the grid on every cell
+//     of its focus was painting nine pictures for one ring, which is what `apps/home_eink` did (`grid.index = index;
+//     grid:invalidate()` in the hook of a cell)—. The field of a grid asks the same call, so that line is free now, and the
+//     whole control comes back by itself when the page does turn;
+//   - **the numbers of the case** (`test_ui`, `test_a_ring_of_a_grid_damages_the_cells_it_crosses`): a grid of six cells of
+//     a hundred by a hundred and two in a frame of three hundred by three hundred, the ring going from the first cell to
+//     the second. Before: 1 region of **300×300 = 90 000 px²**. Now: 1 region of **200×102 = 20 400 px²**, 4,4 times less,
+//     and **the two cells the ring did not cross keep a pixel of a tone the grid never paints**, which is the consequence
+//     and not a number of it. **Measured**: the 572 cases of the native suite green in 2 min 40 s —104 of `test_ui`, 197 of
+//     `test_apps`— (docs/80);
+//   - **and the suite found a fault of the first cut, which is why the numbers above are not a guess**: a cursor that
+//     **appears** on another page was not a page turn. `grid.index = 5` on a grid that had no cursor compared the page of
+//     the cell with itself —both numbers were the same cell— and answered «nothing changed», so the cells were never laid
+//     out again and the cell stayed off the frame: `test_apps` said `back 0 240` where the case asks `back 0 0`
+//     (`test_a_grid_of_entries_places_cells_of_controls`). The two numbers are not the same question in the two cases, so
+//     `cursor_moved` says which one it is: a cursor that walked compares the two pages —and no cursor is the page of the
+//     first cell—, and a ring that comes or goes gives the same cell twice and asks nothing of the pages (docs/30, docs/90);
+//   - **and the workflow was two lists away from being right** (the question of whether `ci.yml` was as it should be, and
+//     it was not): `ttgo-t-koala` is an environment of `platformio.ini` like the other five and **this job never built it**,
+//     so the header said «the five environments» while `docs/80` says six; and the files the `clang` step looks at were the
+//     ten libraries of the day they were written, which left `epub`, `zip` and `hal` —three the host builds— outside the
+//     one check that sees an unreachable scope, exactly the trap the list of include directories had. Both are derived from
+//     `lib/` now, the six bands are built, and the five files this step had never seen were run through it here before the
+//     commit with no diagnostic at all (docs/80);
+//   - **what is not done and is said out loud**: the focus frame of a list is still the whole box, because the frame is four
+//     bands and a control draws with one rectangle of damage and not four. The route is there —the frame is the only thing
+//     a focus changes in a list and its rows are painted identically— and it is not taken in this version. And the six
+//     builds of the boards are not run in this version either: they are what the workflow does on every push, the table of
+//     the ops of the kernel grew by one pointer, which is the same size on every one of them, and a build is not a measure
+//     of this change.
+static const char kVersion[] = "0.177.3";
 
 }  // namespace kernel
 

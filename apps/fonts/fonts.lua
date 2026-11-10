@@ -199,12 +199,26 @@ local build_shelf
 local open_specimen
 local go_back
 
+-- **The face of a specimen belongs to the page and not to the moment** (0.177.1): a label keeps the **number** of the face
+-- it draws with and not the object, so a face that the collector of Lua takes away leaves every label of the page drawing
+-- with the face of the system without saying a word —and a page that opens four faces asks the fifth for a slot this board
+-- does not have, because `kMaxFaces` is three—. It is kept here while the specimen is on the glass and it is given back
+-- **after** the controls that draw with it, because `face_of()` answers the face of the system for a slot that is gone
+-- (docs/30, docs/75).
+local specimen_face = nil
+
 local function give_back()
   if screen ~= nil then
     screen:release()
     screen = nil
   end
   shelf_list = nil
+  -- **The controls first and the face after**: the other way round is a page whose labels draw with a number that is not a
+  -- face any more.
+  if specimen_face ~= nil then
+    specimen_face:release()
+    specimen_face = nil
+  end
 end
 
 local function make_label(width, height, text, scale, color, align, face)
@@ -324,10 +338,13 @@ open_specimen = function(record)
   record.width = width
   record.height = height
   record.glyphs = glyphs
+  -- **And the page keeps it**: see `give_back()` for the two ways a face that is nobody's goes wrong.
+  specimen_face = face
 
   screen = ui.panel(view.width, view.height, 'vertical')
   if screen == nil then
     face:release()
+    specimen_face = nil
     console.print('fonts: there is no room for the page')
     return
   end

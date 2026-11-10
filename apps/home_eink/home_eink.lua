@@ -168,12 +168,15 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
 
   -- **The page follows the dial** (0.157.0): the grid is the one that pages —its footer says `N / M` and the cells of the
   -- other pages are out of its frame— and the page it is on is the page of the cell its `index` says. So a cell that
-  -- takes the ring tells the grid where it is and asks it to lay itself out again, and the control does the rest: the
-  -- page turns with the dial and this file has no paginator of its own (docs/30, docs/90).
+  -- takes the ring tells the grid where it is, and the control does the rest: the page turns with the dial and this file
+  -- has no paginator of its own (docs/30, docs/90).
+  -- **And asking the grid to repaint itself here is not needed** (0.177.3): the field of `index` asks the kernel what the
+  -- move costs, lays the cells out again when the page turns and paints nothing at all when it does not —a ring that
+  -- walks inside a page is two cells of the app and no paper of the grid—, so an invalidate of the whole grid here was
+  -- nine pictures painted for one ring (docs/30, docs/90).
   cell.on_focus = function(self, on)
     if not on then return end
     grid.index = index
-    grid:invalidate()
   end
 
   grid:add(cell)

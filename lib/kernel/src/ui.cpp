@@ -1613,6 +1613,11 @@ uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* it
   return icon_grid_hit(slot, mine, count, index, columns, scale, x, y);
 }
 
+bool icon_grid_ring_for_lua(int16_t slot, uint8_t count, uint8_t from, uint8_t to, bool cursor_moved,
+                            uint8_t columns, uint8_t scale, bool cells_of_the_kernel) {
+  return icon_grid_ring(slot, count, from, to, cursor_moved, columns, scale, cells_of_the_kernel);
+}
+
 }  // namespace
 
 // **The present that keeps the boxes apart** (0.168.1), declared here because the table of the ops is filled a few lines
@@ -1764,7 +1769,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      icon_grid_draw_for_lua,
                                      icon_grid_hit_for_lua,
                                      icon_grid_cell_for_lua,
-                                     icon_grid_page_cell});
+                                     icon_grid_page_cell,
+                                     icon_grid_ring_for_lua});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -4820,14 +4826,22 @@ bool menu_draw(int16_t slot, const char* title, const MenuOption* items, uint8_t
     if (rank < 0 || rank >= fitted) continue;
     const MenuBox box = menu_cell(grid, rank);
     const MenuOption& option = items[n - 1];
-    // **An option of a menu is a button**, and it is drawn by the one function of this system that draws a key
-    // (0.97.0): the box, the face lifted four pixels, the frame on the face, the tag in the air of sixteen and the word
-    // in the middle of what is left. **The option the dial is on is the pressed one**, so it inverts —ink face and paper
-    // word—, which is the same signal a button gives under a finger; and an option the app marked primary wears the
-    // frame of three (docs/92).
-    paint_button(*target.canvas, card.face, face, target.x + box.x, target.y + box.y, box.w, box.h, background, color,
-                 (focused && index == n), false, option.primary, (option.label != nullptr) ? option.label : "",
-                 option.tag, color, scale, mode);
+    // **A row of a menu is a line of words and not a key** (0.177.0): the reference of this system is the contextual
+    // menu of the paper project, which is the card with its entries written on it —the one the finger or the dial is on
+    // is a **band of ink from edge to edge** with the word turned over— and not a stack of raised keys. Drawing an
+    // option with the function of a key gave every row a face lifted four pixels over a shadow and a frame of its own,
+    // and that is what the owner saw: *«el desplegable te botons»* (docs/92, and `MenuBar::draw()` of that project).
+    const bool lit = (focused && index == n);
+    paint_row(*target.canvas, target.x + box.x, target.y + box.y, box.w, box.h, card.face,
+              (option.label != nullptr) ? option.label : "", option.tag, nullptr, color, dim, background, scale, lit,
+              false, mode);
+    // **What is left of the frame of three a key had**: a row the app calls primary wears a hairline, and it is the
+    // only mark a menu keeps for it. The row of the dial carries no frame, because its band already says everything
+    // (docs/90, docs/92).
+    if (option.primary && !lit) {
+      draw_round_bevel(*target.canvas, target.x + box.x, target.y + box.y, static_cast<uint16_t>(box.w),
+                       static_cast<uint16_t>(box.h), 4, dim, dim, mode);
+    }
   }
   close_draw(target);
   return true;
@@ -5064,6 +5078,54 @@ bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns,
   w = static_cast<uint16_t>((box.w > 0) ? box.w : 0);
   h = static_cast<uint16_t>((box.h > 0) ? box.h : 0);
   return w > 0 && h > 0;
+}
+
+// **What a move of the ring costs** (0.177.3): the rectangle of the two cells that wore it and wear it —a paint of a grid
+// covers the air between two cells, so the rectangle they span has to be whole cells and this is why the two boxes are
+// taken to one— and nothing else. Every move of the dial inside a grid used to ask for the frame of the control, which is
+// the page: nine pictures painted again to move a ring from one to the next.
+bool icon_grid_ring(int16_t slot, uint8_t count, uint8_t from, uint8_t to, bool cursor_moved, uint8_t columns,
+                    uint8_t scale, bool cells_of_the_kernel) {
+  if (!live(slot)) return false;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  if (count > kMaxGridItems) count = kMaxGridItems;
+  if (count == 0) return false;
+  const Canvas& grid = g_canvases[slot];
+  if (grid.width == 0 || grid.height == 0) return false;
+  // **The page follows the cursor**, so a cursor that walked has to stay on its page: a cell that walked onto another page
+  // lays every cell out again and moves the footer, and that is the whole control. **A ring that comes or goes does not
+  // move the cursor** —the two numbers are the cell it is on, once with the ring and once without— and asks nothing of the
+  // pages; the page it is on is the one in `from` (docs/90).
+  const GridCells now = icon_grid_cells(grid, count, cursor_moved ? to : from, columns, scale);
+  if (cursor_moved) {
+    const GridCells was = icon_grid_cells(grid, count, from, columns, scale);
+    if (was.page != now.page) return false;
+  }
+  // **A grid of entries paints no cell of its own** (0.105.0): the paper of the page and the footer are what it owes, and
+  // neither moves when the ring does —the cells are controls of the app and each one paints its own ring— (docs/30).
+  if (!cells_of_the_kernel) return true;
+  const int32_t per_page = now.columns * now.rows;
+  if (per_page <= 0) return false;
+  int32_t x0 = grid.width;
+  int32_t y0 = grid.height;
+  int32_t x1 = 0;
+  int32_t y1 = 0;
+  const uint8_t pair[2] = {from, to};
+  for (uint8_t half = 0; half < 2; ++half) {
+    if (pair[half] == 0) continue;
+    const int32_t at = static_cast<int32_t>(pair[half]) - 1 - now.first;
+    if (at < 0 || at >= per_page) continue;
+    const GridBox box = icon_grid_box(now, at);
+    if (box.x < x0) x0 = box.x;
+    if (box.y < y0) y0 = box.y;
+    if (box.x + box.w > x1) x1 = box.x + box.w;
+    if (box.y + box.h > y1) y1 = box.y + box.h;
+  }
+  // Neither cell is on this page: nothing on the glass wore a ring or wears one now.
+  if (x1 <= x0 || y1 <= y0) return true;
+  return invalidate_rect(slot, static_cast<uint16_t>(x0), static_cast<uint16_t>(y0),
+                         static_cast<uint16_t>(x1 - x0), static_cast<uint16_t>(y1 - y0));
 }
 
 // **The cell that opens the page `delta` pages away** (0.175.0): what a swipe over a grid turns to. The first cell of the
