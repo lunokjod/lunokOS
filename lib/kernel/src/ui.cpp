@@ -275,8 +275,9 @@ extern uint8_t g_paper_level;
 // ones that can paint it**: the page of a reader is a canvas, its buffer is whole, and the card never wrote in it. This
 // asks every buffered control of the subtree that overlaps the hole to compose itself again, which is what the rule of
 // `invalidate` does for a father without a buffer, here said in the coordinates of the painter (docs/30, docs/90).
-// **And what the app painted with its own primitives is not here**: a page that is not a canvas is a page the system
-// cannot draw again, and the app repaints it —which is the sentence docs/30 has for it— (0.173.2).
+// **And what the app painted with its own primitives is not here**: a primitive is not a control, so the system cannot draw
+// it again —a page with an `on_draw` is asked for it by `request_release`, and a page without one is a page whose
+// primitives are lost with the card, which is the sentence docs/30 has (0.173.2, 0.173.3).
 void invalidate_covered(int16_t under, int32_t x, int32_t y, uint16_t w, uint16_t h, int32_t origin_x,
                         int32_t origin_y) {
   for (int16_t index = g_canvases[under].first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
@@ -344,16 +345,23 @@ void request_release(int16_t slot, bool top) {
                                  ? static_cast<int32_t>(control.height)
                                  : (page_h - offset_y);
       if (hole_w > 0 && hole_h > 0) {
-        // **The shape the control drew with** (0.173.2): a card is a rounded box of radius twelve —cut at a third of its
-        // shorter side, which is the arithmetic of `dialog_draw`— and its corners are the page's, so a plain rectangle would
-        // erase four pieces of the page that the card never touched. Anything else is a square and gets a square.
-        int32_t radius = 0;
-        if (control.card) {
-          radius = ((hole_w < hole_h) ? hole_w : hole_h) / 3;
-          if (radius > 12) radius = 12;
+        // **A page that paints itself is asked to paint the hole, and the system does not guess** (0.173.3): an app whose view
+        // has an `on_draw` is called with its draw cut at this box —the same `begin_draw`/`end_draw` a control gets— and what
+        // it paints there is the page as it wants it, primitives included. That is the exact answer and it costs the hole.
+        // A page without one cannot paint itself, and then the hole is paper: the paper of the page and the controls that
+        // were inside it, which is the 0.173.2 rule kept for the apps that do not want a draw of their own (docs/30, docs/90).
+        if (!g_canvases[painter].paints_itself) {
+          // **The shape the control drew with** (0.173.2): a card is a rounded box of radius twelve —cut at a third of its
+          // shorter side, which is the arithmetic of `dialog_draw`— and its corners are the page's, so a plain rectangle would
+          // erase four pieces of the page that the card never touched. Anything else is a square and gets a square.
+          int32_t radius = 0;
+          if (control.card) {
+            radius = ((hole_w < hole_h) ? hole_w : hole_h) / 3;
+            if (radius > 12) radius = 12;
+          }
+          draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
+                          hal::UpdateMode::kGl16);
         }
-        draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
-                        hal::UpdateMode::kGl16);
         // **And what was under it comes back**: the controls that were inside the hole paint themselves again in the same
         // turn, with a buffer of their own or without one (0.173.2, docs/30).
         invalidate_covered(painter, offset_x, offset_y, static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h), 0, 0);
@@ -1648,6 +1656,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      canvas_alive_for_lua,
                                      canvas_pending_for_lua,
                                      mark_card,
+                                     mark_paints_itself,
                                      canvas_release_for_lua,
                                      canvas_place_for_lua,
                                      canvas_clear,
@@ -1979,6 +1988,13 @@ bool reparent(int16_t slot, int16_t parent) {
   // frame (docs/90).
   if (was >= 0) invalidate_rect(was, canvas->x, canvas->y, canvas->width, canvas->height);
   invalidate(slot);
+  return true;
+}
+
+bool mark_paints_itself(int16_t slot, bool on) {
+  Canvas* canvas = find(slot);
+  if (canvas == nullptr) return false;
+  canvas->paints_itself = on;
   return true;
 }
 

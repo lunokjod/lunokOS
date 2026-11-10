@@ -5289,7 +5289,32 @@ namespace kernel {
 //     reach, and the part of a primitive that the card covered is paper —which is the rule, said out loud so that the day it
 //     changes it changes on purpose— (0.173.2, `test_apps`).
 
-static const char kVersion[] = "0.173.2";
+// 0.173.3 (10/11): **the page that paints itself paints its own hole**. One question from the owner over the release of
+// 0.173.2: *«I si no refresques la vista sencera i simplement marques com abruta la zona on hi havía el modal? l'app hauria
+// de repintar la seva area dañada, no?»*. He was right, and the mechanism was already there.
+//
+//   - **`ui.present` calls the draw of the view**: the app's `on_draw` runs on every present, cut at the box the page owes
+//     —the same `begin_draw`/`end_draw` a control gets—, so a page with a draw of its own brings back its primitives with
+//     **nothing new in the bridge**. What was missing was for the system to stop painting paper on top of it;
+//   - **`Canvas::paints_itself`** is one bool the bridge sets when the app gives a canvas an `on_draw` (`mark_paints_itself`,
+//     next to `mark_card`), and `request_release` **skips the wash of the hole** for the painter that has it. The hole is
+//     still owed to the page —`invalidate_covered` and `invalidate_rect` run for both paths— and the app repaints it, which is
+//     the exact answer: no guessing with the paper level and no rounded box, because the app paints what it painted before;
+//   - **what the wash cost**: two regions over the same box —the `gl16` of the paper and the `du` of the app's draw do not
+//     merge—, o sigui dues passades de tinta per a un forat que el dibuix de l'app tapava tot seguit. On the glass the picture
+//     was the same; on a panel it is a flash of the whole card for nothing;
+//   - **the paper is the fallback and it stays** for the pages without a draw of their own —`wipe` is one, and its cards land
+//     on labels and buttons that paint themselves—, with the radius of the card and the controls asked to draw again
+//     (0.173.2 unchanged);
+//   - **two cases**: `test_a_page_that_paints_itself_keeps_the_hole_for_the_app` (`test_ui`) holds the flag itself —no region
+//     of the wash, the page untouched, and one region instead of two when the app paints—, and it fails with the wash forced
+//     back in; `test_a_page_that_paints_itself_paints_its_own_hole` (`test_apps`) runs an app whose whole page is one `rect`
+//     under the card and counts the glass: the dark square comes back, and the draw of the view ran again. `563 cases`;
+//   - **and docs/30 says the two ways**, with the recipe (an app that paints by hand gives its view an `on_draw` and does
+//     nothing else when a modal goes); docs/90 writes the decision down: the 49 400 B copy of the pixels is no longer on the
+//     list, because a page with a draw of its own comes back without any copy (docs/30, docs/75, docs/90).
+
+static const char kVersion[] = "0.173.3";
 
 }  // namespace kernel
 

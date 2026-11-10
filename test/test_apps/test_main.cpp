@@ -8258,8 +8258,9 @@ void test_a_card_that_goes_away_takes_its_ink_with_it(void) {
   pump_turns(100);
   const int page_again = ink_in(glass, view, 50, 25, 320, 200);
   TEST_ASSERT_EQUAL_INT_MESSAGE(whole_page, page_again, "the card left ink on the glass");
-  // **And a primitive under the card goes with it, which is the rule and not a defect** (docs/30): what the system can paint
-  // again is a control, so a page painted with `ui.rect`/`ui.text` is a page the app paints again when its card closes. The
+  // **And a primitive under the card goes with it, which is the rule for a page with no draw of its own** (docs/30): this
+  // page is painted with `ui.rect`/`ui.text` and has no `on_draw`, so what the system can paint again is a control and a
+  // primitive is not one. An app that wants its primitives back gives its view an `on_draw`, which is the case below. The
   // pixel is asserted here so that the day this changes, it changes on purpose.
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(
       15, glass->level_at(static_cast<uint16_t>(view.x + 440), static_cast<uint16_t>(view.y + 80)),
@@ -8282,6 +8283,97 @@ void test_a_card_that_goes_away_takes_its_ink_with_it(void) {
   storage->remove("/apps/under");
   kernel::font::set_system_face(nullptr);
   storage->remove("/res/fonts/dejavusans-bold.ttf");
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
+// **The page that paints itself paints its own hole** (0.173.3, the owner: *«l'app hauria de repintar la seva area dañada,
+// no?»*). The page of the case above has no draw of its own, so a primitive under the card is lost —the system can only
+// paint paper and ask the controls—. An app whose view has an `on_draw` is the other way round: the release leaves the box
+// owed to the page, `ui.present` calls the draw of the view **cut at that box**, and the dark square of the app comes back
+// with its ink and not as paper. The page is one primitive and nothing else, so there is no control to ask and the only
+// thing that can bring it back is the app's own draw (docs/30, docs/90). **What the flag saves is the wash**, and that is
+// pinned in `test_ui` (`test_a_page_that_paints_itself_keeps_the_hole_for_the_app`): an app that paints its whole hole
+// would paint over the paper anyway, so the difference at the glass is the extra `gl16` pass and not the picture.
+void test_a_page_that_paints_itself_paints_its_own_hole(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  // **The whole page is one primitive of the app**, which is the shape of a page the system cannot paint again: the dark
+  // square covers the box the card will take, so the only way it comes back is the app's own draw.
+  TEST_ASSERT_TRUE(add_app(storage, "painter",
+                           "{\"title\":\"Painter\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local root = ui.root()\n"
+                           "local drew = 0\n"
+                           "root.on_draw = function(self)\n"
+                           "  drew = drew + 1\n"
+                           "  self:clear(15)\n"
+                           "  self:rect(20, 20, 320, 260, 0)\n"
+                           "end\n"
+                           "root:invalidate()\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(100):await()\n"
+                           "console.print('page painted ' .. drew)\n"
+                           "sys.delay(600):await()\n"
+                           "local card = ui.dialog(260, 180)\n"
+                           "card:place(50, 60)\n"
+                           "card.title = 'A question'\n"
+                           "card.text = 'Over the dark square'\n"
+                           "card.accept = 'Yes'\n"
+                           "card.cancel = 'No'\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(300):await()\n"
+                           "card:release()\n"
+                           "console.print('card closed ' .. drew)\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(4000):await()\n"));
+
+  pump_captured(500, g_out, sizeof(g_out), "run painter");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page painted 1"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "card closed"), "the card went before this case could look at the page");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // **The ink of the page inside the box the card covers**, which is the dark square and only the dark square.
+  const int under_the_card = ink_in(glass, view, 60, 70, 300, 230);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20000, under_the_card, "the dark square of the app is not there to come back");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, glass->level_at(static_cast<uint16_t>(view.x + 160), static_cast<uint16_t>(view.y + 150)),
+      "the card did not cover the dark square");
+
+  capture_begin();
+  pump_turns(900);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "card closed"), g_out);
+  pump_turns(100);
+  // **The same ink in the same box**: the hole was left to the app —the system does not paint paper over a page that has a
+  // draw of its own— and the draw of the view ran again cut at it, which is what the count of the draws says too.
+  const int back = ink_in(glass, view, 60, 70, 300, 230);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(under_the_card, back, "the hole of the card was not painted by the app");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, glass->level_at(static_cast<uint16_t>(view.x + 160), static_cast<uint16_t>(view.y + 150)),
+      "the middle of the hole came back as paper and not as the page of the app");
+  int painted_after = 0;
+  TEST_ASSERT_TRUE_MESSAGE(sscanf(strstr(g_out, "card closed ") + 12, "%d", &painted_after) == 1, g_out);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(1, painted_after, "the draw of the view did not run again when the card went");
+
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  storage->remove("/apps/painter/app.lua");
+  storage->remove("/apps/painter/manifest.json");
+  storage->remove("/apps/painter");
   emu::Options after = emu::options();
   after.board = nullptr;
   after.display = false;
@@ -11533,6 +11625,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_slider_takes_the_keys_only_after_the_centre);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
   RUN_TEST(test_a_card_that_goes_away_takes_its_ink_with_it);
+  RUN_TEST(test_a_page_that_paints_itself_paints_its_own_hole);
   RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
   RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);

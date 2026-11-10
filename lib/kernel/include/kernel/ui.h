@@ -106,6 +106,11 @@ struct Canvas {
   // not its own, so the hole it leaves when it goes is filled with the same radius it drew with. It is the app that says
   // which control is a card —`ui.dialog` does it when it makes one— and nothing else of the system changes (docs/30, docs/90).
   bool card = false;
+  // **Whether the app paints this canvas itself** (0.173.3): a control with an `on_draw` is a control that knows how to paint
+  // its own box, and the view of an app may have one too. It is what the release asks: a hole over a page that paints itself
+  // is left to the app —which is called cut at the hole, so it costs the hole and not the page— and a hole over a page that
+  // does not is filled with paper by the system (docs/30, docs/90).
+  bool paints_itself = false;
   // **What it owes, and while it is drawing itself it may paint nothing else.** A control that has to be
   // redrawn because a child moved owes the rectangle that child left behind, not the page: the box is
   // kept here and every primitive of the canvas is cut against it while the control draws (docs/30,
@@ -191,6 +196,9 @@ bool reparent(int16_t slot, int16_t parent);
 // **This control is a card** (0.173.2): it paints a rounded box over the page and its hole is filled with that shape. Said by
 // `ui.dialog` when the control is made, and it costs one bool (docs/30, docs/90).
 bool mark_card(int16_t slot);
+// **This canvas paints itself** (0.173.3): the app gave it an `on_draw` (`cv.on_draw`). Said by the bridge when the field is
+// written, for every canvas, and the view is one of them (docs/30).
+bool mark_paints_itself(int16_t slot, bool on);
 // The father of a canvas, or -1 (the view of the app has none).
 int16_t parent_of(int16_t slot);
 

@@ -4265,6 +4265,12 @@ int l_canvas_newindex(lua_State* L) {
     lua_pop(L, 1);
     if (strcmp(key, "on_draw") == 0) {
       redraw = lua_type(L, 3) == LUA_TFUNCTION;
+      // **And the system is told whether this canvas paints itself** (0.173.3): a page with an `on_draw` is a page the system
+      // can ask to paint the hole a card leaves, cut at the hole, instead of filling it with paper and hoping (docs/30).
+      if (g_ui_ops.canvas_paints_itself != nullptr) {
+        LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, 1, kCanvasMeta));
+        if (canvas != nullptr) g_ui_ops.canvas_paints_itself(canvas->slot, redraw);
+      }
     } else if (is_weight_field(key)) {
       if (!weight_field_valid(L, 3)) {
         return luaL_error(L, "a control's weight is 0 to 15");

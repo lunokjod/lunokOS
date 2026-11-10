@@ -175,7 +175,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **561 proves natives** (`pio test -e test`), i **cap de vermella** (0.173.2): les dotze de la 0.169.0 eren quatre
+- les **563 proves natives** (`pio test -e test`), i **cap de vermella** (0.173.3): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -183,7 +183,9 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   (`test_font`), les dues de la 0.173.1 són la targeta que pren el recorregut i el focus que torna —on es van trobar dos
   errors del sistema— i la carpeta feta amb els pares que necessita (`test_apps`), i la de la 0.173.2 és la targeta que
   marxa i deixa la pàgina com era, comptada píxel a píxel, amb la cantonada arrodonida i amb el que l'app va pintar a mà
-  (`test_apps`, i la regla de la composició a `test_ui`);
+  (`test_apps`, i la regla de la composició a `test_ui`), i les dues de la 0.173.3 són aquella mateixa targeta sobre una
+  pàgina que **té `on_draw`**: el forat que queda és de l'app —sense cap rentada de paper i amb una sola regió de tinta en
+  comptes de dues— i el dibuix de la vista el torna a pintar tallat en aquell requadre (`test_ui` i `test_apps`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.

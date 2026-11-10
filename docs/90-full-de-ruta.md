@@ -567,10 +567,17 @@ paraules de la targeta per sempre (mesurat a l'emulador amb una pàgina d'etique
 - **el que no pot tornar és el que l'app ha pintat amb primitives** (`ui.text`, `ui.rect`…): allò no és un control i no sap
   dibuixar-se, i és l'app qui ha de tornar a pintar la pàgina quan la targeta marxa. És la recepta que l'editor ja feia
   servir i que `docs/30` no deia enlloc;
-- **la decisió que queda oberta**: una còpia dels píxels de sota la targeta (49 400 B per a una targeta de 380 × 260, i més
-  a la PSRAM del Paper) la faria neta sense demanar res a l'app i sense el cas de les primitives. No s'ha fet perquè el
-  pressupost de la placa sense PSRAM no ho paga i perquè el que hi ha ara ja resol el cas que l'amo ha vist; si algun dia
-  una app pinta la seva pàgina amb primitives i hi posa targetes a sobre, aquesta és la feina (docs/30, docs/75).
+- **i el forat és de l'app quan la vista té un `on_draw`** (0.173.3, i és una pregunta de l'amo: *«l'app hauria de repintar
+  la seva area dañada, no?»*). El mecanisme ja hi era —`ui.present` crida el dibuix de l'arrel, tallat en el requadre que es
+  deu—, o sigui que n'hi havia prou de **no tapar-lo amb paper**: el sistema marca el forat, el dibuix de l'app el repinta i
+  la pàgina torna **amb les seves primitives**. Sense el flag, el forat es pintava dues vegades —una rentada de `gl16` per a
+  un dibuix de `du` que la tapava tot seguit—, que en aquest vidre és una passada de tinta per a res. És el camí preferit:
+  **una app que pinta la seva pàgina a mà posa `ui.root().on_draw` i no ha de fer res més quan un modal marxa**. El paper
+  queda com a caiguda per a les pàgines que no tenen dibuix propi, que és el cas de `wipe` (docs/30, docs/75);
+- **la còpia dels píxels de sota la targeta ja no és a la llista** (era la decisió oberta de la 0.173.2: 49 400 B per a una
+  targeta de 380 × 260). Amb `on_draw` una pàgina torna sencera sense cap còpia, i una app que pinta amb primitives i no vol
+  el seu `on_draw` és una app que es pot escriure de la manera bona; el pressupost de la placa sense PSRAM no la pagaria
+  (docs/30, docs/75).
 
 ## Fora de la v1
 

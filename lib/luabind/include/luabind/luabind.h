@@ -522,6 +522,10 @@ struct UIOps {
   // with the same shape instead of a rectangle that would erase the four corners of the page the card never touched. Said by
   // `ui.dialog` and by nobody else (docs/30, docs/90).
   bool (*canvas_card)(int16_t slot);
+  // **This canvas paints itself** (0.173.3): the app gave it an `on_draw`. A card released over a page that paints itself is
+  // left to the app —the draw is called cut at the hole— and one over a page that does not is filled with paper by the system
+  // (docs/30, docs/90).
+  bool (*canvas_paints_itself)(int16_t slot, bool on);
   bool (*canvas_release)(int16_t slot);
   bool (*canvas_place)(int16_t slot, uint16_t x, uint16_t y);
   bool (*canvas_clear)(int16_t slot, uint8_t level, const char* mode);

@@ -807,6 +807,70 @@ static void test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child() 
 }
 
 
+// **A page that paints itself keeps the hole for the app** (0.173.3, the owner: *«l'app hauria de repintar la seva area
+// dañada, no?»*). The case above is the page the system cannot draw again: the release fills the box with the paper of the
+// page, which is the best it can do. A view with an `on_draw` is the other way round —the system marks the box, `ui.present`
+// calls that draw cut at it, and what the app paints is the page as it wants it—, so the wash is not painted at all: no
+// region of `gl16`, no pixel of the page touched behind the app's back, and one region of the app's own quality for the box
+// (docs/30, docs/90).
+static void test_a_page_that_paints_itself_keeps_the_hole_for_the_app() {
+  fresh_view();
+  // **A control without a buffer paints into the page** —a card is one—, so its ink is the ink of the glass.
+  int16_t card = -1;
+  TEST_ASSERT_TRUE(ui::create(60, 60, -1, false, card));
+  TEST_ASSERT_TRUE(ui::place(card, 10, 10));
+  // **And the page has ink under it**, which is what the app painted with its own primitive: the hole cannot come back from
+  // any buffer, because there is no copy of it anywhere.
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 60, 60, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(10, 10));
+
+  // **The page is marked as one that paints itself**, which is what the bridge does when the app gives the view an
+  // `on_draw` (0.173.3).
+  TEST_ASSERT_TRUE(ui::mark_paints_itself(0, true));
+  TEST_ASSERT_TRUE(ui::release(card));
+  TEST_ASSERT_TRUE(ui::at(card)->pending_release);
+  // **The box is owed and not washed**: the painter has to be drawn and the list of regions is empty, because the paper would
+  // be a guess over a page the app is about to paint.
+  TEST_ASSERT_TRUE(ui::needs_draw(0));
+  TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(69, 69));
+
+  // **The draw of the app is what puts the page back**: it runs cut at the box it owes, paints the same square, and the box
+  // is one region of one quality —the wash of the paper is not there to be a second one—.
+  TEST_ASSERT_TRUE(ui::begin_draw(0));
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 60, 60, 0, "du"));
+  TEST_ASSERT_TRUE(ui::end_draw(0));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).x);
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).y);
+  TEST_ASSERT_EQUAL_UINT16(60, ui::damage(0).w);
+  TEST_ASSERT_EQUAL_UINT16(60, ui::damage(0).h);
+
+  // **And the glass gets the page and not paper**, which is the whole point of the flag.
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_NULL(ui::at(card));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(69, 69));
+
+  // **The same page without the flag is washed with paper**, and this is the fallback the case above pins: the difference
+  // between the two is the one flag.
+  fresh_view();
+  int16_t other = -1;
+  TEST_ASSERT_TRUE(ui::create(60, 60, -1, false, other));
+  TEST_ASSERT_TRUE(ui::place(other, 10, 10));
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 60, 60, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(10, 10));
+  TEST_ASSERT_TRUE(ui::mark_paints_itself(0, false));
+  TEST_ASSERT_TRUE(ui::release(other));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(10, 10));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(69, 69));
+}
+
+
 // **The window shows the glass in the colours of the panel**, and the part of that which can be proved
 // without a screen is the translation: four bits per pixel with the left one in the high nibble become
 // one pixel each, black at 0 and white at 15 (docs/50, docs/85).
@@ -3551,6 +3615,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_canvas_that_goes_away_is_clean_before_it_is_freed);
   RUN_TEST(test_a_canvas_takes_its_children_with_it_when_it_goes);
   RUN_TEST(test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child);
+  RUN_TEST(test_a_page_that_paints_itself_keeps_the_hole_for_the_app);
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_a_du_of_the_whole_glass_is_painted_as_a_wash);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);

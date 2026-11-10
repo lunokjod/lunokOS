@@ -1327,7 +1327,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 | `cv:invalidate([x, y, w, h])` | `true` o `nil, error` | «Ha canviat el que ensenyo». Amb una caixa, **això** és el que s'ha de pintar; sense, tot el canvas |
 | `ui.root()` | **l'objecte de la vista** | El mateix cada vegada: la vista també és un control, amb els seus `add`, `draw` i fills |
 | `cv:parent()` | el pare, o `nil` | El canvas que el conté; `nil` vol dir que és la vista |
-| `cv.on_draw` | el camp que posa l'app | `function(self)` que pinta el canvas propi; opcional |
+| `cv.on_draw` | el camp que posa l'app | `function(self)` que pinta el canvas propi; opcional. **A la vista** (`ui.root()`) és el que fa que el sistema li demani el forat que deixa una targeta en comptes d'omplir-lo de paper (0.173.3): el dibuix es crida **tallat en aquell requadre**, o sigui que ha de pintar el que li toca i no ha de fer res més quan un modal marxa (docs/30, docs/90) |
 | `cv.children` | taula | Els fills, en l'ordre en què s'han afegit (la manté `cv:add`) |
 | `cv:caps()` | `{width, height, x, y}` | La seva mida i el seu lloc |
 | `cv:damage()` | número | Quantes regions seves esperen ser compostes |
@@ -2308,16 +2308,25 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   resposta—. **I un dit que cau fora de la targeta és el seu cancel·lar**: el toc no arriba a la pàgina del
   darrere, i el contacte queda gastat, perquè el dit que ha tancat una pregunta no premi el botó que hi havia
   a sota (0.173.1). Un `ui.menu` i un `ui.month` no són targetes i no tenen aquesta regla (docs/30, docs/90).
-- **I la targeta no té píxels propis, o sigui que el forat que deixa el torna a pintar el sistema** (0.173.2):
-  una targeta sense buffer pinta la seva tinta **dins dels píxels de la pàgina**, i ningú no guarda una còpia del
-  que hi havia a sota. Quan l'app la deixa anar, el sistema **omple el seu requadre amb el paper de la pàgina**
-  —el nivell de l'últim `ui.clear` de l'app, i blanc si no n'ha fet cap— i **demana a cada control que hi havia
-  dins que es pinti una altra vegada**, amb buffer propi o sense. El requadre es dibuixa **amb el radi de la
-  targeta** (dotze píxels), perquè les cantonades arrodonides són de la pàgina i no de la targeta.
-  **El que el sistema no pot tornar és el que l'app ha pintat amb primitives** (`ui.text`, `ui.rect`, `ui.line`…):
-  allò no és cap control i no sap dibuixar-se. Una pàgina de targetes, botons, etiquetes i canvas torna sencera
-  tota sola —el cas de `wipe`—; una pàgina amb text pintat a mà s'ha de tornar a pintar quan la targeta marxa, que
-  és la recepta que l'editor ja feia servir (`ui.clear` i tornar a pintar la pàgina) (docs/30, docs/90).
+- **I la targeta no té píxels propis, o sigui que el forat que deixa s'ha de tornar a pintar** (0.173.2 i
+  0.173.3): una targeta sense buffer pinta la seva tinta **dins dels píxels de la pàgina**, i ningú no guarda una
+  còpia del que hi havia a sota. Quan l'app la deixa anar, el requadre queda **degut a la pàgina**, i qui el paga
+  depèn d'una sola cosa: **si la vista té un `on_draw`**.
+  - **Amb `on_draw`, el forat el pinta l'app** (0.173.3): el `present` crida el dibuix de la vista **tallat en
+    aquest requadre**, i el que l'app hi pinta és la pàgina com la vol, **primitives incloses**. El sistema **no hi
+    posa paper**: fer-ho seria pintar paper sobre una pàgina que algú altre repinta tot seguit, i el requadre es
+    pintaria dues vegades —una rentada de `gl16` i el dibuix de l'app a sobre, dues passades de tinta per a un sol
+    forat—. És el camí preferit i el que vol dir tenir un `on_draw` a la vista.
+  - **Sense `on_draw`, el forat és paper** (0.173.2): el sistema **omple el requadre amb el paper de la pàgina**
+    —el nivell de l'últim `ui.clear` de l'app, i blanc si no n'ha fet cap— i **demana a cada control que hi havia
+    dins que es pinti una altra vegada**, amb buffer propi o sense. El requadre es dibuixa **amb el radi de la
+    targeta** (dotze píxels), perquè les cantonades arrodonides són de la pàgina i no de la targeta. Una pàgina de
+    targetes, botons, etiquetes i canvas torna sencera tota sola —el cas de `wipe`—; **el que hi hagi pintat amb
+    primitives** (`ui.text`, `ui.rect`, `ui.line`…) **es perd**, perquè una primitiva no és cap control i no sap
+    dibuixar-se.
+  - **La recepta**: una app que pinta la seva pàgina a mà posa `ui.root().on_draw` i **no ha de fer res més** quan
+    una targeta marxa —el sistema li demana el requadre i prou—. L'editor ho feia a mà (`ui.clear` i tornar a
+    pintar-ho tot quan la targeta tancava); amb `on_draw` això és la mateixa funció que ja té (docs/30, docs/90).
 
 ### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
 
