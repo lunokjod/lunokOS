@@ -102,6 +102,10 @@ struct Canvas {
   // paint** is the slot given back —no ghost on the paper and nothing stale left in a buffer somebody else
   // will get— (docs/90).
   bool pending_release = false;
+  // **A card, which is the one control that paints a rounded box over the page** (0.173.2): its corners are the page's and
+  // not its own, so the hole it leaves when it goes is filled with the same radius it drew with. It is the app that says
+  // which control is a card —`ui.dialog` does it when it makes one— and nothing else of the system changes (docs/30, docs/90).
+  bool card = false;
   // **What it owes, and while it is drawing itself it may paint nothing else.** A control that has to be
   // redrawn because a child moved owes the rectangle that child left behind, not the page: the box is
   // kept here and every primitive of the canvas is cut against it while the control draws (docs/30,
@@ -184,6 +188,9 @@ bool place(int16_t slot, uint16_t x, uint16_t y);
 // last child of `parent` —so it is in front of the ones already there— and its place is now read in the
 // new parent's pixels. The view of the app is the one canvas an app cannot move into another (docs/90).
 bool reparent(int16_t slot, int16_t parent);
+// **This control is a card** (0.173.2): it paints a rounded box over the page and its hole is filled with that shape. Said by
+// `ui.dialog` when the control is made, and it costs one bool (docs/30, docs/90).
+bool mark_card(int16_t slot);
 // The father of a canvas, or -1 (the view of the app has none).
 int16_t parent_of(int16_t slot);
 

@@ -753,6 +753,11 @@ static void test_a_canvas_takes_its_children_with_it_when_it_goes() {
 // **A father that goes away owes one rectangle, not one per child.** Deleting a subtree must not fill the
 // list of damage with pieces of the same hole: the control that paints owes the father's box and nothing
 // else, whatever hangs inside it (docs/90).
+//
+// **And since 0.173.2 the hole is paper already when it is asked for**: a control that painted its ink into the page left it
+// there, so the release fills the box with the paper of the page and says so —one region, of the father's box, and the
+// children that are going away inside it are not asked to paint themselves—. The app still owes its own draw, and the same
+// one region comes out of it (docs/30, docs/90).
 static void test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child() {
   fresh_view();
   int16_t father = -1;
@@ -767,19 +772,38 @@ static void test_a_father_that_goes_away_owes_one_rectangle_not_one_per_child() 
   TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());
 
   TEST_ASSERT_TRUE(ui::release(father));
-  // The painter has been told **once**, with the father's box: it owes a draw, and nothing is damaged until
-  // it draws.
+  // **One region and not four**: the painter owes the father's box with the paper of the page on it, and it owes a draw.
   TEST_ASSERT_TRUE(ui::needs_draw(0));
-  TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());
-  // The painter paints its whole page, as an `on_draw` would, and gets cut at the box it owes.
-  TEST_ASSERT_TRUE(ui::begin_draw(0));
-  TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 960, 540, 15, "du"));
-  TEST_ASSERT_TRUE(ui::end_draw(0));
   TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
   TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).x);
   TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).y);
   TEST_ASSERT_EQUAL_UINT16(60, ui::damage(0).w);
   TEST_ASSERT_EQUAL_UINT16(60, ui::damage(0).h);
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(10, 10));
+  // The painter paints its whole page, as an `on_draw` would, and gets cut at the box it owes: **two regions of the same
+  // box and not one**, because the wash of the hole is `gl16` and the app's paint is a `du` —two qualities of one rectangle
+  // do not merge, and a page that paints itself over a hole that is already paper pays one more pass of that rectangle—. The
+  // union of the two is the father's box, which is what says the box was not lost.
+  TEST_ASSERT_TRUE(ui::begin_draw(0));
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 960, 540, 15, "du"));
+  TEST_ASSERT_TRUE(ui::end_draw(0));
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT8(1, ui::damage_count());
+  int32_t x0 = 32767, y0 = 32767, x1 = -1, y1 = -1;
+  for (uint8_t i = 0; i < ui::damage_count(); ++i) {
+    const ui::Damage& one = ui::damage(i);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT16(10, one.x);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT16(10, one.y);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT16(70, static_cast<uint16_t>(one.x + one.w));
+    TEST_ASSERT_LESS_OR_EQUAL_UINT16(70, static_cast<uint16_t>(one.y + one.h));
+    if (one.x < x0) x0 = one.x;
+    if (one.y < y0) y0 = one.y;
+    if (static_cast<int32_t>(one.x + one.w) > x1) x1 = one.x + one.w;
+    if (static_cast<int32_t>(one.y + one.h) > y1) y1 = one.y + one.h;
+  }
+  TEST_ASSERT_EQUAL_INT32(10, x0);
+  TEST_ASSERT_EQUAL_INT32(10, y0);
+  TEST_ASSERT_EQUAL_INT32(70, x1);
+  TEST_ASSERT_EQUAL_INT32(70, y1);
 }
 
 

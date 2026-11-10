@@ -261,16 +261,67 @@ void unlink_from_parent(int16_t slot) {
 // first control that paints —so the hole is painted over on the next draw— and every child goes with it.
 // The buffer is wiped and the slot given back at the end of the next present, when the page is already
 // clean (docs/90).
+// The fills and the paper are written further down with the drawing, and the hole a release leaves needs them here.
+bool draw_fill_rect(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
+                    hal::UpdateMode mode);
+void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius, uint8_t level,
+                     hal::UpdateMode mode);
+extern uint8_t g_paper_level;
+
+
+// **A control that painted over the page and goes away owes the page** (0.173.2): a card has no buffer of its own, so its
+// ink went into the pixels of the canvas that holds it, and those pixels are the only place it exists —the buffer of the
+// card is nobody's—. When it is released, the region must be painted again, and **the children that have a buffer are the
+// ones that can paint it**: the page of a reader is a canvas, its buffer is whole, and the card never wrote in it. This
+// asks every buffered control of the subtree that overlaps the hole to compose itself again, which is what the rule of
+// `invalidate` does for a father without a buffer, here said in the coordinates of the painter (docs/30, docs/90).
+// **And what the app painted with its own primitives is not here**: a page that is not a canvas is a page the system
+// cannot draw again, and the app repaints it —which is the sentence docs/30 has for it— (0.173.2).
+void invalidate_covered(int16_t under, int32_t x, int32_t y, uint16_t w, uint16_t h, int32_t origin_x,
+                        int32_t origin_y) {
+  for (int16_t index = g_canvases[under].first_child; index != kNoSlot; index = g_canvases[index].next_sibling) {
+    if (!live(index) || g_canvases[index].pending_release) continue;
+    Canvas& child = g_canvases[index];
+    const int32_t at_x = origin_x + child.x;
+    const int32_t at_y = origin_y + child.y;
+    if (at_x + child.width > x && at_y + child.height > y && at_x < x + static_cast<int32_t>(w) &&
+        at_y < y + static_cast<int32_t>(h)) {
+      // **Every control, with a buffer or without one** (0.173.2): one with a buffer composes its whole box into the
+      // page, and one without paints itself into the page when it is asked to draw —a label fills its own paper, a
+      // button paints its frame—, which is what the page of `wipe` is made of. What is left is the app's own
+      // primitives, and that is the sentence docs/30 has: a page painted with `ui.text` is painted again by the app.
+      if (child.bits != nullptr) {
+        damage_add(child, 0, 0, child.width, child.height, hal::UpdateMode::kGl16);
+      }
+      // **A control without a buffer needs nothing more than being asked**: a label is opaque and fills its own box,
+      // and a button paints the box, the face and the border, so their own draw is the clean (docs/92).
+      invalidate(index);
+      invalidate_covered(index, x, y, w, h, at_x, at_y);
+    }
+  }
+}
+
 void request_release(int16_t slot, bool top) {
   if (!live(slot)) return;
   Canvas& control = g_canvases[slot];
   if (control.pending_release) return;
   control.pending_release = true;
+  // **The children go with it, marked first** (0.173.2): what has to paint the hole is the page that stays, so the subtree
+  // that is leaving is marked before the hole is filled —a child inside the hole that is going away is not a control that
+  // owes a draw, and asking it would fill the list of damage with pieces of a hole that is already paper—. **The next one of
+  // the list is read before the children are told**, because a child that goes away changes the list it is in.
+  int16_t child = control.first_child;
+  while (child != kNoSlot) {
+    const int16_t next = g_canvases[child].next_sibling;
+    request_release(child, false);
+    child = next;
+  }
+  if (!top) return;
   // **Only the top of the subtree is owed to the painter.** A father that goes away is a rectangle that
   // has to be painted over once, and everything inside it goes with it: making each child say its own
   // rectangle would fill the list of eight with pieces of the same hole and end up in one `gc16` of the
   // whole union, which is the opposite of cheap (docs/90).
-  if (top) {
+  {
     const int16_t painter = painting_holder(control.parent);
     if (painter >= 0) {
       int32_t offset_x = 0;
@@ -279,18 +330,37 @@ void request_release(int16_t slot, bool top) {
         offset_x += g_canvases[walk].x;
         offset_y += g_canvases[walk].y;
       }
+      // **The hole is paper before it is anything else** (0.173.2): the card painted its ink into the page's own pixels, so
+      // the only way to take it away is to paint the paper over it —nobody keeps a copy of what was underneath, and the
+      // system's answer to «what was there» is the app's controls, which paint themselves when they are asked—. Filled here,
+      // cut at the painter's box, and added to its damage in `gl16`: a wash, because a `du` over a frame of ink keeps its
+      // ghost (docs/30, docs/50).
+      const int32_t page_w = static_cast<int32_t>(g_canvases[painter].width);
+      const int32_t page_h = static_cast<int32_t>(g_canvases[painter].height);
+      const int32_t hole_w = (offset_x + static_cast<int32_t>(control.width) <= page_w)
+                                 ? static_cast<int32_t>(control.width)
+                                 : (page_w - offset_x);
+      const int32_t hole_h = (offset_y + static_cast<int32_t>(control.height) <= page_h)
+                                 ? static_cast<int32_t>(control.height)
+                                 : (page_h - offset_y);
+      if (hole_w > 0 && hole_h > 0) {
+        // **The shape the control drew with** (0.173.2): a card is a rounded box of radius twelve —cut at a third of its
+        // shorter side, which is the arithmetic of `dialog_draw`— and its corners are the page's, so a plain rectangle would
+        // erase four pieces of the page that the card never touched. Anything else is a square and gets a square.
+        int32_t radius = 0;
+        if (control.card) {
+          radius = ((hole_w < hole_h) ? hole_w : hole_h) / 3;
+          if (radius > 12) radius = 12;
+        }
+        draw_round_fill(g_canvases[painter], offset_x, offset_y, hole_w, hole_h, radius, g_paper_level,
+                        hal::UpdateMode::kGl16);
+        // **And what was under it comes back**: the controls that were inside the hole paint themselves again in the same
+        // turn, with a buffer of their own or without one (0.173.2, docs/30).
+        invalidate_covered(painter, offset_x, offset_y, static_cast<uint16_t>(hole_w), static_cast<uint16_t>(hole_h), 0, 0);
+      }
       invalidate_rect(painter, static_cast<uint16_t>(offset_x), static_cast<uint16_t>(offset_y),
                       control.width, control.height);
     }
-  }
-  // The children go with it, marked, without a rectangle of their own: theirs are all inside this one. **The next
-  // one of the list is read before the children are told**, because a child that goes away changes the list it is
-  // in.
-  int16_t child = control.first_child;
-  while (child != kNoSlot) {
-    const int16_t next = g_canvases[child].next_sibling;
-    request_release(child, false);
-    child = next;
   }
 }
 
@@ -511,6 +581,12 @@ void compose_region(Canvas& parent, const Canvas& child, int32_t origin_x, int32
 // it is cleaned (docs/30, docs/50). It is declared here and not with the other flags because the first place that reads it
 // is the tree and the one that composes it.
 bool g_page_owes_nothing = false;
+
+// **The level the page's paper has** (0.173.2): the last level an app cleared its view with, white by default, because a hole
+// left by a control that painted over the page has to be filled with something and paper is what a page is made of. An app
+// that paints its page in ink says so with `ui.clear(0, …)` and gets ink; a page nobody cleared is the white one the system
+// hands over (docs/30, docs/50).
+uint8_t g_paper_level = 15;
 
 // **And the ink that reached the view from a control's own canvas** (0.169.2): `g_levels` is what the page's primitives
 // drew, and a control's pixels are composed into the view without passing through one of them —so a page that painted
@@ -1571,6 +1647,7 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      canvas_create_for_lua,
                                      canvas_alive_for_lua,
                                      canvas_pending_for_lua,
+                                     mark_card,
                                      canvas_release_for_lua,
                                      canvas_place_for_lua,
                                      canvas_clear,
@@ -1702,6 +1779,10 @@ void attach() {
   release_faces();
   memset(root().bits, 0xFF, root().bytes);
   root().damage_count = 0;
+  // **And the paper of the page is white again** (0.173.2): what an app cleared its view with is the app's, and a hole that a
+  // control leaves on the page of the one that comes next is filled with the paper of the system, not with the ink of the
+  // app that has just gone (docs/30, docs/50).
+  g_paper_level = 15;
   // **And the glass is left clean, with the cleaner the last page deserves** (0.37.0): the app that was
   // here painted something and the next one starts on white paper, and what that wash costs is the
   // system's to choose —`a2` for a page of text, `gl16` for a few grays, `gc16` for a photograph— and not
@@ -1757,6 +1838,7 @@ bool clear(uint8_t level, const char* mode) {
   }
   draw_clear(root(), level, chosen);
   g_page_owes_nothing = false;
+  g_paper_level = level;
   // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
   // present has to put it back (docs/50, docs/90).
   keyboard_page_cleared();
@@ -1897,6 +1979,13 @@ bool reparent(int16_t slot, int16_t parent) {
   // frame (docs/90).
   if (was >= 0) invalidate_rect(was, canvas->x, canvas->y, canvas->width, canvas->height);
   invalidate(slot);
+  return true;
+}
+
+bool mark_card(int16_t slot) {
+  Canvas* canvas = find(slot);
+  if (canvas == nullptr) return false;
+  canvas->card = true;
   return true;
 }
 

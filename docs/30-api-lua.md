@@ -2308,6 +2308,16 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   resposta—. **I un dit que cau fora de la targeta és el seu cancel·lar**: el toc no arriba a la pàgina del
   darrere, i el contacte queda gastat, perquè el dit que ha tancat una pregunta no premi el botó que hi havia
   a sota (0.173.1). Un `ui.menu` i un `ui.month` no són targetes i no tenen aquesta regla (docs/30, docs/90).
+- **I la targeta no té píxels propis, o sigui que el forat que deixa el torna a pintar el sistema** (0.173.2):
+  una targeta sense buffer pinta la seva tinta **dins dels píxels de la pàgina**, i ningú no guarda una còpia del
+  que hi havia a sota. Quan l'app la deixa anar, el sistema **omple el seu requadre amb el paper de la pàgina**
+  —el nivell de l'últim `ui.clear` de l'app, i blanc si no n'ha fet cap— i **demana a cada control que hi havia
+  dins que es pinti una altra vegada**, amb buffer propi o sense. El requadre es dibuixa **amb el radi de la
+  targeta** (dotze píxels), perquè les cantonades arrodonides són de la pàgina i no de la targeta.
+  **El que el sistema no pot tornar és el que l'app ha pintat amb primitives** (`ui.text`, `ui.rect`, `ui.line`…):
+  allò no és cap control i no sap dibuixar-se. Una pàgina de targetes, botons, etiquetes i canvas torna sencera
+  tota sola —el cas de `wipe`—; una pàgina amb text pintat a mà s'ha de tornar a pintar quan la targeta marxa, que
+  és la recepta que l'editor ja feia servir (`ui.clear` i tornar a pintar la pàgina) (docs/30, docs/90).
 
 ### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
 

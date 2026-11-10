@@ -8169,6 +8169,126 @@ void test_a_dialog_answers_with_the_door_the_dial_is_on(void) {
   storage->remove("/apps/asker");
 }
 
+// **A card that goes away takes its ink with it** (0.173.2, the owner: *«sembla que els modals al tancar-se no netegen
+// correctament la pantalla»*). A card has no buffer of its own: it paints into the pixels of the page, so nothing keeps a
+// copy of what was underneath and a release that only marks the box leaves the frame and the words on the glass for ever.
+// The system fills the hole with the paper of the page and asks every control that was inside it to paint itself again —
+// with a buffer or without one—, and this case counts the pixels of the glass before the card and after it: the page of a
+// label and a button comes back **the same**, and there is no ink of the card left anywhere in its box (docs/30, docs/90).
+int ink_in(emu::MemorySurface* glass, const kernel::ui::Canvas& view, int x0, int y0, int x1, int y1) {
+  int inked = 0;
+  for (int y = y0; y < y1; ++y) {
+    for (int x = x0; x < x1; ++x) {
+      if (x < 0 || y < 0) continue;
+      if (glass->level_at(static_cast<uint16_t>(view.x + x), static_cast<uint16_t>(view.y + y)) == 0) ++inked;
+    }
+  }
+  return inked;
+}
+
+void test_a_card_that_goes_away_takes_its_ink_with_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  // The page of the app is a label and a button —the shape of `wipe`, which is what the owner saw— and the card is put
+  // **over the two of them**, so what comes back is not empty paper but the page.
+  TEST_ASSERT_TRUE(add_app(storage, "under",
+                           "{\"title\":\"Under\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local head = ui.label(300, 50)\n"
+                           "head.text = 'THE PAGE BEHIND'\n"
+                           "head.scale = 5\n"
+                           "head:place(20, 20)\n"
+                           // **A dark square where the card's top-right corner will be** (0.173.2): outside every control, so
+                           // the card's rounded corner is the only thing that can keep it or erase it. A card paints a rounded
+                           // box and its corners are the page's, so the hole is filled with the same radius —a rectangle would
+                           // take these pixels of the page that the card never touched— (docs/92).
+                           "ui.rect(430, 60, 40, 40, 0)\n"
+                           "local door = ui.button(300, 100)\n"
+                           "door:place(20, 100)\n"
+                           "local words = ui.label(260, 80)\n"
+                           "words.text = 'A door of the page'\n"
+                           "words.scale = 4\n"
+                           "words.align = 'center'\n"
+                           "words.valign = 'middle'\n"
+                           "door:add(words)\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(100):await()\n"
+                           "console.print('page painted')\n"
+                           "sys.delay(600):await()\n"
+                           "local card = ui.dialog(420, 260)\n"
+                           "card:place(40, 60)\n"
+                           "card.title = 'A question'\n"
+                           "card.text = 'This card covers the label and the door'\n"
+                           "card.accept = 'Yes'\n"
+                           "card.cancel = 'No'\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(300):await()\n"
+                           "card:release()\n"
+                           "console.print('card closed')\n"
+                           "ui.present('gc16')\n"
+                           "sys.delay(4000):await()\n"));
+
+  // **The page before the card**: the ink of the label and of the door, counted in the box the card will cover. The run
+  // waits for the two lines of the app, so the glass has the page when the first count is taken (docs/85).
+  pump_captured(500, g_out, sizeof(g_out), "run under");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page painted"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "card closed"), "the card went before this case could look at the page");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // **Counted from where the dark square ends**, because a primitive under a card is the app's to paint again: the system
+  // fills the hole with paper and asks the **controls** to draw themselves, and a `ui.rect` is not a control (docs/30).
+  const int whole_page = ink_in(glass, view, 50, 25, 320, 200);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(2000, whole_page, "the page of the app has no ink to come back");
+
+  // **And after the card went**: the same box, the same ink. A ghost of the frame or of the two doors would add pixels
+  // and the card's title over the label would take them away, so the equality is what says the page came back whole.
+  capture_begin();
+  pump_turns(900);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "card closed"), g_out);
+  pump_turns(100);
+  const int page_again = ink_in(glass, view, 50, 25, 320, 200);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(whole_page, page_again, "the card left ink on the glass");
+  // **And a primitive under the card goes with it, which is the rule and not a defect** (docs/30): what the system can paint
+  // again is a control, so a page painted with `ui.rect`/`ui.text` is a page the app paints again when its card closes. The
+  // pixel is asserted here so that the day this changes, it changes on purpose.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      15, glass->level_at(static_cast<uint16_t>(view.x + 440), static_cast<uint16_t>(view.y + 80)),
+      "a primitive under a card came back from nowhere");
+  // **And the corner of the card is the page's**: the dark square the app painted under the card's top-left corner is still
+  // ink where the card's radius does not reach it —one pixel in, at the very corner—, which is what says the hole was filled
+  // with the shape of the card and not with its bounding box (0.173.2, docs/92).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, glass->level_at(static_cast<uint16_t>(view.x + 458), static_cast<uint16_t>(view.y + 61)),
+      "the fill of the hole erased a corner of the page that the card never touched");
+
+  // **An app left running is the next case's `cannot start the interpreter`** (0.151.0): this one waits for ever, so it is
+  // closed the way the shell closes it before the board goes back to the model (docs/85).
+  if (kernel::app_running()) {
+    kernel::shell::close_app();
+    pump_turns(10);
+  }
+  storage->remove("/apps/under/app.lua");
+  storage->remove("/apps/under/manifest.json");
+  storage->remove("/apps/under");
+  kernel::font::set_system_face(nullptr);
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
 // **A folder is made with the fathers it needs, and that is the kernel's walk and not the app's** (0.173.1, and the claim
 // of 0.172.2 which is what this case pins): `fs.mkdir` is one call and the chain is made inside the storage by
 // `fs_ops::mkdir` (`make_dirs`) since the import, so an app that writes in its own ground the first time —the marks of the
@@ -11412,6 +11532,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_box_without_a_frame_leaves_its_edge_in_paper);
   RUN_TEST(test_a_slider_takes_the_keys_only_after_the_centre);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
+  RUN_TEST(test_a_card_that_goes_away_takes_its_ink_with_it);
   RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
   RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);

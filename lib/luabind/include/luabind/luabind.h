@@ -518,6 +518,10 @@ struct UIOps {
   // **Whether a control is on its way out** (0.172.1): it was given back and its pixels are still on the glass until the paint
   // that covers them. A card that is closing is a card that is not a card any more for the focus (docs/30).
   bool (*canvas_pending)(int16_t slot);
+  // **This control is a card** (0.173.2): it paints a rounded box over the page, so the hole it leaves when it goes is filled
+  // with the same shape instead of a rectangle that would erase the four corners of the page the card never touched. Said by
+  // `ui.dialog` and by nobody else (docs/30, docs/90).
+  bool (*canvas_card)(int16_t slot);
   bool (*canvas_release)(int16_t slot);
   bool (*canvas_place)(int16_t slot, uint16_t x, uint16_t y);
   bool (*canvas_clear)(int16_t slot, uint8_t level, const char* mode);

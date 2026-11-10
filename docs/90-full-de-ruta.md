@@ -552,6 +552,26 @@ targeta i es buida amb la mateixa crida (docs/30, docs/70).
   app pot cridar la porta quan vulgui. El que la fa honesta és la targeta d'avís amb el dial a la porta segura; el
   dia que hi hagi permisos (el `E_PERM` reservat de docs/30), aquesta és la primera porta que hi hauria de passar.
 
+### La targeta que no netejava (10/11)
+
+L'amo: *«sembla que els modals al tancar-se no netejen correctament la pantalla»*. Era cert, i la causa és de disseny: **una
+targeta no té buffer** —no costa cap píxel, que és el que volíem— i per tant pinta la seva tinta **dins dels píxels de la
+pàgina**. Res no en guarda una còpia, i el `release` només marcava el rectangle: la pàgina es quedava amb el marc i les
+paraules de la targeta per sempre (mesurat a l'emulador amb una pàgina d'etiquetes i botons, 10/11).
+
+- **El que fa ara el sistema** (0.173.2): omple el requadre de la targeta **amb el paper de la pàgina** (el nivell de
+  l'últim `ui.clear` de l'app, blanc si no n'ha fet cap) i **demana a cada control que hi havia dins que es pinti una altra
+  vegada**; el requadre es dibuixa amb el radi de la targeta, perquè les cantonades són de la pàgina. Una pàgina de
+  controls —el cas de `wipe`, i el de qualsevol app que faci servir `ui.label`/`ui.button`/`ui.canvas`— **torna sencera
+  tota sola**;
+- **el que no pot tornar és el que l'app ha pintat amb primitives** (`ui.text`, `ui.rect`…): allò no és un control i no sap
+  dibuixar-se, i és l'app qui ha de tornar a pintar la pàgina quan la targeta marxa. És la recepta que l'editor ja feia
+  servir i que `docs/30` no deia enlloc;
+- **la decisió que queda oberta**: una còpia dels píxels de sota la targeta (49 400 B per a una targeta de 380 × 260, i més
+  a la PSRAM del Paper) la faria neta sense demanar res a l'app i sense el cas de les primitives. No s'ha fet perquè el
+  pressupost de la placa sense PSRAM no ho paga i perquè el que hi ha ara ja resol el cas que l'amo ha vist; si algun dia
+  una app pinta la seva pàgina amb primitives i hi posa targetes a sobre, aquesta és la feina (docs/30, docs/75).
+
 ## Fora de la v1
 
 | Cosa | Per què queda fora |

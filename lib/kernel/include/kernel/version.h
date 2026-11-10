@@ -5263,7 +5263,33 @@ namespace kernel {
 //     said four; and the numbers of the documents are the ones of today —560 cases, 47 files of `apps/`, both disks and the
 //     ATOM— (docs/70, docs/80, docs/85, README).
 
-static const char kVersion[] = "0.173.1";
+// 0.173.2 (10/11): **the card that goes away takes its ink with it**. The owner: *«sembla que els modals al tancar-se no
+// netejen correctament la pantalla»*, and he was right: the frame and the words of a card stayed on the glass for ever.
+//
+//   - **why**: a card is a control **without a buffer** —a card costs no pixels on purpose— so its ink went into the pixels of
+//     the page, nobody kept a copy of what was underneath, and the release only marked the rectangle. The page was never
+//     painted again and the ghost stayed (measured on the emulator, 10/11, with a page of a label and a button);
+//   - **the hole is paper before it is anything else**: `request_release` fills the box of the control with **the paper of the
+//     page** —the level of the last `ui.clear` of the app, white if it never cleared, and reset to white when the view is
+//     handed over— and adds it to the painter's damage with `gl16`, because a `du` over a frame of ink keeps the ghost
+//     (docs/30, docs/50);
+//   - **and every control that was inside it paints itself again**: with a buffer of its own (its whole box is composed into
+//     the page) or without one (its `on_draw` paints the box, and a label fills its own paper and a button paints its frame).
+//     A page of controls —`wipe`, and any app of `ui.label`/`ui.button`/`ui.canvas`— comes back **whole and by itself**;
+//   - **the shape is the card's and not a rectangle**: a card paints a rounded box of radius twelve and its four corners are
+//     the page's, so the hole is drawn with the same radius. The system had no way to know a control is a card, so `ui.dialog`
+//     says it when it makes one (`mark_card`, one bool per canvas) (docs/30, docs/92);
+//   - **what the system cannot give back is what the app painted with primitives** (`ui.text`, `ui.rect`…): that is not a
+//     control and cannot draw itself, so a page painted by hand is painted again by the app when its card goes —the recipe
+//     the editor already used and that docs/30 did not say anywhere—. The decision is written down in docs/90 with its price:
+//     a copy of the 49 400 bytes under a 380 × 260 card would make it clean with no help from the app, and it is not done
+//     because the board without PSRAM does not pay for it (docs/75, docs/90);
+//   - **and the case that proves it** counts the pixels of the glass before the card and after it: the page of a label and a
+//     button comes back the same, the dark square the app painted at the card's corner survives where the radius does not
+//     reach, and the part of a primitive that the card covered is paper —which is the rule, said out loud so that the day it
+//     changes it changes on purpose— (0.173.2, `test_apps`).
+
+static const char kVersion[] = "0.173.2";
 
 }  // namespace kernel
 

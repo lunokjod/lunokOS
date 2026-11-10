@@ -6558,6 +6558,13 @@ int l_ui_dialog(lua_State* L) {
   lua_pushcfunction(L, &l_dialog_draw);
   lua_setfield(L, -2, "on_draw");
   lua_pop(L, 1);  // the table
+  // **And the system is told this control is a card** (0.173.2): a card paints a rounded box over the page, and the hole it
+  // leaves when it goes is filled with the same shape —a rectangle would erase the four corners of the page under it, which
+  // the card never touched— (docs/30, docs/90).
+  {
+    LuaCanvas* made = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
+    if (g_ui_ops.canvas_card != nullptr) g_ui_ops.canvas_card(made->slot);
+  }
 
   // The first pressable control is focused when it appears, the same rule a button follows (docs/30, docs/90).
   LuaCanvas* created = static_cast<LuaCanvas*>(luaL_checkudata(L, -1, kCanvasMeta));
