@@ -162,8 +162,8 @@ void usage() {
   printf("                    (without it, the smallest scale that fits the screen)\n");
   printf("  --no-ink          a glass that switches pixels: instant, clean, and not the panel\n");
   printf("  --touch           the finger of the board, which is there by itself: a GT911 on the bus\n");
-  printf("  --no-touch        no finger: the panel is not read once per turn\n");
-  printf("  --touch-scan <ms> how often that panel reports (0 is the chip's own, 10 ms)\n");
+  printf("  --no-touch        no finger at all: the panel is not asked\n");
+  printf("  --touch-scan <ms> how often that panel reports, and so how often the kernel asks it (0 is the chip's own, 10 ms)\n");
   printf("  --lua-cpu <ns>    what one instruction of an app costs at 160 MHz (%d; 0 = free)\n",
          kLuaInstructionNs);
   printf("  --no-delay        no waiting at all: the model keeps the times, the clock does not pay them\n");

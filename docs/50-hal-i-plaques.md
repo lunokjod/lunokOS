@@ -585,7 +585,16 @@ coincideixen entre ells i amb el que la placa ja ha dit:
 | «Pressió» | El camp de **mida** és l'àrea que el xip mesura sota el dit, no una pressió: dos dits que premen igual de fort donen dues mides diferents. S'exposa com a `size` i no s'inventa una escala |
 | Velocitat | És un valor de la configuració del xip; el `M5GFX` el llegeix de `0x8056` i en fa `5 + (byte & 0x0F)` Hz. **No es dóna per bo**: es llegeix i es mesura al xip (docs/95, E-6) |
 | Gestos | El xip en té de propis, i **ni el driver de M5 ni el d'Espressif els llegeixen**. Aquí tampoc: un toc, una premuda llarga, un arrossegament o dos dits són **formes del flux de punts**, volen dir el mateix a qualsevol vidre i es poden provar al PC amb un fals; un gest que inventa el xip només el pot fer servir una placa (docs/85) |
-| Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **800 µs** (vuit bytes i dues transaccions), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i a l'emulador, 1/11, docs/85) |
+| Què costa llegir-lo | **Tres transaccions al bus del xip, que és de 100 kHz** i nou bits per byte (vuit i l'acknowledge), o sigui **90 µs el byte**: llegir l'estat, el marc dels punts i escriure el zero que el tanca. Sense dit són **400 µs** des de 0.174.4 (quatre bytes i una transacció: el zero no s'escriu quan el xip no té cap marc), amb un dit **1 830** (dinou bytes) i amb dos **2 550** (vint-i-set). El probe de l'arrencada és el producte id més els **186 bytes** de configuració: **~17 ms**, una vegada (mesurat al codi i a l'emulador, 1/11, docs/85) |
+
+**Qui pregunta i quan (0.174.4)**: el vidre escombra el panell tot sol i **guarda el marc fins que algú el pren**, i el
+nucli el pregunta **una vegada per escombrat** —deu mil·lisegons, `ITouch::scan_ms()`— i no a cada torn. Un torn d'un
+mil·lisegon preguntant cada vegada és el 80 % del processador en una I2C de cent quilohertz que també és la del
+rellotge, la FRAM i el SHT30, i la resposta no pot ser cap altra que la de la lectura anterior; l'emulador compta
+aquestes lectures com a `missed` des del primer dia. Un vidre que no digui la seva velocitat (`scan_ms()` a zero) es
+pregunta a cada torn, que és el que es feia abans. I el zero de tancament **s'escriu només quan el xip té un marc**
+(bit 7 de l'estat), com fan els dos drivers del fabricant: dir-li que no té res quan no té res eren tres bytes al bus a
+cada lectura (docs/95).
 
 **El que hi ha escrit, l'1/11**: `ITouch` al HAL, el driver sencer (les dues adreces, la configuració,
 el marc dels cinc punts, el zero de tancament), **les tres crides de Lua** (`touch.caps`, `touch.read`,

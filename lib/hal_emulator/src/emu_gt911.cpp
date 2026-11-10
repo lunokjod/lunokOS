@@ -40,9 +40,9 @@ uint32_t bus_us(uint32_t bytes) { return bytes * kBitsPerByte * 1000000u / kBusH
 }  // namespace
 
 uint32_t Gt911Panel::read_us(uint8_t fingers) {
-  // Nobody on the glass: the status is read and the chip is told to let go of the frame it does not
-  // have, and the frame of the points is never asked for.
-  if (fingers == 0) return bus_us(kStatusBytes + kReleaseBytes) + 2 * kTransactionUs;
+  // Nobody on the glass: the status is read and the frame of the points is never asked for, and since 0.174.4 the
+  // driver does not write the zero either —a chip with no frame has nothing to be told (docs/50).
+  if (fingers == 0) return bus_us(kStatusBytes) + kTransactionUs;
   return bus_us(kStatusBytes + kAddressAndRegister + kPointBytes * fingers + kReleaseBytes) +
          3 * kTransactionUs;
 }

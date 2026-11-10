@@ -521,15 +521,18 @@ congelen**: mentre el dit no es mou les coordenades es repeteixen (és el que ha
 seguida que el dit es mou.
 
 **L'emulador ja simula el xip (1/11, 0.24.0)**: `--touch` dona a l'emulador un GT911 en el marc d'aquesta unitat
-—540 × 960, dos dits, mides 28 i 30— que costa **800 µs per torn sense dit i 2 550 amb dos** (tres
+—540 × 960, dos dits, mides 28 i 30— que costa **400 µs per torn sense dit i 2 550 amb dos** (tres
 transaccions a 100 kHz) i que **dona el marc una vegada per escombrat**, o sigui que un lector més ràpid
 que el vidre llegeix «ningú» (docs/85). Les dues coses que falten aquí es poden comparar amb ell: la fila
-`touch.read` de `stats` i els marcs que compta el dit.
+`touch.read` de `stats` i els marcs que compta el dit. **I des de 0.174.4 el nucli pregunta el xip una
+vegada per escombrat** —deu mil·lisegons, el que el vidre triga a tenir una cosa nova— i no a cada torn:
+els 400 µs es paguen deu vegades per segon i no una per torn, que amb un torn d'un mil·lisegon era el 80 %
+del processador (docs/50).
 
 | Què apuntar | On va |
 |---|---|
 | **La velocitat de mostra**: arrossegar el dit de pressa d'una banda a l'altra i comptar quants frames dona el xip en un segon. El `M5GFX` dedueix els Hz de `0x8056` (`5 + (byte & 0x0F)`); aquest número és el que es compara amb el que conta el dit | `docs/50` |
-| **El cost d'una lectura**: `stats` i apuntar la fila `touch.read`. A l'emulador són **800 µs** per torn sense dit i **1 830 amb un dit** (l'estat, el marc i el zero, a 100 kHz, docs/50) i a la placa ha de ser el mateix o més, perquè el bus és compartit amb el rellotge, la FRAM i el SHT30 | `docs/50`, `docs/75` |
+| **El cost d'una lectura**: `stats` i apuntar la fila `touch.read`. A l'emulador són **400 µs** sense dit i **1 830 amb un dit** (l'estat, el marc i el zero, a 100 kHz, docs/50) i a la placa ha de ser el mateix o més, perquè el bus és compartit amb el rellotge, la FRAM i el SHT30. **La fila compta lectures del xip i no torns** (0.174.4): una lectura per escombrat, deu per segon, i el que es compara amb la placa és el nombre de lectures i el que dura cadascuna | `docs/50`, `docs/75` |
 | Si la línia no surt o diu `no answer at 0x14 or 0x5D`, mirar abans el log de la I2C (`i2c: …`): el tàctil va al mateix bus que el rellotge i el sensor | `docs/50` |
 
 ### E-7 · El panell: el handshake i la primera pàgina (5 minuts)

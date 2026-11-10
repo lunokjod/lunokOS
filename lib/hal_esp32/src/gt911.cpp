@@ -82,8 +82,8 @@ bool Gt911::probe() {
 }
 
 void Gt911::release() {
-  // Writing a zero to the status is what tells the chip the frame has been taken; it is also what it
-  // wants when it has nothing to say (docs/50).
+  // Writing a zero to the status is what tells the chip the frame has been taken; it is called for a frame that is
+  // there and for nothing else (0.174.4, docs/50).
   const uint8_t frame[3] = {0x81, 0x4E, 0x00};
   bus_->write(address_, frame, sizeof(frame));
 }
@@ -92,12 +92,13 @@ uint8_t Gt911::read(TouchPoint* out, uint8_t capacity) {
   if (bus_ == nullptr || out == nullptr || capacity == 0) return 0;
   uint8_t status = 0;
   if (!bus_->read16(address_, kRegStatus, &status, 1)) return 0;
-  // Bit 7 is "there is a frame" and the low nibble is how many fingers it has. No frame, no fingers
-  // or more fingers than the frame can hold all mean the same thing to a caller —nobody is
-  // touching— and the chip is told to let go of it either way, or the next read would answer with
-  // the finger of a minute ago (docs/50).
+  // **A chip with no frame has nothing to be told** (0.174.4): bit 7 clear is "there is nothing to hand over", so there
+  // is no frame to take away either, and this board was paying a three-byte write on a hundred-kilohertz bus once per
+  // turn to say so. Both vendor drivers clear the status only inside the bit. A frame that **is** there is released
+  // whatever it holds, zero fingers and too many of them included, or the chip would answer with it for ever (docs/50).
+  if ((status & 0x80) == 0) return 0;
   const uint8_t points = static_cast<uint8_t>(status & 0x0F);
-  if ((status & 0x80) == 0 || points == 0 || points > kGt911MaxPoints) {
+  if (points == 0 || points > kGt911MaxPoints) {
     release();
     return 0;
   }

@@ -37,6 +37,10 @@ const uint8_t kGt911Address = 0x14;
 const uint8_t kGt911AddressBackup = 0x5D;
 // Five fingers at once and no more: the frame has room for five and both vendor drivers stop there.
 const uint8_t kGt911MaxPoints = 5;
+// **How often the chip scans the glass**: ten milliseconds, the period both vendor drivers work to and the one a finger
+// of a hundred milliseconds is always seen in. It is what the kernel is told so that it asks once per scan and not once
+// per turn (docs/50, docs/95).
+const uint32_t kGt911ScanMs = 10;
 
 class Gt911 : public ITouch {
  public:
@@ -56,6 +60,7 @@ class Gt911 : public ITouch {
   uint8_t max_points() const override { return points_; }
   uint16_t width() const override { return width_; }
   uint16_t height() const override { return height_; }
+  uint32_t scan_ms() const override { return kGt911ScanMs; }
   uint8_t read(TouchPoint* out, uint8_t capacity) override;
 
  private:

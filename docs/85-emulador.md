@@ -144,7 +144,7 @@ Aquestes són les opcions del binari:
 | `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, la pàgina és la que s'ha pintat sense res del que hi havia abans i **no s'envia res al bus**. És el que fan servir les proves —no paguen mig megabyte de buffers, ni mig segon de tinta, ni un segon de bus per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
 | `--touch` | **El tàctil del model, que hi és sol**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —800 µs per torn sense dit, 2 550 amb dos— i que **dona el marc una vegada**, amb la capacitat `touch`. Qui ho diu és el model (`Model::touch`): el Paper en té i un `--touch` a un ATOM es refusa. El que apaga és `--no-touch`, i llavors el panell d'aquella Paper és un xip que no contesta, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
 | `--no-touch` | **Cap dit**: el panell del model no es llegeix i no costa els 800 µs de cada torn (docs/85) |
-| `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms) i un número més gran que el torn del nucli és un vidre que contesta «ningú» a la meitat de les lectures, que és exactament el cas que es vol poder reproduir (docs/85) |
+| `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms). **És també el número amb què el nucli decideix quan li pregunta** (0.174.4, `ITouch::scan_ms()`), o sigui que un número més gran que el torn del nucli és un vidre que contesta «ningú» a qui el llegeixi a mà, que és el cas que es vol poder reproduir (docs/85) |
 | `--no-delay` | **Cap espera**: el model del disc, del port, de la tinta i del tàctil és el mateix i el rellotge no es toca — ni el torn del nucli, que deixa de costar els 850 µs que costa a la placa (`kTurnOverheadUs`). És el que fa servir una prova o una mesura que no és de temps; un run amb `--gui` **no el pot** demanar (es refusa) i el run que no l'ha demanat es queda sense la finestra del build, dient-ho (docs/85) |
 | `--lua-cpu <ns>` | Què costa **una instrucció de l'intèrpret** a 160 MHz: **60 ns** per defecte (el model; el número de la placa el diu `run luaperf` des de la 0.169.3, docs/95), i `0` perquè el codi de l'app sigui gratis, que és el que era l'emulador fins a la 0.29.0. Es divideix per la freqüència simulada, o sigui que a 240 MHz una instrucció costa 40 ns i a 80, 120 |
 | `--verbose` | El log també surt per la consola, i amb ell **cada pintat del vidre**: `gui: paint 12,9 116x28 gld16` és la regió i la qualitat que s'ha demanat, que és com es comprova que un títol nou no repinta la franja sencera (0.85.2) |
@@ -642,7 +642,7 @@ cas d'una prova que no és sobre el tàctil.
 | El marc | **540 × 960**, i és el de la pàgina: un dit a (100, 200) és a (100, 152) de la vista, sota les 48 files de la barra | la configuració d'aquesta unitat, mesurada amb quatre tocs l'1/11 (docs/95, E-6) |
 | Els dits | **2**, no els cinc que caben al marc | `0x804C` = 2 a la config 66 d'aquesta unitat |
 | La mida del contacte | **28** al primer dit i **30** al segon | els dos números que va donar la placa amb dos dits (docs/95, E-6) |
-| Què costa una lectura | **800 µs** sense dit, **1 830** amb un i **2 550** amb dos: l'estat, el marc i el zero que el tanca, a 100 kHz i nou bits per byte. Mesurat a l'emulador, `touch.read` diu **935 µs – 1,1 ms** per a una lectura de 800: l'espera és `pal::delay_us` (`std::this_thread::sleep_for` al PC) i el planificador hi afegeix la resta | la física del bus del xip (docs/50) |
+| Què costa una lectura | **400 µs** sense dit (l'estat i prou: des de 0.174.4 el zero no s'escriu quan el xip no té cap marc), **1 830** amb un i **2 550** amb dos (l'estat, el marc i el zero): a 100 kHz i nou bits per byte. Mesurat a l'emulador amb la lectura de 800 µs d'abans de 0.174.4, `touch.read` donava **935 µs – 1,1 ms**: l'espera és `pal::delay_us` (`std::this_thread::sleep_for` al PC) i el planificador hi afegeix la resta | la física del bus del xip (docs/50) |
 | El probe de l'arrencada | **~17 ms**, una vegada: el producte id i els 186 bytes de configuració, i la línia `[I][TOUCH] GT911 at 0x5d, config 66, 540x960, 2 fingers` | el driver de la placa (docs/50) |
 | El temps entre mostres | **10 ms** (`--touch-scan`), i una lectura es pot trobar el marc ja pres | el full del fabricant; **la placa encara no ho ha comptat** (docs/95, E-6) |
 
@@ -652,6 +652,12 @@ troba **ningú** encara que hi hagi un dit a sobre. Si el que llegeix va més de
 torn de 20 ms contra un xip de 40— la meitat de les lectures diuen que no hi ha ningú, i el que ha de
 sobreviure això és el nucli, no l'emulador. `--touch-scan 40` és exactament aquest cas, i
 `Gt911Panel::missed()` compta les vegades que el marc ja era pres.
+
+**I el nucli ja no hi cau (0.174.4)**: pregunta el xip **una vegada per escombrat** —el que digui
+`ITouch::scan_ms()`, deu mil·lisegons en aquest vidre— i no una vegada per torn, o sigui que un run de
+l'emulador amb una app que gira de pressa deixa `missed()` a zero i la fila `touch.read` de `stats` compta
+una lectura per escombrat i no una per torn. El comptador segueix tenint sentit: qui pregunti el xip a mà
+—una prova, una app de sonda— encara el veu créixer.
 
 - **Els dits són del test, del guió o del ratolí**, com les tecles: `emu::touch_panel()->finger_down(0, 100,
   200)`, `finger_move`, `finger_up`, i amb `--gui` el botó esquerre de la finestra fa el mateix en el píxel
@@ -685,7 +691,7 @@ Un run de l'emulador **paga la mateixa estona que la placa**, perquè una app qu
 no serveix de res: el disc (**819 µs** per bloc de 4 KB de flash i **45 ms** d'esborrat per cada sector que
 s'escriu, 410 µs per sector de targeta, **90 µs per byte** de FRAM), el **port sèrie** (86,8 µs per byte
 a 115 200), la **tinta** (0,8 µs per byte i 1 100 µs per fila, i la qualitat de cada pintada) i el
-**tàctil** (800 µs per torn sense dit, 1 830 amb un i 2 550 amb dos). **Tot és un sol
+**tàctil** (400 µs per lectura sense dit, 1 830 amb un i 2 550 amb dos, i una lectura per escombrat des de 0.174.4). **Tot és un sol
 commutador** (`Options::delays`), perquè un run o paga el temps del maquinari o és una prova, i qui en
 paga la meitat no mesura res:
 

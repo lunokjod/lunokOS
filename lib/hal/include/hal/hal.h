@@ -440,6 +440,12 @@ class ITouch {
   // The points that are down now, up to `capacity`; 0 when nobody is touching. A frame that is
   // taken is cleared, so a stale finger is never read twice (docs/50).
   virtual uint8_t read(TouchPoint* out, uint8_t capacity) = 0;
+  // **How often this glass can have news** (0.174.4): a controller that scans the panel by itself hands over the frame
+  // of its last scan and keeps it until a read takes it, so a caller that asks twice inside one scan can only be told
+  // what the last read already said —and on this board that read is 400 microseconds of a hundred-kilohertz bus shared
+  // with the clock, the FRAM and the air sensor (docs/50, docs/95). Zero is "this glass does not say", and then the
+  // caller asks on every turn, which is what every glass did before.
+  virtual uint32_t scan_ms() const { return 0; }
   // **Whether the frame that was just handed over is of a finger that is still there** (0.83.0). A controller that
   // scans the glass by itself hands over the frame of its last scan, and a finger that came down and went away
   // between two reads is a tap that is **already over** when the caller hears about it: `true` here would say the

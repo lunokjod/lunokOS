@@ -79,14 +79,15 @@ void wait_ms(int32_t ms) {
 
 // **A read costs what it puts on the wire**: the status, the frame of the points and the zero that
 // releases them, at the hundred kilohertz of this board and nine bits a byte (docs/50). Nobody on the
-// glass is two transactions; one finger is eight more bytes and another transaction; two are sixteen.
+// glass is one transaction —the status, and no zero to write, since 0.174.4—; one finger is eight more
+// bytes and two more transactions; two are sixteen.
 static void test_a_read_costs_the_bus_it_uses() {
-  TEST_ASSERT_EQUAL_UINT32(800, emu::Gt911Panel::read_us(0));
+  TEST_ASSERT_EQUAL_UINT32(400, emu::Gt911Panel::read_us(0));
   TEST_ASSERT_EQUAL_UINT32(1830, emu::Gt911Panel::read_us(1));
   TEST_ASSERT_EQUAL_UINT32(2550, emu::Gt911Panel::read_us(2));
-  // **Seven hundred and twenty of those are the wire alone** at ninety microseconds a byte: eight of
-  // them for the status and the release.
-  TEST_ASSERT_EQUAL_UINT32(720, 8 * 90);
+  // **Three hundred and sixty of those are the wire alone** at ninety microseconds a byte: four of them
+  // for the status, and the four of the release are not paid when the chip has no frame to release.
+  TEST_ASSERT_EQUAL_UINT32(360, 4 * 90);
   // The probe of the boot is the product id and the 186 bytes of configuration: seventeen milliseconds
   // on a bus this slow, which is why it happens once (docs/50).
   TEST_ASSERT_UINT32_WITHIN(200u, 17850u, emu::Gt911Panel::probe_us());
@@ -221,6 +222,37 @@ static void test_a_panel_slower_than_the_turn_answers_nothing_half_the_time() {
   emu::set_options(opts);
 }
 
+// **The kernel asks the glass once per scan and not once per turn** (0.174.4): the chip scans by itself and keeps the
+// frame, so a turn is not a reason to ask it —the emulator counts the reads of a window already taken as `missed`, and
+// each of them is the status of the chip on the bus of the board. A finger that stays is worth a frame per scan, and the
+// kernel hears it in the turn that finds it (docs/50, docs/95).
+static void test_the_kernel_asks_the_glass_once_per_scan() {
+  boot_with_a_touch_panel();
+  emu::Options opts = emu::options();
+  // **A window long enough that "straight away" is a fact** and not a race with the clock, and short enough to end
+  // inside this case.
+  opts.touch_scan_ms = 200;
+  emu::set_options(opts);
+  chip().reset();
+  TEST_ASSERT_TRUE(chip().finger_down(0, 100, 200));
+  // Ten turns back to back, which is what a page that draws or a loop that computes looks like to the glass.
+  for (int i = 0; i < 10; ++i) kernel::touch::poll();
+  TEST_ASSERT_EQUAL_UINT32(1, chip().frames());
+  TEST_ASSERT_EQUAL_UINT32(0, chip().missed());
+  // **And the frame is still there for the app**: the one the chip handed over is the one the kernel keeps, in the
+  // view's coordinates, over the nine turns in which the chip was not asked.
+  hal::TouchPoint point = {};
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::touch::points(&point, 1));
+  // One scan later the same finger is another frame, and the kernel asks for it in the next turn.
+  wait_ms(220);
+  kernel::touch::poll();
+  TEST_ASSERT_EQUAL_UINT32(2, chip().frames());
+  TEST_ASSERT_EQUAL_UINT32(0, chip().missed());
+  opts = emu::options();
+  opts.touch_scan_ms = 0;
+  emu::set_options(opts);
+}
+
 // **The whole path**: a finger on the panel, the kernel reading it in its turns, and the gesture coming
 // out in the frame of the view —the page starts under the bar of the system— with the length of the
 // press. The threshold is a second, so this is a second of the emulator's own time (docs/30, docs/50).
@@ -318,7 +350,7 @@ static void test_the_waits_are_one_switch() {
   started = pal::system().micros();
   (void)chip().read(frame, kernel::touch::kMaxPoints);
   const int64_t paid = pal::system().micros() - started;
-  TEST_ASSERT_TRUE_MESSAGE(paid >= 800, "a read with the waits on did not pay the bus");
+  TEST_ASSERT_TRUE_MESSAGE(paid >= 400, "a read with the waits on did not pay the bus");
 
   opts.delays = false;
   emu::set_options(opts);
@@ -334,6 +366,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_finger_that_leaves_is_gone_after_a_scan);
   RUN_TEST(test_a_tap_between_two_reads_is_still_a_frame);
   RUN_TEST(test_a_panel_slower_than_the_turn_answers_nothing_half_the_time);
+  RUN_TEST(test_the_kernel_asks_the_glass_once_per_scan);
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
   RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);

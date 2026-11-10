@@ -28,6 +28,8 @@ class Gt911Panel : public hal::ITouch {
   uint16_t width() const override { return kFrameWidth; }
   uint16_t height() const override { return kFrameHeight; }
   uint8_t read(hal::TouchPoint* out, uint8_t capacity) override;
+  // **How often the model scans**, which is the datasheet's ten milliseconds unless `--touch-scan` says otherwise: the
+  // kernel asks the glass once per scan and this is where that number comes from (docs/50, docs/85, docs/95).
   // **A frame the chip kept after the finger left says so**: the emulator knows if a finger is on the glass right now,
   // and it is what tells a tap that is over from a key held down (docs/50, docs/85).
   bool finger_still_down() const override { return fingers_down() > 0; }
@@ -54,7 +56,7 @@ class Gt911Panel : public hal::ITouch {
   uint32_t frames() const { return frames_; }
   uint32_t missed() const { return missed_; }
   // The gap between two reports of the chip, in milliseconds.
-  uint32_t scan_ms() const;
+  uint32_t scan_ms() const override;
   // A power cycle: no finger on the glass and no frame pending.
   void reset();
 

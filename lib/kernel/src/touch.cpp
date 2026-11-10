@@ -217,6 +217,24 @@ const int32_t kQuietMs = 30;
 // When a frame was last handed over. `-1` is a glass that has said nothing since the app started or since the last
 // finger left.
 int32_t g_seen_ms = -1;
+// When the chip was last asked. `-1` is a glass nobody has asked yet, and the gate below is what keeps a turn of a
+// millisecond from asking a chip that scans every ten (0.174.4, docs/50, docs/95).
+int32_t g_asked_ms = -1;
+
+// **The chip is asked once per scan and not once per turn** (0.174.4): the glass scans the panel by itself and keeps
+// the frame of its last scan until a read takes it, so a turn that asks again inside the same scan can only be told
+// what the last read already said. The emulator counts those reads as `missed` —and a model whose caller asks ten
+// times a turn would make the cost of asking disappear, which is the opposite of what it is for— and on the board
+// each one is the status of the chip on a hundred-kilohertz bus it shares with the clock, the FRAM and the sensor:
+// 400 microseconds of a turn that can be one millisecond (docs/50, docs/95). A glass that does not say how often it
+// scans (`scan_ms() == 0`) is asked on every turn, which is what every caller did before.
+bool ask_the_chip(int32_t now) {
+  const uint32_t scan = g_glass->scan_ms();
+  if (scan == 0) return true;
+  if (g_asked_ms >= 0 && static_cast<uint32_t>(now - g_asked_ms) < scan) return false;
+  g_asked_ms = now;
+  return true;
+}
 
 bool boot(hal::IPlatform& platform) {
   g_glass = platform.touch();
@@ -226,6 +244,7 @@ bool boot(hal::IPlatform& platform) {
   g_queue_count = 0;
   g_taps = 0;
   g_seen_ms = -1;
+  g_asked_ms = -1;
   if (g_glass == nullptr) return false;
   luabind::set_touch_ops(luabind::TouchOps{caps_for_lua, points_for_lua, gesture_for_lua});
   return true;
@@ -235,13 +254,16 @@ bool available() { return g_glass != nullptr; }
 
 void poll() {
   if (g_glass == nullptr) return;
-  // **The read of the chip, and only the read**: the gestures are arithmetic over two frames and cost
-  // nothing, so what is measured here is what the I2C costs once per turn (docs/30, docs/50).
-  meter::Scope scope(meter::kTouchRead);
   const int32_t now = now_ms();
   // **A frame that did not come keeps the one that did**: the finger is still there until the glass has been quiet for
-  // a whole scan (docs/30, docs/50).
-  const uint8_t taken = g_glass->read(g_frame, kMaxPoints);
+  // a whole scan (docs/30, docs/50). And the chip is asked at the rate it can have news and not at the rate the kernel
+  // turns (0.174.4): what is measured as `touch.read` is the reads of the chip and not the turns that had nothing to
+  // ask it (docs/30, docs/95).
+  uint8_t taken = 0;
+  if (ask_the_chip(now)) {
+    meter::Scope scope(meter::kTouchRead);
+    taken = g_glass->read(g_frame, kMaxPoints);
+  }
   if (taken > 0) {
     // **A frame of a finger that is already gone is a tap that is over**, and it carries its own release: the chip
     // hands over the frame of its last scan and a finger that came and went between two reads is not on the glass any

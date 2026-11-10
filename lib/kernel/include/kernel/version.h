@@ -5417,8 +5417,36 @@ namespace kernel {
 //   - nothing of the system changed for this: `weight` is the field the panel has had since 0.70.0 and this is the second
 //     page of this tree that uses it after the `spring` of the detail of `about` (`567 cases`, and the three suites of the
 //     apps are green).
+//
+// 0.174.4 (10/11): **the glass is asked at the rate it can have news, and not at the rate the kernel turns**. The owner:
+// *«al loop principal hi ha algun tipus de delay? … es fa algun pas innecesari … consultar l'estat a cada dibuixat i que
+// no sigui necessari?»*. The answer was yes, one, and it was the touch: the chip was read once per turn.
+//
+//   - **why**: the GT911 scans the panel by itself every ten milliseconds and keeps the frame of its last scan until a
+//     read takes it, so a turn of a millisecond that reads again can only be told what the last read already said. The
+//     emulator has counted those reads as `missed` since 0.24.0 —«a read that is free here would make a caller that
+//     reads ten times a turn look reasonable»— and on the board each one is a status byte on a hundred-kilohertz bus it
+//     shares with the clock, the FRAM and the SHT30: a turn of a busy app was 80 % bus (docs/50, docs/95);
+//   - **`ITouch::scan_ms()`** is the contract: how often this glass can have news, zero for one that does not say. The
+//     GT911 answers ten milliseconds (`kGt911ScanMs`) and the emulator's panel its own `--touch-scan`; `touch::poll()`
+//     asks the chip at most once per scan and keeps doing every turn what is not the chip —the gestures, the quiet timer
+//     of three scans, the controls and the keyboard of the system—, so a finger held is still a finger and a tap still
+//     lands;
+//   - **and the driver stops writing when it has nothing to say**: `read()` released the frame on every read, three
+//     bytes of a hundred-kilohertz bus to tell a chip that it has no frame that the frame is taken. Both vendor drivers
+//     (M5GFX and `esp_lcd_touch_gt911`) clear the status only inside bit 7, and now this one does too: a read with
+//     nothing on the glass is `400 µs` and not `800` (docs/50, docs/85, docs/95);
+//   - **`touch.read` in `stats` counts reads of the chip and not turns** (`meter::Scope` moved inside the gate), so the
+//     number a person compares with the board is the reads, which are now ten per second and not one per turn;
+//   - **what the audit found and left alone**, because it is not waste: `ui::idle()` asks the panel twice only on a turn
+//     that was owed a paint (`&&` short-circuits, and the second answer is the true one *after* the paint started), and
+//     `kernel::poll()` already gates it on `ui::owes_paint()`; `bar::poll()` is two comparisons until the minute, the
+//     charge or the title change; `arm_nearest_alarm()` is a compare against the value it last wrote; `net::poll()` is a
+//     comparison when the queue is empty; the two `wait_paint`s of `It8951::flush` and its five-millisecond poll are the
+//     maker's sequence (docs/50); and the twenty milliseconds of `kAppIdleMs` are the cadence of the board and not a
+//     sleep in it (`567 + 1 cases`, and the suites of the touch, the apps and the ui are green).
 
-static const char kVersion[] = "0.174.3";
+static const char kVersion[] = "0.174.4";
 
 }  // namespace kernel
 
