@@ -798,6 +798,13 @@ struct UIOps {
                            uint8_t scale, uint16_t x, uint16_t y);
   bool (*icon_grid_cell)(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
                          uint16_t which, uint16_t& x, uint16_t& y, uint16_t& w, uint16_t& h);
+  // **The cell that opens the page `delta` pages away** (0.175.0): the one thing the bridge needs to turn a page without
+  // knowing the arithmetic of the grid —how many columns, how many rows, which page the cursor put it on—, and it is the same
+  // `icon_grid_cells` the paint and the finger use. The answer is the cell counted from 1, like `index`, or 0 when there is
+  // no such page —the first one back and the last one forward—, which is how a swipe knows to do nothing instead of
+  // wrapping (docs/30, docs/90).
+  uint8_t (*icon_grid_page_cell)(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                                 int8_t delta);
 };
 
 void set_ui_ops(const UIOps& ops);

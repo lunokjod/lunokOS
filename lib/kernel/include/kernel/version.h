@@ -5543,7 +5543,30 @@ namespace kernel {
 //   - nothing of the system changed: the door, the `*` and the `[card]` word were already there, and this is the data
 //     under them.
 
-static const char kVersion[] = "0.174.9";
+// 0.175.0 (10/11): **the foot of a grid is the paginator of the system, and a finger turns its pages**. The owner: *«que
+// es 1 / 2 que hi ha sota el grid? usa el paginador Dots i el gest swipe left/right per canviar de pàgina. Usa sempre
+// controls UI del sistema, no inventis controls o dibuixs controls falsos»*.
+//
+//   - **the `N / M` and its two marks are gone**: the foot of `ui.icon_grid` was the page in words and two three-pixel
+//     rectangles drawn to look like arrows —the third paginator of this file, invented inside the control— and it is now
+//     `paint_dots`, the one drawing that the `ui.dots` control and the foot of a list already share since 0.174.2: the balls
+//     of the paper project threaded on a rod, the page that is read bigger, the lines of marks that close a window that does
+//     not fit. The words are still the answer of a grid too narrow to draw a strip, which is what a list does (docs/30,
+//     docs/92);
+//   - **a finger that walks sideways turns the page**: forty pixels and not the twelve of a caret, one page per contact and
+//     never a pick —the cell the finger ends over is not pressed—, and **the ring goes to the first cell of the page**,
+//     because the page of a grid follows the cursor: a page turned with the cursor left behind is a page whose dial is
+//     nowhere. Left is the page after and right the one before, like a sheet of paper, and there is no wrap: the first page
+//     back and the last one forward are nothing (docs/30, docs/90);
+//   - **the arithmetic is the grid's and not the bridge's**: `ui::icon_grid_page_cell` answers the first cell of the page
+//     `delta` pages away with the same `icon_grid_cells` the paint, the finger and the foot use, so a swipe cannot land on a
+//     page the control would not draw. The bridge finds the grid by its **slot** —a cell's father, and the tree when the
+//     finger is on the grid itself, which is not a stop of the dial— and moves the cursor to that cell (docs/30, docs/75);
+//   - **every stop of a page turn costs one paint**: the present is `gl16`, which cleans without the flash of a `gc16`,
+//     and the launcher's grid said so by itself when its cells took the ring (`paint 20,8 500x884 gl16`, measured on the
+//     window, 10/11) (`571 cases`, and the case of the swipe is one of them).
+
+static const char kVersion[] = "0.175.0";
 
 }  // namespace kernel
 

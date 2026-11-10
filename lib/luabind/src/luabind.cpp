@@ -3750,6 +3750,7 @@ bool g_ui_touch_orphan = false;
 // the tap would have left in its place if it does not move. It is state of the system and not of the app, and that is why
 // it is cleared when a page comes in and when it goes: a gesture half way through an app that ends cannot be finished by
 // the next one (docs/30, docs/90).
+uint16_t g_ui_swipe_x0 = 0;
 uint16_t g_ui_swipe_y0 = 0;
 uint16_t g_ui_swipe_y = 0;
 int16_t g_ui_swipe_rest = 0;
@@ -3760,6 +3761,13 @@ bool g_ui_swipe_tap_armed = false;
 // **When a finger stops being a tap** (0.88.0): twelve pixels are a finger that has moved and not one that has
 // trembled, and under that the box behaves as always —the tap puts the caret there (docs/90).
 const int32_t kSwipeSlop = 12;
+
+// **A page is turned by a longer finger than a caret is put** (0.175.0): forty pixels are a swipe and twelve are a tremble,
+// and a grid that turned its page with the slop of a text box would turn it every time somebody pressed a cell a little to
+// the side. **And a gesture turns one page**, not one per frame of the panel: the flag goes with the finger and is cleared
+// when it leaves (docs/30, docs/90).
+const int32_t kPageSwipeSlop = 40;
+bool g_ui_swipe_page = false;
 
 // **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
 // and not a slot, because the app holds the box in a local and the keyboard must not lose it when a page is made
@@ -8417,6 +8425,7 @@ void ui_gesture_forget_if(LuaCanvas* canvas) {
   g_ui_touch_inside = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_moved = false;
+  g_ui_swipe_page = false;
   g_ui_swipe_rest = 0;
   g_ui_swipe_y0 = 0;
   g_ui_swipe_y = 0;
@@ -10853,6 +10862,7 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
+  g_ui_swipe_page = false;
   g_ui_swipe_rest = 0;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
@@ -10900,6 +10910,7 @@ void stop() {
   g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
+  g_ui_swipe_page = false;
   g_ui_swipe_rest = 0;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
@@ -11755,6 +11766,106 @@ void ui_swipe_by(int object, int rows) {
   ui_call_hook_number(g_state, object, "on_swipe", rows);
 }
 
+// **The control of one slot among the stops of the walk**, or -1: **the object is left on the stack** when it is found, so
+// the caller says what it is and pops it. A grid and its cells are two kinds of stop and the finger may land on either, so
+// the question "where is this slot in the list" is asked more than once (docs/30, docs/90).
+int ui_stop_of_slot(lua_State* L, int objects, int count, int16_t slot) {
+  for (int i = 0; i < count; ++i) {
+    lua_rawgeti(L, objects, i + 1);
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    if (canvas != nullptr && canvas->slot == slot) return i;
+    lua_pop(L, 1);
+  }
+  return -1;
+}
+
+// **A finger that walks sideways over a grid turns the page** (0.175.0, the owner: *«usa … el gest swipe left/right per
+// canviar de pàgina»*). The page is the grid's and its arithmetic is the grid's —`icon_grid_page_cell`— and the one thing
+// the system adds is where a page begins: **the cursor goes to the first cell of it**, because the page of a grid follows
+// the cursor and a page turned with the ring left behind is a page whose dial is nowhere. The control under the finger may
+// be the grid itself or one of its cells —the cells of a grid of entries are controls of the app— and a cell's grid is its
+// father, which is the one thing the kernel's tree knows and the walk does not (docs/30, docs/90).
+//
+// False when the finger is not on a grid, when that page does not exist —the first one back, the last one forward— or
+// when it is already the page the grid is on, and then the finger goes on being whatever it was.
+bool ui_grid_turn_the_page(lua_State* L, const FocusTarget* targets, int count, int objects, int index,
+                           int8_t delta) {
+  if (g_ui_ops.icon_grid_page_cell == nullptr || g_ui_ops.canvas_parent == nullptr) return false;
+  if (index < 0 || index >= count || delta == 0) return false;
+  const int base = lua_gettop(L);
+
+  // **The grid, whether the finger is on it or on one of its cells**: a cell's grid is its father, and the grid is asked of
+  // the tree by its slot and not of the walk, because **a grid with cells of the app is not a stop of the dial** —its cells
+  // are, one by one, and the box of the grid is not walked— (docs/30, docs/90).
+  lua_rawgeti(L, objects, index + 1);
+  const int touched = lua_gettop(L);
+  int16_t grid_slot = -1;
+  if (ui_field_bool(L, touched, "__icon_grid", false)) {
+    LuaCanvas* grid = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta));
+    if (grid != nullptr) grid_slot = grid->slot;
+  } else if (LuaCanvas* cell = static_cast<LuaCanvas*>(luaL_testudata(L, touched, kCanvasMeta))) {
+    const int16_t father = g_ui_ops.canvas_parent(cell->slot);
+    if (father >= 0) grid_slot = father;
+  }
+  if (grid_slot < 0) {
+    lua_settop(L, base);
+    return false;
+  }
+  // The tree, from the root down: the object that has this slot, and nothing else left on the stack.
+  l_ui_root(L);
+  const bool found = ui_push_slot_from(L, lua_gettop(L), grid_slot, 0);
+  lua_remove(L, -2);  // the root, which the finder copied from
+  if (!found || !ui_field_bool(L, -1, "__icon_grid", false)) {
+    lua_settop(L, base);
+    return false;
+  }
+  const int grid_object = lua_gettop(L);
+
+  // **The cells of the grid**: the app's own controls —the ones whose father it is, in the order the walk goes, which is
+  // the order the grid counts them— or, for a grid the control paints itself, the `items` it was given.
+  int cells = 0;
+  for (int i = 0; i < count; ++i) {
+    lua_rawgeti(L, objects, i + 1);
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+    lua_pop(L, 1);
+    if (canvas != nullptr && g_ui_ops.canvas_parent(canvas->slot) == grid_slot) ++cells;
+  }
+  const bool cells_are_controls = cells > 0;
+  if (!cells_are_controls) {
+    UIOps::UIGridItem words[kMaxGridCells];
+    cells = static_cast<int>(ui_grid_items(L, grid_object, words));
+  }
+  const lua_Integer grid_index = ui_field_number(L, grid_object, "index", 0);
+  const lua_Integer columns = ui_field_number(L, grid_object, "columns", 0);
+  const lua_Integer scale = ui_field_number(L, grid_object, "scale", 2);
+  const uint8_t first = g_ui_ops.icon_grid_page_cell(
+      grid_slot, static_cast<uint8_t>((cells > 255) ? 255 : cells), static_cast<uint8_t>((grid_index < 0) ? 0 : grid_index),
+      static_cast<uint8_t>((columns < 0) ? 0 : columns), static_cast<uint8_t>((scale < 1) ? 1 : scale), delta);
+  if (first == 0) {
+    lua_settop(L, base);
+    return false;
+  }
+
+  // **The page follows the cursor, so the cursor is put where the page begins** —and the cell of that place takes the ring,
+  // which is what tells the app the page moved: the launcher sets its `index` from the `on_focus` of a cell (docs/30).
+  if (ui_set_field_number(L, grid_object, "index", first)) ui_invalidate(L, grid_object);
+  if (cells_are_controls) {
+    int seen = 0;
+    for (int i = 0; i < count; ++i) {
+      lua_rawgeti(L, objects, i + 1);
+      LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+      lua_pop(L, 1);
+      if (canvas == nullptr || g_ui_ops.canvas_parent(canvas->slot) != grid_slot) continue;
+      if (++seen != static_cast<int>(first)) continue;
+      ui_apply_focus(L, targets, count, objects, i);
+      break;
+    }
+  }
+  ui_draw_and_present("gl16");
+  lua_settop(L, base);
+  return true;
+}
+
 // **The finger is the same event as the dial**: a touch that starts on a button focuses it and holds
 // it down; a move outside releases the hold, and a release inside clicks it. The frame is the one
 // `touch::poll` has just put in the view's coordinates (docs/30, docs/50, docs/90).
@@ -11794,6 +11905,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       g_ui_touch_inside = false;
       g_ui_swipe_tap_armed = false;
       g_ui_swipe_moved = false;
+      g_ui_swipe_page = false;
       g_ui_swipe_rest = 0;
     }
     // **The finger goes up and the contact is over**: the next press is a new one (0.113.0, docs/30).
@@ -11813,6 +11925,29 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   if (g_ui_touch_slot >= 0) {
     const int index =
         ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation, g_ui_touch_item);
+    // **A finger that walks sideways over a grid turns its page** (0.175.0, the owner: *«usa … el gest swipe left/right
+    // per canviar de pàgina»*). It is the grid's own page and the grid's own arithmetic —`icon_grid_page_cell`— and what the
+    // system does is move the **cursor** to the first cell of that page, because the page of a grid follows the cursor: the
+    // ring lands where a person is now looking, and the page comes with it. A page turned with the cursor left behind would
+    // be a page whose dial is nowhere (docs/30, docs/90).
+    if (index >= 0 && !g_ui_swipe_page) {
+      const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
+      if (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop) {
+        if (ui_grid_turn_the_page(g_state, targets, count, objects, index, (dx < 0) ? 1 : -1)) {
+          // **The gesture is the whole page turn**: the finger is not a press of the cell it happens to be over, so the
+          // contact is spent —the release must not pick anything— and the gesture turns one page and no more.
+          g_ui_swipe_page = true;
+          g_ui_swipe_moved = true;
+          g_ui_swipe_tap_armed = false;
+          g_ui_touch_inside = false;
+          lua_rawgeti(g_state, objects, index + 1);
+          if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+          lua_pop(g_state, 1);
+          lua_settop(g_state, top);
+          return;
+        }
+      }
+    }
     // **The finger that walks a box with a gesture moves the window** (0.88.0): the rows it has travelled are paid one
     // at a time, and the gesture is the system's —the caret of the box and the bar are the same number— while the app
     // only registers it and hears it. A finger that does not reach a whole row spends nothing: the pixels are kept for
@@ -11905,6 +12040,9 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   }
   if (hit >= 0) {
     ui_apply_focus(g_state, targets, count, objects, hit);
+    // **Where the finger landed**, for the gesture that is a page turn: the sideways travel of a finger over a grid is
+    // measured from here and not from the last frame, so a page does not turn twice for one swipe (0.175.0, docs/90).
+    g_ui_swipe_x0 = x;
     g_ui_touch_slot = targets[hit].slot;
     g_ui_touch_generation = targets[hit].generation;
     g_ui_touch_item = targets[hit].item;

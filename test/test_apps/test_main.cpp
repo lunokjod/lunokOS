@@ -5175,6 +5175,96 @@ void test_the_pages_of_a_grid_follow_the_dial(void) {
   kernel::boot(hal::platform());
 }
 
+// **A finger that walks sideways over a grid turns its page** (0.175.0, the owner: *«usa el paginador Dots i el gest swipe
+// left/right per canviar de pàgina»*). The cells are the app's controls and the page is the grid's, and the system joins
+// them the way a person does: the cell's father is the grid, the grid says which cell opens the page the finger asked for,
+// and the cursor goes there —because the page of a grid follows the cursor— so the ring lands on the page a person is
+// looking at and the page comes with it. **A gesture is not a press**: the cell it ends over is not picked.
+void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // Two cells a page of eight, so the first page is the cells one and two and the second begins with the third.
+  TEST_ASSERT_TRUE(add_app(storage, "swipe",
+                           "{\"title\":\"Swipe\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local grid = ui.icon_grid(300, 200)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 2\n"
+                           "local cells = {}\n"
+                           "for i = 1, 8 do\n"
+                           "  local cell = ui.grid_entry(140, 90)\n"
+                           "  cell.background = 15\n"
+                           "  cell.on_focus = function(self, on)\n"
+                           "    if not on then return end\n"
+                           "    grid.index = i\n"
+                           "    grid:invalidate()\n"
+                           "    console.print('focus cell' .. i)\n"
+                           "  end\n"
+                           "  cell.on_click = function() console.print('pick cell' .. i) end\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "end\n"
+                           "ui.focus(cells[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('grid up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run swipe");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // The first cell of the grid is at 20,20 of the view and is a hundred and forty wide: the finger lands on it and walks a
+  // hundred pixels to the left, which is more than the slop of a page and still on the glass.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 160);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 40);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  // **The page turned and the third cell has the ring**, which is the first of the second page: the app heard the focus of
+  // a cell it had never walked to and the control was laid out again for it.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 20,20 300x200"), g_out);
+  // **And the gesture picked nothing**: the release after a swipe is not the click of the cell the finger stopped over.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
+
+  // **The same finger the other way brings the first page back**: from the cell the ring is on now, to the right.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x + 60), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell1"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/swipe/app.lua");
+  storage->remove("/apps/swipe/manifest.json");
+  storage->remove("/apps/swipe");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A canvas inside a cell of a grid is still there after the page is painted** (0.154.1): a launcher draws the badge of
 // an app in a canvas of its own and puts that canvas in a cell, which is what `canvas:image` is for. The page is painted
 // twice —the first time is the page, the second is the one a manifest arriving asks for— and the pictures have to be
@@ -11834,6 +11924,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
+  RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);

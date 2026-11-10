@@ -1746,7 +1746,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      notification_bar_close_at,
                                      icon_grid_draw_for_lua,
                                      icon_grid_hit_for_lua,
-                                     icon_grid_cell_for_lua});
+                                     icon_grid_cell_for_lua,
+                                     icon_grid_page_cell});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -4980,17 +4981,26 @@ bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t 
       draw_frame_thick(*target.canvas, x + inset, y + inset, box.w - 2 * inset, box.h - 2 * inset, 2, color, mode);
     }
   }
-  // The footer says which page it is, and the row of dots would say it too: a grid of a thousand cells has to say where a
-  // person is without a scroll (docs/90).
+  // **The foot of a grid is the paginator of the system** (0.175.0, the owner: *«que es 1 / 2 que hi ha sota el grid? usa
+  // el paginador Dots … no inventis controls o dibuixs controls falsos»*). It used to be the words `N / M` and two marks
+  // drawn to look like arrows —a paginator of its own, the third one in this file— and now it is the same strip the
+  // `ui.dots` control and the foot of a list draw: the balls of the paper project threaded on a rod, the page that is read
+  // bigger, the lines of marks that close a window too long (docs/30, docs/92). A grid of a thousand cells still says where
+  // a person is without a scroll, and it says it with the one drawing of this system that means "page".
   if (cells.footer > 0 && cells.pages > 1) {
-    char page[16];
-    snprintf(page, sizeof(page), "%d / %d", static_cast<int>(cells.page), static_cast<int>(cells.pages));
-    const int32_t taken = static_cast<int32_t>(font::width(face, page, scale));
-    const int32_t y = static_cast<int32_t>(height) - cells.footer + (cells.footer - line_h) / 2;
-    draw_text(*target.canvas, face, target.x + (width - taken) / 2, target.y + y, page, scale, dim, mode);
-    // A triangle on the side that has somewhere to go, which is the same signal the list gives (docs/90).
-    put_rect(*target.canvas, target.x + 10, target.y + y + line_h / 2, 3, 1, dim);
-    put_rect(*target.canvas, target.x + width - 13, target.y + y + line_h / 2, 3, 1, dim);
+    const int32_t band_y = static_cast<int32_t>(height) - cells.footer;
+    // **The ball of the band, and a rule of air above it**, the same arithmetic the foot of a list makes (0.174.2): a foot
+    // of twenty-eight gives a ball of twenty-four.
+    if (!paint_dots(*target.canvas, target.x, target.y + band_y + 3, width, cells.footer - 4, static_cast<uint16_t>(cells.pages),
+                    static_cast<uint16_t>(cells.page), dim, background, mode)) {
+      // **A grid too narrow to draw a strip says the page in words**, which is what a list does and the only honest thing
+      // left: a page number is a page number and not a control (docs/30, docs/90).
+      char page[16];
+      snprintf(page, sizeof(page), "%d / %d", static_cast<int>(cells.page), static_cast<int>(cells.pages));
+      const int32_t taken = static_cast<int32_t>(font::width(face, page, scale));
+      const int32_t y = band_y + (cells.footer - line_h) / 2;
+      draw_text(*target.canvas, face, target.x + (width - taken) / 2, target.y + y, page, scale, dim, mode);
+    }
   }
   close_draw(target);
   return true;
@@ -5019,6 +5029,24 @@ bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns,
   w = static_cast<uint16_t>((box.w > 0) ? box.w : 0);
   h = static_cast<uint16_t>((box.h > 0) ? box.h : 0);
   return w > 0 && h > 0;
+}
+
+// **The cell that opens the page `delta` pages away** (0.175.0): what a swipe over a grid turns to. The first cell of the
+// page is the one the cursor goes to, because the page of a grid follows the cursor (docs/90) and a page turned with
+// nothing on it is a page where the dial has nowhere to stand.
+uint8_t icon_grid_page_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                            int8_t delta) {
+  if (!live(slot) || count == 0 || delta == 0) return 0;
+  if (count > kMaxGridItems) count = kMaxGridItems;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& grid = g_canvases[slot];
+  const GridCells cells = icon_grid_cells(grid, count, index, columns, scale);
+  const int32_t per_page = cells.columns * cells.rows;
+  if (per_page <= 0) return 0;
+  const int32_t wanted = cells.page - 1 + delta;
+  if (wanted < 0 || wanted >= cells.pages) return 0;
+  return static_cast<uint8_t>(wanted * per_page + 1);
 }
 
 uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,

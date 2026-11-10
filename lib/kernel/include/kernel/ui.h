@@ -781,6 +781,13 @@ bool icon_grid_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns,
 uint8_t icon_grid_hit(int16_t slot, const GridItem* items, uint8_t count, uint8_t index, uint8_t columns,
                       uint8_t scale, uint16_t x, uint16_t y);
 
+// **The first cell of the page `delta` pages away** (0.175.0), counted from 1 like `index`, or 0 when there is no such
+// page: the first one back and the last one forward are 0 and not the other end, because a page turn that wraps is a grid
+// that jumps from the last page to the first without being asked. It is what a swipe over a grid turns to, and it is the
+// same `icon_grid_cells` as the paint (docs/30, docs/90).
+uint8_t icon_grid_page_cell(int16_t slot, uint8_t count, uint8_t index, uint8_t columns, uint8_t scale,
+                            int8_t delta);
+
 // ---- the keyboard: the system's, not a control (docs/30, docs/90) ----
 //
 // **A keyboard is chrome**: it is a band at the bottom of the view that the system paints over the page and that

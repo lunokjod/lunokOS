@@ -1068,7 +1068,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
-| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0) |
+| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat passa la pàgina** (0.175.0, docs/30) |
 | `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
@@ -2022,13 +2022,22 @@ pinta, o sigui que semblava que el focus hagués marxat de la pàgina— i des d
 l'ordre de l'arbre i no el de la pàgina. Una graella amb els `items` de la pròpia control **sí** que
 és una parada: allà les cel·les són del control i `index` les camina.
 
-**Les pàgines d'una graella són de la graella, i el seu peu és el paginador** (0.157.0): `ui.icon_grid`
-pinta `N / M` al seu peu quan hi ha més d'una pàgina —i una marca a cada costat— i deixa fora del marc
-les cel·les de les altres, o sigui que **una app no ha de fer cap paginador**: li diu a la graella on
-és el cercle (`index`) i la graella fa la resta. Això és el que fa el llançador amb l'`on_focus` de
-cada cel·la, i el que abans era una banda de dos botons i un número escrits per l'app (0.154.1) i que
-l'amo va fer treure: *«usa sempre els UIControls que hi hagin abans de fer-ne un de nou»* (8/11).
-`ui.dots` continua sent el control per ensenyar on ets quan la pàgina no és d'una graella.
+**Les pàgines d'una graella són de la graella, i el seu peu és el paginador** (0.157.0, i el paginador des de la
+0.175.0): `ui.icon_grid` deixa fora del marc les cel·les de les altres pàgines i **pinta el peu amb el paginador del
+sistema** —el mateix dibuix de `ui.dots` i del peu d'una llista, els punts enfilats en una vareta amb la pàgina que es
+llegeix més gran—, o sigui que **una app no ha de fer cap paginador**: li diu a la graella on és el cercle (`index`) i la
+graella fa la resta. Això és el que fa el llançador amb l'`on_focus` de cada cel·la, i el que abans era una banda de dos
+botons i un número escrits per l'app (0.154.1) i que l'amo va fer treure: *«usa sempre els UIControls que hi hagin abans
+de fer-ne un de nou»* (8/11). Fins a la 0.175.0 el peu eren les paraules `N / M` i dues marques que volien semblar
+fletxes —un tercer paginador dibuixat a mà dins d'aquest fitxer— i l'amo les va fer fora: *«que es 1 / 2 que hi ha sota el
+grid? usa el paginador Dots … no inventis controls o dibuixs controls falsos»*.
+
+**I la pàgina es passa amb el dit, d'esquerra a dreta o de dreta a esquerra** (0.175.0): un dit que camina de costat
+sobre la graella —quaranta píxels o més, el doble del llindar d'un toc— la passa a la pàgina següent si va cap a
+l'esquerra i a l'anterior si va cap a la dreta, i **el cercle va a la primera cel·la de la pàgina nova**, que és el que
+fa que la pàgina el segueixi. El gest és d'**una pàgina per contacte** i no és mai una premuda: la cel·la on s'aixeca el
+dit no es tria. Una graella que és a l'última pàgina no fa res si el dit hi va cap a l'esquerra —no dona la volta—, i una
+app no ha de registrar cap gest: és el control i prou (docs/30, docs/90).
 
 ### `ui.list` amb entrades: files que són controls (0.104.0)
 
