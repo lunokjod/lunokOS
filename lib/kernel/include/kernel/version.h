@@ -5400,7 +5400,25 @@ namespace kernel {
 //     are rings, and the foot falls under the last row— which is red with the code of 0.174.1, measured by mutating it
 //     (`567 cases`).
 
-static const char kVersion[] = "0.174.2";
+// 0.174.3 (10/11): **the list of a page takes the room the panel has**, and the two pages that have one say so. The
+// owner, one question after the other: *«i perqué el control list no ocupa tota la vista fins abaix?»*.
+//
+//   - **why**: the app was giving the list a height measured by hand —the view, less the lines of the head and a couple of
+//     rows of slack— and **a panel gives a child exactly the size it has unless the child says `weight`**. A guessed height
+//     is wrong twice: it leaves paper at the bottom of the glass, and the rows of the last page stop where the guess said
+//     instead of where the page ends (docs/30, docs/90);
+//   - **`apps/fonts` and `apps/about` put `weight = 1` on their list**: the box ends at the bottom margin and the rows fill
+//     it. The viewer of the faces goes from two pages to one —ten files fit in a page that is the whole glass— and `about`
+//     from three pages to four pages of eight rows, which is what filling a page means (docs/30);
+//   - **and the arithmetic of the head goes with the guess**: `about` keeps no `motto_lines`, no `summary_lines` and no
+//     `used`, because a number that existed to size a child by hand is a number that the panel now knows better. The line
+//     the case reads (`about: N rows in a list of M px`) says the box the list ended up with, which is the truthful number
+//     and not the one the app asked for;
+//   - nothing of the system changed for this: `weight` is the field the panel has had since 0.70.0 and this is the second
+//     page of this tree that uses it after the `spring` of the detail of `about` (`567 cases`, and the three suites of the
+//     apps are green).
+
+static const char kVersion[] = "0.174.3";
 
 }  // namespace kernel
 

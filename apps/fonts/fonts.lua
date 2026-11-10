@@ -268,17 +268,18 @@ build_shelf = function()
   local summary = make_label(inner, ui.line_height(kSmall), sentence, fit(sentence, inner, kSmall), 8, 'left')
   if summary ~= nil then screen:add(summary) end
 
-  -- **The list takes what is left of the page and two rows less**: the head is measured by this page and placed by the
-  -- panel, and a list that ends under the glass loses its foot, which is the only thing that says there are more rows
-  -- (docs/30).
-  local room = view.height - 2 * margin - 2 * (ui.line_height(kBig) + ui.line_height(kSmall)) - 2 * kRow
-  if room < kRow then room = kRow end
-  local the_list = ui.list(inner, room)
+  -- **The list takes the rest of the page and the panel says how much it is** (0.174.3, the owner: *«i perqué el control
+  -- list no ocupa tota la vista fins abaix?»*): `weight` is the field a panel reads to split what is left after the cells
+  -- that keep their size, so the box of the list ends at the bottom margin of the page and the rows fill it —three lines of
+  -- the head measured by hand were a guess that left two rows of paper at the bottom of the glass—. **A list that fills
+  -- the page fits more rows and pages less**, which is the point of filling it (docs/30, docs/90).
+  local the_list = ui.list(inner, kRow)
   if the_list == nil then
     console.print('fonts: there is no room for the list')
     return
   end
   the_list.row_height = kRow
+  the_list.weight = 1
   screen:add(the_list)
   local first = nil
   for i = 1, #files do
@@ -294,6 +295,8 @@ build_shelf = function()
   -- **And where each row is, for the test that has no finger of its own** (docs/85): the place of a row is the list's
   -- plus the row's, which are the two boxes the system gave them.
   if debug_boxes and shelf_list ~= nil then
+    -- **The place of a row is the sum of its frames** (docs/30): the list's own place inside the view and the row's
+    -- inside the list, which is what a finger on the glass is measured against.
     local at = shelf_list:caps()
     for i = 1, #shelf_rows do
       local row = shelf_rows[i].entry:caps()

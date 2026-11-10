@@ -571,6 +571,14 @@ aquest paginador es del sistema?»*. Sí que ho era —el peu d'`ui.list`, la 0.
   caixa que demana el disseny. Amb files de 72 no costa cap fila i la bola passa de 8 a 20 píxels, que és el que fa que
   es llegeixi des d'un metre.
 
+- **i la llista d'una app ocupa tota la pàgina amb `weight`** (0.174.3, la pregunta següent del mateix dia: *«i perqué el
+  control list no ocupa tota la vista fins abaix?»*). Perquè l'app li donava una altura **mesurada a mà** —la vista menys
+  el capçal i unes files de marge—, i un panel dona a cada fill exactament la mida que té tret que el fill digui
+  `weight`. El visor de les cares i l'`about` el diuen ara, la caixa de la llista arriba al marge de baix i, de pas, el
+  visor passa de dues pàgines a una (deu fitxers hi caben) i l'`about` de tres a quatre pàgines de vuit files. A
+  l'`about` se'n va anar també l'aritmètica del capçal —`motto_lines`, `summary_lines` i `used`—, que era el comte que
+  feia falta quan la llista s'havia de mesurar a mà (docs/30, docs/90).
+
 L'`about` i el visor de les cares són les dues pàgines que l'ensenyen, i el cas
 `test_the_foot_of_a_list_is_the_paginator_of_the_system` el subjecta: la bola de la pàgina que es llegeix és un disc i la
 de les altres és una anella, i el peu cau sota l'última fila (les dues coses fallen amb el codi de la 0.174.1).

@@ -2123,6 +2123,11 @@ llista **pagina**, i el peu diu en quina pàgina ets.
 - **No hi ha cap `visible` i cap control amagat**: la llista no té fills, sinó una taula de dades. Una llista feta de
   controls `ui.row` és possible, però llavors les files que no toquen es dibuixarien igualment i el que s'hauria de
   fer és una altra cosa (docs/90).
+- **Una llista que ha d'omplir la pàgina es posa amb `weight = 1`** (0.174.3): el panel reparteix el lloc que sobra i la
+  caixa de la llista arriba al marge de baix, o sigui que **hi caben més files i es passa de pàgina menys sovint**. Una
+  altura mesurada a mà —`view.height` menys les línies del capçal i unes files de marge— és una endevinalla que deixa
+  paper a sota, i una llista amb més lloc que files deixa aquell paper **dins** de la seva caixa: el que el panell dona
+  amb `weight` és l'única altura que no s'equivoca (docs/30, docs/90).
 
 ```lua
 local l = ui.list(view.width - 32, 360)

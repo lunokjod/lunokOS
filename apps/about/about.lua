@@ -78,9 +78,6 @@ local kRow = line(kBody) + 20
 -- The libraries, read from `res/libs.txt`, and where the list is.
 local libs = {}
 local missing = nil
--- **The room the two lines of the head take**, which the list needs and which is measured once the libraries are read:
--- it is declared here because `build_cover` reads it and a local declared after a function is not in its scope (0.166.0).
-local used = 0
 -- The control of the screen that is on the page, which is given back when the other one is built.
 local screen = nil-- **The list of the cover and the slide that turns it** (0.167.0): a finger that slides across the list turns its page,
 -- left for the one after and right for the one before, which is what a row of dots promises. The page is a field of the
@@ -248,18 +245,16 @@ build_cover = function()
   add_lines(page_control, view.width - 2 * kMargin, summary_line(), kSmall)
 
   -- **One list for every library**: the rows are entries, so each one is a stop of the dial and the finger presses it,
-  -- and the list keeps the page —a page of ink and not a scroll— with its foot saying which page it is. The room is what
-  -- the panel has left after the two lines above it **and two rows less** (0.167.0): the head is measured by the app with
-  -- `ui.text_width` and placed by the panel with the face it draws with, and the two disagreed by a line of the big size —
-  -- the list of the first version ended 20 px under the glass and its foot of dots was **off the page**, found on the
-  -- emulator on 8/11 with a dump of the page—. A row of slack is cheaper than a page whose only sign of where it is falls off
-  -- the glass (docs/30).
-  local room = view.height - used - 2 * kRow
-  if room < kRow then room = kRow end
-  local the_list = ui.list(view.width - 2 * kMargin, room)
+  -- and the list keeps the page —a page of ink and not a scroll— with its foot saying which page it is. **The room is the
+  -- panel's to give** (0.174.3): `weight` takes what is left after the two lines above, so the box of the list ends at the
+  -- bottom margin of the page and the rows fill it. It used to be a hand-measured height with two rows of slack, because the
+  -- head measured by the app and placed by the panel disagreed by a line —a workaround of 0.167.0 that was fixed and left
+  -- the list ending short of the glass— (docs/30, docs/90).
+  local the_list = ui.list(view.width - 2 * kMargin, kRow)
   if the_list == nil then
     console.print('about: there is no room for the list of libraries')
   else
+    the_list.weight = 1
     the_list.row_height = kRow
     page_control:add(the_list)
     local first = nil
@@ -272,7 +267,10 @@ build_cover = function()
     -- Without it the centre pressed the list and the page could only be opened with a finger (found by test_apps, 9/11).
     if first ~= nil then ui.focus(first) end
     cover_list = the_list
-    console.print(string.format('about: %d rows in a list of %d px', #libs, room))
+    -- **The room is the panel's**, so what the page says is the box the list has now and not a number it asked for: a case
+    -- reads this line to know the page was made whole (docs/85).
+    local box = the_list:caps()
+    console.print(string.format('about: %d rows in a list of %d px', #libs, box.height))
   end
 
   screen = page_control
@@ -370,12 +368,9 @@ end
 
 read_libraries()
 
--- **How much room the two lines of the head take** (0.166.0): the list gets what is left of the page, which is what the
--- panel counts for its own children. There is no count of rows and no page here any more —the list pages itself— and the
--- one number that is kept is the room, because a label does not know how many lines it took until it is measured.
-local motto_lines = math.max(1, #broken(sys.name .. ' ' .. sys.version, view.width - 2 * kMargin, kBig))
-local summary_lines = 1
-used = 2 * kMargin + motto_lines * (line(kBig) + 6) + summary_lines * (line(kSmall) + 6) + 3 * kListGap
+-- **The two lines of the head and the list are the panel's**, and the panel splits what is left with `weight` (0.174.3):
+-- the count of the lines the title takes and the room it leaves were the arithmetic of 0.166.0, when the app had to size the
+-- list by hand, and there is no number to keep any more (docs/30, docs/90).
 
 -- What is on the cover, said out loud: the rows are the libraries of this build and a page that lost one of
 -- them is a page that lies —and a test reads these lines to know what the page was made of (docs/85).
