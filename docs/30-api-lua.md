@@ -2298,9 +2298,16 @@ que l'usuari ha triat, o `nil` si l'ha tancada.
   línies de missatge** i només ensenyava el títol. Es va trobar amb la targeta de `wipe` sobre l'emulador
   (9/11) i ara la sala es mesura dins la targeta, que és el que el dibuix sempre havia volgut dir
   (docs/30, docs/90).
-- **I qui obre la targeta li dona el dial**: `ui.focus(card)`. Una targeta sobre la pàgina que no té el
-  focus és una targeta que el centre del dial no contesta, i el dial segueix prement el botó de sota
-  (docs/30).
+- **Una targeta sobre la pàgina pren el dial, el dit i el centre, i els torna quan se'n va** (0.172.0 i
+  0.172.1): mentre un `ui.dialog` és viu, **les úniques parades del recorregut són la targeta i el que hi
+  ha dins**, o sigui que una fletxa o el centre no poden caure en un control de la pàgina del darrere i una
+  persona no pot contestar sense voler una pregunta que no ha llegit. El control que tenia l'anell el perd
+  (i l'app ho sent a `on_focus(self, false)`, 0.173.1) i la targeta el pren; **quan la targeta marxa, l'anell
+  torna a aquell control** en el mateix `present` que tanca la targeta, o sigui que una app no ha de cridar
+  `ui.focus(card)` ni tornar el focus a mà —l'única cosa que li toca és tancar la targeta quan en rep la
+  resposta—. **I un dit que cau fora de la targeta és el seu cancel·lar**: el toc no arriba a la pàgina del
+  darrere, i el contacte queda gastat, perquè el dit que ha tancat una pregunta no premi el botó que hi havia
+  a sota (0.173.1). Un `ui.menu` i un `ui.month` no són targetes i no tenen aquesta regla (docs/30, docs/90).
 
 ### `ui.sparkline` i `ui.pie`: la forma d'uns números (0.74.0)
 

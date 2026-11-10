@@ -297,8 +297,9 @@ local function close_card()
   card = nil
 end
 
--- **The fingers and the dial go back to the page after a card is gone**: the card had the focus and a released control
--- takes it with it, so the ring is put back where a person can find it (docs/30).
+-- **The fingers and the dial go back to the page after a card is gone**: the system gives the ring back to the control
+-- that had it (0.172.0), and this is the page's own wish for the case where the page was built again under the card and
+-- that control is not there any more (docs/30).
 local function after_card()
   for _, kind in ipairs({ 'nvs', 'sd', 'lfs' }) do
     if not door[kind].button.disabled then
@@ -366,9 +367,9 @@ local function work(kind)
   card.emphasis = 2
   card.choice = 2
   card:place((view.width - w) // 2, math.max(0, (view.height - h) // 2))
-  -- **The card takes the dial**: a card over the page whose focus is still on the door behind it is a card that the
-  -- centre of the dial does not answer, and the page would erase with a question on it (docs/30, docs/90).
-  ui.focus(card)
+  -- **The ring is the card's, and that is the system's** (0.172.0): a card over the page takes the walk, the dial and the
+  -- finger, so the centre cannot land on a door behind a question nobody answered. This page does not ask for the focus and
+  -- does not have to (docs/30, docs/90).
   card.on_accept = function(self)
     -- Read the action, close the card, and then run it: the board going down under a card leaves the card on the glass
     -- of a board that is not there any more (docs/30).
@@ -411,7 +412,7 @@ ask = function(kind)
   card.emphasis = 1
   card.choice = 1
   card:place((view.width - w) // 2, math.max(0, (view.height - h) // 2))
-  ui.focus(card)
+  -- **And the ring is the card's by itself** (0.172.0): the system's walk is the card's while the card is up.
   -- **The door says what was asked and the turn of the app does it**: a hook of a control runs inside the system's call
   -- and cannot wait for anything, and the erasing waits for the ink of the bar before it starts. So the accept closes the
   -- card and leaves the wish here, which is the old rule of the project taken to the letter —read the action, close the

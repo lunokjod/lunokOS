@@ -8169,6 +8169,191 @@ void test_a_dialog_answers_with_the_door_the_dial_is_on(void) {
   storage->remove("/apps/asker");
 }
 
+// **A folder is made with the fathers it needs, and that is the kernel's walk and not the app's** (0.173.1, and the claim
+// of 0.172.2 which is what this case pins): `fs.mkdir` is one call and the chain is made inside the storage by
+// `fs_ops::mkdir` (`make_dirs`) since the import, so an app that writes in its own ground the first time —the marks of the
+// time clock, which is what reported *«not saved»* on a board— does not have to ask for `/data`, then `/data/<id>`, then
+// the file's folder (docs/30, docs/70).
+void test_a_folder_is_made_with_the_fathers_it_needs(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **A name no other case uses**, so the ground of this one is not there when it starts: the walk has to make
+  // `/data/<id>` and the two folders under it.
+  hal::Stat earlier;
+  TEST_ASSERT_FALSE_MESSAGE(storage->stat("/data/deepfolder", earlier), "the ground of this case was already there");
+  TEST_ASSERT_TRUE(add_app(storage, "deepfolder",
+                           "{\"title\":\"Deep\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local deep = fs.data('a/b')\n"
+                           "local ok, err = fs.mkdir(deep)\n"
+                           "console.print('mkdir ' .. tostring(ok) .. ' ' .. tostring(err and err.code))\n"
+                           "local wrote, why = fs.open(deep .. '/x.txt', 'w')\n"
+                           "console.print('open ' .. tostring(wrote ~= nil) .. ' ' .. tostring(why and why.code))\n"
+                           "if wrote then wrote:write('deep'); wrote:close() end\n"
+                           "console.print('read ' .. tostring(fs.read(deep .. '/x.txt')))\n"));
+  TEST_ASSERT_TRUE(run_captured("run deepfolder", g_out, sizeof(g_out)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mkdir true nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "open true nil"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "read deep"), g_out);
+
+  hal::Stat info;
+  TEST_ASSERT_TRUE(storage->stat("/data/deepfolder/a/b/x.txt", info));
+  storage->remove("/data/deepfolder/a/b/x.txt");
+  storage->remove("/data/deepfolder/a/b");
+  storage->remove("/data/deepfolder/a");
+  storage->remove("/data/deepfolder");
+  storage->remove("/apps/deepfolder/app.lua");
+  storage->remove("/apps/deepfolder/manifest.json");
+  storage->remove("/apps/deepfolder");
+}
+
+// **A card over the page takes the walk, the ring and the finger, and gives the ring back when it goes** (0.172.0 and
+// 0.172.1: the owner saw the physical keys still on the page behind a question nobody had answered). What is proved here
+// is the rule and not the drawing: the control behind the card is **not** a stop while the card is up, the dial's arrows
+// and the centre answer the card, a finger that lands outside the card is its **cancel** door and not the button under it,
+// and the ring comes back to the control that had it in the present that closes the card (docs/30, docs/90).
+void test_a_card_over_the_page_takes_the_walk_and_gives_it_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+  // The glass and the panel are the model's and are asked for by name: `use_board` gives a board its glass and not its
+  // finger, and this case needs a finger (docs/85).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(add_app(storage, "modaler",
+                           "{\"title\":\"Modaler\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // A button behind the card: its click and its focus are lines of the log, and what this case
+                           // looks for is that the click never happens while a question is up. **The card is asked from
+                           // the loop and not from a hook**, because a hook runs inside the system's call and cannot wait.
+                           "local behind = ui.button(200, 60)\n"
+                           "behind.title = 'Behind'\n"
+                           "behind.scale = 4\n"
+                           "behind:place(20, 120)\n"
+                           "behind.on_click = function() console.print('behind clicked') end\n"
+                           "behind.on_focus = function(self, on) console.print('behind focus ' .. tostring(on)) end\n"
+                           "ui.present('gc16')\n"
+                           "local asked = 0\n"
+                           "local went = false\n"
+                           "local card = nil\n"
+                           "local function ask(n)\n"
+                           "  card = ui.dialog(380, 260)\n"
+                           "  card:place(80, 500)\n"
+                           "  card.title = 'Question ' .. n\n"
+                           "  card.text = 'A card over the page'\n"
+                           "  card.accept = 'Yes'\n"
+                           "  card.cancel = 'No'\n"
+                           "  card.emphasis = 2\n"
+                           "  card.on_accept = function(self)\n"
+                           "    console.print('accept ' .. tostring(self.choice))\n"
+                           "    went = true\n"
+                           "    self:release()\n"
+                           "    card = nil\n"
+                           "    ui.present('gc16')\n"
+                           "  end\n"
+                           "  card.on_cancel = function(self)\n"
+                           "    console.print('cancel ' .. tostring(self.choice))\n"
+                           "    went = true\n"
+                           "    self:release()\n"
+                           "    card = nil\n"
+                           "    ui.present('gc16')\n"
+                           "  end\n"
+                           "  asked = n\n"
+                           "  console.print('phase ' .. n)\n"
+                           "  ui.present('gc16')\n"
+                           "end\n"
+                           "ask(1)\n"
+                           "while true do\n"
+                           "  if went and asked == 1 then\n"
+                           "    went = false\n"
+                           "    ask(2)\n"
+                           "  end\n"
+                           "  sys.delay(20):await()\n"
+                           "end\n"));
+
+  pump_captured(60, g_out, sizeof(g_out), "run modaler");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "phase 1"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **Nothing has been said yet, and that is the contract**: the walk of the focus is asked for by a key or a finger, and
+  // a page that only paints does not move any ring. The first control of a page is born with it and its `on_focus` does
+  // not run there, so the log has no line about the button until something asks (docs/30).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus false"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, times_in(g_out, "behind focus true"), g_out);
+
+  // **The arrows and the centre are the card's**: one step to the right is the accept door, whatever the page behind
+  // has, and the button behind does not hear the press.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "accept 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "behind clicked"), "the key went through the card");
+  // **And the button behind heard that the ring went**: the first key of the card is the walk that finds it, and the
+  // control that had the focus is told, because it is no longer a stop and the walk cannot tell it any other way (0.173.1).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
+  // And the present that closed the card is the one that gave the ring back: the first time the button hears that it has
+  // the focus is that paint, and not another question (0.172.1).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus true"), g_out);
+
+  // **And a finger outside the card is its cancel**: the app asks a second question from its loop, the card goes up, and
+  // the touch lands on the box of the button —a box nobody is offering while the question is up— so the card hears the
+  // cancel and the button hears nothing (docs/30).
+  capture_begin();
+  pump_turns(200);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 120), static_cast<uint16_t>(view.y + 150)));
+  pump_turns(40);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  // **The second question is up**: the app asks it from its loop as soon as the first one is answered, so the capture of
+  // this phase begins with the card already on the glass (and its `phase 2` line went out in the one before).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cancel 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "behind clicked"), "the finger went through the card");
+  // **The capture is this phase's**: the ring went to the button on the way down —the card was up, so the button had it
+  // and lost it before the finger left the glass— and it came back in the present the cancel painted (0.172.1, 0.173.1).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus false"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, times_in(g_out, "behind focus true"), g_out);
+
+  for (int i = 0; i < 3 && kernel::app_running(); ++i) {
+    emu::press_button(true);
+    pump_turns(10);
+    emu::press_button(false);
+    pump_turns(10);
+  }
+  storage->remove("/apps/modaler/app.lua");
+  storage->remove("/apps/modaler/manifest.json");
+  storage->remove("/apps/modaler");
+
+  // **The next case gets the emulator and the face it had**: this one loaded the bold face of the disk and asked for a
+  // finger, and both are the whole system's —a face that stayed would decide what the next case measures (docs/85).
+  kernel::font::set_system_face(nullptr);
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  emu::Options after = emu::options();
+  after.board = nullptr;
+  after.display = false;
+  after.touch = false;
+  emu::set_options(after);
+  kernel::boot(hal::platform());
+}
+
 // **A menu walks the options that are on the card and answers with the one the dial or the finger is on**: the option
 // the app hid is never reached, a finger takes the row it pressed and not the one the ring was on, and the app hears
 // `on_pick(self, index)` (docs/30, docs/90).
@@ -11227,6 +11412,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_box_without_a_frame_leaves_its_edge_in_paper);
   RUN_TEST(test_a_slider_takes_the_keys_only_after_the_centre);
   RUN_TEST(test_a_dialog_answers_with_the_door_the_dial_is_on);
+  RUN_TEST(test_a_folder_is_made_with_the_fathers_it_needs);
+  RUN_TEST(test_a_card_over_the_page_takes_the_walk_and_gives_it_back);
   RUN_TEST(test_a_menu_skips_the_option_the_app_hid);
   RUN_TEST(test_a_menu_bar_answers_with_the_title_and_the_entry);
   RUN_TEST(test_a_box_of_lines_types_and_the_enter_writes_a_break);

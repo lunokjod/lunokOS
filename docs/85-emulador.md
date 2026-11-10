@@ -174,9 +174,9 @@ app escriu va a `data/data/<id>/`, que és estat i no codi i per això és al `.
 portava una —el llançador, que és l'app amb què arrenca i que ha de ser al disc que llegeix— i la resta quedava
 fora, o sigui que un emulador acabat de fer ensenyava una graella d'una cel·la (`no apps` a `apps` i `no such app` a
 `run`). Ara l'entorn `emulator` diu `custom_apps_in_disk = yes` i, com que l'emulador **no té placa**, el filtre de
-`tools/make_disk.py` les hi posa totes: **10 carpetes, 46 fitxers, 359 241 B** mesurats el 9/11 a `apps/` (about,
-calculator, editor, home_eink, luaperf, reader, shell, timeclock, tz i wipe) i **68 fitxers i 2 052 154 B** d'imatge segons la
-línia del mateix `make_disk` (`build/disk/emulator is 2052154 B in 68 files, 10 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
+`tools/make_disk.py` les hi posa totes: **10 carpetes, 47 fitxers, 364 061 B** mesurats el 10/11 a `apps/` (about,
+calculator, editor, home_eink, luaperf, reader, shell, timeclock, tz i wipe) i **69 fitxers i 2 057 203 B** d'imatge segons la
+línia del mateix `make_disk` (`build/disk/emulator is 2057203 B in 69 files, 10 apps, linked to apps/`). Hi van **enllaçades** i no copiades (`os.symlink`, i el
 emulador el segueix perquè usa `stat()`), o sigui que **editar una app es veu al run següent sense refer el disc**, i
 una app nova a `apps/` hi és amb un `pio run -e emulator` i sense tocar cap línia de configuració. Les plaques no
 són així i no poden ser-ho: la seva imatge és el sistema sol, i la Paper nomena les seves set perquè 4 MB de

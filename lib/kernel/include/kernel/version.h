@@ -5235,7 +5235,35 @@ namespace kernel {
 //     time clock's day and week— (docs/30);
 //   - **what this does not prove and the board will say**: the mark on the glass. The suite can read the face and
 //     measure it; the title of a button drawn at 45 px of em is a picture only the panel shows (docs/85).
-static const char kVersion[] = "0.173.0";
+// 0.173.1 (10/11): **the card of 0.172, taken to the glass**. The owner asked for an analysis of the night's commit and the
+// analysis turned into three defects of the system, one of them of the feature itself, and one claim that was not true.
+//
+//   - **the app is told that it lost the ring when a card takes it** (docs/30): the control that had the focus is not a
+//     stop while a card is up, so `ui_apply_focus` cannot reach it and the ring was written into its `focused` field
+//     without the app hearing anything. `on_focus(self, false)` is the contract of every focusable control and a card is
+//     the dial moving: it is called now, and a page that keeps its own idea of the focus —a caret, a key— is not left with
+//     the old one under a question (found by the new case of `test_apps`, 10/11);
+//   - **and the tap that dismisses a card does not press what was behind it** (docs/30): the panel reports the same finger
+//     while it is on the glass, so the report after the cancel found the card gone, the page back and the button under the
+//     finger a stop, and the button heard a click that nobody asked for —on the eraser that is a question answered by the
+//     tap that closed it—. The contact that cancels is spent (`g_ui_touch_orphan`, the flag this system already had for a
+//     control that went away mid-gesture), and it is cleared when the finger goes up (found by the same case);
+//   - **the six lines that gave the ring back were written twice** in `ui_collect_targets`, one after the other, and the
+//     second could never run because the first clears `g_modal_was_up`: a copy left behind and a reader's trap;
+//   - **the chain of `fs.mkdir` of 0.172.2 was not needed and is gone**: `fs_ops::mkdir` has created the fathers inside the
+//     storage with `make_dirs` since the import, and the case of the time clock works without the Lua-level walk —measured
+//     on the bench with the code of 0.171.2 on a flash with no `data/`: an app made `/data/<id>` and wrote in it, so what the
+//     board saw was the older image of its flash, as the second bullet of that same entry already said—. The behaviour is
+//     now pinned by `test_a_folder_is_made_with_the_fathers_it_needs`, so nobody has to «fix» it twice;
+//   - **and `docs/30` no longer says that an app has to call `ui.focus(card)`**: that was true until 0.172.0 and it is not
+//     since —the card takes the walk, the dial, the finger and the ring by itself—, and the rule the owner asked for on the
+//     eraser had **no paragraph** in that document although the entry of 0.172.0 cited it. The dialog section has it now,
+//     with the outside tap and the contact that is spent (docs/30, docs/90);
+//   - `apps/wipe` stops asking for the focus of its two cards and says why; `tools/make_keys.py` says five marks where it
+//     said four; and the numbers of the documents are the ones of today —560 cases, 47 files of `apps/`, both disks and the
+//     ATOM— (docs/70, docs/80, docs/85, README).
+
+static const char kVersion[] = "0.173.1";
 
 }  // namespace kernel
 

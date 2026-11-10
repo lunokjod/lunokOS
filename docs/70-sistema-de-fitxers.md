@@ -777,12 +777,12 @@ littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
 fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
 `apps/` són les **deu** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell`,
-`timeclock`, `tz` i `wipe`— i **46 fitxers i 359 241 B**, i el `data/` del sistema **19 fitxers i 1 688 651 B** —el que el
+`timeclock`, `tz` i `wipe`— i **47 fitxers i 364 061 B**, i el `data/` del sistema **19 fitxers i 1 688 651 B** —el que el
 repositori porta: `data/data/` és l'estat d'una app i no és al git—, dels quals **1 558 434 B són els tres
 bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un; la carpeta
 sencera en fa 1 595 456). **La mida del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va
-escriure *`build/disk/emulator is 2052154 B in 68 files, 10 apps, linked to apps/`* i *`build/disk/m5-paper is
-2047892 B in 65 files, 10 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
+escriure *`build/disk/emulator is 2057203 B in 69 files, 10 apps, linked to apps/`* i *`build/disk/m5-paper is
+2052941 B in 66 files, 10 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
 `partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 688 651 B en 19 fitxers sense cap app**, o
 sigui que `pio run -e m5-atom -t buildfs` **s'atura amb `this disk does not fit`** mentre els tres bitmaps de
 splash siguin a `data/` (mesurat el 9/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
@@ -826,10 +826,10 @@ pio run -e m5-paper -t uploadfs    # i la puja
   fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
   disc que munta.
 - **El que hi ha avui, mesurat el 9/11**: el sistema sol són **19 fitxers i 1 688 651 B**; `apps/` sencer són
-  **46 fitxers i 359 241 B**; les **deu** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
+  **47 fitxers i 364 061 B**; les **deu** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
   `home_eink`, `shell`, `luaperf`, `tz` i `wipe`— són totes les que hi ha, o sigui que la Paper, que és l'única placa que en porta,
-  fa **65 fitxers i 2 047 892 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
-  execucions, **68 fitxers i 2 052 154 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
+  fa **66 fitxers i 2 052 941 B** d'imatge; i l'emulador, que les porta totes i hi afegeix l'estat de les seves
+  execucions, **69 fitxers i 2 057 203 B**. El disc de les proves porta les mateixes carpetes d'`apps/`
   **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 9/11, i el que fa créixer el
   sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 688 651, i la carpeta sencera
   1 595 456.

@@ -1565,30 +1565,19 @@ int l_fs_write(lua_State* L) {
   return 1;
 }
 
+// fs.mkdir(path): **a folder and the fathers it needs**, one call. The chain is the kernel's and not this file's
+// (`fs_ops::mkdir` walks the path inside the storage with `make_dirs`), and it has been that way since the import, so an
+// app that writes in its own ground the first time does not have to ask for three folders in order (docs/30, docs/70).
+// **A chain here in Lua was tried on 9/11 and taken away on 10/11** (0.173.1): it asked for every prefix of the path
+// through the door, which is the same walk a second time, and the case of the time clock that was said to need it works
+// without it —measured on the bench with the code of 0.171.2 on a flash with no `data/`: an app created `/data/<id>`
+// and wrote in it— (docs/30).
 int l_fs_mkdir(lua_State* L) {
   const char* path = luaL_checkstring(L, 1);
   if (g_file_ops.mkdir == nullptr) {
     return push_nil_error(L, "E_UNSUPPORTED", "there is no file system");
   }
   FsError err = FsError::kOk;
-  if (g_file_ops.mkdir(path, err)) {
-    lua_pushboolean(L, 1);
-    return 1;
-  }
-  // **A folder whose father is not there is made with its fathers** (0.172.2): `fs.data()` is `/data/<app>` and the image of a
-  // board carries no `/data` until something writes there, so the first mark of the time clock answered *«not saved»* on the
-  // Paper while the bench made it —the bench's disk happens to have a `/data`, from the apps that were installed—. The chain is
-  // walked from the root, each piece is asked for and a piece that refuses is not a fault of this call, and the whole path is
-  // asked for again at the end so the answer is still the callers' (docs/30, docs/70).
-  char piece[160];
-  size_t used = 0;
-  for (const char* p = path; *p != '\0' && used + 1 < sizeof(piece); ++p) {
-    piece[used++] = *p;
-    piece[used] = '\0';
-    if (*p != '/' || used < 2) continue;
-    FsError ignored = FsError::kOk;
-    g_file_ops.mkdir(piece, ignored);
-  }
   if (!g_file_ops.mkdir(path, err)) return push_fs_error(L, err);
   lua_pushboolean(L, 1);
   return 1;
@@ -9227,7 +9216,14 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
     if (count > 0 && ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item) < 0) {
       if (g_ui_focus_slot >= 0 && ui_push_slot_from(L, root_at, g_ui_focus_slot, 0)) {
         const int had_it = lua_gettop(L);
-        if (ui_set_field_bool(L, had_it, "focused", false)) ui_invalidate(L, had_it);
+        if (ui_set_field_bool(L, had_it, "focused", false)) {
+          ui_invalidate(L, had_it);
+          // **And the app hears that the ring went** (0.173.1): the control is not a stop any more, so the walk cannot
+          // tell it through `ui_apply_focus`, and a page that keeps its own idea of the focus —the caret of a box, the
+          // ink of a key— would keep the old one while a card is up. `on_focus(self, false)` is the contract of every
+          // focusable control and a card is the dial moving (docs/30, docs/90).
+          ui_call_hook(L, had_it, "on_focus", true, false);
+        }
         lua_settop(L, root_at);
       }
       ui_apply_focus(L, targets, count, objects, 0);
@@ -9236,18 +9232,10 @@ int ui_collect_targets(lua_State* L, FocusTarget* targets, int capacity) {
     return count;
   }
   lua_pop(L, 1);  // the root
-  if (g_modal_was_up) {
-    g_modal_was_up = false;
-    const int back = ui_target_index(targets, count, g_modal_was_slot, g_modal_was_generation, g_modal_was_item);
-    if (back >= 0) ui_apply_focus(L, targets, count, objects, back);
-    g_modal_was_slot = -1;
-    g_modal_was_generation = 0;
-    g_modal_was_item = 0;
-    g_modal_card_slot = -1;
-    g_modal_card_generation = 0;
-  }
   // **And the card gone gives the ring back** (0.172.0): the control that had it takes it again if it is still there, and a
-  // page that was built again in the meantime leaves the ring where the app put it (docs/30, docs/90).
+  // page that was built again in the meantime leaves the ring where the app put it (docs/30, docs/90). **One block and not
+  // two** (0.173.1): the same six lines were written twice, one after the other, and the second could never run —the first
+  // clears `g_modal_was_up`— so it was a copy left behind and a reader's trap.
   if (g_modal_was_up) {
     g_modal_was_up = false;
     const int back = ui_target_index(targets, count, g_modal_was_slot, g_modal_was_generation, g_modal_was_item);
@@ -11825,6 +11813,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       lua_pop(g_state, 1);
       break;
     }
+    // **And this contact is spent** (0.173.1): the panel keeps reporting the same finger while it is on the glass, and
+    // the next report would find the card gone, the page back and the button under the finger a stop —so the tap that
+    // dismissed a question would press whatever was behind it—. The orphan flag is the one this system already has for a
+    // finger whose control went away mid-gesture, and it is cleared when the finger goes up (docs/30, docs/90).
+    g_ui_touch_orphan = true;
     lua_settop(g_state, top);
     return;
   }
