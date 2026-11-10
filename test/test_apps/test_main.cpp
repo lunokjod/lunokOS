@@ -5185,6 +5185,9 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   emu::Options opts = emu::options();
   opts.board = "m5stack-paper";
   opts.display = true;
+  // **The glass and the finger**: a board with a panel is a board whose kernel reads it, and the model only hands the
+  // panel over when the run says it has one (docs/85).
+  opts.touch = true;
   emu::set_options(opts);
   kernel::boot(hal::platform());
 

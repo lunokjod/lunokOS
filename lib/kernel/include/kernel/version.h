@@ -5592,7 +5592,13 @@ namespace kernel {
 //   - the cases of the suite that pinned the old numbers are the other way round: the grid's foot is ink and not the dim
 //     tone, and the list's foot is a ball of twenty-five and a ring of nineteen (`103 cases`, and the suites are green).
 
-static const char kVersion[] = "0.176.0";
+// 0.176.1 (10/11): **the case of the swipe reads the panel it swipes on**. The whole suite found it red, and the fault was
+// the case and not the system: it booted the Paper with `display` on and **`touch` off** —a model without a finger, the same
+// as `--no-touch`—, so the kernel had no panel, no frame ever reached the controls and the two swipes did nothing. The
+// other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
+// panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
+
+static const char kVersion[] = "0.176.1";
 
 }  // namespace kernel
 
