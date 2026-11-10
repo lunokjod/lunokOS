@@ -1121,6 +1121,15 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   diferents abans d'un `present`, totes es tornen una de sola pintada amb `gc16`, que és la qualitat que
   no pot quedar malament, i aquesta regió inclou la darrera que s'ha dibuixat; `ui.damage()` ho diu abans
   de pagar-ho.
+- **I el que s'ajunta no pot pintar l'aire del mig** (0.177.4). La unió de dues regions que no es toquen
+  és un rectangle que també cobreix el que ningú no ha canviat, i això és tinta al lloc equivocat en un
+  panell que fa un flaix quan s'hi escriu. Una cel·la de la primera fila d'una graella i la de la fila de
+  sota es pintaven com **una sola regió de 500×246** —les dues files— per dues cel·les de 250×123; ara el
+  que s'ajunta pot afegir una quarta part de la peça petita i prou, o sigui que les lletres d'una paraula
+  segueixen essent un pintat i les bandes no.
+- **Una peça que el mapa ja deu no s'hi torna a posar** (0.177.4): si el que s'apunta ja és dins d'una
+  regió pendent, la regió queda amb la qualitat més forta de les dues i no s'hi afegeix res. És el que
+  feia que el dibuix d'una icona es pintés **després** de la cel·la que ja el tenia.
 - **La vista no és el vidre.** Un canvas té una mida i **un lloc** (`ui.caps().x`/`.y`), i tots dos són
   del sistema: el dia que dues apps comparteixin el vidre, o que el sistema es quedi una franja, la
   vista d'una app serà més petita i estarà en un altre lloc. El dibuix i el `present` no ho noten —les

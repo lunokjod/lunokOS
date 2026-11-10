@@ -133,7 +133,14 @@ Canvas* find(int16_t slot) { return live(slot) ? &g_canvases[slot] : nullptr; }
 // Two regions of the same quality this close become one paint: a frame drawn side by side, a line of
 // text one letter at a time. Merging them costs a few pixels of ink and saves a whole update, and an
 // update is what an e-ink panel is slow at (docs/50).
+// **And the merge is only worth it when it does not paint the air between them** (0.177.4): the union of two rectangles
+// that do not touch is a rectangle that also covers what nobody changed, and that is ink in the wrong place on a panel
+// that flashes when it is written. Measured on the launcher: the cell the dial left and the cell it entered, one on the
+// row above the other, came out as a single `500x246` —both rows of the grid— for two cells of `250x123` (docs/90).
 const uint16_t kMergeGap = 2;
+// The air a merge may add and still be worth one update less: a quarter of the smaller of the two, which keeps the small
+// joins —a letter of a text, the two halves of a frame— and refuses the bands.
+const int32_t kMergeWaste = 4;
 
 uint8_t clamped(uint8_t level) { return (level > 15) ? 15 : level; }
 
@@ -168,6 +175,41 @@ void merge_all(Canvas& canvas, hal::UpdateMode mode) {
   canvas.damage_count = 1;
 }
 
+// **The quality that reaches the glass when two pieces become one** (0.177.4): the one that cannot look wrong of the two,
+// because a region is painted once and the ink of the lesser quality would lose what the other asked for. The order is
+// this panel's and not the order of the enum: `gc16` is the clean page, `gl16` its greys and `du` the fast bilevel
+// (docs/50).
+uint8_t quality_rank(hal::UpdateMode mode) {
+  switch (mode) {
+    case hal::UpdateMode::kGc16:
+      return 4;
+    case hal::UpdateMode::kGl16:
+    case hal::UpdateMode::kGlr16:
+    case hal::UpdateMode::kGld16:
+      return 3;
+    case hal::UpdateMode::kDu4:
+    case hal::UpdateMode::kA2:
+      return 2;
+    case hal::UpdateMode::kDu:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+hal::UpdateMode stronger_mode(hal::UpdateMode kept, hal::UpdateMode other) {
+  return (quality_rank(other) > quality_rank(kept)) ? other : kept;
+}
+
+// **One piece leaves the map and the ones after it take a step back** (0.177.4): the list is what the glass owes, and a
+// piece that another one already covers is a piece that would be painted twice.
+void drop_region(Canvas& canvas, uint8_t at) {
+  for (uint8_t i = static_cast<uint8_t>(at + 1); i < canvas.damage_count; ++i) {
+    canvas.damage[i - 1] = canvas.damage[i];
+  }
+  if (canvas.damage_count > 0) --canvas.damage_count;
+}
+
 // Records one region. Same quality and close by: one paint. The whole list full: one paint with the
 // quality that cannot look wrong, because an app that draws more pieces than the list holds is an app
 // that is redrawing a page and a page wants `gc16` (docs/30).
@@ -187,6 +229,32 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
   w = static_cast<uint16_t>(snap_last - snap_first);
   const uint16_t x1 = static_cast<uint16_t>(x + w);
   const uint16_t y1 = static_cast<uint16_t>(y + h);
+  // **A piece the map already owes is not added again** (0.177.4): the same pixels twice are two updates of one
+  // rectangle, and the map is the answer to "what does the glass owe". It is what a child's own ink asked for one quality
+  // and the box of the control that holds it asked for another —the picture of a cell inside the cell— and the record of
+  // both was a paint of the picture after the paint of the cell that already had it (docs/30, docs/90).
+  for (uint8_t i = 0; i < canvas.damage_count; ++i) {
+    Damage& region = canvas.damage[i];
+    if (region.x <= x && region.y <= y && region.x + region.w >= x1 && region.y + region.h >= y1) {
+      region.mode = stronger_mode(region.mode, mode);
+      return;
+    }
+  }
+  // **And a piece that covers others takes them out of the map** (0.177.4), with the quality of the strongest of them.
+  for (uint8_t i = 0; i < canvas.damage_count;) {
+    const Damage& region = canvas.damage[i];
+    if (region.x >= x && region.y >= y && region.x + region.w <= x1 && region.y + region.h <= y1) {
+      mode = stronger_mode(mode, region.mode);
+      drop_region(canvas, i);
+      continue;
+    }
+    ++i;
+  }
+  // **Two pieces of one quality this close are one paint, as long as it does not paint the air between them** (0.177.4):
+  // an update is what an e-ink panel is slow at, and a merged band that covers what nobody changed is ink in the wrong
+  // place. The waste of the union may be a quarter of the smaller piece —the two halves of a frame, the letters of a line
+  // of text— and no more; a cell and the cell of the row below were `500x246` for `2 x 250x123`, half of it air.
+  const int32_t area = static_cast<int32_t>(w) * static_cast<int32_t>(h);
   for (uint8_t i = 0; i < canvas.damage_count; ++i) {
     Damage& region = canvas.damage[i];
     if (region.mode != mode) continue;
@@ -194,12 +262,18 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                       (region.x <= x1 + kMergeGap) && (y <= region.y + region.h + kMergeGap) &&
                       (region.y <= y1 + kMergeGap);
     if (!near) continue;
-    uint16_t merged_x0 = (x < region.x) ? x : region.x;
-    uint16_t merged_y0 = (y < region.y) ? y : region.y;
-    uint16_t merged_x1 = (x1 > region.x + region.w) ? x1
-                                                    : static_cast<uint16_t>(region.x + region.w);
-    uint16_t merged_y1 = (y1 > region.y + region.h) ? y1
-                                                    : static_cast<uint16_t>(region.y + region.h);
+    const uint16_t merged_x0 = (x < region.x) ? x : region.x;
+    const uint16_t merged_y0 = (y < region.y) ? y : region.y;
+    const uint16_t merged_x1 = (x1 > region.x + region.w) ? x1
+                                                          : static_cast<uint16_t>(region.x + region.w);
+    const uint16_t merged_y1 = (y1 > region.y + region.h) ? y1
+                                                          : static_cast<uint16_t>(region.y + region.h);
+    const int32_t union_area = static_cast<int32_t>(merged_x1 - merged_x0) *
+                               static_cast<int32_t>(merged_y1 - merged_y0);
+    const int32_t region_area = static_cast<int32_t>(region.w) * static_cast<int32_t>(region.h);
+    const int32_t waste = union_area - area - region_area;
+    const int32_t smaller = (area < region_area) ? area : region_area;
+    if (waste > smaller / kMergeWaste) continue;
     region.x = merged_x0;
     region.y = merged_y0;
     region.w = static_cast<uint16_t>(merged_x1 - merged_x0);

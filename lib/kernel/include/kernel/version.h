@@ -5703,7 +5703,34 @@ namespace kernel {
 //     builds of the boards are not run in this version either: they are what the workflow does on every push, the table of
 //     the ops of the kernel grew by one pointer, which is the same size on every one of them, and a build is not a measure
 //     of this change.
-static const char kVersion[] = "0.177.3";
+// 0.177.4 (10/11): **the map of what the glass owes, and the three invalidations that were not a change**. A control
+// repaints what it touches and nothing else is the law of this system, and the launcher of the glass was breaking it in
+// two places that had nothing to do with each other.
+//
+//   - **the walk invalidated the control the dial left three times**: `focused`, `editing` and `focus_index`, and the
+//     last two only because a field the app had never written was answered as a change —a cell has no `editing` and is
+//     not a strip, and writing `false` and `0` over nothing took the whole subtree of the cell through `invalidate` for
+//     a ring that was leaving—. A field with no value that is given the default is not a change now
+//     (`ui_set_field_bool`, `ui_set_field_number`), and it is still written, so the app reads what it read before;
+//   - **and the pieces of two cells that do not touch were joined into the band they span**: `damage_add` joined any two
+//     regions of one quality within two pixels, and the union of two rectangles that only share a corner is a rectangle
+//     that also covers what nobody changed. The cell of the last column and the cell of the first of the row below came
+//     out as one `500x246` —both rows of the grid— for two cells of `250x123`. A join may add a quarter of the smaller
+//     piece and no more now, which keeps what is worth an update less —the letters of a word, the two halves of a
+//     frame— and refuses the bands;
+//   - **and a piece the map already owes is not added again**: a picture's ink asked for `du` and the box of the cell
+//     that holds it for `gl16`, so both were recorded and the picture was painted **after** the cell that already had
+//     it. The map is one rectangle per piece of ink now, with the strongest quality of the two when they meet;
+//   - **measured on the launcher, three steps of the dial** (`test_apps`,
+//     `test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses`): **277 968 px² in nine paints** before and
+//     **184 500 px² in four** after, and no region wider than the two cells the dial crossed. The case adds up the
+//     pixels of every `paint` line of the console and refuses a band of two rows; it is red with the join of the first
+//     cut —246 000 px²— as it has to be;
+//   - **what a step of the launcher still costs and cannot cost less**: a cell of a grid that takes the ring is drawn
+//     **inverted** —paper and ink swapped, the same signal a button gives— so its whole box changes colour and the whole
+//     box is what the glass owes. What the law asks is that it be that cell and no other, and that is what it is now.
+//   - **measured again**: 573 cases, 24 suites, all green in 2 min 42 s.
+static const char kVersion[] = "0.177.4";
 
 }  // namespace kernel
 

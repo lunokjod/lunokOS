@@ -470,6 +470,25 @@ void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
 // when it has read what it needed, and the next case that captures then reads an empty window and blames the app —it was
 // the order the tests happened to run in—. Asking for it at the door makes every case stand on its own (found by this
 // suite, 9/11).
+// **What the glass was asked to paint**, in pixels: every `paint x,y wxh` line of the kernel's console, added up. It is
+// how a case says «this gesture cost this much ink» instead of «this call happened», and the difference between the two is
+// the whole law of the damage (docs/80, docs/90).
+int32_t painted_pixels(const char* log) {
+  int32_t total = 0;
+  const char* at = log;
+  while (at != nullptr && (at = strstr(at, "paint ")) != nullptr) {
+    at += 6;
+    unsigned x = 0;
+    unsigned y = 0;
+    unsigned w = 0;
+    unsigned h = 0;
+    if (sscanf(at, "%u,%u %ux%u", &x, &y, &w, &h) == 4) {
+      total += static_cast<int32_t>(w * h);
+    }
+  }
+  return total;
+}
+
 void capture_begin() {
   kernel::log_echo(true);
   console_take_away();
@@ -4991,6 +5010,90 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   opts.display = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
+}
+
+// **A step of the dial in the launcher costs the cells it crosses and nothing else** (0.177.4). The map of what the glass
+// owes is the law of this system, and the launcher is where it was being broken twice over: the walk invalidated the
+// control the dial left **three times** —`focused`, `editing` and `focus_index`, the last two because a field the app
+// never wrote was answered as a change—, and the pieces of two cells that do not touch were joined into the band they
+// span. Measured with the keys: the step from the last cell of a row to the first of the next painted **two rows**
+// (`500x246`) for two cells of `250x123`, and the picture of each cell was presented again inside the band that already
+// had it (docs/30, docs/90).
+void test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/home_eink");
+  storage->mkdir("/apps/home_eink/res");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  // **Nine apps of two lines**, so the page is a grid of more than one row and the step that wraps is in it.
+  for (int i = 1; i <= 9; ++i) {
+    char id[16];
+    snprintf(id, sizeof(id), "app%d", i);
+    char manifest[256];
+    snprintf(manifest, sizeof(manifest),
+             "{\"title\":\"App %d\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+             "\"icon\":\"res/icon.png\"}",
+             i);
+    TEST_ASSERT_TRUE(add_app(storage, id, manifest, "while true do sys.delay(20):await() end\n"));
+    char dir[32];
+    snprintf(dir, sizeof(dir), "/apps/app%d/res", i);
+    TEST_ASSERT_TRUE(storage->mkdir(dir));
+    char png[32];
+    snprintf(png, sizeof(png), "/apps/app%d/res/icon.png", i);
+    TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", png));
+  }
+
+  pump_captured(2500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
+
+  // **Three steps of the dial**, the last of the first row and the two of the second.
+  capture_begin();
+  for (int step = 0; step < 3; ++step) {
+    emu::press_key(2, true);
+    pump_turns(15);
+    emu::press_key(2, false);
+    pump_turns(40);
+  }
+  capture_end(g_out, sizeof(g_out));
+  // **The ink of the three steps**: six cells of two hundred and fifty by a hundred and twenty-three are **184 500 pixels**,
+  // and that is the ceiling with a tenth of air for the edges of the damage. The band of two rows cost **278 000** before
+  // this —half of it the two cells of the row that nobody touched— (measured, `test/test_apps`).
+  const int32_t ink = painted_pixels(g_out);
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(200000, ink, g_out);
+  // **And the band that spans two rows is not there**: the cell of the row above and the cell of the row below are two
+  // regions, because joining them paints the air between and the two cells that nobody touched.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "500x246"), g_out);
+  // The cells themselves are what was painted, one region each where they do not touch.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 270,8 250x123"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  for (int i = 1; i <= 9; ++i) {
+    char png[32];
+    snprintf(png, sizeof(png), "/apps/app%d/res/icon.png", i);
+    storage->remove(png);
+    char dir[32];
+    snprintf(dir, sizeof(dir), "/apps/app%d/res", i);
+    storage->remove(dir);
+    char lua[32];
+    snprintf(lua, sizeof(lua), "/apps/app%d/app.lua", i);
+    storage->remove(lua);
+    char manifest[32];
+    snprintf(manifest, sizeof(manifest), "/apps/app%d/manifest.json", i);
+    storage->remove(manifest);
+    char app_dir[32];
+    snprintf(app_dir, sizeof(app_dir), "/apps/app%d", i);
+    storage->remove(app_dir);
+  }
 }
 
 // **The page is a ring and every stop of it is a control a person can see** (0.156.1): the dial goes from the last
@@ -12022,6 +12125,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_emulator_is_the_board_it_was_told_to_be);
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
+  RUN_TEST(test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);

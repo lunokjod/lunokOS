@@ -8748,7 +8748,13 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
     return false;
   }
   lua_getfield(L, -1, key);
-  const bool same = !lua_isnil(L, -1) && (lua_toboolean(L, -1) != 0) == value;
+  // **A field the app never wrote already says what the system is writing** (0.177.4) when the value is the default: a
+  // control with no `editing` was not entered and one with no `focus_index` is not a strip, and answering «it changed»
+  // made the walk invalidate the control the dial left **three times** —`focused`, `editing` and `focus_index`— and with
+  // it every child it holds, for a ring that only moves. The field is written either way, so the app reads the same
+  // thing it read before (docs/30, docs/90).
+  const bool was_nil = lua_isnil(L, -1);
+  const bool same = (was_nil && !value) || (!was_nil && (lua_toboolean(L, -1) != 0) == value);
   lua_pop(L, 1);
   if (same) {
     lua_pop(L, 1);
@@ -8770,7 +8776,9 @@ bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer 
     return false;
   }
   lua_getfield(L, -1, key);
-  const bool same = lua_isnumber(L, -1) && lua_tointeger(L, -1) == value;
+  // The same rule as a flag (0.177.4): no `focus_index` is the tab nought of a strip that is not one.
+  const bool same = lua_isnil(L, -1) ? (value == 0)
+                                     : (lua_isnumber(L, -1) && lua_tointeger(L, -1) == value);
   lua_pop(L, 1);
   if (same) {
     lua_pop(L, 1);
