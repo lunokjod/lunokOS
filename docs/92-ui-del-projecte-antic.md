@@ -916,6 +916,16 @@ quan la caixa és petita. Cap de les dues es veu amb la caixa del disseny.
 **I les apps s'han arreglat**: `showcase` i `controls` donaven a la tira deu píxels d'ample; ara li donen
 `view.width - 2 * 12` i **37** d'alçada, que és el que li demanava el projecte del paper amb el `preferredSize()`.
 
+**I el 10/11 la caixa del disseny és la que manen tots els controls que porten la tira** (0.176.0, l'amo: *«per qué és
+tant gris el paginador? no és un UIControl? per qué cada cop que n'uses un és diferent? … el paginador ha de ser igual a
+tot arreu, si no no s'entén que és un control paginador»*). Fins avui la regla era certa i **no s'aplicava**: el peu
+d'una llista donava a la tira una banda d'un terç de la fila, amb un terra de 24 i un sostre de 37, o sigui que **amb
+una fila de 56 la bola sortia de 20**; el peu d'una graella li'n donava 24, i el `ui.dots` 25. **Tres mides d'una
+cosa.** Ara el peu d'una llista i el d'una graella demanen la caixa del disseny —37, bola de 25, aire de 12 a sota— i
+la tinta és la del control (`color`/`text`, negre) i no el `dim` d'una paraula secundària, que és el que feia sortir el
+paginador d'una graella **gris** mentre el d'una llista era negre. I la tira del lector d'EPUB, que era **un segon
+paginador dibuixat per l'app amb boles de 12**, és un `ui.dots` com els altres (docs/30, docs/46).
+
 **Mesurat aquest torn**: la tira de cinc boles de `showcase`, llegida píxel a píxel del bolcat, dona **bola sòlida de 25
 píxels** (de la fila 863 a la 887), **anelles de 19 amb dos píxels de tinta** (la vora esquerra a 58 i 59 i el paper a
 60), **pal de tres files** (11, 12 i 13) i **la tira sencera de 149 píxels**, que és 12 + 4 · 32 + 9; i el bolcat de

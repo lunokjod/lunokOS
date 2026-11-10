@@ -242,68 +242,25 @@ local function page_index(at)
   return found
 end
 
--- **The strip of the pages of the chapter, drawn as the reader of the paper draws it** (0.138.0, docs/46 C5): a ball of
--- twelve pixels for each page —solid for the one that is read and a ring for the rest— on a rod of one pixel, a window of
--- fourteen, and **three balls that get smaller at an end the window does not reach**, which is how it says that there are
--- many more and it cannot draw them. It is drawn in a canvas of the width of the page, so the whole band is one layer and
--- one region of damage (docs/30, docs/90).
-local kDot = 12
-local kDotGap = 6
-local kWindow = 14
-local kTrail = { 8, 6, 4 }
-
+-- **The strip of the pages of the chapter is the paginator of the system** (0.176.0, the owner: *«el paginador ha de ser
+-- igual a tot arreu, si no no s'entén que és un control paginador»*). It was a canvas drawn here with a ball of twelve
+-- pixels, a gap of six, a window of fourteen and its own three marks —**a second paginator**, with other numbers and other
+-- sizes than the one a list or a grid has—, and now it is a `ui.dots`: the same balls of twenty-five, the same ring, the
+-- same rod and the same marks as everywhere else on this glass, inked in the black of the page (or the white of the dark
+-- page) and not in a tone of its own (docs/30, docs/90, docs/92).
 local function draw_strip()
   if strip == nil then return end
   -- **The cover has no strip of pages**: it is a picture of the book and not one of its pages (docs/46, C7).
   if cover_mode then return end
-  strip:clear(paper_level(), 'du')
   local total = walked
   local here = page_index(from)
-  if total < 2 or here < 1 then return end
-
-  local count = math.min(total, kWindow)
-  local first = here - count // 2
-  if first < 1 then first = 1 end
-  if first + count - 1 > total then first = total - count + 1 end
-
-  local width = count * kDot + (count - 1) * kDotGap
-  local left = (kPageW - width) // 2
-  local y = 10
-  local cy = y + kDot // 2
-  local ink = ink_level()
-
-  -- **The rod goes first and the balls on top of it**: what is seen of it is the air between two balls (docs/90).
-  strip:rect(left + kDot // 2, cy - 1, width - kDot, 1, ink)
-  strip:rect(left + kDot // 2, cy, width - kDot, 1, ink)
-
-  local x = left
-  for k = first, first + count - 1 do
-    if k == here then
-      strip:disc(x + kDot // 2, cy, kDot // 2, ink)
-    else
-      strip:circle(x + kDot // 2, cy, kDot // 2, ink)
-    end
-    x = x + kDot + kDotGap
-  end
-
-  -- **The three that say there are more**: smaller and smaller, on the side the window does not reach.
-  if first > 1 then
-    local tx = left - 8
-    for k = 1, #kTrail do
-      local s = kTrail[k]
-      tx = tx - s
-      strip:disc(tx + s // 2, y + (kDot - s) // 2 + s // 2, s // 2, ink)
-      tx = tx - 4
-    end
-  end
-  if first + count - 1 < total or counting then
-    local tx = left + width + 8
-    for k = 1, #kTrail do
-      local s = kTrail[k]
-      strip:disc(tx + s // 2, y + (kDot - s) // 2 + s // 2, s // 2, ink)
-      tx = tx + s + 4
-    end
-  end
+  strip.level = ink_level()
+  strip.background = paper_level()
+  -- **One page is no strip**: the control paints its paper and no balls, which is what it did and what a list with a
+  -- single page does (docs/90).
+  strip.pages = (total >= 2 and here >= 1) and total or 1
+  strip.current = (here >= 1) and here or 1
+  strip:invalidate()
 end
 
 -- **What the foot says**: the chapter that is open and how many the book has, how far in the book we are, and —on the
@@ -457,7 +414,13 @@ local function show_cover()
   foot.background = 15
   foot.text = 'Cover - right to read'
   if endmark ~= nil then endmark.text = '' end
-  if strip ~= nil then strip:clear(15, 'du') end
+  if strip ~= nil then
+    strip.level = 0
+    strip.background = 15
+    strip.pages = 1
+    strip.current = 1
+    strip:invalidate()
+  end
 
   -- **A picture is not two tones**: the page that comes after it takes the wash (docs/46, C10).
   two_tone = false
@@ -510,8 +473,9 @@ local function build_page(restart, silent)
     endmark:place(kPageW - 16 - kFootEnd, kPageH + kFootText)
   end
 
-  -- **And the strip of the pages under them**, in a canvas of the width of the page so the whole band is one layer.
-  strip = ui.canvas(kPageW, kStripH)
+  -- **And the paginator of the system under them**, with the whole width of the page: it is the same control a list and a
+  -- grid carry at their foot, so the strip of a book is the strip of a page of anything on this glass (0.176.0).
+  strip = ui.dots(kPageW, kStripH)
   if strip ~= nil then strip:place(0, kPageH + kStripTop) end
 
   -- **And the chapter is counted from here**, because a page is as many words as fit this box and the box has just been

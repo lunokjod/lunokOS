@@ -2351,7 +2351,7 @@ void test_a_list_measures_its_pages_with_one_arithmetic() {
   TEST_ASSERT_EQUAL_UINT8(4, fits.rows);
   TEST_ASSERT_EQUAL_UINT8(1, fits.pages);
 
-  // Twelve items: three pages of four are not enough once the footer of twenty pixels is taken, so a page holds
+  // Twelve items: three pages of four are not enough once the footer of forty-one pixels is taken, so a page holds
   // three rows and the list has four pages.
   ui::ListPage long_list = ui::list_page_of(200, 50, 12);
   TEST_ASSERT_EQUAL_UINT8(3, long_list.rows);
@@ -2379,8 +2379,9 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
   const char* titles[3] = {"One", "Two", "Three"};
   const char* details[3] = {"1", "2", "3"};
 
-  // **Three rows of fifty in a box of two hundred**: the box holds three rows and the band of the foot is twenty-four
-  // —a third of the row with a floor of twenty-four— so the foot goes at 150 and the air under it is the box's.
+  // **Three rows of fifty in a box of two hundred**: the box holds three rows and the band of the foot is the box the
+  // paginator is designed in, plus the line and its air —forty-one— so the foot goes at 150 and the air under it is the
+  // box's (0.176.0).
   TEST_ASSERT_TRUE(ui::list_draw(list, 3, 3, 1, 4, 2, titles, details, nullptr, 50, 0, 8, 15, 2, true, false));
   // The second row of the page is the chosen one and it is inverted: ink where the others are paper.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 25));
@@ -2414,8 +2415,9 @@ void test_the_foot_of_a_list_is_the_paginator_of_the_system() {
   TEST_ASSERT_TRUE(ui::place(list, 0, 0));
   const char* titles[2] = {"One", "Two"};
   const char* details[2] = {"1", "2"};
-  // Two rows of fifty, so the foot is at a hundred and the band is twenty-four: the ball is twenty and the other page
-  // is a ring of fifteen with a ring of one pixel.
+  // Two rows of fifty, so the foot begins at a hundred and its band is the design's —the line, three of air and the box of
+  // thirty-seven—: **the ball is twenty-five and the other page is a ring of nineteen with two pixels of ink** (0.176.0),
+  // which are the numbers of `ui.dots` and not a fraction of the row.
   TEST_ASSERT_TRUE(ui::list_draw(list, 2, 2, 1, 3, 0, titles, details, nullptr, 50, 0, 8, 15, 2, false, false));
   // **The ball of the page that is read is a disc of ink** in the middle of the band: the row of its centre is solid
   // across the ball.
@@ -3414,21 +3416,42 @@ void test_a_grid_puts_the_page_where_the_cursor_is() {
   // **The ring of the dial is on the cell it is on**, inside the cell and away from its edge.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(2, 2));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(6, 6));
-  // The name of a cell is ink, also when the cell is chosen, and the footer says which page this is in the dim tone.
+  // The name of a cell is ink, also when the cell is chosen.
   int names = 0;
-  int footer = 0;
   for (uint16_t x = 0; x < 100; ++x) {
     for (uint16_t y = 84; y < 100; ++y) {
       if (view_level(x, y) == 0) ++names;
     }
   }
+  TEST_ASSERT_GREATER_THAN(0, names);
+
+  // **The foot is the paginator of the system and its ink is the control's** (0.176.0, the owner: *«per qué és tant gris
+  // el paginador?»*): it used to be the words `N / M` in the `dim` tone and now it is the strip of balls of `ui.dots`, in
+  // black — the level of the words of the control (`color`) and not the one of a secondary word — in the band of the
+  // design at the bottom of the grid. The page that is read is a solid ball and the other one is a ring.
+  int solid = 0;
+  int ring = 0;
   for (uint16_t x = 100; x < 200; ++x) {
-    for (uint16_t y = 278; y < 296; ++y) {
-      if (view_level(x, y) == 8) ++footer;
+    for (uint16_t y = 263; y < 300; ++y) {
+      if (view_level(x, y) == 0) {
+        ++solid;
+        if (view_level(static_cast<uint16_t>(x + 1), y) == 15 &&
+            view_level(static_cast<uint16_t>(x + 2), y) == 0) {
+          ++ring;
+        }
+      }
     }
   }
-  TEST_ASSERT_GREATER_THAN(0, names);
-  TEST_ASSERT_GREATER_THAN(0, footer);
+  TEST_ASSERT_GREATER_THAN(0, solid);
+  TEST_ASSERT_GREATER_THAN(0, ring);
+  // And no grey of a secondary word is left in that band: the paginator is not a footnote.
+  int grey = 0;
+  for (uint16_t x = 0; x < 300; ++x) {
+    for (uint16_t y = 263; y < 300; ++y) {
+      if (view_level(x, y) == 8) ++grey;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, grey, "the foot of the grid is still drawn in the dim tone");
 
   // **The cells the finger asks, on the page that is on the glass**: the first of the two, the second, and nothing where the
   // page has no cell, on the footer or in the third column of the second row.

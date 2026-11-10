@@ -1619,6 +1619,23 @@ uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* it
 // below and its body lives with the other presents of the page, after `paint_root` (docs/30).
 bool present_each(hal::UpdateMode mode);
 
+// **The strip of dots of the old project, measured once** (0.112.0): the numbers are the ones its owner settled on
+// with the board in his hand —*«vull que els cercles siguin una mica mes grans, amb una vora negra i les boles
+// unides per un pal»*, and then *«l'actual mes fosc que els altres»* and *«el cercle que representa la pagina actual
+// ha de ser mes gros que els altres»*— and they are **fixed**, and not a third of the height of the box: a strip of
+// this build has to look the same in every app that shows it, and a counter whose balls change size with the box they
+// were given is not the same counter (docs/30, docs/92 §27).
+const int32_t kDotSmall = 19;  // the diameter of the balls of the pages that are not open, drawn as a ring of ink
+const int32_t kDotBig = 25;    // the page that is read: a solid disc, and the room of every ball, or the strip moves
+const int32_t kDotRing = 2;    // the ink of a ring: two pixels, and the paper inside is what cuts the rod into beads
+const int32_t kDotRod = 3;     // the rod the balls are threaded on, seen only in the air between two of them
+const int32_t kDotGap = 7;     // the air between two balls, so that two of them are two and not one
+const int32_t kDotAir = 12;    // the air the strip leaves under itself, so it does not hug the edge of the glass
+const int32_t kDotDesignH = kDotBig + kDotAir;  // the box the design asks for: thirty-seven pixels
+// **The rows a foot needs before the strip's box**: the line that closes the rows and three of air, so the ball of a list
+// sits where the ball of the other two controls sits (0.176.0, docs/30, docs/92).
+const int32_t kFootRule = 4;
+
 // **The paginator of the system, painted in a box** (0.174.2): the foot of a list and the `ui.dots` control are the same
 // drawing —the balls of the paper project, a rod through them, the page that is read bigger and a line of marks that
 // closes a window that does not fit— and this is the one place that draws it. False when the box cannot say it, and then
@@ -3323,14 +3340,19 @@ uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
 
 namespace {
 
-// **The band of the footer**: a third of a row, with a floor of twenty-four pixels —a ball of twenty, which is what the
-// paginator of the system needs to be read— and a ceiling of thirty-seven, the box the design asks for, so a tall row
-// does not give half of itself to it (0.174.2, docs/30, docs/90).
+// **The band of the footer is the box the paginator is designed in, and not a third of a row** (0.176.0): the owner,
+// *«el paginador ha de ser igual a tot arreu, si no no s'entén que és un control paginador»*. It was a third of the row
+// clamped between twenty-four and thirty-seven, so **the same control came out at twenty pixels in a list of short rows,
+// at twenty-four under a grid and at twenty-five in a `ui.dots`** —three sizes of one thing, and a size is what tells a
+// person that two drawings are the same control—. Now the strip is always the design: a ball of twenty-five, twelve of
+// air under it, thirty-seven of band. A tall row gives it nothing extra and a short one gives it what it needs (docs/30,
+// docs/92).
 uint16_t list_footer(uint16_t row_height) {
-  int32_t band = static_cast<int32_t>(row_height) / 3;
-  if (band < 24) band = 24;
-  if (band > 37) band = 37;
-  return static_cast<uint16_t>(band);
+  (void)row_height;
+  // **The four rows before the box are the rule and its air** (0.176.0): the line that closes the rows is drawn where a
+  // separator would be, and the strip's box —thirty-seven, the ball and the twelve of air under it— begins four rows
+  // under it, which is exactly where it begins under a grid and inside a `ui.dots` (docs/30, docs/92).
+  return static_cast<uint16_t>(kDotDesignH + kFootRule);
 }
 
 // How many rows of that height fit in that height at all, cut at thirty-two: a page longer than that is a page
@@ -3410,8 +3432,15 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
     const int32_t on_page = (rows > 0) ? static_cast<int32_t>(rows) : static_cast<int32_t>(count);
     const int32_t used = on_page * static_cast<int32_t>(row_height);
     const int32_t band_y = target.y + ((used + footer <= height) ? used : (height - footer));
-    put_rect(*target.canvas, target.x, band_y, width, 1, dim);
-    mark_box(*target.canvas, target.x, band_y, width, 1, mode);
+    // **The line closes the page when the rows are the list's own** (0.176.0): a list of data paints its rows here and the
+    // last of them has no separator —the separator belongs to the row above the next one, and there is none—, so the foot
+    // draws it at the top of its band. A list of **entries** (`count` 0: the rows are controls of the app) brings its own
+    // separators with every entry, the last of the page included, and a rule here would be a second line one pixel under
+    // the first (docs/30, docs/92).
+    if (count > 0) {
+      put_rect(*target.canvas, target.x, band_y, width, 1, dim);
+      mark_box(*target.canvas, target.x, band_y, width, 1, mode);
+    }
     // **And the pages are the paginator of the system** (0.174.2): the balls of the paper project threaded on a rod, the
     // page that is read bigger, the marks that close a window too long and the number of the page when the band is too
     // narrow to draw any of it. It used to be four private dots of four pixels —the same idea drawn twice, and the list's
@@ -3419,7 +3448,7 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
     // **The band of the foot is the room of the ball**, and the rule and a pixel of air go first: a foot of twenty-four
     // gives a ball of twenty, which is the size of the paper project's paginator within a fifth and is read from a metre
     // away (0.174.2, docs/30, docs/92).
-    if (!paint_dots(*target.canvas, target.x, band_y + 3, width, footer - 4, pages, page, text, background, mode)) {
+    if (!paint_dots(*target.canvas, target.x, band_y + kFootRule, width, kDotBig, pages, page, text, background, mode)) {
       const font::Face& face = face_of(list.face);
       const int32_t line_h =
           static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
@@ -4874,7 +4903,9 @@ GridCells icon_grid_cells(const Canvas& grid, uint8_t count, uint8_t index, uint
   if (icon < 24) icon = 24;
   cells.icon = icon;
   cells.cell_h = icon + 8 + line_h + 8;
-  cells.footer = (height > 160) ? 28 : 0;
+  // **The band of the foot is the paginator's and not a number of the grid** (0.176.0): thirty-seven is the box the
+  // design asks for, so the strip under a grid is the same strip a list has and a `ui.dots` has (docs/30, docs/92).
+  cells.footer = (height > 160) ? static_cast<int32_t>(kDotDesignH) : 0;
   int32_t rows = (cells.cell_h > 0) ? ((height - cells.footer) / cells.cell_h) : 0;
   if (rows < 1) rows = 1;
   cells.rows = rows;
@@ -4991,15 +5022,19 @@ bool icon_grid_draw(int16_t slot, const GridItem* items, uint8_t count, uint8_t 
     const int32_t band_y = static_cast<int32_t>(height) - cells.footer;
     // **The ball of the band, and a rule of air above it**, the same arithmetic the foot of a list makes (0.174.2): a foot
     // of twenty-eight gives a ball of twenty-four.
-    if (!paint_dots(*target.canvas, target.x, target.y + band_y + 3, width, cells.footer - 4, static_cast<uint16_t>(cells.pages),
-                    static_cast<uint16_t>(cells.page), dim, background, mode)) {
+    // **The ink of the paginator is the ink of the control's words** (0.176.0, the owner: *«per qué és tant gris el
+    // paginador?»*): it was `dim`, the lighter tone of a secondary word, so the strip under a grid was grey while the same
+    // strip under a list was black and the `ui.dots` control was black. One drawing, one tone: `color`, and the `dim` of
+    // the control goes on being what it is for (docs/30, docs/92).
+    if (!paint_dots(*target.canvas, target.x, target.y + band_y, width, kDotBig, static_cast<uint16_t>(cells.pages),
+                    static_cast<uint16_t>(cells.page), color, background, mode)) {
       // **A grid too narrow to draw a strip says the page in words**, which is what a list does and the only honest thing
       // left: a page number is a page number and not a control (docs/30, docs/90).
       char page[16];
       snprintf(page, sizeof(page), "%d / %d", static_cast<int>(cells.page), static_cast<int>(cells.pages));
       const int32_t taken = static_cast<int32_t>(font::width(face, page, scale));
       const int32_t y = band_y + (cells.footer - line_h) / 2;
-      draw_text(*target.canvas, face, target.x + (width - taken) / 2, target.y + y, page, scale, dim, mode);
+      draw_text(*target.canvas, face, target.x + (width - taken) / 2, target.y + y, page, scale, color, mode);
     }
   }
   close_draw(target);
@@ -6579,20 +6614,6 @@ void put_disc(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t le
 
 }  // namespace
 
-// **The strip of dots of the old project, measured once** (0.112.0): the numbers are the ones its owner settled on
-// with the board in his hand —*«vull que els cercles siguin una mica mes grans, amb una vora negra i les boles
-// unides per un pal»*, and then *«l'actual mes fosc que els altres»* and *«el cercle que representa la pagina actual
-// ha de ser mes gros que els altres»*— and they are **fixed**, and not a third of the height of the box: a strip of
-// this build has to look the same in every app that shows it, and a counter whose balls change size with the box they
-// were given is not the same counter (docs/30, docs/92 §27).
-const int32_t kDotSmall = 19;  // the diameter of the balls of the pages that are not open, drawn as a ring of ink
-const int32_t kDotBig = 25;    // the page that is read: a solid disc, and the room of every ball, or the strip moves
-const int32_t kDotRing = 2;    // the ink of a ring: two pixels, and the paper inside is what cuts the rod into beads
-const int32_t kDotRod = 3;     // the rod the balls are threaded on, seen only in the air between two of them
-const int32_t kDotGap = 7;     // the air between two balls, so that two of them are two and not one
-const int32_t kDotAir = 12;    // the air the strip leaves under itself, so it does not hug the edge of the glass
-const int32_t kDotDesignH = kDotBig + kDotAir;  // the box the design asks for: thirty-seven pixels
-
 // **The paginator of the system** (0.174.2): the balls of the paper project threaded on a rod, the page that is read
 // bigger and solid, the lines of marks that close a window of pages too long to show, and the air under the balls. It
 // was the body of `dots_draw` and it is now a function of a box, so **the foot of a list and the `ui.dots` control are
@@ -6719,12 +6740,18 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   const int32_t width = strip.width;
   const int32_t height = strip.height;
   if (width == 0 || height == 0) return true;
-  if (pages <= 1) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return false;
   const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  // **A strip with one page still owes its paper** (0.176.0): it is a control and its box is covered like the box of a list
+  // with no rows —the reader of a book whose chapter is one page long found the balls of the chapter before on the
+  // glass, because a control that paints nothing paints nothing over what it had— (docs/30, docs/90).
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
                  static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  if (pages <= 1) {
+    close_draw(target);
+    return true;
+  }
   // **A box of the size the design asks for is the design** (0.112.0): thirty-seven pixels, the ball of the page that is
   // read and the air under it. A smaller box shrinks the whole strip by the same amount —every number, so the aspect
   // stays— and a taller one keeps the size and gives the air the room, which is what an app gets by handing it the whole

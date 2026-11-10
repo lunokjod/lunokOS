@@ -5566,7 +5566,33 @@ namespace kernel {
 //     and the launcher's grid said so by itself when its cells took the ring (`paint 20,8 500x884 gl16`, measured on the
 //     window, 10/11) (`571 cases`, and the case of the swipe is one of them).
 
-static const char kVersion[] = "0.175.0";
+// 0.176.0 (10/11): **one paginator, one size, one ink**. The owner: *«per qué és tant gris el paginador? no és un
+// UIControl? per qué cada cop que n'uses un és diferent? mira a tot el codi i busca tots els paginadors que hi ha. Perqué
+// es veuen diferent? El paginador ha de ser igual a tot arreu, si no no s'entén que és un control paginador»*.
+//
+// **The search, and it found three**: `ui::paint_dots` (the one drawing since 0.174.2, used by the `ui.dots` control and
+// the foot of a list), the foot of a grid —which in 0.175.0 was given `paint_dots` but with the ink of a secondary word
+// and a band of its own— and **the strip of the EPUB reader**, a canvas the app drew itself with balls of twelve pixels,
+// a gap of six and a window of fourteen: a second paginator, with other numbers, in Lua. The three looked different
+// because they were three.
+//
+//   - **the ink is the control's** (`color`/`text`), not `dim`: the foot of a grid was grey while the same strip under a
+//     list was black and the `ui.dots` control was black (docs/30, docs/92);
+//   - **the box is the design's, 37, in all three**: a list gave the strip a third of the row clamped to 24..37 —a ball
+//     of 20 with a row of 56— and a grid 28. `list_footer` is now the design's box plus the four rows of the line and its
+//     air, and the strip of a list lands with the same twelve rows of air under it as the one of a grid and the one of a
+//     `ui.dots` (docs/30, docs/92 §27);
+//   - **the line that closes the page is the rows' or the foot's and never both**: a list of data has no separator under
+//     its last row of the page, so the foot draws it; a list of entries brings its own, and the foot draws none —a rule
+//     there was a second line one pixel under the first (docs/90);
+//   - **the reader of EPUB is a `ui.dots`**: `pages`, `current`, `level` and `background`, and the window of fourteen
+//     balls is the control's now. Its strip was the only paginator of this tree that was not the system's (docs/46 C5);
+//   - **and `ui.dots` with one page paints its paper**: a control that paints nothing paints nothing over what it had, and
+//     the reader of a one-page chapter found the balls of the chapter before on the glass (docs/30, docs/90);
+//   - the cases of the suite that pinned the old numbers are the other way round: the grid's foot is ink and not the dim
+//     tone, and the list's foot is a ball of twenty-five and a ring of nineteen (`103 cases`, and the suites are green).
+
+static const char kVersion[] = "0.176.0";
 
 }  // namespace kernel
 
