@@ -552,6 +552,36 @@ targeta i es buida amb la mateixa crida (docs/30, docs/70).
   app pot cridar la porta quan vulgui. El que la fa honesta és la targeta d'avís amb el dial a la porta segura; el
   dia que hi hagi permisos (el `E_PERM` reservat de docs/30), aquesta és la primera porta que hi hauria de passar.
 
+### La zona horària, amb els controls del sistema (10/11)
+
+L'amo, amb la pàgina a l'emulador: *«el desplegable que hi ha a TimeZone amb "Week stats" no te cap estètica que mostri que
+es una llista desplegable? per altra banda, el botó de sync NTP tampoc sembla un botó de sistema... son controls UI o uses
+alguna altra cosa? el focus sembla no funcionar amb ells»*. **Les quatre coses eren certes i tenien una sola causa**: la
+pàgina no tenia cap control. El desplegable era un `ui.frame` amb un text, una fletxa de dues línies i un `ui.rect` de
+fila triada; el botó era un marc d'un píxel amb la paraula a dins; la casella era un quadrat d'un píxel amb una aspa de
+`ui.line`; i el focus no hi arribava perquè **no hi havia res enfocable** (docs/30, docs/92).
+
+- **Ara són els controls del sistema**: un `ui.button` amb `title` i `primary`, un `ui.checkbox` amb la seva etiqueta a
+  dins i un `ui.selector` amb `label` i `items`, i la llista dels dos dies és un `ui.menu` del sistema sota el camp
+  (0.174.0). El mapa **es queda en primitives**: és una imatge i una banda de quinze graus, i el dit és l'únic que el
+  llegeix;
+- **i el dial torna a ser del sistema**: les fletxes caminen l'anella i el centre és Enter, o sigui que l'hora es tria amb
+  el dit —l'app necessita pantalla tàctil per arrencar— i les tres opcions amb el dial. **Els tres tocs del centre ja no
+  tanquen la pàgina**: són tres activacions, i la sortida és el pessic del vidre, que és la regla de qualsevol pàgina amb
+  controls (docs/30);
+- **`net.ntp()` no contestava mai a una app** —un error de debò del pont, des que la crida existeix—: `net_progress`
+  resol la promesa que el registre guarda a `kNetKey` i `l_net_ntp` era **l'única de les set crides de la xarxa** que no
+  la hi posava, o sigui que un `net.ntp():await()` d'una app esperava per sempre mentre la comanda `ntp` de la consola
+  contestava (la consola espera el waiter natiu i no aquesta promesa). El va trobar el cas de la pàgina `tz`, que és la
+  primera app de l'arbre que demana l'hora a un servidor, i el subjecta
+  `test_net_ntp_answers_the_app_and_not_only_the_shell`, que falla sense l'arranjament (docs/30, docs/85);
+- **i un refús arriba com a llançament, no com un `nil`** (el contracte de tota promesa d'aquest sistema): el botó d'una
+  placa sense xarxa desada —la placa més normal que hi ha— s'enduia l'app amb ell. La petició va dins d'un `pcall` i cada
+  codi diu la seva frase a una persona (`no network saved`, `the server did not answer`, `the radio is busy`). El clic és
+  un ganxo i un ganxo no pot esperar, o sigui que el botó deixa el desig i és el bucle de la pàgina qui demana l'hora —la
+  regla que ja segueix l'acceptar d'una targeta—; mentre espera, el botó és `disabled`, i la petició té **vuit segons** de
+  termini i no els vint del sistema (docs/30).
+
 ### La targeta que no netejava (10/11)
 
 L'amo: *«sembla que els modals al tancar-se no netejen correctament la pantalla»*. Era cert, i la causa és de disseny: **una

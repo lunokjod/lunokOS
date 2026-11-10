@@ -5314,7 +5314,38 @@ namespace kernel {
 //     nothing else when a modal goes); docs/90 writes the decision down: the 49 400 B copy of the pixels is no longer on the
 //     list, because a page with a draw of its own comes back without any copy (docs/30, docs/75, docs/90).
 
-static const char kVersion[] = "0.173.3";
+// 0.174.0 (10/11): **the page of the time zone uses the system's controls, and the dial comes back to it**. The owner,
+// with the page on the emulator: *«el desplegable que hi ha a TimeZone amb "Week stats" no te cap estètica que mostri que
+// es una llista desplegable? per altra banda, el botó de sync NTP tampoc sembla un botó de sistema... son controls UI o
+// uses alguna altra cosa? el focus sembla no funcionar amb ells»*. All four were true and all four had one cause.
+//
+//   - **they were not controls**: `ui.frame`, `ui.rect`, `ui.line` and `ui.text` with a hit test of the app, so there was
+//     nothing focusable on the page and the ring had nowhere to land. `apps/tz` now builds a `ui.button` with its `title`
+//     and `primary`, a `ui.checkbox` with its label inside it and a `ui.selector`; the list of the two days is a `ui.menu`
+//     of the system under the field. **The map stays primitives** —it is a picture and a band of fifteen degrees and the
+//     finger is its only reader— and the app's own hit test is only the map's;
+//   - **and the dial is the system's again**, which is the rule of a page with controls: the two sides walk the ring and
+//     the centre is Enter, so the hour is chosen with the finger (the app needs a touch panel to run at all) and the three
+//     settings are reached with the dial. **The three taps of the centre are three activations now** and not a way out,
+//     which is what the pinch of the glass is for (docs/30);
+//   - **`net.ntp()` never answered an app** (a real bug of the bridge since the call exists): `net_progress` settles the
+//     promise the registry holds in `kNetKey` and `l_net_ntp` was the only one of the seven calls of the network that did
+//     not put it there, so an app's `net.ntp():await()` waited for ever while the shell's `ntp` answered —the shell waits
+//     on the native waiter and not on this promise—. Found by the case of the `tz` page, fixed in one line and held by
+//     `test_net_ntp_answers_the_app_and_not_only_the_shell`, which fails without it (docs/30, docs/85);
+//   - **a refusal is a raise and not a `nil`** (the contract of every promise of this system), so the button of a board
+//     with no network saved —the commonest board there is— took the app down with it; the request is now inside a `pcall`
+//     and each code says its own sentence to a person (`no network saved`, `the server did not answer`, `the radio is
+//     busy`). The click is a hook and a hook cannot wait, so the button leaves the wish and the loop of the page does the
+//     request —the rule a card's accept already follows—; while it waits the button is `disabled` and the request has a
+//     timeout of eight seconds instead of the twenty of the system's default (docs/30, docs/90);
+//   - **two cases and a sentence the tests can read**: the case of `tz` now presses the button, the box and the door with
+//     a finger, walks the ring with the right key and presses the box with the centre, opens the menu and picks the second
+//     option, and closes the app with a close of the shell —the three taps do not close it any more—; `run tz zones` also
+//     prints one `tz stop true` per setting, so a page whose controls the dial could not reach is a red case and not a
+//     person's afternoon (`564 cases`).
+
+static const char kVersion[] = "0.174.0";
 
 }  // namespace kernel
 

@@ -2478,6 +2478,13 @@ int l_net_ntp(lua_State* L) {
   }
 
   pending_add(L, p);
+  // **And it is the promise the queue answers** (0.174.0): `net_progress` settles the one the registry holds in
+  // `kNetKey`, and this call was the only one of the seven that did not put it there —`connect`, `connect_stored`,
+  // `provision`, `add` and `scan` all do—, so `net.ntp():await()` of an app waited for ever while the shell's `ntp`
+  // answered, because the shell waits on the native promise and not on this one. Found by the case of the `tz` page,
+  // which is the first app of this tree that asks the clock for the time (10/11, docs/30, docs/85).
+  lua_pushvalue(L, p);
+  lua_setfield(L, LUA_REGISTRYINDEX, kNetKey);
   lua_pushvalue(L, p);
   return 1;
 }

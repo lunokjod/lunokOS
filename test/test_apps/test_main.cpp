@@ -11050,6 +11050,14 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tz/manifest.json", "/apps/tz/manifest.json"));
   TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/tz/res/world.png", "/apps/tz/res/world.png"));
 
+  // **A board with no network saved, so the button of the time server answers the same thing every time** (0.174.0):
+  // the radio is there and its store is empty, which is the state of a board nobody has provisioned and the one that
+  // made the app die —a refusal arrives as a raise and not as a `nil`— (docs/30, docs/85). The forget has to have
+  // happened, or the case would be reading the network another case of this suite left behind (0.152.4).
+  char forgot[512];
+  pump_captured(300, forgot, sizeof(forgot), "wifi forget");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(forgot, "network: none"), forgot);
+
   // **Where the map, the hours and the three controls are, from the app** (docs/30, docs/85): a test that knew the
   // layout would be a test that a change of layout moves onto another zone without saying so.
   kernel::log_echo(true);
@@ -11091,6 +11099,12 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     }
     return nullptr;
   };
+  // **And the page says which controls take the ring** (0.174.0): three lines of `tz stop true`, one per setting, which
+  // is what makes this page different from the one the owner saw —there, nothing was focusable because nothing was a
+  // control— (docs/30).
+  int stops = 0;
+  for (const char* at = strstr(g_out, "tz stop true"); at != nullptr; at = strstr(at + 12, "tz stop true")) ++stops;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(3, stops, g_out);
   const Place* hour_three = place("hour");
   // The first `tz hour` line is -12 and the sixteenth is +3: the app prints one line per hour.
   int seen = 0;
@@ -11114,6 +11128,27 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     return true;
   };
 
+  // **Nothing has touched a setting yet**: the page is only holding the hour it read.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the leap day went off with no finger on it");
+
+  // **The dial is the system's again** (0.174.0): the page reads no key any more, and the ring is on the first control
+  // of the page —the page handed the focus to the button of the time server— so one step of the right key takes it to the
+  // checkbox and the centre is Enter on it: the app hears `on_change` and not a key (docs/30). It comes before the finger
+  // because **a tap on the picture is a tap on no control and the system takes the ring away with it**, which is its rule
+  // for the empty part of a page.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(20);
+  emu::press_key(2, false);
+  pump_turns(20);
+  emu::press_button(true);
+  pump_turns(20);
+  emu::press_button(false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap off"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the centre did not press the box the ring was on");
+
   // **A finger on the band of +3** picks it and says so, and nothing is written yet: the page is holding it.
   TEST_ASSERT_NOT_NULL(hour_three);
   const int before = kernel::cfg::tz_minutes();
@@ -11122,41 +11157,53 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: picked +03:00"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(before, kernel::cfg::tz_minutes(), "the page saved the hour before the close");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the leap day went off with no finger on it");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the map turned the leap day, and that is not its setting");
+
+  // **The button of the time server is a `ui.button` of the system and it hears the finger** (0.174.0, the owner: *«el
+  // botó de sync NTP tampoc sembla un botó de sistema»*): the click is a hook and a hook cannot wait, so the button leaves
+  // the wish and the loop of the page asks the server, which is the rule this project has for a card's accept.
+  const Place* sync = place("sync");
+  TEST_ASSERT_NOT_NULL(sync);
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(sync->x + sync->w / 2, sync->y + sync->h / 2));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: no clock: no network saved"), g_out);
 
   // **The leap day and the week are settings with an immediate effect**: a checkbox and a list are not a choice that
-  // waits for the close (docs/60).
+  // waits for the close, and the finger is the other road to the same box (docs/60).
   const Place* leap = place("leap");
   capture_begin();
   TEST_ASSERT_TRUE(tap(leap->x, leap->y));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap off"), g_out);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the leap day is still on");
-  TEST_ASSERT_EQUAL_UINT8(28, kernel::calendar::days_in_month(2024, 2));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap on"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the finger did not turn the box back on");
+  TEST_ASSERT_EQUAL_UINT8(29, kernel::calendar::days_in_month(2024, 2));
 
   const Place* week = place("week");
   capture_begin();
   TEST_ASSERT_TRUE(tap(week->x + week->w / 2, week->y + week->h / 2));
   capture_end(g_out, sizeof(g_out));
+  // **The list of the two days is a `ui.menu` of the system** (0.174.0): the app says the card and the options, the system
+  // draws the rows and takes the finger. The boxes inside a card are its own —a row is never under 52 pixels and the rows
+  // grow into the room—, so the second option is the bottom third of the card and not an offset this test would have to
+  // know (docs/30, docs/90).
   const Place* list = place("list");
   TEST_ASSERT_NOT_NULL(list);
   capture_begin();
-  TEST_ASSERT_TRUE(tap(list->x + list->w / 2, list->y + list->h + list->h / 2));  // the second row
+  TEST_ASSERT_TRUE(tap(list->x + list->w / 2, list->y + (list->h * 2) / 3));
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: week sunday"), g_out);
   TEST_ASSERT_EQUAL_UINT8(7, kernel::cfg::week_start());
 
-  // **And the close is what saves the hour**: three taps of the middle key take the app away, `on_close` runs, and the
-  // setting is the one the page was holding.
+  // **And the close is what saves the hour**: the shell takes the app away —which is the same road the pinch and `exit`
+  // take—, `on_close` runs, and the setting is the one the page was holding. **The three taps of the centre are not the
+  // way out of this page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the rule
+  // of the system, so this case closes the app the way the pinch does (docs/30).
   capture_begin();
-  for (int i = 0; i < 3 && kernel::app_running(); ++i) {
-    emu::press_button(true);
-    pump_turns(10);
-    emu::press_button(false);
-    pump_turns(10);
-  }
+  kernel::shell::close_app();
+  pump_turns(40);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived three taps of the centre");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived a close of the shell");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +03:00"), g_out);
   TEST_ASSERT_EQUAL_INT(180, kernel::cfg::tz_minutes());
 
@@ -11166,7 +11213,7 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   pump_captured(20, g_out, sizeof(g_out), "cfg week");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg leap");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: leap off"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: leap on"), g_out);
 
   // The board goes back to the calendar it was born with, or the cases after this one read a Sunday.
   kernel::cfg::set_leap_years(true);

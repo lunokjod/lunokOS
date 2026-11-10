@@ -347,6 +347,51 @@ void test_net_connect_waits_for_the_kernel_to_say_so(void) {
   luabind::stop();
 }
 
+// **`net.ntp` is settled by the queue like every other promise of the network** (0.174.0). It was not: the call was the
+// only one of the seven that did not put its promise where `net_progress` looks (`kNetKey`), so an app's
+// `net.ntp():await()` waited for ever while the shell's `ntp` answered —the shell waits on the native waiter and not on
+// this promise—. Found by the case of the `tz` page, which is the first app of this tree that asks the clock for the
+// time (10/11, docs/30, docs/85). This case is the one that holds it: the request starts, the app waits, the kernel
+// answers, and the app goes on.
+bool g_ntp_started = false;
+char g_ntp_server[64];
+uint32_t g_ntp_timeout = 0;
+
+bool fake_ntp_start(const char* server, uint32_t timeout_ms) {
+  g_ntp_started = true;
+  snprintf(g_ntp_server, sizeof(g_ntp_server), "%s", (server != nullptr) ? server : "");
+  g_ntp_timeout = timeout_ms;
+  return true;
+}
+
+void test_net_ntp_answers_the_app_and_not_only_the_shell(void) {
+  pal::init();
+  luabind::NetOps ops = {};
+  ops.ntp_start = &fake_ntp_start;
+  luabind::set_net_ops(ops);
+  g_ntp_started = false;
+  TEST_ASSERT_TRUE(luabind::start(test_boot(), kGenerousLimit));
+  TEST_ASSERT_TRUE(luabind::run_source("test",
+                                       "local ok = net.ntp('pool.test', 4321):await()\n"
+                                       "assert(ok == true, tostring(ok))",
+                                       strlen("local ok = net.ntp('pool.test', 4321):await()\n"
+                                              "assert(ok == true, tostring(ok))")));
+  // **The first turn runs the chunk up to the `await`**: the app is alive, the request has started, and the arguments
+  // of the app went through to the radio.
+  TEST_ASSERT_TRUE(luabind::poll());
+  TEST_ASSERT_TRUE(g_ntp_started);
+  TEST_ASSERT_EQUAL_STRING("pool.test", g_ntp_server);
+  TEST_ASSERT_EQUAL_UINT32(4321, g_ntp_timeout);
+
+  // **And it is still waiting**: nothing has answered yet, which is a promise that is pending and not one that was
+  // never registered anywhere.
+  TEST_ASSERT_TRUE(luabind::poll());
+
+  luabind::net_progress(true, nullptr);
+  TEST_ASSERT_TRUE(pump());
+  luabind::stop();
+}
+
 // qr is a general library, not a private thing of the provisioning: an app can
 // encode any text at any level and get the modules back (docs/30).
 void test_qr_encodes_any_text_for_an_app(void) {
@@ -1047,6 +1092,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_json_reads_a_field_without_building_a_tree);
   RUN_TEST(test_net_without_a_radio_says_unsupported);
   RUN_TEST(test_net_connect_waits_for_the_kernel_to_say_so);
+  RUN_TEST(test_net_ntp_answers_the_app_and_not_only_the_shell);
   RUN_TEST(test_fs_mounts_and_space_answer_without_guessing);
   RUN_TEST(test_fs_mounts_without_a_file_system_says_unsupported);
   RUN_TEST(test_fs_format_answers_how_many_went_or_the_word_of_why_not);

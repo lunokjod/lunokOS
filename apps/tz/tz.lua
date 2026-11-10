@@ -16,6 +16,12 @@
 -- the first day of the week are the other way round —a checkbox and a list are settings with an immediate effect on
 -- every calendar of the system, and a person who turns one of them is telling the system and not this page— (docs/60).
 --
+-- **THE THREE SETTINGS ARE THE SYSTEM'S CONTROLS AND THE MAP IS THE APP'S** (0.174.0): a `ui.button` with its `title`, a
+-- `ui.checkbox` with its label and a `ui.selector` whose door opens a `ui.menu`; the ring of the focus walks them and the
+-- centre is Enter. The map is a picture and a band of fifteen degrees, so it stays primitives and the finger is its only
+-- reader —**and the dial is not the hour's any more**, because a page with focusable controls gives the dial to the
+-- system— (docs/30, docs/92).
+--
 -- **IT IS NOT AN APP OF PROVA**: it carries the icon of a normal app, because it is one a person uses (docs/40).
 
 local caps = sys.caps()
@@ -28,6 +34,11 @@ end
 -- on e-ink that is the difference between a settings page and a page that flashes (docs/50).
 local kPageMode = 'gc16'
 local kMoveMode = 'du'
+
+-- **How long a person waits for the time server before the page says it did not answer**: the system's default is twenty
+-- seconds, which on this page is twenty seconds of a button that does nothing, and a finger that presses it again
+-- deserves an answer and not a queue (0.174.0).
+local kSyncTimeoutMs = 8000
 
 -- **The hours the map carries**: -12 to +12, which is the twenty-five bands of fifteen degrees a world map of
 -- 360 degrees draws whole. The two the world keeps past the date line (+13 and +14) are not on the map and `cfg tz`
@@ -83,15 +94,28 @@ local function build_layout()
 
   local y = box.saved_y + 42
   box.sync_x, box.sync_y, box.sync_w, box.sync_h = margin, y, 260, 68
+  -- **The row of the checkbox is four pixels taller than its square on every side** (0.174.0): the system gives the
+  -- square the height of the row less four pixels above and below —the room its ring needs—, so a square of forty is a
+  -- row of forty-eight, and the row is placed four pixels up to keep the square where this page had it (docs/30).
+  box.check_box = 40
   box.check_x = margin
   box.check_y = y + 92
-  box.check_box = 40
+  box.check_row_w = map_w
+  box.check_row_h = box.check_box + 8
   box.select_x, box.select_y = margin, box.check_y + 76
   box.select_w, box.select_h = map_w, 68
-  -- The list of the two days is under the field and over the page: two rows of the height of the field.
-  box.list_row = 56
-  box.list_y = box.select_y + box.select_h
-  box.list_w = map_w
+  -- **The list of the two days is a `ui.menu` under the field** (0.174.0): the app says where the card goes and the
+  -- system draws the rows and takes the finger and the dial; two rows of a card 160 high are 62 pixels each, so the
+  -- card is the height the page has room for and not a row counted by the app (docs/30, docs/90).
+  box.list_x, box.list_y = box.select_x, box.select_y + box.select_h
+  box.list_w = box.select_w
+  -- **Two rows of a menu are never under 104 pixels** —52 is the smallest row the system draws— so a glass with no room
+  -- under the field puts the list over its foot instead of asking for a card of nothing (docs/30).
+  box.list_h = math.min(160, view.height - box.list_y - 10)
+  if box.list_h < 104 then
+    box.list_h = 104
+    if box.list_y + box.list_h > view.height then box.list_y = view.height - box.list_h end
+  end
 end
 
 -- **What the page is holding**, which is not yet what the system keeps: the offset of the hour waits for the close, and
@@ -99,8 +123,9 @@ end
 local chosen = 0
 local leap = true
 local week = 1
-local list_open = false
 local status = ''
+-- **What a click asked for and the loop has to do**: see the `on_click` of the button (0.174.0).
+local want_sync = false
 local busy = false
 
 local function tz_text(minutes)
@@ -169,53 +194,87 @@ local function paint_hours()
   end
 end
 
-local function paint_button(x, y, w, h, text, filled)
-  if filled then ui.rect(x, y, w, h, 0) end
-  ui.frame(x, y, w, h)
-  local ink = filled and 15 or 0
-  local tw = ui.text_width(text, kBody)
-  local th = ui.line_height(kBody)
-  ui.text(math.floor(x + (w - tw) / 2), math.floor(y + (h - th) / 2), text, kBody, ink)
+-- **The three settings are the system's controls and not boxes painted by hand** (0.174.0). The owner, with the page on
+-- the emulator: *«el desplegable ... no te cap estètica que mostri que es una llista desplegable? per altra banda, el botó
+-- de sync NTP tampoc sembla un botó de sistema... son controls UI o uses alguna altra cosa? el focus sembla no funcionar
+-- amb ells»*. He was right on all four: they were `ui.frame`, `ui.rect` and `ui.text` with a hit test of this app, so
+-- there was nothing focusable and the dial had nowhere to land. A `ui.button` with its `title`, a `ui.checkbox` with a
+-- label inside it and a `ui.selector` are the look and the behaviour of every other page of this board, they are drawn
+-- by the kernel, and **the ring of the focus arrives at them by itself** (docs/30, docs/92).
+local sync = nil
+local leapbox = nil
+local leapwords = nil
+local weekfield = nil
+local weekmenu = nil
+-- **What the controls ask for is the page's, and it is said here because the controls are made above it**: the two
+-- requests to the time server and to the list of the two days, and the place of the controls on the page.
+local sync_clock
+local open_week_menu
+local close_week_menu
+local place_settings
+
+local function refused(what, err)
+  console.print('tz: no ' .. what .. ' (' .. tostring(err and err.code or 'the memory') .. ')')
 end
 
-local function paint_checkbox()
-  local size = box.check_box
-  ui.frame(box.check_x, box.check_y, size, size)
-  if leap then
-    -- The cross of the system's checkbox, drawn with two lines: a box with a mark is what a person reads as "on".
-    ui.line(box.check_x + 6, box.check_y + 6, box.check_x + size - 6, box.check_y + size - 6)
-    ui.line(box.check_x + size - 6, box.check_y + 6, box.check_x + 6, box.check_y + size - 6)
-  end
-  local th = ui.line_height(kBody)
-  ui.text(box.check_x + size + 16, box.check_y + math.floor((size - th) / 2), 'Leap year', kBody, 0)
-end
+-- **A control is born two pixels square and told its box afterwards** (0.174.0): the layout below is what gives the page
+-- its boxes, and `resize` is what a page that can be turned needs —the glass says another measure and the same controls
+-- move—. A control with a buffer refuses a new size; a button, a checkbox, a selector and a label have none, which is why
+-- this page can lay itself out again (docs/30).
+place_settings = function()
+  if sync == nil then
+    local why
+    sync, why = ui.button(2, 2)
+    if sync == nil then return refused('sync button', why) end
+    -- **The word is the button's and not a label inside it**: `title` is painted by the control, so it changes ink with
+    -- the state —the focus and the finger invert it— and an app cannot leave the words and the frame disagreeing (0.173.0,
+    -- docs/30).
+    sync.title = 'Sync NTP'
+    sync.primary = true
+    -- **The click is a hook and a hook cannot wait** (0.174.0): `net.ntp` is an `await`, so the button leaves the wish here
+    -- and the loop of the page does it —which is the rule this project already has for a card's accept: read the action,
+    -- close, and then run it— (docs/30, docs/90).
+    sync.on_click = function() want_sync = true end
 
-local function paint_select()
-  ui.frame(box.select_x, box.select_y, box.select_w, box.select_h)
-  local th = ui.line_height(kBody)
-  local y = box.select_y + math.floor((box.select_h - th) / 2)
-  ui.text(box.select_x + 14, y, 'Week starts', kBody, 8)
-  local value = (week == 7) and 'Sunday' or 'Monday'
-  local vw = ui.text_width(value, kBody)
-  ui.text(box.select_x + box.select_w - vw - 44, y, value, kBody, 0)
-  -- The chevron of a field that opens: two lines and a point, which is the only mark a page has for "there is more
-  -- under this" (docs/90).
-  local cx = box.select_x + box.select_w - 26
-  local cy = box.select_y + box.select_h // 2
-  ui.line(cx - 8, cy - 3, cx, cy + 5)
-  ui.line(cx, cy + 5, cx + 8, cy - 3)
-
-  if list_open then
-    for i = 1, 2 do
-      local y0 = box.list_y + (i - 1) * box.list_row
-      local picked = (i == 1 and week == 1) or (i == 2 and week == 7)
-      if picked then ui.rect(box.select_x, y0, box.list_w, box.list_row, 0) end
-      ui.frame(box.select_x, y0, box.list_w, box.list_row)
-      local name = (i == 1) and 'Monday' or 'Sunday'
-      local lh = ui.line_height(kBody)
-      ui.text(box.select_x + 14, y0 + math.floor((box.list_row - lh) / 2), name, kBody, picked and 15 or 0)
+    leapbox, why = ui.checkbox(2, 2)
+    if leapbox == nil then return refused('leap box', why) end
+    leapwords, why = ui.label(2, 2)
+    if leapwords == nil then return refused('leap words', why) end
+    leapwords.text = 'Leap year'
+    leapwords.valign = 'middle'
+    leapbox:add(leapwords)
+    -- **The state is the system's and the app only reads it**: the click turns `checked` before this runs, so the page and
+    -- the setting cannot say different things (docs/30).
+    leapbox.on_change = function(self, on)
+      leap = time.leap(on)
+      console.print('tz: leap ' .. (on and 'on' or 'off'))
+      -- A square that has turned leaves the ghost of its cross, and a `gc16` of the row is what washes it (docs/50).
+      ui.present(kPageMode)
     end
+
+    weekfield, why = ui.selector(2, 2)
+    if weekfield == nil then return refused('week field', why) end
+    weekfield.label = 'Week starts'
+    weekfield.items = { 'Monday', 'Sunday' }
+    weekfield.on_open = function(self) open_week_menu(self) end
   end
+
+  local line = ui.line_height(kBody)
+  sync:resize(box.sync_w, box.sync_h)
+  sync:place(box.sync_x, box.sync_y)
+  sync.scale = kBody
+
+  leapbox:resize(box.check_row_w, box.check_row_h)
+  leapbox:place(box.check_x, box.check_y - (box.check_row_h - box.check_box) // 2)
+  leapbox.checked = leap
+  leapwords:resize(box.check_row_w - leapbox:box() - 32, line)
+  leapwords:place(leapbox:box() + 16, (box.check_row_h - line) // 2)
+  leapwords.scale = kBody
+
+  weekfield:resize(box.select_w, box.select_h)
+  weekfield:place(box.select_x, box.select_y)
+  weekfield.scale = kBody
+  weekfield.index = (week == 7) and 2 or 1
 end
 
 local function paint_status()
@@ -234,9 +293,8 @@ local function paint_page(chosen_hour)
   ui.text(box.map_x, box.label_y, sentence, fit_scale(sentence, box.map_w, kTitle), 0)
   ui.text(box.map_x, box.saved_y, 'Saved when this app closes', kSmall, 8)
 
-  paint_button(box.sync_x, box.sync_y, box.sync_w, box.sync_h, 'Sync NTP', false)
-  paint_checkbox()
-  paint_select()
+  -- **The three settings are not painted here**: they are children of the page, the system draws them, and this call is
+  -- only the text of the page and the answer of the last synchronisation (0.174.0, docs/30).
   paint_status()
 end
 
@@ -267,9 +325,15 @@ if chosen_hour > kLastHour then chosen_hour = kLastHour end
 chosen = chosen_hour * kMinutesPerHour
 leap = time.leap()
 week = time.week()
+-- **The controls are placed after the state is read and before the page is painted**: they show the leap day and the
+-- first day of the week the board has, and the first `present` composes them over the paper, so this page is made of its
+-- primitives and of three controls the system owns (0.174.0).
+place_settings()
 
 -- **The places the page can be touched, said out loud when the app is asked to**: `run tz zones` prints the box of the
--- map and the centre of every hour, so a test presses a zone without knowing the layout (docs/30, docs/85).
+-- map, the centre of every hour and the boxes of the three controls, so a test presses a zone and a setting without
+-- knowing the layout (docs/30, docs/85). **And it says which of them take the ring** (0.174.0): a page whose controls the
+-- dial could not reach would be the page the owner complained about, so the app says it and a test can hold it.
 if app.args ~= nil and app.args.path == 'zones' then
   console.print(string.format('tz map %d %d %d %d', box.map_x, box.map_y, box.map_w, box.map_h))
   for hour = kFirstHour, kLastHour do
@@ -280,15 +344,22 @@ if app.args ~= nil and app.args.path == 'zones' then
   console.print(string.format('tz leap %d %d %d', box.check_x + box.check_box // 2,
     box.check_y + box.check_box // 2, box.check_box))
   console.print(string.format('tz week %d %d %d %d', box.select_x, box.select_y, box.select_w, box.select_h))
-  console.print(string.format('tz list %d %d %d %d', box.select_x, box.list_y, box.list_w, box.list_row))
+  console.print(string.format('tz list %d %d %d %d', box.list_x, box.list_y, box.list_w, box.list_h))
+  for _, one in ipairs({ sync, leapbox, weekfield }) do
+    ui.focus(one)
+    console.print('tz stop ' .. tostring(one.focused))
+  end
+  ui.focus(sync)
 end
 
 paint_page(chosen_hour)
 ui.present(kPageMode)
 
 -- **Saving is the close and nothing else**: `time.tz()` writes the setting at once, so this page calls it when the
--- system is taking the app away —three taps of the centre, the pinch, `exit`— and a person who leaves without touching
--- anything leaves the board as it was (docs/30, docs/60).
+-- system is taking the app away —the pinch, `exit`, or a close of the shell— and a person who leaves without touching
+-- anything leaves the board as it was (docs/30, docs/60). **The three taps of the centre are not the way out of this
+-- page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the system's rule, so the
+-- pinch of the glass is what closes it (docs/30).
 function on_close()
   if chosen ~= time.tz() then
     time.tz(chosen)
@@ -298,18 +369,45 @@ end
 
 -- **The synchronisation is a promise and the page waits for it**: `net.ntp` is a request of the kernel's queue and this
 -- page has nothing else to do while it waits, so the finger that asked sees the answer when it comes (docs/30).
-local function sync_clock()
+sync_clock = function()
   if busy then return end
   busy = true
+  -- **The button says it is working by not being pressable**: `disabled` is the state the system knows, and it takes the
+  -- control out of the dial and off the finger both (docs/30).
+  sync.disabled = true
   status = 'syncing...'
   paint_status()
   ui.present(kMoveMode)
 
+  -- **A refusal arrives as a raise and not as a `nil`** (0.174.0, docs/30): `await` throws like every promise of this
+  -- system, so a board with no network saved —the commonest board there is— took the app down with it when the button
+  -- was pressed, which is a bug this page had since it was written and that the case of `test_apps` found. The promise
+  -- that is refused is settled before the `await`, so the `pcall` does not cross a wait; the wait of a request that is
+  -- really in flight is a yield and Lua lets it through (docs/30).
   local ok = false
+  local why = nil
   if caps.net_wifi then
-    ok = net.ntp():await()
+    local asked, answer = pcall(function() return net.ntp(nil, kSyncTimeoutMs):await() end)
+    ok = asked and answer == true
+    if not asked then
+      local code = (type(answer) == 'table') and answer.code or nil
+      -- **The sentence for a person and not the code of the kernel**: the three refusals of this request mean three
+      -- different things to whoever is holding the board (docs/30).
+      if code == 'E_NONET' then
+        why = 'no network saved'
+      elseif code == 'E_TIMEOUT' then
+        why = 'the server did not answer'
+      elseif code == 'E_BUSY' then
+        why = 'the radio is busy'
+      else
+        why = 'the request did not go out'
+      end
+    end
+  else
+    why = 'this board has no radio'
   end
   busy = false
+  sync.disabled = false
 
   if ok then
     -- **An hour that came from a time server turns the leap day on**: the calendar of the world has the twenty-ninth
@@ -317,12 +415,15 @@ local function sync_clock()
     -- rule, 9/11, docs/60).
     if not leap then
       leap = time.leap(true)
+      -- **And the checkbox says so**, because it is the control of that setting and a page whose box is empty over a
+      -- calendar that has the twenty-ninth is a page that lies (0.174.0, docs/30).
+      leapbox.checked = leap
     end
     local now = time.date()
     status = string.format('synced %04d-%02d-%02d %02d:%02d', now.year, now.month, now.day, now.hour, now.min)
     console.print('tz: ' .. status)
   else
-    status = 'no clock: the radio is off'
+    status = 'no clock: ' .. tostring(why or 'no answer')
     console.print('tz: ' .. status)
   end
 
@@ -330,48 +431,56 @@ local function sync_clock()
   ui.present(kPageMode)
 end
 
--- The keys are the dial of the board: the two sides walk the hours and the centre syncs, which is the same three
--- things a finger does with more precision (docs/30).
-local spots = {}
-for _, key in ipairs(button.list()) do
-  spots[key.key] = key.spot
-end
-local down = {}
-
-local function press(key)
-  local spot = spots[key]
-  if spot == nil then return end
-
-  if spot == 'left' or spot == 'up' then
-    if chosen_hour > kFirstHour then chosen_hour = chosen_hour - 1 end
-  elseif spot == 'right' or spot == 'down' then
-    if chosen_hour < kLastHour then chosen_hour = chosen_hour + 1 end
-  elseif spot ~= 'centre' then
-    return
-  else
-    return sync_clock()
-  end
-
-  chosen = chosen_hour * kMinutesPerHour
-  paint_choice()
-end
-
-local function tap(x, y)
-  -- An open list takes the page: a finger that is not on a row closes it and does nothing else, which is what a list
-  -- that opens over a page means anywhere (docs/30).
-  if list_open then
-    list_open = false
-    if x >= box.select_x and x < box.select_x + box.list_w then
-      if y >= box.list_y and y < box.list_y + box.list_row then
-        week = time.week(1)
-        console.print('tz: week monday')
-      elseif y >= box.list_y + box.list_row and y < box.list_y + 2 * box.list_row then
-        week = time.week(7)
-        console.print('tz: week sunday')
-      end
-    end
-    paint_page(chosen_hour)
+-- **The list of the two days is a `ui.menu` of the system** (0.174.0): the door of the selector is `on_open`, the app puts
+-- the card under the field and says the two options, and the system draws the rows, takes the finger and the dial and
+-- tells the app which one was chosen. **Closing it is the app's**, which is the rule of the cards of this project: read
+-- the action, close, and then do it (docs/30).
+open_week_menu = function(field)
+  if weekmenu ~= nil then return end
+  local menu, why = ui.menu(box.list_w, box.list_h)
+  if menu == nil then
+    field.choosing = false
     ui.present(kMoveMode)
+    return refused('list', why)
+  end
+  menu.items = { 'Monday', 'Sunday' }
+  menu.index = field.index
+  menu.scale = kBody
+  menu:place(box.list_x, box.list_y)
+  menu.on_pick = function(self, index)
+    -- **Read, close, then do**: the week is written with the card already gone, so the page under it never moves with a
+    -- finger still on the glass (docs/90).
+    close_week_menu()
+    week = time.week(index == 2 and 7 or 1)
+    weekfield.index = index
+    console.print('tz: week ' .. ((week == 7) and 'sunday' or 'monday'))
+    ui.present(kPageMode)
+  end
+  weekmenu = menu
+  ui.present(kMoveMode)
+end
+
+close_week_menu = function()
+  if weekmenu == nil then return end
+  weekmenu:release()
+  weekmenu = nil
+  weekfield.choosing = false
+  -- **The ring goes back to the door that opened the list**: the card took the dial while it was up and the field is
+  -- where the person was, so the next turn of the dial is not a jump across the page (docs/30).
+  ui.focus(weekfield)
+end
+
+-- **The finger of this page is the map's and nothing else** (0.174.0): the three settings are controls and the system
+-- takes their finger —a button that is pressed, a box that turns, a door that opens—, so the only box this app still
+-- hit-tests is the map, which is a picture of a world and not a control. **A list that is up is the one thing that takes
+-- the finger away from the map**, and a finger that is not on it is its way out, which is what a card over a page means
+-- anywhere (docs/30, docs/90).
+local function tap(x, y)
+  if weekmenu ~= nil then
+    if x < box.list_x or x >= box.list_x + box.list_w or y < box.list_y or y >= box.list_y + box.list_h then
+      close_week_menu()
+      ui.present(kPageMode)
+    end
     return
   end
 
@@ -380,27 +489,6 @@ local function tap(x, y)
     chosen = chosen_hour * kMinutesPerHour
     console.print('tz: picked ' .. tz_text(chosen))
     paint_choice()
-    return
-  end
-
-  if x >= box.sync_x and x < box.sync_x + box.sync_w and y >= box.sync_y and y < box.sync_y + box.sync_h then
-    sync_clock()
-    return
-  end
-
-  if x >= box.check_x and x < box.check_x + box.select_w and y >= box.check_y and
-      y < box.check_y + box.check_box then
-    leap = time.leap(not leap)
-    console.print('tz: leap ' .. (leap and 'on' or 'off'))
-    paint_page(chosen_hour)
-    ui.present(kMoveMode)
-    return
-  end
-
-  if x >= box.select_x and x < box.select_x + box.select_w and y >= box.select_y and y < box.select_y + box.select_h then
-    list_open = true
-    paint_page(chosen_hour)
-    ui.present(kMoveMode)
   end
 end
 
@@ -411,7 +499,9 @@ local touched = false
 while true do
   local view = ui.caps()
   if view.width ~= page_w or view.height ~= page_h then
+    -- **A turned glass is the same page with other boxes**, and the controls move with it (0.174.0).
     build_layout()
+    place_settings()
     paint_page(chosen_hour)
     ui.present(kPageMode)
   end
@@ -426,12 +516,17 @@ while true do
     touched = false
   end
 
-  for key in pairs(spots) do
-    local is_down = button.down(key)
-    if is_down and not down[key] then press(key) end
-    down[key] = is_down
+  -- **And a button that was pressed asks for the time server now**, here and not in its hook, because the request is an
+  -- `await` and a hook runs between two turns (0.174.0, docs/30).
+  if want_sync then
+    want_sync = false
+    sync_clock()
   end
 
+  -- **The keys are not read here any more** (0.174.0): a page with focusable controls has the dial for the system —the
+  -- two sides walk the ring and the centre is Enter on the control that has it— and reading `button.down` beside it would
+  -- be two pages answering one key. What the dial does to a control, the app hears as `on_click`, `on_open` and
+  -- `on_change`, which is the contract of every other app of this tree (docs/30).
   local gesture = touch.gesture()
   while gesture do
     gesture = touch.gesture()

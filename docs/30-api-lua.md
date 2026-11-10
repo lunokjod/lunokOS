@@ -632,7 +632,7 @@ abans, com tot el que creix.
 | `net.connect(ssid[, pass[, ms]])` | **promesa** | Es resol amb `true` quan la xarxa és a dalt; 20 000 ms per defecte |
 | `net.provision([pop[, servei[, ms]]])` | **promesa** | Obre l'AP de provisioning i es resol quan la placa **és a la xarxa**; 180 000 ms per defecte |
 | `net.provisioned()` | booleà | La placa ja té una xarxa desada |
-| `net.ntp([servidor[, ms]])` | **promesa** | Posa el rellotge amb un servidor de temps (`pool.ntp.org` per defecte) i es resol `true` quan el rellotge ja hi és. **No** deixa la ràdio encesa: la resposta és una hora, no una connexió |
+| `net.ntp([servidor[, ms]])` | **promesa** | Posa el rellotge amb un servidor de temps (`pool.ntp.org` per defecte) i es resol `true` quan el rellotge ja hi és. **No** deixa la ràdio encesa: la resposta és una hora, no una connexió. **Des de la 0.174.0 la promesa es resol de debò en una app**: fins llavors el pont no la desava on la xarxa la busca i un `net.ntp():await()` esperava per sempre, mentre la comanda `ntp` de la consola contestava (trobat pel cas de l'app `tz`, docs/85) |
 | `net.add(ssid[, pass[, ms]])` | **promesa** | Desa la xarxa a la placa **i s'hi connecta**, sense cap app al mig |
 **Tot passa per una cua.** `net.connect`, `net.scan`, `net.add`, `net.provision`, `net.forget`,
 `net.ntp` i `net.connect_stored` no fan res de seguida: entren en una **cua de peticions** del nucli,
