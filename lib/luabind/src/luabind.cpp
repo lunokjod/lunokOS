@@ -9786,6 +9786,41 @@ int l_power_sleep(lua_State* L) {
   return 1;
 }
 
+// **The seed `math.random` starts with, which is the band's and not the C library's** (0.174.8). Lua seeds its own
+// generator with `setrandfunc` of `lmathlib.c`: `time(NULL)` and the address of the state. On this board `time(NULL)` is
+// zero until the hour is set and the address of the state is the same on every boot —the heap is the heap— so **every
+// boot was the same sequence of numbers**, which is a page that shuffles itself the same way for ever and a game whose
+// first move is always the one of the run before (found reading docs/20, 10/11, docs/30, docs/50). The generator is
+// stepped once here with two words of the band —the hardware RNG of the chip, mixed with the noise the ADC gives while
+// the radio is off (docs/50)— and an app that wants to reproduce a run still calls `math.randomseed(n)` itself, which is
+// the same door (docs/20).
+void seed_the_numbers(lua_State* L) {
+  const int base = lua_gettop(L);
+  lua_getglobal(L, "math");
+  if (!lua_istable(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  lua_getfield(L, -1, "randomseed");
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, base);
+    return;
+  }
+  const uint32_t first = pal::system().random();
+  const uint32_t second = pal::system().random();
+  lua_pushinteger(L, static_cast<lua_Integer>(first));
+  lua_pushinteger(L, static_cast<lua_Integer>(second));
+  // **Protected**, because a library that is not what it says must not take the boot with it: `randomseed` returns the two
+  // seeds it used and nothing here reads them.
+  if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+    const char* why = lua_tostring(L, -1);
+    con_text("luabind: math.randomseed refused the seed: ");
+    con_text((why != nullptr) ? why : "?");
+    con_text("\r\n");
+  }
+  lua_settop(L, base);
+}
+
 void open_libraries(lua_State* L) {
   luaL_requiref(L, "_G", luaopen_base, 1);
   luaL_requiref(L, LUA_TABLIBNAME, luaopen_table, 1);
@@ -9794,6 +9829,7 @@ void open_libraries(lua_State* L) {
   luaL_requiref(L, LUA_COLIBNAME, luaopen_coroutine, 1);
   luaL_requiref(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
   lua_pop(L, 6);
+  seed_the_numbers(L);
 }
 
 // ---------------------------------------------------------------------------

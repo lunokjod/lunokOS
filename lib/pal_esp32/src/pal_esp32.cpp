@@ -4,6 +4,7 @@
 // to talk to the serial port (Arduino Serial). The kernel sees neither.
 #include <Arduino.h>
 #include <Esp.h>
+#include <bootloader_random.h>
 #include <esp_heap_caps.h>
 #include <esp_rom_sys.h>
 #include <esp_system.h>
@@ -19,6 +20,51 @@ namespace {
 
 const uint16_t kQueueLength = 16;
 const uint32_t kReaderPeriodMs = 5;
+
+// **The noise of this boot, taken once** (0.174.8). The chip's hardware RNG is a true one only while the radio is on
+// —on this family the number is read out of the Wi-Fi peripheral's register, `WDEV_RND_REG`, and the entropy is the RF
+// noise (docs/50)— and this system keeps the radio off until something asks for it, so at boot a `esp_random()` can hand
+// back the same word every time. The chip's own answer for that case is `bootloader_random_enable()`: it mixes the SAR
+// ADC's internal noise into the generator, is documented for use from the app early in the run, and **has to be let go
+// before anything else touches the ADC** (the battery gauge of the Paper is an ADC pin, docs/50). So this is the whole
+// window: enable, take eight bytes, disable — before the first widget of the system exists.
+//
+// **And what is mixed with it** is the microsecond count since the reset, because two boots of the same board are two
+// different moments even when the amplifier of the ADC says the same thing twice.
+uint32_t mix32(uint32_t x) {
+  x += 0x9E3779B9u;
+  x = (x ^ (x >> 16)) * 0x21F0AAADu;
+  x = (x ^ (x >> 15)) * 0x735A2D97u;
+  return x ^ (x >> 15);
+}
+
+struct Random {
+  bool seeded = false;
+  uint32_t state = 0;
+
+  void seed() {
+    if (seeded) return;
+    seeded = true;
+    uint32_t noise[2] = {0, 0};
+    bootloader_random_enable();
+    esp_fill_random(noise, sizeof(noise));
+    bootloader_random_disable();
+    const uint32_t us = static_cast<uint32_t>(esp_timer_get_time());
+    // A zero state is a mixer that answers zero for ever, and `mix32` of anything is not zero.
+    state = mix32(noise[0] ^ mix32(noise[1] ^ us)) | 1u;
+  }
+
+  // xorshift32 over the state: **the generator is mixed here and not asked of the chip every time**, so that a word the
+  // hardware repeats —which is what it does with the radio off— does not become a sequence that repeats (docs/20).
+  uint32_t next() {
+    seed();
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+  }
+};
+Random g_random;
 
 class EspSystem : public ISystem, public IQueue, public IConsole {
  public:
@@ -47,7 +93,7 @@ class EspSystem : public ISystem, public IQueue, public IConsole {
   void reboot() override { ESP.restart(); }
   bool reboot_requested() const override { return false; }
 
-  uint32_t random() override { return esp_random(); }
+  uint32_t random() override { return g_random.next(); }
 
   HeapInfo heap() const override {
     HeapInfo info;
@@ -201,6 +247,11 @@ EspExtraMemory g_extra;
 }  // namespace
 
 bool init() {
+  // **The noise of this boot, taken before anything else of the board exists**: the window of `Random::seed` leaves the
+  // entropy source off, and the documents of the chip are clear that it has to be off before the ADC is initialised
+  // —the battery gauge of the Paper is an ADC pin— and before the radio (docs/50). Doing it here and not at the first
+  // `random()` is what makes that a fact of the boot instead of a fact of whoever asks first (docs/20).
+  g_random.seed();
   Serial.setDebugOutput(false);
   Serial.begin(115200);
   // Right after a reset the line carries junk for a few milliseconds. Let it
@@ -254,6 +305,12 @@ void set_memory_bytes(uint32_t home_bytes, uint32_t extra_bytes) {
   // would be a lie told to the firmware that runs on the glass (docs/85).
   (void)home_bytes;
   (void)extra_bytes;
+}
+
+void set_random_seed(uint32_t seed) {
+  // **A board is not told its noise**: a firmware whose sequences can be made to repeat is a firmware whose keys can be
+  // guessed, and the chip has a generator that nobody has to configure (docs/20, docs/85).
+  (void)seed;
 }
 
 void delay_us(uint32_t us) {

@@ -791,6 +791,11 @@ int main(int argc, char** argv) {
   emu::power_cycle();
   atexit(emu::flush_memories);
 
+  // **Where the numbers of this run come from** (0.174.8): `--seed <n>` is the same run twice —the same seed of the
+  // interpreter, the same shuffle, the same misses of the ink— and no seed at all is this machine's clock and process,
+  // which is what the board does with its own noise. It goes before `pal::init()` because that is where the mixer of the
+  // band is started (docs/20, docs/85).
+  pal::set_random_seed(opts.seed);
   if (!pal::init()) {
     fprintf(stderr, "cannot initialise the console\n");
     return 2;

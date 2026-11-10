@@ -1078,6 +1078,36 @@ static void test_the_instructions_of_an_app_are_paid_for(void) {
   luabind::set_meter_ops(luabind::MeterOps{});
 }
 
+// **The numbers of the band follow the seed of the run** (0.174.8): `pal::set_random_seed(n)` is what makes a run repeat
+// —which is what `--seed` of the emulator is for and what a case that draws a page needs to be reproducible— and a run
+// that asked for nothing is the machine's own clock and process, so it is never the run before. The board answers the
+// same question with the chip's noise and a nudge to this door does nothing there (docs/20, docs/85).
+static void test_the_numbers_of_the_band_follow_the_seed_of_the_run(void) {
+  pal::set_random_seed(4242);
+  TEST_ASSERT_TRUE(pal::init());
+  const uint32_t first = pal::system().random();
+  const uint32_t second = pal::system().random();
+  // **Two in a row are not the same word**: the generator is stepped here and not asked of the clock again.
+  TEST_ASSERT_NOT_EQUAL(first, second);
+
+  pal::set_random_seed(4242);
+  TEST_ASSERT_TRUE(pal::init());
+  TEST_ASSERT_EQUAL_UINT32(first, pal::system().random());
+  TEST_ASSERT_EQUAL_UINT32(second, pal::system().random());
+
+  pal::set_random_seed(4243);
+  TEST_ASSERT_TRUE(pal::init());
+  TEST_ASSERT_NOT_EQUAL(first, pal::system().random());
+
+  // **And with no seed there is no repetition**: the clock of the machine in nanoseconds and the process are the seed.
+  pal::set_random_seed(0);
+  TEST_ASSERT_TRUE(pal::init());
+  const uint32_t one = pal::system().random();
+  sleep_one_ms();
+  TEST_ASSERT_TRUE(pal::init());
+  TEST_ASSERT_NOT_EQUAL(one, pal::system().random());
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1133,6 +1163,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_app_exit_ends_the_app_with_a_code);
   RUN_TEST(test_app_knows_its_id_and_its_file);
   RUN_TEST(test_the_instructions_of_an_app_are_paid_for);
+  RUN_TEST(test_the_numbers_of_the_band_follow_the_seed_of_the_run);
   UNITY_END();
   return 0;
 }

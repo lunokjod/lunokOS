@@ -5501,7 +5501,31 @@ namespace kernel {
 //     next to the 120 ms of a page" and that is the comparison that kept the budget long; it compares with the ten
 //     milliseconds a person does not notice now (docs/95).
 
-static const char kVersion[] = "0.174.7";
+// 0.174.8 (10/11): **the numbers of this board have a real seed**. The owner: *«afegir alguna font de random per poder
+// tenir una llavor aleatòria … a la documentació d'Espressif diuen que per agafar una llavor aleatòria s'ha d'usar la
+// wifi. És així?»*.
+//
+//   - **the question, answered**: the header of `esp_random()` in the IDF this build links says it —*«if Wi-Fi or
+//     Bluetooth are enabled, this function returns true random numbers»*— and the reason is the chip: on this family the
+//     hardware RNG has no register of its own, it is read out of the **Wi-Fi peripheral** (`WDEV_RND_REG`, 0x60035144)
+//     and what stirs it is RF noise. With the radio off it can hand back the same word for ever. But **Wi-Fi is not
+//     required**: the same IDF ships `bootloader_random_enable()` —«enable an entropy source for RNG if RF is disabled»,
+//     the SAR ADC's internal noise— documented for use from the application early in the run, and to be let go before
+//     the ADC, the RF or the I2S is initialised (docs/50);
+//   - **so the band has a window of eight bytes at boot**: `pal::init()` enables it, fills eight bytes, disables it,
+//     mixes them with `esp_timer_get_time()` and steps a xorshift32 that is what `ISystem::random()` answers. The window
+//     is at the boot and not at the first call because the Paper's battery gauge is an ADC and the documents are clear
+//     about the order (docs/50);
+//   - **and `math.random` was the same sequence on every boot**: Lua seeds itself with `time(NULL)` —zero until the hour
+//     is set, and this system keeps its own clock— and the address of the state, which is the same every time the heap is
+//     the same. `open_libraries()` now calls `math.randomseed(a, b)` with two words of the band, so every boot has its
+//     own numbers; an app that wants to reproduce a run still calls `math.randomseed(n)` itself (docs/20);
+//   - **`--seed <n>` of the emulator does what it always promised** and `pal::set_random_seed(0)` is "this machine's
+//     clock and process": a run can be repeated on the PC, which is what a case that draws a page needs. On a board the
+//     call is nothing, because a firmware whose sequences can be made to repeat is a firmware whose keys can be guessed
+//     (docs/20, docs/85).
+
+static const char kVersion[] = "0.174.8";
 
 }  // namespace kernel
 

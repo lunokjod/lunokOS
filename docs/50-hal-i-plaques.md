@@ -453,11 +453,12 @@ class ISystem {
   virtual int64_t millis() const = 0;      // monòton, mai enrere
   virtual void reboot() = 0;
   virtual bool reboot_requested() const = 0;
-  virtual uint32_t random() = 0;
+  virtual uint32_t random() = 0;           // el soroll del xip, remenat (vegeu «Els números de la placa»)
   virtual HeapInfo heap() const = 0;       // free_bytes, min_free_bytes
 };
 
 bool init();  void shutdown();  ISystem& system();
+void set_random_seed(uint32_t seed);      // zero és «sembra'm tu»; a la placa no fa res
 ```
 
 La consola de la PAL dona **bytes**, no línies. Qui parteix les línies, qui mira la seqüència de sortida
@@ -606,6 +607,43 @@ contesta, perquè ara una app ho pot fer servir. La **rotació compartida amb el
 (0.18.1): una sola rotació per al dibuix i per al toc, amb els `x`/`y` i els `dx`/`dy` dels gestos
 convertits en un sol lloc. **El que falta**: una mesura al xip —**a quina velocitat mostreja** (docs/95,
 E-6)— i, del pas 8, la política d'energia de la I2C i de les alimentacions.
+
+### Els números de la placa: el RNG del xip, i per què cal la ràdio o l'ADC (0.174.8)
+
+**El que diu Espressif, i és cert a mitges.** El capçal de `esp_random()` de l'IDF que enllaixa aquest build
+(`esp_hw_support/include/esp_random.h`) diu, literalment: *«If Wi-Fi or Bluetooth are enabled, this function returns
+true random numbers»*, i en qualsevol altre cas et mana al capítol «Random Number Generation» de la guia. El motiu
+és al xip i no a la documentació: en aquesta família —l'ESP32 de tota la vida, el del Paper i els ATOM— **el número
+aleatori no té cap registre propi**: es llegeix del registre del **perifèric de Wi-Fi**, `WDEV_RND_REG`
+(`soc/esp32/include/soc/wdev_reg.h`, `0x60035144`, «hardware random number generator»), i el que el remena és el
+**soroll de radiofreqüència** de l'etapa de ràdio. Amb la ràdio apagada el registre no es refresca i `esp_random()`
+pot tornar **el mateix número una vegada i una altra** —que és exactament el pitjor cas possible per a una llavor: no
+una llavor dolenta, sinó una llavor constant.
+
+**I el mateix IDF porta la resposta per a un sistema que no vol la ràdio encesa**: `bootloader_random_enable()`
+(`bootloader_support/include/bootloader_random.h`), que el capçal descriu com *«Enable an entropy source for RNG if RF
+is disabled»* i que, en paraules seves, barreja soroll intern de l'**ADC (SAR)** dins del generador; diu també que
+**es pot fer servir des del codi de l'aplicació, al principi de tot**, i que s'ha de desfer amb
+`bootloader_random_disable()` **abans que el RF, l'ADC o l'I2S s'inicialitzin**.
+
+Per això la banda (`lib/pal_esp32/src/pal_esp32.cpp`) fa **una finestra d'un microsegon a l'arrencada**, dins de
+`pal::init()` i abans de qualsevol altra cosa de la placa:
+
+1. `bootloader_random_enable()`,
+2. `esp_fill_random()` de **vuit bytes**,
+3. `bootloader_random_disable()`,
+
+i el resultat es barreja amb `esp_timer_get_time()` —dos arrencades de la mateixa placa són dos moments diferents— i
+passa a un **xorshift32** propi, que és el que respon `ISystem::random()`. El remenat no és decoració: si el xip
+repetís un número, el que respon la banda **no** el repeteix (`docs/20`). La finestra va a `pal::init()` i no a la
+primera crida de `random()` precisament perquè la documentació mana que l'ADC no s'hagi inicialitzat quan la font
+d'entropia està encesa, i al Paper **l'indicador de bateria és un ADC** (GPIO35, vegeu la fitxa): la primera lectura
+de la bateria arriba després i no hi té res a veure.
+
+**El que no es fa**: no s'encén la ràdio per tenir números. Costa desenes de mil·lisegons i mil·liampers, i aquest
+sistema apaga el Wi-Fi quan no té feina (docs/75); l'ADC fa la mateixa feina en un microsegon. **I no es pot fixar una
+llavor en una placa**: `set_random_seed()` és un no-res a la banda d'ESP32, perquè un firmware que pot fer repetir les
+seves seqüències és un firmware les claus del qual es poden endevinar (docs/20).
 
 ### El bus ha de deixar que el xip aguanti el rellotge (mesurat l'1/11)
 

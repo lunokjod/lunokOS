@@ -234,6 +234,9 @@ namespace {
 
 const uint16_t kQueueLength = 16;
 
+// **The seed the run asked for**, zero for "this machine's own": `pal::set_random_seed`.
+uint32_t g_seed_request = 0;
+
 class HostSystem : public ISystem, public IQueue, public IConsole {
  public:
   bool bring_up() {
@@ -253,7 +256,11 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
         g_terminal_is_raw = 1;
       }
     }
-    seed_ = static_cast<uint32_t>(now_ns()) ^ static_cast<uint32_t>(getpid() << 8);
+    // **Where the numbers of this run come from**: the seed the run asked for —`--seed` of the emulator, and a case
+    // that needs the same page twice— or, when it asked for none, the clock in nanoseconds and the process, so that two
+    // runs are not the same run (docs/20, docs/85).
+    seed_ = (g_seed_request != 0) ? g_seed_request
+                                  : (static_cast<uint32_t>(now_ns()) ^ static_cast<uint32_t>(getpid() << 8));
     if (seed_ == 0) seed_ = 0x9e3779b9u;
     return true;
   }
@@ -277,7 +284,8 @@ class HostSystem : public ISystem, public IQueue, public IConsole {
   bool reboot_requested() const override { return reboot_; }
 
   uint32_t random() override {
-    // xorshift32: deterministic when the seed is, and good enough for delays.
+    // xorshift32: **deterministic when the seed is, which is the whole point of `--seed`**, and it is stepped here so
+    // that a caller that asks twice gets two numbers and not the clock again (docs/85).
     seed_ ^= seed_ << 13;
     seed_ ^= seed_ >> 17;
     seed_ ^= seed_ << 5;
@@ -818,6 +826,11 @@ bool virtual_terminal() { return g_virtual_terminal; }
 void set_dispatch_us(uint32_t us) { g_dispatch_us = us; }
 
 void set_wait_slice_ms(uint32_t ms) { g_wait_slice_ms = ms; }
+
+// **The seed of this machine's numbers** (0.174.8): zero is "from the clock and the process", and any other number makes
+// the whole run repeat —the same page, the same shuffle, the same seed of the interpreter— which is what `--seed` of the
+// emulator is for (docs/20, docs/85). It is read by `bring_up`, so it goes before `pal::init()`.
+void set_random_seed(uint32_t seed) { g_seed_request = seed; }
 
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;

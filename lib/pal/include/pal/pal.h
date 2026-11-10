@@ -92,6 +92,9 @@ class ISystem {
   virtual void reboot() = 0;
   // True once reboot() has been called on systems that cannot reboot in place.
   virtual bool reboot_requested() const = 0;
+  // **A 32-bit number of this band**: on the board it comes from the chip's own generator —the hardware RNG, whose
+  // noise is the radio's and the SAR ADC's, docs/50— and on a PC from a mixer the run seeded. It is what the
+  // interpreter starts its own generator with, and what an app that needs a seed asks for (docs/20, docs/75).
   virtual uint32_t random() = 0;
   virtual HeapInfo heap() const = 0;
   // **How much of the task's own stack is left at its lowest point**, in bytes, or -1 on a build that
@@ -144,6 +147,13 @@ void set_dispatch_us(uint32_t us);
 // taps poured into the panel at once and therefore one tap (found on the emulator, docs/85, docs/90). Zero —the
 // default, and what every test wants— is a wait that lasts as long as it was told (docs/85).
 void set_wait_slice_ms(uint32_t ms);
+
+// **A seed for the numbers of the band, when the run wants to be told which ones** (0.174.8): zero —the default— is
+// "seed me from this machine", which on a PC is the clock and the process and on a board is the hardware RNG; any other
+// number makes `ISystem::random()` repeat the same sequence, which is what `--seed` of the emulator is for and what a
+// case that draws a page at random needs to be reproducible (docs/20, docs/85). On a board it does nothing: the chip
+// has one source of noise and a firmware that could freeze it would be a firmware that can be made predictable.
+void set_random_seed(uint32_t seed);
 
 // **What a home of the memory has left**, in bytes: the board's own RAM (`extra` false) or its extra
 // memory (`extra` true). `counted` is false on a PAL that hands blocks out of the machine's heap and
