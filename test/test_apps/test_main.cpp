@@ -470,6 +470,15 @@ void pump_captured(int turns, char* out, size_t cap, const char* line = nullptr,
 // when it has read what it needed, and the next case that captures then reads an empty window and blames the app —it was
 // the order the tests happened to run in—. Asking for it at the door makes every case stand on its own (found by this
 // suite, 9/11).
+// **The level of a pixel of the page**, in the nibble packing the kernel writes: it is how a case of this suite says what a
+// person sees and not only what a control was asked to draw (docs/80, docs/90).
+uint8_t page_level(uint16_t x, uint16_t y) {
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  if (view.bits == nullptr || x >= view.width || y >= view.height) return 0;
+  const uint8_t byte = view.bits[static_cast<uint32_t>(y) * view.stride + x / 2];
+  return ((x & 1) == 0) ? static_cast<uint8_t>(byte >> 4) : static_cast<uint8_t>(byte & 0x0F);
+}
+
 // **What the glass was asked to paint**, in pixels: every `paint x,y wxh` line of the kernel's console, added up. It is
 // how a case says «this gesture cost this much ink» instead of «this call happened», and the difference between the two is
 // the whole law of the damage (docs/80, docs/90).
@@ -5094,6 +5103,87 @@ void test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses(void) {
     snprintf(app_dir, sizeof(app_dir), "/apps/app%d", i);
     storage->remove(app_dir);
   }
+}
+
+// **The picture of a cell is turned over with the cell** (0.178.0): a selected cell of this system is a black block, and
+// what the app put inside it has to go with it. The old project turned its whole selected cell over with one call —its
+// notes say the bitmap door could not be used there because `it paints the paper of the drawing too (15)`— and that is why
+// an icon there had no white box of its own. A canvas of this system with no `on_draw` cannot do it —it composes the same
+// box it holds— and with one it can: it is told which face it is drawn on (docs/30, docs/92).
+void test_the_picture_of_a_cell_is_turned_over_with_the_cell(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "ink",
+                           "{\"title\":\"Ink\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // Two cells of the app's own, each with a picture that is **all paper**: a box that is one
+                           // level from edge to edge, so a point inside it says whether it was turned over.
+                           "local grid = ui.icon_grid(400, 200)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 2\n"
+                           "local cells = {}\n"
+                           "local pics = {}\n"
+                           "for i = 1, 2 do\n"
+                           "  local cell = ui.grid_entry(200, 100)\n"
+                           "  cell.background = 15\n"
+                           "  local pic = ui.canvas(60, 60)\n"
+                           "  pic:place(10, 10)\n"
+                           "  pic.on_draw = function(self, inverted)\n"
+                           "    self:clear(15)\n"
+                           "    if inverted then self:invert(0, 0, 60, 60) end\n"
+                           "  end\n"
+                           "  cell:add(pic)\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "  pics[i] = pic\n"
+                           "end\n"
+                           "ui.focus(cells[1])\n"
+                           "ui.present('gc16')\n"
+                           "for i = 1, 2 do\n"
+                           "  local p = pics[i]:caps()\n"
+                           "  local c = cells[i]:caps()\n"
+                           "  console.print(string.format('pic %d %d', 20 + c.x + p.x, 20 + c.y + p.y))\n"
+                           "end\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(300, g_out, sizeof(g_out), "run ink");
+  const char* first = strstr(g_out, "pic ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(first, g_out);
+  int x1 = 0;
+  int y1 = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(first + 4, "%d %d", &x1, &y1), g_out);
+  const char* second = strstr(first + 4, "pic ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(second, g_out);
+  int x2 = 0;
+  int y2 = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(second + 4, "%d %d", &x2, &y2), g_out);
+
+  // **The dial is on the first cell**: its picture is drawn on ink, so the whole box of it is ink where it was paper. The
+  // picture of the other cell, which nobody touched, is still the paper it was painted with.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      15, page_level(static_cast<uint16_t>(x2 + 6), static_cast<uint16_t>(y2 + 6)), g_out);
+
+  // **And the key walks to the next cell**: the first picture goes back to its paper and the second turns over, which is
+  // the whole point —the picture follows the face of its cell in both directions—.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(30);
+  emu::press_key(2, false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      15, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, page_level(static_cast<uint16_t>(x2 + 6), static_cast<uint16_t>(y2 + 6)), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/ink/app.lua");
+  storage->remove("/apps/ink/manifest.json");
+  storage->remove("/apps/ink");
 }
 
 // **The page is a ring and every stop of it is a control a person can see** (0.156.1): the dial goes from the last
@@ -12126,6 +12216,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses);
+  RUN_TEST(test_the_picture_of_a_cell_is_turned_over_with_the_cell);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);

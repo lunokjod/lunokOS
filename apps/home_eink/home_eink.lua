@@ -93,25 +93,32 @@ local function give_back()
   cells = {}
 end
 
--- **The picture of an app that has none yet**: the box of an icon with the first letter of its name inside it
--- (0.154.0). It is drawn by this file and not shipped as a file because it says what the page knows at that moment —the
--- name of the app— and it is what a cell shows while its manifest has not arrived or its picture cannot be read.
-local function placeholder(picture, id)
+-- **The picture of a cell, painted again every time the cell asks for it** (0.178.0): the letter of the app on paper and,
+-- over it, the file the manifest names. It is one function because the cell can be **on ink** —the dial is on it— and then
+-- the whole picture is turned over at the end: the paper of the icon becomes the black of the cell and the greys of the
+-- drawing stay, which is what the old launcher did with one call over its selected cell and the reason its icons looked
+-- as if they had no box (docs/30, docs/92).
+local function paint_picture(id, picture, info, inverted)
   picture:clear(15)
-  picture:frame(1, 1, kIcon - 2, kIcon - 2, 0)
 
   local letter = string.upper(string.sub(id, 1, 1))
-  if letter == '' then return end
+  if letter ~= '' then
+    local scale = 4
+    local wide = ui.text_width(letter, scale)
+    local high = ui.line_height(scale)
+    picture:text((kIcon - wide) // 2, (kIcon - high) // 2, letter, scale, 0)
+  end
 
-  local scale = 4
-  local wide = ui.text_width(letter, scale)
-  local high = ui.line_height(scale)
-  picture:text((kIcon - wide) // 2, (kIcon - high) // 2, letter, scale, 0)
+  if info ~= nil and info.icon ~= '' then
+    picture:image(0, 0, info.icon, kIcon, kIcon)
+  end
+
+  if inverted then picture:invert(0, 0, kIcon, kIcon) end
 end
 
--- **The picture of an app into its cell**: the file the manifest names, over the letter the cell already has, so a
--- picture that cannot be read leaves the letter and not a hole, and the console says why once (docs/30).
-local function draw_picture(id, picture, info)
+-- **What this file says on the console about a picture**: once, when the manifest arrives, because a page that says it at
+-- every paint says it every time the dial walks over the cell (docs/30, docs/90).
+local function say_picture(id, picture, info)
   if info.icon == '' then
     console.print('home: ' .. id .. ' has no picture')
     return
@@ -138,8 +145,16 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
   local picture, no_room = ui.canvas(kIcon, kIcon)
   if picture ~= nil then
     picture:place((cell_w - kIcon) // 2, 4)
-    placeholder(picture, id)
-    if info ~= nil then draw_picture(id, picture, info) end
+    -- **The picture paints itself, and it hears whether it is on ink** (0.178.0): the cell asks its children to draw again
+    -- when it turns over, and the second argument is the face it leaves behind. A canvas of the app with no `on_draw`
+    -- cannot turn over —it would compose the same white box on the block— and that is all this callback is for
+    -- (docs/30, docs/92).
+    picture.on_draw = function(self, inverted)
+      paint_picture(id, self, known[id], inverted)
+    end
+    -- **And nothing is painted here**: a canvas that was just made owes a draw, so the system asks it —with `false`, the
+    -- paper face— and a second paint of the same pixels would be the page paying twice for one picture (docs/30).
+    if info ~= nil then say_picture(id, picture, info) end
     cell:add(picture)
   else
     console.print('home: ' .. id .. ' has no picture: ' .. tostring(no_room and no_room.message or no_room))
@@ -294,7 +309,12 @@ local function step()
   local done = cells[id]
   if done ~= nil then
     if done.name ~= nil then done.name.text = info.title end
-    if done.picture ~= nil then draw_picture(id, done.picture, info) end
+    if done.picture ~= nil then
+      say_picture(id, done.picture, info)
+      -- **And the picture paints again, by itself**: its `on_draw` is what knows how to put the file over the letter and
+      -- how to turn the whole box over when the dial is on the cell (0.178.0, docs/30).
+      done.picture:invalidate()
+    end
   end
 end
 

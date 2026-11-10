@@ -166,6 +166,12 @@ void attach();
 bool clear(uint8_t level, const char* mode);
 bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, const char* mode);
 bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode);
+// **A box turned over: ink to paper and paper to ink** (0.178.0). It is the one drawing that says «this is the one that
+// will answer» on this glass —a selected cell is a black block and not a grey one— and it is a primitive because what has
+// to be turned over is **what is already there**: a picture with its greys, a letter, the paper between them. The old
+// project turned its selected cell over with one call (`invertRoundRect`) and that is why its icons seemed to float on the
+// block: the paper of the icon became the black of the cell instead of a white box on top of it (docs/30, docs/92).
+bool invert(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
 
 // What is pending, for a test or for an app that wants to know how much it is about to pay for.
 uint8_t damage_count();
@@ -232,6 +238,10 @@ bool canvas_clear(int16_t slot, uint8_t level, const char* mode);
 bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                       const char* mode);
 bool canvas_pixel(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+// **A box of a canvas turned over** (0.178.0), the same primitive the page has: what a cell of a launcher asks for when
+// the dial lands on it, so the picture it holds goes into the black block with its own greys and without the box of its
+// paper (docs/30, docs/92).
+bool canvas_invert(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
 uint8_t canvas_damage(int16_t slot);
 
 // ---- the primitives of a canvas, and the text (docs/30, docs/90) ----

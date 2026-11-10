@@ -1035,6 +1035,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.clear(level, [mode])` | `true` o `nil, error` | Tota la vista d'un nivell |
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
+| `ui.invert(x, y, w, h, [mode])` | `true` o `nil, error` | **Gira una caixa: la tinta es torna paper i el paper tinta**, nivell a nivell (el 5 es torna 10), que és el dibuix que diu «aquest és el que respondrà» en aquest vidre (0.178.0). És una primitiva i no una manera de pintar perquè el que es gira és **el que ja hi ha**: el paper d'una imatge, els seus grisos i la lletra del mig (docs/92) |
 | `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
@@ -1338,6 +1339,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
 |---|---|---|
 | `cv:rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Com `ui.rect`, però al canvas propi |
 | `cv:pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
+| `cv:invert(x, y, w, h, [mode])` | `true` o `nil, error` | Com `ui.invert`, però al canvas propi (0.178.0): és el que fa servir el llançador perquè la icona es giri amb la cel·la on és el dial |
 | `cv:clear([level], [mode])` | `true` o `nil, error` | Tot el canvas |
 | `cv:place(x, y)` | `true` o `nil, error` | On seu dins del pare, en píxels del pare |
 | `cv:resize(w, h)` | `true` o `nil, error` | **Una altra mida** per a un control que no té píxels propis (un panel, una etiqueta, una caixa de text): la mesura del grup; el que la necessita és un `on_resize` que torna a col·locar la pàgina (0.84.0). Un canvas **amb buffer** la refusa: els seus píxels són un bloc demanat amb una mida, i una altra mida és un altre canvas |
@@ -1923,6 +1925,13 @@ b:add(words)
 
 La inversió **no és un estat del sistema**: viatja com a argument del dibuix (`draw(self, depth, inverted)`), perquè
 un dibuix que falla i surt de l'intèrpret deixaria un flag encès i la resta de la pàgina sortiria girada (docs/92 §15).
+
+**I un fill que no sap dibuixar-se sol no es gira** (0.178.0): un `ui.canvas` sense `on_draw` compon els mateixos píxels
+que té, i per això la icona del llançador quedava com un **quadrat blanc** damunt del bloc negre de la cel·la. El que ho
+arregla és el que el projecte vell feia amb una sola crida sobre la cel·la triada (`invertRoundRect`): el canvas de la
+imatge té un `on_draw` que la torna a pintar i, quan el segon argument diu que és sobre tinta, **gira la caixa sencera**
+amb `cv:invert(0, 0, w, h)` — el paper de la icona es torna el negre de la cel·la i els grisos del dibuix es queden,
+que és el que fa que la icona sembli no tenir caixa.
 
 ### Els estats d'un control: seleccionat, premut i deshabilitat (0.100.0)
 

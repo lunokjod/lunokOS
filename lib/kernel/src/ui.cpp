@@ -1339,6 +1339,45 @@ bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::Upda
   return true;
 }
 
+// **A box turned over: ink to paper and paper to ink, every level swapped with its opposite** (0.178.0). It is the one
+// drawing that says "this is the thing that will answer" on this glass —a selected cell is a black block, not a grey one—
+// and it is a primitive of the canvas and not a mode of the paint, because what has to be turned over is **what is
+// already there**: a picture with its greys, a letter, the paper between them. The old project did exactly this with the
+// rectangle of its selected cell (`invertRoundRect`), and that is why its icons seemed to float on the block: the icon's
+// own white paper became the black of the block instead of a white box on top of it (docs/30, docs/90, docs/92).
+bool draw_invert(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                 hal::UpdateMode mode) {
+  if (canvas.bits == nullptr || w == 0 || h == 0) return false;
+  int32_t cx = x;
+  int32_t cy = y;
+  int32_t cw = w;
+  int32_t ch = h;
+  if (!clip_to_redraw(canvas, cx, cy, cw, ch)) return true;
+  if (cx >= canvas.width || cy >= canvas.height) return false;
+  if (cx + cw > canvas.width) cw = canvas.width - cx;
+  if (cy + ch > canvas.height) ch = canvas.height - cy;
+  if (cw <= 0 || ch <= 0) return true;
+  for (int32_t row = 0; row < ch; ++row) {
+    uint8_t* line = canvas.bits + static_cast<uint32_t>(cy + row) * canvas.stride;
+    for (int32_t column = 0; column < cw; ++column) {
+      const int32_t at = cx + column;
+      // The two pixels of a byte are two nibbles and each one is its own opposite: no nibble is shared, so a byte at a
+      // time is a byte that can be turned over whole.
+      uint8_t& byte = line[at / 2];
+      if ((at & 1) == 0) {
+        byte = static_cast<uint8_t>((byte & 0x0F) | ((15 - (byte >> 4)) << 4));
+      } else {
+        byte = static_cast<uint8_t>((byte & 0xF0) | (15 - (byte & 0x0F)));
+      }
+    }
+  }
+  // **The ink of the box is what it was, one level swapped for another**, so nothing is noted in the book of the levels:
+  // that book answers "is this page one ink" for a wash, and a turn-over is every level of the palette at once.
+  damage_add(canvas, static_cast<uint16_t>(cx), static_cast<uint16_t>(cy), static_cast<uint16_t>(cw),
+             static_cast<uint16_t>(ch), mode);
+  return true;
+}
+
 // **A picture on a canvas**: the rows of the file land where the app put them, scaled as it asked, cut to the
 // canvas and to what the control owes. It is the same copy a glyph gets and the same packing, which is why a
 // picture costs no conversion at all (docs/30, docs/50).
@@ -1465,6 +1504,14 @@ bool rect_for_lua(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
 
 bool pixel_for_lua(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   return pixel(x, y, level, mode);
+}
+
+bool invert_for_lua(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode) {
+  return invert(x, y, w, h, mode);
+}
+
+bool canvas_invert_for_lua(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode) {
+  return canvas_invert(slot, x, y, w, h, mode);
 }
 
 bool present_for_lua(const char* mode) {
@@ -1844,7 +1891,9 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      icon_grid_hit_for_lua,
                                      icon_grid_cell_for_lua,
                                      icon_grid_page_cell,
-                                     icon_grid_ring_for_lua});
+                                     icon_grid_ring_for_lua,
+                                     invert_for_lua,
+                                     canvas_invert_for_lua});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -1989,6 +2038,17 @@ bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   if (!g_attached) return true;
   draw_pixel(root(), x, y, level, chosen);
   the_band_may_be_gone(x, y, 1, 1);
+  return true;
+}
+
+// **A box of the view turned over** (0.178.0): the same primitive a canvas has, on the page, for a part of the page that
+// says "this is the one" without a grey (docs/30).
+bool invert(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode) {
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) return false;
+  if (!g_attached) return true;
+  draw_invert(root(), x, y, w, h, chosen);
+  the_band_may_be_gone(x, y, w, h);
   return true;
 }
 
@@ -2469,6 +2529,20 @@ bool canvas_frame(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_frame(*target.canvas, target.x + x, target.y + y, w, h, clamped(level), chosen);
+  close_draw(target);
+  return true;
+}
+
+// **A box of a canvas turned over** (0.178.0): what a cell of a launcher asks for when the dial lands on it, so that the
+// picture it holds goes into the black block with its own greys and without the box of its paper (docs/30, docs/92).
+bool canvas_invert(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode) {
+  hal::UpdateMode chosen = hal::UpdateMode::kDu;
+  if (!mode_or_default(mode, chosen)) return false;
+  if (!g_attached) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return true;
+  draw_invert(*target.canvas, static_cast<uint16_t>(target.x + x), static_cast<uint16_t>(target.y + y), w, h,
+              chosen);
   close_draw(target);
   return true;
 }

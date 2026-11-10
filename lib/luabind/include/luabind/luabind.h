@@ -814,6 +814,12 @@ struct UIOps {
   // when the caller has to repaint it whole (docs/30, docs/90).
   bool (*icon_grid_ring)(int16_t slot, uint8_t count, uint8_t from, uint8_t to, bool cursor_moved, uint8_t columns,
                          uint8_t scale, bool cells_of_the_kernel);
+  // **A box turned over** (0.178.0), ink to paper and paper to ink: the drawing that says «this is the one that will
+  // answer» on this glass, and the reason the selected cell of the old project looked as if its icons were transparent —
+  // what is turned over is what is already there, so the paper of a picture becomes the black of the cell (docs/30). The
+  // second one is the same on a canvas of the app, which is where a launcher turns its icon over.
+  bool (*invert)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
+  bool (*canvas_invert)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
 };
 
 void set_ui_ops(const UIOps& ops);

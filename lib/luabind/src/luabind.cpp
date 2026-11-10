@@ -3539,6 +3539,27 @@ int l_ui_pixel(lua_State* L) {
   return 1;
 }
 
+// **`ui.invert(x, y, w, h [, mode])`**: a box of the page turned over, ink to paper and paper to ink (0.178.0). It is the
+// drawing that says «this is the one that will answer» on this glass —a selected cell is a black block and not a grey
+// one— and it is a primitive because what is turned over is what is already there (docs/30, docs/92).
+int l_ui_invert(lua_State* L) {
+  if (g_ui_ops.invert == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  const lua_Integer x = luaL_checkinteger(L, 1);
+  const lua_Integer y = luaL_checkinteger(L, 2);
+  const lua_Integer w = luaL_checkinteger(L, 3);
+  const lua_Integer h = luaL_checkinteger(L, 4);
+  const char* mode = luaL_optstring(L, 5, nullptr);
+  if (w < 0 || h < 0) return push_nil_error(L, "E_INVAL", "a box is a width and a height");
+  if (!g_ui_ops.invert(static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
+                       static_cast<uint16_t>(h), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // The view as a control, defined further down with the rest of the canvas object: `present` asks it to
 // draw before composing (docs/90).
 int l_ui_root(lua_State* L);
@@ -7867,6 +7888,27 @@ int l_canvas_pixel(lua_State* L) {
   return 1;
 }
 
+// **`cv:invert(x, y, w, h [, mode])`**: a box of this canvas turned over (0.178.0), the same primitive the page has. It is
+// what a launcher asks for when the dial lands on a cell: the picture the canvas holds goes into the black block with its
+// own greys, and the paper of the picture stops being a white box on top of the block (docs/30, docs/92).
+int l_canvas_invert(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  const lua_Integer x = luaL_checkinteger(L, 2);
+  const lua_Integer y = luaL_checkinteger(L, 3);
+  const lua_Integer w = luaL_checkinteger(L, 4);
+  const lua_Integer h = luaL_checkinteger(L, 5);
+  const char* mode = luaL_optstring(L, 6, nullptr);
+  if (w < 0 || h < 0) return push_nil_error(L, "E_INVAL", "a box is a width and a height");
+  if (g_ui_ops.canvas_invert == nullptr ||
+      !g_ui_ops.canvas_invert(canvas->slot, static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                              static_cast<uint16_t>(w), static_cast<uint16_t>(h), mode)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 // canvas:place(x, y): where it sits inside the one that holds it, in that canvas' pixels (docs/90).
 int l_canvas_place(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
@@ -8617,6 +8659,7 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "clear", l_canvas_clear);
   set_function(L, "rect", l_canvas_rect);
   set_function(L, "pixel", l_canvas_pixel);
+  set_function(L, "invert", l_canvas_invert);
   set_function(L, "place", l_canvas_place);
   set_function(L, "resize", l_canvas_resize);
   set_function(L, "frame", l_canvas_frame);
@@ -10590,6 +10633,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "image", l_ui_image);
   set_function(L, "image_info", l_ui_image_info);
   set_function(L, "pixel", l_ui_pixel);
+  set_function(L, "invert", l_ui_invert);
   set_function(L, "focus", l_ui_focus);
   set_function(L, "present", l_ui_present);
   set_function(L, "idle", l_ui_idle);

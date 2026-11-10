@@ -3650,11 +3650,68 @@ void test_the_line_height_of_a_face_is_what_centres_a_text() {
   TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
 }
 
+// **A box turned over: every level becomes its opposite** (0.178.0). It is the drawing that says "this is the one that will
+// answer" on this glass —a selected cell is a black block and not a grey one— and what it turns over is **what is already
+// there**: the paper of a picture, its greys, the letter between them. The old project turned its selected cell over with
+// one call and that is why its icons had no white box on the block; here it is a primitive of the page and of a canvas of
+// the app (docs/30, docs/92).
+void test_an_invert_turns_the_inks_of_a_box(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::clear(15, nullptr));
+  // A box of ink and a box of a grey, with paper between them.
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 20, 20, 0, nullptr));
+  TEST_ASSERT_TRUE(ui::fill_rect(40, 10, 20, 20, 5, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(5, view_level(50, 20));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(35, 20));
+
+  // **The turn-over of the ink box**: it becomes paper and the grey one is not touched.
+  TEST_ASSERT_TRUE(ui::invert(10, 10, 20, 20, nullptr));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, 20));
+  TEST_ASSERT_EQUAL_UINT8(5, view_level(50, 20));
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).x);
+  TEST_ASSERT_EQUAL_UINT16(20, ui::damage(0).w);
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **A grey is its opposite and not a black**: five becomes ten, which is the difference between turning a box over and
+  // painting it in ink.
+  TEST_ASSERT_TRUE(ui::invert(40, 10, 20, 20, nullptr));
+  TEST_ASSERT_EQUAL_UINT8(10, view_level(50, 20));
+  TEST_ASSERT_TRUE(ui::present());
+  // And twice is once: the same box turned over again is what it was.
+  TEST_ASSERT_TRUE(ui::invert(10, 10, 20, 20, nullptr));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, 20));
+  TEST_ASSERT_TRUE(ui::present());
+
+  // **The box is cut at what the control owes**, the same rule as every primitive: a canvas that owes a corner does not
+  // turn over the rest of itself when the app asks for a bigger box.
+  int16_t canvas = ui::kNoSlot;
+  TEST_ASSERT_TRUE(ui::create(60, 60, 0, true, canvas));  // a canvas of the app, with a buffer of its own
+  TEST_ASSERT_TRUE(ui::place(canvas, 100, 100));
+  TEST_ASSERT_TRUE(ui::canvas_fill_rect(canvas, 0, 0, 60, 60, 15, nullptr));
+  // **A canvas that was just made owes its whole box**, and the system paints it and closes the box: only then does the app
+  // owe a corner, which is what this half is about.
+  TEST_ASSERT_TRUE(ui::end_draw(canvas));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_TRUE(ui::invalidate_rect(canvas, 0, 0, 10, 10));
+  TEST_ASSERT_TRUE(ui::begin_draw(canvas));
+  TEST_ASSERT_TRUE(ui::canvas_invert(canvas, 0, 0, 60, 60, nullptr));
+  TEST_ASSERT_TRUE(ui::end_draw(canvas));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(102, 102));   // the corner it owed, turned over
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(150, 150));  // the rest of its paper, as it was
+  // A name that is not a quality of this glass is refused, like every other primitive.
+  TEST_ASSERT_FALSE(ui::canvas_invert(canvas, 0, 0, 60, 60, "not-a-mode"));
+  TEST_ASSERT_FALSE(ui::invert(0, 0, 10, 10, "not-a-mode"));
+  ui::release(canvas);
+}
+
 // **A picture on a dark page is inverted as it is copied** (0.137.0, docs/46 C9): what the book keeps is the picture as
 // the file says it —paper white, ink black— and on a page whose paper is black a plate that kept its white paper would be
 // a hole in the page. The invention costs the pass that copies the pixels and no second decode of the file.
-void test_a_bitmap_on_a_dark_page_comes_inverted() {
-  boot_with_a_panel();
+void test_a_bitmap_on_a_dark_page_comes_inverted() {  boot_with_a_panel();
   ui::attach();
   TEST_ASSERT_TRUE(ui::clear(0, "gc16"));  // the paper of a dark page
   int16_t slot = ui::kNoSlot;
@@ -3819,6 +3876,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_text_that_ends_in_a_break_has_a_row_for_the_caret);
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
   RUN_TEST(test_a_bitmap_on_a_dark_page_comes_inverted);
+  RUN_TEST(test_an_invert_turns_the_inks_of_a_box);
   RUN_TEST(test_a_page_of_a_book_paints_with_the_ink_it_is_given);
   RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
   RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);

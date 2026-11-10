@@ -5730,7 +5730,32 @@ namespace kernel {
 //     **inverted** —paper and ink swapped, the same signal a button gives— so its whole box changes colour and the whole
 //     box is what the glass owes. What the law asks is that it be that cell and no other, and that is what it is now.
 //   - **measured again**: 573 cases, 24 suites, all green in 2 min 42 s.
-static const char kVersion[] = "0.177.4";
+// 0.178.0 (10/11): **a box turned over, and the icon of a launcher goes with its cell**. The selected cell of this system is
+// a black block and not a grey, and it said so by filling its own paper with ink; what the app had put inside it stayed on
+// paper, so an icon came out as a **white box** in the middle of the block. The old project turned the whole selected cell
+// over with one call (`invertRoundRect`) —and its own notes say the bitmap door could not be used on a selected cell
+// because «the door paints the paper of the drawing too (15)»— and that is why its icons looked as if they had no box at
+// all: the paper of the picture became the black of the cell.
+//
+//   - **`ui.invert(x, y, w, h [, mode])` and `cv:invert(…)`**, new: every level of a box swapped with its opposite, 0 with
+//     15 and 5 with 10, cut at what the control owes like every other primitive and with one region of damage. It is a
+//     primitive and not a mode of a paint because what is turned over is **what is already there** —the paper of a
+//     picture, its greys and the letter between them— (docs/30, docs/92);
+//   - **and the launcher is the first app that uses it**: the canvas of a picture is a child of the cell, and a canvas
+//     without `on_draw` composes the same pixels it holds, so the cell could say `__inverts` —and did— and the picture
+//     would not hear it. The picture has an `on_draw` now: it paints the letter and the file, and when the second argument
+//     of the draw says it is on ink it turns the whole box over. The frame of the placeholder is gone with it, because what
+//     says «this app has no picture» is the letter and the console line, and the box was a second signal for the same
+//     thing that the old launcher never had (docs/30, docs/45);
+//   - **measured**: 575 cases, 24 suites, all green in 2 min 44 s. The two new ones are the box turned over (`test_ui`: the
+//     0 becomes 15, the 5 becomes 10, the box the control owes is respected and twice is once) and the picture of a cell
+//     following the face of its cell in **pixels of the page** (`test_apps`: ink when the dial is on it and paper when the
+//     dial leaves), and the second is red —`Expected 0 Was 15`— when the walk stops telling a child which face it draws
+//     on, which is the fault it exists for;
+//   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
+//     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
+//     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
+static const char kVersion[] = "0.178.0";
 
 }  // namespace kernel
 
