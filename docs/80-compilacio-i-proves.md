@@ -223,6 +223,15 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   `apps` en un emulador acabat de fer deia `no apps`; ara diu deu noms i la graella del llançador té deu cel·les.
   Provar una app instal·lada continua sent el que fa la placa quan el disc que es llegeix és el d'una placa
   (`--flash build/disk/m5-paper`, i llavors `repo install <app>` o `--sd`, docs/70, docs/85).
+- **I la targeta de l'emulador també** (10/11, l'amo: *«fes que l'emulador tingui totes les apps»*): el mateix
+  `make_disk` té una segona feina quan l'entorn diu `custom_card_apps = emulator/sd` —el directori que és la
+  targeta, que és el valor per defecte de `--sd`— i és **el mateix regle**: un enllaç per app d'`apps/` dins de
+  `emulator/sd/apps`, afegint el que falta i **traient la còpia** d'una app que el repositori també té (la còpia de
+  l'`editor` del 9/11 era vella i el que corria no era el codi del repositori). El que la targeta té i el
+  repositori no —una app de `repo install`— **es queda**, igual que `cfg/`, `http/` i `fonts/`: una targeta és
+  d'algú i aquest script no la posseeix. El resultat és el que la porta d'`apps` existeix per ensenyar: **onze apps
+  a la flash i onze a la targeta**, les de la targeta amb el seu `*` i la paraula `[card]`, i `apps` en treu vint-i-dos
+  noms (docs/70, docs/85).
 - **Si un build en demana massa, ho diu i no perd fitxers en silenci.** `make_disk` munta la imatge amb
   `mklittlefs` —la mateixa partició de la taula, pàgina de `0x100` i bloc de `0x1000`— i, si l'eina deixa
   fitxers fora, **refusa l'ordre** `-t buildfs`/`-t uploadfs` en comptes d'escriure una imatge curta que

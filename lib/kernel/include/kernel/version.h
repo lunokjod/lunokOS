@@ -5525,7 +5525,25 @@ namespace kernel {
 //     call is nothing, because a firmware whose sequences can be made to repeat is a firmware whose keys can be guessed
 //     (docs/20, docs/85).
 
-static const char kVersion[] = "0.174.8";
+// 0.174.9 (10/11): **the card in the slot of the emulator carries every app too**. The owner: *«fes que l'emulador
+// tingui totes les apps»*, and the card was the one place it did not: `emulator/sd/apps` had a single `editor`, and it was
+// a **copy** from the 9/11, so the code that ran from the card was not the code of the repository.
+//
+//   - **`custom_card_apps = emulator/sd`** in the emulator's environment, read by `tools/make_disk.py`: one **link** per
+//     app of `apps/` inside the card's `apps/`, the same rule the flash disk has had since 8/11 —one source, nothing to
+//     go stale, an edit read by the next run— and it replaces a copy of an app the repository also has, which is exactly
+//     the `editor` that was there (docs/80, docs/85);
+//   - **and it touches nothing else**: the card is somebody's data, so an app only the card has —the one `repo install`
+//     put there— stays, and so do `cfg/`, `http/` and `fonts/`. That is the difference between seeding a card and
+//     assembling an image (docs/70);
+//   - **what it looks like**: `apps` answers **22 names**, the eleven of the flash and the eleven of the card with the `*`
+//     and the `[card]` word (`*about  About-SD  [card]`), and the launcher has **21 cells in two pages** —it does not list
+//     itself— with the pictures of both. That is the case the door of `apps` was built for in 0.164.0, finally on the disk
+//     a person looks at (docs/85);
+//   - nothing of the system changed: the door, the `*` and the `[card]` word were already there, and this is the data
+//     under them.
+
+static const char kVersion[] = "0.174.9";
 
 }  // namespace kernel
 

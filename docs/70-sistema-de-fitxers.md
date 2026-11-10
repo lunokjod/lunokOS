@@ -780,6 +780,12 @@ al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom
 també les porta totes (8/11, `custom_apps_in_disk = yes`), **enllaçades**, perquè no té placa i el filtre les
 deixa passar totes (docs/85).
 
+**I la targeta de l'emulador també les porta totes, enllaçades** (10/11, `custom_card_apps = emulator/sd`): el mateix
+`make_disk` deixa un enllaç per app dins de `emulator/sd/apps` —afegeix el que falta i treu la còpia vella d'una app que
+el repositori també té— i **no toca res més** de la targeta, perquè una targeta és d'algú: una app de `repo install`,
+`cfg/`, `http/` i `fonts/` s'hi queden. La porta d'`apps` les presenta totes dues, la de la flash i la de la targeta, i
+la segona amb el `*` i la paraula `[card]` al costat del nom (docs/85).
+
 **Per què cap placa no en porta**: perquè és una decisió de l'amo (0.118.3, *«cap placa ha de contenir apps al
 littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
