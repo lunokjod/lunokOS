@@ -1619,6 +1619,13 @@ uint8_t icon_grid_hit_for_lua(int16_t slot, const luabind::UIOps::UIGridItem* it
 // below and its body lives with the other presents of the page, after `paint_root` (docs/30).
 bool present_each(hal::UpdateMode mode);
 
+// **The paginator of the system, painted in a box** (0.174.2): the foot of a list and the `ui.dots` control are the same
+// drawing —the balls of the paper project, a rod through them, the page that is read bigger and a line of marks that
+// closes a window that does not fit— and this is the one place that draws it. False when the box cannot say it, and then
+// the caller decides what to put there (docs/30, docs/90).
+bool paint_dots(Canvas& canvas, int32_t x, int32_t y, int32_t width, int32_t ball, uint16_t pages,
+                uint16_t current, uint8_t level, uint8_t background, hal::UpdateMode mode);
+
 bool boot(hal::IPlatform& platform, uint16_t top_rows) {
   (void)platform;
   // **The face of the whole glass, before anything is drawn and whether or not there is a glass**: the typeface is the
@@ -3324,12 +3331,13 @@ uint8_t tabs_tab_at(int16_t slot, uint8_t count, uint16_t x, uint16_t y) {
 
 namespace {
 
-// **The band of the footer**: a third of a row, with a floor of twenty pixels so a small row still has a footer
-// a person can read and a ceiling of thirty-six so a tall row does not give half of itself to it (docs/90).
+// **The band of the footer**: a third of a row, with a floor of twenty-four pixels —a ball of twenty, which is what the
+// paginator of the system needs to be read— and a ceiling of thirty-seven, the box the design asks for, so a tall row
+// does not give half of itself to it (0.174.2, docs/30, docs/90).
 uint16_t list_footer(uint16_t row_height) {
   int32_t band = static_cast<int32_t>(row_height) / 3;
-  if (band < 20) band = 20;
-  if (band > 36) band = 36;
+  if (band < 24) band = 24;
+  if (band > 37) band = 37;
   return static_cast<uint16_t>(band);
 }
 
@@ -3368,7 +3376,7 @@ ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items) {
   return out;
 }
 
-bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t pages, uint8_t marked,
                const char* const* titles, const char* const* details, const char* const* subtitles,
                uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                bool separator, bool focused) {
@@ -3403,34 +3411,23 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t
               static_cast<uint8_t>(i + 1) == marked, separator && (i + 1 < count), mode);
   }
   if (footer > 0) {
-    const int32_t band_y = target.y + height - footer;
+    // **The foot sits under the last row and not at the bottom of the box** (0.174.2, the owner: *«a la part d'abaix has
+    // posat un pager? perqué ocupa tant espai i es veu tant petit?»*): the band is the box the app gave the list less the
+    // rows that are on it, and a list with more room than rows used to leave that air **between** the last row and its
+    // pager, which reads as a page that lost its end. The leftover paper is under the foot, where a page ends (docs/90).
+    const int32_t on_page = (rows > 0) ? static_cast<int32_t>(rows) : static_cast<int32_t>(count);
+    const int32_t used = on_page * static_cast<int32_t>(row_height);
+    const int32_t band_y = target.y + ((used + footer <= height) ? used : (height - footer));
     put_rect(*target.canvas, target.x, band_y, width, 1, dim);
     mark_box(*target.canvas, target.x, band_y, width, 1, mode);
-    // **The pages are dots and not a line of arithmetic** (0.167.0): the owner asked for the paginator of dots —*«usa el
-    // paginador de boletes»*— because `1 / 4` is a number a person has to read and the dots are a thing a person sees:
-    // the page that is on the glass is a full dot and the others are drawn hollow, in the middle of the band. The
-    // arrows went with the numbers, because a dot already says that the page is not the last one (docs/30, docs/90).
-    const int32_t radius = (footer >= 24) ? 4 : 3;
-    const int32_t step = radius * 2 + 7;
-    const int32_t across = static_cast<int32_t>(pages) * step - (step - radius * 2);
-    if (across > 0 && across <= width - 8) {
-      const int32_t mid_y = band_y + footer / 2;
-      int32_t at = target.x + (width - across) / 2;
-      for (uint8_t i = 1; i <= pages; ++i) {
-        const int32_t dot_y = mid_y - radius;
-        if (i == page) {
-          draw_round_fill(*target.canvas, at, dot_y, radius * 2, radius * 2, radius, text, mode);
-        } else {
-          draw_round_fill(*target.canvas, at, dot_y, radius * 2, radius * 2, radius, dim, mode);
-          draw_round_fill(*target.canvas, at + 1, dot_y + 1, radius * 2 - 2, radius * 2 - 2, radius - 1, background,
-                          mode);
-        }
-        mark_box(*target.canvas, at, dot_y, radius * 2, radius * 2, mode);
-        at += step;
-      }
-    } else if (pages > 1) {
-      // **A page count that does not fit a row of dots is said in numbers**: a band of two hundred pixels cannot say
-      // "61 of 400" in dots, and dropping the only sign of where the page is would be worse than the number (docs/90).
+    // **And the pages are the paginator of the system** (0.174.2): the balls of the paper project threaded on a rod, the
+    // page that is read bigger, the marks that close a window too long and the number of the page when the band is too
+    // narrow to draw any of it. It used to be four private dots of four pixels —the same idea drawn twice, and the list's
+    // copy was the small one— and now `ui.dots` and the foot of a list are one drawing (docs/30, docs/92).
+    // **The band of the foot is the room of the ball**, and the rule and a pixel of air go first: a foot of twenty-four
+    // gives a ball of twenty, which is the size of the paper project's paginator within a fifth and is read from a metre
+    // away (0.174.2, docs/30, docs/92).
+    if (!paint_dots(*target.canvas, target.x, band_y + 3, width, footer - 4, pages, page, text, background, mode)) {
       const font::Face& face = face_of(list.face);
       const int32_t line_h =
           static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
@@ -6577,27 +6574,24 @@ const int32_t kDotGap = 7;     // the air between two balls, so that two of them
 const int32_t kDotAir = 12;    // the air the strip leaves under itself, so it does not hug the edge of the glass
 const int32_t kDotDesignH = kDotBig + kDotAir;  // the box the design asks for: thirty-seven pixels
 
-bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background) {
-  if (!live(slot) || level > 15 || background > 15) return false;
-  const Canvas& strip = g_canvases[slot];
-  const int32_t width = strip.width;
-  const int32_t height = strip.height;
-  if (width == 0 || height == 0) return true;
-  if (pages <= 1) return true;
-  const DrawTarget target = open_draw(slot);
-  if (target.canvas == nullptr) return false;
-  const hal::UpdateMode mode = hal::UpdateMode::kDu;
-  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
-                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
-  // **A box of the size the design asks for is the design**: thirty-seven pixels, the ball of the page that is read and
-  // the air under it. A smaller box shrinks the whole strip by the same amount —every number, so the aspect stays— and a
-  // taller one keeps the size and gives the air the room, which is what an app gets by handing it the whole height it
-  // has (docs/30, docs/92).
-  const auto of = [height](int32_t value) {
-    return (height >= kDotDesignH) ? value : (value * height) / kDotDesignH;
+// **The paginator of the system** (0.174.2): the balls of the paper project threaded on a rod, the page that is read
+// bigger and solid, the lines of marks that close a window of pages too long to show, and the air under the balls. It
+// was the body of `dots_draw` and it is now a function of a box, so **the foot of a list and the `ui.dots` control are
+// one drawing** and not two that can drift (docs/30, docs/92).
+bool paint_dots(Canvas& canvas, int32_t x, int32_t y, int32_t width, int32_t ball, uint16_t pages,
+                uint16_t current, uint8_t level, uint8_t background, hal::UpdateMode mode) {
+  if (pages <= 1 || width <= 0 || ball <= 0) return false;
+
+  // **What it is asked for is the ball of the page that is read, and every other number is a fraction of it** (0.174.2):
+  // the design settled the sizes against each other —the ball of the open page of 25, the others of 19, a ring of 2, a rod
+  // of 3 and an air of 7— and a strip asked for a smaller ball keeps the shape instead of losing the numbers that make it
+  // one paginator. The foot of a list asks for the ball its band holds and the `ui.dots` control for the one its box is
+  // designed around (docs/30, docs/92 §27).
+  const auto of = [ball](int32_t value) {
+    return (value * ball) / kDotBig;
   };
   int32_t small = of(kDotSmall);
-  int32_t big = of(kDotBig);
+  int32_t big = ball;
   int32_t ring = of(kDotRing);
   int32_t rod = of(kDotRod);
   int32_t gap = of(kDotGap);
@@ -6642,27 +6636,30 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
     if (first > most) first = most;
   }
   const int32_t total = shown * step - gap;
-  int32_t x = target.x + (width - total) / 2 + big / 2;
+  // **The strip is centred in its box**, and the box's own place is the one this drawing was given (0.174.2): a list
+  // hands it the band of its foot and the `ui.dots` control hands it the whole control, and neither of them knows how
+  // wide what it says will be (docs/30).
+  int32_t at = x + (width - total) / 2 + big / 2;
   // **And the strip is at the top of its box** (the owner, 11/11: *«Que els punts (cercles) marca-pàgines estiguin una
   // mica mes amunt estàn enganxades a la part d'abaix»*): what is left over of the height is the air **under** it and
   // not around it, so the strip keeps that air whichever box it is given (docs/90, docs/92).
-  const int32_t middle = target.y + big / 2;
-  const int32_t from = x;
+  const int32_t middle = y + big / 2;
+  const int32_t from = at;
   // **The rod goes first and the balls on top of it**: it is drawn before them, so what is seen of it is the air
   // between two balls and nothing else —the edge of every ball is what threads them onto it—, and a rod drawn after
   // would cross the middle of each one (docs/90).
-  const int32_t to = x + (shown - 1) * step;
+  const int32_t to = at + (shown - 1) * step;
   for (int32_t t = 0; t < rod; ++t) {
-    put_rect(*target.canvas, from, middle - rod / 2 + t, to - from + 1, 1, level);
+    put_rect(canvas, from, middle - rod / 2 + t, to - from + 1, 1, level);
   }
   for (int32_t i = 0; i < shown; ++i) {
     const bool here = (first + i + 1 == static_cast<int32_t>(current));
     const int32_t radius = (here ? big : small) / 2;
     // The ring first, as a disc of ink: the body is the same disc two pixels smaller and what is left of the first one
     // is the ring. The page that is read has no paper inside it, and that is what says which one it is.
-    put_disc(*target.canvas, x, middle, radius, level);
-    if (!here && radius > ring) put_disc(*target.canvas, x, middle, radius - ring, background);
-    x += step;
+    put_disc(canvas, at, middle, radius, level);
+    if (!here && radius > ring) put_disc(canvas, at, middle, radius - ring, background);
+    at += step;
   }
   // **The marks of "there are more"**, at the ends the window does not reach: they are drawn in the air the window
   // reserved for them, after the strip, and they are the same ball only smaller, so the drawing of the strip is one
@@ -6673,7 +6670,7 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
     int32_t tx = markFrom - trailSpace;
     for (int32_t k = 0; k < 3; ++k) {
       tx -= trail[k];
-      put_disc(*target.canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
+      put_disc(canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
       if (k < 2) tx -= trailAir;
       markFrom = tx;
     }
@@ -6681,7 +6678,7 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   if (many && first + shown < static_cast<int32_t>(pages)) {
     int32_t tx = markTo + trailSpace;
     for (int32_t k = 0; k < 3; ++k) {
-      put_disc(*target.canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
+      put_disc(canvas, tx + trail[k] / 2, middle, trail[k] / 2, level);
       tx += trail[k];
       if (k < 2) tx += trailAir;
     }
@@ -6691,7 +6688,30 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   // marks the regions would pass the eight the canvas holds, and past them the whole page becomes one paint of the
   // quality that cannot look wrong —a wash of the panel for a page turn—. The strip is one control and it owes one
   // rectangle: the box of the balls and their marks, not the air under them (docs/30, docs/90).
-  mark_box(*target.canvas, markFrom, middle - big / 2, markTo - markFrom + 1, big, mode);
+  mark_box(canvas, markFrom, middle - big / 2, markTo - markFrom + 1, big, mode);
+  return true;
+}
+
+// **The strip of a page** (0.112.0): the control fills its box with its paper and asks the system for the paginator,
+// which is the same drawing the foot of a list makes (0.174.2, docs/30, docs/90).
+bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, uint8_t background) {
+  if (!live(slot) || level > 15 || background > 15) return false;
+  const Canvas& strip = g_canvases[slot];
+  const int32_t width = strip.width;
+  const int32_t height = strip.height;
+  if (width == 0 || height == 0) return true;
+  if (pages <= 1) return true;
+  const DrawTarget target = open_draw(slot);
+  if (target.canvas == nullptr) return false;
+  const hal::UpdateMode mode = hal::UpdateMode::kDu;
+  draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
+                 static_cast<uint16_t>(width), static_cast<uint16_t>(height), background, mode);
+  // **A box of the size the design asks for is the design** (0.112.0): thirty-seven pixels, the ball of the page that is
+  // read and the air under it. A smaller box shrinks the whole strip by the same amount —every number, so the aspect
+  // stays— and a taller one keeps the size and gives the air the room, which is what an app gets by handing it the whole
+  // height it has (docs/30, docs/92).
+  const int32_t ball = (height >= kDotDesignH) ? kDotBig : (kDotBig * height) / kDotDesignH;
+  paint_dots(*target.canvas, target.x, target.y, width, ball, pages, current, level, background, mode);
   close_draw(target);
   return true;
 }

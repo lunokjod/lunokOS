@@ -5375,7 +5375,32 @@ namespace kernel {
 //     the four formats off the console, presses a row with a finger, opens its specimen and comes back by the button.
 //     Both fail without the door —measured by mutating it— (`566 cases`).
 
-static const char kVersion[] = "0.174.1";
+// 0.174.2 (10/11): **the foot of a list is the paginator of the system, and it sits under the last row**. The owner,
+// looking at the viewer of the faces: *«a la part d'abaix has posat un pager? perqué ocupa tant espai i es veu tant
+// petit? aquest paginador es del sistema?»*. It was, and it had two real faults.
+//
+//   - **it was a drawing of its own**: four private dots of four pixels of radius, while this system already had the
+//     paginator of the paper project (`ui.dots`, 0.112.0 —balls of 19 and 25, a ring of two pixels, the rod that threads
+//     them and the three balls that shrink when the pages do not fit—). **`paint_dots` is now one function of a box and a
+//     ball**: `ui.dots` calls it with the design's ball and the foot of a list with the ball its band holds, and every
+//     other number —the ring, the rod, the air— is a fraction of that ball. One idea and one place, and the small copy of
+//     it is gone (docs/30, docs/92);
+//   - **it was painted at the bottom of the box and not under the rows**: with a box of 588 px and seven rows of 72, the
+//     60 pixels of air fell **between** the last row and its foot, which reads as a pager that takes half a page. The foot
+//     is drawn **where the last row of the page ends**, and the paper that is left is under it, where a page ends. To know
+//     where that is, `list_draw` takes **the rows the page holds** (`rows`) beside the ones it paints (`count`): a list of
+//     entries paints none —every entry paints itself— and the foot has to fall under the last one anyway (docs/90);
+//   - **and the band is a little taller for a small row**: a third of the row with a floor of 24 px (it was 20) and a
+//     ceiling of 37, the box the design asks for. With rows of 72 it costs no row and the ball goes from 8 to 20 pixels,
+//     which is what makes it readable from a metre away;
+//   - **the number is still the fallback**: a band too narrow to draw one ball says `2 / 4` and nothing else, which is
+//     what a box of a few pixels gets;
+//   - `about` and the viewer of the faces are the two pages that show it, and
+//     `test_the_foot_of_a_list_is_the_paginator_of_the_system` holds both halves —the open page is a disc and the others
+//     are rings, and the foot falls under the last row— which is red with the code of 0.174.1, measured by mutating it
+//     (`567 cases`).
+
+static const char kVersion[] = "0.174.2";
 
 }  // namespace kernel
 

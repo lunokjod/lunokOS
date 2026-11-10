@@ -2358,7 +2358,12 @@ void test_a_list_measures_its_pages_with_one_arithmetic() {
 }
 
 // **A list draws the rows of one page, the chosen row inverted, and the band that says which page it is**: the
-// band is the line of the footer and the words in it, and **no row is drawn under it** (docs/30, docs/90).
+// band is the line of the footer and the paginator in it, and **no row is drawn under it** (docs/30, docs/90).
+//
+// **And the band sits under the last row and not at the bottom of the box** (0.174.2): a box with more room than the
+// page uses left the air between the last row and its paginator, which is what the owner saw as a pager that takes a lot
+// of space —*«a la part d'abaix has posat un pager? perqué ocupa tant espai»*—. The row count of the page is what says
+// where the last row ends, and the paper that is left is under the foot, where a page ends (docs/30).
 void test_a_list_draws_one_page_and_says_which_one_it_is() {
   fresh_view();
   int16_t list = -1;
@@ -2367,16 +2372,18 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
   const char* titles[3] = {"One", "Two", "Three"};
   const char* details[3] = {"1", "2", "3"};
 
-  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 1, 4, 2, titles, details, nullptr, 50, 0, 8, 15, 2, true, false));
+  // **Three rows of fifty in a box of two hundred**: the box holds three rows and the band of the foot is twenty-four
+  // —a third of the row with a floor of twenty-four— so the foot goes at 150 and the air under it is the box's.
+  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 3, 1, 4, 2, titles, details, nullptr, 50, 0, 8, 15, 2, true, false));
   // The second row of the page is the chosen one and it is inverted: ink where the others are paper.
   TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 25));
   TEST_ASSERT_EQUAL_UINT8(0, view_level(290, 75));
-  // The band of the footer starts at 200 less twenty: the line above it, and no row under it.
-  TEST_ASSERT_EQUAL_UINT8(8, view_level(150, 180));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(290, 175));
-  // The words of the page are in the band, and a page that is not the last has the chevron of the next one.
+  // The band of the footer starts under the third row —at 150 and not at 176— and no row is drawn under it.
+  TEST_ASSERT_EQUAL_UINT8(8, view_level(150, 150));
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(4, 155));
+  // The paginator is in the band and it is ink: the ball of the page that is read is a disc in the middle.
   int ink = 0;
-  for (uint16_t y = 181; y < 200; ++y) {
+  for (uint16_t y = 151; y < 200; ++y) {
     for (uint16_t x = 0; x < 300; ++x) {
       if (view_level(x, y) == 0) ++ink;
     }
@@ -2384,8 +2391,47 @@ void test_a_list_draws_one_page_and_says_which_one_it_is() {
   TEST_ASSERT_GREATER_THAN(0, ink);
 
   // **One page is no band at all**: the list fills with rows and there is nothing under them.
-  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 1, 1, 0, titles, details, nullptr, 50, 0, 8, 15, 2, false, false));
+  TEST_ASSERT_TRUE(ui::list_draw(list, 3, 3, 1, 1, 0, titles, details, nullptr, 50, 0, 8, 15, 2, false, false));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(150, 180));
+  ui::release(list);
+}
+
+// **The paginator of the foot is the one of `ui.dots`** (0.174.2): the same drawing in a smaller ball —the balls threaded
+// on a rod, the page that is read solid and bigger, the others a ring— instead of four private dots that were a second
+// copy of the same idea and the small one. The case measures the two shapes a person reads: a solid disc where the strip
+// is and paper inside the ring of the other page (docs/30, docs/92).
+void test_the_foot_of_a_list_is_the_paginator_of_the_system() {
+  fresh_view();
+  int16_t list = -1;
+  TEST_ASSERT_TRUE(ui::create(300, 200, 0, false, list));
+  TEST_ASSERT_TRUE(ui::place(list, 0, 0));
+  const char* titles[2] = {"One", "Two"};
+  const char* details[2] = {"1", "2"};
+  // Two rows of fifty, so the foot is at a hundred and the band is twenty-four: the ball is twenty and the other page
+  // is a ring of fifteen with a ring of one pixel.
+  TEST_ASSERT_TRUE(ui::list_draw(list, 2, 2, 1, 3, 0, titles, details, nullptr, 50, 0, 8, 15, 2, false, false));
+  // **The ball of the page that is read is a disc of ink** in the middle of the band: the row of its centre is solid
+  // across the ball.
+  const uint16_t middle = static_cast<uint16_t>(100 + 3 + 10);
+  int solid = 0;
+  for (uint16_t x = 120; x < 180; ++x) {
+    if (view_level(x, middle) == 0) ++solid;
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(10, solid, "there is no solid ball in the foot of the list");
+  // **And the second page is a ring and not a disc**, which is the other number the design settles: a ball of fifteen
+  // with a ring of one means its middle is paper and its edge is ink.
+  bool ring_found = false;
+  for (uint16_t x = 150; x < 250; ++x) {
+    for (uint16_t y = 100; y < 130; ++y) {
+      if (view_level(x, y) != 0) continue;
+      // An ink pixel with paper on both sides of the same row is the wall of a ring: a disc has ink after ink.
+      if (x + 1 < 300 && view_level(static_cast<uint16_t>(x + 1), y) == 15 &&
+          view_level(static_cast<uint16_t>(x + 2), y) == 0) {
+        ring_found = true;
+      }
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(ring_found, "the page that is not open is a disc and not a ring");
   ui::release(list);
 }
 
@@ -3652,6 +3698,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_dots_of_a_page_count_the_pages_of_a_chapter);
   RUN_TEST(test_a_list_measures_its_pages_with_one_arithmetic);
   RUN_TEST(test_a_list_draws_one_page_and_says_which_one_it_is);
+  RUN_TEST(test_the_foot_of_a_list_is_the_paginator_of_the_system);
   RUN_TEST(test_the_keyboards_are_children_of_one_parent_and_are_chosen_by_name);
   RUN_TEST(test_a_textbox_keeps_the_caret_on_the_glass);
   RUN_TEST(test_the_window_of_a_textbox_carries_the_width_of_the_tail);

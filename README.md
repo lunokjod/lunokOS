@@ -15,9 +15,9 @@ fa funcionar amb el mateix prompt, el mateix sistema de fitxers i el mateix sost
 > cop**) i **posar alarmes**: `alarm.at`/`after`/`cancel`/`list`/`caps`, amb `on_alarm` entregat a
 > l'app que corre, en una **finestra** si no hi és, o posant-la al davant amb `raise`. També hi ha
 > `time.now`/`now_ms`/`caps`, i **alarmes que sobreviuen al reinici** (`persist`, a la NVS). Una app
-> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **566 proves natives**
+> que es tanca per deixar pas a una altra rep `on_pause`/`on_save`/`on_close`. **567 proves natives**
 > en **24 suites**, totes verdes.
-> A l'ATOM (10/11): **2 273 541 B** de flash (86,7 % de la partició d'aplicació, 2 621 440 B) i **122 776 B**
+> A l'ATOM (10/11): **2 273 525 B** de flash (86,7 % de la partició d'aplicació, 2 621 440 B) i **122 776 B**
 > de RAM estàtica (37,5 % de 327 680 B).
 >
 > **Els fitxers** ja es poden llegir i escriure des de Lua: `fs.list`/`stat`/`read`/`read_at`/`write`

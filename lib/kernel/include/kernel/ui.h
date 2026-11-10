@@ -614,7 +614,7 @@ ListPage list_page_of(uint16_t height, uint16_t row_height, uint16_t items);
 // **The rows of one page**, with the footer that says which page it is and a chevron on the side that has
 // somewhere to go. `marked` is the row of this page that is the chosen one, from 1, or 0 for none. The words
 // come one page at a time, so a list of a thousand rows costs what one page costs (docs/30, docs/90).
-bool list_draw(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t pages, uint8_t marked,
                const char* const* titles, const char* const* details, const char* const* subtitles,
                uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                bool separator, bool focused);

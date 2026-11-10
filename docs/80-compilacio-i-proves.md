@@ -175,7 +175,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
 - la passada de **clang amb `-Wunreachable-code`** sobre el nucli, `luabind` i les llibreries pròpies; és
   l'única que veu el codi que GCC deixa passar, perquè a GCC `-Wunreachable-code` és un no-op (els dos
   `meter::Scope` morts que es van arreglar a 0.89.1 hi van viure, docs/30);
-- les **566 proves natives** (`pio test -e test`), i **cap de vermella** (0.174.1): les dotze de la 0.169.0 eren quatre
+- les **567 proves natives** (`pio test -e test`), i **cap de vermella** (0.174.2): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -190,7 +190,9 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   amb el cas de la pàgina de la zona horària passejant el dial pels seus tres controls i prement-los (`test_apps`), i
   les dues de la 0.174.1 són **la porta de `/fonts`** amb els dos discs i la marca de la còpia de la targeta (`test_apps`)
   i **el visor obrint els quatre formats** que el nucli llegeix, amb un dit en una fila i la tornada pel botó
-  (`test_apps`);
+  (`test_apps`), i la de la 0.174.2 és **el peu d'una llista essent el paginador del sistema** —la bola de la pàgina
+  que es llegeix és un disc, les altres una anella i el peu cau sota l'última fila— (`test_ui`, que és vermella amb el
+  codi de la 0.174.1);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques** (7/11, l'amo), amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`.

@@ -552,6 +552,29 @@ targeta i es buida amb la mateixa crida (docs/30, docs/70).
   app pot cridar la porta quan vulgui. El que la fa honesta és la targeta d'avís amb el dial a la porta segura; el
   dia que hi hagi permisos (el `E_PERM` reservat de docs/30), aquesta és la primera porta que hi hauria de passar.
 
+### El peu de la llista, que era el paginador petit (10/11)
+
+L'amo, mirant el visor de les cares: *«a la part d'abaix has posat un pager? perqué ocupa tant espai i es veu tant petit?
+aquest paginador es del sistema?»*. Sí que ho era —el peu d'`ui.list`, la 0.167.0— i tenia dos defectes de debò (0.174.2):
+
+- **era un dibuix a part**: quatre boles de quatre píxels de radi, quan el sistema ja té **el paginador del projecte del
+  paper** (`ui.dots`, la 0.112.0: boles de 19 i 25, un anella de dos píxels, el pal que les enfila i les tres boles que
+  s'encongiran quan les pàgines no hi caben). Ara **és el mateix dibuix**: `paint_dots` és una funció d'una caixa i una
+  bola, la crida `ui.dots` amb la bola del disseny i el peu d'una llista amb la bola que li cap a la banda, i tots els
+  altres números (l'anella, el pal, l'aire) són **fraccions de la bola**. Una sola idea, un sol lloc (docs/30, docs/92);
+- **es pintava al fons de la caixa i no sota les files**: amb una caixa de 588 px i set files de 72, l'aire de 60 px
+  queia **entremig** de l'última fila i el peu, i això es llegia com un pager que ocupa mitja pàgina. El peu es pinta ara
+  **on s'acaba l'última fila de la pàgina**, i el paper que sobra és sota el peu, on s'acaba una pàgina. Per saber on
+  s'acaba, `list_draw` rep **les files que té la pàgina** (`rows`) a més de les que pinta (`count`): una llista
+  d'entrades no en pinta cap —cada entrada es pinta ella— i el peu ha de caure igualment sota l'última (docs/90);
+- **i la banda puja quan la fila és petita**: un terç de la fila amb un mínim de 24 px (abans 20) i un màxim de 37, la
+  caixa que demana el disseny. Amb files de 72 no costa cap fila i la bola passa de 8 a 20 píxels, que és el que fa que
+  es llegeixi des d'un metre.
+
+L'`about` i el visor de les cares són les dues pàgines que l'ensenyen, i el cas
+`test_the_foot_of_a_list_is_the_paginator_of_the_system` el subjecta: la bola de la pàgina que es llegeix és un disc i la
+de les altres és una anella, i el peu cau sota l'última fila (les dues coses fallen amb el codi de la 0.174.1).
+
 ### `/fonts` és una porta, i el visor de les cares (10/11)
 
 L'amo: *«/fonts ha de ser com /apps ha de juntar /littlefs/fonts i /sd/fonts. En cas de el que veu l'app també suma el

@@ -648,7 +648,10 @@ struct UIOps {
   // —one arithmetic, asked by the app and by the drawing— and the rows of one page with the footer of the
   // paging. The words come one page at a time, so a list of a thousand rows costs what one page costs.
   uint8_t (*list_page_of)(uint16_t height, uint16_t row_height, uint16_t items, uint8_t& rows);
-  bool (*list_draw)(int16_t slot, uint8_t count, uint8_t page, uint8_t pages, uint8_t marked,
+  // **`rows` is how many rows the page holds**, which is not `count`: the list paints `count` rows of data and **zero
+  // when its rows are the entries the app built**, and the foot of the pages has to sit under the last of them either way
+  // (0.174.2, docs/90).
+  bool (*list_draw)(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t pages, uint8_t marked,
                     const char* const* titles, const char* const* details, const char* const* subtitles,
                     uint16_t row_height, uint8_t text, uint8_t dim, uint8_t background, uint8_t scale,
                     bool separator, bool focused);

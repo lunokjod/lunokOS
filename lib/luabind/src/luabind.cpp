@@ -6039,7 +6039,9 @@ int l_list_draw(lua_State* L) {
     }
     // **And the frame says which page it is**: no row is drawn by this control —the entries draw themselves— so the
     // only thing it owes is the paper behind them and the footer of the pages (docs/90).
-    g_ui_ops.list_draw(canvas->slot, 0, static_cast<uint8_t>(page_of_entries), pages_of_entries, 0,
+    // **The rows of the page are the entries it placed**, which is what the foot of the pages has to sit under: the list
+    // paints no row here —each entry paints itself— so `count` is zero and `rows` is the number the app sees (0.174.2).
+    g_ui_ops.list_draw(canvas->slot, 0, rows_of_entries, static_cast<uint8_t>(page_of_entries), pages_of_entries, 0,
                        nullptr, nullptr, nullptr, static_cast<uint16_t>(row_height),
                        ink_or_dim(off, text), static_cast<uint8_t>(dim),
                        static_cast<uint8_t>(background), static_cast<uint8_t>((scale == 0) ? 1 : scale),
@@ -6058,7 +6060,7 @@ int l_list_draw(lua_State* L) {
   if (pages == 0 || rows == 0) {
     // **A list with nothing in it is an empty frame and not a hole**: it paints its background and says no page,
     // which is the same thing an app gets before it fills the items (docs/90).
-    g_ui_ops.list_draw(canvas->slot, 0, 1, 1, 0, nullptr, nullptr, nullptr,
+    g_ui_ops.list_draw(canvas->slot, 0, 0, 1, 1, 0, nullptr, nullptr, nullptr,
                        static_cast<uint16_t>(row_height), ink_or_dim(off, text),
                        static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
                        static_cast<uint8_t>((scale == 0) ? 1 : scale), separator, focused);
@@ -6099,7 +6101,7 @@ int l_list_draw(lua_State* L) {
   // page's mark, which is the number zero (docs/90).
   int mark_now = marked - static_cast<int>(first);
   if (mark_now < 1 || mark_now > count) mark_now = 0;
-  g_ui_ops.list_draw(canvas->slot, count, static_cast<uint8_t>(page_now), pages,
+  g_ui_ops.list_draw(canvas->slot, count, rows, static_cast<uint8_t>(page_now), pages,
                      static_cast<uint8_t>(mark_now), titles, details, subtitles,
                      static_cast<uint16_t>(row_height), ink_or_dim(off, text),
                      static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
