@@ -9035,22 +9035,18 @@ bool ui_set_field_bool(lua_State* L, int object, const char* key, bool value) {
     return false;
   }
   lua_getfield(L, -1, key);
-  // **A field the app never wrote already says what the system is writing** (0.177.4) when the value is the default: a
-  // control with no `editing` was not entered and one with no `focus_index` is not a strip, and answering «it changed»
-  // made the walk invalidate the control the dial left **three times** —`focused`, `editing` and `focus_index`— and with
-  // it every child it holds, for a ring that only moves. The field is written either way, so the app reads the same
-  // thing it read before (docs/30, docs/90).
+  // **The field is always written and the answer is only about the pixels** (0.177.4, 0.179.11): answering «it changed»
+  // when a field the app never wrote got its default made the walk invalidate the control the dial left **three times**
+  // —`focused`, `editing` and `focus_index`— and with it every child it holds, for a ring that only moves. **And the field
+  // has to be there with the default in it**: an app reads them (`#text == self.cursor`, `self.focus_index + 1`) and a
+  // number that is `nil` is an error in the app and not a smaller drawing (docs/30, docs/90).
   const bool was_nil = lua_isnil(L, -1);
   const bool same = (was_nil && !value) || (!was_nil && (lua_toboolean(L, -1) != 0) == value);
   lua_pop(L, 1);
-  if (same) {
-    lua_pop(L, 1);
-    return false;
-  }
   lua_pushboolean(L, value ? 1 : 0);
   lua_setfield(L, -2, key);
   lua_pop(L, 1);
-  return true;
+  return !same;
 }
 
 // **A number written in the fields of a control**, which is how the system moves something the app reads: `top` of a
@@ -9063,18 +9059,15 @@ bool ui_set_field_number(lua_State* L, int object, const char* key, lua_Integer 
     return false;
   }
   lua_getfield(L, -1, key);
-  // The same rule as a flag (0.177.4): no `focus_index` is the tab nought of a strip that is not one.
+  // The same rule as a flag (0.177.4, 0.179.11): no `focus_index` is the tab nought of a strip that is not one, the field
+  // is written with it, and the answer is only whether the pixels changed.
   const bool same = lua_isnil(L, -1) ? (value == 0)
                                      : (lua_isnumber(L, -1) && lua_tointeger(L, -1) == value);
   lua_pop(L, 1);
-  if (same) {
-    lua_pop(L, 1);
-    return false;
-  }
   lua_pushinteger(L, value);
   lua_setfield(L, -2, key);
   lua_pop(L, 1);
-  return true;
+  return !same;
 }
 
 // **Whether a control has the hook we ask about**, which is what says whether the gesture is registered: the field
@@ -9768,7 +9761,15 @@ bool ui_ring_shown(bool on) {
   const int base = lua_gettop(g_state);
   if (l_ui_root(g_state) == 1 && ui_push_slot_from(g_state, base + 1, g_ui_focus_slot, 0)) {
     LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
-    if (canvas != nullptr && canvas->generation == g_ui_focus_generation) ui_invalidate(g_state, -1);
+    if (canvas != nullptr && canvas->generation == g_ui_focus_generation) {
+      // **And a grid of the kernel's cells is asked for the one cell that wears the ring** (0.177.3, found again here at
+      // 0.179.11): the ring coming or going is ink of that cell and the cursor does not move, so the pages of a grid were
+      // being repainted whole —every picture of the page— for a ring, which is the law of the damage broken by the door
+      // that hid it (docs/30, docs/90).
+      const lua_Integer cell = ui_field_number(g_state, -1, "index", 0);
+      const uint8_t at = (cell >= 1) ? static_cast<uint8_t>(cell) : 0;
+      if (!ui_invalidate_grid_ring(g_state, -1, at, at, false)) ui_invalidate(g_state, -1);
+    }
   }
   lua_settop(g_state, base);
   return true;
@@ -12314,6 +12315,12 @@ bool ui_button_event(const char* kind, uint32_t key) {
     // A control that holds a value takes the arrow first and the walk goes on only if it gives it back
     // (docs/30, docs/90).
     if (current >= 0 && ui_step_value(g_state, objects, current, direction)) {
+      // **And the paint of a value that moved is the system's** (0.179.11): a slider, the page of a list, the cursor of a
+      // grid or a day of a calendar asks for its box the moment it moves, and nothing presented it —a key that was taken
+      // here and a glass that showed the value before was a slider that answered the next time the app presented by
+      // itself, which is a page that looks dead—. It is the same promise the walk of the dial keeps below and the caret
+      // keeps above, said for the third kind of control (docs/30, docs/90).
+      ui_feedback();
       lua_settop(g_state, top);
       return true;
     }

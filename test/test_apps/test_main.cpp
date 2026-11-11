@@ -5313,6 +5313,97 @@ void test_the_picture_of_a_cell_is_turned_over_with_the_cell(void) {
   storage->remove("/apps/ink");
 }
 
+// **A field the app never wrote reads its default** (0.179.11): the system writes `editing`, `focus_index` and the rest on
+// the controls the dial touches, and **writing the default of a field that was `nil` is not a change of pixels** —that was
+// three invalidations of the control the dial left for a ring that moves— but the field still has to be there: an app reads
+// them (`#text == self.cursor`, `self.focus_index + 1`) and a number that is `nil` is an error in the app, not a smaller
+// drawing (docs/30, docs/90).
+void test_a_field_the_app_never_wrote_reads_its_default(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "fields",
+                           "{\"title\":\"Fields\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local a = ui.button(140, 40)\n"
+                           "a:place(20, 20)\n"
+                           "a.title = 'A'\n"
+                           "local b = ui.button(140, 40)\n"
+                           "b:place(20, 80)\n"
+                           "b.title = 'B'\n"
+                           "ui.focus(a)\n"
+                           "ui.present('gc16')\n"
+                           // **The fields are read once the dial has gone**, which is after the walk has written what it
+                           // writes: the hook of the control that loses the ring is called before them and a person's
+                           // app reads the state it had (docs/30).
+                           "local said = false\n"
+                           "while true do\n"
+                           "  sys.delay(20):await()\n"
+                           "  if not said and not a.focused then\n"
+                           "    said = true\n"
+                           "    console.print('a reads ' .. tostring(a.focus_index) .. ' ' .. tostring(a.editing))\n"
+                           "  end\n"
+                           "end\n"));
+
+  pump_captured(300, g_out, sizeof(g_out), "run fields");
+  // The key walks from the first button to the second, and the first one says what it reads as the dial leaves it.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(30);
+  emu::press_key(2, false);
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "a reads 0 false"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/fields/app.lua");
+  storage->remove("/apps/fields/manifest.json");
+  storage->remove("/apps/fields");
+}
+
+// **The ring that comes back costs the cell it is on** (0.179.11): a finger puts the selector of the focus away and the next
+// key brings it back, and a ring that comes or goes on a grid of the kernel's cells is **ink of that cell** and nothing else
+// —the cursor does not move, so no page is compared and the paper of the grid is not painted—. It is the law of 0.177.3 and
+// the door that hides the ring had forgotten it, so the first key of a page repainted every picture of the grid.
+void test_the_ring_that_comes_back_costs_the_cell_it_is_on(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "onecell",
+                           "{\"title\":\"One\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // One item of a grid of three columns: a cell of a hundred by a hundred and two in a frame of
+                           // three hundred, which is what makes the difference between one cell and the page readable.
+                           "local grid = ui.icon_grid(300, 300)\n"
+                           "grid:place(20, 60)\n"
+                           "grid.columns = 3\n"
+                           "grid.items = { { label = 'One', mark = '1' } }\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(300, g_out, sizeof(g_out), "run onecell");
+  // **The ring is off until a key** (0.179.7), so the page is up with no ring at all and this key is the first that paints
+  // it. What it may cost is the cell: 10 200 pixels of a cell of a hundred by a hundred and two, and never the 90 000 of the
+  // frame it sits in.
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(30);
+  emu::press_key(2, false);
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  const int32_t ink = painted_pixels(g_out);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(2000, ink, g_out);
+  TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(30000, ink, g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "300x300"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/onecell/app.lua");
+  storage->remove("/apps/onecell/manifest.json");
+  storage->remove("/apps/onecell");
+}
+
 // **The page is a ring and every stop of it is a control a person can see** (0.156.1): the dial goes from the last
 // control of the glass to the first and from the first back to the last, and **a grid with the app's own cells in it
 // is a box and not a stop** —it was a phantom the ring could land on, where nothing was ringed and the walk went on in
@@ -12835,6 +12926,8 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses);
   RUN_TEST(test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page);
   RUN_TEST(test_the_picture_of_a_cell_is_turned_over_with_the_cell);
+  RUN_TEST(test_a_field_the_app_never_wrote_reads_its_default);
+  RUN_TEST(test_the_ring_that_comes_back_costs_the_cell_it_is_on);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);

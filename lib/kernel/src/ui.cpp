@@ -295,11 +295,37 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     const int32_t waste = union_area - area - region_area;
     const int32_t smaller = (area < region_area) ? area : region_area;
     if (waste > smaller / kMergeWaste) continue;
-    region.x = merged_x0;
-    region.y = merged_y0;
-    region.w = static_cast<uint16_t>(merged_x1 - merged_x0);
-    region.h = static_cast<uint16_t>(merged_y1 - merged_y0);
-    region.named = region.named || named;
+    // **And what the joined box now covers leaves the map** (0.179.11): a piece inside the box the two of them became would
+    // be presented a second time, which is what this map exists to avoid. It is reachable across qualities —a piece of
+    // `du` in the two pixels between two of `gl16` is not joined with them, and the union of the two swallows it— and the
+    // quality of the joined box is the strongest of what it holds (docs/30, docs/90).
+    hal::UpdateMode joined_mode = stronger_mode(region.mode, mode);
+    bool joined_named = region.named || named;
+    for (uint8_t other = 0; other < canvas.damage_count;) {
+      if (other == i) {
+        ++other;
+        continue;
+      }
+      const Damage& piece = canvas.damage[other];
+      const bool inside = piece.x >= merged_x0 && piece.y >= merged_y0 && piece.x + piece.w <= merged_x1 &&
+                          piece.y + piece.h <= merged_y1;
+      if (!inside) {
+        ++other;
+        continue;
+      }
+      joined_mode = stronger_mode(joined_mode, piece.mode);
+      joined_named = joined_named || piece.named;
+      drop_region(canvas, other);
+      // The joined box is at `i`, and a piece taken from before it moves it down one.
+      if (other < i) --i;
+    }
+    Damage& joined = canvas.damage[i];
+    joined.x = merged_x0;
+    joined.y = merged_y0;
+    joined.w = static_cast<uint16_t>(merged_x1 - merged_x0);
+    joined.h = static_cast<uint16_t>(merged_y1 - merged_y0);
+    joined.mode = joined_mode;
+    joined.named = joined_named;
     return;
   }
   if (canvas.damage_count == kMaxDamage) {

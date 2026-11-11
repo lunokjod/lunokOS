@@ -2127,8 +2127,11 @@ Per això **el sistema pinta el que ell ha canviat**, i ho fa pel mateix camí q
 el que deu un dibuix, compon l'arbre i demana el pintat. Com que només viatgen les regions que
 han canviat, un cercle que es mou costa la caixa del seu control i no la pàgina. És el
 `feedback()` del projecte del paper (`src/ui/button.cpp`: *«the pressed state is immediate
-feedback: it is what the user is waiting for»*), i passa a tres llocs: quan el dial es mou,
-quan `ui.focus` col·loca el cercle, i a la baixada i a la pujada d'un botó.
+feedback: it is what the user is waiting for»*), i passa a quatre llocs: quan el dial es mou,
+quan `ui.focus` col·loca el cercle, a la baixada i a la pujada d'un botó, i **quan una tecla mou
+un valor** (0.179.11): el cursor d'una graella, la pàgina d'una llista, el número d'un lliscador o
+el dia d'un calendari deien que sí a la tecla i el vidre no es movia fins que l'app presentava pel
+seu compte, que és una pàgina que sembla morta.
 
 **Què fa una pulsació, en canvi, és de l'app**: el sistema només ensenya que el control ha
 rebut la tecla. Una pàgina els controls de la qual no tenen cap `on_click` respon al dial i no

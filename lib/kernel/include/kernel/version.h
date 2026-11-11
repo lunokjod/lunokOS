@@ -5598,6 +5598,30 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.11 (11/11): **four faults a review found, and the one that made a page look dead**. Reading back the work of the
+// 0.179.x turned up four, three of them older than the day:
+//   - **a key that moved a value painted nothing**, the oldest of the four. `ui_key` handed the arrow to the control, the
+//     control changed its value and asked for the draw it owed, and `ui_key` returned without presenting: the cursor of
+//     an icon grid, the page of a list, the number of a slider and the day of a calendar moved for nobody unless the app
+//     presented by itself, which is what a page waiting inside a `sys.delay` never does. The step now calls
+//     `ui_feedback()` before it returns, the fourth place of the 0.98.0 rule (docs/30);
+//   - **the fields the system writes are written** (the 0.177.4 went too far). `ui_set_field_bool` and
+//     `ui_set_field_number` answered before writing when the value happened to be the default of a field that was still
+//     `nil`, so an app reading `editing` inside `on_focus(false)` read `nil` where the system used to hand it `false` —
+//     one line of arithmetic on it and the app dies. They now always write and answer `!same`: the answer is about
+//     pixels, the field is about state, and they are not the same question;
+//   - **the ring that comes back asks for its cell**, the door the 0.179.7 forgot: `ui_ring_shown` invalidated the whole
+//     grid, so one key on a grid of kernel cells repainted every picture of the page. It now asks the grid for the one
+//     cell, which is the 0.177.3 rule. With the fault put back on purpose: `paint 20,60 300x300`, 90 000 px² for a cell
+//     of 100x102 — 10 200 — against `Expected 90000 to be less than or equal to 30000`;
+//   - **a joined box takes the pieces it covers out of the map**: `damage_add` merged two regions into one and kept the
+//     pieces that were inside the new box, so the map owed a band and also every piece of it. The merge now drops each
+//     region contained in the box it forms, with the strongest quality of the ones it joins (the case fills ten by ten
+//     with du, one column with gl16 and ten by ten more with du, and the map keeps one `10,10,10,21` at gl16).
+// `587 cases` in 24 suites, green in 2 min 51 s, with three new ones — the ring that comes back costs the cell it is on,
+// the field an app never wrote reads its default, and a joined box swallows the pieces it covers — and the two breaks
+// that turn them red: `90000 to be less than or equal to 30000`, and `a reads 0 nil`. docs/30 and docs/80 say it.
+
 // 0.179.10 (11/11): **an emulator built without the page does not offer a glass either**. The 0.179.9 made a build of the PC
 // without `ui.cpp` possible —`PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator`—, and the first thing it did was
 // lie about itself: `--board m5stack-paper` gave a run whose `caps` said `display yes`, whose every drawing command answered
@@ -6168,7 +6192,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.10";
+static const char kVersion[] = "0.179.11";
 
 }  // namespace kernel
 

@@ -3655,6 +3655,31 @@ void test_the_line_height_of_a_face_is_what_centres_a_text() {
   TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
 }
 
+// **A piece inside the box two others became leaves the map** (0.179.11): the map of what the glass owes holds no piece that
+// another one covers, because a piece inside another is presented twice. It happens across qualities —two pieces of one
+// quality are joined and the union swallows a third of another, which was not joined with them— and the joined box takes
+// the strongest quality of what it holds, because a region is painted once.
+void test_a_joined_box_swallows_the_pieces_it_covers(void) {
+  fresh_view();
+  TEST_ASSERT_TRUE(ui::clear(15, nullptr));
+  TEST_ASSERT_TRUE(ui::present());
+  // Two pieces of `du` with one pixel of air, which is a join; the third is of `gl16` and sits in that pixel.
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 10, 10, 10, 0, "du"));
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 20, 10, 1, 5, "gl16"));
+  TEST_ASSERT_EQUAL_UINT8(2, ui::damage_count());
+  TEST_ASSERT_TRUE(ui::fill_rect(10, 21, 10, 10, 0, "du"));
+  // **One region and not two**: the two of `du` are one paint, and the piece of `gl16` inside it is that paint too.
+  TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).x);
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).y);
+  TEST_ASSERT_EQUAL_UINT16(10, ui::damage(0).w);
+  TEST_ASSERT_EQUAL_UINT16(21, ui::damage(0).h);
+  // **And the box is painted with the strongest quality it holds**, which is the one that cannot look wrong of the two.
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(hal::UpdateMode::kGl16), static_cast<uint8_t>(ui::damage(0).mode));
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT8(0, ui::damage_count());
+}
+
 // **A box turned over: every level becomes its opposite** (0.178.0). It is the drawing that says "this is the one that will
 // answer" on this glass —a selected cell is a black block and not a grey one— and what it turns over is **what is already
 // there**: the paper of a picture, its greys, the letter between them. The old project turned its selected cell over with
@@ -3882,6 +3907,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_box_of_lines_keeps_the_caret_on_the_glass);
   RUN_TEST(test_a_bitmap_on_a_dark_page_comes_inverted);
   RUN_TEST(test_an_invert_turns_the_inks_of_a_box);
+  RUN_TEST(test_a_joined_box_swallows_the_pieces_it_covers);
   RUN_TEST(test_a_page_of_a_book_paints_with_the_ink_it_is_given);
   RUN_TEST(test_a_box_of_lines_that_overflows_carries_a_bar_on_its_right);
   RUN_TEST(test_the_window_of_a_box_of_lines_is_the_one_the_app_says);
