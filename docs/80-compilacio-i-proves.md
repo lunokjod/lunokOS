@@ -257,12 +257,12 @@ A la flash del Paper hi van **dues coses diferents**, i una ordre no fa l'altra:
   diu i el número és la mesura: `the tool takes every one of the N files in P B of partition, so it fits`, o
   **`this disk does not fit`** amb quants en queden fora i quins noms.
   **El que hi ha avui, mesurat l'11/11**: `apps/` són **51 fitxers i 398 951 B**, i el `data/` del sistema
-  **31 fitxers i 1 916 844 B** (el que el repositori porta; `data/data/` és estat d'una app i no és al git; els nou
-  fitxers de més que el 10/11 són les vuit cares de l'OFL i la seva llicència, 216 890 B, docs/30). **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: l'11/11 va
-  escriure *`build/disk/emulator is 2320223 B in 84 files, 11 apps, linked to apps/`* i *`build/disk/m5-paper is
-  2318939 B in 82 files, 11 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
-  12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 916 844 B en
-  31 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
+  **29 fitxers i 1 892 888 B** (el que el repositori porta; `data/data/` és estat d'una app i no és al git; els nou
+  fitxers de més que el 10/11 són les vuit cares de l'OFL i la seva llicència, 217 083 B, docs/30). **El disc no és la suma** i la seva mida la diu `make_disk` a cada build: l'11/11 va
+  escriure *`build/disk/emulator is 2296267 B in 82 files, 11 apps, linked to apps/`* i *`build/disk/m5-paper is
+  2294790 B in 80 files, 11 apps, linked to apps/`*, i les dues imatges hi caben (la Paper, en la partició de
+  12 451 840 B). **A les quatre plaques de 4 MB no hi cap**: sense cap app, `build/disk/m5-atom` fa **1 892 888 B en
+  29 fitxers** i la partició de `partitions.csv` és de **1 441 792 B**, o sigui que `-t buildfs` s'hi atura mentre els
   tres bitmaps de splash (`data/res/splash`, 1 558 434 B dels tres i 1 595 456 B la carpeta) siguin a `data/` (docs/70). La xifra que hi havia aquí —*148 fitxers i 418 720 B per a «tot `apps/`»*, i la imatge deixant
   dos fitxers fora— **no és d'aquest arbre** (`git ls-tree -r apps` en dona 37 el 9/11) i s'ha retirat: el que queda
   d'aquella mesura és el guard, que és cert, i no els números. La raó per la qual cap placa no en porta no és

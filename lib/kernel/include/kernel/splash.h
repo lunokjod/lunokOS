@@ -29,14 +29,15 @@ namespace splash {
 // list is the one place a moment is added: a picture called `charging.png` is the charging moment of a
 // build that knows the word, and a file of a word nobody knows is a file nothing looks for (docs/30).
 //
-// **The words are the ones a person types** (0.114.0): `boot`, `boot-alt`, `poweroff`, `reboot`,
-// `charging` and `sleep`, which are the six of the command and the ones a manifest may name. `boot-alt`
-// is the second drawing of the logo —the one the owner wanted to see beside the photograph of the Moon—
-// and it is a moment of its own and not a switch of the paint: a picture is a file, and a file is a word.
+// **The words are the ones a person types** (0.114.0): `boot`, `poweroff`, `reboot`, `charging` and
+// `sleep`, which are the five of the command and the ones a manifest may name. **`boot-alt` is gone**
+// (0.178.5, the owner: *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): the boot is not
+// one drawing but the drawings the disk carries —`boot-2.bmp`, `boot-3.bmp`, `boot-5.bmp`— and one of
+// them is drawn at every switch-on (`picture_of`), so a second word for a second logo is a switch of the
+// paint that the pictures themselves already make.
 enum Kind : uint8_t {
   kNone = 0,
-  kBoot,       // coming up, before the first page: the logo, cut out of a photograph of the Moon
-  kBootAlt,    // the same moment with the logo drawn as clipart
+  kBoot,       // coming up, before the first page: one of the boot drawings of the disk
   kPowerOff,   // going down: a deep sleep, the power off, the board that stops
   kReboot,     // the board is being restarted under a person's hand
   kCharging,   // on the cable, waiting
@@ -54,6 +55,10 @@ Kind at(uint8_t index);
 // Where the picture of a moment is, if the disk carries one: the file of the moment first and the one
 // of every moment after it. False is "this build has no picture for that", which is not an error.
 bool path_of(Kind kind, char* out, size_t cap);
+// **Which picture of a moment would be drawn**: a moment may carry several —`boot-2.bmp`, `boot-3.bmp`— and then one
+// of them is picked at random, so that the picture of the boot is not the same on every switch-on. `path_of` is the
+// plain name and this is the one `show` asks for; with no drawings of its own it answers what `path_of` answers.
+bool picture_of(Kind kind, char* out, size_t cap);
 // Whether there is a glass to paint on and a picture for that moment.
 bool available(Kind kind);
 

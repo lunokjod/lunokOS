@@ -13,23 +13,19 @@ and **"OS" outside it in paper with an ink edge**, because a paper letter on
 paper needs the edge to be a letter. The same wordmark, read two ways, and that
 is the whole idea of the mark.
 
-Two versions of the same mark, because the owner wanted to see both:
-
-  boot.png      **a photograph of the Moon** with the sky taken out and paper
-                behind it. The picture is NASA's `as11-44-6667`, the full Moon
-                photographed from the Apollo 11 spacecraft on its way back: it
-                is a work of the United States government, which is to say it is
-                in the public domain, and the file is fetched once and kept
-                outside the repository (see `photo()` below)
-  boot-alt.png  the same moon as clipart: a flat disc, an outline, circles and a
-                few stars around it
+**The two logos this script used to write are gone** (0.178.5, the owner: *«boot-alt.png i
+boot.png no han d'estar a la llista del boot»*): the picture of the boot is not one drawing
+but the drawings the disk carries —`boot-2.bmp`, `boot-3.bmp`, `boot-5.bmp`, which are
+pages of a wireframe and not this script's work— and one of them is drawn at random on
+every switch-on (`splash::picture_of`, docs/30, docs/50). The two PNGs were the Moon
+photograph of NASA's `as11-44-6667` and the same moon as clipart, and they are in the
+history of the project if they are wanted again: `git show 9dfa038:data/res/splash/boot.png`.
 
 `reboot.png` is in the plain style of `poweroff.png` and `charging.png` —paper,
 the word, a rule and the line under it— and it is written here so all the
 pictures of this script are made by one command.
 
-Usage: `python3 tools/make_splash_images.py [--refresh]`, which writes into
-`data/res/splash`; `--refresh` downloads the photograph again.
+Usage: `python3 tools/make_splash_images.py`, which writes into `data/res/splash`.
 """
 
 from __future__ import annotations
@@ -248,9 +244,9 @@ def main(argv: list[str]) -> int:
     if not os.path.isdir(OUT):
         print(f"there is no {OUT}", file=sys.stderr)
         return 1
-    refresh = "--refresh" in argv
-    save(logo(clipart=False, refresh=refresh), "boot.png")
-    save(logo(clipart=True), "boot-alt.png")
+    # **`--refresh` is still accepted and does nothing**: it was the flag of the photograph of the Moon, and the boot
+    # is drawn with the drawings of the disk now (0.178.5), so a script of the owner that still carries it keeps running.
+    del argv
     save(plain("reboot", "restarting"), "reboot.png")
     return 0
 

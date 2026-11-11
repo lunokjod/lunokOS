@@ -460,7 +460,7 @@ const char* boot_splash() { return g_boot; }
 bool is_a_boot_word(const char* word) {
   if (word == nullptr) return false;
   const splash::Kind kind = splash::kind_of(word);
-  return kind == splash::kBoot || kind == splash::kBootAlt;
+  return kind == splash::kBoot;
 }
 
 bool set_boot_splash(const char* word) {

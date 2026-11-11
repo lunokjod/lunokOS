@@ -31,10 +31,11 @@ const char* preference();
 const char* keyboard();
 bool set_keyboard(const char* id);
 
-// **The drawing of the logo the system shows when it comes up** (0.115.0): the word of one of the two boot moments
-// of the splash —`boot` or `boot-alt`—, chosen with `cfg boot <word>` and kept across a reboot like the unit and the
-// keyboard. It is **a word and not a path**: the boot paints before anything else of this system exists, and a path
-// in the settings would be a way to make the board open any file at its first breath (docs/30, docs/50, docs/70).
+// **The word of the picture the system shows when it comes up** (0.115.0): one of the moments of the splash the boot
+// accepts —`boot`, and only `boot` since the boot draws the drawings of the disk and picks one, 0.178.5—, chosen with
+// `cfg boot <word>` and kept across a reboot like the unit and the keyboard. It is **a word and not a path**: the boot
+// paints before anything else of this system exists, and a path in the settings would be a way to make the board open
+// any file at its first breath (docs/30, docs/50, docs/70).
 const char* boot_splash();
 bool set_boot_splash(const char* word);
 // Whether the word is one of the drawings of the logo this build carries, which is the question both the command

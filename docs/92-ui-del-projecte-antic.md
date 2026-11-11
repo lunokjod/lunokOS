@@ -1017,8 +1017,9 @@ una app no pot pintar abans d'existir. Un nom que surti del directori de l'app (
 al registre, i un nom que hi és però no és cap imatge no impideix res: **el dibuix és decoració i l'app arrenca
 igual**.
 
-**Les proves escrites**: `test_the_splash_paints_a_picture_in_the_middle_of_the_glass` repassa ara els sis mots
-(`count()` és **6**, `kind_of("boot-alt")` no és `boot`, i `word(kBootAlt)` és `boot-alt`) i
+**Les proves escrites**: `test_the_splash_paints_a_picture_in_the_middle_of_the_glass` repassa els mots de la splash
+(eren **sis** aquí, amb `count()` a 6 i `kind_of("boot-alt")` diferent de `boot`; des de la 0.178.5 són **cinc** i
+`boot-alt` és `kNone`, docs/50) i
 `test_an_app_that_names_a_picture_has_it_painted_before_it_starts` arrenca una app de l'emulador amb `"splash"` i mira el
 vidre: els dos píxels de la imatge al mig del panell i el paper a la vora, la tinta d'un racó esborrada per la neteja,
 i una app sense el camp que deixa el racó amb la tinta com era.
@@ -1077,6 +1078,11 @@ fotografia. La prova de l'emulador (`test_the_boot_paints_the_drawing_the_settin
 —el mateix dibuix de cap per avall— amb els dos noms, tria el mot, arrenca el sistema i llegeix **el píxel del mig
 del vidre**: blanc sobre negre amb `boot-alt` i negre sobre blanc amb `boot`, i a més el refús de `charging` (un
 moment que no és un dibuix del logotip) i que la tria sobreviu a un `cfg::boot`.
+
+**I la 0.178.5 ho va canviar** (l'amo, 11/11: *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): el
+`boot-alt` i el seu fitxer no hi són, el mot del boot és un de sol, i el dibuix que surt es tria **a l'atzar** entre
+els que el disc porta (`boot-2.bmp`, `boot-3.bmp`, `boot-5.bmp`). La conversa de dalt és la mesura del 0.115.0 i es
+queda com a tal; el que hi ha avui ho diuen docs/50 i docs/30.
 
 ## 31. Entrar a una caixa, el cursor sense banda i la vora que no hi és (0.116.0)
 

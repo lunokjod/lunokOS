@@ -5598,6 +5598,31 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.5 (11/11): **the boot draws one of its three drawings, and the two logos of the file are gone**. The owner asked
+// for the splash image to be one of `boot-2.bmp`, `boot-3.bmp` and `boot-5.bmp` at random, and then, seeing a boot that
+// painted `boot-alt.png`, for those two PNGs to be out of the boot's list:
+//   - **`picture_of(kind)`** is the new question: a moment may carry several pictures named `<word>-<tail>.<ext>` and one
+//     of them is drawn **at every show**, out of `ISystem::random()` —the noise window of the chip on the board and the
+//     seeded one of the emulator, so `--seed` draws the same picture twice and a test can say what it sees—. `path_of`
+//     keeps its meaning, which is the plain name of the moment, and `show`, `available`, `splash` and `cfg boot` ask the
+//     new one, because a listing that says `boot.png` while the boot draws `boot-3.bmp` is a listing that lies;
+//   - **a name that is another moment's word is that moment's picture**: the first cut matched every `boot-*` and drew
+//     `boot-alt.png` on one boot in six, which is the owner's *«boot-alt.png i boot.png no han d'estar a la llista del
+//     boot»*. A tail is free —`boot-night.bmp` is a drawing of the boot—, a word is not;
+//   - **and `boot.png` and `boot-alt.png` are deleted from the disk**, together with the moment `boot-alt`: the boot is
+//     not a second logo, it is the drawings the disk carries, so `kMoments` goes from six to five and `cfg boot` accepts
+//     the word `boot` and no other. A store that still says `boot-alt` falls back to `boot` with the warning that path
+//     already had, and `tools/make_splash_images.py` stops writing the two logos (the Moon photograph of `as11-44-6667`
+//     and its clipart stay in the history: `git show 9dfa038:data/res/splash/boot.png`);
+//   - **the tests say the two things that are true and not which one the dice picked**: two `boot-*.bmp` with the same
+//     ink and a `boot-alt.bmp` turned over, so the glass says a drawing was read and the picture of the dead word was
+//     not; the case of the wait shows two moments (`boot` then `charging`) instead of two logos, and the words of the
+//     command are counted as five;
+//   - **measured**: six boots drew the three drawings and never a PNG (3, 2, 3, 3, 5, 2), `splash` lists five moments,
+//     `cfg boot boot-alt` answers `cfg: no boot picture 'boot-alt'`, and `cfg boot` prints the drawing that would come
+//     up now; the disk of the system is 29 files and 1 892 888 B, and the drawings are what keeps the four 4 MB boards
+//     over their partition (docs/70).
+
 // 0.178.4 (11/11): **eight families of letters join the system, and the page that shows them was drawing two letters
 // where one belonged**. The owner asked for eight OFL families —Literata, Merriweather, Atkinson Hyperlegible,
 // OpenDyslexic, Bitter, Source Serif, Inter and IBM Plex Sans— in `/fonts`:
@@ -5632,7 +5657,8 @@ namespace kernel {
 //     each one drawn and read back from a dump, the emulator's disk is 2 320 223 B in 84 files and the Paper's
 //     2 318 939 B in 82, both fitting in their partition, and the four 4 MB boards' are 1 916 844 B in 31 files —over the
 //     1 441 792 B of `partitions.csv`, which is where they were before the fonts and where the three splash bitmaps keep
-//     them (docs/70).
+//     them (docs/70). **The two logos deleted in 0.178.5 take 24 149 B away from all of them**: 2 296 267 B in 82 files,
+//     2 294 790 B in 80 and 1 892 888 B in 29.
 
 // 0.178.3 (11/11): **one question, two answers, and the paint's answer is the one that stands**. A grid can be a grid of
 // names (`items`, painted by the kernel) or a grid of controls the app built (`children`, each cell painting itself), and
@@ -5843,7 +5869,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.4";
+static const char kVersion[] = "0.178.5";
 
 }  // namespace kernel
 

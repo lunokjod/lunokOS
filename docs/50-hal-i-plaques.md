@@ -980,28 +980,37 @@ cap app al davant —una placa que s'aixeca encara no té ni prompt, i una que b
   cap es deixa tal com és. Escalar quatre bits és un blur, i el que fa la splash és ensenyar el que hi ha al fitxer.
 - **Els moments són paraules**, i la paraula és el nom del fitxer: `/res/splash/<moment>.png` (o `.bmp`, `.jpg`) i,
   si el moment no en té, `/res/splash.png` per a tots. Un moment sense imatge **no pinta res i diu per què**: una
-  splash que dibuixa una endevinalla és una placa que amaga un fitxer trencat. Des de la 0.114.0 són **sis** i no
-  quatre: `boot`, `boot-alt`, `poweroff`, `reboot`, `charging` i `sleep` — el mateix joc de paraules que accepta la
-  comanda i que un manifest pot nomenar amb `splash` (docs/40).
-- **El que hi ha al disc** (0.114.0): `boot.png`, `boot-alt.png`, `poweroff.png`, `reboot.png` i `charging.png` a
-  `data/res/splash/`, **460 × 200** cada una. Les tres del mig —la paraula, la ratlla i la línia de sota— les va
-  dibuixar la mateixa mà; `boot.png` i `boot-alt.png` són **el logotip**: una lluna amb el nom a sobre, «lunok» en
-  tinta i amb vora de paper dins de la lluna i «OS» en paper i amb vora de tinta fora —les dues maneres de llegir la
-  mateixa paraula—. La primera és **una fotografia de la Lluna** (`as11-44-6667`, la lluna plena fotografiada des de
-  l'Apollo 11: una obra del govern dels Estats Units, o sigui de domini públic) amb el cel tret i el paper al darrere;
-  la segona és la mateixa lluna **en clipart**. Les dibuixa `tools/make_splash_images.py`, que baixa la fotografia un
-  cop i la deixa a `~/.cache/lunokOS/` perquè el repositori només guardi el que en surt. `sleep` no en té i és el cas
-  que la prova fa servir per comprovar que un moment sense imatge ho diu.
+  splash que dibuixa una endevinalla és una placa que amaga un fitxer trencat. Des de la 0.114.0 són les paraules de
+  la comanda, i des de la 0.178.5 són **cinc**: `boot`, `poweroff`, `reboot`, `charging` i `sleep` — el mateix joc que
+  accepta la comanda i que un manifest pot nomenar amb `splash` (docs/40). **`boot-alt` ja no hi és** (l'amo, 11/11:
+  *«boot-alt.png i boot.png no han d'estar a la llista del boot»*): el boot no és un dibuix sinó **els dibuixos que el
+  disc porta**, i un segon mot per a un segon logotip era un commutador del pintat que les imatges ja fan.
+- **I el boot en té més d'un** (0.178.5): un moment pot portar diverses imatges amb el mot i una cua —`boot-2.bmp`,
+  `boot-3.bmp`, `boot-5.bmp`—, i **una d'elles es tria amb `ISystem::random()` a cada engegada**, o sigui que la
+  mateixa placa no diu el mateix dues vegades (i un `--seed` de l'emulador sí, que és el que fa repetible una prova).
+  Una cua que sigui **el mot d'un altre moment** no és un dibuix d'aquest —`boot-alt.png` era el d'un moment i no ho
+  és—, i un nom que no és d'una imatge que aquest sistema llegeixi no entra al sorteig. `splash` i `cfg boot`
+  ensenyen **la imatge que es dibuixaria**, i no el nom pla del moment, perquè una llista que digués `boot.png` mentre
+  el boot dibuixa `boot-3.bmp` seria una llista que menteix.
+- **El que hi ha al disc, l'11/11**: `poweroff.png`, `reboot.png` i `charging.png` —**460 × 200** cada una: la paraula,
+  la ratlla i la línia de sota, dibuixades per la mateixa mà—, i els **tres dibuixos del boot**, `boot-2.bmp`,
+  `boot-3.bmp` i `boot-5.bmp`, de **540 × 960** i vuit bits, que són tres pàgines d'un wireframe i omplen el vidre
+  sencer. **Les dues imatges del logotip ja no hi són** (0.178.5): `boot.png` era **una fotografia de la Lluna**
+  (`as11-44-6667`, la lluna plena fotografiada des de l'Apollo 11, obra del govern dels Estats Units i per tant de
+  domini públic) amb el cel tret, i `boot-alt.png` era la mateixa lluna **en clipart**; totes dues viuen a la història
+  del projecte (`git show 9dfa038:data/res/splash/boot.png`) i `tools/make_splash_images.py` ja no les escriu. `sleep`
+  no en té i és el cas que la prova fa servir per comprovar que un moment sense imatge ho diu.
 
-Des de la consola: **`splash`** (la llista de moments i la imatge que hi ha), **`splash boot|boot-alt|poweroff|reboot|charging|sleep`**
+Des de la consola: **`splash`** (la llista de moments i la imatge que hi ha), **`splash boot|poweroff|reboot|charging|sleep`**
 (la del moment), **`splash /ruta/al/fitxer.png`** (una imatge qualsevol) i **`splash hide`** (el vidre torna a paper).
 L'ordre en què s'encenen és el del sistema, i **el de l'arrencada és el primer moment possible** (0.115.0): a
 `kernel::boot`, just després dels muntatges i dels ajustos (el dibuix és un fitxer i és el que la persona ha
 triat) i **abans de la resta del maquinari** —les alarmes que han sobreviscut al tall, la ràdio, els sensors, la
 barra—, o sigui que tot això es fa mentre el vidre ja diu lunokOS. És la mateixa crida que fa la comanda
 `splash boot`, i una placa sense pantalla contesta `no glass` i segueix, que és l'únic lloc on pot dir-ho. **Quin
-dels dos dibuixos surt el tria la persona** amb `cfg boot boot` o `cfg boot boot-alt` (a l'NVS, `cfg/boot`, i el
-`cfg` mostra els dos amb la imatge que el disc té per a cada mot; docs/30, docs/70). La resta de moments: a
+dels dibuixos surt no el tria ningú**: es tria sol, a cada engegada (0.178.5), i el que la persona pot triar és el
+mot —`cfg boot boot`, l'únic que hi ha— que és el que queda desat a l'NVS (`cfg/boot`) i el que fa que un `splash`
+digui **quin dibuix sortiria ara** (docs/30, docs/70). La resta de moments: a
 `power::sleep`, abans que el xip parin els rellotges i només en un **son profund** —un son lleuger és una becaina i
 no pinta res—; i als dos comandaments que aturen la placa, `reboot` i `poweroff`, abans de fer la feina (0.114.0).
 **Una imatge d'una app** que la nomeni al seu manifest (`"splash": "res/logo.png"`) es pinta de la mateixa manera

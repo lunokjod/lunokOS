@@ -1255,7 +1255,7 @@ i el contracte.
   `opendyslexic-latin1.ttf` (20 660 B), `bitter-latin1.ttf` (26 000 B), `sourceserif-latin1.ttf`
   (33 600 B), `inter-latin1.ttf` (24 056 B) i `ibmplexsans-latin1.ttf` (22 444 B) — dues serif de
   llibre, dues de pantalla, una de lectura fàcil i una pensada per a la dislèxia—, **208 936 B les vuit** i
-  les seves llicències a `/fonts/OFL.txt` (8 147 B, que són 216 890 amb les cares). Cada fitxer és un **subset** de la família original: el
+  les seves llicències a `/fonts/OFL.txt` (8 147 B, que són 217 083 amb les cares). Cada fitxer és un **subset** de la família original: el
   sistema llegeix una cara d'un fitxer de com a molt 128 KB (`kFontFileBytes`, més avall) i les originals
   van de 328 KB a 4,6 MB, o sigui que totes vuit són **Versions Modificades** de l'OFL i ho diuen al
   fitxer de llicència: retallades al joc de codis de les cares `-latin1` (`--set latin1`), les famílies

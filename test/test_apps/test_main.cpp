@@ -7012,17 +7012,18 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   TEST_ASSERT_FALSE(kernel::splash::show(kernel::splash::kNone));
   TEST_ASSERT_EQUAL_STRING("no such moment", kernel::splash::last_error());
 
-  // **The six words of the command** (0.114.0): the boot with its two drawings, the two ways down, the charge
-  // and the light sleep. `boot-alt` is a word of its own and not a prefix of `boot`, which is the mistake the
-  // lookup would make if it compared the first letters.
-  TEST_ASSERT_EQUAL_UINT8(6, kernel::splash::count());
+  // **The five words of the command** (0.114.0, and five since 0.178.5): the boot, the two ways down, the charge
+  // and the light sleep. **`boot-alt` is not one of them any more** —the boot draws the drawings of the disk and
+  // picks one, so a second word for a second logo is a switch the pictures already make— and a word of the lookup
+  // that only compared the first letters would still find it under `boot-`.
+  TEST_ASSERT_EQUAL_UINT8(5, kernel::splash::count());
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBoot, kernel::splash::kind_of("boot"));
-  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kBootAlt, kernel::splash::kind_of("boot-alt"));
+  TEST_ASSERT_EQUAL_UINT8(kernel::splash::kNone, kernel::splash::kind_of("boot-alt"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kPowerOff, kernel::splash::kind_of("poweroff"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kReboot, kernel::splash::kind_of("reboot"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kCharging, kernel::splash::kind_of("charging"));
   TEST_ASSERT_EQUAL_UINT8(kernel::splash::kSleep, kernel::splash::kind_of("sleep"));
-  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::splash::word(kernel::splash::kBootAlt));
+  TEST_ASSERT_EQUAL_STRING("boot", kernel::splash::word(kernel::splash::kBoot));
   TEST_ASSERT_EQUAL_STRING("poweroff", kernel::splash::word(kernel::splash::kPowerOff));
 
   storage->remove("/res/splash/probe.bmp");
@@ -7246,10 +7247,14 @@ void test_the_picture_of_an_app_goes_up_before_it_is_read(void) {
   kernel::boot(hal::platform());
 }
 
-// **The drawing of the logo that comes up is the one the settings say** (0.115.0): `cfg boot <word>` chooses between
-// the two drawings, a word that is not one is refused where it is typed and the one that was there stays, and the boot
-// paints the chosen picture with the same call the command `splash boot` makes —as early as the filesystem and the
-// settings are there, which is before the alarms and the radio— (docs/30, docs/50, docs/70).
+// **The picture of the boot is the one the disk draws and not the one of another moment** (0.115.0, and the drawings of
+// the disk since 0.178.5): `cfg boot <word>` takes the one word the boot has, a word that is not one —`boot-alt` was one
+// until the boot stopped having a second logo, and `charging` never was— is refused where it is typed and the word that
+// was there stays, and the boot paints one of the `boot-<tail>` drawings with the same call the command `splash boot`
+// makes —as early as the filesystem and the settings are there, which is before the alarms and the radio— (docs/30,
+// docs/50, docs/70). **The draw is a draw**: the case writes two drawings with the same ink, so what it can say is the
+// two things that are true —a drawing of the boot is on the glass, and a picture of a dead word is not— and not which of
+// the two the numbers of the board picked.
 void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   TEST_ASSERT_TRUE(boot_once());
   // **The glass on**, the same as the test before this one: a boot that paints pixels needs a panel to paint them on
@@ -7270,49 +7275,50 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
     storage->close(slot);
     return ok;
   };
-  // **The two drawings of the logo, with the two names the boot looks for**: the same picture the other way up, so
-  // the glass says which of the two files was read with one number and no guess.
-  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  // **Two drawings of the boot and one picture that is not**: the drawing of a moment that no longer exists is the
+  // other way up, so the glass says with one number whether the boot read the drawings or that file.
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-2.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
 
   // **The word is a setting of the system**, asked to the store the way the unit and the keyboard are.
   TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
   TEST_ASSERT_EQUAL_STRING("boot", kernel::cfg::boot_splash());
-  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot-alt"));
-  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
-  // **A word that is not a drawing of this build is refused, and the one that was there is not lost**: `charging` is
-  // a moment of the splash and it is not the picture of the start of the system.
+  // **A word that is not a word of this build is refused, and the one that was there is not lost**: `charging` is a
+  // moment of the splash and it is not the picture of the start of the system, and `boot-alt` was one until 0.178.5.
   TEST_ASSERT_FALSE(kernel::cfg::set_boot_splash("charging"));
+  TEST_ASSERT_FALSE(kernel::cfg::set_boot_splash("boot-alt"));
   TEST_ASSERT_FALSE(kernel::cfg::is_a_boot_word("nothing"));
-  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
+  TEST_ASSERT_EQUAL_STRING("boot", kernel::cfg::boot_splash());
 
-  // **The board comes up and the glass says which picture was chosen**: the two pixels of the clipart in the middle
-  // —white over black, the other way up from the picture of `boot`— and paper around them.
+  // **The picture that the boot would draw is one of the drawings and never the file of the dead word**: the path is
+  // a `boot-` drawing with a tail, which is the whole rule of 0.178.5 (docs/30).
+  char chosen[96];
+  TEST_ASSERT_TRUE(kernel::splash::picture_of(kernel::splash::kBoot, chosen, sizeof(chosen)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(chosen, "/res/splash/boot-"), chosen);
+  TEST_ASSERT_NULL_MESSAGE(strstr(chosen, "boot-alt"), chosen);
+
+  // **The board comes up and the glass says which picture was chosen**: the two pixels of the drawing in the middle
+  // —black— and paper around them.
   kernel::boot(hal::platform());
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
   const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
   const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
-  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
 
-  // **And the other word paints the other drawing**, which is what makes this a choice and not a coincidence.
-  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
-  kernel::boot(hal::platform());
-  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
-  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
-
   // **The choice survives a restart**: `cfg::boot` is what a boot reads, so asking it again is the question the next
   // boot asks, and the answer is the one that was written (docs/30, docs/70).
-  TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot-alt"));
   kernel::cfg::boot(hal::platform());
-  TEST_ASSERT_EQUAL_STRING("boot-alt", kernel::cfg::boot_splash());
+  TEST_ASSERT_EQUAL_STRING("boot", kernel::cfg::boot_splash());
 
   // The setting and the pictures go back, so the tests after this one find the emulator as it was.
   TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
-  storage->remove("/res/splash/boot.bmp");
+  storage->remove("/res/splash/boot-1.bmp");
+  storage->remove("/res/splash/boot-2.bmp");
   storage->remove("/res/splash/boot-alt.bmp");
   emu::Options opts = emu::options();
   opts.board = nullptr;
@@ -7323,7 +7329,7 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
 
 // **The splash waits for the ink of the page before** (0.118.2): the panel of the Paper refuses a paint that arrives
 // while another one is still moving ink (`wait_paint`, three seconds) and that refusal reached the person as `the panel
-// did not take the picture` — seen on the board with `splash boot-alt` typed two seconds after the boot, where the wash
+// did not take the picture` — seen on the board with a `splash <moment>` typed two seconds after the boot, where the wash
 // of the whole glass was still running. **The glass of the emulator says that no too** (`--ink-refuse`), which is what
 // makes this a test and not a hope: with the waiting in `splash::show` the second picture lands, and without it the
 // call answers false and the glass keeps the first one (docs/50, docs/85, docs/92 §33).
@@ -7353,8 +7359,8 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
     storage->close(slot);
     return ok;
   };
-  TEST_ASSERT_TRUE(write_picture("/res/splash/boot.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
-  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  TEST_ASSERT_TRUE(write_picture("/res/splash/charging.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
 
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
@@ -7374,14 +7380,15 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   TEST_ASSERT_FALSE(glass->flush(hal::UpdateMode::kDu));
   TEST_ASSERT_EQUAL_STRING("the previous paint did not finish", glass->last_error());
 
-  // And the other drawing lands anyway: the splash waited for the ink and asked again, which is the whole fix.
-  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBootAlt));
+  // And the next picture lands anyway: the splash waited for the ink and asked again, which is the whole fix. It is
+  // another moment, because a moment has one drawing of each and the boot draws the drawings of `boot-`.
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kCharging));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
 
   // The emulator goes back as it was for the tests that come after this one.
-  storage->remove("/res/splash/boot.bmp");
-  storage->remove("/res/splash/boot-alt.bmp");
+  storage->remove("/res/splash/boot-1.bmp");
+  storage->remove("/res/splash/charging.bmp");
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;

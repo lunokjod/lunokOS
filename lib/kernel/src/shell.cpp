@@ -560,7 +560,7 @@ void print_help(const char* only) {
   help_line("  apps info <id>    the manifest of an app of this disk, key by key", only);
   help_line("  apps remove <id>  delete an app, on the disk it lives on (settings and data stay)", only);
   help_line("  mounts            the mounted file systems and their room", only);
-  help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot, boot-alt,", only);
+  help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_continuation(
@@ -770,7 +770,10 @@ bool command_splash(const char* rest) {
       out("  ");
       out(name);
       spaces(strlen(name) < 10 ? 10 - strlen(name) : 1);
-      if (splash::path_of(kind, path, sizeof(path))) {
+      // **The picture that would be drawn** and not the plain name of the moment (0.178.5): a moment that carries
+      // several drawings shows one of them at random, and a list that said `boot.png` while the boot draws `boot-3.bmp`
+      // would be a list that lies (docs/30).
+      if (splash::picture_of(kind, path, sizeof(path))) {
         out(path);
       } else {
         out("no picture");
@@ -3922,12 +3925,12 @@ void say_boot_pictures() {
   out("cfg: boot pictures are\r\n");
   for (uint8_t i = 0; i < splash::count(); ++i) {
     const splash::Kind kind = splash::at(i);
-    if (kind != splash::kBoot && kind != splash::kBootAlt) continue;
+    if (kind != splash::kBoot) continue;
     const char* name = splash::word(kind);
     out((strcmp(cfg::boot_splash(), name) == 0) ? "  * " : "    ");
     out(name);
     char path[96];
-    if (splash::path_of(kind, path, sizeof(path))) {
+    if (splash::picture_of(kind, path, sizeof(path))) {
       out("  ");
       out(path);
     } else {

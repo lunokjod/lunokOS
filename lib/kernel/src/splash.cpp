@@ -31,8 +31,7 @@ struct Moment {
 };
 
 const Moment kMoments[] = {
-    {kBoot, "boot"},     {kBootAlt, "boot-alt"}, {kPowerOff, "poweroff"},
-    {kReboot, "reboot"}, {kCharging, "charging"}, {kSleep, "sleep"},
+    {kBoot, "boot"}, {kPowerOff, "poweroff"}, {kReboot, "reboot"}, {kCharging, "charging"}, {kSleep, "sleep"},
 };
 const uint8_t kMomentCount = static_cast<uint8_t>(sizeof(kMoments) / sizeof(kMoments[0]));
 
@@ -49,6 +48,54 @@ const uint8_t kExtensionCount = static_cast<uint8_t>(sizeof(kExtensions) / sizeo
 // block comes from the extra memory and a file of ten megabytes is a file that eats the pool of every app
 // that comes after it (docs/75).
 const uint32_t kMostBytes = 2u * 1024u * 1024u;
+
+// **A moment may carry more than one picture, and then the board draws one of them at every show** (0.178.5): three
+// drawings named `boot-2.bmp`, `boot-3.bmp` and `boot-5.bmp` are three pictures of the boot, and which one a person
+// sees comes from `ISystem::random()` —the number of the chip on the board and the seeded one of the emulator, so a run
+// with `--seed` shows the same picture twice—. The tail of the name is free: `boot-night.bmp` is a picture of the boot
+// like `boot-2.bmp` is, and the extension has to be one this system decodes or the file is not a picture at all.
+const uint8_t kMostVariants = 8;
+const uint8_t kNameBytes = 48;
+
+// **A name that is another moment's word is that moment's picture** (0.178.5): `boot-alt.png` was a word of this
+// system until the boot stopped having a second logo, and a folder that still carries it is not a drawing of the boot
+// with a strange tail —it is the picture of a moment that no longer exists, and the boot does not draw it—.
+bool is_a_moment_word(const char* text, size_t length) {
+  for (uint8_t i = 0; i < kMomentCount; ++i) {
+    const char* name = kMoments[i].word;
+    if (strlen(name) == length && strncmp(name, text, length) == 0) return true;
+  }
+  return false;
+}
+
+// **The names of the moment that are there**, taken from one listing of the folder: the names of a listing are the
+// backend's and live only during the call, so they are copied and the pick is made afterwards.
+struct Variants : hal::ListSink {
+  const char* prefix = nullptr;
+  char names[kMostVariants][kNameBytes];
+  uint8_t count = 0;
+
+  bool on_entry(const hal::ListEntry& entry) override {
+    if (entry.type != hal::NodeType::kFile || entry.name == nullptr) return true;
+    const size_t tail = strlen(prefix);
+    if (strncmp(entry.name, prefix, tail) != 0) return true;
+    const char* dot = strrchr(entry.name, '.');
+    if (dot == nullptr) return true;
+    const size_t base = static_cast<size_t>(dot - entry.name);
+    if (is_a_moment_word(entry.name, base)) return true;
+    bool known = false;
+    for (uint8_t i = 0; i < kExtensionCount; ++i) {
+      if (strcmp(dot + 1, kExtensions[i]) == 0) known = true;
+    }
+    if (!known) return true;
+    // **A folder with more drawings than this keeps the first of them**: a pick out of eight is a pick, and the block
+    // is the stack of the turn that boots the board (docs/75).
+    if (count >= kMostVariants) return false;
+    snprintf(names[count], kNameBytes, "%s", entry.name);
+    ++count;
+    return true;
+  }
+};
 
 Kind g_showing = kNone;
 const char* g_error = "";
@@ -69,8 +116,8 @@ void note_failure(const char* what, const char* why) {
 
 // **How long the ink of the paint before is given, in turns of twenty milliseconds** (0.118.2): a page of this glass
 // moves its ink for one to three seconds —the rows are what costs— and a picture goes up once, so waiting for it is
-// free and dropping it is not. Scanned on the board: `splash boot-alt` answered `the panel did not take the picture`
-// when it arrived in the middle of the wash of the boot (docs/50, docs/92).
+// free and dropping it is not. Scanned on the board: a `splash <moment>` typed two seconds after the boot answered
+// `the panel did not take the picture` when it arrived in the middle of the wash of the boot (docs/50, docs/92).
 const int32_t kSettleTurnMs = 20;
 const int32_t kSettleMostMs = 6000;
 
@@ -186,9 +233,31 @@ bool path_of(Kind kind, char* out, size_t cap) {
   return false;
 }
 
+bool picture_of(Kind kind, char* out, size_t cap) {
+  if (out == nullptr || cap == 0) return false;
+  out[0] = '\0';
+  const char* name = word(kind);
+  if (name[0] == '\0') return false;
+  // **The drawings of the moment come first** (0.178.5): a disk that carries three of them says «this moment is
+  // drawn», and the plain name is what a disk with one picture has. A folder with none of either is not an error
+  // here; it falls to the picture of every moment through `path_of`.
+  char prefix[16];
+  snprintf(prefix, sizeof(prefix), "%s-", name);
+  Variants variants;
+  variants.prefix = prefix;
+  hal::Stat info;
+  if (vfs::list(kFolder, variants) && variants.count > 0) {
+    const uint8_t pick = static_cast<uint8_t>(pal::system().random() % variants.count);
+    snprintf(out, cap, "%s/%s", kFolder, variants.names[pick]);
+    if (vfs::stat(out, info) && info.size > 0) return true;
+    out[0] = '\0';
+  }
+  return path_of(kind, out, cap);
+}
+
 bool available(Kind kind) {
   char path[96];
-  return display::surface() != nullptr && path_of(kind, path, sizeof(path));
+  return display::surface() != nullptr && picture_of(kind, path, sizeof(path));
 }
 
 bool show(Kind kind) {
@@ -198,7 +267,7 @@ bool show(Kind kind) {
     return false;
   }
   char path[96];
-  if (!path_of(kind, path, sizeof(path))) {
+  if (!picture_of(kind, path, sizeof(path))) {
     g_error = "no picture for that moment";
     return false;
   }
