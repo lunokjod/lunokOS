@@ -266,6 +266,12 @@ emulador ha rebut amb `--board`, i `sys.emulator` és el que diu que el maquinar
 que toca maquinari mira això abans de res i decideix el camí; mai suposa que és a la placa on es va
 escriure. El detall i les regles són a [`30 · API de Lua`](30-api-lua.md#saber-on-sexecuta).
 
+**I hi ha una placa que no té ni les eines per dibuixar** (0.179.9): als dos ATOM, a l'ESP32 de DevKit i al T-Koala el
+build no porta la pàgina, el lector ni les cares, i `ui`, `canvas`, `keyboard`, `font` i `epub` no existeixen al costat de
+l'app (docs/30, docs/50). Una app que dibuixa ha de mirar `sys.caps().display` **abans** de tocar-ne cap, perquè no hi ha
+cap taula que contesti que no: la primera línia peta. El llançador i el lector del repositori ja ho fan, i per això el que
+diuen en aquestes quatre plaques és `home: this board has no glass` i `about: this board has no glass`.
+
 **I `boards` no és només per al `run`**: és el que decideix **què porta el disc de cada placa**. El disc
 d'un entorn el munta `tools/make_disk.py` amb les apps el manifest de les quals nomena **aquella placa o la
 seva família** —avui totes les del repositori nomenen `esp32`, o sigui que qualsevol placa les pot portar

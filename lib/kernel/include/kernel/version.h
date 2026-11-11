@@ -5598,6 +5598,36 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.9 (11/11): **a board with no glass carries neither the page nor the reader nor the faces**. The owner: *«les
+// funcions de epub del nucli només han d'estar disponibles si la placa te un eink o pantalla. Tampoc fan falta les fonts en
+// aquests dispositius (esp32, koala, m5atom lite i matrix) ni els controls UI o tot lo del UI»*, and later *«Tampoc carrega
+// d'imatges... el QR sí, perquè es pot imprimir en text»*. The four boards without a panel were carrying a whole system they
+// can never run —and asking for half a megabyte of canvas table at every boot— inside a slot that was nine tenths full:
+//   - **the answer is a `#define` in the identity of the board**, `LUNOK_GLASS`, because what it decides is **which
+//     translation units exist** and a function cannot leave a file out of a build. `hal/hal.h` includes the identity and
+//     `#error`s when a board does not say it, so a new one cannot compile into a system with no page in silence; the
+//     question a *running* board answers is still `kCapDisplay` (docs/50);
+//   - **eight kernel files are one `#if`**: `ui.cpp`, `font.cpp`, `book.cpp`, `splash.cpp`, `display.cpp`, `bar.cpp`,
+//     `touch.cpp` and `orientation.cpp`, and with them `epub`, `zip`, `inflate`, `ttf` and `img` are no longer linked at
+//     all —**`qr` stays**, which is the one the owner named, because a QR is printed in text—;
+//   - **the bridge loses 64 000 B of bindings**: `ui.*`, the canvas object and its controls, the focus of the dial, the
+//     finger, the keyboards, the faces and `epub.*`, and the five tables **do not exist** on those boards (`ui` is `nil`,
+//     and a table that could only answer "this build carries no reader" is a promise the build does not keep). `sys`,
+//     `fs`, `net`, `json`, `qr`, `button`, `led`, `power` and the rest are untouched (docs/30);
+//   - **`kernel/src/no_glass.cpp` is the 189 B that let the shell read the same on both boards**: an `attach` that owes
+//     nothing, a bar that says nothing, a finger that is not there, and the two sentences `splash: no glass on this board`
+//     and `cfg: this build carries no keyboard` — the commands stay where a person's fingers expect them (docs/50);
+//   - **measured, `firmware.bin`**: the ATOM Lite and the DevKit go from **2 302 464 to 2 105 456 B** (−197 008, 8.6 %), the
+//     Matrix to 2 105 536 and the T-Koala from 2 378 240 to 2 172 960 (−205 280); the free room in the slot of 2 621 440 B
+//     goes from **319 KB to 516 KB**. The Paper grows 208 B —the text of this version and the two new sentences of the
+//     shell— and nothing else, because it has the glass (docs/75);
+//   - **and it can be watched on the PC**: the emulator's identity says `1` unless the build says otherwise, so
+//     `PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator` is the boot of one of those four boards without
+//     flashing a chip —`[I][UI] no glass on this board: no page, no reader and no faces`, `splash` answering `no glass on
+//     this board`, `cfg keyboard` answering `none`, `lua` working and `print(2+2)` saying 4— (docs/80, docs/85);
+//   - the suite is the glass path and stays green: `584 cases` (`206` of `test_apps`, `105` of `test_ui`, `10` of
+//     `test_touch` and `5` of `test_pal`), and the six environments build.
+
 // 0.179.8 (11/11): **a session memory that the system takes is a block the app can see go**. The owner pasted the log of his
 // launcher: `[I][MEMORY] home_eink gives back 'apps': 32768 B, the memory is short`, `[W][MEMORY] the memory is short: 1
 // block(s), 32768 B given back for an ask of 95296 B`, and then four times
@@ -6125,7 +6155,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.8";
+static const char kVersion[] = "0.179.9";
 
 }  // namespace kernel
 

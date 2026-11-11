@@ -255,6 +255,28 @@ Dues regles:
 - **Un nom desconegut no es pot ignorar.** Si `sys.board` no és cap dels que l'app entén, ho diu i
   surt; no es queda provant maquinari a cegues.
 
+### `ui`, `canvas`, `keyboard`, `font` i `epub` **no existeixen** en una placa sense pantalla (0.179.9)
+
+**A les quatre plaques sense vidre —els dos ATOM, l'ESP32 de DevKit i el T-Koala— aquestes cinc taules no hi són, i no
+hi són perquè el seu codi no s'ha compilat**: la pàgina sencera, el lector de llibres, les cares de la lletra i les
+llibreries que els donen suport (`epub`, `zip`, `inflate`, `ttf` i `img`) queden fora del build amb un sol
+`LUNOK_GLASS 0` de la identitat de la placa (docs/50, docs/75). Una app que les toqui no falla a mig fer: peta a la
+primera línia amb `attempt to index a nil value (global 'ui')`, que és el mateix que dir que en aquesta placa no hi ha
+pàgina.
+
+```lua
+-- i per tant això no és una app d'aquest sistema sense una comprovació abans
+if not sys.caps().display then
+  console.print('aquest build no porta pàgina')
+  return
+end
+```
+
+**El que sí que hi és sempre**: `sys`, `fs`, `net`, `http`, `json`, `qr` (un QR s'imprimeix en text i una placa sense
+pantalla el necessita per al provisioning), `button`, `led`, `power`, `imu`, `env`, `alarm`, `time`, `apps`, `app`,
+`require` i la consola. La frontera és el **vidre** i no «el que dibuixa»: una placa amb pantalla i sense tàctil té `ui` i
+no té dit, i una sense pantalla no té cap de les dues (docs/50).
+
 ## `apps`
 
 **La porta de les apps, per a un llançador** (0.153.0, i 0.154.0 amb els noms i el manifest separats). El sistema és qui

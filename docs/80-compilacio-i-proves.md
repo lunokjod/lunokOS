@@ -152,6 +152,21 @@ pio test -e test           # proves natives
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
+**Un emulador sense vidre, per veure què arrenca una placa sense pantalla** (0.179.9): les quatre plaques sense
+pantalla compilen el sistema sense la pàgina, el lector, les cares ni `epub`/`ttf`/`img`, i el PC és l'única manera de
+veure aquella arrencada sense gravar un xip. La identitat de l'emulador és la de sempre (`LUNOK_GLASS 1`) i el valor es
+pot donar des de fora:
+
+```
+PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator
+./.pio/build/emulator/program --board m5stack-atom --no-gui --no-delay --no-touch
+```
+
+El binari que en surt és el del PC i **sobreescriu el de sempre**: després, `pio run -e emulator` el torna a fer amb
+vidre, o `pio test -e test` recompila el que calgui. El que s'hi ha de veure és `[I][UI] no glass on this board: no page,
+no reader and no faces` a l'arrencada, `splash` contestant `no glass on this board`, un `lua` que funciona i una app que
+comença i diu que no hi ha pàgina (docs/50, docs/85).
+
 **Una sola prova, per buscar-ne una de vermella** (0.152.5): la suite sencera
 dura un minut, i caçar un cas vermell demanava un minut per pregunta. Unity no té
 cap filtre, així que `main` de `test/test_apps/test_main.cpp` substitueix el seu

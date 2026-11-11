@@ -18,6 +18,13 @@
 
 #include <stdint.h>
 
+// **Whether this build carries a glass** (0.179.9): **yes**. This board has a panel, so the page —the canvases and the
+// controls, the faces of the text, the reader of a book, the picture of the boot, the bar and, when the model has one, the
+// finger— is built in. It is a macro because the question is asked **before the compiler** (`#if LUNOK_GLASS` decides which
+// translation units exist), which is not something a function can do; the capability of a *running* board is still
+// `kCapDisplay` (docs/50, docs/75).
+#define LUNOK_GLASS 1
+
 namespace board {
 
 // The name this board has in platformio.ini, letter for letter (`board = ...`).

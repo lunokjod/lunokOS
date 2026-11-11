@@ -21,6 +21,18 @@ namespace emu {
 const char* active_board();
 }  // namespace emu
 
+// **Whether this build carries a glass** (0.179.9): **yes**, which is the default. The emulator can be told to be the
+// Paper —and it is by default a board with a screen in the run of a person—, so every page of the system is built into it
+// and the board it is standing in for decides at run time whether the glass is used.
+//
+// **And it is the one place where the answer can be given from outside** (`-DLUNOK_GLASS=0`), because the PC is also the
+// only way to see what a board without a glass boots into: the same kernel, the same shell and the same interpreter, with
+// the page, the reader and the faces left out. The four boards that say `0` in their own header are the reason the flag
+// exists, and a build of this one that says it is how their boot is tried without flashing a chip (docs/50, docs/85).
+#ifndef LUNOK_GLASS
+#define LUNOK_GLASS 1
+#endif
+
 namespace board {
 
 inline const char* id() { return emu::active_board(); }

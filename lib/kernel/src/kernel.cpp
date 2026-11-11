@@ -4,16 +4,11 @@
 
 #include "alarms/alarms.h"
 #include "kernel/apps.h"
-#include "kernel/book.h"
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/fs_ops.h"
 #include "kernel/env.h"
-#include "kernel/display.h"
-#include "kernel/bar.h"
 #include "kernel/imu.h"
-#include "kernel/touch.h"
-#include "kernel/ui.h"
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
@@ -21,9 +16,19 @@
 #include "kernel/power.h"
 #include "kernel/session.h"
 #include "kernel/shell.h"
-#include "kernel/splash.h"
 #include "kernel/version.h"
 #include "kernel/vfs.h"
+// **The page, its reader and the faces, only where there is a glass to put them on** (0.179.9): these six headers are what
+// pulls the whole display stack —and with it `epub`, `ttf` and `img`— into a build, and a board without a screen carries
+// none of it (docs/50, docs/75).
+#if LUNOK_GLASS
+#include "kernel/bar.h"
+#include "kernel/book.h"
+#include "kernel/display.h"
+#include "kernel/splash.h"
+#include "kernel/touch.h"
+#include "kernel/ui.h"
+#endif
 #include "luabind/luabind.h"
 #include "pal/pal.h"
 
@@ -313,6 +318,10 @@ void boot(hal::IPlatform& platform) {
   // runs while the glass is already saying lunokOS. It is the same call the command `splash boot` makes, and a
   // board without a glass answers `no glass` and goes on with the log, which is the only place that sentence can
   // go (docs/30, docs/50).
+  // **A board with no glass skips the page whole** (0.179.9): the panel, the picture of the boot and the wash the first
+  // page owes are one thing, and a board without a screen has neither the code nor the settings that name a drawing
+  // (`LUNOK_GLASS`, docs/50, docs/75). What follows —the alarms, the radio, the sensors— is the same on both.
+#if LUNOK_GLASS
   display::boot(platform);
   if (!splash::show(splash::kind_of(cfg::boot_splash()))) {
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
@@ -323,6 +332,7 @@ void boot(hal::IPlatform& platform) {
     // (docs/30, docs/50).
     ui::owe_the_page();
   }
+#endif  // LUNOK_GLASS
 
   // The alarms that survived the power cut come back before anything else can
   // look at the queue.
@@ -387,6 +397,10 @@ void boot(hal::IPlatform& platform) {
   env::boot(platform);
   // The glass, when the board has one: its frames become taps, long presses and drags in the turns
   // of this loop (docs/50).
+  // **And the page, which a board without a glass does not have** (0.179.9): the finger, the bar, the canvas of the app,
+  // the reader of a book and the keyboard are one system and the same `LUNOK_GLASS` decides all of them, so the four
+  // boards without a panel do not carry a line of any of it (docs/30, docs/50, docs/75).
+#if LUNOK_GLASS
   touch::boot(platform);
   // The bar of the system, which owns the top rows of the glass: the hour, the title of the app in front
   // and the charge (docs/30).
@@ -404,6 +418,11 @@ void boot(hal::IPlatform& platform) {
     log_printf(pal::kLogWarn, "CFG", "no keyboard '%s' in this build; qwerty stays", cfg::keyboard());
     ui::keyboard_select("qwerty");
   }
+#else
+  // **Said once, and in the log**: a board with no page is a board whose apps are words and keys, and a line that says so
+  // is the difference between a system that is small on purpose and one that lost its screen (docs/50).
+  log_printf(pal::kLogInfo, "UI", "no glass on this board: no page, no reader and no faces");
+#endif  // LUNOK_GLASS
   // **The prompt is the last thing the boot writes**, and it is not a detail: the lines of the hardware
   // say what this board is, and one of them after the prompt is a line that looks like an answer to
   // something the person has not typed (measured on the board and on the emulator, 1/11: `ui: view ...`
@@ -526,11 +545,13 @@ void poll() {
   button::poll();
   // The glass, in the same turn: a frame becomes a tap, a long press, a drag or two fingers here,
   // and not in the app, so every board makes the same gestures out of the same points (docs/50).
+#if LUNOK_GLASS
   touch::poll();
   // **And the three taps of an app that asked for the whole glass are the system's** (0.136.0, docs/46 D1): the gesture
   // is taken out of the queue here, before the app's turn below, so the app neither handles it nor hears it and the bar
   // always has a way back (docs/30).
   ui::poll_full_screen();
+#endif  // LUNOK_GLASS
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine
   // suspended: the interpreter is not closed from inside its own call (docs/30).
@@ -567,6 +588,7 @@ void poll() {
   // The bar of the system: if the minute, the title or the charge changed, it paints its own strip and
   // nothing else. It is the only thing of the system that draws on the glass, and only its own rows
   // (docs/30).
+#if LUNOK_GLASS
   bar::poll();
 
   // **A page the panel refused is painted as soon as it can take it** (0.118.2): the glass of the Paper says no to a
@@ -574,6 +596,7 @@ void poll() {
   // otherwise leave the screen of the boot on the glass for ever: it runs and shows nothing. The question is only paid
   // for when something is owed, so a turn that owes nothing costs nothing (docs/50, docs/92 §33).
   if (ui::owes_paint()) ui::idle();
+#endif  // LUNOK_GLASS
 
   // A moment of the system that ended gave the app its light back, and the app may have changed
   // its mind while the light was not its own: `on_light()` is the one turn it gets to redraw

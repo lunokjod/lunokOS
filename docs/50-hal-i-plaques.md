@@ -108,6 +108,7 @@ amb dues capçaleres de nom fix:
 | `led_count()` | quants llums: 1 al Lite, 25 al Matrix, cap al Paper i 1 al T-Koala. **A l'emulador no hi és**: el nombre de llums el diu el model (`emu::model().lights`: 1 al Lite i al T-Koala, 25 al Matrix i 0 al Paper) |
 | `led_max()` | el sostre d'un canal: 255 al Lite i al T-Koala, 20 al Matrix i a l'emulador |
 | `has_imu()` | si la placa porta sensor inercial |
+| **`LUNOK_GLASS`** | **si aquest build porta vidre**, i és un `#define` i no una funció: 1 al Paper i a l'emulador, 0 als dos ATOM, a l'ESP32 de DevKit i al T-Koala |
 
 L'emulador té una cosa que cap placa no té: **`models_count()`, `model(i)` i `default_model()`**, els
 models que sap ser —`m5stack-atom`, `m5stack-atom-matrix`, `m5stack-paper` i `ttgo-t-koala`—. No els respon tots alhora:
@@ -124,6 +125,34 @@ esquerra, `centre`/`up`/`down`), i això és el que queda a M8 (docs/90).
 
 `board/impl.h` arrossega les capçaleres de debò (el HAL d'aquesta placa i la seva PAL), i només
 l'inclou `src/board_link.cpp`.
+
+### `LUNOK_GLASS`: el vidre i el que penja d'ell (0.179.9)
+
+**Un `#define` i no una funció, perquè la pregunta es fa abans del compilador.** `LUNOK_GLASS` és l'única cosa de la
+identitat que no pot ser una funció: el que decideix és **quines unitats de traducció existeixen**, i una funció no pot
+treure un fitxer d'un build. La pregunta de debò —si la placa que corre té pantalla— continua sent la del HAL
+(`kCapDisplay`, i `sys.caps` la contesta), i `hal/hal.h` inclou `board/identity.h` i peta amb un `#error` si una identitat
+no diu quin dels dos valors és, perquè una placa nova que s'oblidi no es compili en silenci com un sistema sense pàgina.
+
+| Què | Amb `LUNOK_GLASS 1` | Amb `LUNOK_GLASS 0` |
+|---|---|---|
+| `kernel/ui.cpp`, `font.cpp`, `book.cpp`, `splash.cpp`, `display.cpp`, `bar.cpp`, `touch.cpp`, `orientation.cpp` | tot el fitxer | el fitxer és buit |
+| les llibreries `epub`, `zip`, `inflate`, `ttf` i `img` | al build | **no s'enllaça ni un byte** (`qr` sí: un QR s'imprimeix en text) |
+| el pont de Lua | `ui`, `canvas`, `keyboard`, `font` i `epub` | les taules **no existeixen** (`nil`), i `sys`, `fs`, `net`, `button`, `qr`, `json` i la resta queden |
+| els comandaments de la consola | tots | tots, i els de la pàgina contesten el que és veritat: `splash` diu `no glass on this board` i `cfg keyboard` diu que aquest build no en porta cap; `lua`, `run`, `apps`, `mem`, `net` i la resta no canvien |
+
+**I el que el sistema encara crida d'una pàgina que no hi és, contesta des d'un sol fitxer** (`kernel/src/no_glass.cpp`):
+un `attach()` que no fa res, una barra que no diu res, un dit que no hi és. És el que fa que el shell i el nucli no hagin de
+preguntar de quina placa són a cada línia: el camí sense vidre és el mateix codi amb les respostes curtes.
+
+**El preu, mesurat** (11/11, `pio run` de les cinc plaques, `firmware.bin`): l'ATOM Lite i l'ESP32 de DevKit passen de
+**2 302 464 B a 2 105 456 B** (−197 008 B, un 8,6 %), el Matrix de 2 302 576 a 2 105 536 i el T-Koala de 2 378 240 a
+2 172 960 (−205 280). La ranura de 2 621 440 B passa de **319 KB lliures a 516 KB**: la meitat del que ocupava la pàgina
+que aquestes quatre plaques no poden ensenyar (docs/75).
+
+**I es pot veure al PC**: la identitat de l'emulador és `#ifndef LUNOK_GLASS / #define … 1`, o sigui que
+`PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator` fa un emulador sense pàgina —el mateix nucli, el mateix
+shell, el mateix intèrpret— i és la manera de veure què arrenca una placa sense vidre sense gravar un xip (docs/80, docs/85).
 
 **Com es tria una placa, sense cap `#ifdef`.** Cada entorn de `platformio.ini` afegeix
 `-Ilib/board_<id>/include` i fa `lib_ignore` de les altres identitats, o sigui que cada build en veu

@@ -17,6 +17,12 @@
 local kBudget = sys.turn()
 local kInstrPerLap = 3    -- ADDI + MMBINI + FORLOOP, counted on the bytecode of this file's loop
 
+-- **`sys.caps()` is asked once, at the top, because the first thing this file does with a page is ask it to be quiet**
+-- (0.179.9): on a board with no glass there is no `ui` table at all —the build does not carry it— and a `ui.idle()` before
+-- the check was an app that died on its first measurement with `attempt to index a nil value (global 'ui')`. The console is
+-- where the numbers go on that board, and that is said at the end (docs/30, docs/50).
+local caps = sys.caps()
+
 -- **A loop with no call in it**: one lap is three instructions and nothing else, so a second of laps is a second of
 -- instructions (a call into the system would be a call into the system, and that is another measurement).
 local function spin(laps)
@@ -38,6 +44,7 @@ end
 -- the loop, and the wait for an idle glass takes the biggest of them out of the count (found on the emulator, 9/11: the
 -- same loop measured 195 and 2 085 ns a lap in two runs, the second one with the page of the boot still moving).
 local function quiet()
+  if not caps.display then return end
   if ui.idle() then return end
   local waited = 0
   while not ui.idle() and waited < 3000 do
@@ -101,7 +108,6 @@ end
 
 -- **And the same numbers on the glass**, because the console of a board is a cable and a person holding the board is not
 -- carrying one. A board with no glass keeps the console and nothing else (docs/30).
-local caps = sys.caps()
 if not caps.display then
   say('this board has no glass: the numbers stay in the console')
   return

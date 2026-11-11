@@ -23,6 +23,14 @@
 
 #include <stdint.h>
 
+// **Whether this build carries a glass** (0.179.9): **no**. The whole page —the canvases and the controls, the faces of the
+// text, the reader of a book, the picture of the boot, the bar and the finger— is code this board can never run, and on a
+// chip whose slot is nine tenths full it is flash that is not there either. It is a macro and not a function because the
+// question is asked **before the compiler**: `#if LUNOK_GLASS` is what decides which translation units exist at all, and a
+// function cannot leave a file out of a build. Whoever needs to know which glass a *running* board has still asks the HAL
+// for `kCapDisplay` (docs/50, docs/75).
+#define LUNOK_GLASS 0
+
 namespace board {
 
 // The name this board has in platformio.ini, letter for letter (`board = esp32dev`).

@@ -5,6 +5,16 @@
 
 #include <stddef.h>
 
+// **Nothing of this file exists on a board without a glass** (0.179.9): this is the faces of a text —the five by
+// seven of the flash and the TrueType of the disk— and a board with no screen can never run a line of it. The
+// question is asked of the board and not of a name in this file: `LUNOK_GLASS` is one line of its
+// `board/identity.h`, and it is what decides which translation units exist at all. The four boards of the project
+// without a panel —the two ATOMs, the bare ESP32 and the T-Koala— carry neither this code nor the libraries it
+// pulls (docs/50, docs/75).
+#include "board/identity.h"
+
+#if LUNOK_GLASS
+
 namespace kernel {
 namespace font {
 namespace {
@@ -951,3 +961,5 @@ const char* load_any(const char* text, uint32_t length, uint8_t* bits, Face& out
 
 }  // namespace font
 }  // namespace kernel
+
+#endif  // LUNOK_GLASS

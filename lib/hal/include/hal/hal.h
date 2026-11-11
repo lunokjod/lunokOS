@@ -9,6 +9,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// **What a board has is said twice, and each way answers a different question** (0.179.9): `kCapDisplay` below is the
+// answer of a *running* system —a board that has the panel and has booted it—, and `LUNOK_GLASS` of its `board/identity.h`
+// is the answer **the compiler** gets, which is what decides whether the page, the reader and the faces are built at all
+// (`#if LUNOK_GLASS` in the kernel, in the bridge and in the shell). The header is included here so that no file has to
+// remember it, and a board that forgets to say which of the two it is does not build instead of building a system with no
+// page and no word about it (docs/50, docs/75).
+#include "board/identity.h"
+#if !defined(LUNOK_GLASS)
+#error "board/identity.h has to say LUNOK_GLASS (0 or 1): whether this board carries a glass"
+#endif
+
 namespace hal {
 
 enum Capability : uint32_t {

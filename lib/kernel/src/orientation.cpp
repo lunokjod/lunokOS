@@ -1,6 +1,15 @@
 // The one turn between the frame of the fingers and the frame of the glass (docs/90).
 #include "kernel/orientation.h"
 
+// **Nothing of this file exists on a board without a glass** (0.179.9): this is the quarter turn between the frame
+// of the chip and the frame of the page, and a board with no screen can never run a line of it. The question is
+// asked of the board and not of a name in this file: `LUNOK_GLASS` is one line of its `board/identity.h`, and it
+// is what decides which translation units exist at all. The four boards of the project without a panel —the two
+// ATOMs, the bare ESP32 and the T-Koala— carry neither this code nor the libraries it pulls (docs/50, docs/75).
+#include "board/identity.h"
+
+#if LUNOK_GLASS
+
 namespace kernel {
 namespace orientation {
 namespace {
@@ -63,3 +72,5 @@ bool turn(const Point& point, const Frame& from, uint16_t degrees, Frame& turned
 
 }  // namespace orientation
 }  // namespace kernel
+
+#endif  // LUNOK_GLASS

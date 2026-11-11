@@ -776,6 +776,12 @@ bool command_splash(const char* rest) {
   if (!read_words(rest, words, 1, count)) return false;
   if (count == 0) {
     const uint8_t moments = splash::count();
+    // **A build with no pictures of the moments has no glass to paint them on** (0.179.9): it says so instead of a usage
+    // line that reads as a command that forgot its arguments (`LUNOK_GLASS`, docs/30, docs/50).
+    if (moments == 0) {
+      out("splash: no glass on this board\r\n");
+      return true;
+    }
     for (uint8_t i = 0; i < moments; ++i) {
       const splash::Kind kind = splash::at(i);
       const char* name = splash::word(kind);
@@ -3929,6 +3935,13 @@ void start() {
 // survives a reboot. **The keyboard is the other setting** (0.93.0): the id of one of the children of the UI, chosen
 // here and read at boot (docs/30, docs/70).
 void say_keyboards() {
+  // **A board with no glass has no band of keys and says so** (0.179.9): `cfg keyboard` on one of the four boards without a
+  // panel used to end its sentence with the word `are` and nothing after it, which reads as a list that failed to load
+  // (`LUNOK_GLASS`, docs/30, docs/75).
+  if (ui::keyboard_count() == 0) {
+    out("cfg: this build carries no keyboard\r\n");
+    return;
+  }
   out("cfg: keyboards are");
   for (uint8_t i = 0; i < ui::keyboard_count(); ++i) {
     out(" ");
@@ -3942,6 +3955,12 @@ void say_keyboards() {
 // picture is a boot that paints nothing and says why, and it is better to know it before the restart than after it
 // (docs/30, docs/50).
 void say_boot_pictures() {
+  // **A board with no glass paints no picture at the boot**, so there is no word to list and the sentence says that
+  // instead of ending in a colon with nothing behind it (`LUNOK_GLASS`, docs/30, docs/50).
+  if (splash::count() == 0) {
+    out("cfg: this build paints nothing at the boot: the board has no glass\r\n");
+    return;
+  }
   out("cfg: boot pictures are\r\n");
   for (uint8_t i = 0; i < splash::count(); ++i) {
     const splash::Kind kind = splash::at(i);

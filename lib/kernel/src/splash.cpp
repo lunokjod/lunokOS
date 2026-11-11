@@ -20,6 +20,15 @@
 #include "kernel/vfs.h"
 #include "pal/pal.h"
 
+// **Nothing of this file exists on a board without a glass** (0.179.9): this is a picture of a moment —the one the
+// boot, the reboot and the way down paint— and a board with no screen can never run a line of it. The question is
+// asked of the board and not of a name in this file: `LUNOK_GLASS` is one line of its `board/identity.h`, and it
+// is what decides which translation units exist at all. The four boards of the project without a panel —the two
+// ATOMs, the bare ESP32 and the T-Koala— carry neither this code nor the libraries it pulls (docs/50, docs/75).
+#include "board/identity.h"
+
+#if LUNOK_GLASS
+
 namespace kernel {
 namespace splash {
 namespace {
@@ -428,3 +437,5 @@ const char* last_error() { return g_error; }
 
 }  // namespace splash
 }  // namespace kernel
+
+#endif  // LUNOK_GLASS

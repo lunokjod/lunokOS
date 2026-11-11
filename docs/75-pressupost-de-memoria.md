@@ -669,10 +669,56 @@ vista de l'app (a la Paper, 540 × 912 = **246 KB**) i el seu sostre. En una pla
 | Quantes en rep una placa **sense** PSRAM | **no mesurat** | la línia de l'arrencada de l'ATOM és la que ho dirà, i `mem` després; cap build no ho ha llegit encara |
 | Quantes en rep la Paper | **2 978** | cap dels 524 128 B no és a la RAM interna: la PSRAM els té de sobres |
 
+**Des de la 0.179.9 això només és cert a les plaques amb vidre**: l'ATOM, el Matrix, l'ESP32 de DevKit i el T-Koala no
+compilen `ui.cpp` i per tant no demanen cap taula (vegeu el capítol de sota, «La pàgina que una placa sense vidre no
+compila»). El que queda pendent és la Paper, que sí que la demana i on el número és **2 978 ranures**.
+
 **Què s'hi farà quan es mesuri** (i no abans, perquè el número ha de sortir de la placa): si l'ATOM es queda
 amb 744 ranures o menys, la taula s'ha de dimensionar pel que la placa té i no per una constant —per exemple
 `extra_memory()` quan el xip és zero, i `kSlotTableBytes` quan no ho és—, o baixar `kSlotTableBytes` a la meitat.
 El que **no** s'ha de fer és llevar el `true`: sense ell, la Paper deixaria de tenir la taula a la PSRAM.
+
+## La pàgina que una placa sense vidre no compila (0.179.9)
+
+**La meitat del firmware d'un ATOM era codi que la placa no pot executar.** El vidre, el lector d'EPUB, les cares de la
+lletra i les llibreries que els donen suport (`epub`, `zip`, `inflate`, `ttf`, `img`) hi eren perquè el nucli els demanava
+a l'arrencada, i el que és pitjor: `ui::boot()` **demanava mig megabyte** de taula de canvas en una placa de 320 KB de RAM
+—el bucle el partia per dos fins que hi cabia, i el log deia quantes ranures havien quedat—. Amb un sol
+`LUNOK_GLASS 0` a `board/identity.h` aquestes quatre plaques no en compilen ni una línia (docs/50), i el que queda és el
+sistema: consola, disc, VFS, xarxa amb TLS, alarms, llums, tecles, sensors i l'intèrpret.
+
+**El que ha desaparegut del binari** (mapa d'enllaç de l'ATOM, `pio run -e m5-atom`, 11/11):
+
+| Peça | Abans | Ara |
+|---|---|---|
+| `ui.cpp` | 52 482 B | — |
+| `font.cpp` | 7 623 B | — |
+| `book.cpp` | 8 664 B | — |
+| `splash.cpp`, `bar.cpp`, `touch.cpp`, `display.cpp`, `orientation.cpp` | 7 964 B | — |
+| `luabind.cpp` els enllaços de la pàgina i del lector | 107 688 B | **39 813 B** |
+| `epub` + `zip` + `inflate` + `ttf` + `img` | 33 666 B | **0 B** |
+| `qr` | 4 782 B | **4 750 B** (es queda: un QR s'imprimeix en text) |
+| `no_glass.cpp` (les respostes curtes) | — | **189 B** |
+
+**I el número que compta, `firmware.bin`** (11/11, les cinc plaques):
+
+| Placa | Abans | Ara | Estalvi | Lliure a la ranura de 2 621 440 B |
+|---|---|---|---|---|
+| `m5-atom` | 2 302 464 B | **2 105 456 B** | −197 008 B (8,6 %) | de 318 976 a **515 984 B** |
+| `m5-atom-matrix` | 2 302 576 B | **2 105 536 B** | −197 040 B | de 318 864 a **515 904 B** |
+| `esp32-devkit` | 2 302 464 B | **2 105 456 B** | −197 008 B | de 318 976 a **515 984 B** |
+| `ttgo-t-koala` | 2 378 240 B | **2 172 960 B** | −205 280 B | de 243 200 a **448 480 B** |
+| `m5stack-paper` | 2 390 128 B | 2 390 336 B | **+208 B: és el text de la versió i de les dues frases noves del shell, i té vidre** | 231 104 B |
+
+**I la RAM, que és el regal que no s'havia comptat**: sense `ui::boot()` la taula de canvas no es demana, o sigui que
+l'ATOM no torna a provar de reservar 524 128, 262 064, 130 944… bytes per quedar-se amb la que hi cap (vegeu el capítol de
+dalt, que queda **tancat per aquestes quatre plaques**: no hi ha taula perquè no hi ha pàgina). `mem` a l'ATOM diu `extra
+memory none on this board` i el pic de l'intèrpret en arrencar una app baixa dels ~29 800 B de terra fins als **~13 000 B**
+que és Lua i prou, perquè la llibreria d'UI no hi és.
+
+**El preu és una frontera que les apps han de saber**: `ui`, `canvas`, `keyboard`, `font` i `epub` no existeixen en aquests
+quatre builds i una app que els toqui peta a la primera línia (docs/30). És el que es volia dir amb «no fan falta»: no una
+taula que contesta que no, sinó una taula que no hi és.
 
 ## Els comptadors de la porta (1/11)
 

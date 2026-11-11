@@ -3578,6 +3578,12 @@ int l_touch_gesture(lua_State* L) {
   return 1;
 }
 
+// **Here begins the page, and a board with no glass has none of it** (0.179.9): `ui.*` and everything under it —the
+// canvases and the controls with their states, the strips, the lists, the grids, the cards, the finger and the dial, the
+// keyboards and the faces— is one system and one `LUNOK_GLASS` takes all of it out of the build. `sys`, `fs`, `net`,
+// `button` and the rest are above and below these lines and stay (docs/30, docs/50, docs/75).
+#if LUNOK_GLASS
+
 // ui.caps(): the size of the app's view, how many levels it has and where it sits on the glass
 // (docs/30).
 int l_ui_caps(lua_State* L) {
@@ -3897,6 +3903,7 @@ int l_ui_full_screen(lua_State* L) {
   lua_pushboolean(L, 1);
   return 1;
 }
+
 
 // ---------------------------------------------------------------------------
 // ui.canvas: the control layer's basic thing, an object with methods (docs/90)
@@ -10116,6 +10123,7 @@ int ui_hit(const FocusTarget* targets, int count, int x, int y) {
   }
   return best;
 }
+#endif  // LUNOK_GLASS
 
 int l_button_wait(lua_State* L) {
   lua_Integer timeout = luaL_optinteger(L, 1, kButtonWaitDefaultMs);
@@ -10335,6 +10343,11 @@ void open_libraries(lua_State* L) {
   seed_the_numbers(L);
 }
 
+// **A book is a page, and a page is a glass** (0.179.9): the reader of the system —the book, its chapters and the pages
+// of them laid out in a canvas of the app— asks for faces and for canvases on every line, so it goes with the page and not
+// with the rest of the system. A board with no screen carries neither this code nor `epub`, `zip` and `inflate`
+// (docs/46, docs/50, docs/75).
+#if LUNOK_GLASS
 // ---------------------------------------------------------------------------
 // epub: a book of the disk, a chapter of it, and a page of the chapter (docs/46 A5)
 // ---------------------------------------------------------------------------
@@ -10553,6 +10566,7 @@ int l_epub_thumbnail(lua_State* L) {
   lua_pushboolean(L, 1);
   return 1;
 }
+#endif  // LUNOK_GLASS
 
 // ---- require: an app in more than one file (0.148.0, docs/46 D6) ----
 //
@@ -10616,6 +10630,9 @@ int l_require(lua_State* L) {
   return 1;                                  // [.., value]
 }
 
+// **A face of a book is a face of the page** (0.179.9): `epub.font` reads the face out of the book and hands it to the
+// same three slots `ui.load_font` uses, so it goes with the page like the rest of the reader (docs/46).
+#if LUNOK_GLASS
 // **The face a book carries inside itself** (0.150.0, docs/46 D6): `epub.font(name)` reads the font entry of the book
 // —a TrueType or a `.woff`, which the kernel opens into the same kind of bytes— and makes a face of it, which is a font
 // object like the one `ui.load_font` answers: the app gives it to `epub.page` as `face` or `title_face` and gives it back
@@ -10637,11 +10654,13 @@ int l_epub_font(lua_State* L) {
   if (handle < 0) return push_nil_error(L, "E_INVAL", (reason != nullptr) ? reason : "that is not a face");
   return push_font(L, handle);
 }
+#endif  // LUNOK_GLASS
 
 // ---------------------------------------------------------------------------
 // a session of the shell, for an app (0.159.0, docs/30)
 // ---------------------------------------------------------------------------
 //
+
 // **The shell is the system's and not the wire's.** `sys.shell()` asks for a session of the system's own shell and
 // what comes back is a handle with the **three pipes** of one: what is written on `stdin` are the lines the shell
 // runs, `stdout` is what the shell answers and `stderr` is what it complains about. No console, no prompt, no echo —
@@ -10895,6 +10914,11 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_qr_caps);
   lua_setglobal(L, "qr");
 
+  // **`epub`, `ui`, `canvas`, `keyboard` and `font` are not there on a board with no glass** (0.179.9): a table that could
+  // only answer "this build carries no reader" is a promise the build does not keep, and the owner asked for the functions
+  // themselves to be absent. `sys.caps` still says what a board has, and `nil` here is not a failure an app has to handle:
+  // an app that draws needs a board whose manifest names one with a screen (docs/30, docs/40, docs/50).
+#if LUNOK_GLASS
   // epub: a book of the disk, a chapter of it and a page of the chapter painted in
   // a canvas of the app (docs/46, A5 and B3).
   lua_createtable(L, 0, 12);
@@ -10911,6 +10935,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "font", l_epub_font);
   set_function(L, "page", l_epub_page);
   lua_setglobal(L, "epub");
+#endif  // LUNOK_GLASS
 
   // json: reading fields out of a text, with the same helpers the manifests use.
   lua_createtable(L, 0, 2);
@@ -10986,7 +11011,9 @@ void seal_globals(lua_State* L) {
 
   // ui: the view of the app. Nothing is drawn by the system: clear and rect paint on the app's own
   // canvas, present composes it onto the board's surface and says how good the paint has to look, and
-  // idle says whether the glass has finished (docs/30, docs/50).
+  // idle says whether the glass has finished (docs/30, docs/50). **This is the page and it goes with `LUNOK_GLASS`**, the
+  // same line that took its bindings out of the build (0.179.9).
+#if LUNOK_GLASS
   lua_createtable(L, 0, 8);
   set_function(L, "caps", l_ui_caps);
   set_function(L, "clear", l_ui_clear);
@@ -11043,6 +11070,7 @@ void seal_globals(lua_State* L) {
   open_canvas_library(L);
   open_keyboard_library(L);
   open_font_library(L);
+#endif  // LUNOK_GLASS
 
   // power: the energy of the board and the sleep that ends the app (docs/30,
   // docs/90).
@@ -11351,6 +11379,10 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_escape_first_ms = 0;
   g_exit_requested = false;
   g_failed = false;
+  // **The page's state is the page's, and a board without one has none of it** (0.179.9): the slot of the dial, the ring of
+  // the selector, the finger on the glass and the box of the keyboard are the same `LUNOK_GLASS` that took their code out
+  // of this build (docs/30, docs/75).
+#if LUNOK_GLASS
   g_ui_focus_slot = -1;
   g_ui_focus_generation = 0;
   // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
@@ -11375,6 +11407,7 @@ bool start(const Boot& boot, size_t limit_bytes) {
   // **The keyboard's box is this interpreter's**: a reference into a state that is going away is a number that
   // means nothing in the next one (docs/30, docs/75).
   g_keyboard_target_ref = LUA_NOREF;
+#endif  // LUNOK_GLASS
   return true;
 }
 
@@ -11402,6 +11435,7 @@ void stop() {
   g_escape_count = 0;
   g_escape_first_ms = 0;
   g_exit_requested = false;
+#if LUNOK_GLASS
   g_ui_focus_slot = -1;
   g_ui_focus_generation = 0;
   // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
@@ -11423,6 +11457,7 @@ void stop() {
   g_ui_swipe_y0 = 0;
   g_ui_swipe_y = 0;
   g_ui_swipe_tap = 0;
+#endif  // LUNOK_GLASS
   lua_close(g_state);
   g_state = nullptr;
 }
@@ -11596,6 +11631,16 @@ void set_meter_ops(const MeterOps& ops) { g_meter_ops = ops; }
 void set_ui_ops(const UIOps& ops) { g_ui_ops = ops; }
 void set_book_ops(const BookOps& ops) { g_book_ops = ops; }
 
+// **What a board with no glass still calls, answered here** (0.179.9): the key of a board reaches this door before an app
+// hears it —`button.cpp` asks whether the page wants it— and the turn of the loop asks the caret of the keyboard for its
+// blink. Neither has a page to talk to in this build, so the key goes to the app and the caret never blinks, and nothing
+// above this line has to ask which board it is (docs/30, docs/50).
+#if !LUNOK_GLASS
+bool ui_button_event(const char*, uint32_t) { return false; }
+
+void caret_poll() {}
+#endif  // !LUNOK_GLASS
+
 // The answer of a sleep: `true` when the board came back. A board that went to a
 // deep sleep never gets here, because the app was closed before it went and the
 // next thing that runs is a fresh boot with the app restored (docs/90).
@@ -11693,6 +11738,10 @@ void http_progress(bool ok, const char* code, int status, const char* body, uint
 
 
 
+// **The second half of the page** (0.179.9): what a control does with the arrows and the centre —the menus, the carets, the
+// sliders, the pages of a list and the finger that turns them— lives after the machine of the interpreter because it asks
+// the state, and it is as much the page as the bindings above. A board with no glass carries none of it (docs/30, docs/90).
+#if LUNOK_GLASS
 // **Whether an entry of a menu of a bar can be chosen**: a line between two entries and an entry the app turned off are
 // both passed over by the dial, because neither of them can be pressed (docs/90).
 bool menu_bar_pickable(const UIOps::UIMenuBarTitle& title, lua_Integer number) {
@@ -12971,6 +13020,7 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   }
   lua_settop(g_state, top);
 }
+#endif  // LUNOK_GLASS
 
 // The answer of the press an app was waiting for: a table, because a press has a
 // kind and how long it was held (docs/30).
@@ -13276,6 +13326,7 @@ int32_t until_next_ms() {
   // the board awake, and a keyboard that blinks only when the app happens to wake is a keyboard whose cursor stops. The
   // nearest blink cuts the wait, so `caret_poll` gets its turn even when the app is idle (docs/30, docs/90).
   int32_t caret_wait = -1;
+#if LUNOK_GLASS
   if (g_keyboard_target_ref != LUA_NOREF && g_ui_ops.keyboard_visible != nullptr &&
       g_ui_ops.keyboard_visible()) {
     if (g_caret_dirty) {
@@ -13285,6 +13336,7 @@ int32_t until_next_ms() {
       caret_wait = (left <= 0) ? 0 : static_cast<int32_t>(left);
     }
   }
+#endif  // LUNOK_GLASS
 
   // **A task that is not waiting for a promise is runnable**: it yielded for the turn budget, and the
   // kernel has to resume it next turn, not after the idle timeout (docs/20, docs/75).
