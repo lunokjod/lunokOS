@@ -5598,6 +5598,19 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.10 (11/11): **an emulator built without the page does not offer a glass either**. The 0.179.9 made a build of the PC
+// without `ui.cpp` possible —`PLATFORMIO_BUILD_FLAGS=-DLUNOK_GLASS=0 pio run -e emulator`—, and the first thing it did was
+// lie about itself: `--board m5stack-paper` gave a run whose `caps` said `display yes`, whose every drawing command answered
+// `no glass on this board`, and whose glass was a buffer nobody would ever paint. The panel of the model is now taken away
+// with the page, `kCapDisplay` with it, and the run says why once:
+//   - `emulator: this build carries no page (LUNOK_GLASS=0), so m5stack-paper is emulated without its glass: the rest of
+//     the board is the model's`, and `caps` answers `display no` and `touch no` because there is nothing to put under a
+//     finger. The rest of the model —the keys, the card, the RTC, the battery— is untouched, which is what makes this build
+//     worth having: it is the only way to see a board without a glass boot without flashing one (docs/50, docs/80, docs/85);
+//   - the glass builds are untouched: the flag is `1` in their identity and the paper emulated there still paints its 2978
+//     slots of canvas and its 540x912 view (measured, 11/11);
+//   - `584 cases` and the six environments, green.
+
 // 0.179.9 (11/11): **a board with no glass carries neither the page nor the reader nor the faces**. The owner: *«les
 // funcions de epub del nucli només han d'estar disponibles si la placa te un eink o pantalla. Tampoc fan falta les fonts en
 // aquests dispositius (esp32, koala, m5atom lite i matrix) ni els controls UI o tot lo del UI»*, and later *«Tampoc carrega
@@ -6155,7 +6168,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.9";
+static const char kVersion[] = "0.179.10";
 
 }  // namespace kernel
 

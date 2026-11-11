@@ -583,8 +583,20 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
   // **A window of what the board has**: a model with a glass shows it, and every model of this family has
   // at least one key, so `--gui` on a board with no screen is the window of its button and not an error —
   // the emulator of an ATOM still has the button a person presses (docs/85).
-  opts.display = memory.glass && !no_display;
-  opts.touch = memory.touch && !no_touch;
+  // **A build of this emulator can carry no page at all** (0.179.9, `-DLUNOK_GLASS=0`), and then a model with a glass is a
+  // board this binary cannot show: the panel is taken away here and said once, because a run that believed it had a screen
+  // would paint into a system that has no canvases and would answer `no glass` from every command while `caps` said the
+  // opposite. The model's *fingers* go with it for the same reason (docs/50, docs/85).
+#if !LUNOK_GLASS
+  if (memory.glass) {
+    fprintf(stderr,
+            "emulator: this build carries no page (LUNOK_GLASS=0), so %s is emulated without its glass: "
+            "the rest of the board is the model's\n",
+            memory.name);
+  }
+#endif
+  opts.display = memory.glass && !no_display && (LUNOK_GLASS != 0);
+  opts.touch = memory.touch && !no_touch && (LUNOK_GLASS != 0);
 #ifdef LUNOK_GUI_BY_DEFAULT
   if (!no_gui) opts.gui = true;
 #endif
