@@ -92,9 +92,10 @@ class ISystem {
   virtual void reboot() = 0;
   // True once reboot() has been called on systems that cannot reboot in place.
   virtual bool reboot_requested() const = 0;
-  // **A 32-bit number of this band**: on the board it comes from the chip's own generator —the hardware RNG, whose
-  // noise is the radio's and the SAR ADC's, docs/50— and on a PC from a mixer the run seeded. It is what the
-  // interpreter starts its own generator with, and what an app that needs a seed asks for (docs/20, docs/75).
+  // **A 32-bit number of this band**: on the board it comes from the chip —the true word of its generator while the
+  // radio is up, and a mixer seeded from the SAR ADC's noise and the clock when it is not, docs/50— and on a PC from a
+  // mixer the run seeded. It is what the interpreter starts its own generator with, and what an app that needs a seed
+  // asks for (docs/20, docs/75).
   virtual uint32_t random() = 0;
   virtual HeapInfo heap() const = 0;
   // **How much of the task's own stack is left at its lowest point**, in bytes, or -1 on a build that

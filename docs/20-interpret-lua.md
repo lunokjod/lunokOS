@@ -74,7 +74,7 @@ Els que s'obren, i **només** aquests (`open_libraries` a `lib/luabind/src/luabi
 | `coroutine` | Sí: és la base de les promeses |
 | `table` | Sí |
 | `string` | Sí |
-| `math` | Sí. **`math.random` es sembra amb el soroll de la banda** (0.174.8): cada arrencada té la seva seqüència, i `math.randomseed(n)` la fixa quan una app vol reproduir-se (vegeu «Determinisme») |
+| `math` | Sí. **`math.random` es sembra amb el soroll de la banda** (0.174.8), i des de la 0.178.6 les dues paraules de la llavor són **del xip** quan la ràdio està encesa (`esp_random()`, docs/50): cada arrencada té la seva seqüència, i `math.randomseed(n)` la fixa quan una app vol reproduir-se (vegeu «Determinisme») |
 | `utf8` | Sí |
 | `os`, `io`, `package`, `debug` | **No hi són**: ni `os.time`, ni `io.write`. El temps el dona `time.*`, la consola `console.*`, i els fitxers `fs.*` (docs/30). `package` hi és **des del 0.148.0 com una taula amb un sol camp, `loaded`**, i no té ni `path` ni `cpath` ni searchers: `require` és una porta i no un carregador (vegeu «Sandbox») |
 | mòduls en C, binaris precompilats | **No hi són**: `dofile`, `loadfile` i `load` es posen a `nil`, i cap `.so` no es pot obrir |
@@ -162,8 +162,8 @@ el heap. O sigui que **dues arrencades podien donar exactament la mateixa seqü�
 un generador.
 
 Ara, després d'obrir les llibreries, `open_libraries()` crida `math.randomseed(a, b)` amb **dues paraules de
-`ISystem::random()`**: a la placa el generador del xip, amb la finestra d'ADC que explica docs/50; a l'emulador, el
-rellotge de la màquina i el seu procés. I **una app que vulgui reproduir-se crida `math.randomseed(n)` i prou** —és
+`ISystem::random()`**: a la placa el generador del xip, amb la finestra d'ADC que explica docs/50 —i amb la ràdio
+encesa, el número de debò del xip (0.178.6)—; a l'emulador, el rellotge de la màquina i el seu procés. I **una app que vulgui reproduir-se crida `math.randomseed(n)` i prou** —és
 la porta de Lua i no se li ha tret res—, que és el que fa un cas de la suite que necessiti la mateixa pàgina dues
 vegades.
 

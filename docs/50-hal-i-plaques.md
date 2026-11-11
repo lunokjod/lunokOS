@@ -640,10 +640,20 @@ primera crida de `random()` precisament perquè la documentació mana que l'ADC 
 d'entropia està encesa, i al Paper **l'indicador de bateria és un ADC** (GPIO35, vegeu la fitxa): la primera lectura
 de la bateria arriba després i no hi té res a veure.
 
-**El que no es fa**: no s'encén la ràdio per tenir números. Costa desenes de mil·lisegons i mil·liampers, i aquest
-sistema apaga el Wi-Fi quan no té feina (docs/75); l'ADC fa la mateixa feina en un microsegon. **I no es pot fixar una
-llavor en una placa**: `set_random_seed()` és un no-res a la banda d'ESP32, perquè un firmware que pot fer repetir les
-seves seqüències és un firmware les claus del qual es poden endevinar (docs/20).
+**I amb la ràdio encesa el número és del xip** (0.178.6): `esp_random()` és de debò **mentre el Wi-Fi o el Bluetooth
+estan encesos**, perquè l'entropia és el soroll de l'etapa de RF, i el que respon la banda és aquest número i no el
+xorshift quan el driver diu que la ràdio està encesa (`radio_is_up()`, `esp_wifi_get_mode()` diferent de
+`WIFI_MODE_NULL`). Cada paraula del xip **també remena l'estat del remenador**, o sigui que la seqüència que respon
+quan la ràdio es torna a apagar no és la que es va sembrar a l'arrencada. Amb la ràdio apagada, el xorshift de sempre.
+Val a dir què és i què no: amb la ràdio encesa les paraules són impredictibles i serveixen per a un joc, un color o
+una sal; **no** són una font criptogràfica (no hi ha estimació d'entropia ni salut de la font) i per a claus de debò
+caldria un TRNG certificat o el generador del xip llegit amb una DRBG al damunt.
+
+**El que no es fa**: no s'encén la ràdio **només** per tenir números. Costa desenes de mil·lisegons i mil·liampers, i
+aquest sistema apaga el Wi-Fi quan no té feina (docs/75); l'ADC fa la feina de la llavor en un microsegon. Però quan la
+ràdio ja és encesa per una altra cosa, no costa res preguntar-li. **I no es pot fixar una llavor en una placa**:
+`set_random_seed()` és un no-res a la banda d'ESP32, perquè un firmware que pot fer repetir les seves seqüències és un
+firmware les claus del qual es poden endevinar (docs/20).
 
 ### El bus ha de deixar que el xip aguanti el rellotge (mesurat l'1/11)
 

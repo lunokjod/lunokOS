@@ -6,6 +6,7 @@
 #include <Esp.h>
 #include <bootloader_random.h>
 #include <esp_heap_caps.h>
+#include <esp_wifi.h>
 #include <esp_rom_sys.h>
 #include <esp_system.h>
 #include <esp_timer.h>
@@ -31,6 +32,15 @@ const uint32_t kReaderPeriodMs = 5;
 //
 // **And what is mixed with it** is the microsecond count since the reset, because two boots of the same board are two
 // different moments even when the amplifier of the ADC says the same thing twice.
+// **Whether the radio of the chip is up** (0.178.6), which is the one question that decides whether the chip's generator
+// is a true one: `esp_random()` is documented as true random **while Wi-Fi or Bluetooth is enabled**, because the entropy
+// is the RF noise of the peripheral (docs/50). The driver answers `ESP_ERR_WIFI_NOT_INIT` when nobody has brought it up,
+// and the mode is null while it is not started, so this is "the radio is on" and not "somebody asked for Wi-Fi once".
+bool radio_is_up() {
+  wifi_mode_t mode = WIFI_MODE_NULL;
+  return esp_wifi_get_mode(&mode) == ESP_OK && mode != WIFI_MODE_NULL;
+}
+
 uint32_t mix32(uint32_t x) {
   x += 0x9E3779B9u;
   x = (x ^ (x >> 16)) * 0x21F0AAADu;
@@ -54,10 +64,19 @@ struct Random {
     state = mix32(noise[0] ^ mix32(noise[1] ^ us)) | 1u;
   }
 
-  // xorshift32 over the state: **the generator is mixed here and not asked of the chip every time**, so that a word the
-  // hardware repeats —which is what it does with the radio off— does not become a sequence that repeats (docs/20).
+  // **With the radio up the number is the chip's** (0.178.6): while the radio is on, `esp_random()` is a true random
+  // word —the noise of the RF stage, docs/50— and that is what an app gets, so a session with Wi-Fi is not a session of
+  // xorshift32. **And each of those words stirs the state of the mixer**, so that the sequence that answers when the
+  // radio goes back down is not the one seeded at the boot any more. With the radio off this is the xorshift32 of the
+  // boot, as it always was, because asking the chip then is asking a register that does not refresh (docs/20, docs/50).
   uint32_t next() {
     seed();
+    if (radio_is_up()) {
+      const uint32_t word = esp_random();
+      state ^= mix32(word);
+      if (state == 0) state = 1u;
+      return word;
+    }
     state ^= state << 13;
     state ^= state >> 17;
     state ^= state << 5;

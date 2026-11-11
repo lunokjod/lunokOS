@@ -5598,6 +5598,25 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.6 (11/11): **with the radio up, the number is the chip's**. The owner asked how a truly random number is made
+// on this board, and the honest answer was that `ISystem::random()` was not one: a xorshift32 seeded once, at the boot,
+// with the ADC window and the microsecond counter. The seed is real noise and it never repeats, but the sequence after
+// it is a linear map —a handful of outputs and the rest of the run is known—, which is fine for picking one of three
+// drawings and useless for a key:
+//   - **`esp_random()` is documented as a true random number while Wi-Fi or Bluetooth are enabled**, and on this family
+//     the entropy is the RF stage: the number is read from the Wi-Fi peripheral's `WDEV_RND_REG` and the register does
+//     not refresh with the radio off, which is why the PAL seeds itself with the ADC at the boot (0.174.8, docs/50);
+//   - **and now it asks the driver whether the radio is up** (`esp_wifi_get_mode()` different from `WIFI_MODE_NULL`):
+//     when it is, `random()` **answers the chip's word** and stirs the mixer's state with it, so the sequence that
+//     answers when the radio goes back down is not the boot's one any more; when it is not, the xorshift32 of always.
+//     The radio is not turned on for this —it costs tens of milliseconds and milliamps and the system keeps it off when
+//     it has nothing to do (docs/75)—, but a session that needed Wi-Fi is a session of true numbers;
+//   - **what it is and what it is not, said in the docs**: with the radio up the words are unpredictable and good for a
+//     game, a colour or a salt; they are **not** a cryptographic source —there is no entropy estimate and no health of
+//     the source— and keys want a certified TRNG or this generator behind a DRBG (docs/50);
+//   - **measured**: `m5-paper` and `m5-atom` link and build, and the only callers are the pick of the boot picture and
+//     the two words of `math.randomseed`, so the lock of the driver is paid twice per app and not per number.
+
 // 0.178.5 (11/11): **the boot draws one of its three drawings, and the two logos of the file are gone**. The owner asked
 // for the splash image to be one of `boot-2.bmp`, `boot-3.bmp` and `boot-5.bmp` at random, and then, seeing a boot that
 // painted `boot-alt.png`, for those two PNGs to be out of the boot's list:
@@ -5869,7 +5888,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.5";
+static const char kVersion[] = "0.178.6";
 
 }  // namespace kernel
 
