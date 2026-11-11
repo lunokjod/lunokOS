@@ -87,7 +87,11 @@ local kTop = 8
 -- cell is not painted on this one—, the records of the apps and then their pictures, four bits a pixel and in the order of
 -- the block (`cv:capture` and `cv:blit` are a copy and not a decode). A record is `id`, the title, the icon and the number
 -- of the picture, and the number is how this file knows whether a picture is in the block or has to be read from the disk.
-local kCacheBytes = 32768
+-- **The size asked for, and what it falls back to when the board cannot give it** (0.179.1): a block that holds the records
+-- and no picture is still worth having —the manifests are what the queue pays for one per turn— and a block that holds
+-- neither is not the end of the page. The pieces come down and the last one is the records alone —1 536 B, plus the eight of
+-- the header— which is what a board with a crowd of apps or with the memory spent gets (docs/30, docs/75).
+local kCacheSteps = { 32768, 24576, 16384, 8192, 1544 }
 local kCacheMagic = 'HEC1'
 local kCacheText = 8
 local kCacheTextBytes = 1528
@@ -122,7 +126,11 @@ local function load_cache()
   cached = {}
   slots = 0
   warm = {}
-  local block, err = sys.session('apps', kCacheBytes)
+  local block, err = nil, nil
+  for i = 1, #kCacheSteps do
+    block, err = sys.session('apps', kCacheSteps[i])
+    if block ~= nil then break end
+  end
   if block == nil then
     console.print('home: no cache of the session: ' .. tostring(err and err.message or err))
     return
@@ -234,7 +242,7 @@ local function paint_picture(id, picture, info, inverted)
   -- decoder made the first time, and no disk at all. It is always the paper face —the ink is the `invert` at the end— so
   -- the cache holds one picture per app and not two (docs/30, docs/75).
   local record = cached[id]
-  if cache ~= nil and record ~= nil and warm[id] then
+  if cache ~= nil and record ~= nil and warm[id] and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
     local at = kCachePictures + record.slot * picture_bytes()
     if picture:blit(cache, at, 0, 0, kIcon, kIcon) then
       if inverted then picture:invert(0, 0, kIcon, kIcon) end
@@ -263,8 +271,9 @@ local function paint_picture(id, picture, info, inverted)
   end
 
   -- **And what was just drawn is kept**: the paper face only, because the ink is the invert of the same pixels, and only
-  -- when the block has a place for it —an app whose manifest has not arrived has no record yet— (docs/30, docs/75).
-  if cache ~= nil and record ~= nil and not inverted and info ~= nil then
+  -- when the block has a place for it —an app whose manifest has not arrived has no record yet, and a block of a board with a
+  -- crowd of apps may hold the records and no picture at all— (docs/30, docs/75).
+  if cache ~= nil and record ~= nil and not inverted and info ~= nil and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
     local at = kCachePictures + record.slot * picture_bytes()
     if picture:capture(cache, at) ~= nil then warm[id] = true end
   end

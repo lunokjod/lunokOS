@@ -5598,6 +5598,20 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.1 (11/11): **the cache of the launcher fits the board it is on**. `home_eink` asked for 32 768 B of session memory
+// and a board that could not give them had no cache at all, when the records —the manifests, which are what the queue of the
+// page pays for one turn each— are 1 544 B and are worth having alone:
+//   - **the block is asked for in pieces** (32 768, 24 576, 16 384, 8 192 and 1 544) and the first that the kernel gives is
+//     the one the page keeps, so a crowd of apps or a memory that is already spent costs the pictures and not the cache;
+//   - **and a picture is only painted from the block when the block has the room for that slot** `kCachePictures + (slot +
+//     1) * picture_bytes()`: a block that holds the records and half the pictures is not a block that paints a zeroed box as
+//     if it were an icon (docs/30, docs/75);
+//   - **measured**: with the block the whole page is still warm in the first turn —`home: cache warm, 10 apps, 9 pictures`
+//     and no `home: app`— and the meters of the return `stats reset` … `run home_eink` … `stats` say **three reads of the
+//     flash and twenty-one stats**, against **twenty-four reads and sixty-four stats** of the cold page: the twenty-one are
+//     the walk of the door of `apps`, which is asked on purpose because an app installed in this session has to appear
+//     (docs/30, docs/75).
+
 // 0.179.0 (11/11): **a memory of the session the kernel keeps for an app, and a launcher that costs no disk the second
 // time**. The owner: *«Fes que l'app home_eink tingui un caché per apps i icones … Aquesta memoria "de sessió" la facilita el
 // nucli i la manté a menys que falti memoria (es el primer tipus de memoria que s'ha d'esborrar si falta PSRAM) … Les claus
@@ -5954,7 +5968,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.0";
+static const char kVersion[] = "0.179.1";
 
 }  // namespace kernel
 

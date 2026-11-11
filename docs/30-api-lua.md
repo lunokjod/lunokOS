@@ -276,6 +276,13 @@ una persona ha de poder veure i entendre, i `apps.info` ho diu amb `works_here`)
 amb `launcher` a `true`: el filtre és de qui dibuixa la graella, no de la porta. `home_eink` és el llançador d'aquest
 sistema i és el primer client d'aquestes dues crides.
 
+**I el llançador no les fa totes cada cop** (0.179.0): `home_eink` guarda els manifests i les icones ja descodificades
+en una **memòria de sessió** (`sys.session('apps', …)`, més avall) i, quan torna —que en una placa de tres tecles és cada
+cop que una app s'acaba—, la pàgina és sencera **al primer torn**: el log diu `home: cache warm, 10 apps, 9 pictures` i no
+hi ha cap `home: app`, perquè la cua de manifests és buida i cada icona és un `cv:blit` d'un bloc i no una lectura ni una
+descodificació. L'única cosa que es pregunta igualment és **`apps.list()`**: una app instal·lada en aquesta sessió ha de
+sortir a la graella, i la volta de la porta és el preu de saber-ho.
+
 ## `app`
 
 | Crida | Torna | Notes |
