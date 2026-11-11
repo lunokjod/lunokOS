@@ -5598,6 +5598,18 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.3 (11/11): **one question, two answers, and the paint's answer is the one that stands**. A grid can be a grid of
+// names (`items`, painted by the kernel) or a grid of controls the app built (`children`, each cell painting itself), and
+// `docs/30` says which wins when it has both —«si la graella té fills, la cel·la és el fill i el control només pinta el
+// paper de la pàgina i el peu»—. The paint decided it with `children > 0` (`l_icon_grid_draw`), the damage of a ring
+// decided it with `items > 0` (`ui_invalidate_grid_ring`), and a grid with both would have painted the app's cells and
+// owed the damage of the kernel's: a rectangle of the geometry of nine names over a page of nine pictures. The ring takes
+// the paint's rule now, one line and a comment, and the step of a page already counted the cells of the tree
+// (`ui_grid_turn_the_page`), so the three of them agree (docs/30, docs/90);
+//   - **measured**: `test/test_ui` and `test/test_touch` green, which are the suites of the control and of the glass; the
+//     case of the ring (`test_a_ring_of_a_grid_damages_the_cells_it_crosses`) keeps passing, and no suite has a case with
+//     `items` and children at once, which is why the disagreement lived unseen.
+
 // 0.178.2 (11/11): **a paragraph of `docs/30` that a reader could not read**. The owner asked, after the sweep of the day
 // before, whether anything of the documentation still had to change, and one thing did: the section of `ui.icon_grid` with
 // entries —written on the 7/11 in 0.105.0— was **wrapped at eighty columns of bytes and not of letters**, so it had broken
@@ -5795,7 +5807,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.2";
+static const char kVersion[] = "0.178.3";
 
 }  // namespace kernel
 

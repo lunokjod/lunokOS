@@ -8893,8 +8893,8 @@ bool ui_invalidate_grid_ring(lua_State* L, int object, uint8_t from, uint8_t to,
   if (!ui_field_bool(L, object, "__icon_grid", false)) return false;
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
   if (!ui_control_alive(canvas)) return false;
-  // **A grid of entries counts its cells in its own tree** (0.105.0), the same rule the paint and the step follow: a list
-  // of names is the kernel's cells and no list is the controls the app built.
+  // **A grid of entries counts its cells in its own tree** (0.105.0), the same rule the paint and the step follow: a grid
+  // whose cells the app built has nothing of the kernel to paint, and a grid of names is the kernel's own cells.
   lua_Integer cells = 0;
   lua_Integer entries = 0;
   lua_getiuservalue(L, object, 1);
@@ -8907,7 +8907,10 @@ bool ui_invalidate_grid_ring(lua_State* L, int object, uint8_t from, uint8_t to,
     lua_pop(L, 1);
   }
   lua_pop(L, 1);
-  const bool of_the_kernel = cells > 0;
+  // **The last word is the `children` table and not `items`** (0.178.3), which is the rule `l_icon_grid_draw` decides the
+  // paint with: a control the app built wins over the words it also gave, so a grid with both painted the app's cells and
+  // owed the damage of the kernel's —two answers to one question, and only one of them could be right (docs/30).
+  const bool of_the_kernel = entries == 0 && cells > 0;
   lua_Integer total = of_the_kernel ? cells : entries;
   if (total <= 0) return false;
   if (total > static_cast<lua_Integer>(kMaxGridCells)) total = static_cast<lua_Integer>(kMaxGridCells);
