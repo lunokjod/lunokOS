@@ -3599,9 +3599,9 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
     // page that is read bigger, the marks that close a window too long and the number of the page when the band is too
     // narrow to draw any of it. It used to be four private dots of four pixels —the same idea drawn twice, and the list's
     // copy was the small one— and now `ui.dots` and the foot of a list are one drawing (docs/30, docs/92).
-    // **The band of the foot is the room of the ball**, and the rule and a pixel of air go first: a foot of twenty-four
-    // gives a ball of twenty, which is the size of the paper project's paginator within a fifth and is read from a metre
-    // away (0.174.2, docs/30, docs/92).
+    // **The band of the foot is the design's room for the ball** (0.176.0): the rule and the air of the design go first
+    // and the strip keeps its twenty-five, so the paginator of a list and a `ui.dots` come out the same size —a band of
+    // twenty-four gave a ball of twenty, and the same control at three sizes is three controls (docs/30, docs/92).
     if (!paint_dots(*target.canvas, target.x, band_y + kFootRule, width, kDotBig, pages, page, text, background, mode)) {
       const font::Face& face = face_of(list.face);
       const int32_t line_h =

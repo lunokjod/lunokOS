@@ -562,16 +562,19 @@ aquest paginador es del sistema?»*. Sí que ho era —el peu d'`ui.list`, la 0.
 - **era un dibuix a part**: quatre boles de quatre píxels de radi, quan el sistema ja té **el paginador del projecte del
   paper** (`ui.dots`, la 0.112.0: boles de 19 i 25, un anella de dos píxels, el pal que les enfila i les tres boles que
   s'encongiran quan les pàgines no hi caben). Ara **és el mateix dibuix**: `paint_dots` és una funció d'una caixa i una
-  bola, la crida `ui.dots` amb la bola del disseny i el peu d'una llista amb la bola que li cap a la banda, i tots els
-  altres números (l'anella, el pal, l'aire) són **fraccions de la bola**. Una sola idea, un sol lloc (docs/30, docs/92);
+  bola, la crida `ui.dots` i el peu d'una llista, tots dos amb **la mateixa bola del disseny** des de la 0.176.0, i tots
+  els altres números (l'anella, el pal, l'aire) són **fraccions de la bola**. Una sola idea, un sol lloc (docs/30,
+  docs/92);
 - **es pintava al fons de la caixa i no sota les files**: amb una caixa de 588 px i set files de 72, l'aire de 60 px
   queia **entremig** de l'última fila i el peu, i això es llegia com un pager que ocupa mitja pàgina. El peu es pinta ara
   **on s'acaba l'última fila de la pàgina**, i el paper que sobra és sota el peu, on s'acaba una pàgina. Per saber on
   s'acaba, `list_draw` rep **les files que té la pàgina** (`rows`) a més de les que pinta (`count`): una llista
   d'entrades no en pinta cap —cada entrada es pinta ella— i el peu ha de caure igualment sota l'última (docs/90);
-- **i la banda puja quan la fila és petita**: un terç de la fila amb un mínim de 24 px (abans 20) i un màxim de 37, la
-  caixa que demana el disseny. Amb files de 72 no costa cap fila i la bola passa de 8 a 20 píxels, que és el que fa que
-  es llegeixi des d'un metre.
+- **i la banda no depèn de la fila** (0.176.0): era un terç de la fila amb un mínim de 24 px (abans 20) i un màxim de
+  37, o sigui que **el mateix control sortia de 20 píxels en una llista de files curtes, de 24 sota una graella i de 25
+  dins d'un `ui.dots`** —tres mides d'una cosa—. Ara `list_footer` no mira la fila i torna sempre **41**: els 37 de la
+  caixa del disseny (bola de 25 i 12 d'aire a sota) més les 4 de la línia que tanca les files, que és on comença la tira
+  sota una graella i dins d'un `ui.dots` (docs/30, docs/92 §27).
 
 - **i la llista d'una app ocupa tota la pàgina amb `weight`** (0.174.3, la pregunta següent del mateix dia: *«i perqué el
   control list no ocupa tota la vista fins abaix?»*). Perquè l'app li donava una altura **mesurada a mà** —la vista menys

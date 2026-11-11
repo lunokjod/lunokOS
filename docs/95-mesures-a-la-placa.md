@@ -744,7 +744,8 @@ lunok> stats
 
 **I el número que decideix si el pressupost d'un torn és massa gran és el de `run luaperf`** (0.169.3): el bucle de
 tres instruccions que compta el bytecode —el mínim de tres tirades, amb el vidre quiet— i, després, mitja segona de
-voltes per saber què val una tanda de 100 000 instruccions. Surt per consola i a la pàgina:
+voltes per saber què val una tanda d'instruccions. Surt per consola i a la pàgina. El que va dir el 0.169.3, amb el
+pressupost d'aleshores (100 000) i el seu veredicte —que després es va haver de corregir, més avall—:
 
 ```
 luaperf: two lengths, 500000 and 2525252 laps: 198 and 198 ns a lap
@@ -755,10 +756,13 @@ luaperf: the budget is nothing next to the glass: do not touch it
 ```
 
 Aquell **6,6 ms és l'emulador** (el seu model de 60 ns per instrucció i el torn de 850 µs) i és d'una tanda de
-100 000 instruccions, que era el pressupost d'aleshores; a la placa serà el que sigui que digui la placa, i per això
-l'app existeix. **Des de la 0.174.7 l'app no porta el número a dins**: el pressupost és un ajust (`cfg turn`, 20 000 de
-sèrie) i `luaperf` el llegeix de `sys.turn()`, o sigui que la línia `a turn of N instructions` diu la tanda que la placa
-té en vigor.
+100 000 instruccions, que era el pressupost d'aleshores. La darrera línia d'aquella captura **ja no s'hi diu**: el
+veredicte són ara dues línies —`a key waits at most N ms, against the 120 ms a page of ink costs` i, segons el número,
+`over 10 ms a hand waits: cut the slice with cfg turn` o `under 10 ms a hand does not notice it: the slice is not what
+makes a key slow`— perquè la comparació bona és amb la mà i no amb el vidre (`apps/luaperf/luaperf.lua`, 0.174.7). A la
+placa serà el que sigui que digui la placa, i per això l'app existeix. **I des de la 0.174.7 l'app no porta el número a
+dins**: el pressupost és un ajust (`cfg turn`, 20 000 de sèrie) i `luaperf` el llegeix de `sys.turn()`, o sigui que la
+línia `a turn of N instructions` diu la tanda que la placa té en vigor.
 
 **I la decisió no és la que aquesta pàgina deia**: el 0.169.3 comparava la tanda amb els 120 ms d'una pàgina de tinta i
 concloïa que un pressupost de 6,6 ms no tocava res. És la comparació equivocada, i l'amo la va corregir —*«vull un

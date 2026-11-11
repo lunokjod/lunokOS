@@ -5598,6 +5598,38 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.1 (10/11): **the documents, read against the code one claim at a time**. The owner asked for a review of
+//   every document with the code open beside it, and the sweep found the numbers that a week of repairs had left
+//   behind —not a feature, so no line of code moved except one comment that had stopped being true—:
+//   - **the panel of the emulator is not a chip that keeps quiet** (`docs/85`): the row of `--no-touch` said «el panell
+//     hi és i no contesta», and `IPlatform::touch()` answers `nullptr` when the option is off (`hal_emulator.cpp`), so
+//     the board of that run **has no chip at all** and the kernel does not even announce the capability. The same row
+//     still priced a turn at eight hundred microseconds of touch, which is the read of before 0.174.4: it is **four
+//     hundred**, and it is paid **once per scan** and not once per turn;
+//   - **the band of the foot of a list is forty-one** (`docs/90`, `docs/30`): the documents of 0.174.2 still said «un
+//     terç de la fila amb un mínim de 24 i un màxim de 37» and «la bola escalada a la banda», and `list_footer()`
+//     ignores the row since 0.176.0 and returns `kDotDesignH + kFootRule`. The same paragraph of `docs/30` mixed three
+//     units —a floor of 24 for the list, a band of 28 for the grid, a ball of 25 for `ui.dots`— and now says which is
+//     which, because the ball of a list was 20 to 33 and that is the whole reason the owner wanted one size;
+//   - **the ceiling of eight canvases is gone everywhere it was quoted** (`docs/30`, `docs/75`): «només vuit poden
+//     tenir vista pròpia» survived the 0.174.5 that took `kMaxCanvases` out, and it is the exact sentence that made
+//     four cells of the launcher paint no icon —the eighth `ui.canvas` answered `nil`—. The documents say the ceiling
+//     is the table of the extra memory now, and that the launcher **says in the console why** a picture has no box;
+//   - **the verdict of `luaperf` is two lines** (`docs/95`): the capture of 0.169.3 still ended with «the budget is
+//     nothing next to the glass: do not touch it», which the app stopped printing in 0.174.7 when the comparison became
+//     the hand and not the glass. The block is marked as the capture of its day and the lines of today are written
+//     beside it, and the two passages that said a hundred thousand instructions in the present tense say «the one
+//     hundred thousand of before»;
+//   - **and the read of the glass that a test writes** (`docs/80`): the row of `test/test_touch` priced the idle read
+//     at eight hundred microseconds too, and the probe of the boot and the 10 ms of the scan were already right;
+//   - **the one comment corrected**: the foot of a list drew the ball with `kDotBig` and its comment still explained
+//     that «a foot of twenty-four gives a ball of twenty» —a truth of 0.174.2, and the opposite of what the code does
+//     since 0.176.0—. A comment that says the opposite of the line under it is worse than no comment (`ui.cpp`);
+//   - **what was checked and needed nothing**: the window before the board, the card with every app, the entropy of the
+//     chip and `--seed`, `cfg turn` and `sys.turn()`, the once-per-scan read of the GT911, the two cells of a ring and
+//     the map of damage, `ui.invert`, the swipe of a grid, and the uniformity of the paginator —each of them already
+//     had its paragraph, in the document and with the number the code gives—.
+
 // 0.177.0 (10/11): **the drop-down of a menu is a line of words and not a stack of keys**. An option was drawn with the
 // function that draws a key, so every row of a menu came out with a face lifted four pixels over a shadow, a frame of its
 // own and the tag in a box of air: three raised keys inside a card, where the reference of this system draws one card and a
@@ -5755,7 +5787,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.0";
+static const char kVersion[] = "0.178.1";
 
 }  // namespace kernel
 

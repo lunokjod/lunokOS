@@ -100,7 +100,7 @@ Aquestes són les opcions del binari:
 
 | Opció | Què fa |
 |---|---|
-| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` i prou: **l'emulador no porta apps**, 0.88.2); `/littlefs/res` és `data/res` i no es copia res |
+| `--flash <dir>` | El directori que **és** el volum de la flash (per defecte el que el build va rebre de `platformio.ini`, `build/disk/emulator`, que és `data/` i prou: **la flash de l'emulador no porta apps**, 0.88.2 —les apps hi arriben per la targeta, 0.174.9—); `/littlefs/res` és `data/res` i no es copia res |
 | `--state <dir>` | On viuen les memòries que no són un volum: `nvs/` i, quan n'hi hagi, la RTC, la FRAM i l'hora que el xip recorda (per defecte `emulator/`) |
 | `--persist` | **La placa no s'ha desendollat**: el run arrenca on el run anterior va deixar la placa, o sigui que la **RTC RAM** no s'esborra ni a l'ATOM (un reinici no apaga el domini del RTC) i **l'hora** de `clock.bin` es llegeix també als models sense pila, amb `source` = `"soc"`. La NVS i la FRAM no depenen d'això: són flash i ferrita i es guarden sempre (docs/60, docs/85) |
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
@@ -142,8 +142,8 @@ Aquestes són les opcions del binari:
 | `--no-gui` | **Cap finestra**, ni la del build (0.155.0): el run és la consola i, si vol la pàgina, `--dump`. És l'emulador d'una mesura i el que fa que un guió no depengui d'una pantalla on obrir-la (docs/85) |
 | `--ink-refuse` | **Un vidre que diu que no com el panell de la Paper** (0.118.2): mentre la tinta del pintat anterior encara es mou, `flush` contesta **fals** amb el motiu del driver (`last_error()` = `the previous paint did not finish`), que és el que fa el controlador de debò quan un pintat arriba a mitges d'un altre. Serveix per provar els camins que esperen la tinta: sense aquesta bandera l'emulador sempre espera i un que no espera passa igual (vegeu `test_the_splash_waits_for_the_ink_of_the_page_before` i `test_a_page_the_panel_refused_is_painted_when_it_can`). **Necessita el temps engegat** (`--ink` o una prova amb `delays`): sense temps de tinta no hi ha res a refusar |
 | `--no-ink` | **Un vidre que canvia píxels i no mou tinta**: una pintada és instantània i exacta, la pàgina és la que s'ha pintat sense res del que hi havia abans i **no s'envia res al bus**. És el que fan servir les proves —no paguen mig megabyte de buffers, ni mig segon de tinta, ni un segon de bus per pàgina— i el que queda si es vol comparar el dibuix amb el d'abans del model (docs/85) |
-| `--touch` | **El tàctil del model, que hi és sol**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —800 µs per torn sense dit, 2 550 amb dos— i que **dona el marc una vegada**, amb la capacitat `touch`. Qui ho diu és el model (`Model::touch`): el Paper en té i un `--touch` a un ATOM es refusa. El que apaga és `--no-touch`, i llavors el panell d'aquella Paper és un xip que no contesta, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
-| `--no-touch` | **Cap dit**: el panell del model no es llegeix i no costa els 800 µs de cada torn (docs/85) |
+| `--touch` | **El tàctil del model, que hi és sol**: un GT911 en el marc d'aquesta unitat (540x960, dos dits) que **costa el que costa el bus** —400 µs per lectura sense dit, 1 830 amb un i 2 550 amb dos— i que **dona el marc una vegada**, amb la capacitat `touch`. Qui ho diu és el model (`Model::touch`): el Paper en té i un `--touch` a un ATOM es refusa. El que apaga és `--no-touch`, i llavors `IPlatform::touch()` és `nullptr`: la placa d'aquella prova no té xip, que és el que vol una prova que no és sobre el tàctil (docs/50, docs/85) |
+| `--no-touch` | **Cap dit**: la placa del model no té panell (`touch()` és `nullptr`, la capacitat no s'anuncia) i no costa cap lectura (docs/85) |
 | `--touch-scan <ms>` | Cada quant **mostreja** el panell: `0` és el del xip (10 ms). **És també el número amb què el nucli decideix quan li pregunta** (0.174.4, `ITouch::scan_ms()`), o sigui que un número més gran que el torn del nucli és un vidre que contesta «ningú» a qui el llegeixi a mà, que és el cas que es vol poder reproduir (docs/85) |
 | `--no-delay` | **Cap espera**: el model del disc, del port, de la tinta i del tàctil és el mateix i el rellotge no es toca — ni el torn del nucli, que deixa de costar els 850 µs que costa a la placa (`kTurnOverheadUs`). És el que fa servir una prova o una mesura que no és de temps; un run amb `--gui` **no el pot** demanar (es refusa) i el run que no l'ha demanat es queda sense la finestra del build, dient-ho (docs/85) |
 | `--lua-cpu <ns>` | Què costa **una instrucció de l'intèrpret** a 160 MHz: **60 ns** per defecte (el model; el número de la placa el diu `run luaperf` des de la 0.169.3, docs/95), i `0` perquè el codi de l'app sigui gratis, que és el que era l'emulador fins a la 0.29.0. Es divideix per la freqüència simulada, o sigui que a 240 MHz una instrucció costa 40 ns i a 80, 120 |
@@ -645,8 +645,9 @@ char 48
 El vidre de l'emulador tenia ulls i no dits. **El panell és del model** (`Model::touch`): una Paper de l'emulador porta
 el seu **GT911** des que arrenca, i el que se simula no és «on és el dit» sinó el xip: en aquesta placa el
 que escanya una app és el que hi ha entre el dit i el full de dades
-(`lib/hal_emulator/src/emu_gt911.cpp`, docs/50). Amb `--no-touch` el panell hi és i no contesta, que és el
-cas d'una prova que no és sobre el tàctil.
+(`lib/hal_emulator/src/emu_gt911.cpp`, docs/50). Amb `--no-touch` **el panell no hi és**: `IPlatform::touch()` respon
+`nullptr` i el nucli no té la capacitat `touch` ni el llegeix mai, que és el cas d'una prova que no és sobre el tàctil
+—el mateix que una placa sense el xip, i no un xip que calla— (docs/50, docs/85).
 
 | Què | L'emulador | D'on surt |
 |---|---|---|

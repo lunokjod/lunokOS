@@ -1064,7 +1064,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.sparkline(w, h)` | **un objecte** o `nil, error` | **La forma de les últimes mostres**: una barra per mostra (la més vella a l'esquerra), l'alçada contra **el pic de la finestra**, i `top` per a una segona sèrie que és part del mateix total (es dibuixa buida). No és enfocable (3/11, 0.74.0) |
 | `ui.pie(w, h)` | **un objecte** o `nil, error` | Un **pastís de quatre porcions com a molt**: `slices` (valors; els angles surten de la suma) i el to més fosc; els altres tres són quatre passos més enllà, que és com l'app pot dibuixar-ne la llegenda (3/11, 0.74.0) |
 | `ui.month(w, h)` | **un objecte** o `nil, error` | **Un mes de calendari**: `year`, `month` (1 a 12), `selected` i `today` (un dia del mes, o 0), `weekdays` (set noms curts, que són cosa de l'app **i van de dilluns a diumenge**), `color`, `dim` i `scale`. Set columnes i **sis setmanes sempre**; el triat s'inverteix i el d'avui porta marc. Les fletxes caminen els dies i el centre tria amb `on_pick(self, day)` (3/11, 0.75.0). **Des de la 0.170.0 la primera columna i els noms giren amb `time.week`** i el febrer té els dies que digui `time.leap` |
-| `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` s'inverteix. Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
+| `ui.menu(w, h)` | **un objecte** o `nil, error` | **El menú contextual**: una targeta d'opcions sobre la pàgina. `items` (un array de paraules, o de taules amb `label`, `tag`, `hidden` i `primary`, dotze com a molt), `index` (l'opció on és el dial, 1 a n), `title`, `color`, `dim` i `scale`. **Una opció que l'app no pot fer ara s'amaga** (`hidden`) i no es mostra morta; la de `primary` porta **un filet d'un píxel** i la del dial és una **banda de tinta d'extrem a extrem** (0.177.0: era una tecla amb relleu i la primària s'invertia). Les fletxes salten les amagades i el centre, o un dit, tria amb `on_pick(self, index)` (3/11, 0.76.0) |
 | `ui.menu_bar(w, h)` | **un objecte** o `nil, error` | **Una barra de menús**: `items` (fins a cinc títols; cada un `{title=..., items={...}}`), `open` (el títol desplegat, 1 a n, o 0), `index` (l'entrada on és el dial), `bar_height`, `color`, `dim` i `scale`. Una entrada és una paraula, `{label=, checked=, enabled=}` o `'-'` per a una línia — **amb `checked` l'entrada porta la caixa, plena o buida, i sense el camp no en porta**. **Una elecció crida `on_pick(self, title, entry)` i el sistema plega el menú** (3/11, 0.77.0) |
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
@@ -1404,10 +1404,14 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   necessita cap transparència ni cap màscara (docs/90).
 - **La qualitat viatja amb la tinta**: el `mode` amb què s'ha pintat una regió és el que s'usa quan la
   regió arriba al vidre, passi pels canvas que passi.
-- **Dos sostres i no un**: els controls que hi caben són **els que la taula de la memòria extra
-  permet** —milers, i el nombre el diu el log a l'arrencada (docs/75)—, i només **vuit** poden tenir
-  vista pròpia (la de l'app inclosa). Un control sense vista no gasta ni un byte de píxel; si no hi ha
-  lloc, `ui.canvas` o `ui.control` responen `nil` amb `E_NOMEM`.
+- **Un sol sostre**: els controls que hi caben són **els que la taula de la memòria extra
+  permet** —milers, i el nombre el diu el log a l'arrencada (docs/75)—, i el de les vistes pròpies **ja no
+  és un número del capçal** (0.174.5: eren **vuit** comptant la de l'app, i el llançador d'onze apps es
+  quedava quatre caselles sense icona perquè la vuitena imatge responia `nil`). Un control sense vista no
+  gasta ni un byte de píxel; si no hi ha lloc, `ui.canvas` o `ui.control` responen `nil` amb `E_NOMEM`, i
+  el llançador **diu per què** una imatge no té caixa (`home: <id> has no picture: …`), perquè una graella
+  de noms amb mitja dotzena d'icones que falten i cap línia sobre el que ha respost la memòria és una
+  pàgina que amaga (docs/90).
 - **Un control sense vista no és cap forat a l'arbre**: els seus fills es componen igual, amb el
   desplaçament de cada capa sumat, i el que ell dibuixa cau al canvas que el conté (el primer que en té) i
   **es talla al seu marc**: no pot pintar fora de la seva caixa. Un `UILabel` no necessita cap buffer.
@@ -1781,15 +1785,19 @@ ui.present('gc16')
 - **`ui.dots`**: `pages` i `current`, i el de la pàgina on ets **és una bola plena i més gran**, mentre que els altres
   són **anelles amb paper a dins**, tots enfilats en un **pal** que només es veu a l'aire entre dues boles (0.94.1). Són
   dos tons i prou —negre i paper—, i per això la tira es pot pintar i esborrar amb la forma d'ona binària; una tira de
-  grisos s'hi va quedar esborronada al projecte vell. **Amb una sola pàgina no dibuixa res** —un punt sol no diu res i
-  costaria un repintat del panell per dir-ho— i el lloc de cada bola és el de la més gran, o la tira es mouria de costat
-  quan la gran canvia de punta. **Si les pàgines no hi caben**, la tira en dibuixa tantes com hi caben i la finestra
+  grisos s'hi va quedar esborronada al projecte vell. **Amb una sola pàgina no dibuixa cap bola** —un punt sol no diu res i
+  costaria un repintat del panell per dir-ho— **però sí que pinta el seu paper** (0.176.0): és un control i el seu requadre
+  s'ha de cobrir, perquè un control que no pinta res no esborra el que hi havia (el lector d'un capítol d'una sola pàgina
+  hi trobava les boles del capítol anterior, docs/90). El lloc de cada bola és el de la més gran, o la tira es mouria de
+  costat quan la gran canvia de punta. **Si les pàgines no hi caben**, la tira en dibuixa tantes com hi caben i la finestra
   d'elles que conté la pàgina on ets: el comptador no surt mai de la seva caixa i la pàgina que llegeixes és sempre una
   de les boles. **I als caps on la finestra no arriba a les pàgines de debò, la tanca amb tres boles que es fan més
   petites** (0.139.0): **16, 12 i 8** píxels al costat de la bola de 25 —2/3, 1/2 i 1/3 d'ella—, amb **8** d'aire entre
   dues i **16** de separació de la tira, que és el dibuix del paginador del paper (la seva tira del peu escriu 8, 6 i 4
-  al costat d'una bola de 12, i les proporcions són les mateixes). Aquestes marques són el que diu que hi ha moltes més
-  pàgines de les que es poden dibuixar; una finestra que només llisca no ho diu a ningú. Una caixa massa estreta per a
+  al costat d'una bola de 12, i les proporcions són les mateixes; aquella bola de 12 era del projecte del qual es va
+  portar el dibuix, i no la tira que dibuixava el lector d'aquest arbre, que és un `ui.dots` des de la 0.176.0).
+  Aquestes marques són el que diu que hi ha moltes més pàgines de les que es poden dibuixar; una finestra que només
+  llisca no ho diu a ningú. Una caixa massa estreta per a
   les tres marques (a 37 píxels d'alçada en vol 68 a cada cap) es queda amb la finestra de sempre, sense marques.
   **El nombre de pàgines va d'1 a 512** (0.138.0): era un byte amb un topall de 32, que és menys que les
   pàgines d'un capítol de debò.
@@ -1806,8 +1814,9 @@ ui.present('gc16')
   **I el paginador és el mateix a tot arreu, que és el que el fa entendre** (0.176.0). La caixa del disseny i la tinta
   del control no són una recomanació per a qui el fa servir: **el peu d'una llista i el d'una graella demanen aquesta
   caixa de 37 i la tinta del control** (`color`/`text`, negre) i no el `dim` d'una paraula secundària. Abans no era
-  així —una llista donava a la tira un terç de la fila (24), una graella 28 i un `ui.dots` 25, i la de la graella anava
-  en gris—, i l'amo ho va veure de seguida: *«per qué és tant gris el paginador? no és un UIControl? per qué cada cop
+  així —una llista donava a la tira un terç de la fila, amb un terra de 24 i un sostre de 37 (o sigui una bola de 20 a 33
+  segons la fila), una graella una banda de 28 (bola de 24) i un `ui.dots` una bola de 25, i la de la graella anava en
+  gris—, i l'amo ho va veure de seguida: *«per qué és tant gris el paginador? no és un UIControl? per qué cada cop
   que n'uses un és diferent? … el paginador ha de ser igual a tot arreu, si no no s'entén que és un control
   paginador»*. **Un sol dibuix, una sola mida, una sola tinta**; una app que li doni una caixa més baixa és l'única que
   el fa petit, i ho fa a posta (docs/92 §27).
@@ -2157,12 +2166,13 @@ llista **pagina**, i el peu diu en quina pàgina ets.
   pager? perqué ocupa tant espai i es veu tant petit? aquest paginador es del sistema?»*). Sí que ho és, i ara ho és
   del tot: el peu d'una llista i `ui.dots` són **un sol dibuix** —les boles del projecte del paper, el pal que les
   enfila, la bola de la pàgina que es llegeix plena i més gran, les altres d'anella i les tres boles que s'encongiran
-  quan les pàgines no hi caben— amb la bola escalada a la banda, i no quatre punts de quatre píxels que eren una segona
-  còpia de la mateixa idea i la petita. **La banda és un terç de la fila, amb un mínim de 24 i un màxim de 37 px** (la
-  caixa que demana el disseny), i el peu es pinta **on s'acaba l'última fila** i no al fons de la caixa: una llista amb
-  més lloc que files deixava l'aire **entremig**, i això es llegia com un peu que ocupa mitja pàgina. El paper que
-  sobra és sota el peu, on s'acaba una pàgina. Quan la banda és tan estreta que no hi cap ni una bola, hi ha el número
-  (`2 / 4`) i prou, que és el que hi ha quan la caixa és d'uns quants píxels (docs/30, docs/92).
+  quan les pàgines no hi caben— **amb la mateixa bola del disseny a tots dos** (0.176.0: abans la llista l'escalava a la
+  banda i el mateix control sortia de 20 píxels en una llista de files curtes, de 24 sota una graella i de 25 dins d'un
+  `ui.dots`), i no quatre punts de quatre píxels que eren una segona còpia de la mateixa idea i la petita. **La banda ja
+  no depèn de la fila**: són els 37 de la caixa del disseny més les 4 de la línia que tanca les files, i el peu es pinta
+  **on s'acaba l'última fila** i no al fons de la caixa: una llista amb més lloc que files deixava l'aire **entremig**, i
+  això es llegia com un peu que ocupa mitja pàgina. El paper que sobra és sota el peu, on s'acaba una pàgina. Quan la
+  caixa és tan estreta que la tira no hi cap, el control pinta el número (`2 / 4`) i prou (docs/30, docs/92).
 - **`marked` és una fila de tota la llista** i el control en pinta una pàgina: una fila d'una altra pàgina no és la
   triada d'aquesta, i el control ho sap (zero).
 - **Les fletxes del dial canvien la pàgina** mentre la llista té el focus i l'app ho sap per `on_page(self, page)`.

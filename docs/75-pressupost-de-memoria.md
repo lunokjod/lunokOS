@@ -575,9 +575,11 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
 - **El canvas de la vista és un bloc de debò, i el número és el de la comptabilitat**: la línia de
   l'arrencada diu avui `ui: view 540x912 at 0,48, 246240 bytes of canvas`, que és **540 × 912 / 2**
   —quatre bits per píxel— en **un sol bloc** de la PSRAM (el 1/11, amb la barra de 28 files, deia
-  `540x932 at 0,28, 251640 bytes`). Els vuit canvas del sostre, si tots fossin de pàgina sencera, serien
-  **1 969 920 B** (1 924 KiB) dels 4 096 que té una app: **gairebé la meitat**, i per això **cada control
-  és de la seva mida** i un control **sense vista no gasta ni un byte** (docs/90, M9).
+  `540x932 at 0,28, 251640 bytes`). **El sostre de vuit canvas ja no hi és** (0.174.5): mentre hi era, vuit
+  canvas de pàgina sencera haurien estat **1 969 920 B** (1 924 KiB) dels 4 096 que té una app —**gairebé la
+  meitat**—, i per això **cada control és de la seva mida** i un control **sense vista no gasta ni un byte**, que
+  continua sent el que mana ara que el número no hi és: el que es demana és el que es reserva i el que no hi cap
+  ho diu (docs/90, M9).
 - **El que encara no està mesurat**: quants blocs reals van a la PSRAM en una app de debò i quants a
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.
@@ -663,7 +665,7 @@ atén la consola, les alarmes, el botó, el vidre i la ràdio abans de reprendre
 **El número és un ajust del sistema i es va fer curt per una raó de latència, no de rendiment**
 (0.174.7): la pregunta de l'amo va ser *«vull un sistema que respongui ràpid als botons i el touch»*, i la
 resposta és que el pressupost és exactament el temps que un dit o una tecla poden esperar que el nucli
-torni a mirar. Amb 100 000 instruccions i el model de 60 ns són **6 ms** de codi d'app entre dues mirades del
+torni a mirar. Amb les 100 000 d'abans i el model de 60 ns eren **6 ms** de codi d'app entre dues mirades del
 vidre; amb 20 000, **1,2 ms**. `cfg turn <n>` el canvia —de 2 000 (un bloc, el terra: per sota el comptador
 no el veuria i no es tallaria mai) a 200 000 (12 ms, el sostre: més enllà el bucle és de l'app)—, el valor
 es desa a `cfg/turn` de l'NVS com a text i `sys.turn()` el diu des de Lua. El que es paga és rendiment:
