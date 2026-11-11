@@ -5598,6 +5598,22 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.7 (11/11): **the card of the emulator is a card and not a second image** (the owner: *«a l'emulador vull que
+// totes les apps estiguin posades. Treu les apps del SD per ara»*). The apps of the emulator were already on its flash
+// disk —`custom_apps_in_disk = yes`, eleven folders linked to `apps/`, since 8/11— and since 0.174.9 the build also left
+// a link per app in `emulator/sd/apps`, so the door of `/apps` showed **every app twice**, the card's with the `*` and
+// the word `[card]`, and the launcher needed **twenty-one cells in two pages** for eleven apps:
+//   - **`custom_card_apps` is gone from the environment and `seed_card` from `tools/make_disk.py`**: the directory that
+//     is the slot (`emulator/sd`, the default of `--sd`) is a directory of this machine that a person fills, exactly
+//     like the card of a board, and a build that seeds it is a build that owns somebody's data;
+//   - **the result is what the door was built to show and not a doubled list**: `apps` answers **eleven names** and the
+//     launcher has **ten cells in one page** (it does not list itself), measured on the emulator after the change. The
+//     `*` and `[card]` marks stay where they belong —a card that really carries an app, which is `repo install` and a
+//     hand—, and the local links are deleted with `emulator/sd/apps` (`emulator/` is state and not in git);
+//   - **and the docs say which one it is now**: docs/70, docs/80 and docs/85 keep the record of the two days as a
+//     record —the 10/11 seeded the card, the 11/11 took it out— and say that the flash is where this emulator's apps
+//     live.
+
 // 0.178.6 (11/11): **with the radio up, the number is the chip's**. The owner asked how a truly random number is made
 // on this board, and the honest answer was that `ISystem::random()` was not one: a xorshift32 seeded once, at the boot,
 // with the ADC window and the microsecond counter. The seed is real noise and it never repeats, but the sequence after
@@ -5888,7 +5904,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.6";
+static const char kVersion[] = "0.178.7";
 
 }  // namespace kernel
 

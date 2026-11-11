@@ -783,11 +783,12 @@ al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom
 també les porta totes (8/11, `custom_apps_in_disk = yes`), **enllaçades**, perquè no té placa i el filtre les
 deixa passar totes (docs/85).
 
-**I la targeta de l'emulador també les porta totes, enllaçades** (10/11, `custom_card_apps = emulator/sd`): el mateix
-`make_disk` deixa un enllaç per app dins de `emulator/sd/apps` —afegeix el que falta i treu la còpia vella d'una app que
-el repositori també té— i **no toca res més** de la targeta, perquè una targeta és d'algú: una app de `repo install`,
-`cfg/`, `http/` i `fonts/` s'hi queden. La porta d'`apps` les presenta totes dues, la de la flash i la de la targeta, i
-la segona amb el `*` i la paraula `[card]` al costat del nom (docs/85).
+**I la targeta no la toca cap build** (11/11, l'amo: *«treu les apps del SD per ara»*): l'emulador porta les apps al
+disc de la flash i prou, i el directori que és la targeta (`emulator/sd`, el valor per defecte de `--sd`) queda com el
+d'una placa de debò —el que hi hagi, hi és—. Entre el 10/11 i l'11/11 el guió hi deixava **un enllaç per app**
+(`custom_card_apps = emulator/sd`), i el resultat era que la porta d'`apps` ensenyava cada app dues vegades, una per
+volum, la de la targeta amb el `*` i la paraula `[card]`, i el llançador tenia vint-i-una cel·les en dues pàgines
+(docs/85). La segona còpia es va treure; la porta sap fer-ho si algú hi torna a posar apps a mà.
 
 **Per què cap placa no en porta**: perquè és una decisió de l'amo (0.118.3, *«cap placa ha de contenir apps al
 littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca

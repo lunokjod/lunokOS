@@ -104,7 +104,7 @@ Aquestes són les opcions del binari:
 | `--state <dir>` | On viuen les memòries que no són un volum: `nvs/` i, quan n'hi hagi, la RTC, la FRAM i l'hora que el xip recorda (per defecte `emulator/`) |
 | `--persist` | **La placa no s'ha desendollat**: el run arrenca on el run anterior va deixar la placa, o sigui que la **RTC RAM** no s'esborra ni a l'ATOM (un reinici no apaga el domini del RTC) i **l'hora** de `clock.bin` es llegeix també als models sense pila, amb `source` = `"soc"`. La NVS i la FRAM no depenen d'això: són flash i ferrita i es guarden sempre (docs/60, docs/85) |
 | `--fs <dir>` | **Recanvi** del disc quan no hi ha `--flash`: `Options` hi cau si `flash_dir` és nul (`emu_storage.cpp`). El binari sempre acaba de posar `--flash` a `data`, o sigui que **des del binari no fa res**; el fan servir les proves, que es muntin les seves opcions |
-| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, **que l'emulador crea sol si el model té ranura** (`make_slot`, i el mateix amb el directori que li diguin). **El que porta el decideix el directori**: el del build d'aquest emulador **ja ve amb totes les apps d'`apps/` enllaçades** (`custom_card_apps`, 0.174.9), i qualsevol altre és el que hi hagi —una targeta buida és una ranura amb `apps` dient `no apps`, i un directori esborrat és una ranura buida (0.88.2, docs/70, docs/85) |
+| `--sd <dir>` | **La targeta**: aquest directori n'és el volum i es munta a `/sd`. Per defecte `emulator/sd`, **que l'emulador crea sol si el model té ranura** (`make_slot`, i el mateix amb el directori que li diguin). **El que porta el decideix el directori, i el build no hi posa res** (11/11: el directori per defecte arrenca buit i les apps d'aquest emulador són les del disc de la flash), i qualsevol directori és el que hi hagi —una targeta buida és una ranura amb `apps` dient `no apps`, i un directori esborrat és una ranura buida (0.88.2, docs/70, docs/85) |
 | `--battery-mv <mv>` | **Una bateria de mentida**: el que llegeix `power.battery()`. **Mana sobre la de la màquina** (la del punt de sota), i el `%` no es posa: surt de la corba de `hal/battery.h`, la mateixa que fa servir el Paper. Un model **sense indicador** (els ATOM) dona `nil` encara que se li digui un número, que és el que faria la placa (docs/30) |
 | `--battery-host` | **La bateria d'aquesta màquina, prestada a la placa, i la demana poques vegades perquè ja ve sola**: en un Linux, un model amb indicador llegeix el `%` de `/sys/class/power_supply` a l'arrencada sense cap bandera (en un altre amfitrió no hi ha res a llegir i la cel·la comença al nominal) i el passa per la **corba de la cel·la del model** (1150 mAh, 4,2 V plena), o sigui que 99 % d'aquest portàtil són **4 190 mV del Paper** i no 12 V d'una bateria de tres cel·les. Si la màquina no en té cap, la cel·la comença al **seu càrrec nominal (3 700 mV, 42 %)** i l'emulador ho diu, perquè una placa amb indicador sempre llegeix alguna cosa. La bandera serveix per **demanar-ho en veu alta** (i perquè se't digui que un ATOM no té indicador); amb `--battery-mv` alhora, l'emulador el refusa (docs/50, docs/85) |
 | `--board <nom>` | **Quina placa és l'emulador, i és obligatori**: `m5stack-atom`, `m5stack-atom-matrix` o `m5stack-paper`. `sys.board` respon aquest nom, `sys.emulator` continua cert, i `boards` del manifest es compara amb aquest i no amb els tres (docs/50). **El maquinari és el del model**: un ATOM té un llum i una tecla, la Matrix el panell de 25 i el sensor, i el Paper les tres tecles, l'indicador de bateria, la targeta i el rellotge amb pila — el mateix que diu la fitxa de docs/50, ni més ni menys |
@@ -248,16 +248,14 @@ desapareix, que és el cas d'una targeta treta (docs/70). `--sd <dir>` canvia el
 s'hi crea). Amb la targeta posada, `cfg auto` hi desa els ajustos, i això és el que fa que el camí de
 la targeta es pugui provar sencer al PC.
 
-**I la targeta d'aquest emulador hi porta totes les apps, enllaçades** (10/11, l'amo: *«fes que l'emulador tingui
-totes les apps»*). L'entorn `emulator` diu `custom_card_apps = emulator/sd` —el directori que és la targeta, el mateix
-valor per defecte de `--sd`— i `tools/make_disk.py` hi deixa **un enllaç per app d'`apps/`**, la mateixa regla que el
-disc de la flash: s'hi afegeix el que falta i **se'n treu la còpia** d'una app que el repositori també té, perquè una
-còpia és una còpia i es queda vella (la de l'`editor` del 9/11 ho era, i el que corria no era el codi del repositori).
-El que la targeta té i `apps/` no —una app de `repo install`— **s'hi queda**, i també `cfg/`, `http/` i `fonts/`: és una
-targeta d'algú i el guió no la posseeix. El resultat és el que la porta d'`apps` existeix per ensenyar: `apps` en treu
-**vint-i-dos noms**, els onze de la flash i els onze de la targeta amb el `*` i la paraula `[card]`
-(`*about  About-SD  [card]`), i el llançador té **vint-i-una cel·les** en dues pàgines —ell no es llista a si mateix— amb
-les icones de les dues bandes.
+**I les apps d'aquest emulador són les del disc, una vegada** (8/11, i el 10/11 les va tenir també a la targeta —fins
+que l'amo les va fer fora l'11/11: *«treu les apps del SD per ara»*—). Les porta el disc de la flash
+(`custom_apps_in_disk = yes`, enllaçades a `apps/`), i la targeta del slot és un directori d'aquesta màquina que ningú
+omple pel build: el que hi hagi, hi és —una app de `repo install`, `cfg/`, `http/`, `fonts/`—. **El resultat és
+`apps` amb onze noms i el llançador amb deu cel·les** —ell no es llista a si mateix—; quan la targeta també en portava,
+eren vint-i-dos noms, cada app dues vegades amb el `*` i la paraula `[card]` a la de la targeta
+(`*about  About-SD  [card]`), i el llançador tenia vint-i-una cel·les en dues pàgines. La porta sap ensenyar les dues
+bandes; el que no ha de fer és inventar-se'n una.
 
 **La bateria a l'emulador ve de fora, i ve sola**: a la placa és un divisor connectat a un pin, i aquí no hi ha
 ADC; el que hi ha és **el `%` d'aquesta màquina** (`/sys/class/power_supply/*/capacity`), que un model amb

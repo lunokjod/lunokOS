@@ -133,42 +133,6 @@ def wanted_apps():
     return keep
 
 
-def seed_card(card_dir, apps):
-    """**The card of the emulator carries the same apps as its flash, as links** (10/11, the owner: *«fes que
-    l'emulador tingui totes les apps»*).
-
-    A card is somebody's data and this script does not own it: what is here **adds** the apps that are missing and
-    **replaces a copy of an app the repository also has** —a copy is a copy and goes stale, which is the trap that
-    fooled us twice with `emulator/littlefs`— and it touches nothing else. An app that only the card has —the one
-    `repo install` put there— stays where it is, and so do `cfg/`, `http/` and `fonts/`.
-
-    An app on two volumes is what the door of `apps` was built for (0.164.0): the card's copy is `*<id>` and the
-    launcher and the prompt see the two of them (docs/70, docs/85).
-    """
-    if not card_dir:
-        return
-    card_apps = os.path.join(card_dir, "apps")
-    os.makedirs(card_apps, exist_ok=True)
-    linked = 0
-    for app in apps:
-        source = os.path.join(APPS_DIR, app)
-        target = os.path.join(card_apps, app)
-        if os.path.islink(target):
-            if os.path.realpath(target) == os.path.realpath(source):
-                continue
-            os.remove(target)
-        elif os.path.isdir(target):
-            # **A copy of an app the repository has is a copy that goes stale**: it is the case of the `editor` of
-            # the 9/11, and the link is what keeps the card the same code as the disk (docs/85).
-            shutil.rmtree(target)
-        elif os.path.isfile(target):
-            os.remove(target)
-        os.symlink(source, target)
-        linked += 1
-    print("make_disk: the card at %s carries %d apps, %d of them linked now"
-          % (os.path.relpath(card_dir, PROJECT), len(os.listdir(card_apps)), linked))
-
-
 def rebuild():
     if os.path.abspath(DISK_DIR) == os.path.abspath(SYSTEM_DIR):
         print("make_disk: data_dir is data/ itself, nothing to assemble")
@@ -238,11 +202,9 @@ def rebuild():
         how = "%d apps, linked to apps/" % len(apps)
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
     check_it_fits(files, apps)
-    # **And the card, for the environment that says one**: an emulator, whose slot is a directory of this machine
-    # (docs/85). A board has no card here and the option is not set there.
-    card = option("custom_card_apps")
-    if card:
-        seed_card(card if os.path.isabs(card) else os.path.join(PROJECT, card), apps)
+    # **The card is not this script's** (11/11, the owner: *«treu les apps del SD per ara»*): the apps of the
+    # emulator are the disk's, and what the slot of a board carries is the person's —the emulator's card is a
+    # directory of this machine and it is left as it is, with whatever `repo install` or a hand put there (docs/85).
 
 
 def partition_bytes():
