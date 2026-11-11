@@ -599,9 +599,20 @@ memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per 
 punter de relleu (`pal::set_memory_relief`) que el nucli omple amb `session::release_all`, i **cada allocator el crida des
 del lloc on la petició ja ha dit que no a totes les memòries i enlloc més** —mai per un llindar de bytes lliures i mai abans
 de provar—, i tot seguit **torna a fer la mateixa petició**, o sigui que l'app que la va fer no arriba a saber que el preu
-era la seva caché (el del PC i el del xip, amb el `resize` inclòs). Un bloc que no s'ha pogut donar mai no arriba al relleu,
+era una caché (el del PC i el del xip, amb el `resize` inclòs). Un bloc que no s'ha pogut donar mai no arriba al relleu,
 i un que s'ha donat deixa la seva generació enrere, així que l'objecte de l'app que el tenia respon
 `the session memory was given back` en lloc d'escriure a memòria lliure (docs/30, docs/90).
+
+**I el preu el paga una app encara que la petició sigui d'una altra** (0.179.8, i això és el que es va veure al vidre): la
+caché pot ser del propi llançador mentre demana una altra cosa —`[W][MEMORY] the memory is short: 1 block(s), 32 768 B
+given back for an ask of 95 296 B`— i llavors l'app que la tenia **s'ha d'assabentar**. La transparència és de la petició i
+no del bloc: `sys.session` torna un objecte que respon **`alive()`**, i la resta de crides d'un bloc que se n'ha anat
+aixequen en lloc de llegir memòria lliure. Una app que pregunti abans d'usar-lo i en demani un altre quan la resposta és
+`false` no perd la pàgina; una que no ho faci pinta l'error a cada dibuix, que és exactament el que va passar amb el
+llançador fins a la 0.179.6 (`present: … [string "/apps/home_eink/home_eink.lua"]:248: the session memory was given back`,
+quatre vegades, i una pàgina de lletres sense icones). El llançador ho fa així, i el torn següent torna a demanar el bloc
+fora de qualsevol dibuix: amb els passos de sempre (32 768 → 24 576 → 16 384 → 8 192 → 1 544), o sigui que d'una placa
+que encara va curta en surt un bloc dels noms, o cap, i la pàgina segueix sent una pàgina (docs/30).
 
 **I el bloc que la petició està movent no es toca** (0.179.6). El relleu rep dues coses: **el bloc** de qui va la petició
 —`nullptr` si és una reserva nova, el bloc si és un `resize`— i **quants bytes en volia**. Un `resize` que falla dona el

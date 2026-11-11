@@ -5034,6 +5034,109 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   kernel::boot(hal::platform());
 }
 
+// **A cache of the session that the memory takes is not the end of the page** (0.179.8). The owner pasted the log of a run
+// where the relief gave the launcher's block back —`[I][MEMORY] home_eink gives back 'apps': 32768 B, the memory is short`
+// and `… 1 block(s), 32768 B given back for an ask of 95296 B`— and the launcher went on painting: four lines of
+// `present: … the session memory was given back` and a page whose cells were letters again. The block answers `alive()` and
+// the app asks for another one in the turn after, which is the whole contract of a memory the system may reclaim
+// (docs/30, docs/75).
+void test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **The launcher of the repository and not a copy of it**: what is under test is the file that ships (docs/45).
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink"));
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/home_eink/res"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/home_eink.lua", "/apps/home_eink/home_eink.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/manifest.json", "/apps/home_eink/manifest.json"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", "/apps/home_eink/res/icon.png"));
+  // **Two apps with a picture each**, so the block holds two pictures and a cell that paints again is a cell that would have
+  // read its picture out of the block the memory has taken.
+  const char* const kTwoApps[] = {"alpha", "bravo"};
+  for (const char* id : kTwoApps) {
+    char manifest[192];
+    snprintf(manifest, sizeof(manifest),
+             "{\"title\":\"%s\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+             "\"icon\":\"res/icon.png\"}",
+             id);
+    TEST_ASSERT_TRUE(add_app(storage, id, manifest, "while true do sys.delay(20):await() end\n"));
+    char dir[32];
+    snprintf(dir, sizeof(dir), "/apps/%s/res", id);
+    TEST_ASSERT_TRUE(storage->mkdir(dir));
+    char png[40];
+    snprintf(png, sizeof(png), "/apps/%s/res/icon.png", id);
+    TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/home_eink/res/icon.png", png));
+  }
+
+  pump_captured(1500, g_out, sizeof(g_out), "run home_eink");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, " cells"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: cache kept"), g_out);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
+
+  // **The relief of the allocator, which is the door it uses** (0.179.6): every session memory goes, and the launcher's
+  // `cache` object is a block of somebody else's from this line on.
+  kernel::session::release_all();
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+
+  // **And a key paints the page again**: the cell the ring lands on is drawn with its picture, which is the draw that used
+  // to raise. Nothing of this may reach the console as a `present:` failure (docs/30, docs/50).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(30);
+  emu::press_key(2, false);
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "the session memory was given back"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "present: "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "home: the cache of the session was given back"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  TEST_ASSERT_EQUAL_STRING("home_eink", kernel::shell::app_id());
+
+  // **And the turn after asks for another one, outside every draw**: a block that is asked for again is zeroed, so it says
+  // `cache cold`, and the page writes its records into it once the names have all arrived (docs/30, docs/75). Both lines
+  // come after the draw that found the block gone, which is the order the loop of this app has (docs/30).
+  const char* taken = strstr(g_out, "home: the cache of the session was given back");
+  const char* cold = strstr(g_out, "home: cache cold, ");
+  const char* kept = strstr(g_out, "home: cache kept");
+  TEST_ASSERT_NOT_NULL_MESSAGE(cold, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(kept, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(taken < cold, g_out);
+  TEST_ASSERT_TRUE_MESSAGE(cold < kept, g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(1, kernel::session::count(), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(10, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/home_eink/res/icon.png");
+  storage->remove("/apps/home_eink/res");
+  storage->remove("/apps/home_eink/home_eink.lua");
+  storage->remove("/apps/home_eink/manifest.json");
+  storage->remove("/apps/home_eink");
+  for (const char* id : kTwoApps) {
+    char dir[40];
+    snprintf(dir, sizeof(dir), "/apps/%s/res/icon.png", id);
+    storage->remove(dir);
+    snprintf(dir, sizeof(dir), "/apps/%s/res", id);
+    storage->remove(dir);
+    snprintf(dir, sizeof(dir), "/apps/%s/app.lua", id);
+    storage->remove(dir);
+    snprintf(dir, sizeof(dir), "/apps/%s/manifest.json", id);
+    storage->remove(dir);
+    snprintf(dir, sizeof(dir), "/apps/%s", id);
+    storage->remove(dir);
+  }
+  kernel::session::release_all();
+
+  emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A step of the dial in the launcher costs the cells it crosses and nothing else** (0.177.4). The map of what the glass
 // owes is the law of this system, and the launcher is where it was being broken twice over: the walk invalidated the
 // control the dial left **three times** —`focused`, `editing` and `focus_index`, the last two because a field the app
@@ -12730,6 +12833,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_app_run_says_why_it_cannot_start_an_app);
   RUN_TEST(test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed);
   RUN_TEST(test_a_step_of_the_dial_in_the_launcher_paints_the_cells_it_crosses);
+  RUN_TEST(test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page);
   RUN_TEST(test_the_picture_of_a_cell_is_turned_over_with_the_cell);
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);

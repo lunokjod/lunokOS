@@ -171,11 +171,31 @@ local function load_cache()
   console.print(string.format('home: cache warm, %d apps, %d pictures', count, drawn))
 end
 
+-- **A block that the memory has taken is a block this file forgets** (0.179.8): the relief of the allocator gives every
+-- session memory back the moment a block does not fit (`[I][MEMORY] home_eink gives back 'apps' … the memory is short`), and
+-- a launcher that went on using it raised `the session memory was given back` inside every draw of a cell —four lines of
+-- `present:` and a page of letters with no pictures, which is what the owner pasted at 0.179.6—. The question is asked
+-- where the block is used and the answer is one word, and the turn after asks for another one: the page is worth more than
+-- the cache, and a block of a thousand bytes with the names of the apps in it is still a block (docs/30, docs/75).
+local lost = false
+local function the_cache_is_ours()
+  if cache == nil then return false end
+  if cache:alive() then return true end
+  console.print(string.format('home: the cache of the session was given back, %d app(s) in it', #cached_order))
+  cache = nil
+  cached = {}
+  cached_order = {}
+  warm = {}
+  slots = 0
+  lost = true
+  return false
+end
+
 -- **And it is written when the page is whole**: the magic goes last, so a run that ends in the middle of the queue does not
 -- leave a header that promises records the block does not have. A title or a path with the two characters of the format in
 -- it is not written —a cache that breaks the parse is a cache that is never read again— and the app is asked next time.
 local function save_cache()
-  if cache == nil then return end
+  if not the_cache_is_ours() then return end
   local text = {}
   local slot = 0
   local held = 0
@@ -244,8 +264,9 @@ local function paint_picture(id, picture, info, inverted)
   -- **A picture that is already in the block is a copy and not a decode** (0.179.0): the same pixels the file and the
   -- decoder made the first time, and no disk at all. It is always the paper face —the ink is the `invert` at the end— so
   -- the cache holds one picture per app and not two (docs/30, docs/75).
-  local record = cached[id]
-  if cache ~= nil and record ~= nil and warm[id] and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
+  local ours = the_cache_is_ours()
+  local record = ours and cached[id] or nil
+  if record ~= nil and warm[id] and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
     local at = kCachePictures + record.slot * picture_bytes()
     if picture:blit(cache, at, 0, 0, kIcon, kIcon) then
       if inverted then picture:invert(0, 0, kIcon, kIcon) end
@@ -276,7 +297,8 @@ local function paint_picture(id, picture, info, inverted)
   -- **And what was just drawn is kept**: the paper face only, because the ink is the invert of the same pixels, and only
   -- when the block has a place for it —an app whose manifest has not arrived has no record yet, and a block of a board with a
   -- crowd of apps may hold the records and no picture at all— (docs/30, docs/75).
-  if cache ~= nil and record ~= nil and not inverted and info ~= nil and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
+  if record ~= nil and not inverted and info ~= nil and the_cache_is_ours() and
+      cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
     local at = kCachePictures + record.slot * picture_bytes()
     if picture:capture(cache, at) ~= nil then warm[id] = true end
   end
@@ -591,7 +613,7 @@ function on_resize(width, height)
     warm = {}
     cached = {}
     slots = 0
-    if cache ~= nil then cache:write(0, '    ') end
+    if the_cache_is_ours() then cache:write(0, '    ') end
   end
   build()
 end
@@ -605,6 +627,14 @@ local checked = not from_cache
 
 while true do
   local painted = false
+  if lost then
+    -- **The block that was taken is asked for again here and not inside a draw** (0.179.8): the steps of the cache are the
+    -- same ones, so a board that is still short lands on a block of the names —or on none, and the page goes on without it—
+    -- and the cells of this page keep the names they already have (docs/30, docs/75).
+    lost = false
+    load_cache()
+    kept = false
+  end
   if head <= #queue then
     step()
     painted = true

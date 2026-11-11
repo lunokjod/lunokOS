@@ -5598,6 +5598,26 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.8 (11/11): **a session memory that the system takes is a block the app can see go**. The owner pasted the log of his
+// launcher: `[I][MEMORY] home_eink gives back 'apps': 32768 B, the memory is short`, `[W][MEMORY] the memory is short: 1
+// block(s), 32768 B given back for an ask of 95296 B`, and then four times
+// `present: [string "/apps/home_eink/home_eink.lua"]:248: the session memory was given back`. The relief did what it was told
+// to do —a failed ask, nothing else— and the app died of it: the block it was painting from was one of somebody else's, and
+// `cache:size()` raised inside every draw of a cell, which is a page of letters and no pictures for the rest of the run:
+//   - **the block answers `alive()`** (0.179.7's rule, one door further): true while the object is the block the kernel gave,
+//     false once the relief has taken it. Every other call of a block that went still raises —a read of freed memory is
+//     worse than a page without a cache—, so the question is asked **before** the use and the app decides (docs/30, docs/75);
+//   - **the launcher asks it** where it uses the block —the read of a record, the capture of a picture, the write of the
+//     cache, the magic of a resize— and the turn after asks for another block **outside every draw**, with the same steps of
+//     the cache, so a board that is still short lands on a block of the names or on none and the page goes on: it says
+//     `home: the cache of the session was given back, N app(s) in it` once and rebuilds its records in the same run
+//     (`home: cache kept`);
+//   - **`test_a_cache_of_the_session_the_memory_takes_does_not_kill_the_page`** is the owner's log made a case: the real
+//     launcher of the repository, a block built, `session::release_all()` —the door the relief uses—, a key that paints the
+//     page again, and no `present:` line, with the three lines in the order the loop has them (taken, cold, kept). It fails
+//     on the launcher of 0.179.7 with **exactly** the line the owner pasted, at line 248, and passes now (`206 cases`, `105`
+//     of `test_ui`, `10` of `test_touch` and `5` of `test_pal`, all green).
+
 // 0.179.7 (11/11): **the selector of the focus comes and goes with the hands**. The owner: *«Si s'usa el dit el selector
 // del focus ha d'amagar-se. Si es tornen a usar els botons físics ha de tornar. Per defecte el selector de focus ha d'estar
 // desactivat fins que s'usen els botons»*. The ring is an ink of the control and it was painted from `focused` alone, so a
@@ -6105,7 +6125,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.7";
+static const char kVersion[] = "0.179.8";
 
 }  // namespace kernel
 

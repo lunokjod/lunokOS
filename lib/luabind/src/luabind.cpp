@@ -1415,6 +1415,20 @@ LuaSession* session_check(lua_State* L, int idx) {
   return block;
 }
 
+// **`block:alive()`** (0.179.8): whether this object still holds the block the kernel gave it. The relief of the allocator
+// gives every session memory back the moment a block does not fit —that is what a session memory is for— and the app that
+// keeps a cache there can lose it in the middle of a page: this is the question that is asked **before** the block is used,
+// and the app asks for another one when the answer is no. Every other call of a block that went raises, because reading a
+// block the relief has given away is reading somebody else's memory, which is worse than a page without a cache
+// (docs/30, docs/75).
+int l_session_alive(lua_State* L) {
+  LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
+  const bool mine = block->bytes != nullptr && g_session_ops.generation != nullptr &&
+                    g_session_ops.generation() == block->generation;
+  lua_pushboolean(L, mine ? 1 : 0);
+  return 1;
+}
+
 int l_session_read(lua_State* L) {
   LuaSession* block = session_check(L, 1);
   const lua_Integer at = luaL_checkinteger(L, 2);
@@ -1497,11 +1511,12 @@ int l_session_tostring(lua_State* L) {
 
 void open_session_library(lua_State* L) {
   luaL_newmetatable(L, kSessionMeta);
-  lua_createtable(L, 0, 6);
+  lua_createtable(L, 0, 7);
   set_function(L, "read", l_session_read);
   set_function(L, "write", l_session_write);
   set_function(L, "clear", l_session_clear);
   set_function(L, "size", l_session_size);
+  set_function(L, "alive", l_session_alive);
   set_function(L, "release", l_session_release);
   lua_setfield(L, -2, "__index");
   lua_pushcfunction(L, &l_session_gc);
