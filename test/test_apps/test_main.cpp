@@ -5375,6 +5375,73 @@ void test_the_pages_of_a_grid_follow_the_dial(void) {
   kernel::boot(hal::platform());
 }
 
+// **The cursor of a grid is written by the system and not by the app** (0.179.4): the page of a grid follows its `index`,
+// so every launcher kept that number in the `on_focus` of every cell —one line per cell, and the app that forgets it has a
+// page that never turns—. The ring is the system's and the focus arrives in one place, so the cursor is written there and
+// an app that writes nothing pages like any other. This grid has no `grid.index = i` in its cells and its page turns all
+// the same (docs/30, docs/90).
+void test_the_cursor_of_a_grid_follows_the_ring_without_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "cursor",
+                           "{\"title\":\"Cursor\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           // Two cells a page of a box of three hundred by two hundred, and five cells.
+                           "local grid = ui.icon_grid(300, 200)\n"
+                           "grid:place(20, 20)\n"
+                           "grid.columns = 2\n"
+                           "grid.index = 1\n"
+                           "local cells = {}\n"
+                           "for i = 1, 5 do\n"
+                           "  local cell = ui.grid_entry(140, 90)\n"
+                           "  cell.background = 15\n"
+                           "  cell.on_focus = function(self, on)\n"
+                           "    if not on then return end\n"
+                           "    console.print('cell ' .. i .. ' cursor ' .. grid.index)\n"
+                           "  end\n"
+                           "  grid:add(cell)\n"
+                           "  cells[i] = cell\n"
+                           "end\n"
+                           "ui.focus(cells[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('grid up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run cursor");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "grid up"), g_out);
+  // **Three steps**: the second cell of the page and then the two cells of the page behind it, whose cursor is the number
+  // the system wrote before the ring was painted.
+  capture_begin();
+  for (int i = 0; i < 3; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 2 cursor 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 3 cursor 3"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cell 4 cursor 4"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  close_any_app();
+  storage->remove("/apps/cursor/app.lua");
+  storage->remove("/apps/cursor/manifest.json");
+  storage->remove("/apps/cursor");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A finger that walks sideways over a grid turns its page** (0.175.0, the owner: *«usa el paginador Dots i el gest swipe
 // left/right per canviar de pàgina»*). The cells are the app's controls and the page is the grid's, and the system joins
 // them the way a person does: the cell's father is the grid, the grid says which cell opens the page the finger asked for,
@@ -5460,6 +5527,152 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   storage->remove("/apps/swipe/app.lua");
   storage->remove("/apps/swipe/manifest.json");
   storage->remove("/apps/swipe");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A dial step past the last row of a page turns it** (0.179.4, the owner: *«si el focus sobrepassa l'últim o el primer
+// item visible per canviar de pàgina»*). A list of entries places the rows of the other pages out of its frame, where the
+// walk does not reach them: without the rule the down key on the last visible row left the list and the rows behind the
+// page could only be reached with a finger. The page is the control's —the footer of the list says which one it is— and
+// the app hears `on_page` as it does when the arrows of a list of data turn it (docs/30, docs/90).
+void test_a_dial_step_past_the_last_row_of_a_page_turns_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // Two rows a page of a list of three hundred by two hundred with a footer of forty-one: rows one and two are the first
+  // page and rows three and four the second (docs/30).
+  TEST_ASSERT_TRUE(add_app(storage, "rows",
+                           "{\"title\":\"Rows\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "local rows = {}\n"
+                           "for i = 1, 5 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_focus = function(self, on)\n"
+                           "    if not on then return end\n"
+                           "    console.print('focus row ' .. i)\n"
+                           "  end\n"
+                           "  l:add(row)\n"
+                           "  rows[i] = row\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.focus(rows[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('rows up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run rows");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  // **Two steps**: the first walks to the second row of the page and changes nothing, the second passes the last visible
+  // row and is the page.
+  capture_begin();
+  for (int i = 0; i < 2; ++i) {
+    emu::press_key(2, true);
+    pump_turns(20);
+    emu::press_key(2, false);
+    pump_turns(20);
+  }
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus row 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  // **And the ring is on the first row of the page the dial walked into**, not left behind on a row that is now out of
+  // the frame (docs/30, docs/90).
+  const char* turn = strstr(g_out, "page 2");
+  TEST_ASSERT_NOT_NULL_MESSAGE(turn, g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(turn, "focus row 3"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/rows/app.lua");
+  storage->remove("/apps/rows/manifest.json");
+  storage->remove("/apps/rows");
+}
+
+// **A finger that walks sideways over a list turns its page** (0.179.4): the same gesture a grid takes, said for the rows,
+// so an app does not read `touch.gesture()` to turn a control's page —which is what `about` did until this version—. The
+// ring goes to the first row of the page the finger asked for and the gesture picks nothing (docs/30, docs/90).
+void test_a_finger_that_walks_sideways_over_a_list_turns_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "rowswipe",
+                           "{\"title\":\"Row swipe\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local l = ui.list(300, 200)\n"
+                           "l:place(20, 20)\n"
+                           "l.row_height = 56\n"
+                           "local rows = {}\n"
+                           "for i = 1, 5 do\n"
+                           "  local row = ui.list_entry(300, 56)\n"
+                           "  row.background = 15\n"
+                           "  row.on_focus = function(self, on)\n"
+                           "    if not on then return end\n"
+                           "    console.print('focus row ' .. i)\n"
+                           "  end\n"
+                           "  row.on_click = function() console.print('pick row ' .. i) end\n"
+                           "  l:add(row)\n"
+                           "  rows[i] = row\n"
+                           "end\n"
+                           "l.on_page = function(self, page) console.print('page ' .. page) end\n"
+                           "ui.focus(rows[1])\n"
+                           "ui.present('gc16')\n"
+                           "console.print('rows up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run rowswipe");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rows up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  // The finger lands on the first row —twenty pixels down and half the width across— and walks a hundred pixels to the
+  // left, which is more than the slop of a page and still on the glass.
+  const uint16_t start_x = static_cast<uint16_t>(view.x + 20 + 150);
+  const uint16_t start_y = static_cast<uint16_t>(view.y + 20 + 28);
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x - 100), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus row 3"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  // **The same finger the other way brings the first page back**, with the ring on its first row.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(start_x + 60), start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page 1"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus row 1"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick row"), g_out);
+
+  close_any_app();
+  storage->remove("/apps/rowswipe/app.lua");
+  storage->remove("/apps/rowswipe/manifest.json");
+  storage->remove("/apps/rowswipe");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -12312,6 +12525,9 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_dial_walks_the_controls_of_the_page_in_a_ring);
   RUN_TEST(test_the_pages_of_a_grid_follow_the_dial);
   RUN_TEST(test_a_finger_that_walks_sideways_over_a_grid_turns_the_page);
+  RUN_TEST(test_the_cursor_of_a_grid_follows_the_ring_without_the_app);
+  RUN_TEST(test_a_finger_that_walks_sideways_over_a_list_turns_the_page);
+  RUN_TEST(test_a_dial_step_past_the_last_row_of_a_page_turns_it);
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);

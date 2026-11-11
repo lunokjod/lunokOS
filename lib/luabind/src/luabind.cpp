@@ -9673,29 +9673,105 @@ int ui_target_index(const FocusTarget* targets, int count, int16_t slot, uint16_
   return -1;
 }
 
+// **The page of a grid follows the ring and the app does not write it** (0.179.4): the cursor of a grid is `index`, and
+// every launcher of this system kept it in the `on_focus` of its cells —one line per cell, and the one an app forgets is a
+// page that does not turn—. The control knows its cells and the ring is the system's, so the number is written here, in
+// the one place where the focus arrives: a cell of another page that takes the ring is a page the grid paints again, and
+// the footer of the control says which page it is without the app being asked (docs/30, docs/90). A grid of its own items
+// has no cells to follow —its `index` is the cursor and the arrows of the dial move it, in `ui_step_value`.
+void ui_grid_follow_the_cell(lua_State* L, int object) {
+  if (g_ui_ops.canvas_parent == nullptr) return;
+  LuaCanvas* cell = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (cell == nullptr || cell->slot < 0) return;
+  const int16_t father = g_ui_ops.canvas_parent(cell->slot);
+  if (father < 0) return;
+  const int base = lua_gettop(L);
+  if (l_ui_root(L) != 1 || !ui_push_slot_from(L, base + 1, father, 0)) {
+    lua_settop(L, base);
+    return;
+  }
+  lua_remove(L, base + 1);  // the root
+  const int grid = base + 1;
+  if (!ui_field_bool(L, grid, "__icon_grid", false)) {
+    lua_settop(L, base);
+    return;
+  }
+  // The place of the cell among the grid's children, which is the number `index` counts from one: the order the grid
+  // counts its cells in is the order it holds them (docs/30, docs/90).
+  int place = 0;
+  lua_getiuservalue(L, grid, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "children");
+    if (lua_istable(L, -1)) {
+      const lua_Integer children = static_cast<lua_Integer>(lua_rawlen(L, -1));
+      for (lua_Integer i = 1; i <= children && place == 0; ++i) {
+        lua_rawgeti(L, -1, i);
+        LuaCanvas* child = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+        if (child != nullptr && child->slot == cell->slot) place = static_cast<int>(i);
+        lua_pop(L, 1);
+      }
+    }
+  }
+  if (place > 0) {
+    // **What the move costs is the kernel's answer, the same one a field the app writes gets** (0.177.3): a cursor that walks
+    // inside its page paints the cell it leaves and the cell it enters —the paper of the grid covers its cells, so a whole
+    // control here is every picture of the page painted for one ring— and only a cursor that changes page repaints it
+    // (docs/30, docs/90).
+    const lua_Integer before = ui_field_number(L, grid, "index", 0);
+    if (ui_set_field_number(L, grid, "index", place)) {
+      const uint8_t from = (before >= 1) ? static_cast<uint8_t>(before) : 0;
+      const uint8_t to = (place >= 1) ? static_cast<uint8_t>(place) : 0;
+      if (!ui_invalidate_grid_ring(L, grid, from, to, true)) ui_invalidate(L, grid);
+    }
+  }
+  lua_settop(L, base);
+}
+
+// **The ring taken from a control, said once** (0.179.4): it stops being focused —and a grid is asked for that one cell,
+// because the paper of the control did not change—, it is not entered any more (the boxes and the slider, 0.116.0 and
+// 0.117.0) and it stops being the lit tab of its strip (0.99.0). The caller leaves the stack as it found it (docs/30,
+// docs/92).
+void ui_take_the_focus_from(lua_State* L, int object) {
+  if (ui_set_field_bool(L, object, "focused", false)) {
+    // **The ring of a grid leaves one cell** (0.177.3): the paper of the control and the other cells of the page did not
+    // change, so the grid is asked for that cell alone —the cursor does not move, so the cell is given twice and no page
+    // is compared— and the whole control is only painted when the kernel has no answer (docs/30, docs/90).
+    const lua_Integer cell = ui_field_number(L, object, "index", 0);
+    const uint8_t at = (cell >= 1) ? static_cast<uint8_t>(cell) : 0;
+    if (!ui_invalidate_grid_ring(L, object, at, at, false)) {
+      ui_invalidate(L, object);
+    }
+    ui_call_hook(L, object, "on_focus", true, false);
+  }
+  // **A control the dial leaves is not entered any more** (0.116.0 for the boxes, 0.117.0 for the slider): the other
+  // control has the ring, and a person who comes back has to say "enter" again (docs/30, docs/92).
+  if (ui_set_field_bool(L, object, "editing", false)) ui_invalidate(L, object);
+  // **The tab the dial leaves stops being the lit one**: the strip is one control and the paint needs to know
+  // which of its tabs has the ring (0.99.0, docs/92).
+  if (ui_set_field_number(L, object, "focus_index", 0)) ui_invalidate(L, object);
+}
+
 void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int objects, int index) {
   const int old_index =
       ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
-  if (old_index != index && old_index >= 0) {
-    lua_rawgeti(L, objects, old_index + 1);
-    if (ui_set_field_bool(L, -1, "focused", false)) {
-      // **The ring of a grid leaves one cell** (0.177.3): the paper of the control and the other cells of the page did not
-      // change, so the grid is asked for that cell alone —the cursor does not move, so the cell is given twice and no page
-      // is compared— and the whole control is only painted when the kernel has no answer (docs/30, docs/90).
-      const lua_Integer cell = ui_field_number(L, -1, "index", 0);
-      const uint8_t at = (cell >= 1) ? static_cast<uint8_t>(cell) : 0;
-      if (!ui_invalidate_grid_ring(L, -1, at, at, false)) {
-        ui_invalidate(L, -1);
+  if (old_index != index) {
+    if (old_index >= 0) {
+      lua_rawgeti(L, objects, old_index + 1);
+      ui_take_the_focus_from(L, -1);
+      lua_pop(L, 1);
+    } else if (g_ui_focus_slot >= 0) {
+      // **A ring on a control that is not a stop of this walk any more** (0.179.4): a page turned by a finger or by the dial
+      // places the row that had it out of the frame, where `ui_target_index` cannot find it —and a row left saying it has the
+      // ring would wear it again the next time its page came back, and its app would never hear `on_focus(self, false)`—. The
+      // tree still holds the control, so it is found by the slot it had, which is the road a card already took to take a ring
+      // away (0.173.1, docs/30, docs/90).
+      const int base = lua_gettop(L);
+      if (l_ui_root(L) == 1 && ui_push_slot_from(L, base + 1, g_ui_focus_slot, 0)) {
+        LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+        if (canvas != nullptr && canvas->generation == g_ui_focus_generation) ui_take_the_focus_from(L, -1);
       }
-      ui_call_hook(L, -1, "on_focus", true, false);
+      lua_settop(L, base);
     }
-    // **A control the dial leaves is not entered any more** (0.116.0 for the boxes, 0.117.0 for the slider): the other
-    // control has the ring, and a person who comes back has to say "enter" again (docs/30, docs/92).
-    if (ui_set_field_bool(L, -1, "editing", false)) ui_invalidate(L, -1);
-    // **The tab the dial leaves stops being the lit one**: the strip is one control and the paint needs to know
-    // which of its tabs has the ring (0.99.0, docs/92).
-    if (ui_set_field_number(L, -1, "focus_index", 0)) ui_invalidate(L, -1);
-    lua_pop(L, 1);
   }
   if (index < 0 || index >= count) {
     g_ui_focus_slot = -1;
@@ -9713,6 +9789,10 @@ void ui_apply_focus(lua_State* L, const FocusTarget* targets, int count, int obj
   g_ui_focus_generation = targets[index].generation;
   g_ui_focus_item = targets[index].item;
   lua_rawgeti(L, objects, index + 1);
+  // **The cursor of a grid goes where the ring landed, before the ring is painted** (0.179.4): a cell of another page is a
+  // page the grid lays out again, so the number is written first and the paint of the ring is part of the page it owes
+  // (docs/30, docs/90).
+  ui_grid_follow_the_cell(L, -1);
   if (ui_set_field_bool(L, -1, "focused", true)) {
     // **And the ring of a grid arrives on one cell** (0.177.3), the same rule as the one that leaves: the cell the cursor
     // is on —given twice, because the cursor does not move— is the one rectangle, and a grid of entries damages nothing at
@@ -9774,6 +9854,28 @@ int l_ui_present_feedback(lua_State* L) {
   ++g_ui_present_count;
   g_ui_ops.present_each(static_cast<uint8_t>(hal::UpdateMode::kGl16));
   return 0;
+}
+
+// **The page drawn and not presented** (0.179.4): the rows of a list are placed by the draw of the list itself —the entries
+// of the other pages sit out of its frame until it is asked for a page— so a page turned by a key or by a finger has to ask
+// for that draw **before** the ring can be put on a row of the new page. The present is the one that comes after, when the
+// ring is where a person is looking (docs/30, docs/90).
+void ui_draw_the_page() {
+  if (g_state == nullptr) return;
+  const int top = lua_gettop(g_state);
+  if (l_ui_root(g_state) == 1) {
+    lua_getfield(g_state, -1, "draw");
+    if (lua_isfunction(g_state, -1)) {
+      lua_pushvalue(g_state, -2);
+      if (lua_pcall(g_state, 1, 0, 0) != LUA_OK) {
+        con_text("draw: ");
+        const char* message = lua_tostring(g_state, -1);
+        con_text((message != nullptr) ? message : "(no message)");
+        con_text("\r\n");
+      }
+    }
+  }
+  lua_settop(g_state, top);
 }
 
 void ui_feedback() {
@@ -11851,6 +11953,131 @@ bool ui_step_value(lua_State* L, int objects, int index, int direction) {
   return true;
 }
 
+// ---- the page a finger or a key turns, and the control that owns it (0.179.4) ----
+//
+// **The paginator is a part of the list and of the grid, not a control an app builds** (the owner: *«El Paginador ha
+// d'anar integrat amb les llistes o grids … s'ha de mostrar per si sol a la part d'abaix del control … i s'ha de
+// gestionar el swipe i també si el focus sobrepassa l'últim o el primer item visible per canviar de pàgina»*). The
+// control paints it at its own foot, it counts its pages with the arithmetic it draws with (`list_page_of`,
+// `icon_grid_page_cell`) and it is the one that turns: the app hears `on_page(self, page)` and keeps no page of its own,
+// because a page kept twice is a paginator that says one number and rows that are another (docs/30, docs/90).
+//
+// What this layer adds is the joining of the two: **where the control is** —the stop under the finger or the ring, or its
+// father when the stop is a row the app built— and **which page a step lands on**.
+
+// **The list a stop belongs to**, or -1: the stop itself when it is the list —a list of `items` is one stop and paints its
+// own rows— or its father when the stop is an entry the app built. The father is asked of the tree, because a slot is a
+// number a released control gives back and a row is a control of the app's like any other (docs/30, docs/90). Nothing is
+// left on the stack.
+int16_t ui_list_of_the_stop(lua_State* L, int objects, int index) {
+  if (g_ui_ops.canvas_parent == nullptr || index < 0) return -1;
+  const int base = lua_gettop(L);
+  lua_rawgeti(L, objects, index + 1);
+  int16_t slot = -1;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, -1, kCanvasMeta));
+  if (canvas != nullptr) {
+    if (ui_field_bool(L, -1, "__list", false)) {
+      slot = canvas->slot;
+    } else {
+      const int16_t father = g_ui_ops.canvas_parent(canvas->slot);
+      if (father >= 0 && l_ui_root(L) == 1) {
+        const bool found = ui_push_slot_from(L, base + 2, father, 0);
+        if (found && ui_field_bool(L, -1, "__list", false)) slot = father;
+      }
+    }
+  }
+  lua_settop(L, base);
+  return slot;
+}
+
+// **One page of a list turned**: the `page` field written, the control marked for a paint and the app told at `on_page`.
+// True when the page moved and false when that page is not there —the first one back, the last one forward— which is a key
+// or a finger that goes on being whatever it was. **Nothing is painted here**: a page turned by the dial has to put the
+// ring on a row of the new page first, and the paint of a ring that arrives after the page would be a ring on the old one
+// (docs/30, docs/90).
+bool ui_turn_the_page_of_the_list(lua_State* L, int16_t list_slot, int8_t delta) {
+  if (g_ui_ops.list_page_of == nullptr || g_ui_ops.canvas_caps == nullptr || delta == 0) return false;
+  const int base = lua_gettop(L);
+  if (l_ui_root(L) != 1 || !ui_push_slot_from(L, base + 1, list_slot, 0)) {
+    lua_settop(L, base);
+    return false;
+  }
+  lua_remove(L, base + 1);  // the root
+  const int list = base + 1;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, list, kCanvasMeta));
+  uint16_t frame_w = 0;
+  uint16_t frame_h = 0;
+  uint16_t frame_x = 0;
+  uint16_t frame_y = 0;
+  if (canvas == nullptr || !ui_field_bool(L, list, "__list", false) ||
+      !g_ui_ops.canvas_caps(canvas->slot, frame_w, frame_h, frame_x, frame_y)) {
+    lua_settop(L, base);
+    return false;
+  }
+  const lua_Integer row_height = ui_field_number(L, list, "row_height", 56);
+  // **How many pages a list has is the kernel's arithmetic**, the same one the drawing and the arrows of the dial ask:
+  // `items` is the shortcut and the entries are the full thing (docs/30, docs/90).
+  lua_Integer total = 0;
+  lua_getiuservalue(L, list, 1);
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "items");
+    if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+    lua_pop(L, 1);
+    if (total == 0) {
+      lua_getfield(L, -1, "children");
+      if (lua_istable(L, -1)) total = static_cast<lua_Integer>(lua_rawlen(L, -1));
+      lua_pop(L, 1);
+    }
+  }
+  lua_pop(L, 1);
+  uint8_t rows = 0;
+  const uint8_t pages = g_ui_ops.list_page_of(
+      frame_h, static_cast<uint16_t>((row_height < 8) ? 8 : row_height),
+      static_cast<uint16_t>((total < 0) ? 0 : total), rows);
+  const lua_Integer page = ui_field_number(L, list, "page", 1);
+  const lua_Integer last = (pages > 0) ? pages : 1;
+  lua_Integer next = ((page < 1) ? 1 : page) + delta;
+  if (next < 1) next = 1;
+  if (next > last) next = last;
+  const bool moved = next != page;
+  if (moved) {
+    ui_set_field_number(L, list, "page", next);
+    ui_invalidate(L, list);
+    ui_call_hook_number(L, list, "on_page", next);
+  }
+  lua_settop(L, base);
+  return moved;
+}
+
+// **The row of a list the ring goes to after a page turns**: the first stop that belongs to the list, or the last one when
+// the page was turned back, because a person who walks down into a page lands on its first row and one who walks up lands
+// on its last. -1 when the page has no stop at all, which is a page of labels and a dial with nowhere to land (docs/30,
+// docs/90).
+int ui_stop_of_the_list(const FocusTarget* targets, int count, int16_t list_slot, bool last) {
+  if (g_ui_ops.canvas_parent == nullptr) return -1;
+  int found = -1;
+  for (int i = 0; i < count; ++i) {
+    if (g_ui_ops.canvas_parent(targets[i].slot) != list_slot) continue;
+    found = i;
+    if (!last) break;
+  }
+  return found;
+}
+
+// **Whether the stop is the last (or the first) row of the page it is on** (0.179.4): the ring walks the stops that are
+// **on** the glass, and the rows of the other pages of a list are placed out of its frame, where the walk does not reach
+// them. Without this the down key on the last visible row left the list and the rows behind the page could not be reached
+// with the keys at all —only with a finger— which is the half of the promise the grid already kept (docs/30, docs/90).
+bool ui_at_the_edge_of_the_list(const FocusTarget* targets, int count, int16_t list_slot, int index, int direction) {
+  if (g_ui_ops.canvas_parent == nullptr || index < 0) return false;
+  // A row of the list and not the list itself: the arrows of the box are the value it keeps, and that is `ui_step_value`.
+  if (g_ui_ops.canvas_parent(targets[index].slot) != list_slot) return false;
+  // **The last row going down and the first one going up**: the edge is the end of the walk in that direction, which is
+  // the middle of the page in the other (docs/30, docs/90).
+  const int edge = ui_stop_of_the_list(targets, count, list_slot, direction > 0);
+  return edge == index;
+}
+
 // **One key arrives from the system's keyboard and this layer writes it into the box**: the text and the caret are
 // the box's state, and an app that had to insert a letter in a callback could insert the wrong one at the wrong
 // place. `on_change(self, text)` arrives with the field already written, and 13 is the enter, which a box of one
@@ -11989,6 +12216,29 @@ bool ui_button_event(const char* kind, uint32_t key) {
     if (current >= 0 && ui_step_value(g_state, objects, current, direction)) {
       lua_settop(g_state, top);
       return true;
+    }
+    // **A page ends where the dial walks out of it** (0.179.4): the last visible row of a list and one more step is its
+    // next page, with the ring on the row a person is now looking at; the first row and one step back is the page before,
+    // with the ring on its last row. It is the promise a grid already kept —its cells of the other pages are stops and the
+    // page follows the cursor— said for the rows, and it is why an app no longer turns the page of a list itself
+    // (docs/30, docs/90). At the last page the key goes back to the walk, which is the ring of the page and not a dead end.
+    if (current >= 0) {
+      const int16_t list_slot = ui_list_of_the_stop(g_state, objects, current);
+      if (list_slot >= 0 && ui_at_the_edge_of_the_list(targets, count, list_slot, current, direction) &&
+          ui_turn_the_page_of_the_list(g_state, list_slot, static_cast<int8_t>((direction > 0) ? 1 : -1))) {
+        // **The rows of the new page are other stops**: the list places the entries it holds again when it is drawn —the
+        // ones that were out of the frame come in and the ones that were in it go out— so the page is drawn, the walk is
+        // collected a second time and the ring lands on a row that is on the glass. One present, after the ring: two of
+        // them would be two pages of ink for one key (docs/30, docs/90).
+        lua_settop(g_state, top);
+        ui_draw_the_page();
+        const int again = ui_collect_targets(g_state, targets, list.capacity);
+        const int stop = ui_stop_of_the_list(targets, again, list_slot, direction < 0);
+        if (stop >= 0) ui_apply_focus(g_state, targets, again, top + 1, stop);
+        ui_draw_and_present("gl16");
+        lua_settop(g_state, top);
+        return true;
+      }
     }
     // **The page is a ring** (0.156.1): the last control of the glass goes on to the first and the first back to the
     // last, so a key never leaves the page —there is nowhere to leave to, and a walk that stopped at the end would be a
@@ -12297,16 +12547,39 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     if (index >= 0 && !g_ui_swipe_page) {
       const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
       if (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop) {
-        if (ui_grid_turn_the_page(g_state, targets, count, objects, index, (dx < 0) ? 1 : -1)) {
+        const int8_t delta = static_cast<int8_t>((dx < 0) ? 1 : -1);
+        // **A list turns with the same finger** (0.179.4): the paginator of the control is the one that says which page is
+        // on the glass and the finger is one more way of asking for the next one, the same promise `about` kept by hand with a
+        // drag of its own. What the system does is join the two, and the app hears `on_page` as it does from the dial.
+        int16_t list_slot = -1;
+        bool turned = ui_grid_turn_the_page(g_state, targets, count, objects, index, delta);
+        if (!turned) {
+          list_slot = ui_list_of_the_stop(g_state, objects, index);
+          turned = list_slot >= 0 && ui_turn_the_page_of_the_list(g_state, list_slot, delta);
+        }
+        if (turned) {
           // **The gesture is the whole page turn**: the finger is not a press of the cell it happens to be over, so the
           // contact is spent —the release must not pick anything— and the gesture turns one page and no more.
           g_ui_swipe_page = true;
           g_ui_swipe_moved = true;
           g_ui_swipe_tap_armed = false;
           g_ui_touch_inside = false;
-          lua_rawgeti(g_state, objects, index + 1);
-          if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
-          lua_pop(g_state, 1);
+          if (list_slot < 0) {
+            lua_rawgeti(g_state, objects, index + 1);
+            if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
+            lua_pop(g_state, 1);
+          } else {
+            // **The rows of the new page are other controls**: the page is drawn so the list places them, the ring goes to
+            // **the first row of the page the finger asked for** —the same place a grid gives it, going forward or back,
+            // because a swipe is not a walk and a finger that went back is looking at the top of the page it turned to— and
+            // one present puts both on the glass (docs/30, docs/90).
+            lua_settop(g_state, top);
+            ui_draw_the_page();
+            const int again = ui_collect_targets(g_state, targets, list.capacity);
+            const int stop = ui_stop_of_the_list(targets, again, list_slot, false);
+            if (stop >= 0) ui_apply_focus(g_state, targets, again, top + 1, stop);
+            ui_draw_and_present("gl16");
+          }
           lua_settop(g_state, top);
           return;
         }

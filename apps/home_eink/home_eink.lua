@@ -18,10 +18,10 @@
 -- **The pages are the grid's, and its own footer is the paginator** (0.157.0): this file hands over **every** cell —all
 -- the apps of the disk— and the grid keeps the page of the cell the dial is on and paints `N / M` at its foot when there
 -- is more than one. That footer, and the cells of the other pages kept out of sight, are `icon_grid_cells`, the same
--- arithmetic the paint and the finger use (docs/90); what this file does is tell the control **which cell the dial is
--- on**, in the `on_focus` of each cell, because that number is the page. **A paginator of its own was a control the
--- system already has**: two arrows and a number under the grid are gone (the owner, 8/11: *«usa sempre els UIControls
--- que hi hagin abans de fer-ne un de nou»*).
+-- arithmetic the paint and the finger use (docs/90). **The cursor is the control's** (0.179.4): a cell that takes the ring
+-- is the page the grid turns to, and the system writes `index` where the focus arrives, so this file has no `on_focus` and
+-- no page of its own. **A paginator of its own was a control the system already has**: two arrows and a number under the
+-- grid are gone (the owner, 8/11: *«usa sempre els UIControls que hi hagin abans de fer-ne un de nou»*).
 --
 -- **A press is a wish and not a switch**: `app.run(id)` answers at once and the kernel does the change after the turn,
 -- because the app that asks is the one the interpreter belongs to (docs/30, docs/90). The second argument is the way
@@ -287,7 +287,7 @@ end
 
 -- One cell of the page: the picture, the name and the press. `known[id]` is the manifest when it has arrived and `nil`
 -- while the queue has not asked for it, and the same code draws both, so a cell that gains a name is not a second page.
-local function add_cell(cell_w, cell_h, name_w, id, index)
+local function add_cell(cell_w, cell_h, name_w, id)
   local info = known[id]
   local cell = ui.grid_entry(cell_w, cell_h)
   if cell == nil then return end
@@ -336,19 +336,10 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
     end
   end
 
-  -- **The page follows the dial** (0.157.0): the grid is the one that pages —its footer says `N / M` and the cells of the
-  -- other pages are out of its frame— and the page it is on is the page of the cell its `index` says. So a cell that
-  -- takes the ring tells the grid where it is, and the control does the rest: the page turns with the dial and this file
-  -- has no paginator of its own (docs/30, docs/90).
-  -- **And asking the grid to repaint itself here is not needed** (0.177.3): the field of `index` asks the kernel what the
-  -- move costs, lays the cells out again when the page turns and paints nothing at all when it does not —a ring that
-  -- walks inside a page is two cells of the app and no paper of the grid—, so an invalidate of the whole grid here was
-  -- nine pictures painted for one ring (docs/30, docs/90).
-  cell.on_focus = function(self, on)
-    if not on then return end
-    grid.index = index
-  end
-
+  -- **The page follows the dial, and the grid writes the cursor itself** (0.179.4): a cell that takes the ring is the page
+  -- the control turns to —its footer says `N / M` and the cells of the other pages are out of its frame—, so this file has
+  -- no `on_focus` and no paginator of its own: the number `index` used to be written here, one line per cell, and the
+  -- system does it now in the one place where the focus arrives (docs/30, docs/90).
   grid:add(cell)
   cells[id] = { cell = cell, picture = picture, name = name }
 end
@@ -404,7 +395,7 @@ local function build()
   -- are placed out of sight by the grid and come back when the dial reaches them, and its foot says the page it is
   -- (`icon_grid_cells`, docs/90). A launcher that handed it one page at a time was a launcher that owned a paginator.
   for i = 1, #ids do
-    add_cell(cell_w, kCellH, name_w, ids[i], i)
+    add_cell(cell_w, kCellH, name_w, ids[i])
   end
 
   -- **The ring is on the first cell** (0.153.0, docs/30): a page that left the dial outside would answer «nothing» to the

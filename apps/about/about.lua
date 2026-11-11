@@ -79,11 +79,7 @@ local kRow = line(kBody) + 20
 local libs = {}
 local missing = nil
 -- The control of the screen that is on the page, which is given back when the other one is built.
-local screen = nil-- **The list of the cover and the slide that turns it** (0.167.0): a finger that slides across the list turns its page,
--- left for the one after and right for the one before, which is what a row of dots promises. The page is a field of the
--- list —the list is the thing that has pages— and the system clamps a number that is out of it (docs/30, docs/90).
-local cover_list = nil
-local kSlidePx = 40
+local screen = nil
 -- **The lines a text takes in a label of that width**: a label of this system does not wrap —a text that does
 -- not fit ends in "..."— so the app breaks it, and it measures with the same call the label draws with
 -- (docs/30, docs/90).
@@ -182,7 +178,6 @@ local function give_back()
     screen:release()
     screen = nil
   end
-  cover_list = nil
 end
 
 -- The summary under the big line: how many they are and what to do with them. **The page is not said here any more**
@@ -266,7 +261,6 @@ build_cover = function()
     -- the page has to say which one the middle key would open —the same call the launcher makes for its first cell—.
     -- Without it the centre pressed the list and the page could only be opened with a finger (found by test_apps, 9/11).
     if first ~= nil then ui.focus(first) end
-    cover_list = the_list
     -- **The room is the panel's**, so what the page says is the box the list has now and not a number it asked for: a case
     -- reads this line to know the page was made whole (docs/85).
     local box = the_list:caps()
@@ -386,26 +380,12 @@ build_cover()
 -- do is keep the kernel turning and offer the page again when something of it has changed. A present with
 -- nothing new draws nothing (docs/30, docs/90).
 --
--- **And a finger that slides across the list turns its page** (0.167.0): the gesture is read here and not in the system
--- because the page belongs to this app's list, and a slide that is not mostly horizontal is not a turn. The dots of the
--- list's foot are the other half of the same promise —the page that is on the glass is the full dot— and they are painted
--- by the system, so the two can never disagree (docs/30, docs/90).
+-- **And the page of the list is the list's** (0.179.4): a finger that slides across it turns it —left for the one after
+-- and right for the one before— and so does a dial that walks past the last row of the page, and the dots of its foot say
+-- which one is on the glass. It used to be read here, with a `touch.gesture()` and a `kSlidePx` of this file, because the
+-- system only knew how to turn the page of a grid; a control that is used by every app is turned by the system and the app
+-- only hears `on_page` (docs/30, docs/90).
 while true do
   ui.present()
-
-  local gesture = touch.gesture()
-  if gesture ~= nil and gesture.kind == 'drag' and cover_list ~= nil then
-    local dx = gesture.dx or 0
-    local dy = gesture.dy or 0
-    if math.abs(dx) >= kSlidePx and math.abs(dx) > math.abs(dy) then
-      local page = cover_list.page or 1
-      if dx < 0 then page = page + 1 else page = page - 1 end
-      if page < 1 then page = 1 end
-      cover_list.page = page
-      console.print(string.format('about: slide to page %d', page))
-      ui.present('gc16')
-    end
-  end
-
   sys.delay(50):await()
 end

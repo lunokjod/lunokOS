@@ -5598,6 +5598,38 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.4 (11/11): **the paginator is the list's and the grid's, and it turns itself**. The owner: *«El Paginador ha d'anar
+// integrat amb les llistes o grids, si hi ha mes elements, s'ha de mostrar per si sol a la part d'abaix del control (dins del
+// mateix control) s'ha de gestionar el swipe i també si el focus sobrepassa l'últim o el primer item visible per canviar de
+// pàgina. Corretgeix les apps que usen paginador manualment. Els controls que tinguin paginació es gestionen ells sols, sense
+// intervenció de l'app»*. The foot was already the system's (0.174.2, 0.176.0) and the grid already turned with the finger
+// (0.175.0); what was missing was **the rest of the promise**, and `about` had a paginator of its own to make up for it:
+//   - **a list turns with the finger too** (0.179.4): forty pixels of a sideways drag are the next page —left— or the page
+//     before —right—, **one page per contact and never a press**, and the ring goes to the first row of the page asked for,
+//     which is where a grid puts it. `about` read `touch.gesture()` and had a `kSlidePx` of its own; both are gone, and with
+//     them the last hand-rolled paginator of the apps (docs/30, docs/90);
+//   - **and the page ends where the dial walks out of it**: the rows of the other pages are placed out of the list's frame,
+//     where the walk does not reach them, so a step past the last visible row **was** the list leaving the ring and the rows
+//     behind the page could only be reached with a finger. Now the step turns the page and the ring lands on the first row of
+//     the new one (the last row when the dial walks back), and at the last page the key goes back to the walk and leaves the
+//     list, which is the ring of the page and not a dead end (docs/30, docs/90);
+//   - **the cursor of a grid is written by the system** (0.179.4): the page of a grid is the page of its `index` and every
+//     launcher wrote that number in the `on_focus` of **each** cell —one line per cell, and the app that forgets has a page
+//     that never turns—. The ring is the system's and the focus arrives in one place, so `index` is put there, before the
+//     ring is painted (a cell of another page is a page the grid lays out again), and `home_eink` loses its `on_focus` and
+//     the five lines of comment around it (docs/30, docs/90);
+//   - **the ring of a control that is not a stop any more is taken away**: a page turn places the row that had it out of the
+//     frame, where `ui_target_index` cannot find it, and a row left saying it has the ring would wear it again the next time
+//     its page came back —and its app would never hear `on_focus(self, false)`—. The tree still holds it, so it is found by
+//     the slot it had, the road a card already took (0.173.1, docs/30);
+//   - **and a cursor that walks within its page paints two cells and not the grid**: the number written by the system goes
+//     through the same cost the field of an app goes through (`icon_grid_ring`), because a whole control there is every
+//     picture of the page painted for one ring —the case of the launcher measured it at 1 326 000 pixels before, and 200 000
+//     is the ceiling of the case (0.177.3, docs/30);
+//   - **three cases hold it**: `test_a_finger_that_walks_sideways_over_a_list_turns_the_page`,
+//     `test_a_dial_step_past_the_last_row_of_a_page_turns_it` and `test_the_cursor_of_a_grid_follows_the_ring_without_the_app`
+//     (`203 cases`, and the suites are green).
+
 // 0.179.3 (11/11): **the memory of a session says every time a block comes and goes**. The owner: *«Afegeix logs per quan un
 // app reclama memoria de sessió o es alliberada (tant per l'app com per el sistema)»*, and a cache the system can take away
 // without a word is a page that disappears and nobody knows why:
@@ -6001,7 +6033,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.3";
+static const char kVersion[] = "0.179.4";
 
 }  // namespace kernel
 
