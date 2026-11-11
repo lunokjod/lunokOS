@@ -5598,6 +5598,21 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.12 (11/11): **the Paper's image carries its apps again**. On the board, `run home_eink` answered `no such app:
+// home_eink` and the log said `[W][HOME] no app 'home_eink' on this disk; the prompt is yours`. The list of
+// `custom_apps` of `[env:m5-paper]` had been emptied the day before, in a commit about the card of the emulator
+// (0.178.7) whose subject had nothing to do with it, and the disk image built after it is the system alone: the board
+// that comes up with the launcher came up with a prompt, and the comment above the line went on naming the eleven apps
+// it no longer asked for.
+//   - the list is back —`editor,calculator,about,timeclock,reader,home_eink,shell,luaperf,tz,wipe,fonts`—, which is the
+//     same eleven the comment describes and the same eleven a card or `repo install` would have to put back by hand;
+//   - **`make_disk` now says it out loud**: it reads `-DLUNOK_HOME_APP` of the environment and, when the boot names an
+//     app its disk does not carry, prints `**m5-paper comes up with 'home_eink' and this disk carries it not**: the
+//     build is a board with a prompt and a boot nobody can obey`. A warning and not a refusal, because a board with a
+//     prompt is a board that works and an empty disk is the normal one for the four boards that carry no app by rule;
+//   - the apps live in the image, so a board that lost them gets them back with `-t uploadfs` and not with a firmware
+//     upload: the program and the disk are two partitions and one command does not write the other (docs/70, docs/85).
+
 // 0.179.11 (11/11): **four faults a review found, and the one that made a page look dead**. Reading back the work of the
 // 0.179.x turned up four, three of them older than the day:
 //   - **a key that moved a value painted nothing**, the oldest of the four. `ui_key` handed the arrow to the control, the
@@ -6192,7 +6207,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.11";
+static const char kVersion[] = "0.179.12";
 
 }  // namespace kernel
 

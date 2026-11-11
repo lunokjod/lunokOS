@@ -97,6 +97,26 @@ def apps_of_board(boards, board_id, family):
     return board_id in boards or (family is not None and family != "" and family in boards)
 
 
+def home_app_of_build():
+    """The app the environment comes up with, read from its build flags.
+
+    `-DLUNOK_HOME_APP=\\"home_eink\\"` is the whole of the boot's wish, and it is the one thing a disk has to agree
+    with: a board whose image carries no such app comes up with a prompt and a warning in the log, which is what
+    happened to the Paper when its `custom_apps` was emptied by mistake (0.178.7, found on the board the 11/11).
+    """
+    flags = env.GetProjectOption("build_flags", [])
+    if isinstance(flags, str):
+        flags = [flags]
+    for flag in flags:
+        text = str(flag)
+        marker = "LUNOK_HOME_APP="
+        if marker not in text:
+            continue
+        name = text.split(marker, 1)[1].strip().replace("\\", "")
+        return name.strip('"')
+    return ""
+
+
 def wanted_apps():
     listed = option("custom_apps")
     # **A name that was asked for and is not carried says why**: `custom_apps` obeyed in silence is an image short of
@@ -201,6 +221,14 @@ def rebuild():
     else:
         how = "%d apps, linked to apps/" % len(apps)
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
+    # **A boot that names an app the disk does not carry is said here and not discovered on the board** (found on the
+    # Paper the 11/11: `no such app: home_eink` at the prompt and a warning in the log, because `custom_apps` of that
+    # environment had been emptied by mistake a day before). The line is a warning and not a refusal: a board with a
+    # prompt is a board that works, and it is the boot of the image that has to agree with it (docs/85).
+    home = home_app_of_build()
+    if home and home not in apps and home != "none":
+        print("make_disk: **%s comes up with '%s' and this disk carries it not**: the build is a board with a prompt "
+              "and a boot nobody can obey (platformio.ini `custom_apps`, docs/85)" % (ENV_NAME, home))
     check_it_fits(files, apps)
     # **The card is not this script's** (11/11, the owner: *«treu les apps del SD per ara»*): the apps of the
     # emulator are the disk's, and what the slot of a board carries is the person's —the emulator's card is a
