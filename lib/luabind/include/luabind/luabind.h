@@ -136,6 +136,22 @@ struct AppsOps {
 
 void set_apps_ops(const AppsOps& ops);
 
+// **The memory of a session, kept by the kernel under a key of the app** (0.179.0): a cache an app builds once and finds
+// again until the board is switched off or the memory runs short, which is the one that goes first when a block does not
+// fit (docs/30, docs/75). The key belongs to **the app that asks** —the kernel is the one that knows its id— so `"apps"`
+// is one block for a launcher and another for the app after it. `acquire` answers the bytes it really has in `got`, and
+// nullptr when there is no room, which is an app without a cache and not a fault.
+struct SessionOps {
+  void* (*acquire)(const char* key, size_t bytes, size_t& got);
+  bool (*release)(const char* key);
+  // **A number that only goes up when a block is given back**: the relief takes every session memory when a block does
+  // not fit, and an object of the app that still points at one has to be refused instead of writing into freed memory
+  // (docs/75).
+  uint32_t (*generation)();
+};
+
+void set_session_ops(const SessionOps& ops);
+
 // **A session of the shell for an app** (0.159.0): the shell is the system's and not the wire's, so an app can ask
 // for one and talk to it through three pipes —the lines in, the answers out and the complaints out— with no console
 // in the middle, no prompt and no echo. It is a table of function pointers and not a dependency: `luabind` never
@@ -532,6 +548,13 @@ struct UIOps {
   bool (*canvas_rect)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
                       const char* mode);
   bool (*canvas_pixel)(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const char* mode);
+  // **The pixels of a canvas out, and a block of pixels in** (0.179.0): the pair an app needs to keep a picture it has
+  // already decoded and paint it again without the file and without the decoder, which is what a launcher does with the
+  // icons of its cells. Four bits a pixel with the left one in the high nibble and the stride of the canvas; the capture
+  // says how many bytes it wrote and refuses a block that is too small (docs/30, docs/75).
+  bool (*canvas_capture)(int16_t slot, uint8_t* out, size_t capacity, size_t& wrote);
+  bool (*canvas_bitmap)(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits,
+                        uint16_t stride, const char* mode, bool dark);
   uint8_t (*canvas_damage)(int16_t slot);
   bool (*canvas_caps)(int16_t slot, uint16_t& width, uint16_t& height, uint16_t& x, uint16_t& y);
   // **The primitives of a canvas**, and the text with the font of the system. `slot` 0 is the view of the

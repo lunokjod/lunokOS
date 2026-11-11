@@ -32,6 +32,14 @@
 -- as wide as the grid divided by the columns, and its box is `icon + 8 + line + 8` high, where the icon is at most
 -- seventy-two pixels. The picture and the name are placed inside that box, and a cell that does not fit its children
 -- would paint them over the next cell.
+--
+-- **AND THE SECOND TIME THIS PAGE COMES UP IT COSTS NO DISK** (0.179.0): the manifests and the pictures of the cells are
+-- kept in a **memory of the session** that the kernel holds for this app under the key `apps`, so a launcher that is left
+-- and started again —which on this board is every time an app ends— draws its real names and its real pictures in the
+-- first turn, and a dial that walks over a cell paints a copy of a picture it already decoded instead of reading the file
+-- and decoding it again. The block is asked once (`sys.session`), it is zeroed when it is new —which is how this file tells
+-- a cold cache from a warm one— and it lives until the board is switched off **or the memory runs short**: it is the first
+-- thing the system gives back when a block does not fit, because it is the only thing it can make again (docs/30, docs/75).
 
 local caps = sys.caps()
 if not caps.display then
@@ -73,6 +81,23 @@ local kCellH = kIcon + 8 + kNameLine + 8
 local kMargin = 20
 local kTop = 8
 
+-- ------------------------------------------------------------------ the cache of the session
+
+-- **What is kept, and where**: a header of eight bytes —the magic and the side of a picture, so a cache of another size of
+-- cell is not painted on this one—, the records of the apps and then their pictures, four bits a pixel and in the order of
+-- the block (`cv:capture` and `cv:blit` are a copy and not a decode). A record is `id`, the title, the icon and the number
+-- of the picture, and the number is how this file knows whether a picture is in the block or has to be read from the disk.
+local kCacheBytes = 32768
+local kCacheMagic = 'HEC1'
+local kCacheText = 8
+local kCacheTextBytes = 1528
+local kCachePictures = kCacheText + kCacheTextBytes
+
+local cache = nil          -- the block, or nil when the system gave none
+local cached = {}          -- the id of an app to { title=, icon=, slot= }, as the block says
+local slots = 0            -- how many pictures the block holds
+local warm = {}            -- the ids whose picture is in the block, so a paint is a copy
+
 -- **The names of the door, the manifests that have arrived, and the queue between the two** (0.154.0). `known` is filled
 -- as the queue runs, and a page laid out again uses it instead of asking the disk a second time.
 local ids = {}
@@ -82,6 +107,98 @@ local queue = {}
 local head = 1
 local again = false   -- something left the page, so it is laid out again
 local grid = nil
+
+-- **What a picture takes in the block**, in bytes: four bits a pixel and the stride of the canvas the kernel makes.
+local function picture_bytes()
+  return ((kIcon + 1) // 2) * kIcon
+end
+
+-- **The block is asked once and read**: a cold one has no magic —the kernel gives it zeroed— and every record of it is
+-- taken back into `cached`. A block whose side is not the side of this page is not read at all: the pictures in it were
+-- measured for another cell. A record says whether its picture is really in the block, because an app whose picture failed
+-- to be drawn has a number and no picture, and a zeroed box painted as an icon is a black square (docs/30).
+local function load_cache()
+  cache = nil
+  cached = {}
+  slots = 0
+  warm = {}
+  local block, err = sys.session('apps', kCacheBytes)
+  if block == nil then
+    console.print('home: no cache of the session: ' .. tostring(err and err.message or err))
+    return
+  end
+  cache = block
+  if cache:read(0, 4) ~= kCacheMagic then
+    console.print(string.format('home: cache cold, %d bytes', cache:size()))
+    return
+  end
+  if cache:read(4, 1):byte(1) ~= kIcon then
+    console.print('home: cache of another size of cell, building it again')
+    return
+  end
+  -- **The text ends at the first zero** (0.179.0): the block is read whole —the records are shorter than their window— and a
+  -- zero is not in any of them, so what is after the last one is the kernel's zeroing and not a record with a broken tail
+  -- (a launcher that lost the last app of its cache asked for it again at every start, which is how this was found).
+  local text = cache:read(kCacheText, kCacheTextBytes)
+  local zero = text:find('\0', 1, true)
+  if zero ~= nil then text = text:sub(1, zero - 1) end
+  local count = 0
+  local drawn = 0
+  for line in text:gmatch('[^\n]+') do
+    local id, title, icon, slot, has = line:match('^([^\t]+)\t([^\t]*)\t([^\t]*)\t(%d+)\t([01])$')
+    if id ~= nil then
+      slot = tonumber(slot)
+      cached[id] = { title = title, icon = icon, slot = slot }
+      if slot + 1 > slots then slots = slot + 1 end
+      if has == '1' then
+        warm[id] = true
+        drawn = drawn + 1
+      end
+      count = count + 1
+    end
+  end
+  console.print(string.format('home: cache warm, %d apps, %d pictures', count, drawn))
+end
+
+-- **And it is written when the page is whole**: the magic goes last, so a run that ends in the middle of the queue does not
+-- leave a header that promises records the block does not have. A title or a path with the two characters of the format in
+-- it is not written —a cache that breaks the parse is a cache that is never read again— and the app is asked next time.
+local function save_cache()
+  if cache == nil then return end
+  local text = {}
+  local slot = 0
+  local held = 0
+  for i = 1, #ids do
+    local id = ids[i]
+    local info = known[id]
+    if info ~= nil then
+      local title = info.title
+      local icon = info.icon
+      if not title:find('[\t\n]') and not icon:find('[\t\n]') and not id:find('[\t\n]') then
+        local was = cached[id]
+        if was ~= nil then
+          slot = was.slot
+        else
+          slot = slots
+          slots = slots + 1
+        end
+        cached[id] = { title = title, icon = icon, slot = slot }
+        local has = warm[id] and '1' or '0'
+        if has == '1' then held = held + 1 end
+        text[#text + 1] = string.format('%s\t%s\t%s\t%d\t%s', id, title, icon, slot, has)
+      end
+    end
+  end
+  local body = table.concat(text, '\n')
+  if #body > kCacheTextBytes then
+    console.print('home: too many apps for the cache of the session')
+    return
+  end
+  cache:write(kCacheText, body)
+  cache:write(4, string.char(kIcon))
+  cache:write(0, kCacheMagic)
+  console.print(string.format('home: cache kept, %d apps, %d pictures', #text, held))
+end
 
 -- ------------------------------------------------------------------ the page
 
@@ -93,12 +210,39 @@ local function give_back()
   cells = {}
 end
 
+-- **A picture that could not be drawn is said once** (0.179.0, and it was said at the arrival of the manifest before):
+-- the paint is the one that knows —it is the one that reads the file— and a page that says it at every turn says it every
+-- time the dial walks over the cell (docs/30, docs/90).
+local said = {}
+local function say_the_fault(id, why)
+  if said[id] then return end
+  said[id] = true
+  if why == nil then
+    console.print('home: ' .. id .. ' has no picture')
+  else
+    console.print('home: ' .. id .. ' has no picture: ' .. tostring(why and why.message or why))
+  end
+end
+
 -- **The picture of a cell, painted again every time the cell asks for it** (0.178.0): the letter of the app on paper and,
 -- over it, the file the manifest names. It is one function because the cell can be **on ink** —the dial is on it— and then
 -- the whole picture is turned over at the end: the paper of the icon becomes the black of the cell and the greys of the
 -- drawing stay, which is what the old launcher did with one call over its selected cell and the reason its icons looked
 -- as if they had no box (docs/30, docs/92).
 local function paint_picture(id, picture, info, inverted)
+  -- **A picture that is already in the block is a copy and not a decode** (0.179.0): the same pixels the file and the
+  -- decoder made the first time, and no disk at all. It is always the paper face —the ink is the `invert` at the end— so
+  -- the cache holds one picture per app and not two (docs/30, docs/75).
+  local record = cached[id]
+  if cache ~= nil and record ~= nil and warm[id] then
+    local at = kCachePictures + record.slot * picture_bytes()
+    if picture:blit(cache, at, 0, 0, kIcon, kIcon) then
+      if inverted then picture:invert(0, 0, kIcon, kIcon) end
+      return
+    end
+    warm[id] = nil
+  end
+
   picture:clear(15)
 
   local letter = string.upper(string.sub(id, 1, 1))
@@ -109,26 +253,25 @@ local function paint_picture(id, picture, info, inverted)
     picture:text((kIcon - wide) // 2, (kIcon - high) // 2, letter, scale, 0)
   end
 
-  if info ~= nil and info.icon ~= '' then
-    picture:image(0, 0, info.icon, kIcon, kIcon)
+  if info ~= nil then
+    if info.icon == '' then
+      say_the_fault(id, nil)
+    else
+      local drawn, why = picture:image(0, 0, info.icon, kIcon, kIcon)
+      if not drawn then say_the_fault(id, why) end
+    end
+  end
+
+  -- **And what was just drawn is kept**: the paper face only, because the ink is the invert of the same pixels, and only
+  -- when the block has a place for it —an app whose manifest has not arrived has no record yet— (docs/30, docs/75).
+  if cache ~= nil and record ~= nil and not inverted and info ~= nil then
+    local at = kCachePictures + record.slot * picture_bytes()
+    if picture:capture(cache, at) ~= nil then warm[id] = true end
   end
 
   if inverted then picture:invert(0, 0, kIcon, kIcon) end
 end
 
--- **What this file says on the console about a picture**: once, when the manifest arrives, because a page that says it at
--- every paint says it every time the dial walks over the cell (docs/30, docs/90).
-local function say_picture(id, picture, info)
-  if info.icon == '' then
-    console.print('home: ' .. id .. ' has no picture')
-    return
-  end
-
-  local drawn, why = picture:image(0, 0, info.icon, kIcon, kIcon)
-  if not drawn then
-    console.print('home: ' .. id .. ' has no picture: ' .. tostring(why and why.message or why))
-  end
-end
 
 -- One cell of the page: the picture, the name and the press. `known[id]` is the manifest when it has arrived and `nil`
 -- while the queue has not asked for it, and the same code draws both, so a cell that gains a name is not a second page.
@@ -153,8 +296,8 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
       paint_picture(id, self, known[id], inverted)
     end
     -- **And nothing is painted here**: a canvas that was just made owes a draw, so the system asks it —with `false`, the
-    -- paper face— and a second paint of the same pixels would be the page paying twice for one picture (docs/30).
-    if info ~= nil then say_picture(id, picture, info) end
+    -- paper face— and a second paint of the same pixels would be the page paying twice for one picture (docs/30). It is
+    -- also the moment the picture is kept in the cache of the session, which is why this file does not draw it here.
     cell:add(picture)
   else
     console.print('home: ' .. id .. ' has no picture: ' .. tostring(no_room and no_room.message or no_room))
@@ -198,6 +341,17 @@ local function add_cell(cell_w, cell_h, name_w, id, index)
   cells[id] = { cell = cell, picture = picture, name = name }
 end
 
+-- **The size of the cell, which is the key of the cache** (0.179.0): the block keeps pictures of a side, and a page that
+-- has been resized has a different one —so the side is measured once, before the cache is read, and a block of another side
+-- is not painted on this page—. It is the arithmetic `icon_grid_cells` does and not this file's (docs/30, docs/90).
+local function measure()
+  local width = view.width - 2 * kMargin
+  kIcon = (width // kColumns) - 20
+  if kIcon > 72 then kIcon = 72 end
+  if kIcon < 24 then kIcon = 24 end
+  kCellH = kIcon + 8 + kNameLine + 8
+end
+
 local function build()
   give_back()
 
@@ -212,10 +366,7 @@ local function build()
   -- **The mark of a cell is as wide as the cell allows and no more than the system draws** (0.166.1): the same
   -- arithmetic `icon_grid_cells` does, with the padding of ten and the ceiling of a hundred and twenty, so the picture
   -- the app makes is the box the grid has for it (docs/30, docs/90).
-  kIcon = (width // kColumns) - 20
-  if kIcon > 72 then kIcon = 72 end
-  if kIcon < 24 then kIcon = 24 end
-  kCellH = kIcon + 8 + kNameLine + 8
+  measure()
 
   -- **The page is the app's whole and not the box of its controls** (0.153.1, docs/40): a control paints inside its own
   -- frame, so the air around the grid keeps whatever the glass had —the picture of the boot— if this page does not wash
@@ -305,12 +456,17 @@ local function step()
   end
 
   known[id] = info
+  -- **The record of this app in the block, with a place of its own for its picture**: the paint that follows is the one
+  -- that reads the file and keeps the pixels, and it needs the number before it draws (0.179.0, docs/75).
+  if cached[id] == nil then
+    cached[id] = { title = info.title, icon = info.icon, slot = slots }
+    slots = slots + 1
+  end
   console.print(string.format('home: app %s %s', id, info.title))
   local done = cells[id]
   if done ~= nil then
     if done.name ~= nil then done.name.text = info.title end
     if done.picture ~= nil then
-      say_picture(id, done.picture, info)
       -- **And the picture paints again, by itself**: its `on_draw` is what knows how to put the file over the letter and
       -- how to turn the whole box over when the dial is on the cell (0.178.0, docs/30).
       done.picture:invalidate()
@@ -336,11 +492,24 @@ do
     -- a time, and a grid that reorders itself when one lands is a grid whose cells jump under the finger. The order of
     -- the disk is not one a person can learn either, so the names are sorted once, here, before the first cell.
     table.sort(ids)
-    for i = 1, #ids do queue[i] = ids[i] end
   end
 end
 
 console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
+
+-- **The cache of the session, before the first cell** (0.179.0): the side of a picture is what names its place in the block,
+-- so the cell is measured first, and an app the block already knows needs neither its manifest nor its file for this page
+-- to be whole —the queue is only the apps that are not in it— (docs/30, docs/75).
+measure()
+load_cache()
+for i = 1, #ids do
+  local was = cached[ids[i]]
+  if was ~= nil then
+    known[ids[i]] = { title = was.title, icon = was.icon }
+  else
+    queue[#queue + 1] = ids[i]
+  end
+end
 
 -- **The size of the page that is on the glass** (0.168.3): a call of `on_resize` that says the size the page already has is
 -- not another view, and building again for it would throw away the canvases of the cells that are already on the glass —
@@ -364,11 +533,24 @@ function on_resize(width, height)
   page_w = width
   page_h = height
   view = { width = width, height = height }
+  -- **A page of another size has cells of another size**, and the pictures in the block were measured for the old one: they
+  -- are not painted on this page, and the ones this run draws are kept in their places (the magic is rewritten with the new
+  -- side, so a block of two sides is a block of none and is built again at the next start) — docs/30, docs/75.
+  local was = kIcon
+  measure()
+  if kIcon ~= was then
+    warm = {}
+    cached = {}
+    slots = 0
+    if cache ~= nil then cache:write(0, '    ') end
+  end
   build()
 end
 
 -- **The loop is the queue and the paint**: a turn asks for the manifest of one app and shows what changed; a turn with
 -- nothing to ask only keeps the kernel turning, and a present with nothing new draws nothing (docs/30, docs/90).
+local kept = false
+
 while true do
   local painted = false
   if head <= #queue then
@@ -380,6 +562,12 @@ while true do
     again = false
     build()
     painted = true
+  elseif head > #queue and not kept then
+    -- **And the cache is written once the page is whole** (0.179.0): every manifest has arrived and every picture it could
+    -- draw is in the block, so the next run of this launcher —which is every time an app ends— has no disk to read
+    -- (docs/30, docs/75).
+    kept = true
+    save_cache()
   end
 
   -- **The page goes up as the cells come** (0.166.1): one present per cell, right after its picture, because a single

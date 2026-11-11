@@ -223,6 +223,13 @@ class IExtraMemory {
 // allocate before anybody brought the layer up.
 IExtraMemory& extra_memory();
 
+// **What to give up when the memory runs out** (0.179.0): the kernel installs a function that frees what can be made
+// again —the session memories of the apps (docs/30)—, and every allocator of this layer calls it **once** before it
+// refuses a block, and tries again. It is here and not in a PAL so that the board and the emulator obey the same rule
+// and a test can hold it: a session cache is the first thing to go and the last thing anyone misses. The function is
+// not called from inside itself, so a relief that frees through `release()` cannot recurse.
+void set_memory_relief(void (*relief)());
+
 }  // namespace pal
 
 #endif  // LUNOK_PAL_PAL_H

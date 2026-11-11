@@ -584,6 +584,29 @@ qualsevol persona: **els blocs grans hi van i els petits es queden a la RAM del 
   la interna (`sys.heap().used` i el pic en surten, però el repartiment no es desa enlloc). Es mesura
   quan hi hagi una app que ho necessiti, amb `docs/95` al costat.
 
+## La memòria de sessió: el primer que es dóna quan falta memòria (0.179.0)
+
+**Un bloc per (app, clau) que el nucli guarda i l'app torna a trobar**: `sys.session('apps', 32768)` és una caché que el
+llançador construeix una vegada i troba a cada arrencada de l'app —que en una placa amb tres tecles és cada cop que una
+app s'acaba— fins que la placa s'apaga o reinicia. Les claus són **de l'app**: el nucli sap qui corre (`luabind::app_id`)
+i la taula és una fila per app i clau, o sigui que `"apps"` no és el mateix bloc per a dues apps. La taula és de **vuit
+blocs** (`session::kMaxBlocks`) i cada nom de **setze bytes**, i el bloc es demana a la memòria extra amb
+`pal::extra_memory().allocate(bytes, true)` i es compta al pressupost de l'app com qualsevol altre.
+
+**I és el primer que es dóna quan un bloc no hi cap**, que és la part que fa que aquesta memòria sigui barata de tenir:
+el PAL té un punter de relleu (`pal::set_memory_relief`) que el nucli omple amb `session::release_all`, i **cada
+allocator el crida una vegada abans de dir que no** i torna a provar —el del PC i el del xip, amb el `resize` inclòs—.
+Un bloc que no s'ha pogut donar mai no arriba al relleu, i un que s'ha donat deixa la seva generació enrere, així que
+l'objecte de l'app que el tenia respon `the session memory was given back` en lloc d'escriure a memòria lliure (docs/30,
+docs/90).
+
+**Què s'hi guarda i a quin preu, mesurat a l'emulador**: el llançador hi deixa els manifests (títol i camí de la icona) i
+**les icones ja descodificades** (72 × 72 a quatre bits són 2 592 B cada una, deu apps són 25 920 B i el bloc sencer
+32 768), i la segona pàgina **no llegeix ni un fitxer**: el log diu `home: cache warm, 11 apps, 10 pictures` i no hi ha
+cap `home: app` perquè la cua de manifests és buida, i el bolcat del vidre de la pàgina calenta és **idèntic** al de la
+freda (1 377 píxels de diferència, tots dins de la barra del sistema, que és el rellotge). `mem` en diu quants blocs hi
+ha i quants bytes: `session memory  32 KB in 1/8 block(s)`.
+
 ## La taula de canvas i la RAM interna (pendent, i és un risc)
 
 **La taula de canvas no és una constant de codi: és mig megabyte demanat a la memòria extra** (0.102.0). A

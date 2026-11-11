@@ -321,6 +321,9 @@ bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, 
 // **`dark` is the page with its ink and its paper swapped** (0.137.0, docs/46 C9): every level is copied the other way
 // round, because a plate whose paper is white is a hole in a page that is black. The invention is done while the copy is
 // made, so a picture that comes from the cache of the book costs the same pass and no second decode (docs/46, A5).
+// **The pixels of a canvas into a block** (0.179.0): what `canvas_bitmap` paints, read the other way, so an app can keep a
+// picture it has already decoded and paint it again without the file and without the decoder (docs/30, docs/75).
+bool canvas_capture(int16_t slot, uint8_t* out, size_t capacity, size_t& wrote);
 bool canvas_bitmap(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, const uint8_t* bits,
                    uint16_t stride, const char* mode, bool dark = false);
 

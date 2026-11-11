@@ -531,6 +531,20 @@ HostSystem g_system;
 // the heap has room for in pieces is refused too, and that is fragmentation (docs/75).
 Chunk* head_of(void* block) { return static_cast<Chunk*>(block) - 1; }
 
+// **The relief of a heap that is full** (0.179.0): the kernel's session memories go first, and the ask is tried again
+// once. It is a pointer and not a call into the kernel because this layer is below it (docs/30, docs/75).
+void (*g_relief)() = nullptr;
+bool g_relieving = false;
+
+// **Once and not in a circle**: the relief frees through `release()`, which does not allocate, but a relief that did
+// would find the flag and be ignored instead of finding itself.
+void relieve() {
+  if (g_relief == nullptr || g_relieving) return;
+  g_relieving = true;
+  g_relief();
+  g_relieving = false;
+}
+
 class HostExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
@@ -543,6 +557,11 @@ class HostExtraMemory : public IExtraMemory {
     // **The other home before saying no**: a block is a block and the app does not have to know where
     // it lives. On the Paper this is what keeps a small font out of the PSRAM's way and a page of
     // canvas out of the chip's (docs/75).
+    if (void* block = take((first == kExtra) ? kHome : kExtra, bytes)) return block;
+    // **And what can be made again goes before the refusal** (0.179.0): the session memories of the apps, once, and
+    // the ask is tried again in the two homes in the same order.
+    relieve();
+    if (void* block = take(first, bytes)) return block;
     return take((first == kExtra) ? kHome : kExtra, bytes);
   }
 
@@ -566,6 +585,12 @@ class HostExtraMemory : public IExtraMemory {
     if (void* moved = move_to(block, bytes, want)) return moved;
     // **A block that cannot move stays where it is**: a resize that fails leaves the block untouched and
     // the caller decides, and the bytes it holds are not lost (docs/75).
+    if (void* grown = grow(block, bytes)) return grown;
+    if (void* moved = move_into(block, bytes, chunk->home)) return moved;
+    // **And the session memories go before the refusal here too** (0.179.0), with the block untouched and the same
+    // three roads tried again.
+    relieve();
+    if (void* moved = move_to(block, bytes, want)) return moved;
     if (void* grown = grow(block, bytes)) return grown;
     return move_into(block, bytes, chunk->home);
   }
@@ -831,6 +856,8 @@ void set_wait_slice_ms(uint32_t ms) { g_wait_slice_ms = ms; }
 // the whole run repeat —the same page, the same shuffle, the same seed of the interpreter— which is what `--seed` of the
 // emulator is for (docs/20, docs/85). It is read by `bring_up`, so it goes before `pal::init()`.
 void set_random_seed(uint32_t seed) { g_seed_request = seed; }
+
+void set_memory_relief(void (*relief)()) { g_relief = relief; }
 
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;

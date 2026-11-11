@@ -19,6 +19,7 @@
 #include "kernel/meter.h"
 #include "kernel/net.h"
 #include "kernel/power.h"
+#include "kernel/session.h"
 #include "kernel/shell.h"
 #include "kernel/splash.h"
 #include "kernel/version.h"
@@ -61,6 +62,15 @@ const int32_t kConsoleSettleMs = 250;
 
 hal::IPlatform* g_platform = nullptr;
 bool g_running = false;
+
+// **The session memory of an app, asked from the interpreter** (0.179.0): the kernel is the one that knows which app is
+// running, so the key that arrives from Lua is paired with that id here and nowhere else —`"apps"` is one block for a
+// launcher and another for the app after it (docs/30, docs/75).
+void* session_acquire(const char* key, size_t bytes, size_t& got) {
+  return session::acquire(luabind::app_id(), key, bytes, got);
+}
+
+bool session_release(const char* key) { return session::release(luabind::app_id(), key); }
 
 void settle_console() {
   pal::IConsole* console = pal::system().console();
@@ -325,6 +335,16 @@ void boot(hal::IPlatform& platform) {
   // shell with the three pipes of one, so the prompt is not the only way in and an app can run a command and read
   // what it said. The table is handed over here because `luabind` never includes the kernel (docs/20, docs/30).
   shell::install_shell_ops();
+  // **And the memory of a session** (0.179.0): `sys.session(key, bytes)` is a block the kernel keeps for the app that asks
+  // —the key is the app's and not the system's— until the board goes off, and **it is the first thing the allocator gives
+  // up when a block does not fit**, because it is the only memory of the system that can be made again (docs/30, docs/75).
+  // The relief is one function pointer and the block is freed from inside the allocator that refused (docs/75).
+  pal::set_memory_relief(&session::release_all);
+  luabind::SessionOps session_ops = {};
+  session_ops.acquire = &session_acquire;
+  session_ops.release = &session_release;
+  session_ops.generation = &session::generation;
+  luabind::set_session_ops(session_ops);
   net::boot(platform);
   // **The apps are not looked at here on purpose**: `/apps` is walked when a command asks for it
   // (`apps`, `ls`, `run`), so the boot does not depend on how many apps the disk carries (docs/10, docs/40).

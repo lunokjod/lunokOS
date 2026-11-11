@@ -31,6 +31,7 @@
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/session.h"
 #include "kernel/splash.h"
 #include "luabind/luabind.h"
 #include "kernel/power.h"
@@ -4971,7 +4972,13 @@ void test_the_launcher_lists_the_apps_and_starts_the_one_that_is_pressed(void) {
   TEST_ASSERT_EQUAL_STRING_MESSAGE("home_eink", kernel::shell::app_id(), g_out);
   const char* after = strstr(g_out, "alpha bye");
   TEST_ASSERT_NOT_NULL(after);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "home: app alpha Alpha"), g_out);
+  // **And the page it comes back to is whole without reading a manifest** (0.179.0): the manifests and the pictures of the
+  // cells are in the memory of the session that the kernel keeps under the key `apps`, so the second page costs no disk —
+  // the cache is warm, the grid has every cell, and `home: app` is not in this part of the console because nothing was
+  // asked for (docs/30, docs/75).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, "home: cache warm"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(after, " cells"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(after, "home: app "), g_out);
 
   // **A resize builds the page again and gives the grid every cell it has** (0.157.0): the pages are the control's, so
   // what the launcher says of itself is how many names the door answered and not which page is on the glass —that is the
@@ -7255,6 +7262,75 @@ void test_the_picture_of_an_app_goes_up_before_it_is_read(void) {
 // docs/50, docs/70). **The draw is a draw**: the case writes two drawings with the same ink, so what it can say is the
 // two things that are true —a drawing of the boot is on the glass, and a picture of a dead word is not— and not which of
 // the two the numbers of the board picked.
+// **The memory of a session is the app's and not the system's** (0.179.0): two apps that ask for the same key get two
+// different blocks, the same app that asks twice gets the one it was given —with what it left in it—, a block that is made
+// is zeroed, and the whole table goes when the allocator is short of memory (which is what the relief of the PAL calls),
+// leaving a generation that only goes up so an object of an app can tell its block is not there any more (docs/30, docs/75).
+void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  kernel::session::release_all();
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::bytes_held());
+
+  size_t got = 0;
+  uint8_t* mine = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 256, got));
+  TEST_ASSERT_NOT_NULL(mine);
+  TEST_ASSERT_EQUAL_UINT32(256, got);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  // **A block that is new is zeroed**, which is how an app tells a cold cache from a warm one.
+  for (size_t i = 0; i < got; ++i) TEST_ASSERT_EQUAL_UINT8(0, mine[i]);
+  mine[0] = 0x5A;
+  mine[255] = 0xA5;
+
+  // **The same app and the same key is the same block**, with what it left there.
+  const uint32_t first_generation = kernel::session::generation();
+  size_t again = 0;
+  uint8_t* same = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 256, again));
+  TEST_ASSERT_EQUAL_PTR(mine, same);
+  TEST_ASSERT_EQUAL_UINT32(256, again);
+  TEST_ASSERT_EQUAL_UINT8(0x5A, same[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xA5, same[255]);
+  TEST_ASSERT_EQUAL_UINT32(first_generation, kernel::session::generation());
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+
+  // **Another app with the same key is another block**: the key is of the app and not of the system.
+  size_t other = 0;
+  uint8_t* theirs = static_cast<uint8_t*>(kernel::session::acquire("reader", "apps", 64, other));
+  TEST_ASSERT_NOT_NULL(theirs);
+  TEST_ASSERT_EQUAL_UINT32(64, other);
+  TEST_ASSERT_TRUE(theirs != mine);
+  TEST_ASSERT_EQUAL_UINT8(0, theirs[0]);
+  TEST_ASSERT_EQUAL_UINT8(2, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(320, kernel::session::bytes_held());
+
+  // **A block that is asked for bigger grows and keeps what was in it**, and the bytes that are new are zero.
+  size_t bigger = 0;
+  uint8_t* grown = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 512, bigger));
+  TEST_ASSERT_NOT_NULL(grown);
+  TEST_ASSERT_EQUAL_UINT32(512, bigger);
+  TEST_ASSERT_EQUAL_UINT8(0x5A, grown[0]);
+  TEST_ASSERT_EQUAL_UINT8(0, grown[400]);
+
+  // **And the relief takes every one of them**: the table is empty, the number of the session has gone up, and a block that
+  // comes back is zeroed and is not the promise of the old one.
+  kernel::session::release_all();
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(0, kernel::session::bytes_held());
+  TEST_ASSERT_TRUE(kernel::session::generation() > first_generation);
+  size_t fresh = 0;
+  uint8_t* after = static_cast<uint8_t*>(kernel::session::acquire("launcher", "apps", 256, fresh));
+  TEST_ASSERT_NOT_NULL(after);
+  TEST_ASSERT_EQUAL_UINT32(256, fresh);
+  TEST_ASSERT_EQUAL_UINT8(0, after[0]);
+  kernel::session::release_all();
+
+  // **A key that is not a name is not a block**: an empty one is refused instead of taking a row of the table for nobody.
+  size_t nothing = 1;
+  TEST_ASSERT_NULL(kernel::session::acquire("", "apps", 64, nothing));
+  TEST_ASSERT_NULL(kernel::session::acquire("launcher", "", 64, nothing));
+  TEST_ASSERT_EQUAL_UINT32(0, nothing);
+}
+
 void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   TEST_ASSERT_TRUE(boot_once());
   // **The glass on**, the same as the test before this one: a boot that paints pixels needs a panel to paint them on
@@ -7277,6 +7353,7 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   };
   // **Two drawings of the boot and one picture that is not**: the drawing of a moment that no longer exists is the
   // other way up, so the glass says with one number whether the boot read the drawings or that file.
+  storage->remove("/res/splash/boot-2.bmp");
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-2.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
@@ -7305,8 +7382,12 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   TEST_ASSERT_NOT_NULL(glass);
   const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
   const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", kernel::splash::last_error(), chosen);
+  // **The two pixels of a drawing of the boot, and not the two of the clipart that is gone**: the plain picture is the black
+  // row over the white one and the old `boot-alt` was the other way up, so this is the check that the file painted is one of
+  // the drawings and not the one the owner took out of the list (docs/30, docs/50).
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
-  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
 
@@ -7359,6 +7440,10 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
     storage->close(slot);
     return ok;
   };
+  // **And what another case of this disk may have left goes first**: the drawings of the boot are chosen among the files
+  // that are there, so a `boot-2.bmp` of a case before this one is a picture this case did not write (docs/85).
+  storage->remove("/res/splash/boot-2.bmp");
+  storage->remove("/res/splash/boot-alt.bmp");
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
   TEST_ASSERT_TRUE(write_picture("/res/splash/charging.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
 
@@ -12267,6 +12352,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);
+  RUN_TEST(test_the_memory_of_a_session_is_the_apps_and_not_the_systems);
   RUN_TEST(test_the_splash_waits_for_the_ink_of_the_page_before);
   RUN_TEST(test_a_page_the_panel_refused_is_painted_when_it_can);
   RUN_TEST(test_the_glass_is_one_surface_however_often_it_is_asked);

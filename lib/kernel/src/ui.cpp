@@ -1812,6 +1812,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      canvas_clear,
                                      canvas_fill_rect,
                                      canvas_pixel,
+                                     canvas_capture,
+                                     canvas_bitmap,
                                      canvas_damage,
                                      canvas_caps_for_lua,
                                      canvas_frame,
@@ -2612,6 +2614,22 @@ bool canvas_text_styled(int16_t slot, int8_t font, int16_t x, int16_t y, const c
   const font::Face& face = (font >= 0) ? face_of(font) : face_of(target.canvas->face);
   draw_text(*target.canvas, face, target.x + x, target.y + y, text, scale, clamped(level), chosen, ink);
   close_draw(target);
+  return true;
+}
+
+// **The pixels of a canvas, out** (0.179.0): the other half of `canvas_bitmap`, and what an app needs to keep a picture it
+// has already decoded. The block is four bits a pixel with the left one in the high nibble and the stride of the canvas,
+// which is what `canvas_bitmap` takes back —so a capture and a blit of the same box are the same pixels— (docs/30,
+// docs/75). False when the box is bigger than what the caller brought, and then nothing is written.
+bool canvas_capture(int16_t slot, uint8_t* out, size_t capacity, size_t& wrote) {
+  wrote = 0;
+  if (!live(slot) || out == nullptr) return false;
+  const Canvas& canvas = g_canvases[slot];
+  if (canvas.bits == nullptr || canvas.width == 0 || canvas.height == 0) return false;
+  const size_t bytes = static_cast<size_t>(canvas.stride) * canvas.height;
+  if (capacity < bytes) return false;
+  memcpy(out, canvas.bits, bytes);
+  wrote = bytes;
   return true;
 }
 

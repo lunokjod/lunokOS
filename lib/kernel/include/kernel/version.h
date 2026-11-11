@@ -5598,6 +5598,35 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.0 (11/11): **a memory of the session the kernel keeps for an app, and a launcher that costs no disk the second
+// time**. The owner: *«Fes que l'app home_eink tingui un caché per apps i icones … Aquesta memoria "de sessió" la facilita el
+// nucli i la manté a menys que falti memoria (es el primer tipus de memoria que s'ha d'esborrar si falta PSRAM) … Les claus
+// son per app, no per sistema»*:
+//   - **`kernel::session`** is a table of eight blocks named by (app, key): `acquire` answers the block that is there or
+//     makes it —zeroed, so an app tells a cold cache from a warm one—, grows it when the app asks for more, and answers
+//     nullptr when there is no room. The app is the one the kernel knows is running, so `"apps"` is one block for a launcher
+//     and another for the app after it (docs/30, docs/75);
+//   - **`pal::set_memory_relief`** is the other half: the kernel installs `session::release_all` and **every allocator of
+//     the PAL calls it once before refusing a block** —the host's and the chip's, `resize` included— and tries again. The
+//     session memory is the first thing the system gives up because it is the only one it can make again, and a generation
+//     that only goes up makes an object of an app that held one answer `the session memory was given back` instead of
+//     writing into freed memory;
+//   - **`sys.session(key, bytes)`** is the door: `read`, `write`, `clear` and `size`, `nil, E_NOMEM` when there is no room;
+//   - **`cv:capture(session [, offset])` and `cv:blit(session, offset, x, y, w, h)`** are the pair that makes a cache of a
+//     picture worth having: four bits a pixel with the left one in the high nibble, a copy and not a decode, and the same
+//     primitive a page of a book uses for its plates;
+//   - **and `home_eink` is the first app that uses them**: a block of 32 KB under the key `apps` with the manifests (id,
+//     title, icon) and the pictures of the cells, so the second page of the launcher —which is every time an app ends— is
+//     whole in the first turn: `home: cache warm, 11 apps, 10 pictures` and **no `home: app` in the console**, because the
+//     queue of manifests is empty. A dial that walks over a cell paints a copy of a picture it already decoded instead of
+//     reading the file and decoding it, and the dump of the warm page is the cold one —1 377 pixels, all of them the clock
+//     of the bar—;
+//   - **measured**: `test_apps` 200/200 (the new one is
+//     `test_the_memory_of_a_session_is_the_apps_and_not_the_systems`: two apps with one key are two blocks, the same app
+//     twice is one, a new block is zeroed, a bigger ask grows and keeps, and the relief empties the table and moves the
+//     generation) and `test_ui` 105/105; `mem` says `session memory  32 KB in 1/8 block(s)` while the launcher holds it;
+//     the emulator's page warm and cold are the same picture.
+
 // 0.178.8 (11/11): **the last word the board drew waits in the RTC memory for the next run**. The owner asked whether the
 // seed could be kept somewhere —the RTC of the Paper, for instance— and the answer is the memory the chip keeps alive
 // across a reset, which is where `/rtc` already lives:
@@ -5925,7 +5954,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.8";
+static const char kVersion[] = "0.179.0";
 
 }  // namespace kernel
 

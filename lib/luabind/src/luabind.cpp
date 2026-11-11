@@ -1366,6 +1366,7 @@ const size_t kFsWindow = 512;
 
 FileOps g_file_ops = {};  // every operation starts absent: install_fs_ops() fills them
 AppsOps g_apps_ops = {};  // the door of the apps and the wish to start one, filled by the kernel (0.153.0)
+SessionOps g_session_ops = {};  // the memory of a session, per app and per key, filled by the kernel (0.179.0)
 // **A session of the shell for an app** (0.159.0), filled by the kernel: the shell is the system's, and this library
 // never includes the kernel (docs/20, docs/30).
 ShellOps g_shell_ops = {};
@@ -1383,6 +1384,139 @@ int push_nil_error(lua_State* L, const char* code, const char* message) {
   push_error_table(L, code, message);
   return 2;
 }
+
+// ---- the memory of a session (0.179.0, docs/30, docs/75) ----
+//
+// **A cache the kernel keeps for an app**: `sys.session('apps', 32768)` answers a block of that many bytes and the same
+// call in the next run of the same app answers the same block, so the second page of a launcher costs no disk. The key is
+// the app's and not the system's —the kernel asks who is running and the table is a row per (app, key)—, the block is
+// **zeroed** the first time, which is how an app tells "nothing cached" from "this is mine", and it lives until the board
+// goes off or the memory runs short (docs/30, docs/75).
+const char kSessionMeta[] = "lunokOS.Session";
+
+struct LuaSession {
+  uint8_t* bytes;
+  size_t size;
+  // **The table it came from** (0.179.0): the relief of the PAL gives every session memory back when a block does not fit,
+  // so a number that only goes up is what tells an object of the app that the block under it is not there any more —the
+  // same idea as the generation of a canvas (docs/75, docs/90)—.
+  uint32_t generation;
+};
+
+LuaSession* session_check(lua_State* L, int idx) {
+  LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, idx, kSessionMeta));
+  if (block->bytes == nullptr || g_session_ops.generation == nullptr ||
+      g_session_ops.generation() != block->generation) {
+    luaL_error(L, "the session memory was given back");
+  }
+  return block;
+}
+
+int l_session_read(lua_State* L) {
+  LuaSession* block = session_check(L, 1);
+  const lua_Integer at = luaL_checkinteger(L, 2);
+  lua_Integer want = luaL_optinteger(L, 3, static_cast<lua_Integer>(block->size));
+  if (at < 0 || at > static_cast<lua_Integer>(block->size)) {
+    return push_nil_error(L, "E_INVAL", "that offset is not in the block");
+  }
+  if (want < 0) want = 0;
+  if (at + want > static_cast<lua_Integer>(block->size)) want = static_cast<lua_Integer>(block->size) - at;
+  lua_pushlstring(L, reinterpret_cast<const char*>(block->bytes + at), static_cast<size_t>(want));
+  return 1;
+}
+
+int l_session_write(lua_State* L) {
+  LuaSession* block = session_check(L, 1);
+  const lua_Integer at = luaL_checkinteger(L, 2);
+  size_t length = 0;
+  const char* text = luaL_checklstring(L, 3, &length);
+  if (at < 0 || at > static_cast<lua_Integer>(block->size)) {
+    return push_nil_error(L, "E_INVAL", "that offset is not in the block");
+  }
+  // **What does not fit is not written and is not an error**: the answer is the bytes that went in, so an app that fills a
+  // cache knows where it stopped instead of finding half a record (docs/30).
+  size_t room = block->size - static_cast<size_t>(at);
+  if (length > room) length = room;
+  if (length > 0) memcpy(block->bytes + at, text, length);
+  lua_pushinteger(L, static_cast<lua_Integer>(length));
+  return 1;
+}
+
+int l_session_clear(lua_State* L) {
+  LuaSession* block = session_check(L, 1);
+  memset(block->bytes, 0, block->size);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+int l_session_size(lua_State* L) {
+  LuaSession* block = session_check(L, 1);
+  lua_pushinteger(L, static_cast<lua_Integer>(block->size));
+  return 1;
+}
+
+int l_session_gc(lua_State* L) {
+  // **The block is the kernel's and it outlives the interpreter**: giving it back here would throw away the cache of the
+  // app that is about to be started again, which is the whole point of a session memory (docs/30).
+  LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
+  block->bytes = nullptr;
+  block->size = 0;
+  return 0;
+}
+
+int l_session_tostring(lua_State* L) {
+  LuaSession* block = static_cast<LuaSession*>(luaL_checkudata(L, 1, kSessionMeta));
+  if (block->bytes == nullptr) {
+    lua_pushstring(L, "session (given back)");
+  } else {
+    char text[48];
+    snprintf(text, sizeof(text), "session (%u B)", static_cast<unsigned>(block->size));
+    lua_pushstring(L, text);
+  }
+  return 1;
+}
+
+void open_session_library(lua_State* L) {
+  luaL_newmetatable(L, kSessionMeta);
+  lua_createtable(L, 0, 6);
+  set_function(L, "read", l_session_read);
+  set_function(L, "write", l_session_write);
+  set_function(L, "clear", l_session_clear);
+  set_function(L, "size", l_session_size);
+  lua_setfield(L, -2, "__index");
+  lua_pushcfunction(L, &l_session_gc);
+  lua_setfield(L, -2, "__gc");
+  lua_pushcfunction(L, &l_session_tostring);
+  lua_setfield(L, -2, "__tostring");
+  lua_pop(L, 1);
+}
+
+// **`sys.session(key, bytes)`**: the block of this app under that key, made the first time and found after that
+// (0.179.0). It answers the block and nothing else —`block:size()` is what it really has—, and `nil, error` when there is
+// no room, which an app answers by going on without its cache (docs/30, docs/75).
+int l_sys_session(lua_State* L) {
+  const char* key = luaL_checkstring(L, 1);
+  const lua_Integer wanted = luaL_checkinteger(L, 2);
+  if (wanted <= 0 || wanted > 1024 * 1024) {
+    return push_nil_error(L, "E_INVAL", "a session block is from one byte to a megabyte");
+  }
+  if (g_session_ops.acquire == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  size_t got = 0;
+  void* bytes = g_session_ops.acquire(key, static_cast<size_t>(wanted), got);
+  if (bytes == nullptr) {
+    return push_nil_error(L, "E_NOMEM", "there is no room for that block");
+  }
+  LuaSession* block = static_cast<LuaSession*>(lua_newuserdatauv(L, sizeof(LuaSession), 0));
+  block->bytes = static_cast<uint8_t*>(bytes);
+  block->size = got;
+  block->generation = g_session_ops.generation();
+  luaL_getmetatable(L, kSessionMeta);
+  lua_setmetatable(L, -2);
+  return 1;
+}
+
 
 const char* fs_error_code(FsError err) {
   switch (err) {
@@ -7849,6 +7983,64 @@ int l_canvas_image(lua_State* L) {
   return 1;
 }
 
+// **`cv:capture(session [, offset])`** (0.179.0): the pixels of this canvas into the memory of a session, which is how an
+// app keeps a picture it has already decoded —the file and the decoder are paid once and not at every paint—. The block
+// is four bits a pixel with the left one in the high nibble, exactly what `cv:blit` takes back (docs/30, docs/75).
+int l_canvas_capture(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  LuaSession* block = session_check(L, 2);
+  const lua_Integer at = luaL_optinteger(L, 3, 0);
+  if (at < 0 || at > static_cast<lua_Integer>(block->size)) {
+    return push_nil_error(L, "E_INVAL", "that offset is not in the block");
+  }
+  if (g_ui_ops.canvas_capture == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  size_t wrote = 0;
+  if (!g_ui_ops.canvas_capture(canvas->slot, block->bytes + at, block->size - static_cast<size_t>(at), wrote)) {
+    return push_nil_error(L, "E_NOMEM", "the block is smaller than the canvas");
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(wrote));
+  return 1;
+}
+
+// **`cv:blit(session, offset, x, y, w, h [, mode])`** (0.179.0): the other half, and what a launcher does with the icons it
+// captured —a copy of the pixels and no file, no decoder and no scaling—. It is the same primitive a page of a book uses
+// for its plates (docs/30, docs/46).
+int l_canvas_blit(lua_State* L) {
+  if (!canvas_ready(L, 1)) return refuse_canvas(L);
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
+  LuaSession* block = session_check(L, 2);
+  const lua_Integer at = luaL_checkinteger(L, 3);
+  const lua_Integer x = luaL_checkinteger(L, 4);
+  const lua_Integer y = luaL_checkinteger(L, 5);
+  const lua_Integer w = luaL_checkinteger(L, 6);
+  const lua_Integer h = luaL_optinteger(L, 7, 0);
+  const char* mode = luaL_optstring(L, 8, nullptr);
+  if (at < 0 || at > static_cast<lua_Integer>(block->size)) {
+    return push_nil_error(L, "E_INVAL", "that offset is not in the block");
+  }
+  if (w <= 0 || h <= 0 || w > 4096 || h > 4096) {
+    return push_nil_error(L, "E_INVAL", "a block of pixels is up to 4096 a side");
+  }
+  const size_t stride = (static_cast<size_t>(w) + 1u) / 2u;
+  const size_t needed = stride * static_cast<size_t>(h);
+  if (static_cast<size_t>(at) + needed > block->size) {
+    return push_nil_error(L, "E_INVAL", "the block is smaller than the picture");
+  }
+  if (g_ui_ops.canvas_bitmap == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no display");
+  }
+  if (!g_ui_ops.canvas_bitmap(canvas->slot, static_cast<int16_t>(x), static_cast<int16_t>(y),
+                              static_cast<uint16_t>(w), static_cast<uint16_t>(h), block->bytes + at,
+                              static_cast<uint16_t>(stride), mode, false)) {
+    return push_nil_error(L, "E_INVAL", "not a quality of this display");
+  }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 int l_canvas_rect(lua_State* L) {
   if (!canvas_ready(L, 1)) return refuse_canvas(L);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_checkudata(L, 1, kCanvasMeta));
@@ -8668,6 +8860,8 @@ void open_canvas_library(lua_State* L) {
   set_function(L, "disc", l_canvas_disc);
   set_function(L, "text", l_canvas_text);
   set_function(L, "image", l_canvas_image);
+  set_function(L, "capture", l_canvas_capture);
+  set_function(L, "blit", l_canvas_blit);
   set_function(L, "font", l_canvas_font);
   set_function(L, "add", l_canvas_add);
   set_function(L, "box", l_checkbox_box);
@@ -10487,7 +10681,7 @@ void seal_globals(lua_State* L) {
   // back is a handle with the three pipes of one —`stdin`, `stdout` and `stderr`—, so a line written on the first
   // is a command the system runs and what it prints comes out of the other two. The shell is the system's and not
   // the wire's: no console, no prompt and no echo in the middle (docs/30).
-  lua_createtable(L, 0, 11);
+  lua_createtable(L, 0, 12);
   // Who is running this: plain values, so an app can test them without a call.
   lua_pushstring(L, "lunokOS");
   lua_setfield(L, -2, "name");
@@ -10506,6 +10700,7 @@ void seal_globals(lua_State* L) {
   set_function(L, "caps", l_sys_caps);
   set_function(L, "delay", l_sys_delay);
   set_function(L, "shell", l_sys_shell);
+  set_function(L, "session", l_sys_session);
   set_function(L, "reboot", l_sys_reboot);
   lua_setglobal(L, "sys");
 
@@ -10699,6 +10894,9 @@ void seal_globals(lua_State* L) {
   // fs: reading, writing and asking. A call that is not here is not there
   // either, so nothing is promised that the kernel does not do (docs/30).
   open_file_library(L);
+  // **The memory of a session** (0.179.0): `sys.session(key, bytes)` answers a block the kernel keeps for this app until
+  // the board goes off or the memory runs short (docs/30, docs/75).
+  open_session_library(L);
   lua_createtable(L, 0, 13);
   set_function(L, "open", l_fs_open);
   set_function(L, "list", l_fs_list);
@@ -11202,6 +11400,7 @@ const char* app_path() { return g_app_path; }
 
 void set_file_ops(const FileOps& ops) { g_file_ops = ops; }
 void set_apps_ops(const AppsOps& ops) { g_apps_ops = ops; }
+void set_session_ops(const SessionOps& ops) { g_session_ops = ops; }
 void set_app_ops(const AppOps& ops) { g_app_ops = ops; }
 void set_net_ops(const NetOps& ops) { g_net_ops = ops; }
 

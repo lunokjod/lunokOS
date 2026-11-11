@@ -257,6 +257,18 @@ constexpr uint32_t kHomeCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 // **Where a block goes is `pal::take_from_the_extra`** (0.151.20): the floor of the board's own RAM and the rule
 // that keeps it live in `pal/pal.h` so the emulator obeys the same one and a test can hold it. What is here is only
 // the reading of the chip's free bytes.
+// **The relief of a heap that is full** (0.179.0): the kernel's session memories go first, and the ask is tried again
+// once. A pointer and not a call into the kernel, because this layer is below it (docs/30, docs/75).
+void (*g_relief)() = nullptr;
+bool g_relieving = false;
+
+void relieve() {
+  if (g_relief == nullptr || g_relieving) return;
+  g_relieving = true;
+  g_relief();
+  g_relieving = false;
+}
+
 class EspExtraMemory : public IExtraMemory {
  public:
   void* allocate(size_t bytes, bool prefer_extra) override {
@@ -267,7 +279,15 @@ class EspExtraMemory : public IExtraMemory {
       if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
     }
     if (void* block = heap_caps_malloc(bytes, kHomeCaps)) return block;
-    // A board with no PSRAM has nowhere else to look and this is the answer it gives (docs/75).
+    // A board with no PSRAM has nowhere else to look and this is the answer it gives (docs/75)...
+    if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
+    // ...**unless the session memories of the apps are what is in the way** (0.179.0): they go, once, and the two
+    // homes are asked again.
+    relieve();
+    if (take_from_the_extra(room_at_home(), bytes, prefer_extra)) {
+      if (void* block = heap_caps_malloc(bytes, kExtraCaps)) return block;
+    }
+    if (void* block = heap_caps_malloc(bytes, kHomeCaps)) return block;
     return heap_caps_malloc(bytes, kExtraCaps);
   }
 
@@ -283,6 +303,11 @@ class EspExtraMemory : public IExtraMemory {
     // The same block in the other home: `heap_caps_realloc` allocates, copies and frees, which is
     // exactly what moving a block to the other memory means. On failure the block is still the one
     // the caller gave and it is not touched (docs/75).
+    if (void* moved = heap_caps_realloc(block, bytes, to_extra ? kHomeCaps : kExtraCaps)) return moved;
+    // **And the session memories go before the refusal here too** (0.179.0), with the block untouched and the same
+    // two homes tried again.
+    relieve();
+    if (void* moved = heap_caps_realloc(block, bytes, home)) return moved;
     return heap_caps_realloc(block, bytes, to_extra ? kHomeCaps : kExtraCaps);
   }
 
@@ -373,6 +398,8 @@ void set_random_seed(uint32_t seed) {
   // guessed, and the chip has a generator that nobody has to configure (docs/20, docs/85).
   (void)seed;
 }
+
+void set_memory_relief(void (*relief)()) { g_relief = relief; }
 
 void delay_us(uint32_t us) {
   // **The chip's own busy wait**: on the board nothing asks for this —the time is the real one— and the

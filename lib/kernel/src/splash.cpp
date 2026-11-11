@@ -60,9 +60,19 @@ const uint8_t kNameBytes = 48;
 // **A name that is another moment's word is that moment's picture** (0.178.5): `boot-alt.png` was a word of this
 // system until the boot stopped having a second logo, and a folder that still carries it is not a drawing of the boot
 // with a strange tail —it is the picture of a moment that no longer exists, and the boot does not draw it—.
+// **And the words this system used to have are not drawings either**: `boot-alt` was a moment of its own until 0.178.5 and a
+// disk that still carries `boot-alt.png` —the picture of a boot that the owner had taken out— must not see it drawn as one
+// of the three drawings by the accident of a tail (docs/50, docs/92).
+const char* const kRetired[] = {"boot-alt"};
+const uint8_t kRetiredCount = static_cast<uint8_t>(sizeof(kRetired) / sizeof(kRetired[0]));
+
 bool is_a_moment_word(const char* text, size_t length) {
   for (uint8_t i = 0; i < kMomentCount; ++i) {
     const char* name = kMoments[i].word;
+    if (strlen(name) == length && strncmp(name, text, length) == 0) return true;
+  }
+  for (uint8_t i = 0; i < kRetiredCount; ++i) {
+    const char* name = kRetired[i];
     if (strlen(name) == length && strncmp(name, text, length) == 0) return true;
   }
   return false;

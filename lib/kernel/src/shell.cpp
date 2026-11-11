@@ -12,6 +12,7 @@
 //   - the board: power, sleep, led, button and cfg;
 //   - the app lifecycle: the window of an alarm, the turn and the close;
 //   - the command table in `execute()`, and the console feed, the line editor and the Lua prompt.
+#include "kernel/session.h"
 #include "kernel/shell.h"
 #include "kernel/splash.h"
 
@@ -696,6 +697,18 @@ void print_mem() {
     out(" / ");
     out_num(static_cast<uint32_t>(luabind::limit_bytes()));
     newline();
+  }
+  // **The memories of a session an app is keeping** (0.179.0): the first thing the allocator gives back when a block does not
+  // fit, so a person looking at a board that is short of memory sees what is being held and by whom it is held (docs/30,
+  // docs/75).
+  if (session::count() > 0) {
+    out("  session memory     ");
+    out_num(session::bytes_held() / 1024);
+    out(" KB in ");
+    out_num(session::count());
+    out("/");
+    out_num(session::kMaxBlocks);
+    out(" block(s)\r\n");
   }
   pal::IQueue* queue = pal::system().queue();
   out("  event queue        ");
