@@ -97,6 +97,30 @@ def apps_of_board(boards, board_id, family):
     return board_id in boards or (family is not None and family != "" and family in boards)
 
 
+def glass_of_board():
+    """Whether the board of this environment carries a glass, read from its own header.
+
+    **What a board with no panel can never read is not carried to it**: the pictures of the boot and the faces of the
+    text are opened by `splash.cpp` and `font.cpp`, both inside `#if LUNOK_GLASS`, and on the four boards without a
+    screen they are **1 558 434 B of `res/splash` and 315 805 B of `res/fonts`** — more than the 1 441 792 B of the
+    whole LittleFS partition of a 4 MB board. The tool then says `No more free space`, leaves files out and
+    PlatformIO still prints SUCCESS (found on the ATOM the 11/11, docs/70, docs/85).
+    """
+    flags = option("build_flags")
+    found = re.search(r"-I\s*(\S*lib/board_[^/\s]+/include)", flags)
+    if not found:
+        return True  # the emulator and the tests have a glass
+    header = os.path.join(PROJECT, found.group(1), "board", "identity.h")
+    if not os.path.isfile(header):
+        return True
+    with open(header) as handle:
+        text = handle.read()
+    found_glass = re.search(r"#define\s+LUNOK_GLASS\s+([01])", text)
+    if not found_glass:
+        return True
+    return found_glass.group(1) == "1"
+
+
 def home_app_of_build():
     """The app the environment comes up with, read from its build flags.
 
@@ -177,6 +201,17 @@ def rebuild():
         else:
             shutil.copy2(source, target)
     os.makedirs(os.path.join(DISK_DIR, "data"), exist_ok=True)
+    # **A board with no glass is not given what only a glass reads** (11/11): the pictures of the boot and the faces of
+    # the text are the two folders nothing of that build can open, and they are more than the whole LittleFS of a 4 MB
+    # board —1 558 434 B and 315 805 B against 1 441 792 B—, so an image that carries them is not a tight one: it is
+    # an image the tool writes with files left out and a SUCCESS printed over them (docs/70, docs/85).
+    left_out = 0
+    if not glass_of_board():
+        for name in ("res/splash", "res/fonts"):
+            path = os.path.join(DISK_DIR, name)
+            if os.path.isdir(path):
+                left_out += sum(len(names) for _, _, names in os.walk(path))
+                shutil.rmtree(path)
     # **The folder of apps is made again every time**: an app removed from `apps/`, or one a build stops
     # carrying, has to leave the disk, or the two drift apart in silence.
     apps_dir = os.path.join(DISK_DIR, "apps")
@@ -220,6 +255,10 @@ def rebuild():
         how = "%d apps, copied" % len(apps)
     else:
         how = "%d apps, linked to apps/" % len(apps)
+    # **The files a board with no glass was not given are said too**: a disk that is smaller than the sum of its
+    # folders is a disk a person has to be able to explain, and the one who explains it is the line of the build.
+    if left_out:
+        how += ", %d files of the boot and of the faces left out (no glass)" % left_out
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
     # **A boot that names an app the disk does not carry is said here and not discovered on the board** (found on the
     # Paper the 11/11: `no such app: home_eink` at the prompt and a warning in the log, because `custom_apps` of that
@@ -319,9 +358,17 @@ def check_it_fits(files, apps):
             print("make_disk:   %s" % line)
             break
     if "buildfs" in " ".join(TARGETS) or "uploadfs" in " ".join(TARGETS):
-        print("make_disk: an image is being built, so this stops here: carry fewer apps with "
-              "`custom_apps = id1,id2` in %s, or give the board a bigger littlefs partition (docs/70)."
-              % ENV_NAME)
+        if apps:
+            print("make_disk: an image is being built, so this stops here: carry fewer apps with "
+                  "`custom_apps = id1,id2` in %s, or give the board a bigger littlefs partition (docs/70)."
+                  % ENV_NAME)
+        else:
+            # **A disk with no app that does not fit is the system's own content**: telling this person to carry fewer
+            # apps is telling them to do the one thing they already did, which is what the ATOM's build said the 11/11
+            # while its `res/splash` alone was more than its whole partition (docs/70).
+            print("make_disk: an image is being built, %s carries no app, so what does not fit is the system's own "
+                  "content: give the board a bigger littlefs partition or take files out of `data/` (docs/70)."
+                  % ENV_NAME)
         env.Exit(1)
     print("make_disk: a firmware build does not need the disk, so this one goes on")
 

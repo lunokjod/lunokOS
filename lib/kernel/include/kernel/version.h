@@ -5598,6 +5598,24 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.13 (11/11): **a board with no glass is not given the pictures of the boot nor the faces of the text**. The
+// build of the ATOM stopped with `lfs warn:475: No more free space 548` and the line under it told the person to carry
+// fewer apps with `custom_apps`, which is what that environment already does: the four boards without a panel carry no
+// app and no home app (`custom_apps_in_disk = no`, `-DLUNOK_HOME_APP` empty, checked). What did not fit was the
+// system's own content, measured: `data/` is **1 893 921 B in 32 files**, and of those, `res/splash` is **1 558 434 B**
+// (three `boot-*.bmp` of 519 478 B) and `res/fonts` **315 805 B**, against the **1 441 792 B** of LittleFS that
+// `partitions.csv` gives a 4 MB board — the pictures alone are more than the whole partition.
+//   - `make_disk` reads `LUNOK_GLASS` of the board's own `board/identity.h` and, when it is 0, **leaves `res/splash` and
+//     `res/fonts` out of the image**: the two folders are opened by `splash.cpp` and `font.cpp`, which that build does
+//     not compile at all. What is left is `res/` with the three sample files, `epub/` and `data/`, about 6 800 B;
+//   - the line of the disk says it: `…, 6 files of the boot and of the faces left out (no glass)`, so a disk smaller
+//     than the sum of its folders is a thing a person can explain without reading this file;
+//   - **the message of a disk that does not fit no longer gives advice that cannot be taken**: with apps it says to
+//     carry fewer, and with none it says that what does not fit is the system's own content —a bigger partition or less
+//     `data/`—, which is the sentence the ATOM's build needed.
+// The four boards with a glass are untouched: their identity says `LUNOK_GLASS 1` and their image carries the pictures
+// and the faces as before (docs/70, docs/85).
+
 // 0.179.12 (11/11): **the Paper's image carries its apps again**. On the board, `run home_eink` answered `no such app:
 // home_eink` and the log said `[W][HOME] no app 'home_eink' on this disk; the prompt is yours`. The list of
 // `custom_apps` of `[env:m5-paper]` had been emptied the day before, in a commit about the card of the emulator
@@ -6207,7 +6225,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.12";
+static const char kVersion[] = "0.179.13";
 
 }  // namespace kernel
 
