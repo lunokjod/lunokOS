@@ -106,6 +106,15 @@ void load_system_face();
 // needs a full one even if it is only text (docs/50, docs/90).
 uint16_t g_levels = 0;
 uint16_t g_paints = 0;
+// **And the passes of ink the glass has been asked for since the page was last washed whole** (0.179.5): a pass is what
+// leaves a ghost on an e-ink panel, so this is the budget the quality of a present counts, and it goes back to nothing
+// every time the page goes up whole (docs/50).
+uint16_t g_updates = 0;
+
+// **The number of quick paints after which what is left is ghost**, which is what a panel shows after a few
+// dozen partial updates: past this a page of text needs the full wash too, and the number is one constant to
+// change after somebody counts it on the board (docs/50).
+const uint16_t kManyPaints = 32;
 
 void note_level(uint8_t level) {
   if (level > 15) return;
@@ -210,11 +219,11 @@ void drop_region(Canvas& canvas, uint8_t at) {
   if (canvas.damage_count > 0) --canvas.damage_count;
 }
 
-// Records one region. Same quality and close by: one paint. The whole list full: one paint with the
-// quality that cannot look wrong, because an app that draws more pieces than the list holds is an app
-// that is redrawing a page and a page wants `gc16` (docs/30).
+// Records one region. Same quality and close by: one paint. The whole list full: one paint, because an app that draws more
+// pieces than the list holds is an app that is redrawing a page and a page is one pass of ink —with the quality the page is
+// given when the present comes, not one this line guesses— (0.179.5, docs/30, docs/50).
 void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                hal::UpdateMode mode) {
+                hal::UpdateMode mode, bool named = false) {
   if (canvas.bits == nullptr || w == 0 || h == 0) return;
   if (x >= canvas.width || y >= canvas.height) return;
   if (x + w > canvas.width) w = static_cast<uint16_t>(canvas.width - x);
@@ -237,6 +246,7 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     Damage& region = canvas.damage[i];
     if (region.x <= x && region.y <= y && region.x + region.w >= x1 && region.y + region.h >= y1) {
       region.mode = stronger_mode(region.mode, mode);
+      region.named = region.named || named;
       return;
     }
   }
@@ -245,6 +255,7 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     const Damage& region = canvas.damage[i];
     if (region.x >= x && region.y >= y && region.x + region.w <= x1 && region.y + region.h <= y1) {
       mode = stronger_mode(mode, region.mode);
+      named = named || region.named;
       drop_region(canvas, i);
       continue;
     }
@@ -278,10 +289,21 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     region.y = merged_y0;
     region.w = static_cast<uint16_t>(merged_x1 - merged_x0);
     region.h = static_cast<uint16_t>(merged_y1 - merged_y0);
+    region.named = region.named || named;
     return;
   }
   if (canvas.damage_count == kMaxDamage) {
-    merge_all(canvas, hal::UpdateMode::kGc16);
+    // **The list is full and the page is one region** (0.179.5): the quality of that one region is the strongest of what it
+    // holds —and whether one of them named it—, because a present with no quality of its own is the one that decides what a
+    // page goes up with, and a page of nine boxes is a page and not a photograph (docs/30, docs/50).
+    hal::UpdateMode all_mode = mode;
+    bool all_named = named;
+    for (uint8_t i = 0; i < canvas.damage_count; ++i) {
+      all_mode = stronger_mode(all_mode, canvas.damage[i].mode);
+      all_named = all_named || canvas.damage[i].named;
+    }
+    merge_all(canvas, all_mode);
+    canvas.damage[0].named = all_named;
     // **A full list becomes one region that also covers this piece.** Assuming that the last piece falls
     // inside what was already pending was only true for a page drawn in one corner: an app that keeps
     // drawing somewhere else had the newest of its regions thrown away and left unpainted (found by the
@@ -310,6 +332,7 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
   region.w = w;
   region.h = h;
   region.mode = mode;
+  region.named = named;
 }
 
 // Takes a canvas out of the list of children of its father, if it has one and it is there.
@@ -337,9 +360,9 @@ void unlink_from_parent(int16_t slot) {
 // clean (docs/90).
 // The fills and the paper are written further down with the drawing, and the hole a release leaves needs them here.
 bool draw_fill_rect(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
-                    hal::UpdateMode mode);
+                    hal::UpdateMode mode, bool named = false);
 void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius, uint8_t level,
-                     hal::UpdateMode mode);
+                     hal::UpdateMode mode, bool named = false);
 extern uint8_t g_paper_level;
 
 
@@ -654,7 +677,7 @@ void compose_region(Canvas& parent, const Canvas& child, int32_t origin_x, int32
              src + static_cast<uint32_t>(row) * child.stride, bytes);
     }
   }
-  damage_add(parent, at_x, at_y, w, h, region.mode);
+  damage_add(parent, at_x, at_y, w, h, region.mode, region.named);
 }
 
 // **The page is the white one the system handed over and nothing has been painted since** (0.168.0): `attach()` washes the
@@ -760,7 +783,10 @@ bool paint_root() {
   uint8_t kept = 0;
   for (uint8_t i = 0; i < count; ++i) {
     const Damage region = root().damage[i];
-    if (paint(region)) continue;
+    if (paint(region)) {
+      if (g_updates < 0xFFFF) ++g_updates;
+      continue;
+    }
     ok = false;
     // **And it is said out loud** (0.118.4): a page that does not go up is the difference between an app that works and
     // an app that runs with a dead glass, and the sentence of the panel is the only thing that tells the four reasons
@@ -798,11 +824,12 @@ bool paint_root() {
 void clean_the_glass(bool over_the_bar) {
   uint16_t levels = g_levels;
   if (over_the_bar) levels = static_cast<uint16_t>(levels | (1u << 0) | (1u << 15));
-  const hal::UpdateMode mode = cleaner_for(levels, g_paints);
+  const hal::UpdateMode mode = cleaner_for(levels, g_updates);
   damage_add(root(), 0, 0, root().width, root().height, mode);
   paint_root();
   g_levels = 0;
   g_paints = 0;
+  g_updates = 0;
 }
 
 // ---- the primitives ----
@@ -942,7 +969,8 @@ void put_bitmap(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, cons
 }
 
 // The box a shape covers, cut to the canvas, marked as one region.
-void mark_box(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, hal::UpdateMode mode) {
+void mark_box(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, hal::UpdateMode mode,
+              bool named = false) {
   if (w <= 0 || h <= 0) return;
   if (!clip_to_redraw(canvas, x, y, w, h)) return;
   if (x < 0) {
@@ -958,23 +986,23 @@ void mark_box(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, hal::U
   if (y + h > canvas.height) h = canvas.height - y;
   if (w <= 0 || h <= 0) return;
   damage_add(canvas, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
-             static_cast<uint16_t>(h), mode);
+             static_cast<uint16_t>(h), mode, named);
 }
 
 void draw_frame(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, uint8_t level,
-                hal::UpdateMode mode) {
+                hal::UpdateMode mode, bool named = false) {
   if (w <= 0 || h <= 0) return;
   put_rect(canvas, x, y, w, 1, level);              // the top
   put_rect(canvas, x, y + h - 1, w, 1, level);      // the bottom
   put_rect(canvas, x, y, 1, h, level);              // the left
   put_rect(canvas, x + w - 1, y, 1, h, level);      // the right
-  mark_box(canvas, x, y, w, h, mode);
+  mark_box(canvas, x, y, w, h, mode, named);
 }
 
 // **A frame of more than one pixel**, which is what the row of the focus of a bar and the frame of a selector wear: one
 // pixel of ink on this glass is a line a finger does not see (docs/90).
 void draw_frame_thick(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t thickness,
-                      uint8_t level, hal::UpdateMode mode) {
+                      uint8_t level, hal::UpdateMode mode, bool named = false) {
   if (w <= 0 || h <= 0 || thickness <= 0) return;
   for (int32_t i = 0; i < thickness; ++i) {
     if (w - 2 * i <= 0 || h - 2 * i <= 0) break;
@@ -983,7 +1011,7 @@ void draw_frame_thick(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h
     put_rect(canvas, x + i, y + i, 1, h - 2 * i, level);
     put_rect(canvas, x + w - 1 - i, y + i, 1, h - 2 * i, level);
   }
-  mark_box(canvas, x, y, w, h, mode);
+  mark_box(canvas, x, y, w, h, mode, named);
 }
 
 // **How far a corner pushes the ink in on a row**, which is a quarter of a circle and therefore a square root
@@ -999,7 +1027,7 @@ int32_t corner_inset(int32_t radius, int32_t down) {
 // **A box with the corners rounded off**, row by row: a control with volume needs a shape, and a rounded one
 // is what a button of this panel looks like (docs/90).
 void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius,
-                     uint8_t level, hal::UpdateMode mode) {
+                     uint8_t level, hal::UpdateMode mode, bool named) {
   if (w <= 0 || h <= 0) return;
   const int32_t most = ((w < h) ? w : h) / 2;
   if (radius > most) radius = most;
@@ -1014,7 +1042,7 @@ void draw_round_fill(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h,
     const int32_t inset = corner_inset(radius, down);
     put_rect(canvas, x + inset, y + row, w - 2 * inset, 1, level);
   }
-  mark_box(canvas, x, y, w, h, mode);
+  mark_box(canvas, x, y, w, h, mode, named);
 }
 
 // **The edge of a rounded box, one pixel of it, split into a light half and a dark one**: that is what makes
@@ -1054,14 +1082,14 @@ void draw_round_bevel(Canvas& canvas, int32_t x, int32_t y, int32_t w, int32_t h
 // A line that is straight up, down, left or right is a rectangle, and a rectangle is exact; the rest
 // is Bresenham, which is the same line the panel would draw and no floating point (docs/50).
 void draw_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t level,
-               hal::UpdateMode mode) {
+               hal::UpdateMode mode, bool named = false) {
   const int32_t left = (x0 < x1) ? x0 : x1;
   const int32_t top = (y0 < y1) ? y0 : y1;
   const int32_t box_w = ((x0 < x1) ? x1 - x0 : x0 - x1) + 1;
   const int32_t box_h = ((y0 < y1) ? y1 - y0 : y0 - y1) + 1;
   if (x0 == x1 || y0 == y1) {
     put_rect(canvas, left, top, box_w, box_h, level);
-    mark_box(canvas, left, top, box_w, box_h, mode);
+    mark_box(canvas, left, top, box_w, box_h, mode, named);
     return;
   }
   int32_t dx = (x1 > x0) ? x1 - x0 : x0 - x1;
@@ -1082,15 +1110,15 @@ void draw_line(Canvas& canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1, u
       y0 += sy;
     }
   }
-  mark_box(canvas, left, top, box_w, box_h, mode);
+  mark_box(canvas, left, top, box_w, box_h, mode, named);
 }
 
 // The midpoint circle, eight points at a time: no floating point and no table (docs/50).
 void draw_circle(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t level,
-                 hal::UpdateMode mode) {
+                 hal::UpdateMode mode, bool named = false) {
   if (radius <= 0) {
     put_pixel(canvas, cx, cy, level);
-    mark_box(canvas, cx, cy, 1, 1, mode);
+    mark_box(canvas, cx, cy, 1, 1, mode, named);
     return;
   }
   int32_t x = radius;
@@ -1113,12 +1141,12 @@ void draw_circle(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t
       err += 2 * (y - x) + 1;
     }
   }
-  mark_box(canvas, cx - radius, cy - radius, 2 * radius + 1, 2 * radius + 1, mode);
+  mark_box(canvas, cx - radius, cy - radius, 2 * radius + 1, 2 * radius + 1, mode, named);
 }
 
 // The same circle with its inside: each step of the same walk is a row of the disc (docs/50).
 void draw_disc(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t level,
-               hal::UpdateMode mode) {
+               hal::UpdateMode mode, bool named = false) {
   if (radius < 0) return;
   int32_t x = radius;
   int32_t y = 0;
@@ -1136,7 +1164,7 @@ void draw_disc(Canvas& canvas, int32_t cx, int32_t cy, int32_t radius, uint8_t l
       err += 2 * (y - x) + 1;
     }
   }
-  mark_box(canvas, cx - radius, cy - radius, 2 * radius + 1, 2 * radius + 1, mode);
+  mark_box(canvas, cx - radius, cy - radius, 2 * radius + 1, 2 * radius + 1, mode, named);
 }
 
 // The sink of a canvas: a run of glyph is one rectangle in its buffer, and the whole text is one region
@@ -1152,7 +1180,8 @@ void canvas_run(void* user, int32_t x, int32_t y, int32_t w, int32_t h) {
 }
 
 void draw_text(Canvas& canvas, const font::Face& face, int32_t x, int32_t y, const char* text,
-               uint8_t scale, uint8_t level, hal::UpdateMode mode, const font::Ink& ink = font::Ink()) {
+               uint8_t scale, uint8_t level, hal::UpdateMode mode, const font::Ink& ink = font::Ink(),
+               bool named = false) {
   if (text == nullptr || scale == 0) return;
   font::Clip box;
   box.x0 = 0;
@@ -1185,7 +1214,7 @@ void draw_text(Canvas& canvas, const font::Face& face, int32_t x, int32_t y, con
     mark_at -= step;
     mark_height += step + down;
   }
-  mark_box(canvas, x, mark_at, text_w, mark_height, mode);
+  mark_box(canvas, x, mark_at, text_w, mark_height, mode, named);
 }
 
 // ---- where a control's pixels go (docs/90) ----
@@ -1274,7 +1303,7 @@ void close_draw(const DrawTarget& target) {
 
 // ---- drawing into a canvas, whoever it belongs to ----
 
-bool draw_clear(Canvas& canvas, uint8_t level, hal::UpdateMode mode) {
+bool draw_clear(Canvas& canvas, uint8_t level, hal::UpdateMode mode, bool named = false) {
   if (canvas.bits == nullptr) return false;
   const uint8_t level_value = clamped(level);
   memset(canvas.bits, static_cast<uint8_t>((level_value << 4) | level_value), canvas.bytes);
@@ -1283,12 +1312,12 @@ bool draw_clear(Canvas& canvas, uint8_t level, hal::UpdateMode mode) {
   // chooses between two pages —and after an app that had the whole glass— read a black page as a page of nothing
   // (docs/50, docs/90).
   note_level(level_value);
-  damage_add(canvas, 0, 0, canvas.width, canvas.height, mode);
+  damage_add(canvas, 0, 0, canvas.width, canvas.height, mode, named);
   return true;
 }
 
 bool draw_fill_rect(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level,
-                    hal::UpdateMode mode) {
+                    hal::UpdateMode mode, bool named) {
   if (canvas.bits == nullptr || w == 0 || h == 0) return false;
   int32_t cx = x;
   int32_t cy = y;
@@ -1321,11 +1350,12 @@ bool draw_fill_rect(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t
     at = static_cast<uint16_t>(at + whole * 2);
     if (at < end) line[at / 2] = static_cast<uint8_t>((line[at / 2] & 0x0F) | (level_value << 4));
   }
-  damage_add(canvas, x, y, w, h, mode);
+  damage_add(canvas, x, y, w, h, mode, named);
   return true;
 }
 
-bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::UpdateMode mode) {
+bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::UpdateMode mode,
+                bool named = false) {
   if (canvas.bits == nullptr) return false;
   if (x >= canvas.width || y >= canvas.height) return false;
   const uint8_t level_value = clamped(level);
@@ -1335,7 +1365,7 @@ bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::Upda
   } else {
     byte = static_cast<uint8_t>((byte & 0xF0) | level_value);
   }
-  damage_add(canvas, x, y, 1, 1, mode);
+  damage_add(canvas, x, y, 1, 1, mode, named);
   return true;
 }
 
@@ -1346,7 +1376,7 @@ bool draw_pixel(Canvas& canvas, uint16_t x, uint16_t y, uint8_t level, hal::Upda
 // rectangle of its selected cell (`invertRoundRect`), and that is why its icons seemed to float on the block: the icon's
 // own white paper became the black of the block instead of a white box on top of it (docs/30, docs/90, docs/92).
 bool draw_invert(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                 hal::UpdateMode mode) {
+                 hal::UpdateMode mode, bool named = false) {
   if (canvas.bits == nullptr || w == 0 || h == 0) return false;
   int32_t cx = x;
   int32_t cy = y;
@@ -1374,7 +1404,7 @@ bool draw_invert(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
   // **The ink of the box is what it was, one level swapped for another**, so nothing is noted in the book of the levels:
   // that book answers "is this page one ink" for a wash, and a turn-over is every level of the palette at once.
   damage_add(canvas, static_cast<uint16_t>(cx), static_cast<uint16_t>(cy), static_cast<uint16_t>(cw),
-             static_cast<uint16_t>(ch), mode);
+             static_cast<uint16_t>(ch), mode, named);
   return true;
 }
 
@@ -1962,7 +1992,9 @@ void attach() {
   // one, which cleans without the flash of the full one (found by this suite, 9/11).
   const bool ink_on_the_glass = g_levels != 0 || g_ink_on_the_view;
   if (ink_on_the_glass) {
-    hal::UpdateMode mode = cleaner_for(g_levels, g_paints);
+    // **The budget of quick paints is the passes and not the boxes the page was drawn with** (0.179.5): a page of forty words
+    // is one page and not forty updates, and counting the boxes made every page of text owe the full wash (docs/50).
+    hal::UpdateMode mode = cleaner_for(g_levels, g_updates);
     // **Ink that nobody counted is at least a wash of sixteen levels**: `cleaner_for` answers `du` for nothing painted, and
     // a `du` over a page that has pixels in it keeps the ghost of them (docs/50).
     if (g_levels == 0) mode = hal::UpdateMode::kGl16;
@@ -1971,6 +2003,7 @@ void attach() {
   }
   g_levels = 0;
   g_paints = 0;
+  g_updates = 0;
   g_ink_on_the_view = false;
   // **The page is the system's white one until the app draws in it** (0.168.0): the wash above is the one pass the owner
   // asked for —the view and the screen erased before it is handed over— and this is what says so, so the app's first
@@ -2001,7 +2034,7 @@ bool clear(uint8_t level, const char* mode) {
     log_printf(pal::kLogDebug, "UI", "a clear of a page the system handed white: nothing to wash");
     return true;
   }
-  draw_clear(root(), level, chosen);
+  draw_clear(root(), level, chosen, mode != nullptr);
   g_page_owes_nothing = false;
   g_paper_level = level;
   // **The page is white again, so the band is not there any more**: it is a picture drawn into the page, and the next
@@ -2014,7 +2047,7 @@ bool fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t level, co
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
-  draw_fill_rect(root(), x, y, w, h, level, chosen);
+  draw_fill_rect(root(), x, y, w, h, level, chosen, mode != nullptr);
   the_band_may_be_gone(x, y, w, h);
   return true;
 }
@@ -2038,7 +2071,7 @@ bool pixel(uint16_t x, uint16_t y, uint8_t level, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
-  draw_pixel(root(), x, y, level, chosen);
+  draw_pixel(root(), x, y, level, chosen, mode != nullptr);
   the_band_may_be_gone(x, y, 1, 1);
   return true;
 }
@@ -2049,7 +2082,7 @@ bool invert(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode) {
   hal::UpdateMode chosen = hal::UpdateMode::kDu;
   if (!mode_or_default(mode, chosen)) return false;
   if (!g_attached) return true;
-  draw_invert(root(), x, y, w, h, chosen);
+  draw_invert(root(), x, y, w, h, chosen, mode != nullptr);
   the_band_may_be_gone(x, y, w, h);
   return true;
 }
@@ -2312,7 +2345,7 @@ bool canvas_clear(int16_t slot, uint8_t level, const char* mode) {
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x), static_cast<uint16_t>(target.y),
-                 width, height, level, chosen);
+                 width, height, level, chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2325,7 +2358,7 @@ bool canvas_fill_rect(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x + x),
-                 static_cast<uint16_t>(target.y + y), w, h, level, chosen);
+                 static_cast<uint16_t>(target.y + y), w, h, level, chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2437,7 +2470,7 @@ bool canvas_image(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
             const uint16_t damage_y = static_cast<uint16_t>(place.clip_y0);
             const uint16_t damage_w = static_cast<uint16_t>(place.clip_x1 - place.clip_x0);
             const uint16_t damage_h = static_cast<uint16_t>(place.clip_y1 - place.clip_y0);
-            damage_add(canvas, damage_x, damage_y, damage_w, damage_h, chosen);
+            damage_add(canvas, damage_x, damage_y, damage_w, damage_h, chosen, mode != nullptr);
           }
         }
         if (scratch != nullptr) pal::extra_memory().release(scratch);
@@ -2513,7 +2546,7 @@ bool canvas_pixel(int16_t slot, uint16_t x, uint16_t y, uint8_t level, const cha
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_pixel(*target.canvas, static_cast<uint16_t>(target.x + x),
-             static_cast<uint16_t>(target.y + y), level, chosen);
+             static_cast<uint16_t>(target.y + y), level, chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2530,7 +2563,7 @@ bool canvas_frame(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
   if (!g_attached) return true;
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
-  draw_frame(*target.canvas, target.x + x, target.y + y, w, h, clamped(level), chosen);
+  draw_frame(*target.canvas, target.x + x, target.y + y, w, h, clamped(level), chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2544,7 +2577,7 @@ bool canvas_invert(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_invert(*target.canvas, static_cast<uint16_t>(target.x + x), static_cast<uint16_t>(target.y + y), w, h,
-              chosen);
+              chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2557,7 +2590,7 @@ bool canvas_line(int16_t slot, int16_t x0, int16_t y0, int16_t x1, int16_t y1, u
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_line(*target.canvas, target.x + x0, target.y + y0, target.x + x1, target.y + y1,
-            clamped(level), chosen);
+            clamped(level), chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2570,7 +2603,7 @@ bool canvas_circle(int16_t slot, int16_t center_x, int16_t center_y, int16_t rad
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_circle(*target.canvas, target.x + center_x, target.y + center_y, radius, clamped(level),
-              chosen);
+              chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2583,7 +2616,7 @@ bool canvas_disc(int16_t slot, int16_t center_x, int16_t center_y, int16_t radiu
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_disc(*target.canvas, target.x + center_x, target.y + center_y, radius, clamped(level),
-            chosen);
+            chosen, mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2596,7 +2629,7 @@ bool canvas_text(int16_t slot, int16_t x, int16_t y, const char* text, uint8_t s
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   draw_text(*target.canvas, face_of(target.canvas->face), target.x + x, target.y + y, text, scale,
-            clamped(level), chosen);
+            clamped(level), chosen, font::Ink(), mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2612,7 +2645,8 @@ bool canvas_text_styled(int16_t slot, int8_t font, int16_t x, int16_t y, const c
   const DrawTarget target = open_draw(slot);
   if (target.canvas == nullptr) return true;
   const font::Face& face = (font >= 0) ? face_of(font) : face_of(target.canvas->face);
-  draw_text(*target.canvas, face, target.x + x, target.y + y, text, scale, clamped(level), chosen, ink);
+  draw_text(*target.canvas, face, target.x + x, target.y + y, text, scale, clamped(level), chosen, ink,
+            mode != nullptr);
   close_draw(target);
   return true;
 }
@@ -2644,7 +2678,7 @@ bool canvas_bitmap(int16_t slot, int16_t x, int16_t y, uint16_t w, uint16_t h, c
   if (target.canvas == nullptr) return true;
 
   put_bitmap(*target.canvas, target.x + x, target.y + y, w, h, bits, stride, dark);
-  mark_box(*target.canvas, target.x + x, target.y + y, w, h, chosen);
+  mark_box(*target.canvas, target.x + x, target.y + y, w, h, chosen, mode != nullptr);
   close_draw(target);
 
   return true;
@@ -2676,7 +2710,7 @@ bool canvas_book_page(int16_t slot, const epub::Item* items, const char* words, 
 
       const font::Face& face = (handle >= 0) ? face_of(handle) : face_of(target.canvas->face);
       draw_text(*target.canvas, face, target.x + item.x, target.y + item.y, words + item.text, item.scale,
-                clamped(level), chosen, ink);
+                clamped(level), chosen, ink, mode != nullptr);
     } else if (item.kind == epub::Item::kRule) {
       const uint16_t w = (item.w > 0) ? static_cast<uint16_t>(item.w) : 1;
       draw_fill_rect(*target.canvas, static_cast<uint16_t>(target.x + item.x),
@@ -6990,6 +7024,73 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   return true;
 }
 
+// **The quality a present asks for when the app does not name one** (0.179.5). The owner: *«Perqué totes refresquen amb
+// tanta qualitat quan no fa falta? usa sempre el mode necessari adequat per els canvis del buffer que es volen pujar a
+// l'eink»*. The panel is the one thing in this system that is slow and that blinks, so the quality is not the app's
+// taste: it is what the glass has been asked for since the page was last washed whole, which is a number this system
+// already counts (`kManyPaints`):
+//   - **a page is `gl16`**, which puts it up with its sixteen levels and **does not flash**: the page that came before it was
+//     left clean by the system —it washes the glass between two apps— so there is nothing to burn away, and `gc16` here
+//     would be four blinks per page turn for paper that ends up the same;
+//   - **a page that has taken the quick paints after which the panel keeps a ghost is `gc16`**, the only wash that leaves
+//     the paper white (docs/50), and so is the one an app names when it knows it carries a plate;
+//   - **`a2` and `du` are never chosen here**: the two-level pass leaves two sixteenths of the page before it, and a `du`
+//     does not clean what it writes over, so an app that wants them says so at the present (docs/30, docs/50).
+hal::UpdateMode quality_of_the_page() {
+  // **Past the quick paints the panel keeps a ghost, and then the page is washed whole** (docs/50): the budget is the one the
+  // cleaner between two apps already counts (`kManyPaints`), and what it counts here is **passes of ink and not the boxes a
+  // page is drawn with** —a page of text drawn once is one pass, and the same page updated forty times is forty— (0.179.5).
+  // Until then the page goes up in `gl16`, which is its sixteen levels and **no flash**: a page with a picture in it is the
+  // only one that has a reason to ask for more, and that reason is the app's —the cover of a book says `gc16` because it
+  // knows it is a plate— (docs/30, docs/50).
+  return (g_updates >= kManyPaints) ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGl16;
+}
+
+// **When the damage is the page and not a part of it** (0.179.5): a page built again, a turn, the first paint of an app,
+// a ring that moves. Four boxes are four passes of ink for one page —the panel paints one box at a time and each pass
+// waits for the ink— so from four on the page goes up whole, and so does a change that covers half of it. **Two boxes are
+// two**: a ring that leaves a control and arrives at another is two boxes that do not touch, and one band between them
+// would paint the air that nobody changed (0.177.4, docs/30, docs/50).
+const uint8_t kManyBoxes = 4;
+
+bool the_damage_is_the_page() {
+  if (root().damage_count == 0) return false;
+  if (root().damage_count >= kManyBoxes) return true;
+  uint16_t x0 = 0xFFFF;
+  uint16_t y0 = 0xFFFF;
+  uint16_t x1 = 0;
+  uint16_t y1 = 0;
+  for (uint8_t i = 0; i < root().damage_count; ++i) {
+    const Damage& region = root().damage[i];
+    if (region.x < x0) x0 = region.x;
+    if (region.y < y0) y0 = region.y;
+    if (region.x + region.w > x1) x1 = static_cast<uint16_t>(region.x + region.w);
+    if (region.y + region.h > y1) y1 = static_cast<uint16_t>(region.y + region.h);
+  }
+  const uint32_t page = static_cast<uint32_t>(root().width) * static_cast<uint32_t>(root().height);
+  const uint32_t covered = static_cast<uint32_t>(x1 - x0) * static_cast<uint32_t>(y1 - y0);
+  return page != 0 && covered >= page / 2u;
+}
+
+// **What the regions that named their own quality say about the whole paint** (0.179.5): a quality the app wrote —a plate
+// with `gc16`, a `du4` of its own— is the one thing this layer does not know better, so the page goes up with the strongest
+// of them and not with the one the system would have guessed; when nobody named one, the page gets what the ink of the glass
+// deserves (docs/30, docs/50).
+hal::UpdateMode quality_of_the_damage() {
+  bool any = false;
+  hal::UpdateMode named = hal::UpdateMode::kDu;
+  for (uint8_t i = 0; i < root().damage_count; ++i) {
+    const Damage& region = root().damage[i];
+    if (!region.named) continue;
+    named = any ? stronger_mode(named, region.mode) : region.mode;
+    any = true;
+  }
+  // **The quality the app named is the app's**, and the page's own is what it gets when it named none: what comes out of
+  // here is one paint of the page, and the ink of a page that asked for the wash cannot be the one of a page that did not
+  // (docs/30, docs/50). A `du` of the whole page is caught after this, by the rule the panel's own hazard asks for.
+  return any ? named : quality_of_the_page();
+}
+
 bool present() {
   if (!g_attached || root().bits == nullptr) {
     // **A present with no page behind it** (0.118.6): the app drew into a canvas the system has already given back, and
@@ -7009,6 +7110,31 @@ bool present() {
   // **The keyboard goes over the page and not in it**: the tree is composed first and the band last, so a
   // control of the page under it is covered and does not have to know that the keyboard is there (docs/90).
   keyboard_paint();
+  if (root().damage_count > 0) {
+    const bool whole = the_damage_is_the_page();
+    const hal::UpdateMode mode = quality_of_the_damage();
+    if (whole) {
+      merge_all(root(), mode);
+      // **And the page is clean again**: a wash is the whole page and it is what the inks of the page owed, so the budget
+      // of quick paints and the levels the wash between two apps reads start again from here (docs/50).
+      g_levels = 0;
+      g_paints = 0;
+      g_updates = 0;
+    } else {
+      // **The boxes that never named a quality are the system's to paint** (0.179.5): a control asks for `du` because it is
+      // the cheap one and it is not making a promise about the panel, so a present with no quality of its own gives it the
+      // one the page deserves; **a quality the app named is the app's** and stays —a `du4` of its own is a wish and the
+      // system has no business overruling it— (docs/30, docs/50).
+      for (uint8_t i = 0; i < root().damage_count; ++i) {
+        Damage& region = root().damage[i];
+        if (region.named) continue;
+        if (region.mode == hal::UpdateMode::kDu || region.mode == hal::UpdateMode::kDu4 ||
+            region.mode == hal::UpdateMode::kA2) {
+          region.mode = mode;
+        }
+      }
+    }
+  }
   const bool ok = paint_root();
   // **And now the ones that asked to go**: the page has been composed and the paint asked for, so the
   // buffers can be wiped and the slots given back without a ghost and without anything stale (docs/90).
@@ -7022,6 +7148,11 @@ bool present_all(hal::UpdateMode mode) {
   merge_all(root(), mode);
   keyboard_paint();
   const bool ok = paint_root();
+  // **A whole page is a wash**: whatever the page owed is paid by the pass that covered it, so the budget of quick paints
+  // and the levels the wash between two apps reads start again from here (0.179.5, docs/50).
+  g_levels = 0;
+  g_paints = 0;
+  g_updates = 0;
   sweep_released();
   return ok;
 }
@@ -7034,8 +7165,21 @@ bool present_all(hal::UpdateMode mode) {
 // `present_all` and gets the merge it asked for (docs/30, docs/50).
 bool present_each(hal::UpdateMode mode) {
   if (!g_attached || root().bits == nullptr) return false;
+  // **A page the system owes whole is not a present of boxes** (0.179.5): the ring that moves asks for a paint of the damage,
+  // and a page that has just replaced a picture —the splash of the boot, an app's own picture— has to go up whole and clean
+  // before anything else. The wish of the page comes first, and the boxes of the ring are part of it (docs/30, docs/50).
+  if (g_owe_all) return present();
   compose_tree(0, -1, 0, 0);
   Canvas& page = root();
+  // **And a page of boxes is one paint** (0.179.5): a ring that moves is two controls and the paper between them is nobody's
+  // business, but a page that owes four boxes or half of itself is the page going up, and four passes of the panel for one
+  // page is ink and time spent on the air between the boxes (docs/30, docs/50).
+  if (the_damage_is_the_page()) {
+    merge_all(page, mode);
+    g_levels = 0;
+    g_paints = 0;
+    g_updates = 0;
+  }
   for (uint8_t i = 0; i < page.damage_count; ++i) page.damage[i].mode = mode;
   keyboard_paint();
   const bool ok = paint_root();
@@ -7420,11 +7564,6 @@ uint16_t font_line_height(int8_t handle, uint8_t scale) {
   const uint8_t step = (face.height != 0) ? face.height : font::kGlyphHeight;
   return static_cast<uint16_t>(step * scale);
 }
-
-// **The number of quick paints after which what is left is ghost**, which is what a panel shows after a few
-// dozen partial updates: past this a page of text needs the full wash too, and the number is one constant to
-// change after somebody counts it on the board (docs/50).
-const uint16_t kManyPaints = 32;
 
 hal::UpdateMode cleaner_for(uint16_t levels, uint16_t paints) {
   // Nothing was painted: there is nothing to clean and the cheapest answer is the one that does nothing.

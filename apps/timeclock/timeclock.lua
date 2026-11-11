@@ -1266,7 +1266,10 @@ turn = function(_)
 
   if page == 2 then say_week() else say_day() end
 
-  ui.present('gc16')
+  -- **The page is new and the quality is the system's** (0.179.5): the clear above is already a whole-page wash of sixteen
+  -- levels, and the pass that flashes a second time over the same paper is what this file was asking for —a day is words
+  -- and a week is a chart of a few grays, not a photograph— (docs/30, docs/50).
+  ui.present()
 end
 
 -- The keyboard takes a band of the view, and a page that moved is a page painted again (docs/30).
@@ -1339,7 +1342,7 @@ if app.args ~= nil and app.args.path == 'keys' then
   end
 end
 
-ui.present('gc16')
+ui.present()
 
 -- **The memory it costs, said once**: the ceiling of an app is the board's and this page is the biggest of the tree,
 -- so the number is worth having in the log of an emulator (docs/75).

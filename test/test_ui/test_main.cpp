@@ -289,8 +289,10 @@ static void test_an_unknown_quality_is_refused() {
   TEST_ASSERT_FALSE(ui::pixel(0, 0, 0, "du2"));
 }
 
-// Past the room of the list everything pending becomes one region with the quality that cannot look
-// wrong, and an app can see it happening (docs/30).
+// **Past the room of the list everything pending becomes one region** (0.179.5): the quality of that one region is the
+// strongest of what it holds —and whether one of them named it—, because the present is the one that decides what a page
+// goes up with and a page of nine boxes is a page and not a photograph. It used to be `gc16` here, which is the pass that
+// flashes, and it made every page with more than eight controls a page that blinked (docs/30, docs/50).
 static void test_a_flood_of_regions_becomes_one_paint() {
   fresh_view();
   for (uint16_t i = 0; i < ui::kMaxDamage; ++i) {
@@ -300,7 +302,10 @@ static void test_a_flood_of_regions_becomes_one_paint() {
   // One more and the list is full: everything becomes one region.
   TEST_ASSERT_TRUE(ui::fill_rect(0, 500, 10, 10, 0, "du"));
   TEST_ASSERT_EQUAL_UINT8(1, ui::damage_count());
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, ui::damage(0).mode);
+  // The eight pieces were `du` and they said so: the one region keeps the strongest of them, and the present with no quality
+  // of its own is what gives the page what it deserves.
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kDu, ui::damage(0).mode);
+  TEST_ASSERT_TRUE(ui::damage(0).named);
   TEST_ASSERT_EQUAL_UINT16(510, ui::damage(0).h);
 }
 

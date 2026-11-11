@@ -223,8 +223,10 @@ end
 build_cover = function()
   -- **The page is the app's and the app owns all of it**: a control paints inside its own box, so the air
   -- around the panel would keep whatever the glass had before it —the drawing of the boot— unless the app
-  -- washes the page first (docs/30, docs/50).
-  ui.clear(15, 'gc16')
+  -- washes the page first (docs/30, docs/50). **The wash is the page and the quality is the system's** (0.179.5): the
+  -- clear says what has to be white and the present that follows says how it goes up, from what the page has drawn —a
+  -- page of words is not a photograph and does not need the pass that flashes— (docs/50).
+  ui.clear(15)
 
   local page_control = ui.panel(view.width, view.height, 'vertical')
   page_control.padding = kMargin
@@ -268,7 +270,7 @@ build_cover = function()
   end
 
   screen = page_control
-  ui.present('gc16')
+  ui.present()
 end
 
 -- **A row that is a button of the page** (0.167.0): the width of the page and the height of a row of the paper project,
@@ -305,8 +307,9 @@ show = function(index)
 
   give_back()
 
-  -- The page is washed before the detail is built, the same as the cover (docs/30, docs/50).
-  ui.clear(15, 'gc16')
+  -- The page is washed before the detail is built, the same as the cover (docs/30, docs/50): the clear says what is white
+  -- and the present at the end says the quality, which is the system's (0.179.5).
+  ui.clear(15)
   console.print(string.format('about: open %s %s', library.name, library.version))
 
   local page_control = ui.panel(view.width, view.height, 'vertical')
@@ -336,7 +339,7 @@ show = function(index)
   add_row(page_control, 'Back', function() back() end)
 
   screen = page_control
-  ui.present('gc16')
+  ui.present()
 
   -- **The detail is a view on top of the cover** (0.163.0): a pinch that comes from big to small gives it back and
   -- the app hears `on_back`, so the cover is what a finger finds under the detail (docs/30).

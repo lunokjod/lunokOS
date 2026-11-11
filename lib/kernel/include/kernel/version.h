@@ -5598,6 +5598,38 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.5 (11/11): **the quality of a paint is the one the change asks for**. The owner, with the code in front of him:
+// *«Comptant que totes les apps comencen amb un panell net i un buffer net. Perqué totes refresquen amb tanta qualitat quan no
+// fa falta? usa sempre el mode necessari adequat per els canvis del buffer que es volen pujar a l'eink»*. He was right and
+// the counter was the worst of it: **every app asked for `gc16` on every page** —four blinks of the glass— over a panel the
+// system had already washed before handing it the paper:
+//   - **a page is one paint** (0.179.5): half the view or four boxes and the damage goes up whole, because the panel paints
+//     one box at a time and every pass waits for its ink —`about` went from five paints for one page to one—; **two boxes are
+//     two**, the ring that leaves a control and the one that arrives do not touch (0.177.4). The present of the focus
+//     (`present_each`) follows the same rule, so a page built and focused before its first present is one pass and not five;
+//   - **and its quality is the one the ink asks for**: `gl16` —sixteen levels and no flash— and `gc16` only when the panel
+//     has taken the passes after which it keeps a ghost (`kManyPaints`). **The ghost budget counts passes and not the
+//     rectangles a page was drawn with**: forty words are one page and forty passes are forty stains, and counting boxes made
+//     every page of text owe the full wash —so did the wash between two apps, which now cleans a page of text with `a2` and a
+//     page of grays with `gl16` instead of flashing `gc16` at every app change—;
+//   - **a quality an app named is the app's** (`Damage::named`): `ui.rect(…, 'gc16')` is the app saying what its ink needs and
+//     a region that names none is a control drawn in `du`, which is the cheap one and not a promise about the panel. The
+//     present with a `mode` is untouched: what the app says is what reaches the glass;
+//   - **a page of more than eight boxes no longer becomes a `gc16`**: the flood of the damage list merges into one region with
+//     the strongest quality it holds, and the present decides what the page goes up with —before this, every page with more
+//     than eight controls was a page that blinked, which is most of them—;
+//   - **the splash is the one exception the system states**: a boot picture paints the whole glass and its ink never passed
+//     through the page, so the first page that covers it is owed whole and clean (`ui::owe_the_page()`, the road a view given
+//     back already took). Before this, every launcher said it with a `gc16` on the first line of its page (docs/30, docs/50);
+//   - **the apps stop naming a quality they do not know**: `about`, `fonts`, `home_eink`, `luaperf`, `shell`, `timeclock`,
+//     `wipe`, the loading page of the reader, its index, its menu and the notice of the shelf present with `ui.present()` and
+//     their `ui.clear(15, 'gc16')` is `ui.clear(15)`; a cell of the launcher that arrives is one box and not the grid; the
+//     reader keeps `gc16` for a plate because a plate is the one page it knows better than the kernel;
+//   - **measured on the emulator**: changing from the launcher to an app is an `a2` of the whole panel (the wash) and a
+//     `gl16` of the page instead of two `gc16`s; the launcher's boot with ten apps goes from twenty `gc16` of two boxes to
+//     twenty `gl16`; and `test_a_page_goes_up_with_the_quality_its_ink_asks_for` holds it (`204 cases`, `105` of `test_ui`
+//     and `10` of `test_touch`, all green).
+
 // 0.179.4 (11/11): **the paginator is the list's and the grid's, and it turns itself**. The owner: *«El Paginador ha d'anar
 // integrat amb les llistes o grids, si hi ha mes elements, s'ha de mostrar per si sol a la part d'abaix del control (dins del
 // mateix control) s'ha de gestionar el swipe i també si el focus sobrepassa l'últim o el primer item visible per canviar de
@@ -6033,7 +6065,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.4";
+static const char kVersion[] = "0.179.5";
 
 }  // namespace kernel
 

@@ -110,8 +110,9 @@ end
 local screen = ui.caps()
 
 -- **The page is the app's and the app owns all of it**: a control paints inside its own box, so the air around the panel
--- would keep whatever the glass had before it unless the app washes the page first (docs/30, docs/50).
-ui.clear(15, 'gc16')
+-- would keep whatever the glass had before it unless the app washes the page first (docs/30, docs/50). **And the quality
+-- is the system's** (0.179.5): this is a page of words, and the pass that flashes is for a photograph (docs/50).
+ui.clear(15)
 
 local page = ui.panel(screen.width, screen.height, 'vertical')
 if page == nil then
@@ -137,7 +138,7 @@ line(string.format('a turn: %.1f ms', turn_ms), 3, 0)
 line(string.format('a key waits %.1f ms', turn_ms), 3, 0)
 line(string.format('a page of ink: %.0f ms', ink_ms), 2, 8)
 line(turn_ms > hand_ms and 'the turn is felt' or 'the turn is not felt', 3, 0)
-ui.present('gc16')
+ui.present()
 
 -- The page stays until the system takes it: three taps of the middle key, the same way out as any other app.
 while true do sys.delay(50):await() end

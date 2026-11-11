@@ -21,9 +21,10 @@ if not caps.display then
   return
 end
 
--- The whole page when it changes and a `du` when only the answer of a tap is on it: on e-ink that is the difference
--- between a page of text and a page that flashes (docs/50).
-local kPageMode = 'gc16'
+-- **The quality of a page is the system's** (0.179.5): this app builds its pages and presents them with `ui.present()` and
+-- no quality of its own, because a page of words is not a photograph and the one that knows what the glass had before it is
+-- the kernel, which counts its inks. It used to be a `kPageMode = 'gc16'` here: four flashes for a page of text on paper the
+-- system had already left white (docs/30, docs/50).
 
 -- The sizes of the page, in pixels of line: the face turns them into steps, and a step is eleven pixels with the bold
 -- face of the disk and seven with the five by seven of the flash (docs/30, docs/92).
@@ -266,7 +267,7 @@ end
 build_shelf = function()
   give_back()
   shelf_rows = {}
-  ui.clear(15, kPageMode)
+  ui.clear(15)
   screen = ui.panel(view.width, view.height, 'vertical')
   if screen == nil then
     console.print('fonts: there is no room for the page')
@@ -304,7 +305,7 @@ build_shelf = function()
   -- centre would press is a page opened only by a finger (docs/30).
   if first ~= nil then ui.focus(first) end
   shelf_list = the_list
-  ui.present(kPageMode)
+  ui.present()
   console.print(string.format('fonts: %d rows, %d of them faces', #files, faces))
   -- **And where each row is, for the test that has no finger of its own** (docs/85): the place of a row is the list's
   -- plus the row's, which are the two boxes the system gave them.
@@ -326,7 +327,7 @@ end
 open_specimen = function(record)
   if record == nil or record.kind == nil then return end
   give_back()
-  ui.clear(15, kPageMode)
+  ui.clear(15)
 
   local face, err = ui.load_font(record.path)
   if face == nil then
@@ -413,7 +414,7 @@ open_specimen = function(record)
     screen:add(back)
   end
 
-  ui.present(kPageMode)
+  ui.present()
   console.print(string.format('fonts: open %s %s %d %d', record.name, record.kind, record.size, record.glyphs))
   if debug_boxes and back ~= nil then
     local box = back:caps()

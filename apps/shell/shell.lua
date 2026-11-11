@@ -117,7 +117,9 @@ local function new_tab()
   tabs[#tabs + 1] = { session = session, text = '', title = 'Shell ' .. opened }
   strip.items = labels()
   show(#tabs)
-  ui.present('gc16')
+  -- **The quality of the page is the system's** (0.179.5): a tab more is the strip and the box and not a photograph, and the
+  -- kernel is the one that knows what the page has drawn since it was clean (docs/30, docs/50).
+  ui.present()
 end
 
 local function drop(index)
@@ -129,15 +131,15 @@ local function drop(index)
   table.remove(tabs, index)
   strip.items = labels()
   show(index)
-  ui.present('gc16')
+  ui.present()
 end
 
 --  **The page is built and built again** (0.164.1): the keyboard is the system's and it
 --  always sits **outside** the view of the app —like the bar— so when it opens the app's
 --  view shrinks and the system says so with `on_resize`. A page that kept the box it was
 --  given paints over the keyboard, and a page that never washed the glass keeps the picture
---  of the boot in its four corners: `ui.clear(15, 'gc16')` is the wash and building again
---  is what makes the band fit. The controls of the page before are given back, because a
+--  of the boot in its four corners: `ui.clear(15)` is the wash and building again is what
+--  makes the band fit. The controls of the page before are given back, because a
 --  control that is replaced without saying so is a control that keeps a slot for ever.
 local function give_back()
   if bar ~= nil then bar:release() end
@@ -149,7 +151,10 @@ end
 local function build()
   give_back()
   view = ui.caps()
-  ui.clear(15, 'gc16')
+  --  **And the quality is not this file's** (0.179.5): the clear says what is white —the whole page, because the box of
+  --  the terminal is the page— and the present that follows paints it with the pass the inks deserve, which for a page
+  --  of letters is the one that cleans without flashing (docs/30, docs/50).
+  ui.clear(15)
 
   local width = view.width - 2 * kMargin
   local bar_h = line(kBody) + 12

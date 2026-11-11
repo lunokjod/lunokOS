@@ -660,13 +660,15 @@ local function ask_for(one)
     return
   end
 
-  page:clear(15, 'gc16')
+  page:clear(15)
   page:text(20, 60, 'Opening the book...', 4, 0, 'du')
   page:text(20, 140, one.title, 3, 8, 'du')
   page:place(0, 0)
   screen = page
   pending = one
-  ui.present('gc16')
+  -- **The page is three lines of words and the quality is the system's** (0.179.5): a `gc16` here was four flashes for a page
+  -- of paper that the kernel paints with the pass that cleans and does not flash (docs/30, docs/50).
+  ui.present()
 end
 
 -- **The foot of the shelf** (0.147.0, docs/46 C1): the band of 84 rows of a page of a book —the paper, the line across
@@ -876,7 +878,9 @@ local function open_list(head, rows, marked, pick)
   end
 
   list:place(20, kIndexHead)
-  ui.present('gc16')
+  -- **The index is a box over the page of the book**: a pass that cleans without a flash is what putting a list of rows
+  -- down on paper needs, and the system chooses it from what changed (0.179.5, docs/50).
+  ui.present()
 end
 
 -- **The index on the glass** (docs/46, C14): the rows of the book's own index, with the chapter that is open marked.
@@ -1040,7 +1044,7 @@ local function open_menu(which)
     on_menu_pick(which_title, which_entry)
   end
   menu = bar
-  ui.present('gc16')
+  ui.present()
 end
 
 -- **A page is turned with a finger or with a key** (0.135.0), and the two say the same three things: a drag to the
@@ -1210,7 +1214,7 @@ while true do
   -- the control away (docs/90).
   if notice.gone() then
     notice.release()
-    ui.present('gc16')
+    ui.present()
   end
 
   on_gesture()

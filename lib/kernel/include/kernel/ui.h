@@ -38,6 +38,11 @@ struct Damage {
   uint16_t w = 0;
   uint16_t h = 0;
   hal::UpdateMode mode = hal::UpdateMode::kDu;
+  // **Whether the app named the quality or the system chose it** (0.179.5): a `ui.rect(…, 'gc16')` is the app saying what
+  // its own ink needs, and a control that draws itself asks for `du` because it is the cheap one and it is not making a
+  // promise about the panel —the system is—. A present with no quality of its own leaves the named ones alone and gives the
+  // rest what the page deserves (docs/30, docs/50).
+  bool named = false;
 };
 
 // How many regions the list holds. Past this, everything pending becomes one region with the quality

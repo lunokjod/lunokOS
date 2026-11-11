@@ -52,10 +52,14 @@ local function show_error(headline, text)
   card.on_accept = function(self)
     self:release()
     card = nil
-    ui.present('gc16')
+    ui.present()
   end
   card.on_cancel = card.on_accept
-  ui.present('gc16')
+  -- **The quality of the card and of the band is the system's** (0.179.5): both are boxes over a page that is already on the
+  -- glass, and a `gc16` of a box is a flash of that box for a notice —two or three times per sentence, because the card
+  -- goes, the band goes and the page under them comes back—. The kernel paints what changed with the pass that cleans and
+  -- does not flash, and it is the app's to name only when it knows better than the ink (docs/30, docs/50).
+  ui.present()
 end
 
 -- The band: the sentence cut at the edge, the cross that takes it away and the touch that opens the card.
@@ -74,13 +78,13 @@ function M.put(headline, text)
     table.remove(self.items, item)
     self.items = self.items
     if #self.items == 0 then gone = true end
-    ui.present('gc16')
+    ui.present()
   end
   band.on_pick = function(self, item)
     local one = self.items[item]
     show_error(headline, (one ~= nil and one.text) or text)
   end
-  ui.present('gc16')
+  ui.present()
 end
 
 -- **The glass, once and for all**: the app hands over its own table, and a view the system changes later is seen here

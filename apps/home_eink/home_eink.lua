@@ -425,7 +425,10 @@ local function build()
     end
   end
 
-  ui.present('gc16')
+  -- **The quality of the page is the system's** (0.179.5): the launcher hands over a page of words and one-colour pictures
+  -- and the kernel knows what the glass had —it washed it before this app drew— so the pass that flashes is not this file's
+  -- to ask for (docs/30, docs/50).
+  ui.present()
 end
 
 -- ------------------------------------------------------------------ the queue
@@ -630,7 +633,10 @@ while true do
   -- the last pictures of the grid stay unwritten— and what the owner asked for is that the cell the system has just
   -- filled is the one that goes to the glass (docs/30, docs/50).
   if painted then
-    ui.present('gc16')
+    -- **A cell that has just arrived is one box and not the page** (0.179.5): a picture of every cell is a `gc16` of the
+    -- whole grid —ten flashes for ten cells— and a cell is what changed, so the system paints the box the cell left and
+    -- cleans it without the flash (docs/50).
+    ui.present()
   end
   sys.delay(50):await()
 end

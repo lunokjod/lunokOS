@@ -1051,7 +1051,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
 | `ui.invert(x, y, w, h, [mode])` | `true` o `nil, error` | **Gira una caixa: la tinta es torna paper i el paper tinta**, nivell a nivell (el 5 es torna 10), que és el dibuix que diu «aquest és el que respondrà» en aquest vidre (0.178.0). És una primitiva i no una manera de pintar perquè el que es gira és **el que ja hi ha**: el paper d'una imatge, els seus grisos i la lletra del mig (docs/92) |
-| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode`, cada regió es pinta amb **la qualitat amb què es va dibuixar**; amb `mode`, tot el que està pendent es pinta amb aquesta. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
+| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode` **el sistema tria la qualitat de la pàgina** (0.179.5): `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ja ha rebut tantes passades que li queda fantasma; **una qualitat que l'app va nomenar en un dibuix es respecta**. Amb `mode`, tot el que està pendent es pinta amb aquesta i prou. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
@@ -1128,15 +1128,22 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 - **La mida que es demana és un escalat al més proper.** `ui.image(x, y, path, w, h)` dibuixa la imatge a
   `w`×`h`; una imatge de 96×72 a 480×360 ocupa el doble de píxels de la pàgina i no s'interpola, perquè setze
   nivells no tenen res a interpol·lar (docs/30).
-- **Cada dibuix guarda la seva regió i la seva qualitat.** `ui.rect(0, 40, 60, 120, 7, 'gc16')`
-  apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du')` apunta «aquest
-  quadre, i ràpid». `ui.present()` envia cada regió amb la seva i, com que el controlador només pot
-  pintar una cosa alhora, la segona espera que la primera acabi (docs/50).
+- **Cada dibuix guarda la seva regió i, si l'app la nomena, la seva qualitat.** `ui.rect(0, 40, 60, 120, 7,
+  'gc16')` apunta «del (0,40) al (60,160), i que quedi bé»; `ui.rect(0, 220, 40, 40, 0, 'du')` apunta «aquest
+  quadre, i ràpid». **Una qualitat nomenada és de l'app i el sistema no la hi discuteix**; el que no en porta
+  és d'un control que es dibuixa demanant `du`, que és el barat i no una promesa sobre el panell (0.179.5).
+  `ui.present()` dona a les regions que no en porten la qualitat de la pàgina, i com que el controlador només
+  pot pintar una cosa alhora, la segona espera que la primera acabi (docs/50).
 - **El que es pot ajuntar s'ajunta.** Dues regions de la mateixa qualitat que es toquen (a dos píxels)
   es pinten d'un sol cop, i dues tirades de text en són una. Si una app dibuixa més de vuit regions
-  diferents abans d'un `present`, totes es tornen una de sola pintada amb `gc16`, que és la qualitat que
-  no pot quedar malament, i aquesta regió inclou la darrera que s'ha dibuixat; `ui.damage()` ho diu abans
-  de pagar-ho.
+  diferents abans d'un `present`, totes es tornen una de sola, amb la qualitat més forta de les que hi
+  havia, i aquesta regió inclou la darrera que s'ha dibuixat; `ui.damage()` ho diu abans de pagar-ho.
+  **Abans era un `gc16`** (0.179.5): una pàgina de nou controls es convertia en el pintat que fa el flaix
+  sense que ningú l'hagués demanat, i ara qui decideix és el `present` com a la resta de pàgines (docs/50).
+- **Una pàgina és un sol pintat** (0.179.5): si el que ha canviat cobreix **mig vidre o més**, o són **quatre
+  caixes o més**, es pinta d'un cop —el panell pinta una caixa cada vegada i cada passada espera la tinta, o
+  sigui que quatre caixes són quatre passades per una pàgina—. Dues caixes són dues: el cercle que marxa d'un
+  control i el que arriba a un altre no es toquen, i ajuntar-les pintaria l'aire del mig.
 - **I el que s'ajunta no pot pintar l'aire del mig** (0.177.4). La unió de dues regions que no es toquen
   és un rectangle que també cobreix el que ningú no ha canviat, i això és tinta al lloc equivocat en un
   panell que fa un flaix quan s'hi escriu. Una cel·la de la primera fila d'una graella i la de la fila de
@@ -1215,9 +1222,9 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
   el comptador una vista per sota del que hi ha al vidre (docs/30).
 ```lua
 local view = ui.caps()
-ui.clear(15, 'gc16')                    -- la pàgina, i que quedi neta
-ui.rect(0, 200, view.width, 40, 0, 'du')   -- un avís que es mou sovint, i ràpid
-ui.present()                            -- dues regions: dos pintats, un per qualitat
+ui.clear(15)                              -- la pàgina; el sistema ja l'ha deixada blanca al començar
+ui.rect(0, 200, view.width, 40, 0, 'du')  -- un avís que es mou sovint, i ràpid: la qualitat és de l'app
+ui.present()                              -- el que no en porta, la que demana la tinta de la pàgina
 while not ui.idle() do sys.delay(100):await() end
 
 function on_resize(width, height)
@@ -1434,7 +1441,7 @@ d'aparició: **un canvas fet després queda al davant** del que ja hi era.
   ni dins d'un dels seus fills, i la vista de l'app no és filla de ningú.
 - **Les primitives són les mateixes a la vista i a un canvas**, i cada una deixa **una sola regió de
   dany** —la caixa que ocupa— i no una per píxel: una línia diagonal no ha de semblar dos-cents dibuixos,
-  o la llista de vuit s'omple i tot el canvas es pinta d'un sol cop amb `gc16` (docs/50). Una línia recta
+  o la llista de vuit s'omple i tot el canvas es pinta d'un sol cop (docs/50). Una línia recta
   horitzontal o vertical es pinta com un rectangle i és exacta; la resta és Bresenham. El cercle i el disc
   són l'algorisme del punt mitjà, sense coma flotant.
 - **El color és el nivell**, de 0 (negre) a 15 (blanc), perquè és el que té el vidre: no hi ha color de
@@ -1494,8 +1501,9 @@ fons que pinta, i no gasta cap byte de píxel. Es posa amb `place`, s'afegeix a 
   `ui.resize`), l'app rep `on_resize` i torna a fer els labels, que es dibuixen una vegada.
 - **El fons és opac a posta**: el control sense vista escriu al canvas que el conté i el seu marc no té
   transparència; un label sobre un panell fosc vol `label.background` del nivell del panell (docs/90).
-- **Es pinta amb `gc16`**, la qualitat que no deixa el fantasma del mot anterior: un label és una pàgina de
-  text en miniatura, i canviar-ne el text ha de deixar el text nou net (docs/50, docs/90).
+- **Es pinta amb `du`** —és un control i no fa cap promesa sobre el panell— i **la qualitat de la pàgina la
+  tria el sistema** al `present` (0.179.5): un label és una pàgina de text en miniatura i el que ha de quedar
+  net és el que el sistema sap del vidre, no una suposició del control (docs/50, docs/90).
 - `label.on_draw` és una funció del sistema; una app que la canviï deixa de tenir un label i té un control
   normal.
 
@@ -1563,9 +1571,10 @@ l'app només diu què vol dir el clic (docs/30, docs/90).
   del relleu fan de pausa** i aleshores ve una **banda de set píxels** —la vora i quatre— del color que no es
   pot confondre, i el cos torna a dins. Un anell que només dobla la vora es llegeix com una vora més gruixuda
   i no com «aquest és el que té el focus»; la pausa és el que diu que hi ha dos elements i que el de dins és
-  el focus. I com que el canvi de focus és un canvi d'estat de la pàgina, l'app l'ha de **rentar amb `gc16`**
-  al torn següent: un `du` hi deixa l'anell anterior a un quart de la tinta, que és un anell gris que ningú no
-  ha demanat (docs/50, docs/90).
+  el focus. I com que el canvi de focus és un canvi d'estat de la pàgina, el que hi havia s'ha de **rentar**:
+  un `du` hi deixa l'anell anterior a un quart de la tinta, que és un anell gris que ningú no ha demanat. Ho fa
+  el sistema tot sol amb el present del focus (`gl16`, que neteja i no fa cap flaix) i una app que presenti
+  sense dir la qualitat rep el mateix (docs/50, docs/90).
 
 - **La pàgina dels botons ja no porta una taula de bits** (3/11, 0.56.2): una pàgina de botons carrega
   **Lato Black** d'un `.ttf` d'outlines retallat a l'ascii imprimible (`pyftsubset --unicodes=U+0020-007E`,
@@ -1686,8 +1695,9 @@ docs/90).
 - **La fila és opaca, com el marc d'un botó**: les paraules es componen després del checkbox i queden tapades
   pel fons nou, o sigui que un checkbox que es redibuixa **invalida els seus fills** i el present els torna a
   pintar (docs/30, docs/90).
-- **Es pinta amb `du`**, i el canvi el renta l'app amb un `gc16` al present següent: una X és poca tinta, però un
-  quadrat que s'ha mogut o invertit deixa el fantasma d'abans (docs/50, docs/90).
+- **Es pinta amb `du`** i el canvi el renta el present que el sistema tria (0.179.5): una X és poca tinta, però un
+  quadrat que s'ha mogut o invertit deixa el fantasma d'abans i el que el neteja és el que el sistema sap del
+  vidre (docs/50, docs/90).
 - `checkbox.on_draw` és una funció del sistema; si una app la canvia, deixa de tenir un checkbox i té un control
   normal amb el seu propi dibuix.
 
@@ -1706,14 +1716,14 @@ cb:add(words)
 cb.on_change = function(self, on)
   console.print('clock ' .. tostring(on))
 end
-ui.present('gc16')
+ui.present()
 ```
 
 Una pàgina de cinc files: **les paraules dins de cada fila**, una fila que **neix marcada**, una que el dial
 **no pot tocar** (`focusable = false`, i el recorregut del sistema la salta), una de fosca amb la X i la vora
 blanques, i una línia que compta quantes estan enceses. Cada canvi diu a la
-consola el nom i l'estat nou, i la pàgina es renta amb `gc16` perquè l'anell que s'ha mogut no hi deixi el
-rastre.
+consola el nom i l'estat nou, i la pàgina es renta perquè l'anell que s'ha mogut no hi deixi el rastre: la
+qualitat la tria el `present` del sistema (0.179.5).
 
 ### `ui.progress`, `ui.slider` i `ui.row`: el que dibuixa el sistema (0.69.0)
 
@@ -1758,7 +1768,7 @@ row.subtitle = 'the sample files of the disk'
 row.separator = true
 row.marked = true
 row:place(20, 190)
-ui.present('gc16')
+ui.present()
 ```
 
 Una barra a mig fer, un slider que el dial mou i quatre files de llista amb la tercera marcada són els tres
@@ -1811,7 +1821,7 @@ page:add(body)
 local half = ui.panel(10, 10, 'vertical')
 half.share = 40
 page:add(half)
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.tabs` i `ui.dots`: on ets a la pàgina (0.70.0)
@@ -2255,7 +2265,7 @@ l.items = {
 }
 l.marked = 2
 l.on_page = function(self, page) console.print('page ' .. page) end
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.textbox` i el teclat del sistema (0.72.0)
@@ -2312,7 +2322,7 @@ local page = ui.panel(view.width, view.height, 'vertical')
 
 function on_resize(width, height)   -- la banda ha vingut o se n'ha anat
   page:resize(width, height)
-  ui.present('gc16')
+  ui.present()
 end
 ```
 
@@ -2393,7 +2403,7 @@ local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
 view = ui.caps()                  -- i el que la pàgina té és el que queda: 656 (0.84.0)
-ui.present('gc16')
+ui.present()
 ```
 
 Una caixa, el teclat, el cursor que parpelleja i el que diu el `on_enter` són la pàgina sencera.
@@ -2426,7 +2436,7 @@ card.cancel = 'Keep'
 card.emphasis = 1                       -- el cancel·lar és el de defecte
 card.on_accept = function(self) console.print('deleted') end
 card.on_cancel = function(self) console.print('kept') end
-ui.present('gc16')
+ui.present()
 ```
 
 Una targeta i prou és el que cal per provar el diàleg amb el dial i amb el dit: `ui.dialog` torna la porta
@@ -2493,7 +2503,7 @@ spark:place(20, 100)
 local pie = ui.pie(160, 160)
 pie.slices = { 5, 3, 2 }
 pie:place(20, 200)
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.month`: el calendari (0.75.0)
@@ -2518,7 +2528,7 @@ grid.selected = 3
 grid.today = 5
 grid.weekdays = { 'dl', 'dt', 'dc', 'dj', 'dv', 'ds', 'dg' }
 grid.on_pick = function(self, day) console.print('day ' .. day) end
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.menu`: el menú contextual (0.76.0)
@@ -2569,7 +2579,7 @@ card.on_pick = function(self, index)
   card:release()                         -- tancar-lo és de l'app
 end
 card:place(80, 200)                      -- o on era el dit quan es va aixecar
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.menu_bar`: la barra de menús (0.77.0)
@@ -2611,7 +2621,7 @@ bar.items = {
 bar.on_pick = function(self, title, entry)
   console.print('menu ' .. title .. ' entry ' .. entry .. ' (open ' .. self.open .. ')')
 end
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.textbox_multiline`: el camp de diverses línies (0.78.0)
@@ -2753,7 +2763,7 @@ local kb = ui.keyboard()
 kb.target = box
 kb:show('alpha')
 box.on_change = function(self, text) saved = text end
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.selector`: el camp que s'escull (0.79.0)
@@ -2787,9 +2797,9 @@ hour.on_open = function(self)
     hour.index = index
     hour.choosing = false
     card:release()
-    ui.present('gc16')
+    ui.present()
   end
-  ui.present('gc16')
+  ui.present()
 end
 ```
 
@@ -2815,9 +2825,9 @@ band.items = { { title = 'Battery', text = 'low' },
 band.on_close = function(self, item)
   table.remove(band.items, item)
   band.items = band.items
-  ui.present('gc16')
+  ui.present()
 end
-ui.present('gc16')
+ui.present()
 ```
 
 ### `ui.icon_grid`: la graella de cel·les (0.81.0)
@@ -2854,7 +2864,7 @@ grid.items = {
 }
 grid.marked = 1
 grid.on_pick = function(self, index) console.print('cell ' .. index) end
-ui.present('gc16')
+ui.present()
 ```
 
 ## El que costa, contat a la porta

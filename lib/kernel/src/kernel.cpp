@@ -316,6 +316,12 @@ void boot(hal::IPlatform& platform) {
   display::boot(platform);
   if (!splash::show(splash::kind_of(cfg::boot_splash()))) {
     log_printf(pal::kLogDebug, "SPLASH", "no boot picture: %s", splash::last_error());
+  } else {
+    // **The first page of the system washes the picture away** (0.179.5): the splash paints the panel whole and none of its
+    // ink passed through the page, so the page that covers it is owed whole and clean —which was the `gc16` every launcher
+    // asked for at the top of its first page, said once here where the system is the one who knows what is on the glass—
+    // (docs/30, docs/50).
+    ui::owe_the_page();
   }
 
   // The alarms that survived the power cut come back before anything else can

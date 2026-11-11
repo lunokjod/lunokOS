@@ -6643,6 +6643,84 @@ void test_a_present_with_a_mode_paints_with_that_mode(void) {
   kernel::boot(hal::platform());
 }
 
+// **A present with no quality of its own goes up with the one the ink asks for** (0.179.5, the owner: *«Perqué totes
+// refresquen amb tanta qualitat quan no fa falta? usa sempre el mode necessari adequat per els canvis del buffer que es volen
+// pujar a l'eink»*). A page of words and controls is one paint of sixteen levels and no flash —`gl16`— and not the four
+// blinks of `gc16` that every app of this tree was asking for; a box that changed afterwards is that box and no more. The
+// page the glass had before is the system's business: it washes it between two apps, so a page does not have to burn away a
+// paper that is already white (docs/30, docs/50).
+void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "quiet",
+                           "{\"title\":\"Quiet\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local head = ui.label(300, 40)\n"
+                           "head.text = 'the first line'\n"
+                           "head.scale = 4\n"
+                           "head:place(20, 20)\n"
+                           "for i = 1, 6 do\n"
+                           "  local b = ui.button(300, 50)\n"
+                           "  b.title = 'a door ' .. i\n"
+                           "  b:place(20, 80 + (i - 1) * 60)\n"
+                           "end\n"
+                           "ui.present()\n"
+                           "console.print('page up')\n"
+                           "head.text = 'the line that changed'\n"
+                           "ui.present()\n"
+                           "console.print('box up')\n"
+                           "sys.delay(5000):await()\n"));
+
+  pump_captured(200, g_out, sizeof(g_out), "run quiet");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "page up"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box up"), g_out);
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // **The page is one paint and it is sixteen levels without a flash**: the head and the six doors are seven boxes and one
+  // page, a page is one paint, and the quality is the one the ink deserves (docs/30, docs/50).
+  const emu::MemorySurface::Paint* page = nullptr;
+  for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
+    if (paint != nullptr && paint->w == 300 && paint->h > 300) page = paint;
+  }
+  TEST_ASSERT_NOT_NULL_MESSAGE(page, "the page was painted as one box of 300 wide");
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGl16, page->mode);
+  TEST_ASSERT_EQUAL_UINT16(kernel::ui::canvas().y + 20, page->y);
+
+  // **And the box that changed is one box**, a line of words with the same quality and not the page again (docs/50).
+  const emu::MemorySurface::Paint* box = nullptr;
+  for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
+    if (paint != nullptr && paint->w == 300 && paint->h <= 60) {
+      box = paint;
+      break;
+    }
+  }
+  TEST_ASSERT_NOT_NULL_MESSAGE(box, "the line that changed was painted, and only it");
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGl16, box->mode);
+  TEST_ASSERT_EQUAL_UINT16(kernel::ui::canvas().y + 20, box->y);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/quiet/app.lua");
+  storage->remove("/apps/quiet/manifest.json");
+  storage->remove("/apps/quiet");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // An app that declared on_button gets the press there instead, called between
 // turns like on_alarm (docs/30).
 void test_a_press_reaches_the_app_as_a_hook(void) {
@@ -12534,6 +12612,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
+  RUN_TEST(test_a_page_goes_up_with_the_quality_its_ink_asks_for);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
   RUN_TEST(test_the_document_of_the_editor_scrolls_with_a_finger);

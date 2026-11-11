@@ -839,7 +839,9 @@ quan `ui.present` arriba, pinta **una regió per mode**. Tres números que això
 - **una pàgina d'un sol mode és un sol pintat**, i un canvi petit (el dígit d'un rellotge) és una regió
   de 20 × 30 píxels i no la pàgina sencera;
 - **una app que dibuixa més de vuit regions** abans de presentar-les les veu convertir-se en una de sola
-  amb `gc16` (la qualitat que no pot quedar malament) i ho pot saber amb `ui.damage()` abans de pagar-ho.
+  amb la qualitat més forta de les que hi havia, i ho pot saber amb `ui.damage()` abans de pagar-ho. **El
+  `gc16` que hi havia** (fins a la 0.179.4) feia que tota pàgina de més de vuit controls es convertís en el
+  pintat que fa el flaix sense que ningú l'hagués demanat; ara qui decideix és el `present` (vegeu a sota).
   **I aquesta regió gran inclou la peça que acaba d'arribar**: la primera versió suposava que la peça
   nova ja queia dins del que hi havia i la llençava quan no era veritat, o sigui que vuit peces a dalt i
   una a baix es pintaven com una regió de 430 files i la de baix es quedava per pintar (trobat per la
@@ -865,6 +867,42 @@ la imatge, i aquest controlador no la camina. Des d'aquesta versió **la càrreg
 0** del vidre —els píxels entre la vora i el canvi es paguen amb el canvi, i els de la barra són a la imatge del driver,
 o sigui que repintar-los és repintar la veritat—, i **un pintat que neteja neteja tot el vidre** quan ja cobria mig
 panell o més (la splash i la primera pàgina d'una app); els que només mouen un número demanen `du` i no canvien.
+
+#### La qualitat d'un `present`: la del que ha canviat (0.179.5)
+
+L'amo, amb el codi al davant: *«Comptant que totes les apps comencen amb un panell net i un buffer net. Perqué
+totes refresquen amb tanta qualitat quan no fa falta? usa sempre el mode necessari adequat per els canvis del buffer
+que es volen pujar a l'eink»*. Tenia raó i el comptador era el pitjor: **cada app demanava `gc16` a cada pàgina**, i
+`gc16` és la passada que fa quatre flaixos, sobre un vidre que el sistema ja havia rentat abans de deixar-li el
+paper. El que fa ara el sistema:
+
+- **una pàgina és un sol pintat** (0.179.5): si el que ha canviat cobreix mig vidre o més, o són quatre caixes o
+  més, es pinta d'un cop —el panell pinta una caixa cada vegada i cada passada espera la seua tinta, o sigui que
+  quatre caixes són quatre passades per una pàgina—; **dues caixes són dues**, perquè el cercle que marxa i el que
+  arriba no es toquen i ajuntar-los pintaria l'aire del mig (0.177.4). Això també val per al present del focus
+  (`present_each`), que abans podia pintar la pàgina sencera en cinc passades quan una app demanava `ui.focus()`
+  abans del primer `present`;
+- **la qualitat és la que demana la tinta**: `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ha rebut
+  tantes passades que li queda fantasma. El pressupost de fantasma és **el de passades i no el de caixes**: es
+  compten les passades que el vidre ha rebut des de l'última rentada (`kManyPaints`, 32) i no els rectangles amb
+  què s'ha dibuixat la pàgina, perquè quaranta paraules són una pàgina i quaranta passades són quaranta taques;
+- **una qualitat que l'app va nomenar es respecta**: `ui.rect(…, 'gc16')` és l'app dient què necessita la seua
+  tinta, i una regió que no en porta és d'un control que es dibuixa amb `du`, que és el barat i no una promesa
+  sobre el panell (`Damage::named`). El `present` amb `mode` no canvia: el que diu l'app és el que va al vidre;
+- **el rentat entre dues apps compta passades** (0.169.2 i 0.179.5): `cleaner_for` mira els nivells de la pàgina i
+  el pressupost de passades, i el que abans comptava caixes feia que tota pàgina de text arribés a les trenta-dues
+  i s'emportés un `gc16` entre app i app. Amb el comptador de passades, una pàgina de text es renta amb `a2` i una
+  de grisos amb `gl16`;
+- **la imatge de l'arrencada és l'excepció que el sistema diu** (0.179.5): la splash pinta el vidre sencer i la
+  seua tinta no ha passat per la pàgina, o sigui que la primera pàgina que la tapa es deu **sencera i neta**
+  (`ui::owe_the_page()`, el mateix camí que quan una app torna una vista enrere). Abans això ho deia el `gc16`
+  que cada llançador escrivia a la primera línia de la seua pàgina; ara ho diu el sistema, que és qui sap què hi
+  ha al vidre.
+
+**Mesurat a l'emulador, canviant de la pantalla d'inici a una app**: el que era un `gc16` de 540×912 (la rentada)
+i un `gc16` de la pàgina és ara un `a2` de 540×912 i un `gl16` de la pàgina; l'arrencada del llançador amb deu
+apps passa de vint `gc16` de dues caixes a vint `gl16` de dues caixes, i la pàgina d'`about` —cinc caixes— de cinc
+pintats a un.
 
 I una cosa que la placa mana i que el codi no pot saltar-se: **el controlador pinta d'una en una**. Cada
 `DPY_AREA` arrenca un motor de LUT, i el driver del fabricant espera (`CheckAFSR`) que l'anterior

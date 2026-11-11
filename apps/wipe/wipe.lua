@@ -307,7 +307,11 @@ local function after_card()
       break
     end
   end
-  ui.present('gc16')
+  -- **The quality of every change of this page is the system's** (0.179.5): the eraser moved words, a bar and three doors
+  -- and each of those is a box of the page it is on, not a photograph —and a card that has just gone leaves a hole the
+  -- kernel has already filled—, so the pass that flashes is asked for by whoever knows the ink, which is the kernel
+  -- (docs/30, docs/50). It was a `gc16` in eight places of this file, one of them per state of one bar.
+  ui.present()
 end
 
 local function work(kind)
@@ -316,7 +320,7 @@ local function work(kind)
   for _, one in pairs(door) do one.button.disabled = true end
   say('Emptying the ' .. kDoors[kind].what .. '...', 8)
   show_bar(-1)
-  ui.present('gc16')
+  ui.present()
   -- **The turn that paints the bar goes first**: `fs.format` holds the kernel while it walks what it empties, so the
   -- page says what it is doing and then does it (docs/30).
   sys.delay(30):await()
@@ -374,14 +378,14 @@ local function work(kind)
     -- Read the action, close the card, and then run it: the board going down under a card leaves the card on the glass
     -- of a board that is not there any more (docs/30).
     close_card()
-    ui.present('gc16')
+    ui.present()
     sys.reboot(words.reason)
   end
   card.on_cancel = function(self)
     close_card()
     after_card()
   end
-  ui.present('gc16')
+  ui.present()
 end
 
 -- **The warning**: the card asks, the accept door is the one the person has to walk to, and the two doors answer with a
@@ -420,7 +424,7 @@ ask = function(kind)
   card.on_accept = function(self)
     close_card()
     wanted = kind
-    ui.present('gc16')
+    ui.present()
   end
   card.on_cancel = function(self)
     close_card()
@@ -428,7 +432,7 @@ ask = function(kind)
     after_card()
   end
   say('')
-  ui.present('gc16')
+  ui.present()
 end
 
 -- ------------------------------------------------------------------ the app
@@ -436,7 +440,7 @@ end
 layout()
 dress_doors()
 say('Nothing has been touched yet.', 8)
-ui.present('gc16')
+ui.present()
 
 -- **The places the page can be pressed, said out loud when the app is asked to**: `run wipe boxes` prints the box of each
 -- door and which of them can be pressed on this board, so a test presses a door without knowing the layout (docs/30,
@@ -457,7 +461,7 @@ function on_resize(width, height)
   if width == nil then return end
   layout()
   dress_doors()
-  ui.present('gc16')
+  ui.present()
 end
 
 -- **Nothing of this page is saved**: the two doors write the system and not a setting of the app, so there is no

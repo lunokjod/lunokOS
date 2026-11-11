@@ -820,8 +820,11 @@ bool command_splash(const char* rest) {
   out((kind != splash::kNone) ? splash::word(kind) : words[0]);
   out("\r\n");
   // **The strip of the system comes back over the picture** (0.164.3): the moment was asked for by a person, the page
-  // is still the app's and the glass under the bar is not the bar any more (docs/30, docs/50).
+  // is still the app's and the glass under the bar is not the bar any more (docs/30, docs/50). **And the page under it is
+  // owed whole** (0.179.5): the picture is ink the page did not draw, so the app's next present is the whole view with the
+  // pass that washes it —the same rule the boot follows— (docs/50).
   bar::refresh();
+  ui::owe_the_page();
   return true;
 }
 
@@ -1425,6 +1428,10 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
         // refresh is asked **here** and not inside the splash, because a moment that goes down (poweroff, reboot) must
         // not paint a strip on the picture (docs/30, docs/50).
         bar::refresh();
+        // **And the page is owed whole** (0.179.5): the picture is on the glass and the page of the app that starts did not
+        // put it there, so its first present washes it —the launcher's `gc16` of the whole first page is this rule said by
+        // an app that could not know it— (docs/50).
+        ui::owe_the_page();
       }
     }
   }
