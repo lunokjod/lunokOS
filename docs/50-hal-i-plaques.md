@@ -897,15 +897,17 @@ la imatge, i aquest controlador no la camina. Des d'aquesta versió **la càrreg
 o sigui que repintar-los és repintar la veritat—, i **un pintat que neteja neteja tot el vidre** quan ja cobria mig
 panell o més (la splash i la primera pàgina d'una app); els que només mouen un número demanen `du` i no canvien.
 
-**I aquell mesurament no era net** (0.179.12): la mateixa arrencada tenia un segon error, trobat l'endemà —el
+**I aquell mesurament no era net** (0.179.16): la mateixa arrencada tenia un segon error, trobat l'endemà —el
 panell no es tornava a seleccionar després de la splash (0.118.9)—, i **totes** les pintures posteriors a la
-primera fallaven fos quin fos el seu rectangle. O sigui que la regla de la columna 0 queda com a defecte i
-l'altra banda és una pregunta que es pot fer al vidre des del prompt: **`panel [edge|box]`** diu on comença un
-pintat parcial i el canvia. Amb `box` l'àrea que rep el controlador és **el requadre del canvi i no la
-franja**: al log d'una pàgina de cel·les del Paper, la cel·la de baix passa de `paint 0,274 652x242` a
-`paint 24,274 108x242` — sis vegades menys píxels i cap columna de pàgina—. La mesura que decideix si el
-controlador accepta el requadre és a la placa: amb `panel box`, o les cel·les es pinten on toca, o no es
-pinten i es torna amb `panel edge` (docs/30).
+primera fallaven fos quin fos el seu rectangle. **La prova és l'altre projecte d'aquesta placa**: PaperOS porta
+setmanes pintant caixes arbitràries en aquest mateix panell amb `LD_IMG_AREA` i `UpdateArea` amb el rectangle de
+debò i res més (`src/plat/m5epd_hal.cpp`), i l'única precaució que hi posa és **arrodonir a quatre** —la x, i la
+y quan el marc és el del panell, que és el nostre cas perquè aquest driver gira en software—. Des d'aquesta versió
+**l'àrea és el requadre del canvi i comença on és el canvi**. No és un detall: la pàgina va girada 90°, o sigui que
+l'x del vidre és la y de la pàgina, i forçar la vora de l'esquerra volia dir «des de dalt de la pàgina fins al
+canvi»: una cel·la del llançador costava una **columna de la pàgina** —168 px a la primera fila i 652 a l'última,
+contra els 107 que té la cel·la (mesurat a la placa l'11/11)—. `panel [edge|box]` diu què fa aquest vidre i ho
+canvia, i `edge` és la tornada enrere sense flashejar si un pintat no aparegués mai (docs/30).
 
 #### La qualitat d'un `present`: la del que ha canviat (0.179.5)
 

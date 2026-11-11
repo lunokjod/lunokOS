@@ -1,0 +1,9 @@
+{
+  "title": "2048",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "game.lua",
+  "boards": ["esp32"],
+  "icon": "res/icon.png",
+  "description": "The tiles: swipe to move, and equal tiles merge into one of double the value.\n2048 is the goal and no move left is the end. The game is kept when the app is closed."
+}

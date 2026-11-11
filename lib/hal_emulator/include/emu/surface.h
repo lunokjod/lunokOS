@@ -106,8 +106,8 @@ class MemorySurface : public hal::ISurface {
   uint16_t height_;
   uint16_t stride_;
   uint16_t rotation_ = 0;
-  // Whether a partial paint asks for the box of the change, which on this glass is always a yes (0.179.12).
-  bool from_box_ = false;
+  // Whether a partial paint asks for the box of the change, which on this glass is always a yes (0.179.16).
+  bool from_box_ = true;
   uint8_t* bits_ = nullptr;
   // **The two buffers of the ink**: what the glass shows, and how dirty each pixel is, in four bits
   // each. They exist only when the model is on, because a test wants a paint that is instant and exact

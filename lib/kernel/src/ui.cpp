@@ -7079,6 +7079,14 @@ hal::UpdateMode quality_of_the_page() {
   // Until then the page goes up in `gl16`, which is its sixteen levels and **no flash**: a page with a picture in it is the
   // only one that has a reason to ask for more, and that reason is the app's —the cover of a book says `gc16` because it
   // knows it is a plate— (docs/30, docs/50).
+  //
+  // **And a page that has shown nothing but black and white owes no full wash** (0.179.15): `gc16` is the one that takes
+  // the ghost of the greys away and it flashes the glass four times, and a page of one bit has no such ghost —the text of
+  // the system is rasterised one bit a pixel, so a cell of a launcher is 0 and 15 and nothing between (docs/30)—. It was
+  // being sent there all the same after thirty-two boxes, and the grid of the launcher spends ten of them a visit: every
+  // cell of the third visit flashed white, black, white, black over a picture nobody had painted before.
+  const uint16_t text_only = static_cast<uint16_t>((1u << 0) | (1u << 15));
+  if (g_levels != 0 && (g_levels & static_cast<uint16_t>(~text_only)) == 0) return hal::UpdateMode::kGl16;
   return (g_updates >= kManyPaints) ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGl16;
 }
 

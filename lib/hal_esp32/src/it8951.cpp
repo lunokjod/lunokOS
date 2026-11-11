@@ -673,25 +673,33 @@ bool It8951::flush(UpdateMode mode) {
   // 3 wide goes as 4..8 (docs/50).
   nx0 = static_cast<uint16_t>(nx0 & ~3u);
   nx1 = static_cast<uint16_t>((nx1 + 3) & ~3u);
+  // **And the height in groups of four too, which is what the maker's own driver rounds**: the paper project
+  // (`src/plat/m5epd_hal.cpp`, `ownPushRegion`) rounds the y when the frame it is given is the panel's own —which is
+  // this one, because this driver turns in software and the controller is never told about it (docs/50)— and it says
+  // why in one line: *not doing it moves the image up to three pixels and leaves the rectangle of the load out of
+  // line with the one of the pass*. The load and the pass take the same numbers here, so they move together; what
+  // they lose is the alignment with the memory of the controller.
+  ny0 = static_cast<uint16_t>(ny0 & ~3u);
+  ny1 = static_cast<uint16_t>((ny1 + 3) & ~3u);
   if (nx1 > native_width_) nx1 = native_width_;
   if (ny1 > native_height_) ny1 = native_height_;
   if (nx1 <= nx0 || ny1 <= ny0) {
     dirty_ = false;
     return true;
   }
-  // **The area is loaded and painted from the left edge of the glass, never from its own left column** (0.118.7). The
-  // board said it with the log of 0.118.6: the splash (`0,0 960x540`) and the bar at boot (`0,0 48x540`) go up, and
-  // every paint that starts anywhere else —the page of `images` at `48,0 912x540`, its four controls at `56,12`,
-  // `484,12`, `616,12` and `876,12`, the clock of the bar at `4,104`— is accepted by the controller and shows **nothing**:
-  // the image it loads is not the one it shows, and what comes back to the glass is the page before. A rectangle that
-  // starts at zero covers the whole row of the image it belongs to, so the load walks the memory in the order it is
-  // written; this costs the pixels between the edge and the change and nothing else (docs/50, docs/92 §33).
+  // **The area is the box of the change, and it starts where the change is** (0.179.16). The rule that forced it to
+  // the left edge of the glass came from the log of 0.118.6 —the splash and the bar went up and every paint that
+  // started anywhere else showed nothing— and that night was not a clean measurement: the same boot had a second
+  // fault, found a day later, in which the panel was never selected again after the splash (0.118.9), so every paint
+  // after the first one failed whatever its rectangle was. **The proof is the other project of this board**: PaperOS
+  // has been painting arbitrary boxes on this same panel for weeks with `LD_IMG_AREA` and `UpdateArea` carrying the
+  // real rectangle and nothing more (`src/plat/m5epd_hal.cpp`), and the only precaution it takes is rounding to four.
+  // Forcing the edge is not free: the page is turned 90 degrees, so the glass's x is the page's y and the forced edge
+  // is the top of the page —a partial paint of one cell of a launcher cost a **column of the page**, from 168 px for
+  // the first row to 652 for the last, against the 107 the cell really has (measured on the board, 11/11).
   //
-  // **And that night was not a clean measurement** (0.179.12): the same boot had a second fault, found a day later —the
-  // panel was never selected again after the splash (0.118.9)—, and every paint after the first one failed whatever
-  // its rectangle was. So the rule stays as the default and the other one is a question anyone can ask the glass with
-  // `panel box`: with it the area is the box of the change, the load takes the columns it needs and the page is left
-  // alone (docs/30, docs/50).
+  // **`panel edge` brings the old rule back** without a flash, and it stays until the board says the box is what it
+  // wants; a firmware that guesses wrong about its own controller is a glass that shows nothing (docs/30, docs/50).
   if (!from_box_) nx0 = 0;
   // And **a paint that cleans cleans the whole glass**: a `gc16` of a region leaves the ghost of everything outside it,
   // which is exactly what a change of page is, and it costs one whole page of ink for the pages that ask to be cleaned

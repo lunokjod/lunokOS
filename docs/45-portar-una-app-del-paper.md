@@ -225,7 +225,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **cinc** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **sis** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -234,6 +234,7 @@ Portades i viatjant avui, **cinc** (`home_eink` va a part, a sota):
 | `Editor` | `editor` | 0.1.0 |
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
+| `2048` | `2048` | 0.1.0 |
 
 I a part, **dues que no són ports**:
 
@@ -251,9 +252,22 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **dinou** que falten, i que són la cua d'aquesta feina: `2048`, `Agenda`, `Banner`, `Battery`, `Clock`,
+Les **divuit** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`, `Clock`,
 `FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
+
+**El que va ensenyar el `2048`** (la primera app portada que és un joc i no una pàgina de dades):
+
+- **El gest de fregar no existeix aquí, i el joc no en té la culpa.** El paper donava `swipe_left`,
+  `swipe_right`, `swipe_up` i `swipe_down`; aquest sistema dóna **un `drag` amb `dx` i `dy`** i la
+  direcció és de l'app. El joc la llegeix amb un llindar de **30 px** —un toc en mou com a molt vint— i
+  l'eix que ha caminat més mana, que és la mateixa regla que fa que un dit tort no mogui res (docs/30).
+- **La qualitat no es demana, es pinta.** `paperos.damage(x, y, w, h, "gld16")` és aquí un argument del
+  dibuix (`ui.rect(..., "gld16")`), o sigui que el disseny del refresc de l'amo —una rajola que canvia
+  viatja sola i a setze grisos, els dígits i el botó en dues tintes, el peu només quan el seu missatge és
+  un altre— s'escriu igual i amb una crida menys.
+- **La seva partida guardada va a `/data/2048/game.txt`** (`fs.data`), amb el mateix format de setze
+  exponents i el marcador en una línia, i la prova la llegeix tancant i tornant a obrir l'app.
 
 La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app

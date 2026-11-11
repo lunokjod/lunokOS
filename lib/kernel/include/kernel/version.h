@@ -5598,6 +5598,49 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.16 (11/11): **a partial paint asks for the box of the change, and a cell of the launcher does not flash**.
+//   - **The rectangle**: the driver forced every partial paint to start at the left edge of the glass, a rule read off
+//     the log of 0.118.6 —the splash and the bar went up and every other paint showed nothing— on a night that had a
+//     second fault in it (the panel was never selected again after the splash, 0.118.9), so every paint after the first
+//     one failed whatever its rectangle was. **The paper project is the proof**: it has been painting arbitrary boxes
+//     on this same controller for weeks with `LD_IMG_AREA` and `UpdateArea` carrying the real rectangle, and its only
+//     precaution is rounding to four (`src/plat/m5epd_hal.cpp`). The area is the box of the change now, with both axes
+//     rounded to four the way that driver rounds them. It matters because the page is turned ninety degrees: the forced
+//     edge was the **top of the page**, so one cell of a launcher cost a **column** —168 px for the first row and 652
+//     for the last, against the 107 the cell has (measured on the board, 11/11)—. `panel [edge|box]` says what the
+//     glass does and changes it, and `edge` is the way back without a flash;
+//   - **a cell of the launcher does not flash**: on the board the grid blinked once per cell —`paint 24,12 242x107 mode
+//     2 gc16`, ten a visit— and the question was the right one: **is the strongest wash really needed for white and
+//     black text?** It is not. `lib/ttf` fills a glyph with the winding rule and writes
+//     `rows[row * row_bytes + (x >> 3)] |= 0x80u >> (x & 7)`: **the text of the system is one bit a pixel**, level 0 and
+//     level 15 and nothing between, so there are no greys for a wash to land nor to clean. `quality_of_the_page()` sent
+//     a page of one bit to `gc16` all the same —four blinks— once the budget of 32 painted boxes was spent, and the grid
+//     spends ten of those a visit. A page whose ink is only levels 0 and 15 answers `gl16` now, and the launcher paints
+//     the picture and the letter of a cell in `gld16`: **a cell of the grid does not blink at all**;
+//   - the prices, for the record: `du` is 120 ms and leaves 5 of 16 of what was there, `gl16` and `gc16` are 450 ms
+//     with one blink and with four, and `gld16` is 450 ms with none (docs/50, docs/85). One case measures it:
+//     `test_a_page_of_one_bit_is_never_sent_to_the_full_wash` paints a line forty times and reads the quality of every
+//     paint —thirty-nine of them used to be `gc16`—.
+//
+// **And the first game of the paper project is ported**: `2048` (app 0.1.0), with its board, its swipe, its two lines
+// and its `New` button that asks «Sure?» before it throws a game away, the part game kept in
+// `/data/2048/game.txt` and its icon from the master of the other project. Three things of it are this system's and not
+// that one's, and they are the whole of what the port taught: **the swipe is the `drag` gesture** —`dx` and `dy`, thirty
+// pixels of threshold— because `swipe_left` and its three brothers are not gestures here; **the quality is an argument
+// of the drawing call** and not a `damage()` of its own; and **the button and the two lines are controls of the system**
+// —`ui.button` with `focusable = false` and two `ui.label`, which are opaque and take the old number away with their own
+// box—, while the board of sixteen cells is painted by hand, a box at a time, and **a cell that empties is paper first
+// and a frame after**: the paper's `on_draw` clears the whole view every time it draws and this page does not, so the
+// paper of a box is the app's job, and without it an emptied cell kept its tile inside the frame and the next tile that
+// landed there found it again (found on the board, 11/11).
+//
+// **And the Paper carries every app and no longer a list of them**: `[env:m5-paper]` had `custom_apps` written by hand
+// —eleven names, one per app that had arrived— and the twelve now in `apps/` did not fit in a list that nobody
+// updated: the ported game stayed out of the image and the launcher of the board did not have it. It is the second
+// time in a day that that list cost a disk (0.178.7 left it empty and `run home_eink` answered `no such app`), so the
+// list is gone and the filter that `docs/70` already documents is the rule: `custom_apps_in_disk = yes` carries every
+// folder whose manifest names this board or its family, and an app that names another board says why at build time.
+
 // 0.179.15 (11/11): **a splash is the plane of the glass and not a picture**. A `boot-*.bmp` of 540 by 960 at eight
 // bits is **519 478 B** and the panel has four, so the old path read the whole file, converted 518 400 pixels one at a
 // time —the 601 luminance and the threshold of a four-by-four ordered dither each—, wrote a second block of 246 240 B
@@ -6255,7 +6298,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.15";
+static const char kVersion[] = "0.179.16";
 
 }  // namespace kernel
 

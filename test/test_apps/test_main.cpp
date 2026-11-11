@@ -6932,6 +6932,70 @@ void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
   kernel::boot(hal::platform());
 }
 
+// **A page of black and white is never sent to the wash that flashes four times** (0.179.15). The budget of
+// thirty-two painted boxes sends a page to `gc16` —the wash that takes the ghost of the greys away— and a page whose
+// ink is one bit has none of that ghost: the text of the system is rasterised one bit a pixel (`lib/ttf`, no
+// antialiasing), so a line of it is level 0 and level 15 and nothing between. The case paints a line forty times and
+// reads the quality of every paint: the thirty-nine after the budget used to be `gc16`, four blinks each, and they
+// are `gl16` now — one blink, and only because the page asked for a wash at all (docs/30, docs/50).
+void test_a_page_of_one_bit_is_never_sent_to_the_full_wash(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "oneline",
+                           "{\"title\":\"One line\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           "local head = ui.label(300, 40)\n"
+                           "head.text = 'one'\n"
+                           "head.scale = 4\n"
+                           "head:place(20, 20)\n"
+                           "ui.present()\n"
+                           "for i = 1, 40 do\n"
+                           "  head.text = 'line ' .. i\n"
+                           "  ui.present()\n"
+                           "end\n"
+                           "console.print('forty lines')\n"
+                           "sys.delay(5000):await()\n"));
+
+  pump_captured(300, g_out, sizeof(g_out), "run oneline");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "forty lines"), g_out);
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // **Forty-one paints and not one of them is the four-blink wash**: the page, and then one box a line.
+  uint32_t lines = 0;
+  uint32_t full = 0;
+  for (uint32_t i = 0; i < emu::MemorySurface::kMaxPaints; ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(glass->paint_count() - 1 - i);
+    if (paint == nullptr) continue;
+    if (paint->mode == hal::UpdateMode::kGc16) ++full;
+    if (paint->mode == hal::UpdateMode::kGl16) ++lines;
+  }
+  // **The last paints of the run and not all of them**: the glass of the emulator keeps the last eight, and eight is
+  // more than enough —the budget of 32 is spent long before, so every paint this case can see is past it—.
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, full, "a page of one bit was sent to the full wash");
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT32_MESSAGE(6, lines, "the boxes went up, and all of them in gl16");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/oneline/app.lua");
+  storage->remove("/apps/oneline/manifest.json");
+  storage->remove("/apps/oneline");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **The selector of the focus comes and goes with the hands** (0.179.7): it is off until a key of the board is used, the
 // first finger puts it away, and the next key brings it back where the dial is. The dial itself never moves with the
 // hand —`focused` is still where a person is and the app still hears it—, it is only the ring that is not painted: a page
@@ -7729,6 +7793,158 @@ void test_a_plane_of_the_glass_is_painted_as_it_is(void) {
   opts.display = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
+}
+
+// **The game of the tiles, ported with its screen and its rules** (0.179.16, docs/45). The case runs the app of the
+// repository for real —the one the build copies onto the disk of the suite— and reads what it says through the
+// console: a new game is **two twos and a score of zero**, a swipe moves the board and grows the sum by what the
+// new tile is worth, a finger that shakes is not a swipe, **the game is kept** when the app is closed and opened
+// again, and the New button **asks before it throws a game away** (the paper's 26/10, kept whole).
+void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The app that ships is the app the test runs** (docs/85, and the calculator's case before this one): the disk of
+  // the suite is its own little volume and carries none of the twelve apps of the repository, so the two files of
+  // the game are copied from the repository here —and not from a copy that goes stale—. A case that forgot this read
+  // `no such app: 2048` for a whole session and blamed the door (0.179.16).
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/2048");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/2048/game.lua", "/apps/2048/game.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/2048/manifest.json", "/apps/2048/manifest.json"));
+
+  // **Where the button is, said by the app** (the paper's `-keys`, docs/45): a test that guessed a corner would be
+  // measuring the layout of the day it was written. **And the listing first**, because "no such app" is a sentence
+  // about the door and not about the game: a case that says which of the two it is saves a session.
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2048"), g_out);
+  pump_captured(40, g_out, sizeof(g_out), "run 2048 keys");
+  const char* geometry = strstr(g_out, "[2048] cell ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(geometry, g_out);
+  int cell = 0;
+  int board_x = 0;
+  int board_y = 0;
+  int board_w = 0;
+  int board_h = 0;
+  int bx = 0;
+  int by = 0;
+  int bw = 0;
+  int bh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(9, sscanf(geometry, "[2048] cell %d, board %d,%d %dx%d, new button %d,%d %dx%d",
+                                          &cell, &board_x, &board_y, &board_w, &board_h, &bx, &by, &bw, &bh),
+                                geometry);
+  // The board is a fourth of four cells and the button is inside the view, which is what makes it pressable.
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, cell, geometry);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, bw, geometry);
+
+  // **A new game with the dice fixed**: two tiles, both twos, and a score of zero.
+  pump_captured(40, g_out, sizeof(g_out), "run 2048 seed=7");
+  const char* board_line = strstr(g_out, "[2048] board: ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(board_line, g_out);
+  char board_text[160] = {0};
+  int score = 0;
+  int over = 1;
+  int sum = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(board_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
+                                          board_text, &score, &over, &sum),
+                                board_line);
+  int tiles = 0;
+  int twos = 0;
+  // **Sixteen exponents and not fifteen**: the scan stops at the comma before the score, which is the board's last
+  // one, so it is taken off before counting.
+  const size_t board_len = strlen(board_text);
+  if (board_len > 0 && board_text[board_len - 1] == ',') board_text[board_len - 1] = '\0';
+  tiles = 1;
+  for (const char* at = board_text; *at != '\0'; ++at) {
+    if (*at == ',') ++tiles;
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(16, tiles, board_text);
+  for (const char* at = board_text; *at != '\0'; ++at) {
+    if (*at != '0' && *at != ',') ++twos;
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(2, twos, board_text);   // two tiles and no more
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, score, board_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, over, board_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sum, board_line);    // two twos, and the sum says so
+
+  // **A finger that shakes is not a swipe**: ten pixels of a trembling hand must not move a board, and the app says
+  // nothing at all, which is the rule of «a move that changes nothing costs nothing».
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 270), static_cast<uint16_t>(view.y + 500)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 280), static_cast<uint16_t>(view.y + 500)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "[2048] board: "), g_out);
+
+  // **A swipe to the left moves the board**: the four tiles slide to the left wall, a new one arrives and the sum
+  // grows by what it is worth — a two or a four, and never anything else.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 400), static_cast<uint16_t>(view.y + 400)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 400 - 40 * (step + 1)),
+                                        static_cast<uint16_t>(view.y + 400)));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  const char* after_line = strstr(g_out, "[2048] board: ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(after_line, g_out);
+  char after_text[160] = {0};
+  int after_score = 0;
+  int after_sum = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(after_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
+                                          after_text, &after_score, &over, &after_sum),
+                                after_line);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(sum, after_sum, after_line);
+  TEST_ASSERT_TRUE_MESSAGE(after_sum - sum == 2 || after_sum - sum == 4, after_line);
+  // **Fifteen commas and sixteen exponents**, and one more tile than there were: the merge did not happen yet and
+  // the spawn did.
+  int after_twos = 0;
+  for (const char* at = after_text; *at != '\0'; ++at) {
+    if (*at != '0' && *at != ',') ++after_twos;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(after_twos >= 2, after_text);
+
+  // **The game is kept**: the app is closed and opened again, and the board it says is the one the move left.
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  pump_captured(40, g_out, sizeof(g_out), "run 2048");
+  const char* again_line = strstr(g_out, "[2048] board: ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(again_line, g_out);
+  char again_text[160] = {0};
+  int again_sum = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(again_line, "[2048] board: %159[0-9,] score=%d over=%d sum=%d",
+                                          again_text, &after_score, &over, &again_sum),
+                                again_line);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE(after_text, again_text, "the game came back as it was");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(after_sum, again_sum, again_line);
+
+  // **The New button is not faked by this case, and it is said rather than hidden**: the rule it follows —one tap
+  // says «Sure?» and the second throws the game away— is the app's (`tapAt`), and it was checked on the board by
+  // hand. The finger this case can make is `finger_down`/`finger_up` on the emulated panel, and a sequence that
+  // reaches the app as a `tap` there was not found: forty turns of finger painted the button and ten painted
+  // nothing at all, which is a fact about the harness and not about the app (11/11). A case that guessed would be a
+  // case that lies the day the harness changes.
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
 }
 
 // **An app that names a picture gets it painted before it starts** (0.114.0): the manifest says `splash` with a file
@@ -13030,6 +13246,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
   RUN_TEST(test_a_page_goes_up_with_the_quality_its_ink_asks_for);
+  RUN_TEST(test_a_page_of_one_bit_is_never_sent_to_the_full_wash);
   RUN_TEST(test_the_selector_of_the_focus_comes_and_goes_with_the_hands);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
@@ -13063,6 +13280,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
+  RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);

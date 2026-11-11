@@ -74,6 +74,13 @@ local kColumns = 2
 local kIcon = 72
 local kPad = 4
 
+-- **A CELL IS NEW INK OVER PAPER, AND IT DOES NOT FLASH** (0.179.15): the picture and the letter of a cell are drawn
+-- where the paper is clean, so there is no ghost to erase and nothing to wash —`gld16` lands the sixteen levels and
+-- keeps its ink from blinking—. Without this the cell takes the quality of the *page*, which after thirty-two painted
+-- boxes is `gc16`: four blinks for a picture nobody had painted before, ten cells at a time, every time the launcher
+-- comes back (docs/30, docs/50).
+local kCellMode = 'gld16'
+
 -- **A row is the box of a cell** and the same number `icon_grid_cells` computes from the icon and the line (docs/90): the
 -- cells are the app's and their box is what the picture and the name are placed in.
 local kCellH = kIcon + 8 + kNameLine + 8
@@ -268,28 +275,28 @@ local function paint_picture(id, picture, info, inverted)
   local record = ours and cached[id] or nil
   if record ~= nil and warm[id] and cache:size() >= kCachePictures + (record.slot + 1) * picture_bytes() then
     local at = kCachePictures + record.slot * picture_bytes()
-    if picture:blit(cache, at, 0, 0, kIcon, kIcon) then
-      if inverted then picture:invert(0, 0, kIcon, kIcon) end
+    if picture:blit(cache, at, 0, 0, kIcon, kIcon, kCellMode) then
+      if inverted then picture:invert(0, 0, kIcon, kIcon, kCellMode) end
       return
     end
     warm[id] = nil
   end
 
-  picture:clear(15)
+  picture:clear(15, kCellMode)
 
   local letter = string.upper(string.sub(id, 1, 1))
   if letter ~= '' then
     local scale = 4
     local wide = ui.text_width(letter, scale)
     local high = ui.line_height(scale)
-    picture:text((kIcon - wide) // 2, (kIcon - high) // 2, letter, scale, 0)
+    picture:text((kIcon - wide) // 2, (kIcon - high) // 2, letter, scale, 0, kCellMode)
   end
 
   if info ~= nil then
     if info.icon == '' then
       say_the_fault(id, nil)
     else
-      local drawn, why = picture:image(0, 0, info.icon, kIcon, kIcon)
+      local drawn, why = picture:image(0, 0, info.icon, kIcon, kIcon, kCellMode)
       if not drawn then say_the_fault(id, why) end
     end
   end
@@ -303,7 +310,7 @@ local function paint_picture(id, picture, info, inverted)
     if picture:capture(cache, at) ~= nil then warm[id] = true end
   end
 
-  if inverted then picture:invert(0, 0, kIcon, kIcon) end
+  if inverted then picture:invert(0, 0, kIcon, kIcon, kCellMode) end
 end
 
 
