@@ -3653,8 +3653,8 @@ void test_a_button_that_has_the_ring_inverts_what_it_holds(void) {
   TEST_ASSERT_TRUE(add_app(storage, "nest",
                            "{\"title\":\"Nest\",\"version\":\"0.1.0\","
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
-                           // **The button is the first control that can take the dial**, so it has the ring
-                           // without a key: that is the state a person presses.
+                           // **The button is the first control that can take the dial**, so it is the one the ring
+                           // lands on the day the board is used (0.179.7: the ring is not painted until then).
                            "local b = ui.button(400, 80)\n"
                            "b:place(40, 40)\n"
                            "b.background = 15\n"
@@ -3672,6 +3672,12 @@ void test_a_button_that_has_the_ring_inverts_what_it_holds(void) {
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
+  // **A key of the board is what puts the ring on the glass** (0.179.7): with one stop of the dial the walk stays on the
+  // button and the paint it asks for is the ring appearing, which is the state a person presses (docs/30).
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
   // The label is where the button put it, at (0, 0) of the button, and the button is at (40, 40) of the view which
   // starts under the bar of the system: its own paper is now ink, four pixels of it even below the label.
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(390, 100), "the label's paper is the ink of the face");
@@ -5166,15 +5172,15 @@ void test_the_picture_of_a_cell_is_turned_over_with_the_cell(void) {
   int y2 = 0;
   TEST_ASSERT_EQUAL_INT_MESSAGE(2, sscanf(second + 4, "%d %d", &x2, &y2), g_out);
 
-  // **The dial is on the first cell**: its picture is drawn on ink, so the whole box of it is ink where it was paper. The
-  // picture of the other cell, which nobody touched, is still the paper it was painted with.
+  // **Nothing is turned over yet** (0.179.7): `ui.focus(cells[1])` puts the dial on the first cell, but the ring is not
+  // painted until a key of the board is used, so both pictures are the paper they were drawn with (docs/30).
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(
-      0, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
+      15, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(
       15, page_level(static_cast<uint16_t>(x2 + 6), static_cast<uint16_t>(y2 + 6)), g_out);
 
-  // **And the key walks to the next cell**: the first picture goes back to its paper and the second turns over, which is
-  // the whole point —the picture follows the face of its cell in both directions—.
+  // **And the key brings the ring on the next cell**: the picture of the cell it lands on is drawn on ink, so the whole
+  // box of it is ink where it was paper, and the one it left keeps its own.
   capture_begin();
   emu::press_key(2, true);
   pump_turns(30);
@@ -5185,6 +5191,17 @@ void test_the_picture_of_a_cell_is_turned_over_with_the_cell(void) {
       15, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(
       0, page_level(static_cast<uint16_t>(x2 + 6), static_cast<uint16_t>(y2 + 6)), g_out);
+
+  // **And the next key goes on with it**, which is the whole point: the picture follows the face of its cell in both
+  // directions, and the page is a ring, so the turn comes back to the first cell.
+  emu::press_key(2, true);
+  pump_turns(30);
+  emu::press_key(2, false);
+  pump_turns(60);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      0, page_level(static_cast<uint16_t>(x1 + 6), static_cast<uint16_t>(y1 + 6)), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+      15, page_level(static_cast<uint16_t>(x2 + 6), static_cast<uint16_t>(y2 + 6)), g_out);
 
   kernel::shell::close_app();
   pump_captured(5, nullptr, 0);
@@ -6717,6 +6734,104 @@ void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **The selector of the focus comes and goes with the hands** (0.179.7): it is off until a key of the board is used, the
+// first finger puts it away, and the next key brings it back where the dial is. The dial itself never moves with the
+// hand —`focused` is still where a person is and the app still hears it—, it is only the ring that is not painted: a page
+// read with a finger has no box telling anybody which one the dial would take (docs/30, docs/90).
+void test_the_selector_of_the_focus_comes_and_goes_with_the_hands(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "rings",
+                           "{\"title\":\"Rings\",\"version\":\"0.1.0\",\"entry\":\"app.lua\","
+                           "\"boards\":[\"esp32\"]}",
+                           "local a = ui.button(200, 60)\n"
+                           "a.on_focus = function(self, on) console.print('focus one ' .. tostring(on)) end\n"
+                           "a.title = 'one'\n"
+                           "a.background = 15\n"
+                           "a.border = 0\n"
+                           "a:place(20, 20)\n"
+                           "local b = ui.button(200, 60)\n"
+                           "b.on_focus = function(self, on) console.print('focus two ' .. tostring(on)) end\n"
+                           "b.title = 'two'\n"
+                           "b.background = 15\n"
+                           "b.border = 0\n"
+                           "b:place(20, 120)\n"
+                           "ui.present('gc16')\n"
+                           "console.print('rings up')\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  pump_captured(40, g_out, sizeof(g_out), "run rings");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rings up"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  // A button that has the ring fills its face with the ink of its frame and one that has not keeps its paper, so one
+  // pixel inside the face says it all (docs/92). The two doors are at (20, 20) and (20, 120) of the view, which starts
+  // under the bar of the system, and **the app has just opened**, which is the state the owner asked for: no ring until a
+  // key of the board is used (docs/30).
+  const uint16_t face_x = 40;
+  const uint16_t first_y = kernel::ui::canvas().y + 26;
+  const uint16_t second_y = kernel::ui::canvas().y + 126;
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, first_y), "no ring until the board is used");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, second_y), "and none on the other door either");
+
+  // **A key brings it back**: the ring shows up where the dial already was —the first door— and the same key walks it on
+  // to the second, so the two doors swap their ink in one paint (docs/30, docs/90).
+  capture_begin();
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus one false"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus two true"), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, first_y), "the ring left the first door");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(face_x, second_y), "and it is on the second");
+
+  // **A finger on the glass puts it away**, and the page is painted in the same turn: the ring is gone from the door it
+  // was on even though nothing else on the page changed.
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  TEST_ASSERT_TRUE(panel->finger_down(0, 460, 800));  // the empty paper under the two doors
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(30);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, second_y), "the finger puts the ring away");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, first_y), "and the page has no ring anywhere");
+
+  // **And the dial did not move while it was not painted**: the next key walks one door on from where the ring was —the
+  // page is a ring, so the second door's step is the first one—, which is only true if the dial stayed on the second. A
+  // hidden ring is not a lost dial (docs/30, docs/90).
+  emu::press_key(2, true);
+  pump_turns(10);
+  emu::press_key(2, false);
+  pump_turns(20);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(face_x, first_y), "the ring is back, wrapping to the first door");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(face_x, second_y), "and the second one is paper again");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/rings/app.lua");
+  storage->remove("/apps/rings/manifest.json");
+  storage->remove("/apps/rings");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
   emu::set_options(opts);
   kernel::boot(hal::platform());
 }
@@ -12629,6 +12744,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
   RUN_TEST(test_a_page_goes_up_with_the_quality_its_ink_asks_for);
+  RUN_TEST(test_the_selector_of_the_focus_comes_and_goes_with_the_hands);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
   RUN_TEST(test_the_document_of_the_editor_scrolls_with_a_finger);

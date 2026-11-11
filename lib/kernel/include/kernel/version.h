@@ -5598,6 +5598,26 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.7 (11/11): **the selector of the focus comes and goes with the hands**. The owner: *«Si s'usa el dit el selector
+// del focus ha d'amagar-se. Si es tornen a usar els botons físics ha de tornar. Per defecte el selector de focus ha d'estar
+// desactivat fins que s'usen els botons»*. The ring is an ink of the control and it was painted from `focused` alone, so a
+// page being read with a finger carried a box saying where the centre key would fall —and it was painted and cleaned on
+// every touch for nobody—:
+//   - **the bridge keeps the flag of the person, `g_ui_ring_shown`, off by default** and every one of the thirteen paints
+//     that read `focused` —the seven that `lua_getfield(…, "focused")` and the five that `ui_field_bool`, plus the
+//     `__inverts` a child of a focused box inherits— now asks for **both**. The walk, `ui.focus`, `ui_take_the_focus_from`
+//     and the `on_focus` hooks are untouched: `focused` still means the dial is here, it is only not drawn (docs/30);
+//   - **a key brings it back and a finger puts it away**, and both paint in the same turn —`ui_ring_shown(on)` invalidates
+//     the control the dial is on and the caller asks for the present—, because a ring that waits for the next `present` is a
+//     key that answers late and a finger that leaves a ring behind. The flag lives with the machine of the app —`start()`
+//     sets it off, next to the slot of the dial and the finger's own numbers—, so **every app opens without a ring** and its
+//     first key brings it, which is what "by default" means for a machine that has not seen a key yet;
+//   - **the dial never moves with the hand**: after a finger hides the ring the next key walks one control on **from where
+//     it was**, which is the case `test_the_selector_of_the_focus_comes_and_goes_with_the_hands` pins with pixels —a page of
+//     two buttons, no ink before the first key, the ring on the first and then the second, paper again on both after a tap on
+//     empty glass, and the ring back wrapping to the first door with the next key (`205 cases`, `105` of `test_ui`, `10` of
+//     `test_touch` and `5` of `test_pal`, all green).
+
 // 0.179.6 (11/11): **the session memory goes only when an ask has failed, and never the block that asked**. The owner, with
 // the two lines of the log in front of him: *«Com es decideix si falta ram? Només s'ha de fer si falla una alocació de
 // memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per l'app)»*. He asked how it was decided and
@@ -6085,7 +6105,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.6";
+static const char kVersion[] = "0.179.7";
 
 }  // namespace kernel
 

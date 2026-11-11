@@ -2002,7 +2002,7 @@ Un control no és una foto: té estats, i cada estat es veu al vidre i diu què 
 | Estat | Camp | Com es veu | Què respon |
 |---|---|---|---|
 | **Normal** | — | el dibuix de sempre | tot |
-| **Seleccionat** (té el dial) | `focused` | invertit o amb anella, segons el control | el centre, i les fletxes si té valor |
+| **Seleccionat** (té el dial) | `focused` | invertit o amb anella, segons el control, **i només mentre es fan servir les tecles** (0.179.7) | el centre, i les fletxes si té valor |
 | **Premut** | `pressed` | la cara baixa quatre píxels i la vora es canvia | res mentre dura: és el moment |
 | **Deshabilitat** | `disabled` | la seva tinta baixa al `dim` del control (8 per defecte) | **res**: ni el dial, ni el dit, ni el teclat |
 
@@ -2071,6 +2071,26 @@ w.focusable = true            -- una etiqueta que sí: el centre la prem
 **Les entrades d'una barra de menú ja tenien el seu `enabled`** des de 0.68.0, amb el mateix dibuix apagat i salts a
 la volta; ara és el mateix to i la mateixa regla. **Les opcions d'un menú de targeta no**: allà el que no es pot fer
 s'amaga, perquè una targeta és la llista del que es pot fer **ara** (docs/92 §14).
+
+### El selector es veu quan es fan servir les tecles (0.179.7)
+
+**L'anell no és una decoració: diu on caurà la pulsació del centre.** Una persona que llegeix la pàgina amb el dit no
+necessita aquest avís —el dit ja diu on és— i l'anell és tinta que s'ha de netejar cada vegada que es toca una altra
+cosa. L'amo ho va demanar així: *«Si s'usa el dit el selector del focus ha d'amagar-se. Si es tornen a usar els botons
+físics ha de tornar. Per defecte el selector de focus ha d'estar desactivat fins que s'usen els botons»*.
+
+- **De sortida no hi és**: una pàgina que s'acaba d'obrir ensenya els controls amb el dibuix de sempre, sense cap
+  anell, encara que el dial ja sigui en un d'ells.
+- **La primera tecla el fa sortir** on el dial ja era, i la mateixa tecla fa el que havia de fer: un botó que només diu
+  «entra» pinta l'anell abans d'entrar, o sigui que la persona veu on era abans de veure-ho canviar.
+- **El primer dit el torna a amagar**, i la pàgina es repinta al mateix torn: el control que el tenia queda sense anell
+  encara que no hagi canviat res més de la pàgina.
+- **I no es perd res**: `focused` continua volent dir «el dial és aquí» i l'app continua rebent `on_focus` mentre
+  l'anell no es veu, i la tecla següent camina **des d'on era** i no des del principi de la pàgina. Un anell amagat no
+  és un dial perdut.
+- **Cada app comença sense anell**: l'estat viu amb la màquina de l'app, o sigui que obrir-ne una altra és tornar al
+  defecte —amagat— i el primer botó d'aquella app el fa sortir. És el que vol dir «per defecte»: el que encara no ha
+  vist cap tecla.
 
 ### La tecla es pinta sola: el sistema és qui la rep (0.98.0)
 

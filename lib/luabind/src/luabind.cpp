@@ -3911,6 +3911,13 @@ int16_t g_ui_focus_slot = -1;
 // Which tab of the strip has the ring, 0 when the ring is on a control of its own.
 uint8_t g_ui_focus_item = 0;
 uint16_t g_ui_focus_generation = 0;
+// **Whether the selector of the focus is on the glass** (0.179.7, the owner: *«Si s'usa el dit el selector del focus ha
+// d'amagar-se. Si es tornen a usar els botons físics ha de tornar. Per defecte el selector de focus ha d'estar desactivat
+// fins que s'usen els botons»*). It is **off until a key of the board arrives** and it goes off again with the first finger:
+// a control keeps saying `focused` —the dial is there and the app hears `on_focus`— and what it paints is that **and** this
+// flag, so a page used with a finger has no ring drawn anywhere and the first physical key brings it back where the dial is
+// (docs/30, docs/90).
+bool g_ui_ring_shown = false;
 int16_t g_ui_touch_slot = -1;
 uint16_t g_ui_touch_generation = 0;
 // Which tab of a strip the finger went down on, 0 for a control of its own.
@@ -5115,7 +5122,7 @@ int l_button_draw(lua_State* L) {
   const bool pressed = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
   lua_getfield(L, -1, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   // **The word, the tag, a primary button, the ink of the word and its size** (0.97.0): the control draws the text it
   // shows, so an inverted button has an inverted word —a label the app added is a control of the app and keeps the
@@ -5400,7 +5407,7 @@ int l_checkbox_draw(lua_State* L) {
   const bool pressed = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
   lua_getfield(L, -1, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.checkbox_draw != nullptr) {
@@ -5631,7 +5638,7 @@ int l_slider_draw(lua_State* L) {
   const bool pressed = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
   lua_getfield(L, -1, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   lua_pop(L, 1);  // the table of the object's own fields
   if (g_ui_ops.slider_draw != nullptr) {
@@ -5739,7 +5746,7 @@ int l_entry_draw(lua_State* L) {
   const bool pressed = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
   lua_getfield(L, -1, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   lua_pop(L, 1);  // the fields table
   g_ui_ops.entry_draw(canvas->slot, static_cast<uint8_t>(background), ink_or_dim(off, border),
@@ -6238,7 +6245,7 @@ int l_list_draw(lua_State* L) {
   const bool separator = lua_toboolean(L, -1) != 0;
   lua_pop(L, 1);
   lua_getfield(L, fields, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   // **A list of entries is a list of controls** (0.104.0): the rows are the app's —an entry is a control with whatever
   // the app put inside it— and this only places the ones of the page it is on. **The entries of the other pages are
@@ -6472,7 +6479,7 @@ int l_month_draw(lua_State* L) {
   const int background = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, fields, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   const char* weekdays[7] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   lua_getfield(L, fields, "weekdays");
@@ -6741,7 +6748,7 @@ int l_dialog_draw(lua_State* L) {
   const int choice = static_cast<int>(lua_tointeger(L, -1));
   lua_pop(L, 1);
   lua_getfield(L, -1, "focused");
-  const bool focused = lua_toboolean(L, -1) != 0;
+  const bool focused = lua_toboolean(L, -1) != 0 && g_ui_ring_shown;
   lua_pop(L, 1);
   // The four texts stay on the stack while the card is drawn: a string taken off the stack before the call is a
   // pointer the collector may have spoken for (docs/75, docs/90).
@@ -6862,7 +6869,7 @@ int l_menu_draw(lua_State* L) {
   const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
-  const bool focused = ui_field_bool(L, 1, "focused", false);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
   g_ui_ops.menu_draw(canvas->slot, title, items, count, static_cast<uint8_t>((index < 0) ? 0 : index),
                      ink_or_dim(off, color), static_cast<uint8_t>(dim),
                      static_cast<uint8_t>(background), static_cast<uint8_t>((scale < 1) ? 1 : scale),
@@ -6959,7 +6966,7 @@ int l_menu_bar_draw(lua_State* L) {
   const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
-  const bool focused = ui_field_bool(L, 1, "focused", false);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
   g_ui_ops.menu_bar_draw(canvas->slot, titles, count, static_cast<uint8_t>((open < 0) ? 0 : open),
                          static_cast<uint8_t>((index < 0) ? 0 : index), static_cast<uint16_t>((bar_height < 1) ? 1 : bar_height),
                          ink_or_dim(off, color), static_cast<uint8_t>(dim),
@@ -7177,7 +7184,7 @@ int l_selector_draw(lua_State* L) {
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer border = ui_field_number(L, 1, "border", 0);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 3);
-  const bool focused = ui_field_bool(L, 1, "focused", false);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
   g_ui_ops.selector_draw(canvas->slot, label, value, choosing, ink_or_dim(off, color),
                          static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
                          ink_or_dim(off, border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
@@ -7330,7 +7337,7 @@ int l_notification_draw(lua_State* L) {
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer border = ui_field_number(L, 1, "border", 0);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
-  const bool focused = ui_field_bool(L, 1, "focused", false);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
   g_ui_ops.notification_bar_draw(canvas->slot, cards, shown, total, ink_or_dim(off, color),
                                  static_cast<uint8_t>(dim), static_cast<uint8_t>(background),
                                  ink_or_dim(off, border), static_cast<uint8_t>((scale < 1) ? 1 : scale),
@@ -7460,7 +7467,7 @@ int l_icon_grid_draw(lua_State* L) {
   const lua_Integer dim = ui_field_number(L, 1, "dim", 8);
   const lua_Integer background = ui_field_number(L, 1, "background", 15);
   const lua_Integer scale = ui_field_number(L, 1, "scale", 2);
-  const bool focused = ui_field_bool(L, 1, "focused", false);
+  const bool focused = ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown;
   // **A grid of entries is a grid of controls** (0.105.0): the cells are the app's and this only puts each one where the
   // kernel says the cell is —the same geometry the paint and the finger use— and the ones of another page past the
   // frame, where the clip does not compose them and the walk does not reach them (docs/30, docs/90).
@@ -8558,7 +8565,7 @@ int l_canvas_draw(lua_State* L) {
   // patch on the ink of the row, which is what the owner saw with the board in his hand (docs/92).
   bool below = inverted;
   if (ui_field_bool(L, 1, "__inverts", false) &&
-      (ui_field_bool(L, 1, "focused", false) || ui_field_bool(L, 1, "pressed", false) ||
+      ((ui_field_bool(L, 1, "focused", false) && g_ui_ring_shown) || ui_field_bool(L, 1, "pressed", false) ||
        ui_field_bool(L, 1, "marked", false))) {
     below = !inverted;
   }
@@ -9725,6 +9732,24 @@ void ui_grid_follow_the_cell(lua_State* L, int object) {
     }
   }
   lua_settop(L, base);
+}
+
+// **The selector of the focus comes and goes with the hands** (0.179.7): the first key of the board brings it up where the
+// dial is, the first finger puts it away. What this does is the flag and the damage of the control that has the dial —the
+// ring is ink of that box and nothing else on the page changes—; the present is the caller's, because the key that comes
+// back with a ring always paints something of its own and the finger's landing may paint nothing at all (docs/30,
+// docs/90). False when the flag was already what the caller wanted, and then nothing is owed.
+bool ui_ring_shown(bool on) {
+  if (g_ui_ring_shown == on) return false;
+  g_ui_ring_shown = on;
+  if (g_state == nullptr || g_ui_focus_slot < 0) return true;
+  const int base = lua_gettop(g_state);
+  if (l_ui_root(g_state) == 1 && ui_push_slot_from(g_state, base + 1, g_ui_focus_slot, 0)) {
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+    if (canvas != nullptr && canvas->generation == g_ui_focus_generation) ui_invalidate(g_state, -1);
+  }
+  lua_settop(g_state, base);
+  return true;
 }
 
 // **The ring taken from a control, said once** (0.179.4): it stops being focused —and a grid is asked for that one cell,
@@ -11315,6 +11340,9 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_focus_generation = 0;
   // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
   g_ui_focus_item = 0;
+  // **Every machine starts with no ring** (0.179.7): the selector is off until a key of the board is used, and an app that
+  // has just opened has not seen one (docs/30).
+  g_ui_ring_shown = false;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -11363,6 +11391,9 @@ void stop() {
   g_ui_focus_generation = 0;
   // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
   g_ui_focus_item = 0;
+  // **And a machine that goes away leaves no ring for the next one** (0.179.7): the next app opens as the owner asked,
+  // with the selector off until it sees a key (docs/30).
+  g_ui_ring_shown = false;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -12197,6 +12228,11 @@ bool ui_button_event(const char* kind, uint32_t key) {
   }
 
   const int objects = top + 1;
+  // **A key of the board is the selector coming back** (0.179.7), and it comes back **inside the paint the key is already
+  // going to ask for**: every road below presents —the walk paints the ring where it lands, a caret paints its box, a
+  // press paints the face down and up—, so asking for one here would be the same control painted twice for one key, which
+  // is the ink the launcher's own case counts (docs/30, docs/90).
+  ui_ring_shown(true);
   const int current =
       ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
   int target = -1;
@@ -12527,6 +12563,10 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     lua_settop(g_state, top);
     return;
   }
+
+  // **And a finger is the selector going away** (0.179.7): a page used with a finger is a page with no ring anywhere, and
+  // it goes before the press is acted on so the control that had it is painted without it in the same turn (docs/30, docs/90).
+  if (ui_ring_shown(false)) ui_feedback();
 
   // **A finger that is still on the glass after its control was given back presses nothing** (0.113.0): the rows of the
   // swipe are not it and neither is the press of the control the app has built in the place of the one that went, which
