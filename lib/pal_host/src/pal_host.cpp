@@ -533,15 +533,17 @@ Chunk* head_of(void* block) { return static_cast<Chunk*>(block) - 1; }
 
 // **The relief of a heap that is full** (0.179.0): the kernel's session memories go first, and the ask is tried again
 // once. It is a pointer and not a call into the kernel because this layer is below it (docs/30, docs/75).
-void (*g_relief)() = nullptr;
+void (*g_relief)(void* keep, size_t bytes) = nullptr;
 bool g_relieving = false;
 
 // **Once and not in a circle**: the relief frees through `release()`, which does not allocate, but a relief that did
 // would find the flag and be ignored instead of finding itself.
-void relieve() {
+// **`keep` is the block the ask is about**, when it is about one: a block that is being moved must not be given back by
+// the relief and then moved (0.179.6, docs/75).
+void relieve(void* keep, size_t bytes) {
   if (g_relief == nullptr || g_relieving) return;
   g_relieving = true;
-  g_relief();
+  g_relief(keep, bytes);
   g_relieving = false;
 }
 
@@ -559,8 +561,9 @@ class HostExtraMemory : public IExtraMemory {
     // canvas out of the chip's (docs/75).
     if (void* block = take((first == kExtra) ? kHome : kExtra, bytes)) return block;
     // **And what can be made again goes before the refusal** (0.179.0): the session memories of the apps, once, and
-    // the ask is tried again in the two homes in the same order.
-    relieve();
+    // the ask is tried again in the two homes in the same order. It is a *failed* ask and not a heap that looks full: a
+    // block that fits is never paid for with somebody's cache (0.179.6, docs/75).
+    relieve(nullptr, bytes);
     if (void* block = take(first, bytes)) return block;
     return take((first == kExtra) ? kHome : kExtra, bytes);
   }
@@ -580,16 +583,18 @@ class HostExtraMemory : public IExtraMemory {
       // has no room either, **any other free piece of its own** —a block of eighty-eight kilobytes does not
       // need the space right behind it, only somewhere (docs/75).
       if (void* moved = move_to(block, bytes, (want == kExtra) ? kHome : kExtra)) return moved;
-      return move_into(block, bytes, chunk->home);
+      if (void* moved = move_into(block, bytes, chunk->home)) return moved;
+    } else {
+      if (void* moved = move_to(block, bytes, want)) return moved;
+      // **A block that cannot move stays where it is**: a resize that fails leaves the block untouched and
+      // the caller decides, and the bytes it holds are not lost (docs/75).
+      if (void* grown = grow(block, bytes)) return grown;
+      if (void* moved = move_into(block, bytes, chunk->home)) return moved;
     }
-    if (void* moved = move_to(block, bytes, want)) return moved;
-    // **A block that cannot move stays where it is**: a resize that fails leaves the block untouched and
-    // the caller decides, and the bytes it holds are not lost (docs/75).
-    if (void* grown = grow(block, bytes)) return grown;
-    if (void* moved = move_into(block, bytes, chunk->home)) return moved;
     // **And the session memories go before the refusal here too** (0.179.0), with the block untouched and the same
-    // three roads tried again.
-    relieve();
+    // three roads tried again. **The block that is being moved is not given back**: it is the one the ask is about, and a
+    // realloc of what the relief has just freed is a block used after it was given away (0.179.6, docs/75).
+    relieve(block, bytes);
     if (void* moved = move_to(block, bytes, want)) return moved;
     if (void* grown = grow(block, bytes)) return grown;
     return move_into(block, bytes, chunk->home);
@@ -857,7 +862,7 @@ void set_wait_slice_ms(uint32_t ms) { g_wait_slice_ms = ms; }
 // emulator is for (docs/20, docs/85). It is read by `bring_up`, so it goes before `pal::init()`.
 void set_random_seed(uint32_t seed) { g_seed_request = seed; }
 
-void set_memory_relief(void (*relief)()) { g_relief = relief; }
+void set_memory_relief(void (*relief)(void* keep, size_t bytes)) { g_relief = relief; }
 
 void set_heap_timing(uint32_t step_ns, uint32_t bytes_per_us) {
   g_step_ns = step_ns;

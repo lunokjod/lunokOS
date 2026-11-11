@@ -29,9 +29,14 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got);
 // The system does not call this when an app stops: the whole point of a session memory is that the next run finds it.
 bool release(const char* app, const char* key);
 
-// **Every block goes**, which is what the allocator asks when a block does not fit. It is one switch on the relief of the
-// PAL and it is also a door of the prompt (`mem` says how many are held).
-void release_all();
+// **Every block goes**, which is what the allocator asks when an ask has failed. It is one switch on the relief of the PAL
+// and it is also a door of the prompt (`mem` says how many are held).
+//
+// **`keep` is the block the failed ask is about**, and it stays: it is the one an app is growing, and giving it back here
+// would leave the allocator moving a block that is not there any more (`pal::set_memory_relief`, 0.179.6). `bytes` is what
+// the ask wanted, which is what the warning of the log says so a person can tell why the memory was short. The prompt and
+// a test call it with nothing, and then every block goes.
+void release_all(void* keep = nullptr, size_t bytes = 0);
 
 // What the table holds, for `mem` and for a test.
 uint8_t count();

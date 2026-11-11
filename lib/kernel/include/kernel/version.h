@@ -5598,6 +5598,26 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.6 (11/11): **the session memory goes only when an ask has failed, and never the block that asked**. The owner, with
+// the two lines of the log in front of him: *«Com es decideix si falta ram? Només s'ha de fer si falla una alocació de
+// memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per l'app)»*. He asked how it was decided and
+// the answer had two holes in it:
+//   - **the rule was already "a failed ask"** in both PALs and not a threshold of free bytes: `allocate` relieves after the
+//     two homes have said no and before the same ask is tried again. What the emulator did **not** do is relieve a `resize`
+//     that failed in the block's own home —it returned the no from `move_into` and never reached the relief—, so the one
+//     ask that most often needs the cache (an app growing its own block) was the one that never got it;
+//   - **and the relief could hand back the block the ask was about** (`session::release_all` freed every block, and the
+//     `resize` of a session block went on to move the pointer the relief had just given away: a block used after it was
+//     free, and a table row lost). Now `pal::set_memory_relief` passes **the block and the bytes of the ask**
+//     (`relief(void* keep, size_t bytes)`), `session::release_all(keep, asked)` keeps that one —`[I][MEMORY] home_eink
+//     keeps 'apps': 32 768 B, it is the block that asked`— and the warning says what the memory was short for
+//     (`… given back for an ask of N B`), which is the half of the sentence that was missing (docs/75);
+//   - **two cases hold it**: `test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full` —a block that fits runs no
+//     relief, the ask that fails runs exactly one with no block to keep and with its bytes— and
+//     `test_a_block_that_is_being_moved_is_not_one_the_relief_may_take` —the `keep` of a failed growth, and the block's
+//     bytes still there when the answer is no—, plus the table's own case in `test_apps` (`204 cases`, `105` of `test_ui`,
+//     `10` of `test_touch` and `5` of `test_pal`, all green).
+
 // 0.179.5 (11/11): **the quality of a paint is the one the change asks for**. The owner, with the code in front of him:
 // *«Comptant que totes les apps comencen amb un panell net i un buffer net. Perqué totes refresquen amb tanta qualitat quan no
 // fa falta? usa sempre el mode necessari adequat per els canvis del buffer que es volen pujar a l'eink»*. He was right and
@@ -6065,7 +6085,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.5";
+static const char kVersion[] = "0.179.6";
 
 }  // namespace kernel
 

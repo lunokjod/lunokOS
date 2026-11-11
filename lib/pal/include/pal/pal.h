@@ -223,12 +223,21 @@ class IExtraMemory {
 // allocate before anybody brought the layer up.
 IExtraMemory& extra_memory();
 
-// **What to give up when the memory runs out** (0.179.0): the kernel installs a function that frees what can be made
-// again —the session memories of the apps (docs/30)—, and every allocator of this layer calls it **once** before it
-// refuses a block, and tries again. It is here and not in a PAL so that the board and the emulator obey the same rule
-// and a test can hold it: a session cache is the first thing to go and the last thing anyone misses. The function is
-// not called from inside itself, so a relief that frees through `release()` cannot recurse.
-void set_memory_relief(void (*relief)());
+// **What to give up when an allocation fails** (0.179.0, and the rule said by the owner in 0.179.6: *«Només s'ha de fer
+// si falla una alocació de memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per l'app)»*): the
+// kernel installs a function that frees what can be made again —the session memories of the apps (docs/30)—, and **it is
+// called from the one place where an ask has already failed in every home and nowhere else**: never by a threshold of free
+// bytes and never before trying. What comes after it is the same ask again, so the app that asked never learns that its
+// own cache was the price.
+//
+// **`keep` is the block the ask is about**, when it is about one —a `resize` of a block that is already there— and the
+// relief must not give it back: freeing it and asking the allocator to move it afterwards is a block used after it was
+// given away. `allocate` passes nullptr; `resize` passes the block.
+//
+// It is here and not in a PAL so that the board and the emulator obey the same rule and a test can hold it: a session
+// cache is the first thing to go and the last thing anyone misses. The function is not called from inside itself, so a
+// relief that frees through `release()` cannot recurse.
+void set_memory_relief(void (*relief)(void* keep, size_t bytes));
 
 }  // namespace pal
 

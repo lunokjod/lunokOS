@@ -7602,6 +7602,22 @@ void test_the_memory_of_a_session_is_the_apps_and_not_the_systems(void) {
   TEST_ASSERT_EQUAL_UINT8(0x5A, grown[0]);
   TEST_ASSERT_EQUAL_UINT8(0, grown[400]);
 
+  // **The block the failed ask is about stays** (0.179.6): the relief is the allocator's and the block it is growing is the
+  // one it must not give back —it would hand back a pointer the allocator is about to move—, so the table keeps it and takes
+  // the others.
+  size_t keep_got = 0;
+  uint8_t* keep_me = static_cast<uint8_t*>(kernel::session::acquire("keeper", "cache", 256, keep_got));
+  TEST_ASSERT_NOT_NULL(keep_me);
+  TEST_ASSERT_EQUAL_UINT8(3, kernel::session::count());
+  const size_t held = kernel::session::bytes_held();
+  kernel::session::release_all(keep_me, 512);
+  // The two caches of the other pages went and the one the ask is about is still the app's, with the same size.
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::session::count());
+  TEST_ASSERT_EQUAL_UINT32(held - 576, kernel::session::bytes_held());
+  size_t still_got = 0;
+  TEST_ASSERT_EQUAL_PTR(keep_me, kernel::session::acquire("keeper", "cache", 256, still_got));
+  TEST_ASSERT_EQUAL_UINT32(256, still_got);
+
   // **And the relief takes every one of them**: the table is empty, the number of the session has gone up, and a block that
   // comes back is zeroed and is not the promise of the old one.
   kernel::session::release_all();

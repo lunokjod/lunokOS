@@ -95,6 +95,88 @@ void test_a_big_block_asks_for_the_extra_memory_first(void) {
   TEST_ASSERT_TRUE_MESSAGE(extra.free_bytes <= start_extra.free_bytes - 64 * 1024, "the page did not go to the extra");
 }
 
+// **The relief of the allocator is a failed ask and nothing else** (0.179.6, and the owner said the rule with the log in
+// front of him: *«Com es decideix si falta ram? Només s'ha de fer si falla una alocació de memoria d'una app o sistema.
+// (s'esborra i es reintenta de forma transparent per l'app)»*). There is no threshold of free bytes behind it: a block that
+// fits is never paid for with somebody's cache, and the one ask that failed is tried again as it was.
+int g_reliefs = 0;
+void* g_kept = nullptr;
+size_t g_asked = 0;
+
+void a_relief_that_writes_it_down(void* keep, size_t bytes) {
+  ++g_reliefs;
+  g_kept = keep;
+  g_asked = bytes;
+}
+
+void test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full(void) {
+  pal::set_memory_bytes(kHomeBytes, kExtraBytes);
+  pal::set_memory_relief(&a_relief_that_writes_it_down);
+  g_reliefs = 0;
+  g_kept = nullptr;
+  g_asked = 0;
+
+  // **A block that fits runs nothing**: it is the whole rule, and the ceilings are already low enough to be tempted by a
+  // heap that "looks full" —the extra memory is a megabyte and the home keeps its floor—.
+  void* small = pal::extra_memory().allocate(kSmallBytes, true);
+  TEST_ASSERT_NOT_NULL(small);
+  TEST_ASSERT_EQUAL_INT(0, g_reliefs);
+
+  // **Ask until the two homes say no**: that one ask runs the relief exactly once, with no block to keep and with the bytes
+  // it wanted, and it is tried again after the relief —which frees nothing here, so the answer is the no the app gets—.
+  const size_t big = 64 * 1024;
+  void* taken[64];
+  size_t count = 0;
+  while (count < sizeof(taken) / sizeof(taken[0])) {
+    void* block = pal::extra_memory().allocate(big, true);
+    if (block == nullptr) break;
+    taken[count++] = block;
+  }
+  TEST_ASSERT_TRUE(count > 0);
+  TEST_ASSERT_EQUAL_INT(1, g_reliefs);
+  TEST_ASSERT_NULL(g_kept);
+  TEST_ASSERT_EQUAL_size_t(big, g_asked);
+
+  for (size_t i = 0; i < count; ++i) pal::extra_memory().release(taken[i]);
+  pal::extra_memory().release(small);
+  pal::set_memory_relief(nullptr);
+}
+
+void test_a_block_that_is_being_moved_is_not_one_the_relief_may_take(void) {
+  pal::set_memory_bytes(kHomeBytes, kExtraBytes);
+  pal::set_memory_relief(&a_relief_that_writes_it_down);
+  g_reliefs = 0;
+  g_kept = nullptr;
+
+  // The extra memory full to the brim, and one of the blocks with a mark of its own in it.
+  const size_t big = 64 * 1024;
+  void* taken[64];
+  size_t count = 0;
+  while (count < sizeof(taken) / sizeof(taken[0])) {
+    void* block = pal::extra_memory().allocate(big, true);
+    if (block == nullptr) break;
+    taken[count++] = block;
+  }
+  TEST_ASSERT_TRUE(count > 0);
+  unsigned char* mine = static_cast<unsigned char*>(taken[0]);
+  mine[0] = 0x11;
+  mine[big - 1] = 0x22;
+
+  // **A growth that cannot happen** asks the relief about the very block it wants to move: `keep` is that block, and the
+  // block is still the app's when the answer is no —a relief that gave it back would leave the allocator moving a block that
+  // is not there any more—.
+  g_reliefs = 0;
+  void* grown = pal::extra_memory().resize(taken[0], big * 2, true);
+  TEST_ASSERT_NULL(grown);
+  TEST_ASSERT_EQUAL_INT(1, g_reliefs);
+  TEST_ASSERT_EQUAL_PTR(taken[0], g_kept);
+  TEST_ASSERT_EQUAL_UINT8(0x11, mine[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x22, mine[big - 1]);
+
+  for (size_t i = 0; i < count; ++i) pal::extra_memory().release(taken[i]);
+  pal::set_memory_relief(nullptr);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -104,5 +186,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_home_keeps_its_floor_and_the_app_goes_to_the_extra_memory);
   RUN_TEST(test_a_board_with_no_extra_memory_takes_everything_home);
   RUN_TEST(test_a_big_block_asks_for_the_extra_memory_first);
+  RUN_TEST(test_the_relief_is_a_failed_ask_and_not_a_heap_that_looks_full);
+  RUN_TEST(test_a_block_that_is_being_moved_is_not_one_the_relief_may_take);
   return UNITY_END();
 }

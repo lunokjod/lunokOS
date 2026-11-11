@@ -593,18 +593,29 @@ i la taula és una fila per app i clau, o sigui que `"apps"` no és el mateix bl
 blocs** (`session::kMaxBlocks`) i cada nom de **setze bytes**, i el bloc es demana a la memòria extra amb
 `pal::extra_memory().allocate(bytes, true)` i es compta al pressupost de l'app com qualsevol altre.
 
-**I és el primer que es dóna quan un bloc no hi cap**, que és la part que fa que aquesta memòria sigui barata de tenir:
-el PAL té un punter de relleu (`pal::set_memory_relief`) que el nucli omple amb `session::release_all`, i **cada
-allocator el crida una vegada abans de dir que no** i torna a provar —el del PC i el del xip, amb el `resize` inclòs—.
-Un bloc que no s'ha pogut donar mai no arriba al relleu, i un que s'ha donat deixa la seva generació enrere, així que
-l'objecte de l'app que el tenia respon `the session memory was given back` en lloc d'escriure a memòria lliure (docs/30,
-docs/90).
+**I és el primer que es dóna quan una petició falla**, que és la part que fa que aquesta memòria sigui barata de tenir.
+**Quan es decideix que falta memòria és una pregunta de l'amo** (0.179.6): *«Només s'ha de fer si falla una alocació de
+memoria d'una app o sistema. (s'esborra i es reintenta de forma transparent per l'app)»*. I és exactament així: el PAL té un
+punter de relleu (`pal::set_memory_relief`) que el nucli omple amb `session::release_all`, i **cada allocator el crida des
+del lloc on la petició ja ha dit que no a totes les memòries i enlloc més** —mai per un llindar de bytes lliures i mai abans
+de provar—, i tot seguit **torna a fer la mateixa petició**, o sigui que l'app que la va fer no arriba a saber que el preu
+era la seva caché (el del PC i el del xip, amb el `resize` inclòs). Un bloc que no s'ha pogut donar mai no arriba al relleu,
+i un que s'ha donat deixa la seva generació enrere, així que l'objecte de l'app que el tenia respon
+`the session memory was given back` en lloc d'escriure a memòria lliure (docs/30, docs/90).
+
+**I el bloc que la petició està movent no es toca** (0.179.6). El relleu rep dues coses: **el bloc** de qui va la petició
+—`nullptr` si és una reserva nova, el bloc si és un `resize`— i **quants bytes en volia**. Un `resize` que falla dona el
+bloc a l'allocator perquè el mogui, i donar-lo abans al relleu seria deixar l'allocator movent un bloc que ja no hi és; el
+relleu el deixa estar i ho diu: `[I][MEMORY] home_eink keeps 'apps': 32 768 B, it is the block that asked`. La resta de
+blocs sí que hi van, i la línia groga diu per a què:
+`[W][MEMORY] the memory is short: 1 block(s), 32 768 B given back for an ask of 1 024 B`.
 
 **I cada bloc que va i ve ho diu al registre** (0.179.3), perquè una memòria que el sistema es pot quedar sense avisar és una
 memòria que fa desaparèixer una pàgina i ningú no sap per què: `[I][MEMORY] <app> asks for '<clau>': N B, made` quan es fa,
 `… and it has them` quan es troba, `… grown from M` quan creix, `[I][MEMORY] <app> gives back '<clau>': N B` quan és l'app
 qui el dóna (`block:release()`), i quan és el sistema —el relleu de l'allocator— **una línia per bloc** amb el motiu
-`the memory is short` i **una de groga amb el total**: `[W][MEMORY] the memory is short: 2 block(s), 1 081 344 B given back`.
+`the memory is short` i **una de groga amb el total i la petició que el va fer anar-hi**: `[W][MEMORY] the memory is short:
+2 block(s), 1 081 344 B given back for an ask of 1 024 B` (0.179.6).
 Una taula sense cap fila lliure i una petició que no hi cap també es diuen, amb `[W]`, i són dues coses diferents (docs/30).
 
 **Què s'hi guarda i a quin preu, mesurat a l'emulador**: el llançador hi deixa els manifests (títol i camí de la icona) i

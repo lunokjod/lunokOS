@@ -134,17 +134,25 @@ bool release(const char* app, const char* key) {
   return true;
 }
 
-void release_all() {
+void release_all(void* keep, size_t asked) {
   bool any = false;
-  size_t bytes = 0;
+  size_t given = 0;
   uint8_t blocks = 0;
   for (uint8_t i = 0; i < kMaxBlocks; ++i) {
     if (!g_blocks[i].used) continue;
+    // **The block the failed ask is about stays** (0.179.6): it is the one an app is growing, and the allocator is going to
+    // move it right after this —giving it back here would be a block moved after it was freed—. It is not a cache that is
+    // worth less than the ask: it is the ask (docs/75).
+    if (keep != nullptr && g_blocks[i].bytes == keep) {
+      log_printf(pal::kLogInfo, "MEMORY", "%s keeps '%s': %u B, it is the block that asked", g_blocks[i].app,
+                 g_blocks[i].key, static_cast<unsigned>(g_blocks[i].size));
+      continue;
+    }
     // **Each one says who it was**, because the block that goes is the app's and a person reading the log wants to know
     // which page it was (docs/75).
     log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B, the memory is short", g_blocks[i].app,
                g_blocks[i].key, static_cast<unsigned>(g_blocks[i].size));
-    bytes += g_blocks[i].size;
+    given += g_blocks[i].size;
     pal::extra_memory().release(g_blocks[i].bytes);
     g_blocks[i] = Block();
     any = true;
@@ -156,8 +164,8 @@ void release_all() {
   // board decides that a cache is worth less than the block that asked, and it is one line per relief and not one per
   // block when there was nothing to give (docs/75).
   if (any) {
-    log_printf(pal::kLogWarn, "MEMORY", "the memory is short: %u block(s), %u B given back", static_cast<unsigned>(blocks),
-               static_cast<unsigned>(bytes));
+    log_printf(pal::kLogWarn, "MEMORY", "the memory is short: %u block(s), %u B given back for an ask of %u B",
+               static_cast<unsigned>(blocks), static_cast<unsigned>(given), static_cast<unsigned>(asked));
   }
 }
 
