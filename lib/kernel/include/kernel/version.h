@@ -5598,6 +5598,14 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.2 (11/11): **a paragraph of `docs/30` that a reader could not read**. The owner asked, after the sweep of the day
+// before, whether anything of the documentation still had to change, and one thing did: the section of `ui.icon_grid` with
+// entries —written on the 7/11 in 0.105.0— was **wrapped at eighty columns of bytes and not of letters**, so it had broken
+// words at the end of nine lines: «un co / ntrol», «una min / iatura», «el pi / ntat», «el cont / rol», «les cel / ·les»,
+// «les pà / gines», «les entrad / es» and «Fins a 0 / .104.0», and Markdown joins two lines with a space, so the rendered
+// page of the reference read «un co ntrol de l'app» (docs/30). The paragraph is the same text, wrapped at the width of its
+// neighbours, and a scan of every document with the vocabulary of the documents themselves finds no other word cut in two.
+
 // 0.178.1 (10/11): **the documents, read against the code one claim at a time**. The owner asked for a review of
 //   every document with the code open beside it, and the sweep found the numbers that a week of repairs had left
 //   behind —not a feature, so no line of code moved except one comment that had stopped being true—:
@@ -5787,7 +5795,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.1";
+static const char kVersion[] = "0.178.2";
 
 }  // namespace kernel
 

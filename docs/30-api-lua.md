@@ -2109,12 +2109,9 @@ list:add(entry)                          -- i la llista la col·loca
 
 ### `ui.icon_grid` amb entrades: cel·les que són controls (0.105.0)
 
-**La graella és una pàgina amb una reixa, i les cel·les eren dades.** Fins a 0
-.104.0 una cel·la només podia ser una
-paraula curta (`mark`) i una de llarga (`label`); ara la cel·la pot ser **un co
-ntrol de l'app**, i és el que demana un
-launcher de debò: una imatge amb el seu nom, una caixa de dues cel·les, una min
-iatura:
+**La graella és una pàgina amb una reixa, i les cel·les eren dades.** Fins a 0.104.0 una cel·la només podia ser una
+paraula curta (`mark`) i una de llarga (`label`); ara la cel·la pot ser **un control de l'app**, i és el que demana un
+launcher de debò: una imatge amb el seu nom, una caixa de dues cel·les, una miniatura:
 
 ```lua
 local grid = ui.icon_grid(500, 400)
@@ -2128,29 +2125,19 @@ cell:add(box)
 grid:add(cell)                            -- i la graella la col·loca
 ```
 
-- **`ui.grid_entry(w, h)`** és la cel·la: el mateix control que `ui.list_entry`
- —paper, tinta, `marked` i el cercle— i
-  **sense la línia del separador**, perquè una reixa no té files separades. **No
- pinta cap paraula**: el contingut és
+- **`ui.grid_entry(w, h)`** és la cel·la: el mateix control que `ui.list_entry` —paper, tinta, `marked` i el cercle— i
+  **sense la línia del separador**, perquè una reixa no té files separades. **No pinta cap paraula**: el contingut és
   el que l'app hi posa.
-- **Qui diu on va cada cel·la és el nucli**, amb la mateixa aritmètica que el pi
-ntat i el dit: la graella en dona la
-  caixa a l'app (`icon_grid_cell`, per dins del pont) i el pont hi posa el cont
-rol amb `canvas_resize` i
-  `canvas_place`. Una cel·la d'una pàgina on la graella no és **no té caixa**,
-   i el pont la posa fora del marc, allà
+- **Qui diu on va cada cel·la és el nucli**, amb la mateixa aritmètica que el pintat i el dit: la graella en dona la
+  caixa a l'app (`icon_grid_cell`, per dins del pont) i el pont hi posa el control amb `canvas_resize` i
+  `canvas_place`. Una cel·la d'una pàgina on la graella no és **no té caixa**, i el pont la posa fora del marc, allà
   on el retall no la compon i el dial no hi arriba.
-- **`items` i les entrades conviuen**, com a la llista: si la graella té fills,
- la cel·la és el fill i el control
-  només pinta **el paper de la pàgina i el peu**; si no en té, es pinten les cel
-·les de dades com sempre. **El nombre de
-  cel·les d'una graella d'entrades és el de fills**, i amb ell es compten les pà
-gines que diu el peu.
-- **Les fletxes caminen les cel·les i la pàgina segueix el cursor**, igual que
-amb dades: no hi ha res a fer a l'app
-  a part de posar `index` i de sentir-ho a `on_page(self, page)` si li convé.
-- **Cada cel·la és una parada del dial** pel fet de ser un fill, com les entrad
-es de la llista.
+- **`items` i les entrades conviuen**, com a la llista: si la graella té fills, la cel·la és el fill i el control
+  només pinta **el paper de la pàgina i el peu**; si no en té, es pinten les cel·les de dades com sempre. **El nombre
+  de cel·les d'una graella d'entrades és el de fills**, i amb ell es compten les pàgines que diu el peu.
+- **Les fletxes caminen les cel·les i la pàgina segueix el cursor**, igual que amb dades: no hi ha res a fer a l'app a
+  part de posar `index` i de sentir-ho a `on_page(self, page)` si li convé.
+- **Cada cel·la és una parada del dial** pel fet de ser un fill, com les entrades de la llista.
 
 ### `ui.list`: files en pàgines, i mai scroll (0.71.0)
 **A la tinta no es fa scroll**: un scroll és un centenar de pintats petits i una pàgina és un de sol. Per això una
