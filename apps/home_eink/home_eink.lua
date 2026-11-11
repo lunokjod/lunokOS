@@ -99,6 +99,7 @@ local kCachePictures = kCacheText + kCacheTextBytes
 
 local cache = nil          -- the block, or nil when the system gave none
 local cached = {}          -- the id of an app to { title=, icon=, slot= }, as the block says
+local cached_order = {}    -- the ids the block gave, in the order it gave them (the sorted order of the page)
 local slots = 0            -- how many pictures the block holds
 local warm = {}            -- the ids whose picture is in the block, so a paint is a copy
 
@@ -124,6 +125,7 @@ end
 local function load_cache()
   cache = nil
   cached = {}
+  cached_order = {}
   slots = 0
   warm = {}
   local block, err = nil, nil
@@ -157,6 +159,7 @@ local function load_cache()
     if id ~= nil then
       slot = tonumber(slot)
       cached[id] = { title = title, icon = icon, slot = slot }
+      cached_order[#cached_order + 1] = id
       if slot + 1 > slots then slots = slot + 1 end
       if has == '1' then
         warm[id] = true
@@ -485,39 +488,82 @@ end
 
 -- ------------------------------------------------------------------ the app
 
--- **The names, and nothing read yet**: this is what makes the page arrive at once. This app is not in it —a launcher
--- does not list itself— and the rest is asked for one at a time from the loop below.
-do
+-- **The names of the door and nothing read yet**: this is what makes the page arrive at once, and it is the only call of
+-- the door a page needs. This app is not in it —a launcher does not list itself— and the rest of what a cell says is asked
+-- for one app per turn from the loop below, unless the cache of the session already knows it.
+local function ask_the_door()
+  ids = {}
   local all = apps.list()
   if all == nil then
     console.print('home: the door of the apps did not answer')
-  else
-    for i = 1, #all do
-      if all[i] ~= app.id then
-        ids[#ids + 1] = all[i]
-      end
+    return false
+  end
+  for i = 1, #all do
+    if all[i] ~= app.id then
+      ids[#ids + 1] = all[i]
     end
-    -- **The page is in the order of the names of the door and it does not move after** (0.154.0): the titles arrive one at
-    -- a time, and a grid that reorders itself when one lands is a grid whose cells jump under the finger. The order of
-    -- the disk is not one a person can learn either, so the names are sorted once, here, before the first cell.
-    table.sort(ids)
+  end
+  -- **The page is in the order of the names of the door and it does not move after** (0.154.0): the titles arrive one at a
+  -- time, and a grid that reorders itself when one lands is a grid whose cells jump under the finger. The order of the
+  -- disk is not one a person can learn either, so the names are sorted once, here, before the first cell.
+  table.sort(ids)
+  console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
+  return true
+end
+
+-- **What a page of these names needs from the block and from the queue**: a name the cache has is a cell that is already
+-- whole —title and picture— and one it has not is a turn of the queue (docs/30, docs/75).
+local function fill_from(names)
+  for i = 1, #names do
+    local id = names[i]
+    local was = cached[id]
+    if was ~= nil then
+      known[id] = { title = was.title, icon = was.icon }
+    else
+      queue[#queue + 1] = id
+    end
   end
 end
 
-console.print(string.format('home: %d ids: %s', #ids, table.concat(ids, ' ')))
+-- **The door is asked again while the page is up, once** (0.179.1): the page of a warm cache is built from the block
+-- before anything is read —it is what makes the return instant— and the door answers in the turn after. When its list is the
+-- one the page has, nothing happens at all; when an app was installed or removed in this session, the page is laid out
+-- again with the door's list, which is the price of not showing a page that lies (docs/30, docs/40).
+local function reconcile()
+  local before_count = #ids
+  local before_first = ids[1]
+  local before_last = ids[#ids]
+  if not ask_the_door() then return false end
+  if #ids == before_count and ids[1] == before_first and ids[#ids] == before_last then
+    local same = true
+    for i = 1, #ids do
+      if known[ids[i]] == nil then same = false end
+    end
+    if same then return false end
+  end
+  fill_from(ids)
+  return true
+end
 
 -- **The cache of the session, before the first cell** (0.179.0): the side of a picture is what names its place in the block,
--- so the cell is measured first, and an app the block already knows needs neither its manifest nor its file for this page
--- to be whole —the queue is only the apps that are not in it— (docs/30, docs/75).
+-- so the cell is measured first. A block with records is a page that is built at once; a cold one —or a disk whose names
+-- the block does not have— asks the door first, which is what this launcher did before there was a cache (docs/30, docs/75).
 measure()
 load_cache()
-for i = 1, #ids do
-  local was = cached[ids[i]]
-  if was ~= nil then
-    known[ids[i]] = { title = was.title, icon = was.icon }
-  else
-    queue[#queue + 1] = ids[i]
+local from_cache = false
+if #cached_order > 0 then
+  for i = 1, #cached_order do
+    if cached_order[i] ~= app.id then
+      ids[#ids + 1] = cached_order[i]
+      from_cache = true
+    end
   end
+end
+if from_cache then
+  fill_from(cached_order)
+else
+  ask_the_door()
+  fill_from(ids)
 end
 
 -- **The size of the page that is on the glass** (0.168.3): a call of `on_resize` that says the size the page already has is
@@ -559,6 +605,9 @@ end
 -- **The loop is the queue and the paint**: a turn asks for the manifest of one app and shows what changed; a turn with
 -- nothing to ask only keeps the kernel turning, and a present with nothing new draws nothing (docs/30, docs/90).
 local kept = false
+-- **The door is asked in the turn after a page that came from the block** (0.179.1): a page of the cache is on the glass
+-- before anything of the disk is read, and the turn that follows is the one that says whether it is still the disk's list.
+local checked = not from_cache
 
 while true do
   local painted = false
@@ -571,6 +620,12 @@ while true do
     again = false
     build()
     painted = true
+  elseif not checked then
+    checked = true
+    if reconcile() then
+      build()
+      painted = true
+    end
   elseif head > #queue and not kept then
     -- **And the cache is written once the page is whole** (0.179.0): every manifest has arrived and every picture it could
     -- draw is in the block, so the next run of this launcher —which is every time an app ends— has no disk to read

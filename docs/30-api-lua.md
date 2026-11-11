@@ -280,8 +280,15 @@ sistema i és el primer client d'aquestes dues crides.
 en una **memòria de sessió** (`sys.session('apps', …)`, més avall) i, quan torna —que en una placa de tres tecles és cada
 cop que una app s'acaba—, la pàgina és sencera **al primer torn**: el log diu `home: cache warm, 10 apps, 9 pictures` i no
 hi ha cap `home: app`, perquè la cua de manifests és buida i cada icona és un `cv:blit` d'un bloc i no una lectura ni una
-descodificació. L'única cosa que es pregunta igualment és **`apps.list()`**: una app instal·lada en aquesta sessió ha de
-sortir a la graella, i la volta de la porta és el preu de saber-ho.
+descodificació.
+
+**I la porta es pregunta després de la pàgina, no abans** (0.179.1): amb un bloc calent el llançador dibuixa la graella
+**sense llegir res** i és el **torn següent** el que demana `apps.list()`; si la llista és la de la pàgina no passa res, i si
+una app s'ha instal·lat o desinstal·lat en aquesta sessió la pàgina es torna a fer amb la llista de la porta i només es
+demana el manifest de les que són noves. El log d'un retorn diu, en aquest ordre, `home: cache warm, …`, `home: 10 cells`
+—la pàgina, del bloc—, `home: 10 ids: …` —la porta, que hi està d'acord— i cap `home: app`; i el d'una app instal·lada
+diu `home: 11 ids`, `home: 11 cells` i `home: app newone` (mesurat a l'emulador amb una carpeta posada a la targeta
+mentre corria).
 
 ## `app`
 

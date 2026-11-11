@@ -5598,6 +5598,20 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.2 (11/11): **the page of the launcher is up before the door is asked**. The owner: *«vull que l'app home_eink en faci
+// us per carregar més ràpid tot al tornar durant la mateixa sessió»*, and the return still walked the door of `apps` before
+// the first cell —twenty-one stats of the flash, small but first—:
+//   - **a warm block is the page**: the ids and the pictures of the block are the grid, the grid is built and presented
+//     before anything of the disk is read, and the log of a return is `cache warm` → `10 cells` → and nothing else;
+//   - **and the door is asked in the turn after**, once (`reconcile`): when its list is the page's, that is the whole cost
+//     of knowing —no rebuild, no paint— and when an app was installed or removed in this session the page is laid out again
+//     with the door's list and only the manifest of the new names is queued. It is the price of a page that does not lie about
+//     a disk that changed under it (docs/30, docs/40);
+//   - **measured on the emulator**: a return is `home: cache warm, 10 apps, 9 pictures`, `home: 10 cells`, `home: 10 ids: …`
+//     and no `home: app`; and with a folder dropped on the card while the board ran, `home: 10 cells` → `home: 11 ids` →
+//     `home: 11 cells` → `home: app newone`, which is the reconcile doing its job. `test_apps` 200/200 with the two cases of
+//     the launcher unchanged.
+
 // 0.179.1 (11/11): **the cache of the launcher fits the board it is on**. `home_eink` asked for 32 768 B of session memory
 // and a board that could not give them had no cache at all, when the records —the manifests, which are what the queue of the
 // page pays for one turn each— are 1 544 B and are worth having alone:
@@ -5968,7 +5982,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.1";
+static const char kVersion[] = "0.179.2";
 
 }  // namespace kernel
 
