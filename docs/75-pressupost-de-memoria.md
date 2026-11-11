@@ -600,6 +600,13 @@ Un bloc que no s'ha pogut donar mai no arriba al relleu, i un que s'ha donat dei
 l'objecte de l'app que el tenia respon `the session memory was given back` en lloc d'escriure a memòria lliure (docs/30,
 docs/90).
 
+**I cada bloc que va i ve ho diu al registre** (0.179.3), perquè una memòria que el sistema es pot quedar sense avisar és una
+memòria que fa desaparèixer una pàgina i ningú no sap per què: `[I][MEMORY] <app> asks for '<clau>': N B, made` quan es fa,
+`… and it has them` quan es troba, `… grown from M` quan creix, `[I][MEMORY] <app> gives back '<clau>': N B` quan és l'app
+qui el dóna (`block:release()`), i quan és el sistema —el relleu de l'allocator— **una línia per bloc** amb el motiu
+`the memory is short` i **una de groga amb el total**: `[W][MEMORY] the memory is short: 2 block(s), 1 081 344 B given back`.
+Una taula sense cap fila lliure i una petició que no hi cap també es diuen, amb `[W]`, i són dues coses diferents (docs/30).
+
 **Què s'hi guarda i a quin preu, mesurat a l'emulador**: el llançador hi deixa els manifests (títol i camí de la icona) i
 **les icones ja descodificades** (72 × 72 a quatre bits són 2 592 B cada una, deu apps són 25 920 B i el bloc sencer
 32 768), i la segona pàgina **no llegeix ni un fitxer**: el log diu `home: cache warm, 11 apps, 10 pictures` i no hi ha

@@ -1401,6 +1401,9 @@ struct LuaSession {
   // so a number that only goes up is what tells an object of the app that the block under it is not there any more —the
   // same idea as the generation of a canvas (docs/75, docs/90)—.
   uint32_t generation;
+  // **And the key it was asked under** (0.179.3): `block:release()` is the app giving its memory back before it ends, and
+  // the key is what the table is asked with (docs/30, docs/75).
+  char key[16];
 };
 
 LuaSession* session_check(lua_State* L, int idx) {
@@ -1455,6 +1458,22 @@ int l_session_size(lua_State* L) {
   return 1;
 }
 
+// **`block:release()`** (0.179.3): the app gives its memory back, which is the one release that is not the allocator's —an
+// app that has finished with a cache and wants the block for something else says so here, and the log line is the app's
+// and not the system's (docs/30, docs/75).
+int l_session_release(lua_State* L) {
+  LuaSession* block = session_check(L, 1);
+  if (g_session_ops.release == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no session memory");
+  }
+  const bool gone = g_session_ops.release(block->key);
+  block->bytes = nullptr;
+  block->size = 0;
+  if (!gone) return push_nil_error(L, "E_INVAL", "that block was not the app's");
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
 int l_session_gc(lua_State* L) {
   // **The block is the kernel's and it outlives the interpreter**: giving it back here would throw away the cache of the
   // app that is about to be started again, which is the whole point of a session memory (docs/30).
@@ -1483,6 +1502,7 @@ void open_session_library(lua_State* L) {
   set_function(L, "write", l_session_write);
   set_function(L, "clear", l_session_clear);
   set_function(L, "size", l_session_size);
+  set_function(L, "release", l_session_release);
   lua_setfield(L, -2, "__index");
   lua_pushcfunction(L, &l_session_gc);
   lua_setfield(L, -2, "__gc");
@@ -1512,6 +1532,7 @@ int l_sys_session(lua_State* L) {
   block->bytes = static_cast<uint8_t*>(bytes);
   block->size = got;
   block->generation = g_session_ops.generation();
+  snprintf(block->key, sizeof(block->key), "%s", key);
   luaL_getmetatable(L, kSessionMeta);
   lua_setmetatable(L, -2);
   return 1;

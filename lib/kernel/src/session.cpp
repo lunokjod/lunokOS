@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "kernel/log.h"
 #include "kernel/meter.h"
 #include "pal/pal.h"
 
@@ -62,6 +63,7 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
     Block& block = g_blocks[held];
     // **A block that is there and is smaller than what is asked for grows**, and a resize that the memory refuses leaves
     // the block where it is: the app gets what it had and decides (docs/75).
+    const size_t was = block.size;
     if (bytes > block.size) {
       void* bigger = pal::extra_memory().resize(block.bytes, bytes, true);
       if (bigger != nullptr) {
@@ -71,12 +73,27 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
         block.size = bytes;
       }
     }
+    // **And it says so** (0.179.3): an app that keeps memory for the session is the first thing that goes when the board
+    // is short, and a log that does not say who asked for what is a log that cannot explain a page that came back empty.
+    if (block.size > was) {
+      log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, grown from %u", wanted_app, wanted_key,
+                 static_cast<unsigned>(block.size), static_cast<unsigned>(was));
+    } else {
+      log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, and it has them", wanted_app, wanted_key,
+                 static_cast<unsigned>(block.size));
+    }
     got = block.size;
     return block.bytes;
   }
 
   const int16_t slot = free_slot();
-  if (slot < 0) return nullptr;
+  if (slot < 0) {
+    // **A table that has no free row is not a memory that is full**: the app is told the same null and the log says which
+    // of the two it was (docs/75).
+    log_printf(pal::kLogWarn, "MEMORY", "%s asks for '%s': %u B, and the table of %u is full", wanted_app, wanted_key,
+               static_cast<unsigned>(bytes), static_cast<unsigned>(kMaxBlocks));
+    return nullptr;
+  }
   void* made = nullptr;
   {
     meter::Scope scope(meter::kExtraAlloc);
@@ -84,7 +101,11 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   }
   // **A block that does not fit is an app without a cache** and not a fault: the table is not touched, and the app is
   // told by the null it gets (docs/30).
-  if (made == nullptr) return nullptr;
+  if (made == nullptr) {
+    log_printf(pal::kLogWarn, "MEMORY", "%s asks for '%s': %u B, and there is no room", wanted_app, wanted_key,
+               static_cast<unsigned>(bytes));
+    return nullptr;
+  }
   memset(made, 0, bytes);
   Block& block = g_blocks[slot];
   copy_name(block.app, wanted_app);
@@ -92,6 +113,8 @@ void* acquire(const char* app, const char* key, size_t bytes, size_t& got) {
   block.bytes = made;
   block.size = bytes;
   block.used = true;
+  log_printf(pal::kLogInfo, "MEMORY", "%s asks for '%s': %u B, made", wanted_app, wanted_key,
+             static_cast<unsigned>(bytes));
   got = bytes;
   return made;
 }
@@ -101,6 +124,10 @@ bool release(const char* app, const char* key) {
   const int16_t held = find(app, key);
   if (held < 0) return false;
   Block& block = g_blocks[held];
+  // **The app gives its own block back, and the log says how big it was**: the reason a block goes is part of what makes a
+  // session memory explainable —this one is the app's choice, the one below is the allocator's— (docs/75).
+  log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B", block.app, block.key,
+             static_cast<unsigned>(block.size));
   pal::extra_memory().release(block.bytes);
   block = Block();
   ++g_generation;
@@ -109,14 +136,29 @@ bool release(const char* app, const char* key) {
 
 void release_all() {
   bool any = false;
+  size_t bytes = 0;
+  uint8_t blocks = 0;
   for (uint8_t i = 0; i < kMaxBlocks; ++i) {
     if (!g_blocks[i].used) continue;
+    // **Each one says who it was**, because the block that goes is the app's and a person reading the log wants to know
+    // which page it was (docs/75).
+    log_printf(pal::kLogInfo, "MEMORY", "%s gives back '%s': %u B, the memory is short", g_blocks[i].app,
+               g_blocks[i].key, static_cast<unsigned>(g_blocks[i].size));
+    bytes += g_blocks[i].size;
     pal::extra_memory().release(g_blocks[i].bytes);
     g_blocks[i] = Block();
     any = true;
+    ++blocks;
   }
   // **The objects that pointed at those blocks are stale from now on**, which is what the generation says to the bridge.
   if (any) ++g_generation;
+  // **And the line that says it was the allocator and not an app** (0.179.3): it is a warning because it is the moment a
+  // board decides that a cache is worth less than the block that asked, and it is one line per relief and not one per
+  // block when there was nothing to give (docs/75).
+  if (any) {
+    log_printf(pal::kLogWarn, "MEMORY", "the memory is short: %u block(s), %u B given back", static_cast<unsigned>(blocks),
+               static_cast<unsigned>(bytes));
+  }
 }
 
 uint8_t count() {

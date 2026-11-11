@@ -5598,6 +5598,25 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.3 (11/11): **the memory of a session says every time a block comes and goes**. The owner: *«Afegeix logs per quan un
+// app reclama memoria de sessió o es alliberada (tant per l'app com per el sistema)»*, and a cache the system can take away
+// without a word is a page that disappears and nobody knows why:
+//   - **the ask**: `[I][MEMORY] home_eink asks for 'apps': 32768 B, made` when the block is new, `… and it has them` when it
+//     was already there, and `… grown from 4096` when it grew. A refusal says which of the two it was —`and there is no
+//     room` or `and the table of 8 is full`— with `[W]`, because the table having no row is not the memory being full;
+//   - **the give**: `[I][MEMORY] hog gives back 'hog': 4096 B` when the app gives it (`block:release()`, a door that was in
+//     the table of the bridge and had no call in Lua until now), and when it is the **allocator** that takes it —one line per
+//     block, with `the memory is short`— plus the one line that sums it up: `[W][MEMORY] the memory is short: 2 block(s),
+//     1 081 344 B given back`. The relief is silent when it had nothing to give, so a board that is simply out of memory
+//     does not fill the ring with zeros;
+//   - **`log_printf` is safe inside the relief**: it formats in a buffer of the stack and writes to the console, and it
+//     takes no block from the allocator that is refusing one (docs/30, docs/75);
+//   - **measured on the emulator**: the launcher's two runs say `made` and `and it has them`; an app that asks for a megabyte
+//     and then eight canvases of two thousand and forty-eight pixels makes the relief fire —`home_eink gives back 'apps': 32 768
+//     B, the memory is short`, `hog gives back 'hog': 1 048 576 B, …`, `the memory is short: 2 block(s), 1 081 344 B given
+//     back`— and the object of the app that held the block answers `the session memory was given back` from then on; a
+//     `block:release()` of the app's own says `hog gives back 'hog': 4 096 B` and the next ask is `made` again.
+
 // 0.179.2 (11/11): **the page of the launcher is up before the door is asked**. The owner: *«vull que l'app home_eink en faci
 // us per carregar més ràpid tot al tornar durant la mateixa sessió»*, and the return still walked the door of `apps` before
 // the first cell —twenty-one stats of the flash, small but first—:
@@ -5982,7 +6001,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.2";
+static const char kVersion[] = "0.179.3";
 
 }  // namespace kernel
 
