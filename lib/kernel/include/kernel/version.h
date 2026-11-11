@@ -5598,6 +5598,14 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.14 (11/11): **and the sample book does not go to a board with no screen either**. The 0.179.13 left the
+// pictures of the boot and the faces of the text out of the image of a board whose identity says `LUNOK_GLASS 0` and
+// kept `epub/la-vaca-cega.epub` in it, which is 4 845 B of a book that only the reader opens —and the reader is
+// `book.cpp`, which that build does not compile—: a file nobody on that board can read. It goes with the other two
+// now, because a rule that leaves two of the three out is a rule nobody can explain, and the line of the disk says
+// all three: `…, 7 files of the boot, of the faces and of the sample book left out (no glass)`. The disk of a 4 MB
+// board with no glass is `data/` and the three sample files of `res/`, about 1 900 B (docs/70, docs/85).
+
 // 0.179.13 (11/11): **a board with no glass is not given the pictures of the boot nor the faces of the text**. The
 // build of the ATOM stopped with `lfs warn:475: No more free space 548` and the line under it told the person to carry
 // fewer apps with `custom_apps`, which is what that environment already does: the four boards without a panel carry no
@@ -6225,7 +6233,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.13";
+static const char kVersion[] = "0.179.14";
 
 }  // namespace kernel
 

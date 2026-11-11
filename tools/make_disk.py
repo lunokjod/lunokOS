@@ -201,13 +201,16 @@ def rebuild():
         else:
             shutil.copy2(source, target)
     os.makedirs(os.path.join(DISK_DIR, "data"), exist_ok=True)
-    # **A board with no glass is not given what only a glass reads** (11/11): the pictures of the boot and the faces of
-    # the text are the two folders nothing of that build can open, and they are more than the whole LittleFS of a 4 MB
-    # board —1 558 434 B and 315 805 B against 1 441 792 B—, so an image that carries them is not a tight one: it is
-    # an image the tool writes with files left out and a SUCCESS printed over them (docs/70, docs/85).
+    # **A board with no glass is not given what only a glass reads** (11/11): the pictures of the boot, the faces of the
+    # text and the sample book are the three things nothing of that build can open —`splash.cpp`, `font.cpp` and
+    # `book.cpp`, all of them inside `#if LUNOK_GLASS`—, and the first two are more than the whole LittleFS of a 4 MB
+    # board —1 558 434 B and 315 805 B against 1 441 792 B—, so an image that carries them is not a tight one: it is an
+    # image the tool writes with files left out and a SUCCESS printed over them (docs/70, docs/85). **A book on a board
+    # with no screen is a file nobody can read**: it is 4 845 B and it goes with the other two, because a rule that
+    # leaves two of the three out is a rule nobody can explain.
     left_out = 0
     if not glass_of_board():
-        for name in ("res/splash", "res/fonts"):
+        for name in ("res/splash", "res/fonts", "epub"):
             path = os.path.join(DISK_DIR, name)
             if os.path.isdir(path):
                 left_out += sum(len(names) for _, _, names in os.walk(path))
@@ -258,7 +261,7 @@ def rebuild():
     # **The files a board with no glass was not given are said too**: a disk that is smaller than the sum of its
     # folders is a disk a person has to be able to explain, and the one who explains it is the line of the build.
     if left_out:
-        how += ", %d files of the boot and of the faces left out (no glass)" % left_out
+        how += ", %d files of the boot, of the faces and of the sample book left out (no glass)" % left_out
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
     # **A boot that names an app the disk does not carry is said here and not discovered on the board** (found on the
     # Paper the 11/11: `no such app: home_eink` at the prompt and a warning in the log, because `custom_apps` of that
