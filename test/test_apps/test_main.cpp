@@ -7642,6 +7642,95 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   kernel::boot(hal::platform());
 }
 
+// **A plane of the glass is painted with no arithmetic at all** (0.179.15): a `.e4` file is the page itself —four bits
+// a pixel, one byte for two, `width/2` bytes a row and no header—, so `splash::show` reads it into one block and
+// blits it at 0,0 instead of decoding a picture and centring it. What the case measures is that the bytes of the file
+// are the pixels of the glass, that a plane of another size is refused with the reason instead of painted in a corner,
+// and that the plane wins over the BMP of the same moment —which is what makes a disk that carries both read the fast
+// one— (docs/30, docs/50).
+void test_a_plane_of_the_glass_is_painted_as_it_is(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_plane = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t stride = static_cast<uint16_t>((glass->width() + 1u) / 2u);
+  const uint32_t page = static_cast<uint32_t>(stride) * glass->height();
+  TEST_ASSERT_TRUE(page > 4096);
+
+  // **The page, white, with a black square of eight by eight at its corner**: the file is that buffer, byte for byte,
+  // and the pixels of the glass have to be the ones of the file and not a decode of them.
+  static uint8_t plane[540 * 960 / 2];
+  TEST_ASSERT_TRUE(page <= sizeof(plane));
+  memset(plane, 0xFF, page);
+  for (uint16_t y = 0; y < 8; ++y) {
+    for (uint16_t x = 0; x < 8; ++x) {
+      const uint32_t at = static_cast<uint32_t>(y) * stride + x / 2;
+      plane[at] = static_cast<uint8_t>((x & 1) ? (plane[at] & 0xF0) : (plane[at] & 0x0F));
+    }
+  }
+  TEST_ASSERT_TRUE(write_plane("/res/splash/probe.e4", plane, page));
+  TEST_ASSERT_TRUE(kernel::splash::show("/res/splash/probe.e4"));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(7, 7));
+  // The first pixel after the square, the row under it and the far corner are the white of the file.
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(8, 0));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 8));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(glass->width() - 1),
+                                              static_cast<uint16_t>(glass->height() - 1)));
+
+  // **A plane of another size is not this glass's page**, and it says so: a picture painted in a corner of a page
+  // nobody asked for is the thing this format exists to avoid (docs/50).
+  TEST_ASSERT_TRUE(write_plane("/res/splash/off.e4", plane, page - 2));
+  TEST_ASSERT_FALSE(kernel::splash::show("/res/splash/off.e4"));
+  TEST_ASSERT_EQUAL_STRING("the plane is not the size of this glass", kernel::splash::last_error());
+
+  // **And the plane is the one that is read when both are there**: the extension is the first of the list, which is
+  // what makes a disk that carries the drawing and the plane read the plane (docs/30).
+  const auto write_bmp = [storage](const char* path) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, kTwoByTwoBmp, sizeof(kTwoByTwoBmp)) ==
+                    static_cast<int32_t>(sizeof(kTwoByTwoBmp));
+    storage->close(slot);
+    return ok;
+  };
+  TEST_ASSERT_TRUE(write_bmp("/res/splash/boot.bmp"));
+  TEST_ASSERT_TRUE(write_plane("/res/splash/boot.e4", plane, page));
+  char path[96];
+  TEST_ASSERT_TRUE(kernel::splash::path_of(kernel::splash::kBoot, path, sizeof(path)));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(path, "boot.e4"), path);
+  TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kBoot));
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(0, 0));
+
+  TEST_ASSERT_TRUE(kernel::splash::hide());
+  storage->remove("/res/splash/probe.e4");
+  storage->remove("/res/splash/off.e4");
+  storage->remove("/res/splash/boot.e4");
+  storage->remove("/res/splash/boot.bmp");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **An app that names a picture gets it painted before it starts** (0.114.0): the manifest says `splash` with a file
 // inside the app, the system washes the whole glass and paints it in the middle with the same call the moments use
 // —an app cannot paint before it runs—, and the first page it presents takes it away. **An app that names none paints
@@ -12973,6 +13062,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
+  RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);

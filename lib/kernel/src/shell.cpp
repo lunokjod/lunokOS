@@ -26,6 +26,7 @@
 #include "kernel/button.h"
 #include "kernel/cfg.h"
 #include "kernel/colour.h"
+#include "kernel/display.h"
 #include "kernel/kernel.h"
 #include "kernel/led.h"
 #include "kernel/line_editor.h"
@@ -563,6 +564,7 @@ void print_help(const char* only) {
   help_line("  mounts            the mounted file systems and their room", only);
   help_line("  splash [<moment>|hide|<path>]  a picture on the glass, washed whole (boot,", only);
   help_continuation("                    poweroff, reboot, charging, sleep, or the path of a file)", only);
+  help_line("  panel [edge|box]  where a partial paint starts: the edge of the image or the change", only);
   help_line("  cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>]]  settings: where the apps' cfg", only);
   help_continuation(
       "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
@@ -765,6 +767,37 @@ void print_apps() {
   if (apps::for_each(nullptr, &print_app, nullptr) == 0) {
     out("  no apps\r\n");
   }
+}
+
+// **`panel`**: which rectangle a partial paint asks the glass for, and whether it takes one that does not start at the
+// edge of its own image (0.179.12). The rule of the 0.118.7 costs the pixels between that edge and the change on every
+// partial paint —**the whole height of the page for a cell at the bottom of a launcher**— and it was decided on a night
+// where the panel was never selected again after the splash (0.118.9), so it is a question a person can put to the
+// glass and read in the log: `paint 24,60 108x242` instead of `paint 0,274 168x242` (docs/30, docs/50).
+bool command_panel(const char* rest) {
+  char words[1][kWordCap];
+  size_t count = 0;
+  if (!read_words(rest, words, 1, count)) return false;
+  if (count == 0) {
+    if (!display::available()) {
+      out("panel: no glass on this board\r\n");
+      return true;
+    }
+    out(display::partial_from_the_box() ? "panel: a partial paint starts at the box of the change\r\n"
+                                        : "panel: a partial paint starts at the left edge of the image\r\n");
+    out("panel [edge|box]\r\n");
+    return true;
+  }
+  if (strcmp(words[0], "edge") != 0 && strcmp(words[0], "box") != 0) {
+    usage_out("usage: panel [edge|box]\r\n");
+    return false;
+  }
+  if (!display::set_partial_from_the_box(strcmp(words[0], "box") == 0)) {
+    out("panel: this glass does not have the choice\r\n");
+    return false;
+  }
+  out(strcmp(words[0], "box") == 0 ? "panel: box\r\n" : "panel: edge\r\n");
+  return true;
 }
 
 // **`splash`**: the picture of a moment on the glass, washed whole, or the glass given back to paper. With no
@@ -4416,6 +4449,9 @@ bool execute(char* line) {
   }
   if (strncmp(line, "splash", 6) == 0 && (line[6] == '\0' || line[6] == ' ')) {
     return command_splash(line + 6);
+  }
+  if (strncmp(line, "panel", 5) == 0 && (line[5] == '\0' || line[5] == ' ')) {
+    return command_panel(line + 5);
   }
   if (strncmp(line, "run", 3) == 0 && (line[3] == '\0' || line[3] == ' ')) {
     // A second word is the file the app is pointed at: `run txt res/notes.txt` is the app and what

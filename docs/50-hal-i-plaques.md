@@ -897,6 +897,16 @@ la imatge, i aquest controlador no la camina. Des d'aquesta versió **la càrreg
 o sigui que repintar-los és repintar la veritat—, i **un pintat que neteja neteja tot el vidre** quan ja cobria mig
 panell o més (la splash i la primera pàgina d'una app); els que només mouen un número demanen `du` i no canvien.
 
+**I aquell mesurament no era net** (0.179.12): la mateixa arrencada tenia un segon error, trobat l'endemà —el
+panell no es tornava a seleccionar després de la splash (0.118.9)—, i **totes** les pintures posteriors a la
+primera fallaven fos quin fos el seu rectangle. O sigui que la regla de la columna 0 queda com a defecte i
+l'altra banda és una pregunta que es pot fer al vidre des del prompt: **`panel [edge|box]`** diu on comença un
+pintat parcial i el canvia. Amb `box` l'àrea que rep el controlador és **el requadre del canvi i no la
+franja**: al log d'una pàgina de cel·les del Paper, la cel·la de baix passa de `paint 0,274 652x242` a
+`paint 24,274 108x242` — sis vegades menys píxels i cap columna de pàgina—. La mesura que decideix si el
+controlador accepta el requadre és a la placa: amb `panel box`, o les cel·les es pinten on toca, o no es
+pinten i es torna amb `panel edge` (docs/30).
+
 #### La qualitat d'un `present`: la del que ha canviat (0.179.5)
 
 L'amo, amb el codi al davant: *«Comptant que totes les apps comencen amb un panell net i un buffer net. Perqué
@@ -998,6 +1008,23 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   algú demana amb l'ordre `splash`— i **en tornar de la pantalla sencera** (`ui::make_view`). **Els moments
   que baixen la placa no el demanen**: el `poweroff`, el `reboot` i la son pinten la seva imatge i la barra
   no ha de tornar-hi fins a la propera arrencada.
+- **Un splash no és una imatge de programa de dibuix: és el pla del vidre** (0.179.15). Un `.bmp` de 540 per
+  960 amb vuit bits és **519 478 B** i el panell en té quatre, o sigui que el camí antic llegia el fitxer
+  sencer, convertia 518 400 píxels amb una lluminància i un llindar del dither **un a un**, escrivia una
+  segona memòria de 246 240 B i la blitejava. El que la placa llegeix ara és un **`.e4`**: quatre bits a
+  píxel, un byte per a dos, el de l'esquerra al nibble alt, `width/2` bytes per fila i **cap capçalera** —
+  exactament l'embalatge de la imatge del controlador—, que són **259 200 B** del vidre de 540 per 960 (la
+  franja del sistema inclosa, que es pinta a sobre després).
+  Es llegeix en un sol bloc i es bliteja a `0,0` amb un `memcpy` per fila: ni descodificació, ni segona
+  memòria, ni el rentat previ (el blit cobreix cada píxel). L'ordre d'extensions fa que **`e4` guanyi** sobre
+  el PNG, el BMP i el JPEG d'aquell moment, i un pla que no és la mida d'aquest vidre es refusa amb la raó
+  («the plane is not the size of this glass») en comptes de pintar-se en una cantonada.
+  **`tools/e4pack.py`** és qui el fa, i la seva aritmètica és la del descodificador i no una segona: la
+  lluminància 601 (`(77r + 150g + 29b + 128) >> 8`) i el dither ordenat de quatre per quatre
+  (`(grey * 15 + bayer[y & 3][x & 3] * 16) / 255`), o sigui que una imatge empaquetada és la que el sistema
+  hauria pintat, píxel a píxel. **`make_disk` la fa servir a cada build** d'una placa amb vidre i deixa el
+  `.bmp` fora de la imatge: les tres imatges de l'arrencada passen de 1 558 434 B a 777 600 B, i el que
+  arriba al controlador per a cada una baixa de 519 478 B llegits i descodificats a 259 200 B copiats.
 - **I la imatge s'ha d'acabar de moure abans que la placa se'n vagi** (0.165.1): `splash::show` espera la tinta
   que es movia **abans** de la seva imatge i després demana un `gc16` de tot el panell, que és mig segon de
   tinta. Un `reboot` que talla la placa on la crida l'ha trobada deixa el vidre amb la pàgina d'abans: el que

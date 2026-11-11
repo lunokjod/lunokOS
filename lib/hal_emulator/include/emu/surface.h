@@ -29,6 +29,14 @@ class MemorySurface : public hal::ISurface {
             uint16_t stride) override;
   bool flush(hal::UpdateMode mode) override;
   bool idle() override;
+  // **The rectangle of a partial paint** (0.179.12): the glass of the emulator has no controller and no image walk,
+  // so it takes any box —and it says so, which is what lets the prompt's `panel` be a question with two answers
+  // here and one on the board (docs/50, docs/85).
+  bool partial_from_the_box() const override { return from_box_; }
+  bool set_partial_from_the_box(bool on) override {
+    from_box_ = on;
+    return true;
+  }
   // **Why a paint was refused**, in the words of the driver of the Paper (`--ink-refuse`), for the line the caller
   // writes (0.118.2, docs/50, docs/85).
   const char* last_error() const override { return why_; }
@@ -98,6 +106,8 @@ class MemorySurface : public hal::ISurface {
   uint16_t height_;
   uint16_t stride_;
   uint16_t rotation_ = 0;
+  // Whether a partial paint asks for the box of the change, which on this glass is always a yes (0.179.12).
+  bool from_box_ = false;
   uint8_t* bits_ = nullptr;
   // **The two buffers of the ink**: what the glass shows, and how dirty each pixel is, in four bits
   // each. They exist only when the model is on, because a test wants a paint that is instant and exact

@@ -5598,6 +5598,28 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.15 (11/11): **a splash is the plane of the glass and not a picture**. A `boot-*.bmp` of 540 by 960 at eight
+// bits is **519 478 B** and the panel has four, so the old path read the whole file, converted 518 400 pixels one at a
+// time —the 601 luminance and the threshold of a four-by-four ordered dither each—, wrote a second block of 246 240 B
+// and blitted it. The disk carries a **`.e4`** now: four bits a pixel, one byte for two, the left one in the high
+// nibble, `width/2` bytes a row and **no header at all**, which is the packing of the controller's own image.
+//   - **the load is one block and one blit**: 259 200 B of the glass —540 by 960, the bar included and painted over
+//     it after— read into extra memory and copied to the panel's image a row at a time, with no decode, no second
+//     buffer and no wash —the blit covers every pixel—;
+//   - **`tools/e4pack.py`** is what makes one, and its arithmetic is the decoder's and not a second: the 601 luminance
+//     `(77r + 150g + 29b + 128) >> 8` and the ordered dither `(grey * 15 + bayer[y & 3][x & 3] * 16) / 255`, so a
+//     picture packed there is the picture the system would have decoded, pixel for pixel;
+//   - **`make_disk` packs them at every build of a board with a glass** and leaves the drawing out of the image: the
+//     three pictures of the boot go from **1 558 434 B to 777 600 B**, and what reaches the controller for each one
+//     goes from 519 478 B read and decoded to 259 200 B copied. A picture the tool refuses —a PNG, a compressed
+//     BMP— **stays as it is** and the system decodes it the way it always did, so a folder of somebody's drawings is
+//     never left without a picture;
+//   - **`e4` is the first extension of the list**, so a disk that carries the drawing and the plane reads the plane;
+//     and a plane that is not the size of this glass is refused with the reason —`the plane is not the size of this
+//     glass`— instead of being painted in a corner (docs/30, docs/50).
+// What is not measured yet is the boot on the board: the sizes are, and the milliseconds of the decode are the one
+// number that wants the glass in hand.
+
 // 0.179.14 (11/11): **and the sample book does not go to a board with no screen either**. The 0.179.13 left the
 // pictures of the boot and the faces of the text out of the image of a board whose identity says `LUNOK_GLASS 0` and
 // kept `epub/la-vaca-cega.epub` in it, which is 4 845 B of a book that only the reader opens —and the reader is
@@ -6233,7 +6255,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.14";
+static const char kVersion[] = "0.179.15";
 
 }  // namespace kernel
 

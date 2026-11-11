@@ -73,6 +73,11 @@ class It8951 : public ISurface {
   // lets a 540-wide page live on a 960-wide glass without the controller having an opinion (docs/50).
   bool set_rotation(uint16_t degrees) override;
   uint16_t rotation() const override { return rotation_; }
+  // **Whether a partial paint may start where the change is** (0.179.12): false —the edge of the image, which is what
+  // the 0.118.7 measured and what this board has done since— until someone asks for the other one with `panel box`,
+  // because between the edge and the change there is half a page of ink that nobody asked to move (docs/50).
+  bool partial_from_the_box() const override { return from_box_; }
+  bool set_partial_from_the_box(bool on) override;
   // Why the last step that failed failed, for the console: a paint that is refused without a reason is
   // a flash to find out which of five things it was (docs/50).
   const char* last_error() const override { return why_; }
@@ -130,6 +135,9 @@ class It8951 : public ISurface {
   uint32_t measured_ms_ = 1050;
   // Whether the paint being waited for covered half the glass or more, which is what makes it a page (0.151.8).
   bool last_wide_ = false;
+  // **Whether the glass takes a rectangle that starts where the change is** (0.179.12): false is the edge of its image,
+  // which is the one the controller was measured to honour, and true is the box of the change and nothing more.
+  bool from_box_ = false;
   // **The way back for a controller that answers `ffff` and for nothing else** (0.151.3).
   bool bring_back();
   uint8_t revive_fails_ = 0;

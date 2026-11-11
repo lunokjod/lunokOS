@@ -38,6 +38,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 try:
     # **What this run is building**: a short disk is a problem of the image and not of the firmware, and a
@@ -95,6 +96,42 @@ def board_identity():
 
 def apps_of_board(boards, board_id, family):
     return board_id in boards or (family is not None and family != "" and family in boards)
+
+
+def pack_the_splash(folder):
+    """The `.bmp` of a splash folder into the plane of the glass, and the BMP out of the image.
+
+    **The arithmetic of a level is the decoder's and it lives in one place**: this script asks `tools/e4pack.py` and
+    keeps no second copy of the dither, because two of them would be two pictures that drift apart in silence. A
+    picture the tool refuses —a PNG, a compressed BMP— **stays as it is**, and the system decodes it the way it always
+    did: a folder of somebody's drawings is never left without a picture (docs/50).
+    """
+    tool = os.path.join(PROJECT, "tools", "e4pack.py")
+    if not os.path.isfile(tool):
+        print("make_disk: %s is not there, so the splash is carried as it was drawn" % tool)
+        return 0, 0
+    packed = 0
+    before = 0
+    after = 0
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith(".bmp"):
+            continue
+        source = os.path.join(folder, name)
+        target = os.path.join(folder, name[:-4] + ".e4")
+        # **The glass**, which is the one board of this project that has one: the plane is the whole surface —540 by
+        # 960, the bar of the system included and painted over it after— and its size is what `splash.cpp` checks
+        # before it paints (docs/50).
+        result = subprocess.run([sys.executable, tool, "--page", "540x960", source, target],
+                                capture_output=True, text=True)
+        if result.returncode != 0 or not os.path.isfile(target):
+            why = (result.stderr or result.stdout).strip().splitlines()
+            print("make_disk: %s stays as it is: %s" % (name, why[-1] if why else "the tool said nothing"))
+            continue
+        before += os.path.getsize(source)
+        after += os.path.getsize(target)
+        os.remove(source)
+        packed += 1
+    return packed, before - after
 
 
 def glass_of_board():
@@ -215,6 +252,15 @@ def rebuild():
             if os.path.isdir(path):
                 left_out += sum(len(names) for _, _, names in os.walk(path))
                 shutil.rmtree(path)
+    # **And the pictures of a board with a glass go to the disk as the plane of the glass** (0.179.15): the system reads
+    # a `.e4` with one copy of a row per row and no arithmetic at all —half the bytes of the BMP of the same picture—,
+    # and the drawing it was made from stays in the repository and not in the image (docs/50).
+    planes = 0
+    saved = 0
+    if glass_of_board():
+        splash_dir = os.path.join(DISK_DIR, "res", "splash")
+        if os.path.isdir(splash_dir):
+            planes, saved = pack_the_splash(splash_dir)
     # **The folder of apps is made again every time**: an app removed from `apps/`, or one a build stops
     # carrying, has to leave the disk, or the two drift apart in silence.
     apps_dir = os.path.join(DISK_DIR, "apps")
@@ -262,6 +308,8 @@ def rebuild():
     # folders is a disk a person has to be able to explain, and the one who explains it is the line of the build.
     if left_out:
         how += ", %d files of the boot, of the faces and of the sample book left out (no glass)" % left_out
+    if planes:
+        how += ", %d splash pictures as the plane of the glass (%d B smaller)" % (planes, saved)
     print("make_disk: %s is %d B in %d files, %s" % (os.path.relpath(DISK_DIR, PROJECT), payload, files, how))
     # **A boot that names an app the disk does not carry is said here and not discovered on the board** (found on the
     # Paper the 11/11: `no such app: home_eink` at the prompt and a warning in the log, because `custom_apps` of that

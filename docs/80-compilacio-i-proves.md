@@ -198,7 +198,7 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   havia passat amb els directoris. El que es deixa fora és la regla del `lib_ignore` de l'emulador —les
   identitats de placa i les meitats d'ESP32, que no són cosa de l'amfitrió— i **Lua, perquè és C**: el pas fa
   `clang++` i l'intèrpret com a C++ no és el mateix programa;
-- les **587 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.11: comptades l'11/11 en 2 min 51 s): les dotze de la 0.169.0 eren quatre
+- les **589 proves natives** (`pio test -e test`), i **cap de vermella** (0.179.16: comptades l'11/11 en 3 min 16 s): les dotze de la 0.169.0 eren quatre
   errors del codi i vuit casos que havien envellit, i la caiguda d'`test_book` amagava quaranta-nou casos d'`test_apps`
   que no s'havien executat mai (docs/75, docs/90, `kernel/version.h`). Les quatre de la 0.171.0 són les dues portes
   noves (`test_luabind`) i la pàgina de l'esborrador amb targeta i sense (`test_apps`), la de la 0.171.1 és el volum
@@ -226,8 +226,11 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   cursor d'una graella de cel·les del nucli que costa la cel·la i no la pàgina** —10 200 píxels contra els 90 000 d'una
   rentada sencera, i vermella amb el defecte tornat a posar—, **el camp que una app no ha escrit mai i que llegeix amb
   el valor per defecte** en comptes de `nil` i **una caixa que s'ajunta i s'empassa les peces que cobreix** (una sola
-  regió de `10,10,10,21` en comptes de tres; `test_apps` i `test_ui`). **Mesurades l'11/11: 587 casos verds en 2 min
-  51 s** (106 de `test_ui` i 208 de `test_apps`);
+  regió de `10,10,10,21` en comptes de tres; `test_apps` i `test_ui`), i les dues de la 0.179.15 i la 0.179.16 són
+  **un pla del vidre que es pinta tal com és** —els bytes del fitxer són els píxels de la pàgina, un pla d'una altra
+  mida es refusa i `.e4` guanya sobre el `.bmp` del mateix moment; `test_apps`— i **`panel` responent on comença un
+  pintat parcial**, amb el canvi i la seva negativa (`test_shell`). **Mesurades l'11/11: 589 casos verds en 3 min
+  16 s** (106 de `test_ui` i 209 de `test_apps`);
 - les **sis bandes**: `emulator` (amb SDL2, perquè també es compili la finestra), `m5-atom`, `m5-atom-matrix`,
   `m5-paper`, `esp32-devkit` i `ttgo-t-koala`. **Els noms dels entorns són els de les plaques**, amb
   guions i no amb espais, i és el nom sencer el que va a `-e`: `pio run -e m5-paper`. **Les sis les compila el CI**

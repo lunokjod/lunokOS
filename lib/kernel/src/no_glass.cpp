@@ -94,6 +94,19 @@ bool keyboard_key(const char*, uint32_t) { return false; }
 
 }  // namespace ui
 
+// **The rectangle of a paint is a question for a glass that is not here** (0.179.12): `panel` at the prompt asks
+// these three and answers `no glass on this board`, the same sentence the four boards without a panel give to
+// `splash` (docs/30, docs/50).
+namespace display {
+
+bool available() { return false; }
+
+bool partial_from_the_box() { return false; }
+
+bool set_partial_from_the_box(bool) { return false; }
+
+}  // namespace display
+
 }  // namespace kernel
 
 #endif  // !LUNOK_GLASS

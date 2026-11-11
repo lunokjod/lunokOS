@@ -408,6 +408,17 @@ class ISurface : public IDisplay {
   // a page nobody asked to be repainted is a page this system does not touch (docs/30, docs/50).
   virtual bool flush(UpdateMode mode) = 0;
   virtual bool idle() = 0;
+  // **Whether a partial paint may start where the change is, or has to start at the edge of the glass** (0.179.12):
+  // the controller of the Paper was measured to show nothing for a rectangle that does not begin at the left edge
+  // of its own image (0.118.7), and that measurement was taken while another fault was in the way —the panel was
+  // never selected again after the splash (0.118.9)—, so since then the pixels between that edge and the change are
+  // paid with every paint: a column of the page for one cell of a launcher. Which of the two a glass does is a
+  // question for the board and not for the kernel, and `panel` at the prompt asks it (docs/30, docs/50).
+  virtual bool partial_from_the_box() const { return false; }
+  virtual bool set_partial_from_the_box(bool on) {
+    (void)on;
+    return false;
+  }
   // **How the surface is turned.** 0, 90, 180 or 270 degrees: the width and height the surface reports are
   // the ones an app draws in, and a surface that turns does the work itself when it sends what changed.
   // A surface that cannot turn says no, and the panel of this board turns in software (docs/50).

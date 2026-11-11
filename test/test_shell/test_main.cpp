@@ -17,6 +17,7 @@
 #include "hal/hal.h"
 #include "hal/log.h"
 #include "kernel/apps.h"
+#include "kernel/display.h"
 #include "kernel/kernel.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
@@ -1394,6 +1395,66 @@ static void test_the_colours_are_the_prompt_an_error_and_a_directory() {
   kernel::shell::set_ansi(false);
 }
 
+// **Where a partial paint starts is a question for the glass, and the prompt can ask it** (0.179.12): the rectangle of
+// a partial update was sent from the left edge of the image because of a rule measured on a night with another fault in
+// the way (0.118.7, 0.118.9), and every partial paint pays the pixels between that edge and the change —the whole height
+// of a launcher's page for the cell at the bottom—. `panel` says what this glass does, takes the two words that change
+// it, refuses anything else, and the emulator —whose glass has no controller and takes any box— answers both (docs/30,
+// docs/50, docs/85).
+static void test_the_panel_says_where_a_partial_paint_starts() {
+  ensure_booted();
+  static char said[1024];
+  // **A glass to ask**: this suite boots without one because most of it is the shell, and `panel` is a question for a
+  // board that has a panel —the emulator's takes any box and says so (docs/50, docs/85).
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  // The glass this suite runs on takes any box, so the answer of before is the kernel's default and not a constant.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel edge"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: edge"), said);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::display::partial_from_the_box(), "the edge is what the box is not");
+
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel box"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: box"), said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::partial_from_the_box(), "the glass took it");
+
+  // With no word it says where it is and what it takes, which is what a person asks before typing either.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel: a partial paint starts at the box of the change"), said);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "panel [edge|box]"), said);
+
+  // **A third word is refused and changes nothing**: a command that guesses between two rectangles is a command that
+  // paints a page nobody asked for.
+  capture_begin();
+  TEST_ASSERT_FALSE(kernel::execute("panel middle"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(said, "usage: panel [edge|box]"), said);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::display::partial_from_the_box(), "a refused word changes nothing");
+
+  // The emulator is left as it was found: the edge, which is the default of the system and what the board does.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::execute("panel edge"));
+  capture_end(said, sizeof(said));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::display::partial_from_the_box(), "and back to the edge");
+
+  // **And the boot goes back to the one this suite found**: no model and no glass, which is what every other case of
+  // the file boots (docs/85).
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1440,6 +1501,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_log_line_carries_its_level_and_its_tag);
   RUN_TEST(test_the_log_is_painted_by_level);
   RUN_TEST(test_a_duration_is_written_in_the_scale_that_reads);
+  RUN_TEST(test_the_panel_says_where_a_partial_paint_starts);
   UNITY_END();
   return 0;
 }

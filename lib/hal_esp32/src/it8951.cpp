@@ -686,7 +686,13 @@ bool It8951::flush(UpdateMode mode) {
   // the image it loads is not the one it shows, and what comes back to the glass is the page before. A rectangle that
   // starts at zero covers the whole row of the image it belongs to, so the load walks the memory in the order it is
   // written; this costs the pixels between the edge and the change and nothing else (docs/50, docs/92 §33).
-  nx0 = 0;
+  //
+  // **And that night was not a clean measurement** (0.179.12): the same boot had a second fault, found a day later —the
+  // panel was never selected again after the splash (0.118.9)—, and every paint after the first one failed whatever
+  // its rectangle was. So the rule stays as the default and the other one is a question anyone can ask the glass with
+  // `panel box`: with it the area is the box of the change, the load takes the columns it needs and the page is left
+  // alone (docs/30, docs/50).
+  if (!from_box_) nx0 = 0;
   // And **a paint that cleans cleans the whole glass**: a `gc16` of a region leaves the ghost of everything outside it,
   // which is exactly what a change of page is, and it costs one whole page of ink for the pages that ask to be cleaned
   // —the splash and the first page of an app— and not for the ones that only move a number, which ask for `du`
@@ -868,6 +874,17 @@ bool It8951::allocate_image() {
   }
   memset(image_, static_cast<uint8_t>((kWhite << 4) | kWhite), bytes);
   dirty_ = false;
+  return true;
+}
+
+// **The other rectangle a partial paint can ask for** (0.179.12): the box of the change instead of the edge of the
+// image, which is a question about this controller and about the fault that was in the way when the edge was decided
+// (0.118.9). It says what it is doing because the glass is what has to answer it, and a paint that shows nothing is
+// told apart from a paint that shows the wrong thing by the box in the log (docs/50).
+bool It8951::set_partial_from_the_box(bool on) {
+  from_box_ = on;
+  hal::logf(pal::kLogInfo, "PANEL", "a partial paint starts %s",
+            on ? "at the box of the change" : "at the left edge of the image");
   return true;
 }
 

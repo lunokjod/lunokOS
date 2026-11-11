@@ -46,11 +46,13 @@ const uint8_t kMomentCount = static_cast<uint8_t>(sizeof(kMoments) / sizeof(kMom
 
 // **Where a moment looks and with which extensions**: the decoder reads more, and a splash is a picture a
 // person draws, so the three of a drawing program are the ones it is worth asking the disk for. The order
-// is the one that matters when two pictures of the same moment are there: PNG first (a page of the glass
-// is a PNG), then BMP (what a script writes) and then JPEG (a photograph) (docs/30, docs/50).
+// is the one that matters when two pictures of the same moment are there: **the plane of the glass first**
+// —four bits a pixel, no header, the image of the controller as it is, which costs one copy a row and not one
+// arithmetic a pixel (0.179.15)—, then PNG (a page of the glass is a PNG), then BMP (what a script writes) and
+// then JPEG (a photograph) (docs/30, docs/50).
 const char* const kFolder = "/res/splash";
 const char* const kCommon = "/res/splash";
-const char* const kExtensions[] = {"png", "bmp", "jpg"};
+const char* const kExtensions[] = {"e4", "png", "bmp", "jpg"};
 const uint8_t kExtensionCount = static_cast<uint8_t>(sizeof(kExtensions) / sizeof(kExtensions[0]));
 
 // **The biggest file this will read**, which is a page of this glass with the air of a photograph: the
@@ -295,6 +297,62 @@ bool show(Kind kind) {
   return true;
 }
 
+// **A plane of the glass**: a file whose name ends in `.e4`, which is four bits a pixel, one byte for two and the
+// left one in the high nibble — the packing the controller's own image has. There is no header at all: the picture is
+// the page, `width/2` bytes a row and `height` rows, so its size is the only thing there is to check (docs/50).
+bool is_a_plane(const char* path) {
+  const size_t len = strlen(path);
+  return len > 3 && strcmp(path + len - 3, ".e4") == 0;
+}
+
+// **The fastest a picture can reach this glass** (0.179.15): one block of the file's own bytes, one `blit` that the
+// driver copies a row at a time, and the wash of the page. **Half the bytes of a BMP of the same picture** —259 200
+// against 519 478 for 540 by 960—, **no decode** and **no second buffer**: the block is the picture and the panel's
+// image is the only other copy of it. What it does not do is centre a picture or cut one: a plane is the glass, and a
+// plane of another size is refused with the reason instead of painted in a corner (docs/30, docs/50).
+bool show_plane(const char* path, hal::ISurface* glass, const hal::Stat& info) {
+  const uint16_t width = glass->width();
+  const uint16_t height = glass->height();
+  const uint16_t stride = static_cast<uint16_t>((width + 1u) / 2u);
+  const size_t wanted = static_cast<size_t>(stride) * height;
+  if (wanted == 0) {
+    g_error = "this glass has no page to paint";
+    return false;
+  }
+  if (info.size != wanted) {
+    g_error = "the plane is not the size of this glass";
+    return false;
+  }
+  void* block = pal::extra_memory().allocate(wanted, true);
+  if (block == nullptr) {
+    g_error = "no room for the file of the picture";
+    return false;
+  }
+  size_t read = 0;
+  if (!vfs::read_file(path, static_cast<char*>(block), wanted, read) || read != wanted) {
+    release(block);
+    g_error = "the picture could not be read";
+    return false;
+  }
+  // **The glass is the picture**: no `clear` before it, because the blit covers every pixel of it —a wash of
+  // 259 200 B that the next line would write over— and no centre, because a plane that does not fit is refused above
+  // (docs/50).
+  glass->blit(0, 0, width, height, static_cast<const uint8_t*>(block), stride);
+  release(block);
+  // The version of the build goes over the picture like it does on every other one (0.165.0): it is a stamp of the
+  // system and not part of the file (docs/30).
+  draw_version(*glass);
+  settle(glass);
+  const bool painted = glass->flush(hal::UpdateMode::kGc16);
+  if (!painted) {
+    note_failure("the panel did not take the picture", glass->last_error());
+    return false;
+  }
+  log_printf(pal::kLogInfo, "SPLASH", "%s, %ux%u at 0,0, a plane of %u B", path,
+             static_cast<unsigned>(width), static_cast<unsigned>(height), static_cast<unsigned>(wanted));
+  return true;
+}
+
 bool show(const char* path) {
   g_error = "";
   g_showing = kNone;
@@ -316,6 +374,11 @@ bool show(const char* path) {
     g_error = "the picture is bigger than this will read";
     return false;
   }
+  // **A plane of the glass is painted as it is** (0.179.15): the file is the page, four bits a pixel and no header,
+  // so there is nothing to decode and nothing to centre —one block, one blit at 0,0, one wash— and the panel is the
+  // only thing that has work to do. `boot-*.e4` is what a disk of this board carries and `tools/e4pack.py` is what
+  // makes one out of a picture of a drawing program (docs/30, docs/50).
+  if (is_a_plane(path)) return show_plane(path, glass, info);
   void* block = pal::extra_memory().allocate(info.size, true);
   if (block == nullptr) {
     g_error = "no room for the file of the picture";

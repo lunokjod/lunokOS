@@ -30,6 +30,14 @@ uint8_t levels();
 uint16_t rotation();
 bool set_rotation(uint16_t degrees);
 
+// **Whether a partial paint may start where the change is** (0.179.12): the glass of this project was measured to
+// want the left edge of its own image (0.118.7) on a night when a second fault was in the way (0.118.9), and until
+// it is asked again every partial paint pays the pixels between the edge and the change —the whole height of the
+// page for a cell at the bottom of a launcher—. The kernel does not have an opinion: it asks the glass, and the
+// prompt asks with `panel` (docs/30, docs/50).
+bool partial_from_the_box();
+bool set_partial_from_the_box(bool on);
+
 // **The board's buffer, and it belongs to the system.** An app never touches it: it draws on its own
 // canvas and `ui::present` is what composes it here, which is the only way the glass changes
 // (docs/30).

@@ -79,6 +79,14 @@ bool set_rotation(uint16_t degrees) {
 
 hal::ISurface* surface() { return g_surface; }
 
+// **The rectangle of a partial paint is the glass's business** (0.179.12): two calls that pass the question down and
+// nothing else, so a board that cannot answer says so and the kernel has no constant of its own to keep (docs/50).
+bool partial_from_the_box() { return (g_surface != nullptr) && g_surface->partial_from_the_box(); }
+
+bool set_partial_from_the_box(bool on) {
+  return (g_surface != nullptr) && g_surface->set_partial_from_the_box(on);
+}
+
 // **Two meters, because they answer two different questions**: how long a paint costs to ask for —which
 // is the transfer of the rectangle and the command, and is paid on the spot— and how often the system
 // asks whether the ink is over, which is a register read per turn (docs/30, docs/50).
