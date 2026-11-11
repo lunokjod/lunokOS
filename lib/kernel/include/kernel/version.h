@@ -5598,6 +5598,27 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.8 (11/11): **the last word the board drew waits in the RTC memory for the next run**. The owner asked whether the
+// seed could be kept somewhere —the RTC of the Paper, for instance— and the answer is the memory the chip keeps alive
+// across a reset, which is where `/rtc` already lives:
+//   - **sixteen bytes in `RTC_NOINIT_ATTR`**: a magic (`RNG!`), the last word of the generator, a counter of boots and a
+//     check, read as garbage the first time the power comes on and therefore looked at with the magic and the check
+//     before it is trusted —a block that does not pass them is not mixed and does not stop the boot either—;
+//   - **why `NOINIT` and not `DATA`**: an initialised variable is written on every boot and would erase what the boot
+//     before it left. `nm` puts it at `0x50001e08`, next to the 7 168 B of `/rtc` (`0x50000201`), and the region does
+//     not overflow on any of the five boards;
+//   - **what it closes**: two runs of the same board can no longer share a sequence even if the entropy source hands
+//     back the same bytes twice, which was the fault the ADC window of 0.174.8 exists for. The word is written on every
+//     `random()` —an RTC memory write and not a flash one, so nothing wears— and the boot's seed mixes it in;
+//   - **what it does not do, said without varnish**: the RTC domain dies with the power, so a board that has been
+//     unplugged still starts from the noise of its own boot. **On the Paper the battery-backed RTC is the BM8563, and
+//     that one keeps the hour and not bytes** —its coin cell feeds the clock chip and not the ESP32's RTC domain—, so
+//     the seed does not survive a night without a charger there either. A seed that survives that wants the FRAM
+//     (256 B, 10¹² cycles, survives the power) or the NVS, and neither is used: the FRAM is documented as memory an app
+//     owns, byte for byte (docs/70), and the NVS is flash that a write per boot would wear (docs/50);
+//   - **measured**: `m5-paper`, `m5-atom`, `m5-atom-matrix`, `esp32-devkit` and `ttgo-t-koala` build and link, and the
+//     emulator is untouched —its numbers come from `pal_host` and `--seed` (docs/85)—.
+
 // 0.178.7 (11/11): **the card of the emulator is a card and not a second image** (the owner: *«a l'emulador vull que
 // totes les apps estiguin posades. Treu les apps del SD per ara»*). The apps of the emulator were already on its flash
 // disk —`custom_apps_in_disk = yes`, eleven folders linked to `apps/`, since 8/11— and since 0.174.9 the build also left
@@ -5904,7 +5925,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.7";
+static const char kVersion[] = "0.178.8";
 
 }  // namespace kernel
 

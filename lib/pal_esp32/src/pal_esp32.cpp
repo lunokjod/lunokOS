@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <Esp.h>
 #include <bootloader_random.h>
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_wifi.h>
 #include <esp_rom_sys.h>
@@ -32,6 +33,7 @@ const uint32_t kReaderPeriodMs = 5;
 //
 // **And what is mixed with it** is the microsecond count since the reset, because two boots of the same board are two
 // different moments even when the amplifier of the ADC says the same thing twice.
+//
 // **Whether the radio of the chip is up** (0.178.6), which is the one question that decides whether the chip's generator
 // is a true one: `esp_random()` is documented as true random **while Wi-Fi or Bluetooth is enabled**, because the entropy
 // is the RF noise of the peripheral (docs/50). The driver answers `ESP_ERR_WIFI_NOT_INIT` when nobody has brought it up,
@@ -48,6 +50,36 @@ uint32_t mix32(uint32_t x) {
   return x ^ (x >> 15);
 }
 
+// **The last word this board drew, kept where a reset does not reach it** (0.178.8). The RTC memory of the chip is the
+// one place that survives a reset, a panic and a deep sleep without touching the flash —which wears— and it is where
+// the hour of `/rtc` lives too (docs/50, docs/70). **It does not survive the power going away**, and that is said in
+// the docs: a board that has been unplugged starts from the noise of its own boot, which is exactly the case the ADC
+// window exists for. With the last word mixed into the seed, **two runs of the same board cannot share a sequence**
+// even if the entropy source hands back the same bytes twice, which was the fault this is here to close (docs/20).
+//
+// `RTC_NOINIT_ATTR` and not `RTC_DATA_ATTR`: an initialised variable is written on every boot and would erase what the
+// boot before it left. The block is read as garbage the first time the power comes on, so it carries a magic and a
+// check and a block that does not pass them is not mixed —it is not trusted, and it does not stop the boot either—.
+struct Kept {
+  uint32_t magic;
+  uint32_t state;
+  uint32_t serial;
+  uint32_t check;
+};
+RTC_NOINIT_ATTR Kept g_kept;
+const uint32_t kKeptMagic = 0x524E4721u;  // "RNG!"
+
+uint32_t kept_check(uint32_t state, uint32_t serial) { return mix32(state ^ mix32(serial ^ kKeptMagic)); }
+
+bool kept_is_sound() { return g_kept.magic == kKeptMagic && g_kept.check == kept_check(g_kept.state, g_kept.serial); }
+
+void kept_write(uint32_t state, uint32_t serial) {
+  g_kept.state = state;
+  g_kept.serial = serial;
+  g_kept.check = kept_check(state, serial);
+  g_kept.magic = kKeptMagic;
+}
+
 struct Random {
   bool seeded = false;
   uint32_t state = 0;
@@ -60,8 +92,14 @@ struct Random {
     esp_fill_random(noise, sizeof(noise));
     bootloader_random_disable();
     const uint32_t us = static_cast<uint32_t>(esp_timer_get_time());
+    // **And the word the run before left in the RTC memory**, if it left one: a reset is not a new world, and a board
+    // whose entropy source says the same thing twice still gets two different sequences because the second boot knows
+    // what the first one drew (docs/50).
+    const uint32_t before = kept_is_sound() ? g_kept.state : 0;
+    const uint32_t serial = kept_is_sound() ? (g_kept.serial + 1u) : 1u;
     // A zero state is a mixer that answers zero for ever, and `mix32` of anything is not zero.
-    state = mix32(noise[0] ^ mix32(noise[1] ^ us)) | 1u;
+    state = mix32(noise[0] ^ mix32(noise[1] ^ us ^ mix32(before ^ serial))) | 1u;
+    kept_write(state, serial);
   }
 
   // **With the radio up the number is the chip's** (0.178.6): while the radio is on, `esp_random()` is a true random
@@ -75,11 +113,15 @@ struct Random {
       const uint32_t word = esp_random();
       state ^= mix32(word);
       if (state == 0) state = 1u;
+      // **The word of the chip is the one the next boot should know**: it is the last thing this board said, and it is
+      // written where a reset does not reach (a write to the RTC memory, not to the flash) (docs/50).
+      kept_write(word, g_kept.serial);
       return word;
     }
     state ^= state << 13;
     state ^= state >> 17;
     state ^= state << 5;
+    kept_write(state, g_kept.serial);
     return state;
   }
 };

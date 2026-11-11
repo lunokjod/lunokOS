@@ -649,6 +649,19 @@ Val a dir què és i què no: amb la ràdio encesa les paraules són impredictib
 una sal; **no** són una font criptogràfica (no hi ha estimació d'entropia ni salut de la font) i per a claus de debò
 caldria un TRNG certificat o el generador del xip llegit amb una DRBG al damunt.
 
+**I l'última paraula que la placa ha dit es queda a la memòria del RTC** (0.178.8): `RTC_NOINIT_ATTR` hi posa un bloc de
+setze bytes —una màgia, l'estat, un comptador d'arrencades i un checksum— i la llavor de cada arrencada es remena amb
+ell, o sigui que **dues execucions de la mateixa placa no poden compartir seqüència encara que la font d'entropia
+respongui el mateix dues vegades**, que és l'avaria que aquest bloc existeix per tancar. És la mateixa memòria que el
+fitxer `/rtc` (`docs/70`), escrita **sense tocar la flash** —que es gastaria amb una escriptura a cada arrencada— i
+invisible per a les apps, perquè és de la banda i no un fitxer del disc. **Què sobreviu i què no, sense embuts**:
+sobreviu a un reinici, a un pànic i a un son profund; **no** sobreviu a treure el corrent, i llavors l'arrencada torna
+a començar amb el soroll de l'ADC i el rellotge, que és exactament el cas pel qual existeix la finestra. **Al Paper, el
+RTC que porta pila és el BM8563 i aquell només guarda l'hora**: la pila de botó alimenta el rellotge i no el domini RTC
+del xip, i per això el bloc no hi és a dins. Un bloc que sobrevisqués al corrent voldria dir NVS o una pàgina de flash
+—que es gasten— o una memòria ferroelèctrica com la de l'ATOM, i no s'ha fet: el que cal protegir és que dues
+arrencades no s'assemblin, i per a això n'hi ha prou amb el que hi ha.
+
 **El que no es fa**: no s'encén la ràdio **només** per tenir números. Costa desenes de mil·lisegons i mil·liampers, i
 aquest sistema apaga el Wi-Fi quan no té feina (docs/75); l'ADC fa la feina de la llavor en un microsegon. Però quan la
 ràdio ja és encesa per una altra cosa, no costa res preguntar-li. **I no es pot fixar una llavor en una placa**:
