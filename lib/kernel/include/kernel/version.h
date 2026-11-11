@@ -5598,6 +5598,42 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.178.4 (11/11): **eight families of letters join the system, and the page that shows them was drawing two letters
+// where one belonged**. The owner asked for eight OFL families —Literata, Merriweather, Atkinson Hyperlegible,
+// OpenDyslexic, Bitter, Source Serif, Inter and IBM Plex Sans— in `/fonts`:
+//   - **their place is the disk's `res/fonts/`** (`data/res/fonts/`), which is what the door `/fonts` calls the system's
+//     faces and what `ui::boot` reads its own from, so every board with a glass lists them and an app loads one with
+//     `ui.load_font('/fonts/literata-latin1.ttf')` and nothing else (docs/30);
+//   - **they are subsets, and they have to be**: a face of a file is at most `kFontFileBytes` (128 KB) and it is read
+//     into the app's memory whole, while the originals go from 328 KB (Bitter) to 4.6 MB (Merriweather). Each file is
+//     cut to the codes of the `-latin1` faces with `tools/ttf_latin1.py --set latin1`, the variable families are pinned at
+//     weight 400, and the eight come out at 208 936 B together —21 KB to 34 KB each—, which the Paper's disk does not
+//     notice and the four 4 MB boards cannot take anyway (their image is already over, docs/70);
+//   - **composites are flattened by the tool and not by the subsetter**: `lib/ttf` answers `kComposite` for a glyph made
+//     of pieces, so a face only cut with `pyftsubset` draws the width and no ink for every accented letter —which is most
+//     of a Catalan page—. The first pass here did exactly that and the specimen was the proof (docs/30);
+//   - **OpenDyslexic is published only as CFF** and this kernel refuses CFF by name, so its outlines were converted to
+//     TrueType (`otf2ttf`) before the subset: the one face of the eight that is a format conversion and not only a cut;
+//   - **three of the eight reserve their name** —Merriweather, IBM Plex Sans and OpenDyslexic— and section 3 of the OFL
+//     forbids a Modified Version to carry it, so those three are renamed **inside the file** to Lunok Serif, Lunok Sans
+//     and Lunok Readable; the file names keep the family, and `data/res/fonts/OFL.txt` says all of it —what was changed,
+//     where each one comes from and the licence once— beside `LICENCE.txt`, which now says which faces are whose;
+//   - **and a new step in the tool, `--fit-line`**: a step of `scale` is a body of nine pixels (`kOutlineBody`) and a line
+//     of eleven (`kOutlineLine`), and the baseline comes from the file's `ascent`. OpenDyslexic's ink is **1,86 em** and
+//     its ascent 1,30, so it was drawn a whole line below its box and the rows of a page overlapped; the option scales the
+//     ink to the line and puts the baseline where the ink says, and all eight land at 1,212 em of ink in the eleven pixels
+//     the system gives them, like DejaVu's 1,207 (docs/30);
+//   - **and the app `fonts` was writing UTF-8 where the glass reads bytes** (0.127.0's rule, docs/30): the row of accented
+//     letters of its specimen is a string of the source file, so the page drew «Ã€ Ã‰ Ã Ã“ Ãš…» in every face —the mojibake
+//     was there before these faces and only DejaVu's wider set made it look like letters—. It is `string.char` now, as the
+//     calculator writes its signs, and the specimen says «À É Í Ó Ú à è ì ò ù Ç ç · l'hora i el rellotge» in the face it is
+//     showing, which is the whole point of the row;
+//   - **measured**: the eight open through `ui.load_font` (`fonts: open <name> TrueType <bytes> <glyphs>`), the specimen of
+//     each one drawn and read back from a dump, the emulator's disk is 2 320 223 B in 84 files and the Paper's
+//     2 318 939 B in 82, both fitting in their partition, and the four 4 MB boards' are 1 916 844 B in 31 files —over the
+//     1 441 792 B of `partitions.csv`, which is where they were before the fonts and where the three splash bitmaps keep
+//     them (docs/70).
+
 // 0.178.3 (11/11): **one question, two answers, and the paint's answer is the one that stands**. A grid can be a grid of
 // names (`items`, painted by the kernel) or a grid of controls the app built (`children`, each cell painting itself), and
 // `docs/30` says which wins when it has both —«si la graella té fills, la cel·la és el fill i el control només pinta el
@@ -5807,7 +5843,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.178.3";
+static const char kVersion[] = "0.178.4";
 
 }  // namespace kernel
 

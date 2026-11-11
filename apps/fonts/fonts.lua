@@ -392,7 +392,12 @@ open_specimen = function(record)
   -- **What a face does not carry is the other half of a specimen**: the accented letters of this page are in the row
   -- below, and a face whose table stops at the printable ascii draws them as nothing —which a person reads as a broken
   -- app unless the page says it— (docs/30).
-  line('ÀÉÍÓÚ àèìòù Çç · l\'hora i el rellotge', kSample[3], 0, true)
+  -- **And the row is written as bytes and not as text** (0.178.4): the text of this system is one byte a character
+  -- and Latin-1 when the face is (docs/30), so a row written in the UTF-8 of this file drew «Ã€ Ã‰…» —two letters a
+  -- person cannot read— where the specimen should have drawn «À É…». `string.char` is how the calculator writes its
+  -- signs, and it is how a page of this system says a letter that is not ascii.
+  line(string.char(0xC0, 0xC9, 0xCD, 0xD3, 0xDA, 0x20, 0xE0, 0xE8, 0xEC, 0xF2, 0xF9, 0x20, 0xC7, 0xE7, 0x20,
+                   0xB7, 0x20) .. "l'hora i el rellotge", kSample[3], 0, true)
   -- **And the sentence under it is the whole truth of a face**: it draws the codes it carries and nothing for the rest,
   -- which is what a person sees when the letters with a tilde come out as gaps (docs/30).
   local note = 'the codes a face has not are blank'

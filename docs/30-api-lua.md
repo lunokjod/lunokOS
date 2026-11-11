@@ -1250,6 +1250,23 @@ i el contracte.
   servir i no en guarden cap còpia, i **les tres de bits hi són perquè la placa ensenya els quatre lectors
   en una sola pàgina**: és el que fa l'app `fonts` (docs/40, docs/90).
 
+  **I una llibreria de vuit cares més, totes sota l'OFL** (11/11, 0.178.4): `literata-latin1.ttf`
+  (31 120 B), `merriweather-latin1.ttf` (28 728 B), `atkinsonhyperlegible-latin1.ttf` (22 328 B),
+  `opendyslexic-latin1.ttf` (20 660 B), `bitter-latin1.ttf` (26 000 B), `sourceserif-latin1.ttf`
+  (33 600 B), `inter-latin1.ttf` (24 056 B) i `ibmplexsans-latin1.ttf` (22 444 B) — dues serif de
+  llibre, dues de pantalla, una de lectura fàcil i una pensada per a la dislèxia—, **208 936 B les vuit** i
+  les seves llicències a `/fonts/OFL.txt` (8 147 B, que són 216 890 amb les cares). Cada fitxer és un **subset** de la família original: el
+  sistema llegeix una cara d'un fitxer de com a molt 128 KB (`kFontFileBytes`, més avall) i les originals
+  van de 328 KB a 4,6 MB, o sigui que totes vuit són **Versions Modificades** de l'OFL i ho diuen al
+  fitxer de llicència: retallades al joc de codis de les cares `-latin1` (`--set latin1`), les famílies
+  variables fixades a la instància Regular (pes 400), i **3 de les 8 renombrades dins del fitxer** perquè
+  la seva línia de copyright reserva el nom —Merriweather és `Lunok Serif`, IBM Plex Sans és `Lunok Sans`
+  i OpenDyslexic és `Lunok Readable`—, que és el que demana la secció 3 de la llicència. El nom del
+  fitxer sí que diu la família, que és el que una persona busca al llistat de `/fonts`.
+  **OpenDyslexic és, a més, una conversió**: només es publica en CFF i aquest nucli refusa el CFF per nom
+  (`a font of CFF outlines is not read`, `lib/ttf`), o sigui que els seus contorns s'han passat a TrueType
+  abans de retallar-los (docs/85).
+
 - **La cara del sistema porta també els signes d'una tecla** (8/11, 0.158.0). `dejavusans-bold.ttf` era
   l'ASCII imprimible i prou, i un signe com `÷`, `×` o `±` **no hi era**: el byte s'escrivia, la línia
   avançava i el vidre quedava buit. La cara es fa ara amb `python3 tools/ttf_latin1.py --ttf
@@ -1263,6 +1280,15 @@ i el contracte.
   calculadora de `test_apps`, que llegeix l'amplada dels quatre signes i una amplada de zero és un test
   vermell. El que no hi cap segueix sent un forat: la cara del sistema **no** porta les lletres amb accent,
   i una app que les vol carrega `/fonts/dejavusans-latin1.ttf` amb `ui.load_font`.
+
+- **Una cara que ha de viure amb les altres es posa a la línia del sistema** (11/11, 0.178.4):
+  `tools/ttf_latin1.py` té `--fit-line`, que escala la tinta de la cara a la línia que el nucli li dona i
+  posa la línia de base on la tinta diu. Un pas de `scale` és un cos de **nou** píxels (`kOutlineBody`) i
+  una línia d'**onze** (`kOutlineLine`), i la línia de base es calcula amb l'`ascent` del fitxer: una
+  família amb la tinta d'1,86 em —OpenDyslexic— s'escapa de la caixa de l'etiqueta on es dibuixa i les
+  línies d'una pàgina es trepitgen. Les cares de DejaVu no el necessiten (la seva tinta és 1,207 em, que és
+  la línia); les vuit de la llibreria sí, i amb l'opció queden totes amb **1,212 em** de tinta dins dels 11
+  píxels de la línia, la qual cosa es comprova amb `--check` sobre cada fitxer.
 
 - **Una cara d'outlines porta els codis que porta el fitxer, i el byte és el codi** (7/11, 0.127.0). Fins a
   0.127.0 el dibuix d'un text saltava qualsevol byte per sobre de `0x7F` abans de preguntar-li res a la

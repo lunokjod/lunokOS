@@ -46,7 +46,7 @@ deixar un bolcat quan el firmware peta. Sense ella, cada arrencada comença amb 
 | `/fram` | **un sol fitxer** sobre la **FM24C02** de la placa (`esp32/fm24c02.h`, I2C 0x50) | **256 B** (2 Kbit) i **no són una EEPROM**: és una **FRAM**, o sigui que una escriptura és a la memòria quan torna la transacció (no hi ha els 5 ms de cicle d'escriptura de la 24C02) i l'aguanta 10¹² cicles. No necessita el corrent, i per això hi van els pocs bytes que han de sobreviure a treure la bateria. Només existeix a les plaques que tenen el xip: `mounts` no en posa la fila si no hi contesta. L'espai és la seva mida i tota lliure, com al `/rtc`. S'hi escriu amb un mànec (`fs.open`) o amb `fs.write` des de la 0.65.1, que hi va al lloc: els bytes al començament i la resta de la memòria a zero. `hexdump /fram` l'ensenya |
 | `/apps` | **directori virtual: els dos discs en un, i l'únic punt d'entrada de les apps** (0.88.19, 0.88.20) | **`littlefs/apps` i `sd/apps` junts**, amb la flash primer i la targeta després. Un nom que la flash té **i** la targeta també es presenta **dues vegades**: `<id>` és la còpia de la flash i **`*<id>` la de la targeta** —l'asterisc és la marca d'una app redirigida, i el nom de la còpia diu la unitat al final (`Editor-SD`, `Editor-Littlefs`)—, i cada nom llegeix i corre la seva —`run editor` és l'app de la flash i `run editor-SD` la de la targeta—, en lloc d'una desapareixent darrere l'altra. La carpeta **es crea si no hi és** (a la flash i a la targeta): l'emulador no porta cap app i `repo install` n'hi posa la primera, i una porta que s'obrís només quan la carpeta ja hi era al boot deixava l'app instal·lada **llistada per `apps` i no oberta per `run`** (`cannot read: /apps/<id>/<entry>`, trobat a l'emulador el 4/11). **És l'únic camí per on el sistema mira una app**: el llistat, el `run` i els fitxers d'una app (`/res/`) hi passen, i mai pel directori real d'una unitat, o sigui que **el sistema decideix què presenta la porta** (`vfs::set_apps_presenter`, instal·lat al boot amb `apps::is_an_app`): una carpeta que no porta `manifest.json` **no es llista, no es corre i no la llegeix ningú** que busqui un obridor; una que en porta i diu una altra placa **sí** que hi és, i el llistat diu què necessita |
 | `/res` | àlies, i porta per a una app | `/littlefs/res` per a una persona; per a una app, **`apps/<id>/res/`** del disc on corre (vegeu més avall) |
-| `/fonts` | **directori virtual: les cares de tres llocs en un** (0.174.1) | **`littlefs/res/fonts`** —les cares del disc, que és on `ui::boot` busca la del sistema—, **`sd/fonts`** —les de la targeta, i la carpeta es crea si no hi és, com la de les apps— i, **quan és una app qui llegeix, el seu `apps/<id>/fonts`**. L'ordre és aquest: la de l'app primer, perquè el que una app porta és seu, i la flash abans que la targeta. Un nom que dos llocs tenen es presenta **dues vegades**, amb l'asterisc de `/apps` a la còpia de la targeta (`*dejavusans.ttf`), i cada nom llegeix la seva. Les cares del disc són **una sola còpia per a totes les apps** (3/11, 0.68.0), i el perquè és un número: les quatre cares de DejaVu són 37 476 B i, quan cada app en portava la seva, el disc les pagava dues vegades. De només lectura des d'una app, com `/apps`: una cara no és d'una app sinó de la placa (docs/30) |
+| `/fonts` | **directori virtual: les cares de tres llocs en un** (0.174.1) | **`littlefs/res/fonts`** —les cares del disc, que és on `ui::boot` busca la del sistema—, **`sd/fonts`** —les de la targeta, i la carpeta es crea si no hi és, com la de les apps— i, **quan és una app qui llegeix, el seu `apps/<id>/fonts`**. L'ordre és aquest: la de l'app primer, perquè el que una app porta és seu, i la flash abans que la targeta. Un nom que dos llocs tenen es presenta **dues vegades**, amb l'asterisc de `/apps` a la còpia de la targeta (`*dejavusans.ttf`), i cada nom llegeix la seva. Les cares del disc són **una sola còpia per a totes les apps** (3/11, 0.68.0), i el perquè és un número: les quatre cares de DejaVu són 37 476 B i, quan cada app en portava la seva, el disc les pagava dues vegades, i l'11/11 les cares del disc són **deu fitxers i 254 520 B**, amb la llibreria de vuit famílies sota l'OFL que explica docs/30. De només lectura des d'una app, com `/apps`: una cara no és d'una app sinó de la placa (docs/30) |
 | `/cfg` | **porta** (no és cap disc) | `<unitat>/cfg/`: la targeta si n'hi ha, la flash si no, o la que la persona hagi triat |
 | `/sd` | targeta SD per SPI (FATFS) | **El Paper**, quan hi ha una targeta al slot: el seu `IStorage` la munta i el muntatge només existeix si el muntatge ha anat bé (docs/50, docs/90). Al PC, un directori que es posa amb `--sd <dir>`, i sense l'opció no hi ha `/sd` (docs/85) |
 
@@ -791,13 +791,15 @@ littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que
 una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
 fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
 `apps/` són les **onze** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell`,
-`timeclock`, `tz`, `wipe` i `fonts`— i **51 fitxers i 398 951 B**, i el `data/` del sistema **22 fitxers i 1 699 498 B** —el que el
-repositori porta: `data/data/` és l'estat d'una app i no és al git—, dels quals **1 558 434 B són els tres
+`timeclock`, `tz`, `wipe` i `fonts`— i **51 fitxers i 398 951 B**, i el `data/` del sistema **31 fitxers i 1 916 844 B** —el que el
+repositori porta: `data/data/` és l'estat d'una app i no és al git; els nou fitxers de més que l'11/11 són les vuit
+cares de l'OFL i la seva llicència, 216 890 B, docs/30—, dels quals **1 558 434 B són els tres
 bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un; la carpeta
 sencera en fa 1 595 456). **La mida del disc no és la suma d'aquests dos números, i qui la diu és `make_disk`**: mesurat el 9/11, va
 escriure *`build/disk/emulator is 2098449 B in 73 files, 11 apps, linked to apps/`* i *`build/disk/m5-paper is
 2098449 B in 73 files, 11 apps, linked to apps/`*. **I a les quatre plaques de 4 MB aquests números no hi caben**: la partició de
-`partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 699 498 B en 22 fitxers sense cap app**, o
+`partitions.csv` és de **1 441 792 B** i `build/disk/m5-atom` fa **1 916 844 B en 31 fitxers sense cap app** (mesurat
+l'11/11 amb la llibreria de cares a dins), o
 sigui que `pio run -e m5-atom -t buildfs` **s'atura amb `this disk does not fit`** mentre els tres bitmaps de
 splash siguin a `data/` (mesurat el 9/11; el firmware, sense la imatge, enllaça igual). **Si hi cap o no ho diu
 l'eina i no aquest document**: `make_disk` munta la imatge amb `mklittlefs` —la partició de la taula, pàgina de
@@ -820,7 +822,7 @@ que es toca una app:
 
 | Al `platformio.ini` de l'entorn | Què hi va |
 |---|---|
-| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **22 fitxers i 1 699 498 B** (mesurats el 10/11 a `data/`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
+| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **31 fitxers i 1 916 844 B** (mesurats l'11/11 a `data/`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
 | `custom_apps = calculator,reader` | **Aquestes**, i només les que nomenen la placa: el filtre de sota s'aplica a les dues opcions, perquè portar una app que el nucli refusaria al `run` és una imatge que menteix. Un nom que es queda fora **ho diu** (p. ex. `make_disk: there is no app called light, so it stays out`) |
 | `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` — set |
 
@@ -839,13 +841,13 @@ pio run -e m5-paper -t uploadfs    # i la puja
   que `-t buildfs` s'ha de tornar a fer **després de tocar una app**; el que es puja és el que hi havia quan es va
   fer la imatge. L'excepció és l'entorn `test`, que les vol **copiades** (`custom_apps_copied = yes`) perquè escriu al
   disc que munta.
-- **El que hi ha avui, mesurat el 10/11**: el sistema sol són **22 fitxers i 1 699 498 B**; `apps/` sencer són
+- **El que hi ha avui, mesurat l'11/11**: el sistema sol són **31 fitxers i 1 916 844 B**; `apps/` sencer són
   **51 fitxers i 398 951 B**; les **onze** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
   `home_eink`, `shell`, `luaperf`, `tz`, `wipe` i `fonts`— són totes les que hi ha, o sigui que la Paper, que és l'única
-  placa que en porta, fa **73 fitxers i 2 098 449 B** d'imatge, la mateixa que l'emulador, que les porta totes i hi
+  placa que en porta, fa **82 fitxers i 2 318 939 B** d'imatge, la mateixa que l'emulador, que les porta totes i hi
   afegeix l'estat de les seves execucions al mateix directori. El disc de les proves porta les mateixes carpetes d'`apps/`
-  **copiades**. Els dos números del disc són els que va imprimir `make_disk` el 10/11, i el que fa créixer el
-  sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 699 498, i la carpeta sencera
+  **copiades**. Els dos números del disc són els que va imprimir `make_disk` l'11/11, i el que fa créixer el
+  sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 916 844, i la carpeta sencera
   1 595 456.
 - **Quantes hi caben**: la partició de les quatre plaques de 4 MB (`partitions.csv`, `0x160000`) és de **1 441 792 B**
   i la de la Paper (`partitions_16mb.csv`, `0xBE0000`) de **12 451 840 B**; els dos números són de la taula i no d'una
