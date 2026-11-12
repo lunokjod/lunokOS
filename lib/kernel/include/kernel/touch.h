@@ -46,6 +46,11 @@ struct Gesture {
   int16_t spread = 0;
   int32_t held_ms = 0;
   uint8_t fingers = 0;
+  // **Whether the finger landed on the bar of the system** (0.179.22): the bar is not inside the view of an app, so a finger
+  // on it arrives at the top rows of the view and the numbers cannot tell the two apart. This flag is the chip's own y kept
+  // before the frame was turned, and it is what makes a drag that comes down **from the titlebar** the system's and a drag
+  // the same size that starts on the page the app's (docs/30).
+  bool on_the_bar = false;
 };
 
 // **Taken once**: a second call answers false, so a gesture is a report and not something that
@@ -63,6 +68,19 @@ bool take_gesture_of(const char* kind, Gesture& out);
 // one that pulls the fingers apart, or one that comes back by less than `min_px`, is the app's and it reads it with
 // `touch.gesture()` (docs/30, docs/46 D1).
 bool take_pinch_in(int16_t min_px, Gesture& out);
+
+// **A drag that comes down from the bar of the system** (0.179.22): the first `drag` whose finger landed on the bar and that
+// went down by at least `min_px` and more than it went sideways —a shade is pulled down and not drawn sideways—. The ones
+// before it keep the order they had, the same rule the three taps and the pinches follow (0.136.0) (docs/30).
+bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out);
+
+// **A drag that goes up** (0.179.22): the way a card that hangs from the bar is put away, wherever the finger landed and as
+// long as it went up by `min_px` and mostly up (docs/30).
+bool take_drag_up(int16_t min_px, Gesture& out);
+
+// **What the page does not hear** (0.179.22): the card of the system is over the page, so the gestures nobody took are
+// nobody's —an app that reacted under a panel would be acting on a page the person cannot see— (docs/30).
+void forget_gestures();
 
 }  // namespace touch
 }  // namespace kernel

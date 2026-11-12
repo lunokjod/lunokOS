@@ -5598,6 +5598,35 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.22 (12/11): **the titlebar is pulled down and the system panel comes out**. The owner: *«farem un gest per la
+// titlebar del sistema... swipe down obre un panell. De moment un panell buit, serà el panell de sistema, on aniran els
+// típics toggles de wifi, bluetooth, settings...»*. The bar already had the clock, the title and the charge and it was
+// the one strip of the glass that no app could reach; now it has a gest of its own and a card that hangs from it:
+//   - **the pull is a drag that lands on the bar and comes down** (0.179.22): sixty pixels, and more down than sideways,
+//     which is a fifth of the card and a movement nobody makes by accident. The same drag one row lower is the page's and
+//     the app reads it with `touch.gesture()` —the bar is not part of any view and the numbers of the two are the same, so
+//     the frame now carries **`on_the_bar`**, the finger's own y kept before the offset was taken off— (docs/30);
+//   - **and a finger that lands on the bar keeps the bar's rows for the whole gesture** (0.179.22): the offset was taken
+//     off the frames that follow and not off the one the finger landed on, so a pull of a hundred pixels measured
+//     fifty-two on a bar of forty-eight and a finger that never left the strip looked like a finger that went up. It is
+//     the same barrow the tap of the clock needed and it was wrong underneath both;
+//   - **the card is a third of the page under the bar**, white and with the line of its bottom and a handle of ninety-six
+//     by six at its top, and it is empty on purpose: the switches of wifi, bluetooth and settings come next. `panel::open`,
+//     `panel::height` and the `PANEL` line of the log are the whole of what a caller can ask (`lib/kernel/src/panel.cpp`);
+//   - **the page under it is held, not lost** (0.179.22): `ui::hold_the_page(true)` makes every `ui.present` compose into
+//     the canvas and stop there —the glass keeps the card, the damage is dropped because the whole page is owed anyway, and
+//     a page that presented forty times under the card would otherwise carry forty boxes to merge— and the release is
+//     **one `gc16` of the whole view**, which erases the card and shows the frames the app drew while it was out. A page
+//     that goes away (another app, a turn of the glass, a resize, the whole glass) drops the hold and paints nothing,
+//     because the change that comes washes the glass itself;
+//   - **and the page does not hear the hand while the card is out**: the controls of the view get the lift and not the
+//     press —a button that acts under a card acts on a page nobody is looking at— and the queue of gestures is emptied
+//     every turn, because the pull, the closing drag and the tap on the card are the system's (docs/30);
+//   - **measured**: `test_touch` has three cases of the panel —the pull and the card's own pixels (`15` on the page of `3`,
+//     the handle at `270,64`, the line at the bottom row of the card), a drag of the same length that begins on the page and
+//     is the app's (`dy` of 140 in the view's frame and `on_the_bar` false), and a tap that puts it away— and the whole
+//     suite is green (`13 cases` in `test_touch`, and the five boards and the emulator built).
+
 // 0.179.21 (12/11): **the turn never sleeps past the hand**. The owner: *«hi ha algun tipus de delay al torn? per esperar
 // dades serie o llegir tecles? El sistema ha de ser més responsiu. Tot triga massa en reaccionar»*. Yes, and it was not a
 // delay of the code: it was the wait of the queue (docs/10):
@@ -6454,7 +6483,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.21";
+static const char kVersion[] = "0.179.22";
 
 }  // namespace kernel
 

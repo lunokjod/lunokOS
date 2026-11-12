@@ -1004,6 +1004,10 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   queda al vidre—, `gc16` neteja a canvi de quatre ensurts i `a2` deixa dos setzens del que hi havia. És la
   regla que el projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar és `gld16`
   (docs/92). La franja sencera amb `gc16` queda per al que la fa nova sencera: el boot i un gir de pàgina.
+- **I el dit que hi cau és del sistema** (0.179.22): arrossegar-lo cap avall obre el **panell del sistema**, una
+  targeta d'un terç de la pàgina que penja de la franja —buida de moment, i és on aniran els commutadors del
+  sistema—, i la pàgina de sota queda retinguda mentre hi és. El gest, el llindar i què hi sent l'app són a
+  docs/30, «El panell del sistema».
 - **I quan el vidre queda net sota seu, s'ha de dir** (0.164.3): una imatge de l'arrencada de l'app
   (`splash::show`) renta **tot** el vidre —la franja amb ell— i la barra, que només es pinta quan canvia
   alguna cosa seva, després no sabia que l'hora i la càrrega havien desaparegut: el títol nou repintava la

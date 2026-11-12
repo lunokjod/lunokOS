@@ -46,6 +46,11 @@ bool g_down = false;
 int32_t g_down_ms = 0;
 uint16_t g_start_x = 0;
 uint16_t g_start_y = 0;
+// **The bar is not in the frame of an app** (0.179.22): a finger that lands on the strip of the system keeps its own y —the
+// view's frame only subtracts the bar from the fingers that are below it—, so "above the view" is the one thing the turned
+// frame cannot say and this flag is what the drag of the shade reads (docs/30).
+bool g_on_the_bar = false;
+bool g_start_on_the_bar = false;
 uint16_t g_last_x = 0;
 uint16_t g_last_y = 0;
 bool g_moved = false;
@@ -107,6 +112,9 @@ void emit(const char* kind, uint16_t x, uint16_t y, int16_t dx, int16_t dy, int1
   slot.spread = spread;
   slot.held_ms = held_ms;
   slot.fingers = fingers;
+  // **A gesture made by one finger also says where it landed** (0.179.22): a pair's middle is not on the bar, and the
+  // gestures of one finger are the ones the shade is made of (docs/30).
+  slot.on_the_bar = (fingers < 2) && g_start_on_the_bar;
 }
 
 // A tap that is alone becomes a `tap`; two in a row inside the window are a `double` and three are a
@@ -164,8 +172,17 @@ void turn_frame() {
     const orientation::Point raw = page;
     const bool placed = orientation::turn(raw, chip, page_turn, turned, page);
     if (placed) {
+      // **A finger above the view landed on the bar of the system** (0.179.22): it keeps its own y instead of being moved
+      // into the view —the bar is not part of any app— and this is the one place that can tell it apart from a finger on the
+      // first rows of the page (docs/30).
+      const bool landed = (i == 0) && (page.y < off_y);
+      if (i == 0) g_on_the_bar = landed;
+      // **And the finger that landed there keeps the bar's rows for the whole gesture**: subtracting the offset from the
+      // frames that follow but not from the one it landed on would make a pull of a hundred pixels a pull of fifty-two on a
+      // bar of forty-eight, and a finger that never left the strip would be a finger that went up (docs/30).
+      const bool on_the_strip = (i == 0) && (g_down ? g_start_on_the_bar : landed);
       if (page.x >= off_x) page.x = static_cast<uint16_t>(page.x - off_x);
-      if (page.y >= off_y) page.y = static_cast<uint16_t>(page.y - off_y);
+      if (page.y >= off_y && !on_the_strip) page.y = static_cast<uint16_t>(page.y - off_y);
       // A finger that lands on the bar belongs to the system, but it is still a finger: it is clamped to
       // the edge of the view instead of vanishing. **A point is never dropped for not fitting what this
       // code expects** — dropping the ones that fell outside was a touch that answered nothing at all
@@ -295,7 +312,10 @@ void poll() {
   // click, not a detail every app has to wire again (docs/30, docs/90).
   // **The keyboard of the system takes the finger inside its band first**: a page under the band must not be
   // pressed through it (docs/90).
-  if (g_count > 0) {
+  // **And a page that a card of the system is over is not pressed** (0.179.22): the fingers of a person looking at the panel
+  // are over the page and not on it, so the controls hear the lift and not a press —a button under a card that acts is a
+  // button that acts on a page nobody is looking at— (docs/30).
+  if (g_count > 0 && !ui::page_held()) {
     if (!ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
       luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
     }
@@ -395,6 +415,7 @@ void poll() {
     g_down_ms = now;
     g_start_x = g_frame[0].x;
     g_start_y = g_frame[0].y;
+    g_start_on_the_bar = g_on_the_bar;
     g_last_x = g_start_x;
     g_last_y = g_start_y;
     g_moved = false;
@@ -440,6 +461,43 @@ bool take_gesture_of(const char* kind, Gesture& out) {
   }
   return false;
 }
+
+bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out) {
+  if (min_px <= 0) return false;
+  for (uint8_t i = 0; i < g_queue_count; ++i) {
+    const Gesture& mine = g_queue[i];
+    if (mine.kind == nullptr || strcmp(mine.kind, "drag") != 0) continue;
+    if (!mine.on_the_bar) continue;
+    // **Mostly down and not sideways**: a finger that comes down the bar but walks along the page is a page gesture that
+    // began one row too high, and a shade that opens on it would be a shade that opens by accident (docs/30).
+    const int32_t down = mine.dy;
+    const int32_t sideways = (mine.dx < 0) ? -static_cast<int32_t>(mine.dx) : mine.dx;
+    if (down < min_px || down < sideways) continue;
+    out = mine;
+    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
+    --g_queue_count;
+    return true;
+  }
+  return false;
+}
+
+bool take_drag_up(int16_t min_px, Gesture& out) {
+  if (min_px <= 0) return false;
+  for (uint8_t i = 0; i < g_queue_count; ++i) {
+    const Gesture& mine = g_queue[i];
+    if (mine.kind == nullptr || strcmp(mine.kind, "drag") != 0) continue;
+    const int32_t up = -static_cast<int32_t>(mine.dy);
+    const int32_t sideways = (mine.dx < 0) ? -static_cast<int32_t>(mine.dx) : mine.dx;
+    if (up < min_px || up < sideways) continue;
+    out = mine;
+    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
+    --g_queue_count;
+    return true;
+  }
+  return false;
+}
+
+void forget_gestures() { g_queue_count = 0; }
 
 bool take_pinch_in(int16_t min_px, Gesture& out) {
   if (min_px <= 0) return false;

@@ -24,6 +24,7 @@
 #if LUNOK_GLASS
 #include "kernel/bar.h"
 #include "kernel/book.h"
+#include "kernel/panel.h"
 #include "kernel/display.h"
 #include "kernel/splash.h"
 #include "kernel/touch.h"
@@ -415,6 +416,9 @@ void boot(hal::IPlatform& platform) {
   // The bar of the system, which owns the top rows of the glass: the hour, the title of the app in front
   // and the charge (docs/30).
   bar::boot(platform);
+  // **The card of the system that hangs from the bar** (0.179.22): empty for now, and with nothing to boot but the fact that
+  // no boot of before left it out (docs/30).
+  panel::boot();
   // The canvas an app draws on, at the size of the glass **under the bar**, made once and re-made only
   // when the system asks for another size. The board's buffer stays the system's (docs/30).
   ui::boot(platform, bar::height());
@@ -570,6 +574,9 @@ void poll() {
   // is taken out of the queue here, before the app's turn below, so the app neither handles it nor hears it and the bar
   // always has a way back (docs/30).
   ui::poll_full_screen();
+  // **And the hand of the panel** (0.179.22): a drag down from the bar pulls the card of the system out, and while it is out
+  // the gestures the panel did not take are nobody's —the app under it never learns that the panel exists— (docs/30).
+  panel::poll();
 #endif  // LUNOK_GLASS
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine

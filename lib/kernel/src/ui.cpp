@@ -798,6 +798,11 @@ bool g_owed_paint = false;
 // damage of the page the app has just built (docs/30, docs/50).
 bool g_owe_all = false;
 
+// **The page is under a card of the system** (0.179.22): the panel that hangs from the bar is over the view, so the frames the
+// app composes are kept in its canvas and none of them goes to the glass. The whole page is owed for the moment the card
+// goes, because what the app drew while it was out never arrived (docs/30, docs/50).
+bool g_page_held = false;
+
 // **And a paint is never asked for from inside a paint** (0.118.2): the wait for the ink turns the kernel on the emulator
 // —`wait_and_pump`, docs/85— and the turn asks whether something is owed, so without this flag a refused page would be
 // asked for again in the middle of the paint that is asking for it.
@@ -1995,6 +2000,10 @@ void attach() {
   // of the system comes back with the view (docs/30, docs/46 D1). It is done before the wash below, because the wash is
   // of the view the app is about to draw in.
   give_back_the_glass();
+  // **And a card that was over the page goes with it** (0.179.22): the page below is not the page the card was pulled over, so
+  // the hold is dropped without a paint —the wash below is the paint— and the panel of the system finds itself closed on its
+  // next turn (docs/30).
+  forget_the_page_hold();
   // **The keyboard is the system's and does not outlive the page that opened it**: a band left on the glass
   // after the app that asked for it would be a keyboard typing into nothing (docs/90). It goes **with the page out of
   // the books**, because the app that leaves is not told that its view grew and the one that comes has not asked for a
@@ -7150,6 +7159,15 @@ bool present() {
     g_owe_all = false;
     return present_all(hal::UpdateMode::kGc16);
   }
+  // **A page under a card is composed and not sent** (0.179.22): the canvas keeps what the app drew —so the page is not lost
+  // and the next frame of the app builds on it— and the glass keeps the card. The damage is dropped because the whole page is
+  // owed anyway, and a page that presented forty times under the card would otherwise carry forty boxes to merge (docs/30).
+  if (g_page_held) {
+    compose_tree(0, -1, 0, 0);
+    root().damage_count = 0;
+    g_owe_all = true;
+    return true;
+  }
   compose_tree(0, -1, 0, 0);
   // **The keyboard goes over the page and not in it**: the tree is composed first and the band last, so a
   // control of the page under it is covered and does not have to know that the keyboard is there (docs/90).
@@ -7188,6 +7206,14 @@ bool present() {
 
 bool present_all(hal::UpdateMode mode) {
   if (!g_attached || root().bits == nullptr) return false;
+  // **A whole page under a card waits too** (0.179.22): an app that asks for a wash while the panel is out would wash the
+  // card away, so the canvas is composed, the damage is dropped and the page is owed for when the card goes (docs/30).
+  if (g_page_held) {
+    compose_tree(0, -1, 0, 0);
+    root().damage_count = 0;
+    g_owe_all = true;
+    return true;
+  }
   compose_tree(0, -1, 0, 0);
   merge_all(root(), mode);
   keyboard_paint();
@@ -7213,6 +7239,14 @@ bool present_each(hal::UpdateMode mode) {
   // and a page that has just replaced a picture —the splash of the boot, an app's own picture— has to go up whole and clean
   // before anything else. The wish of the page comes first, and the boxes of the ring are part of it (docs/30, docs/50).
   if (g_owe_all) return present();
+  // **And a page of boxes is behind the card too** (0.179.22): the boxes are composed into the canvas and none of them goes
+  // up while the panel is out, because the card is over them (docs/30).
+  if (g_page_held) {
+    compose_tree(0, -1, 0, 0);
+    root().damage_count = 0;
+    g_owe_all = true;
+    return true;
+  }
   compose_tree(0, -1, 0, 0);
   Canvas& page = root();
   // **And a page of boxes is one paint** (0.179.5): a ring that moves is two controls and the paper between them is nobody's
@@ -7236,7 +7270,9 @@ bool idle() {
   // that an app in a loop already asks, so it is where the system paints what it owes without anybody inventing another
   // call. The paint is only asked for when the panel says its ink is over, which is what keeps this from blocking on
   // `wait_paint` every turn (docs/30, docs/50).
-  if (g_owed_paint && !g_painting && !root().in_draw && display::idle()) paint_root();
+  // **And a page that is under a card is not painted here either** (0.179.22): a refused paint is owed to the glass, and the
+  // card is over the page it belongs to, so it waits for the card to go the way every other frame does (docs/30, docs/50).
+  if (g_owed_paint && !g_painting && !g_page_held && !root().in_draw && display::idle()) paint_root();
   return display::idle();
 }
 
@@ -7245,6 +7281,25 @@ bool idle() {
 bool owes_paint() { return g_owed_paint; }
 
 void owe_the_page() { g_owe_all = true; }
+
+bool hold_the_page(bool on) {
+  if (on == g_page_held) return true;
+  g_page_held = on;
+  // **Giving the page back is one wash of the view**: the card's ink and the frames the app drew under it are both covered by
+  // the whole page, and the wash is the one a page that has been through a change of ink deserves (docs/50, docs/92).
+  if (on) return true;
+  g_owe_all = false;
+  if (!g_attached || root().bits == nullptr) return false;
+  // **The region of the release is the page and not what happened to be pending** (0.179.22): the frames the app drew under
+  // the card had their damage dropped on purpose, and the card's own ink is not in this canvas at all, so the one box this
+  // paint owes is the whole view (docs/30, docs/50).
+  damage_add(root(), 0, 0, root().width, root().height, hal::UpdateMode::kGc16);
+  return present_all(hal::UpdateMode::kGc16);
+}
+
+bool page_held() { return g_page_held; }
+
+void forget_the_page_hold() { g_page_held = false; }
 
 bool title(const char* text) {
   bar::title(text);
@@ -7260,6 +7315,9 @@ bool place(uint16_t x, uint16_t y) {
 
 bool resize(uint16_t width, uint16_t height) {
   if (!g_attached) return false;
+  // **A page of another size is another page** (0.179.22): a card over the one before is a card over nothing, and the app is
+  // told to draw again anyway, so the hold goes with the view (docs/30).
+  forget_the_page_hold();
   // The place survives a resize and the view keeps it; **the canvases inside it do not**, because they
   // are the app's and the app is told to draw again (docs/30, docs/90).
   if (!make_root(width, height)) return false;
@@ -7275,6 +7333,9 @@ bool resize(uint16_t width, uint16_t height) {
 
 bool set_rotation(uint16_t degrees) {
   const uint16_t was = display::rotation();
+  // **A glass that turns takes the card of the system with it** (0.179.22): the page is made again and washed, and a card
+  // drawn for the page of before would stay where it was (docs/30).
+  forget_the_page_hold();
   // The glass decides: its driver keeps the image in the frame of the page and turns what it sends.
   if (!display::set_rotation(degrees)) return false;
   // **A page that has the whole glass turns with it** (0.136.0): the strip of the bar is not there, so the view of the
@@ -7305,6 +7366,9 @@ uint16_t rotation() { return display::rotation(); }
 
 bool full_screen(bool on) {
   if (!g_attached || root().bits == nullptr) return false;
+  // **The whole glass is not the glass of the card** (0.179.22): a panel pulled over a page under the bar has no place over a
+  // page that took the bar's rows, and the wash below is what erases it (docs/30, docs/46 D1).
+  forget_the_page_hold();
   // **Asking for what it has is free**: no view is made, no memory is paid and no repaint is owed, and an app that asks
   // on every turn —or on every page— is not asking the system to do anything (docs/30).
   if (on == g_full_screen) return true;

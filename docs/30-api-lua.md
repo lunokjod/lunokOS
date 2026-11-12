@@ -3105,10 +3105,42 @@ vidre i es poden provar al PC (docs/85).
   veu una app també, i a sobre **del dret**: es va mesurar l'1/11 tocant les quatre cantonades (docs/95,
   E-6) i el dit arriba on s'ha posat, amb un sol gir que amb la pàgina de fàbrica (270) val zero. La
   conversió la fa el sistema en un sol lloc (`turn_frame()` de `lib/kernel/src/touch.cpp`) i el `dx`/`dy`
-  dels gestos surten ja girats: **una app no ha de girar mai res**. Un dit que cau a la barra arriba
-  filtrat a la vora de la vista i no desapareix (docs/50).
+  dels gestos surten ja girats: **una app no ha de girar mai res**. Un dit que cau a la barra no
+  desapareix i **no es compta com un dit de la primera fila de la pàgina**: es queda en el marc de la
+  barra mentre dura el gest —el seu `y` és el de la pàgina i queda per sobre de la vista— i el que fa
+  amb ell és del sistema, que és qui sap si és una estirada del panell o una premuda de l'hora (docs/50,
+  «El panell del sistema»).
 - El que llegeix el panell en bucle i escriu els dits i els gestos ho té al davant: `ui.touch()` torna la
   posició i `ui.touch_progress()` el gest que s'hi està fent.
+
+### El panell del sistema: el gest de la barra (0.179.22)
+
+La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
+d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
+terç de la pàgina que hi ha sota la barra, amb la línia de sota i l'ansalada de dalt, i res a dins encara
+—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—. El gest de tancar-lo és el
+contrari, **arrossegar cap amunt**, i també **un toc a qualsevol lloc de la targeta**.
+
+- **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
+  cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
+  fila més avall és de la pàgina i no del sistema: mateixa llargada, mateixa direcció i l'app la llegeix
+  amb `touch.gesture()` com sempre. **Els 60 píxels es compten sobre el moviment del dit i no sobre el de
+  la vista**: un dit que cau a la barra es queda en el marc de la barra mentre dura el gest, o sigui que
+  arrossegar cent píxels són cent i no cent menys quaranta-vuit.
+- **Mentre la targeta hi és, la pàgina no hi és**: `ui.present` i `ui.present_all` **composen el que l'app
+  ha dibuixat i no ho envien al vidre** —el quadre quedaria sota la targeta i s'hauria de tornar a
+  esborrar—, els controls de la pàgina **no reben el dit** (senten l'aixecament, no la premuda) i **cap gest
+  no arriba a l'app**: el sistema se'ls queda tots. És la mateixa decisió que els tres tocs i el pessic de
+  tancar: una cosa que el sistema ensenya i governa no la pot desfer una app que no la veu.
+- **I quan la targeta marxa, la pàgina torna sencera**: un sol `gc16` de tota la vista, que esborra la
+  tinta de la targeta i ensenya alhora els quadres que l'app havia fet mentrestant. Una app no ha de fer
+  res per això —no hi ha cap esdeveniment nou i cap crida nova de Lua—: el sistema li dona la pàgina com
+  quan canvia una app.
+- **Si la pàgina se'n va, la targeta se'n va amb ella**: canviar d'app, girar el vidre, canviar la mida de
+  la vista o passar a pantalla sencera baixa la targeta sense pintar res, perquè el canvi que hi ha darrere
+  ja renta el vidre. **En pantalla sencera no hi ha estirada**: la barra no hi és i el gest no existeix.
+- **El llindar de tancar és més curt que el d'obrir** (40 píxels contra 60): la targeta ja és a la
+  pantalla i el dit que la tanca només ha de dir el que vol, no demostrar-ho.
 
 ## `imu`
 

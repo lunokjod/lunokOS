@@ -933,6 +933,16 @@ bool present_each(hal::UpdateMode mode);
 // (docs/30, docs/50).
 void owe_the_page();
 
+// **The page under something of the system** (0.179.22): while it is held, an app's present composes its own canvas and
+// **does not reach the glass**, because there is a card over it —the panel that hangs from the bar— and a frame that went
+// up now is a frame the card erases. `hold_the_page(false)` gives the page back **whole**, with one wash that covers the
+// card's ink and the frames the app drew while it was out; a page that is going anyway (another app, a turn of the glass)
+// is `forget_the_page_hold` instead, which drops the hold and paints nothing because the change that comes washes the
+// glass itself (docs/30, docs/50).
+bool hold_the_page(bool on);
+bool page_held();
+void forget_the_page_hold();
+
 // Whether the paint that was asked for has finished moving ink. **And the moment a paint the panel refused is asked
 // for again** (0.118.2): the glass says no to a page that arrives while another one is moving its ink, and that page is
 // kept and painted here, when the panel can take it (docs/30, docs/50).

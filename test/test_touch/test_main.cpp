@@ -16,6 +16,7 @@
 #include "hal/hal.h"
 #include "kernel/bar.h"
 #include "kernel/display.h"
+#include "kernel/panel.h"
 #include "kernel/touch.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -73,6 +74,55 @@ void turn(uint32_t ms) {
 void wait_ms(int32_t ms) {
   pal::Event event;
   pal::system().queue()->pop(event, ms);
+}
+
+// **A turn of the kernel as the panel of the system sees it** (0.179.22): the hand is read and then the card of the
+// system asks for the gestures, which is the order the kernel that does both has (docs/30).
+void hand_turn(uint32_t ms) {
+  turn(ms);
+  kernel::panel::poll();
+}
+
+emu::MemorySurface& glass() { return *emu::memory_surface(); }
+
+// **A drag of a finger that lands on the bar and comes down**: the way the card of the system is pulled out. It returns
+// with the finger up and the turns after it done, which is when the drag reaches the queue (docs/30).
+void pull_from_the_bar(uint16_t from_y, uint16_t to_y) {
+  const uint16_t x = static_cast<uint16_t>(glass().width() / 2);
+  TEST_ASSERT_TRUE(chip().finger_down(0, x, from_y));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, x, static_cast<uint16_t>((from_y + to_y) / 2)));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, x, to_y));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  hand_turn(20);
+  hand_turn(20);
+}
+
+// **A drag with one finger** from one row of the chip to another, wherever it lands, and the turns that make it a
+// gesture of the queue.
+void drag_on_the_glass(uint16_t from_y, uint16_t to_y) {
+  const uint16_t x = static_cast<uint16_t>(glass().width() / 2);
+  TEST_ASSERT_TRUE(chip().finger_down(0, x, from_y));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_move(0, x, to_y));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  hand_turn(20);
+  hand_turn(20);
+}
+
+// What the app hears in its queue, in the words of the gestures it was handed (docs/30). A gesture is one word and the
+// list is empty when the page heard nothing at all.
+void the_app_hears(char* out, size_t size) {
+  out[0] = '\0';
+  kernel::touch::Gesture gesture;
+  while (kernel::touch::take_gesture(gesture)) {
+    if (gesture.kind == nullptr) continue;
+    if (out[0] != '\0') strncat(out, " ", size - strlen(out) - 1);
+    strncat(out, gesture.kind, size - strlen(out) - 1);
+  }
 }
 
 }  // namespace
@@ -356,6 +406,108 @@ static void test_the_waits_are_one_switch() {
   emu::set_options(opts);
 }
 
+// **A drag that comes down from the titlebar is the system's** (0.179.22): it pulls out the card of the system, which is a
+// third of the page under the bar and white with the line and the handle of its own, and the app below it hears nothing.
+// The page keeps its own frames in its canvas while the card is out and comes back whole when the card goes, which is
+// what the wash of the release is for (docs/30, docs/50).
+static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  // **The page of the app is a level of its own**, so that the card arriving is a change and the page coming back is
+  // another one: a white page under a white card would say nothing about either (docs/30).
+  ui::clear(3, nullptr);
+  ui::present();
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(3, glass().level_at(270, 200), "the page of the app is not on the glass");
+  TEST_ASSERT_FALSE(kernel::panel::open());
+  TEST_ASSERT_EQUAL_UINT16((ui::canvas().height) / 3, kernel::panel::height());
+
+  // **Twenty rows of the chip are the bar's** —the view starts at forty-eight— **and the finger goes a hundred down**:
+  // a pull and not a drawing, so the card comes out and the page never learns that a hand was on it (docs/30).
+  pull_from_the_bar(20, 120);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a drag down from the bar did not pull the card out");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "the card is out and the page it covers is not held");
+  // The card is white over the dark page, and the line of its bottom and the handle of its top are the only ink on it.
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 200));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 100));
+  // **The handle of the card**, which is the black of the bar's line and the one thing that says the card is a card: it
+  // is ninety-six wide and six rows tall, fourteen rows under the bar and centred on a glass of five hundred and forty
+  // (docs/30).
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(270, 64));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 40));
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() - 2)));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(3, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() + 1)),
+                                  "the card is taller than a third of the page");
+  char heard[64];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the page under the card heard the pull of the system");
+
+  // **A frame of the app under the card is composed and kept** (0.179.22): it does not reach the glass, because a page
+  // that went up now would erase the card it is under (docs/30, docs/50).
+  ui::clear(8, nullptr);
+  ui::present();
+  hand_turn(20);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass().level_at(270, 200), "a frame of the app went up over the card");
+  TEST_ASSERT_TRUE(kernel::panel::open());
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "a frame of the app dropped the hold of the page");
+
+  // **The finger up and the card goes with it**: forty pixels of the card are enough, and the page comes back whole —
+  // the whole view washed with `gc16`, which is the level the app left in its canvas while the card was out.
+  drag_on_the_glass(220, 120);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a drag up did not put the card away");
+  TEST_ASSERT_FALSE_MESSAGE(ui::page_held(), "the card is gone and the page is still held");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(8, glass().level_at(270, 200), "the page did not come back where the card was");
+  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 100));
+  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 352));
+  // **And the handle and the line of the card are gone with it** (docs/30).
+  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 64));
+  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() - 2)));
+  // **The drag up was the system's**: the card took it and the page heard nothing at all (docs/30).
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the page heard the drag that put the card away");
+}
+
+// **A drag that begins on the page is the page's** (0.179.22): same length, same direction, one row below the bar, and
+// the card stays where it was —the titlebar is the one row of the glass that is the system's and the rest is not—
+// (docs/30).
+static void test_a_drag_that_begins_on_the_page_is_the_pages() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  // **Below the bar and inside the page**: the finger lands on the first rows of the view and walks a hundred and forty
+  // pixels down, which is a page gesture the app reads and nobody else (docs/30).
+  drag_on_the_glass(60, 200);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a drag that began on the page pulled out the card of the system");
+  // **And it is in the frame of the view**: the finger landed twelve rows into the page and walked a hundred and forty,
+  // which is the length of the finger and not the length minus the bar (docs/30, docs/90).
+  kernel::touch::Gesture gesture;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(gesture), "the app did not hear the drag of its own page");
+  TEST_ASSERT_EQUAL_STRING("drag", gesture.kind);
+  TEST_ASSERT_EQUAL_UINT16(12, gesture.y);
+  TEST_ASSERT_EQUAL_INT16(140, gesture.dy);
+  TEST_ASSERT_FALSE(gesture.on_the_bar);
+}
+
+// **A tap puts the card away** (0.179.22): the rows of switches that come later will take the taps inside the card, and
+// until then the whole card is one thing to dismiss. The app hears neither the tap nor a pull (docs/30).
+static void test_a_tap_puts_the_card_away_and_the_page_never_hears_it() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  pull_from_the_bar(20, 120);
+  TEST_ASSERT_TRUE(kernel::panel::open());
+  // **A tap of a hand on the card**: down and up in one place, and the window of the taps of this system is three
+  // hundred and fifty milliseconds, so the turns after the lift are the ones that say it was a tap (docs/30).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 270, 200));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  for (int t = 0; t < 25 && kernel::panel::open(); ++t) hand_turn(20);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the card did not put it away");
+  char heard[64];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the app heard the tap that closed the card");
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -370,5 +522,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
   RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);
+  RUN_TEST(test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system);
+  RUN_TEST(test_a_drag_that_begins_on_the_page_is_the_pages);
+  RUN_TEST(test_a_tap_puts_the_card_away_and_the_page_never_hears_it);
   return UNITY_END();
 }
