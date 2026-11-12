@@ -28,17 +28,18 @@ namespace {
 const int16_t kPullPx = 60;
 const int16_t kPushPx = 40;
 
-// The handle of the card: a black bar at the top of it, in the same ink as the line under the bar, centred. It is what
-// says the card is a card and where the finger that made it is (docs/30, docs/92).
+// **The handle of the card, at the bottom of it** (0.179.24): a black bar in the same ink as the line that closes the card,
+// centred and fourteen rows above it. It is the grip of the way out —the card hangs from the bar of the system, which is the
+// grip of the way in, so the white rows a finger pushes up are the ones that come last (docs/30, docs/92).
 const uint16_t kHandleW = 96;
 const uint16_t kHandleH = 6;
-const uint16_t kHandleTop = 14;
+const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
 // **The cross of the corner** (0.179.23): a disc of ink of forty pixels with a white cross in it, in the right corner because
-// that is the one a right hand reaches without covering the card, on the rows of the handle and with the same margin from the
-// edge (docs/30).
+// that is the one a right hand reaches without covering the card, fourteen rows under the bar and fourteen from the edge —the
+// margin the card has for its ink (docs/30).
 const int16_t kCrossR = 20;
 const int16_t kCrossHalf = 9;      // the arm of the cross, nine pixels each way from the middle
 const uint16_t kCrossTop = 14;
@@ -102,8 +103,8 @@ void paint() {
   const uint16_t top = bar::height();
   surface->fill_rect(0, top, width, rows, 15);
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
-  surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2), static_cast<uint16_t>(top + kHandleTop),
-                     kHandleW, kHandleH, 0);
+  surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2),
+                     static_cast<uint16_t>(top + rows - kLineH - kHandleGap - kHandleH), kHandleW, kHandleH, 0);
   // **And the cross of the corner**, on the rows of the card and not of the view: the one control the panel has until the
   // switches of the system come (docs/30).
   paint_the_cross(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));

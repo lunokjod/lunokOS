@@ -3117,7 +3117,9 @@ vidre i es poden provar al PC (docs/85).
 
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
-terç de la pàgina que hi ha sota la barra, amb la línia de sota i l'ansalada de dalt, i res a dins encara
+terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —l'agafador
+del camí de tornada, que és on va el dit que l'empeny cap amunt: la barra del sistema ja és l'agafador del camí
+d'anada—, i res a dins encara
 —és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **una rodona amb una creu a la
 cantonada de dalt a la dreta** que tanca l'app del davant. El gest de tancar-lo és el contrari,
 **arrossegar cap amunt**, i també **un toc a la targeta**, fora de la rodona.

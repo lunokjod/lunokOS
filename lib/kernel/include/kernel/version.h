@@ -5598,6 +5598,21 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.24 (12/11): **the handle of the panel goes to the bottom of the card**. The owner: *«la barra que hi ha a dalt del
+// panell, no hauria d'estar a baix de tot?»*, about the card of the system bar and the cross in it. He was right, and for the
+// reason the card is a card at all: **the bar of the system is the grip of the way in** —a finger that lands on it pulls the
+// card out— so the handle drawn inside the card is the grip of the way **out**, and a grip of a way out belongs where the hand
+// that pushes it is, which is the last white rows and not the first. A card that came down from the top with its handle at the
+// top had two handles on the same edge and none where the finger that puts it away ends up (docs/30, docs/92):
+//   - the black bar of ninety-six by six is **fourteen rows above the line that closes the card**, which is the measure the card
+//     already had from its other edge, and the cross of the corner keeps its own fourteen under the bar (`kHandleGap`,
+//     `paint()` in `lib/kernel/src/panel.cpp`);
+//   - **and what is left at the top of the card is the cross and the paper**, which is what a panel of controls should have at
+//     its top: the first row of switches will go there and the handle will not be in the way;
+//   - **measured**: the case of `test_touch` reads the handle where it is now (the middle of its six rows, and a white row twelve
+//     above it that says it is the bottom third and not the top) **and asserts that the card has no handle at its top**, which is
+//     the line that would have caught this in the first place (`599 cases`, the five boards and the emulator built).
+
 // 0.179.23 (12/11): **the cross of the panel closes the app**. The owner: *«En aquest panell ha d'apareixer un botó circular
 // que sigui una "X" (per tancar l'app)»*. The card that hangs from the bar had paper, the line of its bottom and a handle;
 // now it has its first control:
@@ -6510,7 +6525,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.23";
+static const char kVersion[] = "0.179.24";
 
 }  // namespace kernel
 

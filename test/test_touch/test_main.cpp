@@ -430,11 +430,14 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   // The card is white over the dark page, and the line of its bottom and the handle of its top are the only ink on it.
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 200));
   TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 100));
-  // **The handle of the card**, which is the black of the bar's line and the one thing that says the card is a card: it
-  // is ninety-six wide and six rows tall, fourteen rows under the bar and centred on a glass of five hundred and forty
-  // (docs/30).
-  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(270, 64));
-  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, 40));
+  // **The handle of the card**, which is the black of the bar's line and the one thing that says the card is a card: it is
+  // ninety-six wide and six rows tall, **fourteen rows above the line that closes the card** —the white rows a finger pushes up
+  // are the ones that come last— and centred on a glass of five hundred and forty, so it is the rows of the bottom third and
+  // the column of the middle (0.179.24, docs/30).
+  const uint16_t handle_y = static_cast<uint16_t>(48 + kernel::panel::height() - 2 - 14 - 3);  // the middle of the six rows
+  TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(270, handle_y));
+  TEST_ASSERT_EQUAL_UINT8(15, glass().level_at(270, static_cast<uint16_t>(handle_y - 12)));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass().level_at(270, 64), "the card has a handle at its top and it should not");
   TEST_ASSERT_EQUAL_UINT8(0, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() - 2)));
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(3, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() + 1)),
                                   "the card is taller than a third of the page");
@@ -460,7 +463,7 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 100));
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 352));
   // **And the handle and the line of the card are gone with it** (docs/30).
-  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 64));
+  TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, handle_y));
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() - 2)));
   // **The drag up was the system's**: the card took it and the page heard nothing at all (docs/30).
   the_app_hears(heard, sizeof(heard));
