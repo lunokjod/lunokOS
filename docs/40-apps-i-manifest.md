@@ -398,6 +398,45 @@ que val la pena tenir aquí a mà:
   que l'aire del voltant es queda amb el que hi havia al vidre —el dibuix de l'arrencada— si l'app no
   fa un `ui.clear(15)` abans de construir la pàgina.
 
+## Una app sense pàgina: l'arc iris del Matrix (0.179.18)
+
+L'amo: *«fes una app de demo per l'M5Atom Matrix: Leds multicolor com l'arc iris i amb canvis de to suaus i amb
+moviment»*. És `apps/rainbow`, i és **la primera app d'aquest arbre que no dibuixa res**: les dues plaques que la
+poden córrer no tenen vidre, i la seva cara és el llum —vint-i-cinc WS2812 en un cinc per cinc al Matrix, un al Lite
+(docs/50)—. Una app així no té `ui`, ni `canvas`, ni `font`: els té a `nil`, perquè la placa no els porta (0.179.9), i
+el que fa és pintar la tira i esperar el torn següent.
+
+- **La forma del panell surt del número de la placa i no d'una constant**: `led.caps().count` és vint-i-cinc i
+  `side = floor(sqrt(count) + 0.5)` és cinc, o sigui que el mateix fitxer sobre el llum únic del Lite és un to que
+  respira (`rainbow: 1 light(s) in 1 by 1`) i cap línia del codi no diu «Matrix» enlloc (docs/30).
+- **Quatre camps es tornen —`bands`, `iris`, `spiral` i `rain`— i el canvi és una barreja i no un tall**: el que marxa
+  i el que arriba es barregen durant dos segons i mig **en to i en nivell**, i el to va **per la drecera de la roda**
+  —la diferència es plega a ±mig gir—, i així els dos colors que es veuen entremig són veïns de la roda i no una
+  mitjana terrosa en RGB. A sobre, una respiració del nou per cent cada onze segons és el to que no para de moure's.
+- **El nivell és el sostre de la placa**: `led.caps().max` és **vint** al Matrix —vint-i-cinc LEDs de 2020 en una caixa
+  tancada s'escalfen per sobre— i una rampa escrita contra 255 seria una rampa que el sistema talla sense dir res. Un
+  frame és com a molt `(20, 20, 20)`, i això és el que el panell de debò ensenya.
+- **Un frame és un torn, i el torn s'acaba esperant**: `sys.delay(40):await()` torna la coroutine al nucli, que és qui
+  llatxa la tira a final de torn, i els vint-i-cinc llums amb dos camps i una barreja a sobre costen uns tres mil
+  instructions dels vint mil que té un torn. Cap panell s'envia mig pintat (docs/20, docs/75).
+- **L'únic botó salta a la frontera entre dos camps**, que és l'únic instant en què el frame no té barreja: el que es
+  veu després de prémer és el camp següent sencer. Es llegeix amb `button.down(0)` un cop per frame, que és la tercera
+  de les tres maneres que dona docs/30.
+- **I el que diu el registre és el que el cas de la suite llegeix**: `rainbow: 25 light(s) in 5 by 5, 4 fields of 9 s,
+  the button takes the next one` a l'arrencada i `[rainbow] field 2 of 4: iris` quan en canvia un.
+- **No és a la imatge de cap placa**: cap placa no porta apps (`custom_apps_in_disk = no`), o sigui que viatja amb una
+  targeta o amb `custom_apps = rainbow` a l'entorn. Al PC ja és al disc que l'emulador obre, i la manera de mirar-la
+  és la finestra del 0.179.17:
+
+  ```
+  .pio/build/emulator/program --board m5stack-atom-matrix --gui --run rainbow
+  .pio/build/emulator/program --board m5stack-atom --gui --run rainbow
+  ```
+
+- **El `boards` són els dos ATOM**, i el Paper la llista i la refusa amb el motiu, com qualsevol app d'una altra placa
+  (docs/40, docs/85). **I porta icona pròpia** —el panell de vint-i-cinc punts amb la roda girada en grisos— perquè és
+  una app que una persona fa córrer i no una de prova amb el lunokhod.
+
 ## L'app que surt sola en arrencar (l'app «de casa», 0.119.0)
 
 Una placa pot arrencar **dins d'una app** en lloc de deixar el prompt: és el que fa un launcher, un
@@ -478,8 +517,8 @@ font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala 
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 
-Les altres apps —`about`, `calculator`, `editor`, `home_eink`, `shell` i `timeclock`, a més del `reader` de dalt—
-segueixen la mateixa convenció, amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
+Les altres apps —`about`, `calculator`, `editor`, `fonts`, `home_eink`, `reader`, `shell`, `timeclock`, `tz`, `wipe`, `2048` i
+`rainbow`— segueixen la mateixa convenció, amb el seu `res/icon-source.png` i el seu `res/icon.png`, i des de la 0.153.0
 **totes les apps del disc declaren `icon`**: el camp va néixer perquè el manifest el pogués dir el dia que la
 pàgina de les apps es dibuixés, i aquell dia és el llançador, que les posa a la seva graella (docs/30, docs/85).
 

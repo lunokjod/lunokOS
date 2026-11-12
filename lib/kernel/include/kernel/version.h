@@ -5598,6 +5598,49 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.18 (12/11): **a demo for the panel of the Matrix, and the first app of this tree with no page at all**. The owner:
+// *«fes una app de demo per l'M5Atom Matrix: Leds multicolor com l'arc iris i amb canvis de to suaus i movimient»*. It is
+// `apps/rainbow`, and it is written for a board where the light **is** the face (docs/40, docs/50):
+//   - **the panel comes from the count and not from a constant**: `led.caps().count` is twenty-five and the square of it is
+//     the five by five, so the same app on the Lite's one light is a hue that breathes —`rainbow: 1 light(s) in 1 by 1`—
+//     and a board of nine lights would be a three by three. Nothing of the app knows it is running on the Matrix except the
+//     number the board gave it (docs/30);
+//   - **four fields take turns —bands, iris, spiral, rain— and the change is a mix and not a cut**: the field that leaves and
+//     the one that arrives are mixed over two and a half seconds in hue and in level, and the hue goes the **short way round
+//     the wheel** —the difference is folded into minus a half and a half—, so the two colours a person sees between are the
+//     neighbours of the wheel and not a muddy average in RGB. Over that, a breath of nine percent once in eleven seconds is
+//     the tone that never stops moving. Measured on the window (0.179.17's band, `--board m5stack-atom-matrix --gui`): the
+//     four fields take their turn every nine and a half seconds, which is `kHoldMs` plus `kFadeMs` and the log agrees
+//     (`[rainbow] field 2 of 4: iris`), and the app holds its forty milliseconds a frame while doing it;
+//   - **the level is the board's own ceiling**: `led.caps().max` is twenty on this panel —twenty-five 2020 LEDs in a closed
+//     case heat up above it— and a ramp written against 255 would be a ramp the system silently cuts. The frame is at most
+//     (20, 20, 20) and the window says so: this is a demo that is as bright as the maker allows and not one that lies about
+//     it (docs/30, docs/50);
+//   - **a frame is one turn and the turn ends in a wait**: `sys.delay(40):await()` gives the coroutine back, the kernel
+//     latches the strip at the end of the turn, and the twenty-five lights are computed (+two fields and a mix each) in
+//     about three thousand instructions of the twenty thousand a turn has, so a panel is never sent half painted (docs/20,
+//     docs/75). The cost of the wait is the app's own: the delay is a promise and the kernel keeps turning while it waits;
+//   - **the one button jumps to the boundary between two fields**, which is the only instant where the frame has no mix in
+//     it: `bias` moves the app's clock by `kCycleMs` minus the phase it is at, so the field after the press is the next one
+//     whole and not half of a mix. It is read with `button.down(0)` once a frame, which is the third of the three ways the
+//     docs give (docs/30);
+//   - **and the case of the suite reads the panel and not the app's intentions** (`test_the_rainbow_app_paints_the_panel_of_
+//     the_matrix`, `test_apps`): a model of the Matrix, the app of the repository copied onto the disk of the suite, and then
+//     the twenty-five lights of the strip: every light is lit, there are six or more colours and none over the ceiling, four
+//     hundred milliseconds of the app's clock leave lights where they were, the press is answered with `field 2 of 4: iris`,
+//     and closing the app puts all twenty-five out (docs/85);
+//   - **what the case taught about the harness**: `emu::advance_ms` moves the **board's** clock —the one `led` and the alarms
+//     read— and `sys.time_ms` is `pal::system().millis()`, which on the PC is the host's real counter. An app's frame is
+//     therefore waited for in turns —one turn is one millisecond— and not jumped with `advance_ms`, and the case says it in
+//     a comment so the next one does not lose an afternoon to it (docs/85);
+//   - **the icon is its own**: five by five dots with the wheel laid diagonally as greys, drawn at `res/icon-source.png` and
+//     taken down with `tools/make_icon.py`, because this is an app a person runs and not a test app with the lunokhod
+//     (`apps/luaperf` is the test one, docs/40);
+//   - **it is not on the image of any board**: no board carries apps (`custom_apps_in_disk = no`), so it travels on a card
+//     or by `custom_apps = rainbow` on the environment, and on the PC it is already on the disk the emulator opens
+//     (`run rainbow`, or `--run rainbow` at boot). Its `boards` is the two ATOMs, so the Paper lists it and refuses it
+//     (docs/40, docs/70, docs/85).
+
 // 0.179.17 (12/11): **the lights of the board are part of the window**. The owner: *«l'emulador d'atom matrix i d'atom lite
 // han de tenir els leds corresponents a la seva finestra del emulador (ja tenen el botó) tal i com es fa amb el m5paper»*.
 // The Matrix's twenty-five WS2812s in a five by five and the Lite's one are the whole face of those boards, and the window
@@ -6322,7 +6365,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.17";
+static const char kVersion[] = "0.179.18";
 
 }  // namespace kernel
 

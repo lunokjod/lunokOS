@@ -455,6 +455,14 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   - **una placa de només llums té finestra**: la regla que obria la finestra mirava les tecles, i el T-Koala —cap
     tecla, un LED verd— no en tenia cap i el seu llum no es veia enlloc. Ara la finestra és el que la placa té: el
     vidre, els llums, les tecles, i la combinació que sigui (trobat a la finestra, el 12/11).
+  - **i per mirar-s'ho hi ha una app**: `apps/rainbow` és l'arc iris del Matrix (0.179.18, docs/40) i la manera curta
+    de tenir el panell encès a la finestra és `--board m5stack-atom-matrix --gui --run rainbow`, o `--board
+    m5stack-atom` per veure el mateix camp en un sol llum. Al PC l'app ja és al disc que l'emulador obre; a la placa
+    arriba amb una targeta o amb `custom_apps = rainbow`.
+  - **i una cosa que el cas de la suite va ensenyar**: `emu::advance_ms` mou el rellotge **de la placa** —el que
+    llegeixen `led` i les alarmes— i `sys.time_ms` és `pal::system().millis()`, que al PC és el comptador real de la
+    màquina. Una app que compta mil·lisegons es fa avançar **amb torns** (un torn és un mil·lisegon) i no amb
+    `advance_ms`, que li mou un rellotge que no llegeix.
 
 - **El que no s'hi veu**: el **temps** de la tinta, que només es nota perquè la finestra s'espera i el
   prompt no torna —el número es llegeix amb `stats` o pintant una pàgina sencera, no a l'ull—, i el moviment del

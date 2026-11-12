@@ -7947,6 +7947,123 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_FALSE(kernel::app_running());
 }
 
+// **The rainbow of the panel** (0.179.18, the owner: *«leds multicolor com l'arc iris i amb canvis de to suaus i
+// moviment»*). The case runs the app of the repository on a model of the Matrix and reads **the panel** and not the
+// app's intentions: the twenty-five lights are lit, they are not one colour, they are different from one frame to the
+// next with nobody pressing anything, a press of the one button takes the next field, and the panel goes dark when the
+// app leaves (docs/30, docs/85).
+void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-atom-matrix";
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  // **The app that ships is the app the case runs** (the rule of the tiles and the calculator): the disk of the suite
+  // is its own little volume and carries no app of `apps/`, so the two files are copied from the repository here.
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/rainbow");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/rainbow/rainbow.lua", "/apps/rainbow/rainbow.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/rainbow/manifest.json", "/apps/rainbow/manifest.json"));
+
+  pump_captured(20, g_out, sizeof(g_out), "apps");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rainbow"), g_out);
+  // **The clock the app reads is the PC's and not the emulator's clock of the light**: `sys.time_ms` is the host's
+  // monotonic counter, so a frame here is forty milliseconds of a wait and not a jump of `emu::advance_ms`, which is
+  // the board's own clock and not the app's (docs/85). One turn of `pump_turns` is one millisecond.
+  const uint32_t before = emu::led_frames();
+  pump_captured(60, g_out, sizeof(g_out), "run rainbow");
+  // **What the app says it found is what this case is reading**: twenty-five lights in a five by five, which is the
+  // panel of the Matrix and not the single light of the ATOM, and the first of its four fields.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rainbow: 25 light(s) in 5 by 5"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[rainbow] field 1 of 4: bands"), g_out);
+
+  // A frame is forty milliseconds of the app's clock, and the clock here is moved by hand (docs/85).
+  uint8_t frame[25][3];
+  const auto read_the_panel = [&frame]() {
+    for (uint32_t light = 0; light < 25; ++light) {
+      TEST_ASSERT_TRUE(emu::led_pixel(light, frame[light][0], frame[light][1], frame[light][2]));
+    }
+  };
+  const auto panel_changes = [&frame]() {
+    uint8_t now[25][3];
+    for (uint32_t light = 0; light < 25; ++light) {
+      TEST_ASSERT_TRUE(emu::led_pixel(light, now[light][0], now[light][1], now[light][2]));
+    }
+    int changed = 0;
+    for (uint32_t light = 0; light < 25; ++light) {
+      if (now[light][0] != frame[light][0] || now[light][1] != frame[light][1] ||
+          now[light][2] != frame[light][2]) {
+        ++changed;
+      }
+    }
+    memcpy(frame, now, sizeof(frame));
+    return changed;
+  };
+
+  TEST_ASSERT_TRUE_MESSAGE(emu::led_frames() > before, "the app never sent a frame");
+  read_the_panel();
+
+  // **The panel is a rainbow and not a colour**: every light is lit —the dimmest field of the app never goes under a
+  // tenth of the ceiling— and there are many different colours in it, and none of them is over the ceiling of the
+  // panel, which is the maker's twenty and the number the system clamps at (docs/30, docs/50).
+  int lit = 0;
+  int colours = 0;
+  uint8_t seen[25][3];
+  for (uint32_t light = 0; light < 25; ++light) {
+    const uint8_t red = frame[light][0];
+    const uint8_t green = frame[light][1];
+    const uint8_t blue = frame[light][2];
+    TEST_ASSERT_TRUE_MESSAGE(red <= 20 && green <= 20 && blue <= 20, "a light over the ceiling of the panel");
+    if (red > 0 || green > 0 || blue > 0) ++lit;
+    bool known = false;
+    for (int other = 0; other < colours; ++other) {
+      if (seen[other][0] == red && seen[other][1] == green && seen[other][2] == blue) known = true;
+    }
+    if (!known && colours < 25) {
+      seen[colours][0] = red;
+      seen[colours][1] = green;
+      seen[colours][2] = blue;
+      ++colours;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(25, lit, "a light of the panel is dark");
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(6, colours, "the panel is one colour and not a rainbow");
+
+  // **And it moves by itself**: six hundred milliseconds of the app's own clock —fifteen frames— and a rainbow that
+  // drifts has left more than a couple of lights where they were (the owner asked for movement and not only colour).
+  pump_turns(600);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(5, panel_changes(), "the panel stood still");
+
+  // **The one button takes the next field**: the app jumps to the boundary between two fields, so the panel after a
+  // press is the one that follows whole, and the app says which one it is in the log (docs/30).
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(50);
+  emu::press_button(false);
+  pump_turns(50);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[rainbow] field 2 of 4: iris"), g_out);
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(5, panel_changes(), "the panel did not take the field the button asked for");
+
+  // **A light that outlives its app is power spent by nobody**: closing the app gives the light back to the system,
+  // which is what the kernel promises whoever takes it (docs/30).
+  kernel::shell::close_app();
+  pump_turns(6);
+  read_the_panel();
+  for (uint32_t light = 0; light < 25; ++light) {
+    TEST_ASSERT_TRUE_MESSAGE(frame[light][0] == 0 && frame[light][1] == 0 && frame[light][2] == 0,
+                             "a light stayed on after the app left");
+  }
+
+  // Back to the ATOM for the cases that come after: one emulator, one board (docs/85).
+  opts = emu::options();
+  opts.board = "m5stack-atom";
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **An app that names a picture gets it painted before it starts** (0.114.0): the manifest says `splash` with a file
 // inside the app, the system washes the whole glass and paints it in the middle with the same call the moments use
 // —an app cannot paint before it runs—, and the first page it presents takes it away. **An app that names none paints
@@ -13281,6 +13398,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
+  RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);

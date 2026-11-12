@@ -538,6 +538,12 @@ cas a `test_apps` (docs/30, docs/40, docs/70). **I el 9/11 el mateix dia en va d
 també el botó de format per littlefs a l'app wipe»*—, que és la 0.171.1: la flash del sistema és un volum com la
 targeta i es buida amb la mateixa crida (docs/30, docs/70).
 
+**I el 12/11, una demo per a una placa sense pantalla**: *«fes una app de demo per l'M5Atom Matrix: Leds multicolor com
+l'arc iris i amb canvis de to suaus i moviment»*. És `apps/rainbow` (0.179.18) i no demana res que el sistema no tingui
+—`led.caps`, `led.pixel`, `sys.delay`, `button.down`—: quatre camps que es barregen en to i nivell, el sostre de vint
+del panell respectat, i el botó per passar al següent. El contracte sencer, a docs/40; al PC s'hi veu amb la finestra
+del 0.179.17 (`--board m5stack-atom-matrix --gui --run rainbow`, docs/85).
+
 ### El que l'esborrador va deixar dit
 
 - **La targeta i la flash es buiden però no es reformaten**: el format deixa el FAT de la targeta i el superblock del

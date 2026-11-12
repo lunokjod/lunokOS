@@ -1012,8 +1012,8 @@ gust que el nucli es quedi.
   de tot efecte és 20** igualment, perquè un llum que diu una cosa no ha de ser el més brillant de la
   taula. El sostre el fa complir **el sistema**, no el driver: una app que demani 255 al panell en
   pinta 20, i la shell ho diu quan s'hi passa (`led: 00ff00 (this board stops at 20)`). Una app que
-  vol una rampa que arribi dalt de tot l'ha de comptar amb `max`, com fan `light` i `matrix`
-  (docs/50).
+  vol una rampa que arribi dalt de tot l'ha de comptar amb `max`, com fa `rainbow` —l'arc iris del
+  Matrix, docs/40— (docs/50).
 - **No cal fer res perquè es vegi**: el nucli el pinta a final de torn i només quan canvia. Un frame és
   una escriptura al fil i el llum també costa (docs/75).
 - **Els nivells són fluixos a posta** (`level` per defecte de cada moment és el de la taula de dalt, i

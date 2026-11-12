@@ -1,0 +1,9 @@
+{
+  "title": "Rainbow",
+  "author": "@lunokjod",
+  "version": "0.1.0",
+  "entry": "rainbow.lua",
+  "boards": ["m5stack-atom", "m5stack-atom-matrix"],
+  "icon": "res/icon.png",
+  "description": "The lights of the board as a rainbow that drifts: a hue for every light and four fields that take turns, mixed in hue and in level so a change is a colour that travels and not a panel that blinks.\nThe button takes the next one. On the Lite, whose face is a single light, the same field is one hue that breathes."
+}
