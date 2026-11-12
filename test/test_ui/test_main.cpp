@@ -1561,6 +1561,59 @@ static void test_the_keys_of_the_window_are_the_dial_of_the_board() {
   TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_at(48, 400, 1, 366, 480, emu::KeySide::kLeft));
 }
 
+// **The lights of the board have their face in the window** (0.179.17): the Matrix is a panel of five by five and the Lite
+// one dot, and neither was in the window —the emulator showed the button of an ATOM and nothing of the light that is the
+// rest of the board—. The band is **under the page and above the row of keys**, five lights to a row, and it is
+// numbered row by row from the top left, which is the number `led.pixel` takes (docs/30, docs/50, docs/85).
+static void test_the_lights_of_the_board_have_their_face_in_the_window() {
+  // **A board with no light asks for no room at all**, which is the Paper: its window is the page and the keys.
+  TEST_ASSERT_EQUAL_UINT16(0, emu::gui_lights_height(0));
+  TEST_ASSERT_EQUAL_UINT16(0, emu::gui_lights_width(0));
+  // **The Lite: one dot** in a box of its own margin, so the window of an ATOM has a light where the board has one.
+  TEST_ASSERT_EQUAL_UINT16(emu::kLightDot + 2 * emu::kLightMargin, emu::gui_lights_height(1));
+  TEST_ASSERT_EQUAL_UINT16(emu::kLightDot, emu::gui_lights_width(1));
+  // **The Matrix: five by five**, four pixels of air between two lights and the margin of the band above and below.
+  const uint16_t five = static_cast<uint16_t>(5 * emu::kLightDot + 4 * emu::kLightGap);
+  TEST_ASSERT_EQUAL_UINT16(five + 2 * emu::kLightMargin, emu::gui_lights_height(25));
+  TEST_ASSERT_EQUAL_UINT16(five, emu::gui_lights_width(25));
+
+  // **Where a light lands**: the band is centred in the window, the page is above it, and the number of a light is its row
+  // from the top and then its column — the first at the top left, the fifth at the end of the first row, the sixth at the
+  // start of the second.
+  const uint16_t stage = static_cast<uint16_t>(five + 24);
+  uint16_t x = 0;
+  uint16_t y = 0;
+  TEST_ASSERT_TRUE(emu::gui_light_place(25, 0, 0, stage, 0, x, y));
+  TEST_ASSERT_EQUAL_UINT16(12, x);  // twelve pixels of air: half of the twenty-four the band leaves
+  TEST_ASSERT_EQUAL_UINT16(emu::kLightMargin, y);
+  TEST_ASSERT_TRUE(emu::gui_light_place(25, 4, 0, stage, 0, x, y));
+  TEST_ASSERT_EQUAL_UINT16(12 + 4 * (emu::kLightDot + emu::kLightGap), x);
+  TEST_ASSERT_EQUAL_UINT16(emu::kLightMargin, y);
+  TEST_ASSERT_TRUE(emu::gui_light_place(25, 5, 0, stage, 0, x, y));
+  TEST_ASSERT_EQUAL_UINT16(12, x);
+  TEST_ASSERT_EQUAL_UINT16(emu::kLightMargin + emu::kLightDot + emu::kLightGap, y);
+  // **And under the page when there is one**: a board that had a glass and a light would put the panel below it.
+  TEST_ASSERT_TRUE(emu::gui_light_place(25, 0, 0, stage, 960, x, y));
+  TEST_ASSERT_EQUAL_UINT16(960 + emu::kLightMargin, y);
+  // **The stage is not the window**: a column of keys on a side starts where the stage ends, and the band is centred in
+  // what the page would have had —the fault the window of the Matrix showed at 76 by 88 with the key drawn over the
+  // panel, found on the window the 12/11—.
+  TEST_ASSERT_TRUE(emu::gui_light_place(25, 0, 52, stage, 0, x, y));
+  TEST_ASSERT_EQUAL_UINT16(52 + 12, x);
+  // A light the board has not got is not placed, and neither is one of a board with no light.
+  TEST_ASSERT_FALSE(emu::gui_light_place(25, 25, 0, stage, 0, x, y));
+  TEST_ASSERT_FALSE(emu::gui_light_place(0, 0, 0, stage, 0, x, y));
+
+  // **The window of an ATOM is its panel with the button centred under it**: the band is wider than the one key of the
+  // board and the key sits in the middle of that width, which is the face of the board (docs/85).
+  TEST_ASSERT_GREATER_THAN(emu::gui_keys_width(1), emu::gui_lights_width(25));
+  const int left = emu::gui_keys_left(emu::gui_lights_width(25), 1);
+  TEST_ASSERT_EQUAL_INT((static_cast<int>(emu::gui_lights_width(25)) - static_cast<int>(emu::gui_keys_width(1))) / 2,
+                        left);
+  TEST_ASSERT_LESS_OR_EQUAL_UINT16(emu::gui_lights_width(25),
+                                   static_cast<uint16_t>(left + static_cast<int>(emu::gui_keys_width(1))));
+}
+
 // **The keyboard of the system is a QWERTY that the finger and the glass agree on** (0.83.0): the band is four
 // rows of a key and never more than two fifths of the view, a letter is the tenth of the width a finger hits, the
 // row of `a` is staggered half a key to the right of the row of `q`, the space is a bar of six tenths where a thumb
@@ -3920,6 +3973,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_label_inside_a_button_is_clipped_to_the_button);
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);
   RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
+  RUN_TEST(test_the_lights_of_the_board_have_their_face_in_the_window);
   RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
   RUN_TEST(test_the_two_symbols_of_the_band_are_one_piece_each);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);

@@ -99,17 +99,55 @@ struct KeyRun {
 // How many runs the key has: zero for a board of one button, which keeps its word.
 uint8_t gui_key_icon(uint8_t count, int key, uint16_t width, uint16_t height, KeyRun* out, uint8_t capacity);
 
-// **One window with the glass and the keys in it** (0.34.0): the page is not covered by anything and the
-// buttons are where the board has them. Two windows were two things to place and to look at, and the window
+// **The lights of the board, in the window** (0.179.17). The ATOM's one WS2812 and the Matrix's five by five are
+// the whole face of those boards, and a window that shows their button and not their light is a window of half a
+// board. The band sits **under the page and above the row of keys** —the order of the board's own face: the panel
+// of lights on top, the button below— and a window with no page, which is every board of this family that has a
+// light, has it at the top. A model with no light (the Paper) has no band at all (docs/50, docs/85).
+//
+// **The colours are the frame the strip was given at `show()`** and not what the kernel is animating: a WS2812
+// latches a frame and what a person sees is that frame, which is the same rule the glass follows.
+const uint16_t kLightDot = 12;   // one light, in window pixels
+const uint16_t kLightGap = 4;    // the air between two of them
+const uint16_t kLightMargin = 6; // the air the band leaves above and below itself
+
+struct LightColour {
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+};
+
+// How tall and how wide the band of `count` lights is: **five to a row and as many rows as it takes**, so
+// twenty-five is the square of the Matrix's panel and one is a single dot, both in the same box. Zero for a board
+// with no light.
+uint16_t gui_lights_height(uint8_t count);
+uint16_t gui_lights_width(uint8_t count);
+
+// **Where light `index` lands**, in window pixels, inside the **stage**: the part of the window the page and the band
+// share, which is the window without the strip of the keys —`stage_x` is where it starts and `stage_w` how wide it is—,
+// with the page `page_height` tall above the band. The band is centred in the stage and not in the window, or a column of
+// keys on a side would sit on top of the lights of a board with no page. The lights are numbered **row by row from the
+// top left**, which is the number `led.pixel` takes (docs/30). False for a light the board has not got.
+bool gui_light_place(uint8_t count, uint8_t index, uint16_t stage_x, uint16_t stage_w, uint16_t page_height,
+                     uint16_t& x, uint16_t& y);
+
+// **A frame of the strip, to the window.** Called when the strip latches it and not when a pixel is written, and a
+// build with no window answers nothing: the colours are copied, the band is painted again and the page is not
+// touched (docs/85).
+void gui_show_lights(const LightColour* lights, uint8_t count);
+
+// **One window with the glass, the lights and the keys in it** (0.34.0): the page is not covered by anything and
+// the buttons are where the board has them. Two windows were two things to place and to look at, and the window
 // manager put them where it liked.
 //
 // `keys` is how many buttons there are —zero is a board with no key— and a click on one is a press and a
-// release of that key through the same `press_key` a test uses (docs/50, docs/85).
+// release of that key through the same `press_key` a test uses (docs/50, docs/85). `lights` is how many lights the
+// model has, and zero is a board with none.
 //
 // `scale` is `--gui-scale`: 1 to 4 draws the page at that many page pixels per window pixel, 2 being the
 // page at half, even when the screen would hold it whole; zero is the smallest that fits, which is what a
 // window nobody sized wants (docs/85).
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale);
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights);
 
 // **Which key a point of the window is on**, and which key a slot of the column or the row is: the dial goes
 // up, centre and down from the top, a board of one key has the middle of it, and `-1` is no key at all —

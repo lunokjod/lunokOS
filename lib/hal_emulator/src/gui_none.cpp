@@ -9,13 +9,21 @@ namespace emu {
 
 bool gui_available() { return false; }
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights) {
   (void)width;
   (void)height;
   (void)keys;
   (void)side;
   (void)scale;
+  (void)lights;
   return false;
+}
+
+// A board whose strip latches a frame with no window open has nobody to show it to, and that is not an error: the
+// colours are the strip's and the build has no glass to put them on (docs/85).
+void gui_show_lights(const LightColour* lights, uint8_t count) {
+  (void)lights;
+  (void)count;
 }
 
 void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {

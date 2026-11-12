@@ -421,7 +421,7 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   Paper és a la cara **dreta**, amb `Spot::kUp` a dalt i `Spot::kDown` a baix (docs/50)— o una **fila sota la
   pàgina** quan la tecla és a la cara de dalt, com la d'un ATOM. És **la mateixa finestra que el vidre**: la
   pàgina es pinta al costat que les tecles deixen lliure i no hi ha res a col·locar ni dues coses per mirar;
-  una placa sense vidre té les tecles i prou.
+  una placa sense vidre té les tecles i el llum (0.179.17, la bala de sota).
   Prémer és `press_key(key, true)` i deixar anar `press_key(key, false)` —el camí de la prova i del guió— i
   el botó es pinta ple mentre és premut, perquè una tecla que baixa i puja sense dir res no es comprova a
   l'ull. **Un clic a un botó és una tecla i un clic a la pàgina és un dit**, i és la posició del punter la que
@@ -435,6 +435,27 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
   mateixa casa. Una placa d'**una sola tecla** no en té, de signe: allà el botó és tot el costat i es queda
   la paraula. I els botons són de **quaranta per quaranta amb sis de buit** (eren vuitanta per
   cinquanta-quatre amb vuit): el que cal amb un ratolí és que la columna no es mengi la pàgina.
+- **Els llums de la placa, a la finestra** (0.179.17, l'amo: *«l'emulador d'atom matrix i d'atom lite han de tenir
+  els leds corresponents a la seva finestra del emulador (ja tenen el botó) tal i com es fa amb el m5paper»*). Un ATOM
+  Lite és **un** WS2812 i un Matrix **vint-i-cinc** en cinc per cinc, i la finestra els ensenyava el botó i res més: la
+  cara de la placa era mitja. Ara la finestra té **tres parts** —el vidre, la tira de llums i les tecles— i la tira és
+  **sota la pàgina i sobre la fila de tecles**, que és l'ordre de la cara de la placa: el panell a dalt i el botó a
+  sota. Una placa sense vidre (ATOM, Matrix, T-Koala) la té a dalt de tot, i una sense cap llum (el Paper) no en té.
+  - **Cinc a cada fila i tantes files com calgui**: vint-i-cinc és el quadrat del Matrix i un és un sol punt, tots dos
+    amb la mateixa mida de punt (dotze píxels de finestra, quatre de buit i sis de marge), o sigui que el llum d'un
+    Lite no s'encongeix amb la pàgina perquè no n'hi ha, de pàgina. La geometria és **pura** (`emu::gui_lights_height`,
+    `gui_lights_width` i `gui_light_place`) i té prova a `test_ui`;
+  - **el color és el del marc que la tira ha enganxat**, no el que el nucli està animant: `FakeLed::show()` és qui ho
+    envia a la finestra, igual que el vidre només es copia quan el panell pinta alguna cosa. Un llum apagat es pinta
+    amb un **gris molt fosc** i no amb el color de la carcassa, perquè el cinc per cinc es vegi com un panell i no com
+    un forat;
+  - **i el que la finestra no pretén** és el mapa físic del xip: numera els llums **fila a fila des de dalt a
+    l'esquerra**, que és el número que `led.pixel` pren (docs/30). L'emulador té el mateix sostre de canal que la placa
+    —vint— i per això un `led ff0000` al prompt del Matrix és un vermell de (20, 0, 0) també aquí;
+  - **una placa de només llums té finestra**: la regla que obria la finestra mirava les tecles, i el T-Koala —cap
+    tecla, un LED verd— no en tenia cap i el seu llum no es veia enlloc. Ara la finestra és el que la placa té: el
+    vidre, els llums, les tecles, i la combinació que sigui (trobat a la finestra, el 12/11).
+
 - **El que no s'hi veu**: el **temps** de la tinta, que només es nota perquè la finestra s'espera i el
   prompt no torna —el número es llegeix amb `stats` o pintant una pàgina sencera, no a l'ull—, i el moviment del
   pigment dins de cada moment (la finestra ensenya blanc, negre i la imatge, no els passos entremig). Per

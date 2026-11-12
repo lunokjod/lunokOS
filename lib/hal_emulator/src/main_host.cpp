@@ -580,9 +580,10 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
     fprintf(stderr, "--touch: %s has no touch panel, and an emulator of it has no finger\n", memory.name);
     return false;
   }
-  // **A window of what the board has**: a model with a glass shows it, and every model of this family has
-  // at least one key, so `--gui` on a board with no screen is the window of its button and not an error —
-  // the emulator of an ATOM still has the button a person presses (docs/85).
+  // **A window of what the board has**: a model with a glass shows it, and a board with no screen shows the face it
+  // has —its button, its panel of lights, or both— so `--gui` on one of those is the window of its face and not an
+  // error (docs/85). **The lights count** (0.179.17): the T-Koala has no key at all and one LED, and a rule that only
+  // looked at the keys gave it no window and no light anywhere (found on the window, 12/11).
   // **A build of this emulator can carry no page at all** (0.179.9, `-DLUNOK_GLASS=0`), and then a model with a glass is a
   // board this binary cannot show: the panel is taken away here and said once, because a run that believed it had a screen
   // would paint into a system that has no canvases and would answer `no glass` from every command while `caps` said the
@@ -600,12 +601,12 @@ bool parse(int argc, char** argv, emu::Options& opts, bool& want_help) {
 #ifdef LUNOK_GUI_BY_DEFAULT
   if (!no_gui) opts.gui = true;
 #endif
-  if (opts.gui && !opts.display && memory.keys == 0) {
+  if (opts.gui && !opts.display && memory.keys == 0 && memory.lights == 0) {
     if (gui_asked) {
-      fprintf(stderr, "--gui: %s has no glass and no key, so there is no window to open\n", memory.name);
+      fprintf(stderr, "--gui: %s has no glass, no key and no light, so there is no window to open\n", memory.name);
       return false;
     }
-    fprintf(stderr, "gui: %s has no glass and no key, so this run has no window\n", memory.name);
+    fprintf(stderr, "gui: %s has no glass, no key and no light, so this run has no window\n", memory.name);
     opts.gui = false;
   }
 
@@ -895,12 +896,14 @@ int main(int argc, char** argv) {
     } else if (opts.display && (hal::platform().display() == nullptr ||
                                 !emu::gui_open(emu::memory_surface()->width(),
                                                emu::memory_surface()->height(),
-                                               static_cast<uint8_t>(hw.keys), side, opts.gui_scale))) {
+                                               static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
+                                               static_cast<uint8_t>(hw.lights)))) {
       fprintf(stderr, "no display to open the window on\n");
     } else if (!opts.display &&
-               !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side, opts.gui_scale)) {
-      // **A board with no glass has its button and nothing else**: the window is the keys, and an ATOM still
-      // gets the button a person presses (docs/85).
+               !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
+                              static_cast<uint8_t>(hw.lights))) {
+      // **A board with no glass has its face and nothing else**: the window is the lights and the keys, and an ATOM
+      // still gets the button a person presses under the panel of its light (docs/85).
       fprintf(stderr, "no display to open the window on\n");
     } else {
       if (opts.display) {

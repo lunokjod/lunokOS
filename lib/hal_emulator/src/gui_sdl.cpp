@@ -34,7 +34,19 @@ uint16_t g_page_w = 0;
 uint16_t g_page_h = 0;
 uint16_t g_page_x = 0;
 uint16_t g_page_y = 0;
+uint16_t g_stage_w = 0;
+uint16_t g_stage_h = 0;
 int g_key_held = -1;
+
+// **The lights of the board, which is the face of an ATOM** (0.179.17): the colours of the last frame the strip latched,
+// kept so a redraw paints them again, and the colour of a light that is off —a very dark grey and not the case— so the
+// five by five of the Matrix is a panel a person can see even when it is dark (docs/85).
+const uint8_t kMaxLights = 25;
+uint8_t g_lights_count = 0;
+LightColour g_lights[kMaxLights] = {};
+const uint8_t kLightOffR = 0x24;
+const uint8_t kLightOffG = 0x24;
+const uint8_t kLightOffB = 0x24;
 
 const uint8_t kCaseR = 0x1B;
 const uint8_t kCaseG = 0x1B;
@@ -109,6 +121,31 @@ void draw_text(const char* text, int x, int y, int scale) {
   }
 }
 
+// **The band of lights** (0.179.17), under the page and above the row of keys: one dot per light, in the colour the
+// strip was given, and a dark dot for one that is off so the panel reads as a panel. A light is drawn two pixels inside
+// its box, which is what makes two neighbours of the same colour two lights and not one long bar (docs/85).
+void draw_lights() {
+  if (g_renderer == nullptr || g_lights_count == 0) return;
+  const int band_h = static_cast<int>(gui_lights_height(g_lights_count));
+  if (band_h <= 0) return;
+  set_colour(kCaseR, kCaseG, kCaseB);
+  SDL_Rect band = {g_page_x, g_page_h, g_stage_w, band_h};
+  SDL_RenderFillRect(g_renderer, &band);
+  for (uint8_t light = 0; light < g_lights_count; ++light) {
+    uint16_t x = 0;
+    uint16_t y = 0;
+    if (!gui_light_place(g_lights_count, light, g_page_x, g_stage_w, g_page_h, x, y)) continue;
+    const LightColour colour = g_lights[light];
+    if ((colour.red | colour.green | colour.blue) != 0) {
+      set_colour(colour.red, colour.green, colour.blue);
+    } else {
+      set_colour(kLightOffR, kLightOffG, kLightOffB);
+    }
+    SDL_Rect dot = {x + 2, y + 2, kLightDot - 4, kLightDot - 4};
+    SDL_RenderFillRect(g_renderer, &dot);
+  }
+}
+
 void draw_keys() {
   if (g_renderer == nullptr || g_keys_count == 0) return;
   const bool row = (g_side == KeySide::kBottom);
@@ -166,10 +203,13 @@ void redraw() {
   if (g_renderer == nullptr) return;
   set_colour(kCaseR, kCaseG, kCaseB);
   SDL_RenderClear(g_renderer);
+  // A frame of the strip may have painted the band since the last redraw, so the page is copied over it and not the
+  // other way round (docs/85).
   if (g_texture != nullptr) {
     SDL_Rect page = {g_page_x, g_page_y, g_page_w, g_page_h};
     SDL_RenderCopy(g_renderer, g_texture, nullptr, &page);
   }
+  draw_lights();
   draw_keys();
   SDL_RenderPresent(g_renderer);
 }
@@ -217,13 +257,13 @@ bool on_the_page(int x, int y) {
 
 bool gui_available() { return true; }
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights) {
   if (g_window != nullptr) return true;
   if (width == 0 || height == 0) {
     width = 0;
     height = 0;
   }
-  if (width == 0 && keys == 0) return false;
+  if (width == 0 && keys == 0 && lights == 0) return false;
   if (SDL_Init(SDL_INIT_VIDEO) != 0) return false;
 
   SDL_DisplayMode mode;
@@ -247,8 +287,26 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_page_h = (height == 0) ? 0 : static_cast<uint16_t>((height + g_scale - 1) / g_scale);
   g_page_x = static_cast<uint16_t>((side == KeySide::kRight) ? 0 : strip_w);
   g_page_y = 0;
-  g_win_w = static_cast<uint16_t>(strip_w + g_page_w);
-  g_win_h = static_cast<uint16_t>(strip_h + g_page_h);
+  // **The band of lights is the third part of the window** (0.179.17): under the page and above the row of keys, so the
+  // face of the board reads as the board —the panel of lights, then the button— and a model with no glass has it at the
+  // top (docs/85). The page and the band share the **stage**, which is the window without the strip of the keys: a column
+  // on a side makes the window wider and the lights stay in the part the page would have had, instead of being drawn over
+  // the buttons.
+  g_lights_count = (lights > kMaxLights) ? kMaxLights : lights;
+  const int lights_w = static_cast<int>(gui_lights_width(g_lights_count));
+  const int lights_h = static_cast<int>(gui_lights_height(g_lights_count));
+  const int row_w = (side == KeySide::kBottom) ? static_cast<int>(gui_keys_width(keys)) : 0;
+  g_stage_w = static_cast<uint16_t>(g_page_w);
+  if (lights_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(lights_w);
+  if (row_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(row_w);
+  // **And the stage is at least as tall as a column of keys**: a board of one light and one key on its side would
+  // otherwise open a window of twenty-four pixels with a button of forty hanging out of it (found on the window, 12/11).
+  const int column_h = (side == KeySide::kBottom) ? 0 : static_cast<int>(gui_keys_height(keys));
+  g_stage_h = static_cast<uint16_t>(g_page_h + lights_h);
+  if (column_h > static_cast<int>(g_stage_h)) g_stage_h = static_cast<uint16_t>(column_h);
+  g_win_w = static_cast<uint16_t>(strip_w + g_stage_w);
+  g_win_h = static_cast<uint16_t>(strip_h + g_stage_h);
+  // A row of keys under a stage of nothing is still a window, and so is a panel of lights with no key.
   if (g_win_w == 0) g_win_w = static_cast<uint16_t>(gui_keys_width(keys) + 2 * kKeyMargin);
   if (g_win_h == 0) g_win_h = static_cast<uint16_t>(gui_keys_height(keys) + 2 * kKeyMargin);
 
@@ -291,13 +349,24 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
     const uint8_t keys = g_keys_count;
     const KeySide side = g_side;
     const uint8_t requested = g_requested_scale;
+    // **The colours of the lights outlive the window**: the strip is still latched and a window made again for a turned
+    // page shows the frame that is on the board (docs/85).
+    const uint8_t lights = g_lights_count;
     gui_close();
-    if (!gui_open(width, height, keys, side, requested)) return;
+    if (!gui_open(width, height, keys, side, requested, lights)) return;
   }
   if (g_texture == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);
   SDL_UpdateTexture(g_texture, nullptr, g_pixels, g_page_w * static_cast<int>(sizeof(uint32_t)));
   redraw();
+}
+
+void gui_show_lights(const LightColour* lights, uint8_t count) {
+  if (g_renderer == nullptr || lights == nullptr) return;
+  const uint8_t kept = (count > g_lights_count) ? g_lights_count : count;
+  for (uint8_t light = 0; light < kept; ++light) g_lights[light] = lights[light];
+  draw_lights();
+  SDL_RenderPresent(g_renderer);
 }
 
 void gui_pump() {

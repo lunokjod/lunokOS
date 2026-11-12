@@ -205,7 +205,9 @@ política és del nucli i no del driver: qui mana què es pinta és `lib/kernel/
 **Una escriptura per llum no és una opció**: cada escriptura és un frame amb la seva pausa i la tira es
 quedaria a la primera. El sostre del canal és una constant de la identitat i no un gust, i el sistema el
 fa complir **abans** que res arribi al driver; l'emulador té el mateix sostre perquè el PC no amagui un
-límit que la placa té.
+límit que la placa té. **I el PC els ensenya**: la finestra de l'emulador té la tira de llums a sota del vidre
+—cinc per cinc al Matrix, un punt al Lite i al T-Koala— amb el color del marc que la tira ha enganxat
+(0.179.17, docs/85).
 
 **Què diu el llum, i per què hi ha dues capes.** El driver només sap pintar; qui decideix el color és
 `lib/kernel/src/led.cpp`, i ho fa en dues capes (docs/30):

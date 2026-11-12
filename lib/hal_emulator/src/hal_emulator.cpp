@@ -14,6 +14,7 @@
 
 #include "emu/options.h"
 #include "emu/gt911.h"
+#include "emu/gui.h"
 #include "emu/memories.h"
 #include "emu/model.h"
 #include "emu/surface.h"
@@ -393,10 +394,18 @@ class FakeLed : public ILed {
   // bits in thirty microseconds, one light after another, and the line held low after the last one so
   // the chips latch it. It is the RMT of the chip doing it with interrupts off, which is why a person
   // sees the light appear at once and the system is a millisecond older (docs/50, docs/85).
+  //
+  // **And what latches is what the window shows** (0.179.17): the frame goes to the face of the board in the window
+  // here and not when a pixel is written, because that is when a person sees it on the board (docs/85).
   void show() override {
     ++frames_;
-    if (!emu::options().delays) return;
     const uint32_t lights = emu::model().lights;
+    emu::LightColour frame[kEmuLights] = {};
+    for (uint32_t light = 0; light < lights && light < kEmuLights; ++light) {
+      frame[light] = {lights_[light].red, lights_[light].green, lights_[light].blue};
+    }
+    emu::gui_show_lights(frame, static_cast<uint8_t>((lights > kEmuLights) ? kEmuLights : lights));
+    if (!emu::options().delays) return;
     pal::delay_us(lights * kWs2812LightUs + kWs2812LatchUs);
   }
 

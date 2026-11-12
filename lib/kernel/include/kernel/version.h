@@ -5598,6 +5598,30 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.17 (12/11): **the lights of the board are part of the window**. The owner: *«l'emulador d'atom matrix i d'atom lite
+// han de tenir els leds corresponents a la seva finestra del emulador (ja tenen el botó) tal i com es fa amb el m5paper»*.
+// The Matrix's twenty-five WS2812s in a five by five and the Lite's one are the whole face of those boards, and the window
+// was showing their button and nothing else:
+//   - **the window has three parts now** —the glass, the band of lights and the keys— and the band is **under the page and
+//     above the row of keys**, which is the order of the board's own face; a board with no glass has it at the top, and a
+//     model with no light (the Paper) has no band. The geometry is pure and has proof in `test_ui`: five lights a row and as
+//     many rows as it takes, twelve window pixels a light, four of air and six of margin, so twenty-five is the panel of the
+//     Matrix and one is a dot;
+//   - **the page and the band share the *stage***, the window without the strip of the keys: the first attempt centred the
+//     band in the whole window, and the Matrix opened 76 by 88 with the button drawn **over** the panel (found on the window,
+//     12/11). The stage is also at least as tall as a column of keys, or a board of one light and one key opened a window of
+//     twenty-four pixels with a button of forty hanging out of it;
+//   - **the colour is the frame the strip latched**, not what the kernel is animating: `FakeLed::show()` is what sends it,
+//     the same rule the glass follows. An off light is a very dark grey and not the case, so the five by five reads as a
+//     panel; the window numbers the lights row by row from the top left, which is the number `led.pixel` takes, and the
+//     emulator keeps the board's ceiling —a `led ff0000` is (20, 0, 0) here too—;
+//   - **and a board of lights alone has a window**: the rule that opens one looked at the keys, so the T-Koala —no key and a
+//     green LED— had none and its light was nowhere. The window is what the board has: glass, lights, keys, in whichever
+//     combination (docs/85);
+//   - measured on the window under Xvfb, both backends: the Matrix 128 by 88 with 25 dots and the button on its right, the
+//     Lite 64 by 40 with one dot, the Koala 12 by 24 with one dot and no key, the Paper 322 by 480 at scale 2 with no band
+//     (`107` of `test_ui`, the suite green, the six environments built).
+
 // 0.179.16 (11/11): **a partial paint asks for the box of the change, and a cell of the launcher does not flash**.
 //   - **The rectangle**: the driver forced every partial paint to start at the left edge of the glass, a rule read off
 //     the log of 0.118.6 —the splash and the bar went up and every other paint showed nothing— on a night that had a
@@ -6298,7 +6322,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.16";
+static const char kVersion[] = "0.179.17";
 
 }  // namespace kernel
 

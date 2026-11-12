@@ -43,6 +43,10 @@ uint16_t g_page_w = 0;   // the page inside it, in window pixels
 uint16_t g_page_h = 0;
 uint16_t g_page_x = 0;   // where the page starts in it, which is what the keys leave
 uint16_t g_page_y = 0;
+// **The stage**: the part of the window the page and the band of lights share, which is the window without the strip of
+// the keys. The page starts where it starts and the lights are centred in what is left (0.179.17, docs/85).
+uint16_t g_stage_w = 0;
+uint16_t g_stage_h = 0;
 XFontStruct* g_font = nullptr;
 unsigned long g_black = 0;
 unsigned long g_white = 0;
@@ -60,6 +64,14 @@ unsigned long g_key_pressed_text = 0;
 // and the release has to lift the one that was pressed even if the pointer moved off it (docs/85).
 int g_key_held = -1;
 
+// **The lights of the board, which is the face of an ATOM** (0.179.17): the colours of the last frame the strip
+// latched, kept so an expose paints them again, and the colour of a light that is off —a very dark grey and not the
+// case— so the five by five of the Matrix is a panel a person can see even when it is dark (docs/85).
+const uint8_t kMaxLights = 25;
+uint8_t g_lights_count = 0;
+LightColour g_lights[kMaxLights] = {};
+unsigned long g_light_off = 0;
+
 // A colour by name, and the fallback when the colour map has nothing to say.
 unsigned long colour_of(const char* name, unsigned long fallback) {
   XColor exact;
@@ -69,6 +81,37 @@ unsigned long colour_of(const char* name, unsigned long fallback) {
     return fallback;
   }
   return wanted.pixel;
+}
+
+// **The band of lights** (0.179.17), under the page and above the row of keys: one dot per light, in the colour the
+// strip was given, and a dark dot for one that is off so the panel reads as a panel. A light that is lit is drawn
+// slightly smaller than its box (two pixels of air on each side), which is what makes two neighbours of the same
+// colour two lights and not one long bar (docs/85).
+void draw_lights() {
+  if (g_display == nullptr || g_window == 0 || g_lights_count == 0) return;
+  const int band_h = static_cast<int>(gui_lights_height(g_lights_count));
+  if (band_h <= 0) return;
+  XSetForeground(g_display, g_gc, g_case);
+  XFillRectangle(g_display, g_window, g_gc, static_cast<int>(g_page_x), static_cast<int>(g_page_h),
+                 static_cast<unsigned>(g_stage_w), static_cast<unsigned>(band_h));
+  for (uint8_t light = 0; light < g_lights_count; ++light) {
+    uint16_t x = 0;
+    uint16_t y = 0;
+    if (!gui_light_place(g_lights_count, light, g_page_x, g_stage_w, g_page_h, x, y)) continue;
+    const LightColour colour = g_lights[light];
+    // **A light that is off is the colour of the band and not the one of its neighbour**: the colour of the window and not
+    // of a palette entry, because a light of any of the sixteen million colours is what the strip writes and asking the
+    // colour map for each of them would run out of cells (docs/85).
+    unsigned long pixel = g_light_off;
+    if ((colour.red | colour.green | colour.blue) != 0) {
+      pixel = (static_cast<unsigned long>(colour.red) << 16) | (static_cast<unsigned long>(colour.green) << 8) |
+              static_cast<unsigned long>(colour.blue);
+    }
+    XSetForeground(g_display, g_gc, pixel);
+    XFillRectangle(g_display, g_window, g_gc, x + 2, y + 2, static_cast<unsigned>(kLightDot - 4),
+                   static_cast<unsigned>(kLightDot - 4));
+  }
+  XFlush(g_display);
 }
 
 void draw_keys() {
@@ -182,15 +225,15 @@ bool ensure_display() {
 
 }  // namespace
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights) {
   if (g_window != 0) return true;
-  // **A page of nothing is a board with no glass**: its window is the keys and only them, which is the window
-  // an ATOM gets (docs/85).
+  // **A page of nothing is a board with no glass**: its window is the keys and the lights, which is the window an
+  // ATOM gets (docs/85).
   if (width == 0 || height == 0) {
     width = 0;
     height = 0;
   }
-  if (width == 0 && keys == 0) return false;
+  if (width == 0 && keys == 0 && lights == 0) return false;
   if (!ensure_display()) return false;
   g_requested_scale = scale;
 
@@ -207,6 +250,7 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_key_text = colour_of("#e8e8e8", g_white);
   g_key_pressed = colour_of("#efeade", g_white);  // the paper of the panel, which is what a key looks like down
   g_key_pressed_text = colour_of("#1a1b18", g_black);
+  g_light_off = colour_of("#242424", g_case);
   // **The keys go where the descriptor of the input says they are**: a dial on a side face is a column down
   // that side and a key on the top or the front is a row under the page. The window is the page plus that
   // strip: one window is one thing to place and one thing to look at, and two windows were two (docs/85).
@@ -228,9 +272,26 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_page_h = (height == 0) ? 0 : static_cast<uint16_t>((height + g_scale - 1) / g_scale);
   g_page_x = static_cast<uint16_t>((side == KeySide::kRight) ? 0 : strip_w);
   g_page_y = 0;
-  g_win_w = static_cast<uint16_t>(strip_w + g_page_w);
-  g_win_h = static_cast<uint16_t>(strip_h + g_page_h);
-  // A row of keys under a page of nothing is still a window.
+  // **The band of lights is the third part of the window** (0.179.17): under the page and above the row of keys, so the
+  // face of the board reads as the board —the panel of lights, then the button— and a model with no glass has it at the
+  // top (docs/85). The page and the band share the **stage**, which is the window without the strip of the keys: a column
+  // on a side makes the window wider and the lights stay in the part the page would have had, instead of being drawn over
+  // the buttons.
+  g_lights_count = (lights > kMaxLights) ? kMaxLights : lights;
+  const int lights_w = static_cast<int>(gui_lights_width(g_lights_count));
+  const int lights_h = static_cast<int>(gui_lights_height(g_lights_count));
+  const int row_w = (side == KeySide::kBottom) ? static_cast<int>(gui_keys_width(keys)) : 0;
+  g_stage_w = static_cast<uint16_t>(g_page_w);
+  if (lights_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(lights_w);
+  if (row_w > static_cast<int>(g_stage_w)) g_stage_w = static_cast<uint16_t>(row_w);
+  // **And the stage is at least as tall as a column of keys**: a board of one light and one key on its side would
+  // otherwise open a window of twenty-four pixels with a button of forty hanging out of it (found on the window, 12/11).
+  const int column_h = (side == KeySide::kBottom) ? 0 : static_cast<int>(gui_keys_height(keys));
+  g_stage_h = static_cast<uint16_t>(g_page_h + lights_h);
+  if (column_h > static_cast<int>(g_stage_h)) g_stage_h = static_cast<uint16_t>(column_h);
+  g_win_w = static_cast<uint16_t>(strip_w + g_stage_w);
+  g_win_h = static_cast<uint16_t>(strip_h + g_stage_h);
+  // A row of keys under a stage of nothing is still a window, and so is a panel of lights with no key.
   if (g_win_w == 0) g_win_w = static_cast<uint16_t>(gui_keys_width(keys) + 2 * kKeyMargin);
   if (g_win_h == 0) g_win_h = static_cast<uint16_t>(gui_keys_height(keys) + 2 * kKeyMargin);
   g_window = XCreateSimpleWindow(g_display, RootWindow(g_display, screen), 0, 0, g_win_w, g_win_h, 0,
@@ -274,6 +335,7 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   if (g_keys_count > 0 && g_font == nullptr) g_font = XLoadQueryFont(g_display, "fixed");
   XMapWindow(g_display, g_window);
   redraw();
+  draw_lights();
   draw_keys();
   return true;
 }
@@ -287,12 +349,22 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
     const uint8_t keys = g_keys_count;
     const KeySide side = g_side;
     const uint8_t requested = g_requested_scale;
+    // **The colours of the lights outlive the window**: the strip is still latched and a window made again for a turned
+    // page shows the frame that is on the board, not a dark panel (docs/85).
+    const uint8_t lights = g_lights_count;
     gui_close();
-    if (!gui_open(width, height, keys, side, requested)) return;
+    if (!gui_open(width, height, keys, side, requested, lights)) return;
   }
   if (g_image == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);
   redraw();
+}
+
+void gui_show_lights(const LightColour* lights, uint8_t count) {
+  if (g_display == nullptr || g_window == 0 || lights == nullptr) return;
+  const uint8_t kept = (count > g_lights_count) ? g_lights_count : count;
+  for (uint8_t light = 0; light < kept; ++light) g_lights[light] = lights[light];
+  draw_lights();
 }
 
 void gui_pump() {
@@ -301,9 +373,10 @@ void gui_pump() {
     XEvent event;
     XNextEvent(g_display, &event);
     if (event.type == Expose) {
-      // Both halves of the window: the page and the strip of the keys, because an expose has taken them
-      // both away (docs/85).
+      // The three parts of the window: the page, the band of lights and the strip of the keys, because an expose has
+      // taken them all away (docs/85).
       redraw();
+      draw_lights();
       draw_keys();
     } else if (event.type == ButtonPress && event.xbutton.button == Button1) {
       // **A click on a button is a key and a click on the page is a finger**: the same button of the mouse

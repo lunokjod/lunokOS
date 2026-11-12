@@ -84,6 +84,46 @@ void gui_page_point(int window_x, int window_y, uint8_t scale, uint16_t page_wid
 // button a person cannot hit (docs/50, docs/85).
 // A column takes a strip as wide as a button and its two margins; a row takes one as tall.
 
+// **The lights of the board** (0.179.17): the band under the page, five to a row —which is the Matrix's panel— and
+// the light of the Lite as one dot in the same box. The numbers are the window's, like the buttons', because how big
+// a page is drawn is the page's business and a light that shrinks with it is a light a person cannot see (docs/85).
+// Five to a row is the panel of the Matrix; fewer lights are one row of what there is.
+static uint8_t light_columns(uint8_t count) { return (count <= 5) ? count : 5; }
+
+uint16_t gui_lights_height(uint8_t count) {
+  if (count == 0) return 0;
+  const uint8_t columns = light_columns(count);
+  const uint8_t rows = static_cast<uint8_t>((count + columns - 1) / columns);
+  return static_cast<uint16_t>(rows * kLightDot + (rows - 1) * kLightGap + 2 * kLightMargin);
+}
+
+uint16_t gui_lights_width(uint8_t count) {
+  if (count == 0) return 0;
+  const uint8_t columns = light_columns(count);
+  return static_cast<uint16_t>(columns * kLightDot + (columns - 1) * kLightGap);
+}
+
+bool gui_light_place(uint8_t count, uint8_t index, uint16_t stage_x, uint16_t stage_w, uint16_t page_height,
+                     uint16_t& x, uint16_t& y) {
+  x = 0;
+  y = 0;
+  if (count == 0 || index >= count) return false;
+  const uint8_t columns = light_columns(count);
+  const int wide = gui_lights_width(count);
+  // **Centred in the stage**, which is the window without the strip of the keys: the face of the board is one column of
+  // things and a panel stuck to a corner of it reads as a logo of the window, while a panel centred in a window that has a
+  // column of keys on one side would be drawn on top of them (docs/85). The band starts under the page, which is the top
+  // of a stage that has none —the ATOM and the Matrix— and the bottom of the glass on a board that had both.
+  const int left = static_cast<int>(stage_x) +
+                   ((static_cast<int>(stage_w) > wide) ? ((static_cast<int>(stage_w) - wide) / 2) : 0);
+  const int top = static_cast<int>(page_height) + static_cast<int>(kLightMargin);
+  const int column = static_cast<int>(index) % static_cast<int>(columns);
+  const int row = static_cast<int>(index) / static_cast<int>(columns);
+  x = static_cast<uint16_t>(left + column * static_cast<int>(kLightDot + kLightGap));
+  y = static_cast<uint16_t>(top + row * static_cast<int>(kLightDot + kLightGap));
+  return true;
+}
+
 uint16_t gui_key_strip_width() { return kKeyStripWidth; }
 uint16_t gui_key_row_height() { return kKeyRowHeight; }
 
