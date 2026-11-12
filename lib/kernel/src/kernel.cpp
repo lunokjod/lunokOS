@@ -56,6 +56,16 @@ const int32_t kIdleTimeoutMs = 1000;
 // up this often so the app gets its turn.
 const int32_t kAppIdleMs = 20;
 
+// **The cadence of a hand** (0.179.21): the keys and the glass are **polled in the turn** and neither of them pushes an
+// event into the queue, so a wait longer than this one is a press that nobody reads until the wait ends. It was a real
+// cliff and not a millisecond: the prompt waited a whole second, and an app awaiting a promise waited for **that
+// promise's deadline** —`button.wait()` with its default of twenty seconds was a board that did not answer its own
+// button for twenty seconds, and a `net.connect` of eight seconds was eight seconds of a page that does not feel the
+// finger—. The number is the glass's own: the GT911 of the Paper scans the panel every **ten milliseconds** and keeps
+// the frame of that scan until a read takes it, so a faster turn can only be told what the last read already said, and
+// a slower one is a finger the board owes (docs/50, docs/95).
+const int32_t kInputPeriodMs = 10;
+
 // Longest command line the batch mode accepts.
 const size_t kCommandBytes = 128;
 
@@ -527,6 +537,15 @@ void poll() {
   // of frames it owes, and nothing that can fall behind (docs/30).
   const int32_t frame_wait = led::next_frame_ms();
   if (frame_wait >= 0 && frame_wait < wait) wait = frame_wait;
+
+  // **And the hand comes before all of it** (0.179.21): an alarm, an app's deadline or a second of nothing are all worth
+  // less than a press that arrives now. A board with no key and no glass —the T-Koala— keeps the long wait, because there
+  // is no hand to miss (docs/30, docs/50).
+  bool hand = button::available();
+#if LUNOK_GLASS
+  hand = hand || touch::available();
+#endif
+  if (hand && wait > kInputPeriodMs) wait = kInputPeriodMs;
 
   pal::Event ev;
   if (pal::system().queue()->pop(ev, wait)) dispatch(ev);

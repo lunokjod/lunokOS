@@ -145,11 +145,20 @@ end
 
 -- **A press jumps to the boundary between two fields**, which is the one place where the frame has no mix in it: after
 -- it the panel shows the next field whole, so the change a person asked for is the change they see at once (docs/30).
-local keys = button.count()
 local started = sys.time_ms()
 local bias = 0
-local was_down = false
 local shown = 0
+-- **The presses that have arrived and the frame has not used yet**: the hook is called between turns, with this
+-- coroutine parked, so it cannot paint; it counts and the loop does the rest (docs/30).
+local presses = 0
+
+-- **A press is an edge, and the hook is the edge** (0.179.21): the loop paints the panel twenty-five times a second, so a
+-- finger on the button for less than a frame would be a press nobody sees if the loop asked the level. `on_button` is
+-- called with the coroutine parked and it misses nothing —it is the second of the three ways docs/30 gives, and the one
+-- for a press that happens between two frames—.
+function on_button(kind)
+  if kind == 'press' then presses = presses + 1 end
+end
 
 console.print(string.format('rainbow: %d light(s) in %d by %d, %d fields of %d s, the button takes the next one',
                             count, side, side, kFields, math.floor(kCycleMs / 1000)))
@@ -164,12 +173,11 @@ sys.delay(kHelloMs):await()
 
 while true do
   local now = sys.time_ms()
-  if keys > 0 then
-    local down = button.down(0)
-    if down and not was_down then
-      bias = bias + (kCycleMs - ((now - started + bias) % kCycleMs))
-    end
-    was_down = down
+  if presses > 0 then
+    -- Every press the hook counted moves the fields on by one, and the first of them lands on the boundary so that the
+    -- panel shows the next field whole and not half of a mix (docs/30).
+    bias = bias + (kCycleMs - ((now - started + bias) % kCycleMs)) + (presses - 1) * kCycleMs
+    presses = 0
   end
 
   local t = now - started + bias

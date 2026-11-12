@@ -3205,7 +3205,9 @@ end
   3. **Preguntar-la** amb `button.down(key)` i `button.held(key)` dins del bucle de l'app, que és el
      que cal per repetir mentre una tecla es té premuda.
 - **Si hi ha una espera oberta, guanya l'espera**: el hook només es crida quan ningú està esperant, i
-  així una app no rep dues vegades la mateixa premuda.
+  així una app no rep dues vegades la mateixa premuda. **I la promesa es resol al torn següent**, que en una
+  placa amb tecles és com a molt deu mil·lisegons (0.179.21, docs/10): abans es podia esperar el termini sencer
+  de la promesa, o sigui que un `button.wait()` de vint segons era un botó que no responia fins als vint segons.
 - **`kind` és `"press"` o `"long"`**: `"long"` arriba **una vegada**, quan la premuda passa d'**1 s**, i
   no quan el dit s'aixeca.
 - **El sistema es queda el gest de tancar, i només de la tecla principal**: **tres tocs dins d'1,5 s

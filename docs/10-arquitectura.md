@@ -36,8 +36,8 @@ per tocar Lua, és que s'ha trencat aquesta regla.
 
 ```
 per sempre (kernel::poll):
-  espera     = el curt més proper: torn d'app, termini d'una promesa o
-               la propera alarma                      (si no n'hi ha, l'oci)
+  espera     = el curt més proper: torn d'app, termini d'una promesa, la
+               propera alarma o la cadència de la mà (si no n'hi ha, l'oci)
   esdeveniment = cua.rebuda(espera)                  # bloqueja fins a l'esdeveniment o el termini
   si esdeveniment: despatxa(esdeveniment)
   net::poll()                                        # la ràdio, preguntada i mai esperada
@@ -52,13 +52,22 @@ per sempre (kernel::poll):
 
 Del bucle se'n dedueixen quatre coses:
 
-- **No hi ha cap `delay`.** Quan el sistema no té res a fer, la cua el bloqueja fins al pròxim
+- **No hi ha cap `delay` del codi.** Quan el sistema no té res a fer, la cua el bloqueja fins al pròxim
   termini, i així el consum en repòs depèn del maquinari i no del codi.
+- **Però l'espera no pot passar-se de la mà** (0.179.21): les tecles i el vidre **es pregunten al torn i no
+  empenyen cap esdeveniment**, o sigui que el que la cua espera és exactament el que una premsa ha d'esperar.
+  Mentre la placa té una tecla o un vidre, la blocada es talla a **deu mil·lisegons** —el període amb què el
+  GT911 escombra el panell, docs/50—, i no al termini que hi hagués més a prop. Abans d'això hi havia dos
+  penya-segats de debò: al prompt s'esperava **un segon** sencer, i amb una app esperant una promesa
+  s'esperava **el termini d'aquella promesa** —`button.wait()` en té vint de sèrie i un `net.connect` vuit—,
+  o sigui que la placa no sentia el seu propi botó. Una placa sense ni tecla ni vidre (el T-Koala) conserva
+  l'espera llarga, perquè no hi ha cap mà a qui faltar.
 - **Les alarmes no són esdeveniments d'una cua**: es miren a cada torn, i per això l'espera escurça
   fins al seu termini. Una alarma que venç mentre el nucli atenja una altra cosa no s'endarrereix
   més d'un torn.
 - **El maquinari es pregunta, no avisa**: la ràdio, el botó i el llum són consultats a cada torn.
-  Una interrupció només serviria per guanyar mil·lisegons que aquest sistema no necessita.
+  Una interrupció només serviria per guanyar mil·lisegons que aquest sistema no necessita —i el preu de no
+  tenir-ne és que el torn ha de tornar a mirar sovint, que és el que fa la cadència de la mà—.
 - **L'app té l'últim torn.** Quan li toca, la consola ja s'ha llegit i les alarmes ja s'han entregat,
   o sigui que un byte que acaba d'arribar ja és a la cua quan l'app desperta.
 

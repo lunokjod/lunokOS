@@ -465,6 +465,12 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
     m5stack-atom` per veure el mateix camp en un sol llum. Al Matrix l'app ja és **a la imatge de la placa**
     (`custom_apps = rainbow`, 0.179.19, docs/70) i al PC és al disc que l'emulador obre, amb totes les altres; el Lite
     la rep amb `repo install` o amb el mateix `custom_apps` al seu entorn.
+  - **un clic del ratolí dura almenys un torn** (0.179.21): les tecles es mostregen un cop per torn i el ratolí baixa i
+    puja dins del mateix bombament de la cua —un clic ràpid, i el d'un guió és instantani—, o sigui que la finestra li
+    dona **quaranta mil·lisegons** de baixada (`kClickHoldMs`) abans de deixar-la anar, i el bombament és qui l'aplica.
+    És cosa de la finestra i no de la banda: una prova fixa el nivell que vol i no se li imposa cap terra. Mesurat a la
+    finestra: un clic instantani arriba a l'app en **118 ms** —quaranta del terra, quaranta del frame de l'app, la resta
+    de la finestra i del model— i una premuda mantinguda en **26 ms**.
   - **i una cosa que el cas de la suite va ensenyar**: `emu::advance_ms` mou el rellotge **de la placa** —el que
     llegeixen `led` i les alarmes— i `sys.time_ms` és `pal::system().millis()`, que al PC és el comptador real de la
     màquina. Una app que compta mil·lisegons es fa avançar **amb torns** (un torn és un mil·lisegon) i no amb

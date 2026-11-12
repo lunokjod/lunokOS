@@ -5,6 +5,7 @@
 // **The part of the window that has no window in it**: the colours of the paper, the four bits to a
 // display pixel, the way back from a mouse to the page, the geometry of the keys and the scale that
 // fits. It is the same for X11 and SDL, and it is the part a test can prove without a screen (docs/85).
+#include <chrono>
 #include <stdlib.h>
 #include <string.h>
 
@@ -274,6 +275,38 @@ uint8_t gui_key_icon(uint8_t count, int key, uint16_t width, uint16_t height, Ke
     ++used;
   }
   return used;
+}
+
+
+// ---- the click of the mouse ---------------------------------------------------
+
+// **A click lasts at least one turn** (0.179.21): the kernel samples the keys once per turn, and a mouse goes down and up
+// inside one pump of the window. The three steps are here and not in the two backends so that both windows answer the
+// same and a test can try the arithmetic without a display (docs/10, docs/85).
+void gui_key_click_down(KeyClick& click, int key, uint32_t now_ms) {
+  click.key = key;
+  click.release_at = now_ms + kClickHoldMs;
+  click.waiting = false;
+}
+
+void gui_key_click_up(KeyClick& click, uint32_t now_ms) {
+  (void)now_ms;
+  if (click.key >= 0) click.waiting = true;
+}
+
+bool gui_key_click_due(KeyClick& click, uint32_t now_ms) {
+  if (click.key < 0 || !click.waiting) return false;
+  if (now_ms < click.release_at) return false;
+  click.key = -1;
+  click.waiting = false;
+  return true;
+}
+
+int gui_key_click_held(const KeyClick& click) { return click.key; }
+
+uint32_t gui_now_ms() {
+  const auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 }
 
 }  // namespace emu

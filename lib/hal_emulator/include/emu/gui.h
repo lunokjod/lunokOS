@@ -142,6 +142,30 @@ bool gui_light_place(uint8_t count, uint8_t index, uint16_t stage_x, uint16_t st
 // number `led.caps().max` answers on that board (docs/30, docs/85).
 void gui_show_lights(const LightColour* lights, uint8_t count);
 
+// **A click of the mouse is a press that lasts at least one turn** (0.179.21). The kernel samples the keys once per turn
+// and a click goes down and up inside one single pump of the window —a person's fast click, and a script's click is
+// instantaneous—, which is a press nobody sees: the key is back up before the turn that would have read it. The window
+// keeps the key down for `kClickHoldMs` and lets it go when a pump asks after that, which is the window's business and
+// not the band's: a test sets the level it wants and is not held to a floor (docs/10, docs/50, docs/85).
+const uint16_t kClickHoldMs = 40;
+
+struct KeyClick {
+  int key = -1;             // the key the mouse is holding, or -1
+  uint32_t release_at = 0;  // the millisecond the release may be applied at
+  bool waiting = false;     // an up has arrived and is waiting for that millisecond
+};
+
+// The down of a key under the mouse, the up of the button, and the release the pump owes. Time is in milliseconds of
+// `gui_now_ms` and is a parameter so the three steps can be tried without a window.
+void gui_key_click_down(KeyClick& click, int key, uint32_t now_ms);
+void gui_key_click_up(KeyClick& click, uint32_t now_ms);
+// True once the release is due, and it clears the click: the caller puts the key up and paints it.
+bool gui_key_click_due(KeyClick& click, uint32_t now_ms);
+// The key the mouse is holding, or -1, which is the key a picture draws as down.
+int gui_key_click_held(const KeyClick& click);
+// A monotonic count of milliseconds for the window, with no board behind it.
+uint32_t gui_now_ms();
+
 // **One window with the glass, the lights and the keys in it** (0.34.0): the page is not covered by anything and
 // the buttons are where the board has them. Two windows were two things to place and to look at, and the window
 // manager put them where it liked.

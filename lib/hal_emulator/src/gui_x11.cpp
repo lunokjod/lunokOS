@@ -62,7 +62,9 @@ unsigned long g_key_pressed = 0;
 unsigned long g_key_pressed_text = 0;
 // The key the pointer is holding down, or -1: a press and its release are two events of the same button
 // and the release has to lift the one that was pressed even if the pointer moved off it (docs/85).
-int g_key_held = -1;
+// **The key under the mouse, and how long it stays down** (0.179.21): a click that is shorter than a turn of the
+// kernel is a press nobody reads, so the window keeps it down for `kClickHoldMs` (docs/10, docs/85).
+KeyClick g_click;
 
 // **The lights of the board, which is the face of an ATOM** (0.179.17): the colours of the last frame the strip
 // latched, kept so an expose paints them again, and the colour of a light that is off —a very dark grey and not the
@@ -118,6 +120,17 @@ void draw_lights() {
                    static_cast<unsigned>(kLightDot - 4));
   }
   XFlush(g_display);
+}
+
+// **The release the pump owes** (0.179.21): a click is kept down for `kClickHoldMs` so that a turn of the kernel reads it,
+// and this is the pump that puts it back up —the mouse has already been lifted and no more events are coming— (docs/85).
+void draw_keys();
+void release_the_click_if_due() {
+  const int key = gui_key_click_held(g_click);
+  if (key < 0) return;
+  if (!gui_key_click_due(g_click, gui_now_ms())) return;
+  press_key(key, false);
+  draw_keys();
 }
 
 void draw_keys() {
@@ -383,6 +396,7 @@ void gui_show_lights(const LightColour* lights, uint8_t count) {
 
 void gui_pump() {
   if (g_display == nullptr) return;
+  release_the_click_if_due();
   while (XPending(g_display) > 0) {
     XEvent event;
     XNextEvent(g_display, &event);
@@ -402,7 +416,7 @@ void gui_pump() {
                                static_cast<uint16_t>(event.xbutton.y) < g_page_y + g_page_h;
       if (key >= 0) {
         press_key(key, true);
-        g_key_held = key;
+        gui_key_click_down(g_click, key, gui_now_ms());
         draw_keys();
         // **A click that arrives is a line when the run is verbose**: a button that does nothing has to be
         // told apart from a button nobody pressed, and this is the cheapest way (docs/85).
@@ -422,12 +436,12 @@ void gui_pump() {
                        true);
       }
     } else if (event.type == ButtonRelease && event.xbutton.button == Button1) {
-      if (g_key_held >= 0) {
-        press_key(g_key_held, false);
+      if (gui_key_click_held(g_click) >= 0) {
+        gui_key_click_up(g_click, gui_now_ms());
         if (options().verbose) {
-          fprintf(stderr, "gui: key %d (%s) up\n", g_key_held, gui_key_label(g_keys_count, g_key_held));
+          fprintf(stderr, "gui: key %d (%s) up\n", gui_key_click_held(g_click), gui_key_label(g_keys_count, gui_key_click_held(g_click)));
         }
-        g_key_held = -1;
+        release_the_click_if_due();
         draw_keys();
       } else if (g_button_down) {
         g_button_down = false;
@@ -448,10 +462,8 @@ void gui_close() {
   if (g_display == nullptr) return;
   // A key the pointer was holding is let go: a window that goes away with a key down would leave the emulator
   // with a key nobody can lift, and the same goes for a finger the pointer was dragging (docs/85).
-  if (g_key_held >= 0) {
-    press_key(g_key_held, false);
-    g_key_held = -1;
-  }
+  if (gui_key_click_held(g_click) >= 0) press_key(gui_key_click_held(g_click), false);
+  g_click = KeyClick();
   if (g_button_down) {
     lift_the_finger();
     g_button_down = false;

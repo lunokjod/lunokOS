@@ -26,9 +26,11 @@
 #include "img/img.h"
 #include "json/json.h"
 #include "kernel/apps.h"
+#include "kernel/button.h"
 #include "kernel/calendar.h"
 #include "kernel/cfg.h"
 #include "kernel/kernel.h"
+#include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/session.h"
@@ -2434,6 +2436,61 @@ void test_a_long_loop_gives_the_turn_back(void) {
   storage->remove("/apps/spinner/app.lua");
   storage->remove("/apps/spinner/manifest.json");
   storage->remove("/apps/spinner");
+}
+
+// **A turn does not sleep past the hand** (0.179.21, the owner: *«hi ha algun tipus de delay al torn? per esperar dades
+// serie o llegir tecles? El sistema ha de ser més responsiu. Tot triga massa en reaccionar»*). The keys and the glass are
+// read **in the turn** and neither of them pushes an event into the queue, so the wait of the queue is exactly what a
+// press has to wait for. It was a second at the prompt and, with an app awaiting a promise, **the deadline of that
+// promise**: `button.wait()` is twenty seconds by default and `net.connect` is eight, which was a page that does not feel
+// the finger. The case measures the two ends with nothing in the queue, and the number it holds is the one the glass of
+// this family has: ten milliseconds of scan, so a turn never waits more than that (docs/30, docs/50).
+void test_a_turn_does_not_wait_past_the_hand(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-atom";
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  // One key and no glass is still a hand, and the board of this case is the ATOM.
+  TEST_ASSERT_TRUE(kernel::button::available());
+  // **And the light has to have nothing to say, or the turn is the light's**: the breath of the boot wakes the loop every
+  // thirty-three milliseconds, which hides the wait this case is about. The first version of the case did not do this and
+  // read 33 ms with and without the cap — `kFrameMs`, the price of a frame of the light and not the wait of the queue —
+  // (docs/30, docs/75).
+  TEST_ASSERT_TRUE(kernel::led::set_colour(0, 0, 0));
+  kernel::led::poll();
+  TEST_ASSERT_LESS_THAN_INT32_MESSAGE(0, kernel::led::next_frame_ms(), "the light still has a frame to paint");
+
+  // **At the prompt**: a turn with nothing in the queue and nothing to do. A second of wait here is a key press that
+  // lands a second late, which is the wall the owner ran into.
+  const int64_t prompt_start = pal::system().millis();
+  kernel::poll();
+  const int64_t prompt = pal::system().millis() - prompt_start;
+  TEST_ASSERT_TRUE_MESSAGE(prompt >= 0, "the clock went backwards");
+  TEST_ASSERT_LESS_THAN_INT64_MESSAGE(60, prompt, "a turn at the prompt waited for the idle timeout");
+
+  // **And under an app that awaits a promise of eight seconds**: the app's deadline is the app's and not the board's.
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "sleeper",
+                            "{\"title\":\"Sleeper\",\"version\":\"0.1.0\","
+                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                            "console.print(\"asleep\\n\")\n"
+                            "sys.delay(8000):await()\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run sleeper");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "asleep"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+  const int64_t app_start = pal::system().millis();
+  kernel::poll();
+  const int64_t under_app = pal::system().millis() - app_start;
+  TEST_ASSERT_LESS_THAN_INT64_MESSAGE(60, under_app, "a turn under an app waited for the app's deadline");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/sleeper/app.lua");
+  storage->remove("/apps/sleeper/manifest.json");
+  storage->remove("/apps/sleeper");
 }
 
 // Provisioning, end to end on the fake of this band: the access point comes up,
@@ -13280,6 +13337,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_long_path_reaches_the_app);
   RUN_TEST(test_a_path_with_spaces_reaches_the_app_in_quotes);
   RUN_TEST(test_a_long_loop_gives_the_turn_back);
+  RUN_TEST(test_a_turn_does_not_wait_past_the_hand);
   RUN_TEST(test_an_app_asks_what_is_mounted_and_how_much_room_is_left);
   RUN_TEST(test_an_app_connects_without_stopping_the_kernel);
   RUN_TEST(test_net_connect_gives_up_at_the_deadline);

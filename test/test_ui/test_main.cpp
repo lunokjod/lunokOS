@@ -1614,6 +1614,37 @@ static void test_the_lights_of_the_board_have_their_face_in_the_window() {
                                    static_cast<uint16_t>(left + static_cast<int>(emu::gui_keys_width(1))));
 }
 
+// **A click of the mouse lasts at least one turn** (0.179.21, the owner: *«hi ha algun tipus de delay al torn? ... El
+// sistema ha de ser més responsiu. Tot triga massa en reaccionar»*). The kernel samples the keys once per turn and a click
+// goes down and up inside the same pump of the window —a fast click, and a script's click is instantaneous—, so the window
+// keeps the key down for `kClickHoldMs` and lets it go when a pump asks after that. It is the arithmetic of the three
+// steps, tried without a window: a down, an up that comes too early, and the pump that owes the release (docs/85).
+static void test_a_click_of_the_mouse_lasts_at_least_one_turn() {
+  emu::KeyClick click;
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_click_held(click));
+
+  // **A click of nothing**: the up arrives in the same millisecond as the down, and the key is still down.
+  emu::gui_key_click_down(click, 0, 1000);
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_click_held(click));
+  emu::gui_key_click_up(click, 1000);
+  TEST_ASSERT_FALSE_MESSAGE(emu::gui_key_click_due(click, 1000 + emu::kClickHoldMs - 1),
+                            "the key came up before a turn could read it");
+  TEST_ASSERT_EQUAL_INT(0, emu::gui_key_click_held(click));
+  TEST_ASSERT_TRUE(emu::gui_key_click_due(click, 1000 + emu::kClickHoldMs));
+  TEST_ASSERT_EQUAL_INT(-1, emu::gui_key_click_held(click));
+  // And once released it is not owed again.
+  TEST_ASSERT_FALSE(emu::gui_key_click_due(click, 2000));
+
+  // **A click that a person holds** is let go as soon as the floor has passed, and the pump that asks later owes nothing.
+  emu::gui_key_click_down(click, 2, 5000);
+  emu::gui_key_click_up(click, 5000 + emu::kClickHoldMs + 30);
+  TEST_ASSERT_TRUE(emu::gui_key_click_due(click, 5000 + emu::kClickHoldMs + 31));
+
+  // **A key the window closes with** is a key nobody drops: the flush of `gui_close` lifts it.
+  emu::gui_key_click_down(click, 1, 9000);
+  TEST_ASSERT_EQUAL_INT(1, emu::gui_key_click_held(click));
+}
+
 // **The keyboard of the system is a QWERTY that the finger and the glass agree on** (0.83.0): the band is four
 // rows of a key and never more than two fifths of the view, a letter is the tenth of the width a finger hits, the
 // row of `a` is staggered half a key to the right of the row of `q`, the space is a bar of six tenths where a thumb
@@ -3974,6 +4005,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_turn_does_not_keep_the_damage_of_the_old_frame);
   RUN_TEST(test_the_keys_of_the_window_are_the_dial_of_the_board);
   RUN_TEST(test_the_lights_of_the_board_have_their_face_in_the_window);
+  RUN_TEST(test_a_click_of_the_mouse_lasts_at_least_one_turn);
   RUN_TEST(test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on);
   RUN_TEST(test_the_two_symbols_of_the_band_are_one_piece_each);
   RUN_TEST(test_the_cleaner_between_apps_follows_the_page);

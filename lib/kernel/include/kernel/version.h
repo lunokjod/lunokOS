@@ -5598,6 +5598,44 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.21 (12/11): **the turn never sleeps past the hand**. The owner: *«hi ha algun tipus de delay al torn? per esperar
+// dades serie o llegir tecles? El sistema ha de ser més responsiu. Tot triga massa en reaccionar»*. Yes, and it was not a
+// delay of the code: it was the wait of the queue (docs/10):
+//   - **the keys and the glass are polled in the turn and neither wakes the queue** —no interrupt, by design—, so whatever
+//     the turn waits for is exactly what a press waits for. The wait was the nearest of: the app's next turn, a promise's
+//     deadline, the next alarm, the light's frame, or **a second of nothing** (`kIdleTimeoutMs`). Two cliffs came out of
+//     that: **at the prompt a press was read a second late**, and with an app awaiting a promise it was read **after that
+//     promise's deadline** —`button.wait()` is twenty seconds by default and `net.connect` eight, so the board did not
+//     hear its own button for twenty seconds and a page did not feel the finger for eight—;
+//   - **the wait is cut to ten milliseconds while the board has a key or a glass** (`kInputPeriodMs`, 0.179.21): it is the
+//     period the GT911 of the Paper scans the panel with, so a faster turn can only be told what the last read already
+//     said and a slower one is a finger the board owes (docs/50, docs/95). A board with neither a key nor a glass —the
+//     T-Koala— keeps the long wait, because there is no hand to miss. The cost is a turn that wakes a hundred times a
+//     second instead of once, which is the same list of comparisons and, on the Paper, one read of the glass per turn;
+//   - **and the case measures it and not the intention** (`test_a_turn_does_not_wait_past_the_hand`, `test_apps`): one
+//     `kernel::poll()` with nothing in the queue takes **10 ms**, and one under an app awaiting eight seconds takes 10
+//     too. **The first version of the case passed without the fix** and that is written here because it is the lesson:
+//     it was measuring 33 ms in both directions —`kFrameMs`, the breath of the boot painting a frame of the light— and a
+//     case that measures the wrong clock passes for the wrong reason. It now puts the light out first (`led::set_colour`
+//     and a `poll`, which is the only way `next_frame_ms()` answers -1) and without the cap it reads `Expected 1000 to be
+//     less than 60`;
+//   - **and a click of the mouse was a press nobody read** (0.179.21): the window samples the keys once per turn and a
+//     click goes down and up inside the same pump of the queue, so an instant click —a fast one, and a script's is always
+//     instant— reached the band as nothing. The window keeps the key down for `kClickHoldMs` (forty milliseconds) and the
+//     pump lets it go after that; the arithmetic is `emu::KeyClick` in `gui_common.cpp`, shared by both backends and tried
+//     in `test_ui`. **It is the window's and not the band's**, so a test that sets a level is not held to a floor: the
+//     first attempt put the floor in `press_key` and the suite found it —the window's redraw read the key and ate the
+//     press, and a press left down by one case walked the focus of the next— (`595` cases, green);
+//   - **and the demo of the panel took the hook**: `rainbow` asked `button.down(0)` once per frame, which is a level
+//     sampled at twenty-five frames a second and a tap shorter than a frame is a tap nobody sees; it declares
+//     `on_button` now, which the kernel calls with the coroutine parked, and it counts the presses it has not painted yet
+//     (docs/30). Measured on the window under Xvfb, with the click floor in: **an instant click reaches the app in 118 ms**
+//     —forty of them the floor, forty the frame of the app, the rest the window and the model— and a press of the mouse
+//     held down in **26 ms**;
+//   - **the documents that said the opposite are corrected**: docs/10 announced «no hi ha cap `delay`» and listed the four
+//     things the wait was cut to, and the fifth —the hand— was the missing one; docs/30 says when a `button.wait()` is
+//     resolved; docs/85 says what a click of the mouse lasts (the suite green, the five boards and the emulator built).
+
 // 0.179.20 (12/11): **the panel of the Matrix is a panel and not a grid of holes, and its demo is bright and says hello**.
 // The owner: *«no veig que l'app rainbow funcioni, no veig animació ni tampoc que hagis pujat el brillo al tope»*. Two
 // faults and a third that was the app's own taste:
@@ -6416,7 +6454,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.20";
+static const char kVersion[] = "0.179.21";
 
 }  // namespace kernel
 
