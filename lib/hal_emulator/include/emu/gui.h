@@ -134,6 +134,12 @@ bool gui_light_place(uint8_t count, uint8_t index, uint16_t stage_x, uint16_t st
 // **A frame of the strip, to the window.** Called when the strip latches it and not when a pixel is written, and a
 // build with no window answers nothing: the colours are copied, the band is painted again and the page is not
 // touched (docs/85).
+//
+// **The window shows a light as its fraction of the board's ceiling and not as the byte the strip was given** (0.179.20):
+// the ceiling of the Matrix's panel is **twenty**, the maker's number for a closed case, so a pixel of (20, 20, 0) —the
+// whole light of that board— is *darker* than the dark grey of an unlit one and the panel came out as a grid of holes.
+// A photograph of a lit panel in a dark room is what the window is, and the ceiling is the exposure: `light_max` is the
+// number `led.caps().max` answers on that board (docs/30, docs/85).
 void gui_show_lights(const LightColour* lights, uint8_t count);
 
 // **One window with the glass, the lights and the keys in it** (0.34.0): the page is not covered by anything and
@@ -142,12 +148,14 @@ void gui_show_lights(const LightColour* lights, uint8_t count);
 //
 // `keys` is how many buttons there are —zero is a board with no key— and a click on one is a press and a
 // release of that key through the same `press_key` a test uses (docs/50, docs/85). `lights` is how many lights the
-// model has, and zero is a board with none.
+// model has, and zero is a board with none. `light_max` is the ceiling of one channel on that board —twenty on the
+// Matrix, 255 on the ATOM Lite—, which is the exposure the band is drawn with (0.179.20, see `gui_show_lights`).
 //
 // `scale` is `--gui-scale`: 1 to 4 draws the page at that many page pixels per window pixel, 2 being the
 // page at half, even when the screen would hold it whole; zero is the smallest that fits, which is what a
 // window nobody sized wants (docs/85).
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights);
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
+              uint8_t light_max);
 
 // **Which key a point of the window is on**, and which key a slot of the column or the row is: the dial goes
 // up, centre and down from the top, a board of one key has the middle of it, and `-1` is no key at all —

@@ -897,11 +897,12 @@ int main(int argc, char** argv) {
                                 !emu::gui_open(emu::memory_surface()->width(),
                                                emu::memory_surface()->height(),
                                                static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
-                                               static_cast<uint8_t>(hw.lights)))) {
+                                               static_cast<uint8_t>(hw.lights),
+                                               static_cast<uint8_t>(board::led_max())))) {
       fprintf(stderr, "no display to open the window on\n");
     } else if (!opts.display &&
                !emu::gui_open(0, 0, static_cast<uint8_t>(hw.keys), side, opts.gui_scale,
-                              static_cast<uint8_t>(hw.lights))) {
+                              static_cast<uint8_t>(hw.lights), static_cast<uint8_t>(board::led_max()))) {
       // **A board with no glass has its face and nothing else**: the window is the lights and the keys, and an ATOM
       // still gets the button a person presses under the panel of its light (docs/85).
       fprintf(stderr, "no display to open the window on\n");

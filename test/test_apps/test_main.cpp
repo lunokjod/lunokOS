@@ -7977,9 +7977,8 @@ void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
   const uint32_t before = emu::led_frames();
   pump_captured(60, g_out, sizeof(g_out), "run rainbow");
   // **What the app says it found is what this case is reading**: twenty-five lights in a five by five, which is the
-  // panel of the Matrix and not the single light of the ATOM, and the first of its four fields.
+  // panel of the Matrix and not the single light of the ATOM.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "rainbow: 25 light(s) in 5 by 5"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[rainbow] field 1 of 4: bands"), g_out);
 
   // A frame is forty milliseconds of the app's clock, and the clock here is moved by hand (docs/85).
   uint8_t frame[25][3];
@@ -8007,6 +8006,21 @@ void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
   TEST_ASSERT_TRUE_MESSAGE(emu::led_frames() > before, "the app never sent a frame");
   read_the_panel();
 
+  // **And it says hello before it moves**: a quarter of a second of the whole panel at the ceiling, which is what tells a
+  // person that the app took the light —the first version went straight into a soft field and on the board it read as an
+  // app that did nothing (0.179.20, the owner: *«no veig que l'app rainbow funcioni»*)— (docs/30).
+  for (uint32_t light = 0; light < 25; ++light) {
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, frame[light][0], "the hello is not at the ceiling");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, frame[light][1], "the hello is not at the ceiling");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(20, frame[light][2], "the hello is not at the ceiling");
+  }
+
+  // Past the hello and into the first field: the app waits two hundred and sixty milliseconds before its first frame,
+  // and it is then that it says which field it is in.
+  pump_captured(320, g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[rainbow] field 1 of 4: bands"), g_out);
+  read_the_panel();
+
   // **The panel is a rainbow and not a colour**: every light is lit —the dimmest field of the app never goes under a
   // tenth of the ceiling— and there are many different colours in it, and none of them is over the ceiling of the
   // panel, which is the maker's twenty and the number the system clamps at (docs/30, docs/50).
@@ -8032,6 +8046,13 @@ void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
   }
   TEST_ASSERT_EQUAL_INT_MESSAGE(25, lit, "a light of the panel is dark");
   TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(6, colours, "the panel is one colour and not a rainbow");
+  // **Bright, which is the other half of the owner's complaint** (0.179.20): the fields run at the ceiling with the rim
+  // and the rain a third down and no more, so at least one light of the panel is at the ceiling of the board.
+  int at_the_ceiling = 0;
+  for (uint32_t light = 0; light < 25; ++light) {
+    if (frame[light][0] == 20 || frame[light][1] == 20 || frame[light][2] == 20) ++at_the_ceiling;
+  }
+  TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(5, at_the_ceiling, "the panel is not at the ceiling of the board");
 
   // **And it moves by itself**: six hundred milliseconds of the app's own clock —fifteen frames— and a rainbow that
   // drifts has left more than a couple of lights where they were (the owner asked for movement and not only colour).

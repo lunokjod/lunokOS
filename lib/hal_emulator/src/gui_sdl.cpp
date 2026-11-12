@@ -39,14 +39,19 @@ uint16_t g_stage_h = 0;
 int g_key_held = -1;
 
 // **The lights of the board, which is the face of an ATOM** (0.179.17): the colours of the last frame the strip latched,
-// kept so a redraw paints them again, and the colour of a light that is off —a very dark grey and not the case— so the
-// five by five of the Matrix is a panel a person can see even when it is dark (docs/85).
+// kept so a redraw paints them again, and the colour of a light that is off (docs/85).
+//
+// **The off of the window has to be darker than the dimmest light of the board** (0.179.20): it was #242424 —thirty-six—
+// while the ceiling of the Matrix's panel is *twenty*, so every colour that panel can show was darker than an unlit light
+// and the five by five came out as a grid of holes (the owner: *«no veig que l'app rainbow funcioni»*) (docs/50, docs/85).
 const uint8_t kMaxLights = 25;
 uint8_t g_lights_count = 0;
 LightColour g_lights[kMaxLights] = {};
-const uint8_t kLightOffR = 0x24;
-const uint8_t kLightOffG = 0x24;
-const uint8_t kLightOffB = 0x24;
+// The ceiling of one channel on this board, which is the exposure the band is drawn with (0.179.20).
+uint8_t g_light_max = 255;
+const uint8_t kLightOffR = 0x0A;
+const uint8_t kLightOffG = 0x0A;
+const uint8_t kLightOffB = 0x0A;
 
 const uint8_t kCaseR = 0x1B;
 const uint8_t kCaseG = 0x1B;
@@ -137,7 +142,13 @@ void draw_lights() {
     if (!gui_light_place(g_lights_count, light, g_page_x, g_stage_w, g_page_h, x, y)) continue;
     const LightColour colour = g_lights[light];
     if ((colour.red | colour.green | colour.blue) != 0) {
-      set_colour(colour.red, colour.green, colour.blue);
+      // **The exposure is the ceiling of the board** (0.179.20): twenty out of twenty is a full colour, which is the light
+      // a person sees in a dark room, and it is the only way the panel of the Matrix is not a grid of almost black dots.
+      const unsigned red = static_cast<unsigned>(colour.red) * 255u / g_light_max;
+      const unsigned green = static_cast<unsigned>(colour.green) * 255u / g_light_max;
+      const unsigned blue = static_cast<unsigned>(colour.blue) * 255u / g_light_max;
+      set_colour(static_cast<uint8_t>(red > 255u ? 255u : red), static_cast<uint8_t>(green > 255u ? 255u : green),
+                 static_cast<uint8_t>(blue > 255u ? 255u : blue));
     } else {
       set_colour(kLightOffR, kLightOffG, kLightOffB);
     }
@@ -257,7 +268,8 @@ bool on_the_page(int x, int y) {
 
 bool gui_available() { return true; }
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
+              uint8_t light_max) {
   if (g_window != nullptr) return true;
   if (width == 0 || height == 0) {
     width = 0;
@@ -293,6 +305,10 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   // on a side makes the window wider and the lights stay in the part the page would have had, instead of being drawn over
   // the buttons.
   g_lights_count = (lights > kMaxLights) ? kMaxLights : lights;
+  // **The exposure of the band** (0.179.20): the ceiling of one channel on this board, so a light at its own top is a
+  // full colour in the window and not a byte of twenty out of two hundred and fifty-five. Zero is a board that says
+  // nothing and is taken as a full range, which is what a light of 255 already is.
+  g_light_max = (light_max == 0) ? 255 : light_max;
   const int lights_w = static_cast<int>(gui_lights_width(g_lights_count));
   const int lights_h = static_cast<int>(gui_lights_height(g_lights_count));
   const int row_w = (side == KeySide::kBottom) ? static_cast<int>(gui_keys_width(keys)) : 0;
@@ -353,7 +369,7 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
     // page shows the frame that is on the board (docs/85).
     const uint8_t lights = g_lights_count;
     gui_close();
-    if (!gui_open(width, height, keys, side, requested, lights)) return;
+    if (!gui_open(width, height, keys, side, requested, lights, g_light_max)) return;
   }
   if (g_texture == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);

@@ -5598,6 +5598,31 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.20 (12/11): **the panel of the Matrix is a panel and not a grid of holes, and its demo is bright and says hello**.
+// The owner: *«no veig que l'app rainbow funcioni, no veig animació ni tampoc que hagis pujat el brillo al tope»*. Two
+// faults and a third that was the app's own taste:
+//   - **the window was painting the lights darker than it paints them off**: the band drew the byte the strip latched, and
+//     the ceiling of this panel is **twenty**, while the colour of an unlit light was **#242424** —thirty-six—. Every
+//     colour the board can show was darker than an off light, so the five by five came out as a grid of holes and a
+//     rainbow of (20, 17, 0) looked like nothing at all. The band is drawn now with **the ceiling as the exposure**
+//     (`v * 255 / led_max()`, the number the app reads as `led.caps().max`) and an unlit light is **#0A0A0A**, which is
+//     the light a person sees in a dark room and the only way a panel of twenty out of two hundred and fifty-five is a
+//     picture. Measured on the window: the hello of the app is (255, 255, 255) on all twenty-five lights and the field
+//     after it moves every one of them every hundred and fifty milliseconds under Xvfb, both backends;
+//   - **and the number a test reads did not change**: `emu::led_pixel` still answers what the strip was given —(20, 0, 0)
+//     for a `led ff0000`—, because the window is a photograph and not a measure (docs/85);
+//   - **the app was dim by its own hand**: `iris` went down to a third of the ceiling for the sake of a soft rim and `rain`
+//     to a tenth, and on the board a light at six of twenty is a light nobody sees. Now the level is a whole except where a
+//     field is *about* the level —the rim of `iris` and the band of `rain`, and neither goes under a third— and **what
+//     moves is the hue**, twice as fast as before: one light of the panel every half second instead of every second and a
+//     third. The global breath of nine percent is gone, because it was a ceiling that never quite reached the ceiling;
+//   - **and it says hello**: a quarter of a second of the whole panel at the ceiling when the app takes the light. On the
+//     board this is the difference between an app that works and an app nobody can tell from a broken one, and it is the
+//     first thing the case of `test_apps` checks: `the hello is not at the ceiling` is a red line of its own (docs/30);
+//   - **the case grew with the fault**: it now reads the panel **twice** —the hello, then the field past the two hundred
+//     and sixty milliseconds— and it wants at least five lights at the ceiling of the board in the field, which is the
+//     assertion that would have caught the dim version (docs/85).
+
 // 0.179.19 (12/11): **the demo of the panel travels in the image of the Matrix and of no other board**. The owner:
 // *«afegeix aquesta app al littlefs de només el Atom Matrix i l'emulador atom matrix»*. It is one line of
 // `platformio.ini` and the numbers that go with it (docs/70):
@@ -6391,7 +6416,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.19";
+static const char kVersion[] = "0.179.20";
 
 }  // namespace kernel
 

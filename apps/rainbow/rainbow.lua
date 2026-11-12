@@ -18,7 +18,15 @@
 --
 -- **THE LEVEL IS THE CEILING OF THE PANEL AND NOT 255**: `led.caps().max` is **twenty** on the Matrix, the maker's
 -- number for a closed case of twenty-five LEDs, and a ramp that went to 255 would be a ramp the system cuts at twenty
--- without telling the app (docs/30).
+-- without telling the app (docs/30). **And the panel runs at that ceiling** (0.179.20): the first version kept the
+-- levels between a third and a whole for the sake of a soft rim, and on the board that reads as a pane of dark dots —a
+-- light at six of twenty is a light nobody sees—. A demo has to be as bright as the board allows, so what moves is the
+-- **hue** and the level is a whole except where a field is *about* the level: the rim of `iris`, and the band of
+-- `rain`, which goes a third down and no more (the owner: *«no veig animació ni tampoc que hagis pujat el brillo al
+-- tope»*).
+--
+-- **AND IT SAYS HELLO**: a quarter of a second of the whole panel at the ceiling before the first field, because a light
+-- that comes on blue and then starts moving is a light a person can tell apart from one that never got the turn (docs/30).
 --
 -- **IT IS NOT AN APP OF PROVA**: it draws its own icon, because it is an app a person runs to look at the board
 -- (docs/40).
@@ -37,10 +45,9 @@ local kFrameMs = 40
 local kHoldMs = 7000
 local kFadeMs = 2600
 local kCycleMs = kHoldMs + kFadeMs
--- **The whole panel breathes once in eleven seconds, nine percent deep**: it is the tone that never stops changing even
--- while a field is being held, and it is small enough that nobody catches it starting (docs/30).
-local kBreathMs = 11000
-local kBreathDepth = 0.09
+-- **The hello**: a quarter of a second of the whole panel at the ceiling when the app takes the light, and it is short
+-- enough that nobody waits for it (docs/30).
+local kHelloMs = 260
 
 local count = caps.count
 local top = caps.max
@@ -89,29 +96,30 @@ end
 -- kept anywhere. The same millisecond always paints the same panel, which is what makes a capture of it a fact
 -- (docs/30, docs/85).
 
--- The bands: the wheel laid diagonally across the panel and sliding towards the corner.
+-- The bands: the wheel laid diagonally across the panel and sliding towards the corner, at the ceiling of the board.
 local function bands(i, t)
-  return frac((g_x[i] + g_y[i]) * 0.11 + t * 0.05), 1
+  return frac((g_x[i] + g_y[i]) * 0.11 + t * 0.085), 1
 end
 
--- The iris: a hue per radius out of the middle, and a rim that goes soft.
+-- The iris: a hue per radius out of the middle, and a rim that goes a little soft —a third off and not two thirds, so
+-- that the ring is a shape and not a hole (docs/30).
 local function iris(i, t)
   local r = g_r[i] / middle
-  return frac(r * 0.62 + t * 0.06), 0.28 + 0.72 * (1 - r * r * 0.85)
+  return frac(r * 0.62 + t * 0.10), 0.58 + 0.42 * (1 - r * r * 0.9)
 end
 
 -- The spiral: the hue turns with the angle and the radius at once, so the bands twist around the middle.
 local function spiral(i, t)
   local r = g_r[i] / middle
-  return frac(g_a[i] + r * 0.55 - t * 0.04), 0.32 + 0.68 * (1 - r * 0.55)
+  return frac(g_a[i] + r * 0.55 - t * 0.07), 0.64 + 0.36 * (1 - r * 0.55)
 end
 
 -- The rain: one hue for the panel and a band of light that travels down it, which is movement without a new colour.
--- The crest is squared so it reads as a band and not as a panel going up and down, and the floor is a tenth of the
--- ceiling so that the lights the crest has left behind are still lights (docs/30).
+-- The crest is squared so it reads as a band and not as a panel going up and down, and the floor is **a third** of the
+-- ceiling —a tenth was invisible on the board— so the lights the crest has left behind are still lights (docs/30).
 local function rain(i, t)
-  local crest = 0.5 + 0.5 * math.sin((g_y[i] / span - t * 0.28) * 2 * math.pi)
-  return frac(0.55 + g_x[i] * 0.07 - t * 0.045), 0.12 + 0.88 * crest * crest
+  local crest = 0.5 + 0.5 * math.sin((g_y[i] / span - t * 0.45) * 2 * math.pi)
+  return frac(0.55 + g_x[i] * 0.07 - t * 0.075), 0.34 + 0.66 * crest * crest
 end
 
 local g_fields = {bands, iris, spiral, rain}
@@ -146,6 +154,14 @@ local shown = 0
 console.print(string.format('rainbow: %d light(s) in %d by %d, %d fields of %d s, the button takes the next one',
                             count, side, side, kFields, math.floor(kCycleMs / 1000)))
 
+-- **The hello**: the whole panel at the ceiling, once, so that a person sees the app take the light before the first
+-- field has moved at all. On the board this is the difference between an app that works and an app that nobody can tell
+-- from a broken one (docs/30).
+for i = 0, count - 1 do
+  led.pixel(i, top, top, top)
+end
+sys.delay(kHelloMs):await()
+
 while true do
   local now = sys.time_ms()
   if keys > 0 then
@@ -172,7 +188,6 @@ while true do
   local here = g_fields[index]
   local following = g_fields[index % kFields + 1]
   local seconds = t / 1000
-  local breath = 1 - kBreathDepth + kBreathDepth * math.sin(seconds * 2 * math.pi / (kBreathMs / 1000))
 
   for i = 0, count - 1 do
     local h1, level = here(i, seconds)
@@ -188,7 +203,7 @@ while true do
       h = frac(h1 + away * mix)
       level = level + (l2 - level) * mix
     end
-    local v = math.floor(level * breath * top + 0.5)
+    local v = math.floor(level * top + 0.5)
     if v < 0 then v = 0 elseif v > top then v = top end
     local r, g, b = wheel(h, v)
     led.pixel(i, r, g, b)

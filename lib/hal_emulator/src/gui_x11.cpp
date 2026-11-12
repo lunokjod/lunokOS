@@ -69,6 +69,8 @@ int g_key_held = -1;
 // case— so the five by five of the Matrix is a panel a person can see even when it is dark (docs/85).
 const uint8_t kMaxLights = 25;
 uint8_t g_lights_count = 0;
+// The ceiling of one channel on this board, which is the exposure the band is drawn with (0.179.20).
+uint8_t g_light_max = 255;
 LightColour g_lights[kMaxLights] = {};
 unsigned long g_light_off = 0;
 
@@ -104,8 +106,12 @@ void draw_lights() {
     // colour map for each of them would run out of cells (docs/85).
     unsigned long pixel = g_light_off;
     if ((colour.red | colour.green | colour.blue) != 0) {
-      pixel = (static_cast<unsigned long>(colour.red) << 16) | (static_cast<unsigned long>(colour.green) << 8) |
-              static_cast<unsigned long>(colour.blue);
+      // **The exposure is the ceiling of the board** (0.179.20): twenty out of twenty is a full colour, which is the light
+      // a person sees in a dark room, and it is the only way the panel of the Matrix is not a grid of almost black dots.
+      const unsigned red = static_cast<unsigned>(colour.red) * 255u / g_light_max;
+      const unsigned green = static_cast<unsigned>(colour.green) * 255u / g_light_max;
+      const unsigned blue = static_cast<unsigned>(colour.blue) * 255u / g_light_max;
+      pixel = ((red > 255u ? 255u : red) << 16) | ((green > 255u ? 255u : green) << 8) | (blue > 255u ? 255u : blue);
     }
     XSetForeground(g_display, g_gc, pixel);
     XFillRectangle(g_display, g_window, g_gc, x + 2, y + 2, static_cast<unsigned>(kLightDot - 4),
@@ -225,7 +231,8 @@ bool ensure_display() {
 
 }  // namespace
 
-bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights) {
+bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8_t scale, uint8_t lights,
+              uint8_t light_max) {
   if (g_window != 0) return true;
   // **A page of nothing is a board with no glass**: its window is the keys and the lights, which is the window an
   // ATOM gets (docs/85).
@@ -250,7 +257,10 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   g_key_text = colour_of("#e8e8e8", g_white);
   g_key_pressed = colour_of("#efeade", g_white);  // the paper of the panel, which is what a key looks like down
   g_key_pressed_text = colour_of("#1a1b18", g_black);
-  g_light_off = colour_of("#242424", g_case);
+  // **An unlit light is darker than the case and not lighter** (0.179.20): the old #242424 was a dark grey of thirty-six
+  // while the ceiling of the Matrix's panel is twenty, so every light the board can show was darker than the "off" of the
+  // window and the five by five came out as a grid of holes (docs/85).
+  g_light_off = colour_of("#0a0a0a", g_case);
   // **The keys go where the descriptor of the input says they are**: a dial on a side face is a column down
   // that side and a key on the top or the front is a row under the page. The window is the page plus that
   // strip: one window is one thing to place and one thing to look at, and two windows were two (docs/85).
@@ -278,6 +288,10 @@ bool gui_open(uint16_t width, uint16_t height, uint8_t keys, KeySide side, uint8
   // on a side makes the window wider and the lights stay in the part the page would have had, instead of being drawn over
   // the buttons.
   g_lights_count = (lights > kMaxLights) ? kMaxLights : lights;
+  // **The exposure of the band** (0.179.20): the ceiling of one channel on this board, so a light at its own top is a
+  // full colour in the window and not a byte of twenty out of two hundred and fifty-five. Zero is a board that says
+  // nothing and is taken as a full range, which is what a light of 255 already is.
+  g_light_max = (light_max == 0) ? 255 : light_max;
   const int lights_w = static_cast<int>(gui_lights_width(g_lights_count));
   const int lights_h = static_cast<int>(gui_lights_height(g_lights_count));
   const int row_w = (side == KeySide::kBottom) ? static_cast<int>(gui_keys_width(keys)) : 0;
@@ -353,7 +367,7 @@ void gui_show(const uint8_t* packed, uint16_t width, uint16_t height) {
     // page shows the frame that is on the board, not a dark panel (docs/85).
     const uint8_t lights = g_lights_count;
     gui_close();
-    if (!gui_open(width, height, keys, side, requested, lights)) return;
+    if (!gui_open(width, height, keys, side, requested, lights, g_light_max)) return;
   }
   if (g_image == nullptr) return;
   gui_expand(packed, width, height, g_pixels, g_scale);

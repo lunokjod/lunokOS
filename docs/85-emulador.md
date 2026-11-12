@@ -446,9 +446,14 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
     Lite no s'encongeix amb la pàgina perquè no n'hi ha, de pàgina. La geometria és **pura** (`emu::gui_lights_height`,
     `gui_lights_width` i `gui_light_place`) i té prova a `test_ui`;
   - **el color és el del marc que la tira ha enganxat**, no el que el nucli està animant: `FakeLed::show()` és qui ho
-    envia a la finestra, igual que el vidre només es copia quan el panell pinta alguna cosa. Un llum apagat es pinta
-    amb un **gris molt fosc** i no amb el color de la carcassa, perquè el cinc per cinc es vegi com un panell i no com
-    un forat;
+    envia a la finestra, igual que el vidre només es copia quan el panell pinta alguna cosa;
+  - **i la finestra és una foto del panell a les fosques, amb el sostre de la placa com a exposició** (0.179.20): el
+    sostre del Matrix és **vint**, i pintar el byte tal com arriba feia que el llum més fort que aquella placa pot donar
+    —(20, 20, 0)— fos **més fosc** que el gris d'un llum apagat —#242424, trenta-sis—, o sigui que el cinc per cinc
+    sortia com una graella de forats i no com un panell encesos (l'amo: *«no veig que l'app rainbow funcioni»*). El que
+    la finestra pinta és `v * 255 / led_max()`, o sigui el llum a dalt de tot de la placa com un color sencer, i un llum
+    apagat és **#0A0A0A**, més fosc que el sostre. **El número que llegeix una prova no canvia**: `emu::led_pixel` torna
+    el que la tira va rebre —(20, 0, 0) per a un `led ff0000`— perquè una finestra és una foto i no una mesura;
   - **i el que la finestra no pretén** és el mapa físic del xip: numera els llums **fila a fila des de dalt a
     l'esquerra**, que és el número que `led.pixel` pren (docs/30). L'emulador té el mateix sostre de canal que la placa
     —vint— i per això un `led ff0000` al prompt del Matrix és un vermell de (20, 0, 0) també aquí;
