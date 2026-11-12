@@ -5,6 +5,7 @@
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
+#include "kernel/shell.h"
 #include "kernel/touch.h"
 #include "kernel/ui.h"
 #include "pal/pal.h"
@@ -35,6 +36,14 @@ const uint16_t kHandleTop = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
+// **The cross of the corner** (0.179.23): a disc of ink of forty pixels with a white cross in it, in the right corner because
+// that is the one a right hand reaches without covering the card, on the rows of the handle and with the same margin from the
+// edge (docs/30).
+const int16_t kCrossR = 20;
+const int16_t kCrossHalf = 9;      // the arm of the cross, nine pixels each way from the middle
+const uint16_t kCrossTop = 14;
+const uint16_t kCrossRight = 14;
+
 bool g_open = false;
 
 // **A third of what the bar leaves**: enough for the rows of switches that come later and little enough that the page
@@ -44,6 +53,45 @@ uint16_t card_height() {
   const uint16_t top = bar::height();
   if (glass <= top) return 0;
   return static_cast<uint16_t>((glass - top) / 3);
+}
+
+// **Where the cross is, in the frame of the view** (0.179.23): the fingers arrive with the rows of the bar taken off and the
+// card is painted with them put back, so a hit test that mixed the two frames would be a button a whole bar away from the
+// thing the person aimed at (docs/30).
+int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossR; }
+int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossR; }
+
+bool in_the_cross(uint16_t x, uint16_t y) {
+  const int32_t dx = static_cast<int32_t>(x) - cross_x();
+  const int32_t dy = static_cast<int32_t>(y) - cross_y();
+  return (dx * dx + dy * dy) <= static_cast<int32_t>(kCrossR) * kCrossR;
+}
+
+// **A disc of ink, row by row**: the surface of the driver has no circle, and the circle of this button is a span a row — the
+// widest one that is inside the radius at that height, walked down from the half of it so the edge is round and not a
+// staircase (docs/30, docs/50).
+void fill_disc(hal::ISurface& surface, int16_t cx, int16_t cy, int16_t r, uint8_t level) {
+  for (int16_t row = -r; row <= r; ++row) {
+    int16_t half = 0;
+    while ((half + 1) * (half + 1) + row * row <= r * r) ++half;
+    surface.fill_rect(static_cast<uint16_t>(cx - half), static_cast<uint16_t>(cy + row),
+                      static_cast<uint16_t>(2 * half + 1), 1, level);
+  }
+}
+
+// **The two strokes of the cross**: forty-five degrees, two pixels wide, and one pixel a step, which is what makes them a line
+// and not a row of dots. An e-ink glass of sixteen levels has no room for antialiasing and this is the shape of a cross at this
+// size (docs/30, docs/50).
+void paint_the_cross(hal::ISurface& surface, int16_t cx, int16_t cy) {
+  fill_disc(surface, cx, cy, kCrossR, 0);
+  for (int16_t i = -kCrossHalf; i <= kCrossHalf; ++i) {
+    for (int16_t t = 0; t < 2; ++t) {
+      surface.pixel(static_cast<uint16_t>(cx + i + t), static_cast<uint16_t>(cy + i), 15);
+      surface.pixel(static_cast<uint16_t>(cx + i), static_cast<uint16_t>(cy + i + t), 15);
+      surface.pixel(static_cast<uint16_t>(cx + i + t), static_cast<uint16_t>(cy - i), 15);
+      surface.pixel(static_cast<uint16_t>(cx + i), static_cast<uint16_t>(cy - i + t), 15);
+    }
+  }
 }
 
 void paint() {
@@ -56,9 +104,38 @@ void paint() {
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
   surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2), static_cast<uint16_t>(top + kHandleTop),
                      kHandleW, kHandleH, 0);
+  // **And the cross of the corner**, on the rows of the card and not of the view: the one control the panel has until the
+  // switches of the system come (docs/30).
+  paint_the_cross(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
   // **`gc16` and not `gld16`**: the card is the whole box and it has to come out clean the first time, which is what the
   // strip of the bar asks for when it paints itself whole (docs/50, docs/92).
   display::present(hal::UpdateMode::kGc16);
+}
+
+void put_it_away();
+
+// **The cross closes the app of the page under the card** (0.179.23), and it asks the one road out of a page for it: a page
+// with another one on top gives it back, a launcher is refused with the line the pinch is refused with, and the page that
+// asked for this app takes the glass again (docs/30, docs/45).
+void close_the_app() {
+  const shell::LeaveOutcome out = shell::leave_one_page();
+  // **A door that did not open leaves the card where it is**: a launcher is the one page that is not left, and a page that did
+  // not go is a page the panel is still over —the refusal is said in the line of the road out and not by closing the card— (docs/30,
+  // docs/45).
+  if (out == shell::LeaveOutcome::kNothing || out == shell::LeaveOutcome::kLauncher) return;
+  // **And the card goes with the page it was over**: when the system already owes a whole page —the page below a view that
+  // went back, the page of the app that asked for this one— that paint is the one that erases the card, and a close does not
+  // pay for two washes of the glass. Anywhere else the page under the card is still there and it comes back whole (docs/50,
+  // docs/92).
+  if (out == shell::LeaveOutcome::kBack || out == shell::LeaveOutcome::kClosedHome) {
+    g_open = false;
+    ui::forget_the_page_hold();
+    log_printf(pal::kLogInfo, "PANEL", "the cross: %s",
+               (out == shell::LeaveOutcome::kBack) ? "a page went back" : "the app is closed and its page comes back");
+    return;
+  }
+  log_printf(pal::kLogInfo, "PANEL", "the cross: the app is closed");
+  put_it_away();
 }
 
 void pull_it_out() {
@@ -117,6 +194,12 @@ void poll() {
     return;
   }
   if (touch::take_gesture_of("tap", gesture)) {
+    // **A tap on the cross closes the app and a tap anywhere else puts the card away**: the rows of switches that come will take
+    // their own taps, and until then the whole card is one thing to dismiss (0.179.23, docs/30).
+    if (in_the_cross(gesture.x, gesture.y)) {
+      close_the_app();
+      return;
+    }
     put_it_away();
     return;
   }

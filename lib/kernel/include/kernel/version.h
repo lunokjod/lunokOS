@@ -5598,6 +5598,33 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.23 (12/11): **the cross of the panel closes the app**. The owner: *«En aquest panell ha d'apareixer un botó circular
+// que sigui una "X" (per tancar l'app)»*. The card that hangs from the bar had paper, the line of its bottom and a handle;
+// now it has its first control:
+//   - **a disc of ink of forty pixels with a cross of white in it**, fourteen rows under the bar and fourteen from the right
+//     edge —the corner a right hand reaches without covering the card—. The surface of the driver has no circle, so it is a
+//     span a row, the widest that fits the radius at that height (`fill_disc`), and the cross is two strokes at forty-five
+//     degrees of two pixels, painted pixel by pixel because the sixteen levels of this glass have no room for anything
+//     smoother (`paint_the_cross`, docs/30);
+//   - **and the tap on it is the door and not a way of its own** (0.179.23): it calls `shell::leave_one_page()`, the one road
+//     out of a page the pinch from big to small and the three taps already ask for, so it answers the same three things. A
+//     page with another one on top gives it back and the app stays; **a launcher is not closed** and the card stays where it is
+//     with the line of the refusal (`is a launcher: it is the one page that is not left`), because a door that did not open has
+//     not closed anything; and a page that is the only one goes with the app and the page that asked for it takes the glass
+//     back. A tap on the card that is not the disc puts it away, which is what the card did before the cross existed;
+//   - **the card goes with the page it was over**: when the system already owes a whole page —the page below a view that went
+//     back, the page of the app that asked for this one— that paint is the one that erases the card and a close does not pay
+//     for two washes of the glass; anywhere else the page under the card is still there and it comes back whole (`gc16` of the
+//     view), which is what the close to the prompt needs (docs/50, docs/92);
+//   - **the hit test is in the frame of the view**: the fingers arrive with the rows of the bar taken off and the card is
+//     painted with them put back, so the button is `cross_y()` and not the rows it is painted on;
+//   - **measured**: `test_apps` has a case of the cross —an app on the page, a swipe down with the panel of the emulator and a
+//     tap on the disc, and the app is gone with the whole view washed (`paint 0,0 540x912 mode 2 gc16`); then a launcher, where
+//     the tap leaves both the app and the card alone and the console has the sentence of the road out; and a tap on the card
+//     that dismisses it— and the window under Xvfb: the card with the cross, the tap on it, and the launcher back with no ink
+//     of the card left (`the cross: the app is closed and its page comes back`, `599 cases`, the five boards and the emulator
+//     built).
+
 // 0.179.22 (12/11): **the titlebar is pulled down and the system panel comes out**. The owner: *«farem un gest per la
 // titlebar del sistema... swipe down obre un panell. De moment un panell buit, serà el panell de sistema, on aniran els
 // típics toggles de wifi, bluetooth, settings...»*. The bar already had the clock, the title and the charge and it was
@@ -6483,7 +6510,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.22";
+static const char kVersion[] = "0.179.23";
 
 }  // namespace kernel
 

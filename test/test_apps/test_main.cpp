@@ -33,6 +33,7 @@
 #include "kernel/led.h"
 #include "kernel/log.h"
 #include "kernel/meter.h"
+#include "kernel/panel.h"
 #include "kernel/session.h"
 #include "kernel/splash.h"
 #include "luabind/luabind.h"
@@ -12526,6 +12527,110 @@ void test_the_shell_app_is_a_page_with_a_session_of_the_shell(void) {
   kernel::boot(hal::platform());
 }
 
+// **The cross of the panel closes the app** (0.179.23): a swipe down from the titlebar pulls the card of the system out, a
+// tap on the disc of its corner asks the one road out of a page —the same door the pinch and the three taps ask, so the same
+// three answers— and the page under the card comes back whole. **A launcher is the one page that is not left**: the card
+// stays where it is and the refusal is the line of the road out, because a door that did not open has not closed anything.
+//
+// The swipe and the tap are made the way a person makes them, on the panel of the emulator: sixty rows of the bar down two
+// hundred of the page, and a tap that is down sixty turns and up with five hundred after it, which is the window of the taps
+// of this system (docs/30, docs/85).
+void test_the_cross_of_the_panel_closes_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  kernel::panel::boot();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // An app to close, and a launcher, which is the one page that is not left (docs/30, docs/45).
+  TEST_ASSERT_TRUE(add_app(storage, "leaver",
+                           "{\"title\":\"Leaver\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('leaver up')\nwhile true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "homey",
+                           "{\"title\":\"Homey\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],\"launcher\":true}",
+                           "console.print('homey up')\nwhile true do sys.delay(20):await() end\n"));
+
+  // **The bar is where the card is pulled from, and the cross is fourteen rows under it and fourteen from the right**: the
+  // page of the emulator is 540 wide and the bar takes the first 48 rows, so the middle of the disc is that plus twenty
+  // (docs/30, docs/85).
+  auto swipe_down = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
+    pump_turns(20);
+    for (int y = 60; y <= 200; y += 35) {
+      TEST_ASSERT_TRUE(panel->finger_move(0, 400, static_cast<uint16_t>(y)));
+      pump_turns(20);
+    }
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(40);
+  };
+  auto tap = [&](uint16_t x, uint16_t y) {
+    TEST_ASSERT_TRUE(panel->finger_down(0, x, y));
+    pump_turns(60);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(500);
+  };
+  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 14 - 20);
+  const uint16_t cross_y = static_cast<uint16_t>(48 + 14 + 20);
+
+  // **The card comes out over the page of the app and the cross closes it** (docs/30).
+  pump_captured(40, g_out, sizeof(g_out), "run leaver");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "leaver up"), g_out);
+  TEST_ASSERT_TRUE(kernel::app_running());
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe down from the bar did not pull the card out");
+  capture_begin();
+  tap(cross_x, cross_y);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the cross of the card did not close the app");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card stayed open over a page that is gone");
+  // **And the page is whole again**: the whole view washed, which is the card's ink and the frame the app left under it
+  // (docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 2 gc16"), g_out);
+
+  // **A launcher is not left**: the tap on the cross does nothing but say it, and the card is still over the page.
+  pump_captured(40, g_out, sizeof(g_out), "run homey");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "homey up"), g_out);
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the launcher");
+  capture_begin();
+  tap(cross_x, cross_y);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the cross closed a launcher");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card went away over a page that did not");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "is a launcher: it is the one page that is not left"), g_out);
+
+  // **And a tap that is not the cross puts the card away**, which is how the panel was dismissed before the cross existed.
+  tap(270, 400);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the card did not put it away");
+
+  close_any_app();
+  storage->remove("/apps/leaver/app.lua");
+  storage->remove("/apps/leaver/manifest.json");
+  storage->remove("/apps/leaver");
+  storage->remove("/apps/homey/app.lua");
+  storage->remove("/apps/homey/manifest.json");
+  storage->remove("/apps/homey");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A pinch from big to small closes** (0.163.0). The gesture is the system's and it has three wishes in it: an app
 // with views on top of its first one gives the last of them back and hears `on_back(depth)`; an app on its only page
 // is closed; and a launcher is not, because a board with no page at all is a board a person reaches with a cable.
@@ -13532,6 +13637,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_reader_turns_its_page_with_a_finger_and_with_the_keys);
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
+  RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
   RUN_TEST(test_a_pinch_from_big_to_small_goes_back_and_then_closes);
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);

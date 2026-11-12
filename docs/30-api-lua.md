@@ -3118,8 +3118,9 @@ vidre i es poden provar al PC (docs/85).
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
 terç de la pàgina que hi ha sota la barra, amb la línia de sota i l'ansalada de dalt, i res a dins encara
-—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—. El gest de tancar-lo és el
-contrari, **arrossegar cap amunt**, i també **un toc a qualsevol lloc de la targeta**.
+—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **una rodona amb una creu a la
+cantonada de dalt a la dreta** que tanca l'app del davant. El gest de tancar-lo és el contrari,
+**arrossegar cap amunt**, i també **un toc a la targeta**, fora de la rodona.
 
 - **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
   cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
@@ -3141,6 +3142,18 @@ contrari, **arrossegar cap amunt**, i també **un toc a qualsevol lloc de la tar
   ja renta el vidre. **En pantalla sencera no hi ha estirada**: la barra no hi és i el gest no existeix.
 - **El llindar de tancar és més curt que el d'obrir** (40 píxels contra 60): la targeta ja és a la
   pantalla i el dit que la tanca només ha de dir el que vol, no demostrar-ho.
+- **La rodona de la cantonada tanca l'app del davant** (0.179.23): un disc negre de quaranta píxels amb
+  una creu blanca, a catorze files de la barra i a catorze de la vora dreta. El toc no tanca l'app a la
+  seva manera: passa pel **camí únic de sortir d'una pàgina** (`shell::leave_one_page`), que és el
+  mateix que el pessic de gran a petit i els tres tocs. O sigui que fa les tres mateixes coses: una
+  pàgina amb una altra a sobre la torna i l'app es queda; **un llançador no es tanca** i la targeta es
+  queda on és amb la frase del registre («is a launcher: it is the one page that is not left»), perquè
+  una porta que no s'ha obert no ha tancat res; i una app d'una sola pàgina es tanca i **la pàgina que
+  la va obrir torna a agafar el vidre**. La targeta se'n va amb l'app que tanca: si ja hi ha una pàgina
+  que ha de rentar el vidre, aquella és la que esborra la targeta i el tancament no paga dues passades;
+  si no, la pàgina de sota torna sencera.
+- **Un toc a la targeta que no és a la rodona la tanca i prou**: les files de commutadors que vindran
+  prendran els seus propis tocs, i fins llavors la targeta sencera és una cosa que es descarta.
 
 ## `imu`
 
