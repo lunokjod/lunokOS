@@ -6025,11 +6025,13 @@ void test_app_run_says_why_it_cannot_start_an_app(void) {
 // `About`, `Agenda`, `Banner`, `Battery`, `Calculator`, `Clock`, `EPUB`, `Editor`, `FRAM`, `Files`, `ImageViewer`,
 // `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`, `Snake`, `Tamagotchi`, `Tetris`,
 // `Timeclock` and `2048`), ported one by one, and `reader` is the port of `EPUB`. The ids below are the ones
-// `platformio.ini` carries on the Paper (`custom_apps`): **an id goes out of this list in the same commit as the app**
-// (docs/40, docs/45), which is what happened to the instrument app of the emulator when the owner deleted it.
+// `platformio.ini` carries on the Paper (`custom_apps`) and, since 0.179.19, the Matrix in its own image (`custom_apps =
+// rainbow`, docs/70): **an id goes out of this list in the same commit as the app** (docs/40, docs/45), which is what
+// happened to the instrument app of the emulator when the owner deleted it.
 void test_every_app_of_the_repository_declares_its_boards(void) {
   static const char* const kParents[] = {"", "../", "../../", "../../../"};
-  static const char* const kMustShip[] = {"about", "calculator", "editor", "home_eink", "reader", "timeclock"};
+  static const char* const kMustShip[] = {"about", "calculator", "editor", "home_eink", "rainbow", "reader",
+                                          "timeclock"};
   static char text[1024];
   bool ship_seen[sizeof(kMustShip) / sizeof(kMustShip[0])] = {false};
   const uint32_t kMust = sizeof(kMustShip) / sizeof(kMustShip[0]);

@@ -5598,6 +5598,32 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.19 (12/11): **the demo of the panel travels in the image of the Matrix and of no other board**. The owner:
+// *«afegeix aquesta app al littlefs de només el Atom Matrix i l'emulador atom matrix»*. It is one line of
+// `platformio.ini` and the numbers that go with it (docs/70):
+//   - **`custom_apps = rainbow` in `[env:m5-atom-matrix]`**, which is the exact list `make_disk` puts in that board's
+//     littlefs; the filter of `boards` still applies on top, so a name the board could not `run` would stay out and say
+//     so. Measured on the build of the 12/11: `build/disk/m5-atom-matrix is 29421 B in 7 files, 1 apps, linked to apps/,
+//     26 files of the boot, of the faces and of the sample book left out (no glass)` and `the tool takes every one of the
+//     7 files in 1441792 B of partition, so it fits`. The 29 421 B are the app's 28 490 —8 355 of Lua, the icon of 4 206,
+//     its master of 15 419 and the manifest— plus the three files of `res/` that `data/` carries;
+//   - **and no other board**: `m5-atom -t buildfs` says `build/disk/m5-atom is 931 B in 3 files, no apps: the system
+//     alone`, and the Paper keeps carrying every app that names it (`custom_apps_in_disk = yes`), which is the other
+//     exception and the owner's too. The rule of 0.118.3 —«cap placa ha de contenir apps al flashejar»— is the default
+//     and not a law of the build, and the comment of `platformio.ini` said «no board carries apps» while the Paper did:
+//     it now names the two that ask (docs/70, docs/80);
+//   - **the emulator needed nothing**: its disk is `custom_apps_in_disk = yes` (every app that names it, and it has no
+//     board, so all of them), and `--board m5stack-atom-matrix --run rainbow` already ran the app of `apps/` before this
+//     commit. What was missing was the board, not the PC: `rainbow: 25 light(s) in 5 by 5, 4 fields of 9 s` is the line
+//     the emulator prints from `build/disk/emulator/apps/rainbow` —a link to `apps/rainbow`, so an edit of the app is an
+//     edit of the disk (docs/70, docs/85);
+//   - **the size of `apps/` said in the comments is now measured**: **59 files and 475 821 B** against the 42 and
+//     331 536 that `platformio.ini` had been quoting since 9/11, and the sentence that said no board carries apps is
+//     gone from docs/70's two places as well —the first paragraph and «Per què cap placa no en porta», which is now «per
+//     què no en porta per defecte»— (docs/70);
+//   - **and the suite keeps an eye on it**: `rainbow` is in the list of apps that a case of `test_apps` requires to be
+//     there (`kMustShip`), because an app that a board's image carries is an app whose folder cannot disappear.
+
 // 0.179.18 (12/11): **a demo for the panel of the Matrix, and the first app of this tree with no page at all**. The owner:
 // *«fes una app de demo per l'M5Atom Matrix: Leds multicolor com l'arc iris i amb canvis de to suaus i movimient»*. It is
 // `apps/rainbow`, and it is written for a board where the light **is** the face (docs/40, docs/50):
@@ -6365,7 +6391,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.18";
+static const char kVersion[] = "0.179.19";
 
 }  // namespace kernel
 

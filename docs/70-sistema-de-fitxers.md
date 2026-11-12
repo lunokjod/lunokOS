@@ -772,11 +772,13 @@ llibre obert és el que llegeix el lector cada dia —el pla i el que queda de c
 ## La imatge de la flash: noms de 32 caràcters com a molt
 
 La imatge de `/littlefs` la fa `tool-mklittlefs` **1.203.210628** (el que instal·la PlatformIO per a
-l'ESP32). **Les apps no són a `data/`** i, **des de la 0.118.3, cap placa no en porta a la imatge**: viuen a `apps/`, a
+l'ESP32). **Les apps no són a `data/`** i, **des de la 0.118.3, la imatge d'una placa és el sistema sol** i una placa
+que vol apps les demana a `platformio.ini` (avui en demanen dues: el Paper, totes les que el nomenen, i el Matrix, la
+demo del seu panell; ho diu «Com afegir apps a la imatge del disc»): viuen a `apps/`, a
 l'arrel del projecte, una carpeta per id, i el disc de cada entorn el munta `tools/make_disk.py` a
 **`build/disk/<entorn>`** i el fa servir la imatge d'aquell entorn: `PROJECT_DATA_DIR` és un sol valor per a tot el
 projecte, i amb un sol `build/disk` el build de l'ATOM canviava el disc del Paper i el de l'emulador sense que ningú ho
-hagués demanat. **Cada build té el seu**, i **la imatge d'una placa és el sistema sol**: `res/`, `http/` i `data/`,
+hagués demanat. **Cada build té el seu**, i **una imatge sense apps és el sistema sol**: `res/`, `http/` i `data/`,
 **16 fitxers i 130 217 B** (mesurat el 8/11, vegeu «Com afegir apps a la imatge del disc»). **Les
 proves són l'excepció i ho diuen**: creen i esborren apps al disc que munten, i escriure a través d'un enllaç escriuria
 al repositori, així que l'entorn `test` les porta totes i **copiades** (`custom_apps_copied = yes`); l'emulador
@@ -790,12 +792,16 @@ d'una placa de debò —el que hi hagi, hi és—. Entre el 10/11 i l'11/11 el g
 volum, la de la targeta amb el `*` i la paraula `[card]`, i el llançador tenia vint-i-una cel·les en dues pàgines
 (docs/85). La segona còpia es va treure; la porta sap fer-ho si algú hi torna a posar apps a mà.
 
-**Per què cap placa no en porta**: perquè és una decisió de l'amo (0.118.3, *«cap placa ha de contenir apps al
-littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca
-una app, que és tots els dies. Aquí hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
+**Per què una placa no en porta per defecte**: perquè és una decisió de l'amo (0.118.3, *«cap placa ha de contenir apps
+al littlefs al flashejar»*) i perquè una imatge que porta apps és una imatge que es queda vella el dia que es toca
+una app, que és tots els dies. **L'excepció la demana l'amo i es diu a l'entorn**: el Paper porta totes les apps que el
+nomenen (`custom_apps_in_disk = yes`, 0.179.16) i el Matrix porta la demo del seu panell (`custom_apps = rainbow`,
+0.179.19), i cap de les dues no és un defecte del filtre —és el que aquell build ha demanat (docs/40, docs/85)—. Aquí
+hi havia una raó de mida amb uns números que **no són d'aquest arbre** —*148
 fitxers i 418 720 B per a `apps/`, amb la imatge deixant dos fitxers fora*— i s'han retirat. **El que hi ha avui**:
 `apps/` són les **onze** apps —`about`, `calculator`, `editor`, `home_eink`, `luaperf`, `reader`, `shell`,
-`timeclock`, `tz`, `wipe` i `fonts`— i **51 fitxers i 398 951 B**, i el `data/` del sistema **29 fitxers i 1 892 888 B** —el que el
+`timeclock`, `tz`, `wipe` i `fonts`— i **51 fitxers i 398 951 B** (l'11/11; el 12/11 s'hi va afegir `rainbow`, la
+dotzena), i el `data/` del sistema **29 fitxers i 1 892 888 B** —el que el
 repositori porta: `data/data/` és l'estat d'una app i no és al git; els nou fitxers de més que l'11/11 són les vuit
 cares de l'OFL i la seva llicència, 217 083 B, docs/30—, dels quals **1 558 434 B són els tres
 bitmaps de splash** (`data/res/splash/boot-2.bmp`, `boot-3.bmp` i `boot-5.bmp`, 519 478 B cada un; la carpeta
@@ -819,27 +825,37 @@ vegades).
 
 ## Com afegir apps a la imatge del disc
 
-**La imatge d'una placa no porta apps** (0.118.3): qui la munta només hi posa el sistema, i l'única excepció
-del repositori és la Paper, que en nomena **set** (`custom_apps = editor,calculator,about,timeclock,reader,home_eink,shell`). Un build que ha de portar
-apps les demana, i res no es fa sol, perquè una imatge amb les apps de dins és una imatge que es queda vella el dia
-que es toca una app:
+**La imatge d'una placa no porta apps si no les demana** (0.118.3): qui la munta hi posa el sistema, i **dues plaques
+d'aquest arbre les demanen** —el Paper, totes les que el nomenen (0.179.16), i el Matrix, la demo del seu panell
+(0.179.19, l'amo: *«afegeix aquesta app al littlefs de només el Atom Matrix i l'emulador atom matrix»*)—. Un build que
+ha de portar apps les demana, i res no es fa sol, perquè una imatge amb les apps de dins és una imatge que es queda
+vella el dia que es toca una app:
 
 | Al `platformio.ini` de l'entorn | Què hi va |
 |---|---|
-| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **29 fitxers i 1 892 888 B** (mesurats l'11/11 a `data/`). És el que fan les quatre plaques de 4 MB — i avui **no hi cap** amb els tres bitmaps de splash a `data/`: la partició és de 1 441 792 B |
+| (res, o `custom_apps_in_disk = no`) | **El sistema sol**: **29 fitxers i 1 892 888 B** (mesurats l'11/11 a `data/`). És el que fan el Lite, el devkit i el T-Koala — i amb els tres bitmaps de splash a `data/` **no hi cap**: la partició és de 1 441 792 B |
 | `custom_apps = calculator,reader` | **Aquestes**, i només les que nomenen la placa: el filtre de sota s'aplica a les dues opcions, perquè portar una app que el nucli refusaria al `run` és una imatge que menteix. Un nom que es queda fora **ho diu** (p. ex. `make_disk: there is no app called light, so it stays out`) |
-| `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` — set |
+| `custom_apps_in_disk = yes` | **Les que nomenen la placa** per id o per família (`esp32`), que és la mateixa regla que fa servir el nucli per refusar una app al `run` (docs/40). A l'emulador i a les proves, que no tenen placa, són totes les d'`apps/` |
 
 ```ini
 [env:m5-paper]
-; una placa que es queda sense targeta i ha de portar set coses de sèrie
-custom_apps = editor,calculator,about,timeclock,reader,home_eink,shell
+; una placa que es queda sense targeta i ha de portar totes les apps que la nomenen
+custom_apps_in_disk = yes
+
+[env:m5-atom-matrix]
+; la demo del panell, i només aquesta: el Lite no la porta (docs/40)
+custom_apps = rainbow
 ```
 
 ```sh
-pio run -e m5-paper -t buildfs     # fa la imatge amb aquestes apps a dins
-pio run -e m5-paper -t uploadfs    # i la puja
+pio run -e m5-atom-matrix -t buildfs     # fa la imatge amb aquesta app a dins
+pio run -e m5-atom-matrix -t uploadfs    # i la puja
 ```
+
+**Mesurat el 12/11**: `make_disk: build/disk/m5-atom-matrix is 29421 B in 7 files, 1 apps, linked to apps/, 26 files of
+the boot, of the faces and of the sample book left out (no glass)` i `the tool takes every one of the 7 files in
+1441792 B of partition, so it fits`. Els 29 421 B són els 28 490 de `rainbow` —8 355 de Lua, la icona de 4 206, el seu
+mestre de 15 419 i el manifest— més els tres fitxers de `res/` que porta `data/`.
 
 - **El que hi entra són enllaços i no còpies**: cada app del disc és un enllaç a `apps/<id>` del repositori, o sigui
   que `-t buildfs` s'ha de tornar a fer **després de tocar una app**; el que es puja és el que hi havia quan es va
@@ -847,8 +863,9 @@ pio run -e m5-paper -t uploadfs    # i la puja
   disc que munta.
 - **El que hi ha avui, mesurat l'11/11**: el sistema sol són **29 fitxers i 1 892 888 B**; `apps/` sencer són
   **51 fitxers i 398 951 B**; les **onze** apps —`editor`, `calculator`, `about`, `timeclock`, `reader`,
-  `home_eink`, `shell`, `luaperf`, `tz`, `wipe` i `fonts`— són totes les que hi ha, o sigui que la Paper, que és l'única
-  placa que en porta, fa **80 fitxers i 2 294 790 B** d'imatge, la mateixa que l'emulador, que les porta totes i hi
+  `home_eink`, `shell`, `luaperf`, `tz`, `wipe` i `fonts`— eren totes les que hi havia (el 12/11 en va arribar una de
+  dotzena, `rainbow`, 28 490 B en quatre fitxers), o sigui que la Paper, que les porta totes, fa **80 fitxers i
+  2 294 790 B** d'imatge, la mateixa que l'emulador, que les porta totes i hi
   afegeix l'estat de les seves execucions al mateix directori. El disc de les proves porta les mateixes carpetes d'`apps/`
   **copiades**. Els dos números del disc són els que va imprimir `make_disk` l'11/11, i el que fa créixer el
   sistema són els tres bitmaps de splash (`data/res/splash`): **1 558 434 B** dels 1 892 888, i la carpeta sencera

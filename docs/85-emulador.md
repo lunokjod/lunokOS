@@ -457,8 +457,9 @@ gui: the page 540x960 is in a window at half, one pixel of the window is 2 of th
     vidre, els llums, les tecles, i la combinació que sigui (trobat a la finestra, el 12/11).
   - **i per mirar-s'ho hi ha una app**: `apps/rainbow` és l'arc iris del Matrix (0.179.18, docs/40) i la manera curta
     de tenir el panell encès a la finestra és `--board m5stack-atom-matrix --gui --run rainbow`, o `--board
-    m5stack-atom` per veure el mateix camp en un sol llum. Al PC l'app ja és al disc que l'emulador obre; a la placa
-    arriba amb una targeta o amb `custom_apps = rainbow`.
+    m5stack-atom` per veure el mateix camp en un sol llum. Al Matrix l'app ja és **a la imatge de la placa**
+    (`custom_apps = rainbow`, 0.179.19, docs/70) i al PC és al disc que l'emulador obre, amb totes les altres; el Lite
+    la rep amb `repo install` o amb el mateix `custom_apps` al seu entorn.
   - **i una cosa que el cas de la suite va ensenyar**: `emu::advance_ms` mou el rellotge **de la placa** —el que
     llegeixen `led` i les alarmes— i `sys.time_ms` és `pal::system().millis()`, que al PC és el comptador real de la
     màquina. Una app que compta mil·lisegons es fa avançar **amb torns** (un torn és un mil·lisegon) i no amb

@@ -424,9 +424,11 @@ el que fa és pintar la tira i esperar el torn següent.
   de les tres maneres que dona docs/30.
 - **I el que diu el registre és el que el cas de la suite llegeix**: `rainbow: 25 light(s) in 5 by 5, 4 fields of 9 s,
   the button takes the next one` a l'arrencada i `[rainbow] field 2 of 4: iris` quan en canvia un.
-- **No és a la imatge de cap placa**: cap placa no porta apps (`custom_apps_in_disk = no`), o sigui que viatja amb una
-  targeta o amb `custom_apps = rainbow` a l'entorn. Al PC ja és al disc que l'emulador obre, i la manera de mirar-la
-  és la finestra del 0.179.17:
+- **Viatja a la imatge del Matrix i de cap altra placa** (0.179.19, l'amo: *«afegeix aquesta app al littlefs de només el
+  Atom Matrix i l'emulador atom matrix»*): l'entorn `m5-atom-matrix` la demana amb `custom_apps = rainbow`, i el Lite —que
+  no la nomena— es queda amb el sistema sol. Són **28 490 B en quatre fitxers** i la imatge mesurada és `7 files, 1 apps
+  … it fits` (docs/70). Al PC ja és al disc que l'emulador obre, amb totes les altres, i la manera de mirar-la és la
+  finestra del 0.179.17:
 
   ```
   .pio/build/emulator/program --board m5stack-atom-matrix --gui --run rainbow
