@@ -1421,7 +1421,7 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   return find_app(id, target) && read_source(target, len);
 }
 
-bool run_app(const char* id, const char* open_path, bool restore = false) {
+bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
   // `cannot start the interpreter` **for every app of the disk**, which a person reads as a name that does not resolve
@@ -1435,6 +1435,29 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // and for the interpreter. Only the lookup happens here —a walk of the listing
   // and a string copy— and it is also what refuses an app of another board.
   if (!find_app(id, target)) return false;
+
+  // **Una app que arrenca demana el topall una estona** (0.179.38): reading its source, building an interpreter and laying
+  // its first page out is the heaviest thing this system does on purpose and it is foreseeable, so the processor is at
+  // the top step **before** any of it begins and the window ends alone —`power::poll` sees it, not the app— (docs/50,
+  // docs/60). A step that were never given back is a battery burnt on a page that is already on the glass.
+  power::hold_cpu(power::kBusyMhz, power::kStartBusyMs, "an app is starting");
+
+  // **EL TÍTOL PRIMER, ABANS DE NETEJAR RES** (0.179.27): the name of the app that is coming goes to the middle of the
+  // bar of the system —which is the system's and not the app's— and it is painted **here**, with the page of the app
+  // before still on the glass and before the clean that comes next. A person who presses an app sees which one it is
+  // while the glass is being cleaned and not after, and the clean does not take the name away: the wash of `ui::attach`
+  // is the rows of the view and never the strip (docs/30, docs/50).
+  //
+  // **The one start that cannot have it here is the one that shows a picture**: the splash washes the whole glass —the
+  // bar with it—, so a name painted before it is a name nobody sees (the rule of 0.118.1, docs/40). That one gets the
+  // title again after the picture, below, and `flush()` there paints only what the splash took.
+  //
+  // **I LA PINTURA ÉS DEL QUI ARRENCA I NO DE L'APP** (0.179.33): `splash` is the caller's word. The boot of a home app
+  // does not want it —the glass already has the picture of the boot— and the way back to a launcher does (docs/30,
+  // docs/40).
+  const bool shows_a_picture = splash && (target.splash[0] != '\0') && !restore;
+  bar::title(target.title);
+  if (!shows_a_picture) bar::flush();
 
   // The app gets a view of its own, white and with nothing pending; the glass is
   // not touched until it presents (docs/30).
@@ -1451,7 +1474,7 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
   // It is skipped for an app that comes back from a sleep: a resume is not a
   // start. A picture that is not there is a line of the log and nothing else; the
   // app runs all the same.
-  if (target.splash[0] != '\0' && !restore) {
+  if (shows_a_picture) {
     char root[96];
     char picture[160];
     const int made = apps::root_of(id, root, sizeof(root))
@@ -1474,9 +1497,13 @@ bool run_app(const char* id, const char* open_path, bool restore = false) {
       }
     }
   }
-  // And its title goes to the middle of the bar, which is the system's and not
-  // the app's (docs/30).
-  bar::title(target.title);
+  // **I el nom una altra vegada, per al que no ha pogut tenir-lo abans** (0.179.27): with a picture the strip was washed
+  // under the title, so it is painted whole here —which is what `bar::refresh()` asked for—; without one the title is
+  // already on the glass and this paints nothing at all, because the flag went with the paint above.
+  if (shows_a_picture) {
+    bar::title(target.title);
+    bar::flush();
+  }
 
   // **Now the expensive part**: 98 304 B of heap, a file read and a Lua machine.
   size_t len = 0;
@@ -3640,7 +3667,10 @@ bool start_the_one_that_asked() {
   char back_to[sizeof(g_run_back)];
   snprintf(back_to, sizeof(back_to), "%s", g_run_back);
   g_run_back[0] = '\0';
-  return run_app(back_to, nullptr);
+  // **I la pàgina que torna porta la seva targeta** (0.179.33): the launcher arrives with the card of its manifest, because
+  // this is the moment it was drawn for —an app just ended and the person is going back to it— and not a boot the board has
+  // already shown a picture for (docs/30, docs/40).
+  return run_app(back_to, nullptr, false, true);
 }
 
 bool app_run_wanted(char* out, size_t cap, bool& back) {
@@ -3703,11 +3733,11 @@ void close_app() {
 
 bool restore_app(const char* id, const char* path) { return run_app(id, path, true); }
 
-bool start_app(const char* id) { return run_app(id, nullptr, false); }
+bool start_app(const char* id, bool splash) { return run_app(id, nullptr, false, splash); }
 
 bool raise_app(const char* id) {
   close_app();
-  return run_app(id, nullptr);
+  return run_app(id, nullptr, false, true);
 }
 
 // A window of an alarm (docs/60): the app is loaded for one call and thrown
@@ -3739,6 +3769,9 @@ bool run_window(const char* id, const alarms::Entry& entry, int64_t late_ms) {
   meter::note_app_start(boot.app_id);
   ui::attach();  // a fresh view for the app that is coming back (docs/30)
   bar::title(boot.app_title);
+  // **And the name before the window costs anything**, the same rule as a start (0.179.27): the title of an alarm
+  // window is on the strip while the text of it is being compiled, and not after its page (docs/30, docs/60).
+  bar::flush();
 
   bool ok = luabind::run_source(target.path, g_source, len);
   // **The text is the interpreter's now**, which has compiled it into its own state: the block goes back before

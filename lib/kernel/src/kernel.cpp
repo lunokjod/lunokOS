@@ -447,6 +447,12 @@ void boot(hal::IPlatform& platform) {
   // (docs/90).
   power::boot(platform);
 
+  // **L'ARRENÇADA DEMANA EL TOPALL I EL SISTEMA CARREGAT EL DEIXA ANAR** (0.179.38): the mount, the panel, the settings,
+  // the picture of the boot and the shell are the heaviest second of this system, and nothing of it is worth a processor
+  // at a hundred and sixty. The window is the boot's own and has no clock: the line below the home app is what steps it
+  // down, because only here is it known that the system is loaded (docs/50, docs/60).
+  power::hold_cpu(power::kBusyMhz, 0, "boot");
+
   // **The app the settings call home** (0.119.0): a board that has one comes up showing that page instead of the
   // prompt —a launcher, a clock, the page a person wants to see—. It goes last and only when nothing came back,
   // because the session record is the more precise answer (a board that went to sleep inside an app returns to that
@@ -455,12 +461,22 @@ void boot(hal::IPlatform& platform) {
   // (docs/30, docs/40, docs/90).
   const char* home = cfg::home_app();
   if (home[0] != '\0' && !app_running()) {
-    if (shell::start_app(home)) {
+    // **I ARRENCA SENSE LA SEVA TARGETA** (0.179.33, l'amo: *«en launcher no ha de mostrar l'splash rera el boot, tenim
+    // l'splash del sistema»*): the board has just painted the picture of its boot on that glass, so the home app comes up
+    // with the page and nothing else. Its card is for the way back —a Lua app ends and the launcher arrives with it—
+    // which is the moment it was drawn for (docs/30, docs/40).
+    if (shell::start_app(home, /*splash=*/false)) {
       log_printf(pal::kLogInfo, "HOME", "%s", home);
     } else {
       log_printf(pal::kLogWarn, "HOME", "no app '%s' on this disk; the prompt is yours", home);
     }
   }
+
+  // **I el sistema carregat treballa a la velocitat de repòs** (0.179.38): the boot is one window and the home app is part
+  // of it —its first page is part of what the boot lays down, and a launcher that is arriving is not worth a second burst—,
+  // so this is where the board goes back to a hundred and sixty. An app started after the boot —`run`, another app, an
+  // alarm— asks for its own window (docs/50, docs/60).
+  power::rest_cpu("the system is loaded");
 }
 
 void alarms_restore() {
@@ -573,10 +589,26 @@ void poll() {
   // **And the three taps of an app that asked for the whole glass are the system's** (0.136.0, docs/46 D1): the gesture
   // is taken out of the queue here, before the app's turn below, so the app neither handles it nor hears it and the bar
   // always has a way back (docs/30).
-  ui::poll_full_screen();
+  //
+  // **And they are not asked while the card of the system is out** (0.179.42): a triple tap below the card is a tap outside
+  // it, and the way out it asks for is not the system's while the card is the page's (docs/30).
+  if (!ui::page_held()) ui::poll_full_screen();
   // **And the hand of the panel** (0.179.22): a drag down from the bar pulls the card of the system out, and while it is out
   // the gestures the panel did not take are nobody's —the app under it never learns that the panel exists— (docs/30).
   panel::poll();
+#endif  // LUNOK_GLASS
+
+  // **L'APP NO CORRE MENTRE LA TARGETA DEL SISTEMA ÉS A SOBRE** (0.179.42): the card hangs from the bar, the fingers on it
+  // are the panel's and the ink of the page under it is held, so the turn of the app is a turn under a page that nobody is
+  // looking at —and the one way an app could end the card by itself—. The owner asked for it in one sentence: *«un cop el
+  // desplegable es a la pantalla l'app es queda en pausa … Es deixa com estava i es resumeix l'execució de l'app lua»*. The
+  // coroutine of the app is suspended between turns anyway, so what a pause costs is its next turn and nothing else: the
+  // alarms, the light, the network and the prompt keep running, and the app goes on from where it was the moment the card
+  // goes (docs/30, docs/50).
+#if LUNOK_GLASS
+  const bool the_card_is_out = panel::open();
+#else
+  const bool the_card_is_out = false;
 #endif  // LUNOK_GLASS
 
   // A sleep an app asked for happens here, between turns, with the app's coroutine
@@ -600,12 +632,23 @@ void poll() {
   }
 
   // The app gets its turn after the events and the console, so a byte that has
-  // just arrived is already queued when it wakes up.
-  shell::poll_app();
+  // just arrived is already queued when it wakes up. **And it does not get it while the card of the system is out**
+  // (0.179.42, the pause above): the coroutine waits, the hooks wait, and the page under the card is left as it was.
+  if (!the_card_is_out) shell::poll_app();
 
   // **The caret of the keyboard blinks without the app** (0.92.0): the block of the box the keys go to is turned here,
   // between turns, and the box is painted with a `du`; an app that only waits still has a cursor (docs/30, docs/90).
-  luabind::caret_poll();
+  // **And a card over the page means no caret** (0.179.42): the ink belongs to a page nobody is reading.
+  if (!the_card_is_out) luabind::caret_poll();
+
+  // **Y EL QUE DEU LA BANDA TAMPOC NO ESPERA L'APP** (0.179.36): `MAY` and `123` change the band and nothing of the page,
+  // so an app that only waits never presents them —and since the caret settles after its six blinks there may be no
+  // present at all—. The band is a picture of the system and it is painted here, in the turn its key was pressed
+  // (docs/30, docs/50). **Under the card it waits too**: the band is the page of the app, and the frame it owes is the
+  // frame the card is covering (0.179.42).
+#if LUNOK_GLASS
+  if (!the_card_is_out && ui::keyboard_owes_paint()) ui::present();
+#endif  // LUNOK_GLASS
 
   // What the light has to say is painted at the end of the turn, once, and only if
   // it changed: a frame is a write on the wire (docs/75).

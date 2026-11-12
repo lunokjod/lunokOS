@@ -928,6 +928,12 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down);
 // is already written when the app hears `on_change`, the same rule a checkbox and a slider follow.
 void ui_keyboard_typed(int code);
 
+// **Whether a box asked for the keyboard** (0.179.43): `ui_keyboard_typed` answers nothing at all when no object is bound
+// —a page that was made again, an app that hid the band and forgot the target—, and a band that types into nothing is the
+// one failure of this system that says nothing anywhere. The kernel asks this to write the one line that says it
+// (docs/30, docs/90).
+bool ui_keyboard_has_target();
+
 // The press the app was waiting for arrived, or it never came. Called between
 // turns, never from inside Lua (docs/30).
 void button_progress(const char* kind, int64_t held_ms, uint32_t key);

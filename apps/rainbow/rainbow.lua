@@ -7,9 +7,12 @@
 -- same app on the Lite's single light is one hue that breathes (docs/30).
 --
 -- **A CHANGE OF FIELD IS TWO FIELDS MIXED AND NOT TWO FRAMES CUT TOGETHER**: four fields take turns, and the one that
--- leaves and the one that arrives are mixed in hue and in level for two and a half seconds. The hue is mixed the short
--- way round the wheel —355 and 5 degrees are ten apart and not three hundred and fifty—, and that is what makes the
+-- leaves and the one that arrives are mixed in hue and in level for one and two tenths of a second. The hue is mixed the
+-- short way round the wheel —355 and 5 degrees are ten apart and not three hundred and fifty—, and that is what makes the
 -- change a colour that travels instead of a panel that blinks (the owner: *«canvis de to suaus i moviment»*).
+--
+-- **AND IT GOES FAST** (0.179.32): fifty frames a second, a field of three and a half seconds, and every hue travelling
+-- at double the speed it had, because the owner asked for the demo to move faster (docs/30, docs/40).
 --
 -- **A FRAME IS ONE TURN AND THE TURN ENDS IN A WAIT**: `sys.delay` is a promise and `await` gives the coroutine back to
 -- the kernel, which is who paints the strip at the end of a turn and only when the frame changed (docs/30, docs/20).
@@ -37,14 +40,16 @@ if caps.count == 0 then
   return
 end
 
--- **Twenty-five frames a second**: a hue that moves at this rate reads as a colour travelling and not as a set of
--- steps, and a strip of twenty-five lights takes a frame in under a millisecond (docs/50).
-local kFrameMs = 40
--- **A field stays seven seconds and takes two and a half to become the next one**: the hold is what lets a person read
--- the shape of it, and the fade is what makes the change kind (docs/30).
-local kHoldMs = 7000
-local kFadeMs = 2600
-local kCycleMs = kHoldMs + kFadeMs
+-- **Cinquanta frames per segon** (0.179.32): l'amo el va trobar lent i la primera meitat de la resposta és el ritme —a
+-- twenty-five-light strip a hue that only moves every forty milliseconds reads as steps—, and the other half is the
+-- speeds below. Twenty milliseconds are still two thousand times what a frame of this panel costs, which is under a
+-- millisecond for the twenty-five lights (docs/30, docs/50).
+local kFrameMs = 20
+-- **Un camp no es tanca sol: el canvia el dit** (0.179.32, l'amo: *«el canvi d'efecte es fa només amb el botó, no per
+-- temps»*). El que queda d'un rellotge és la **barreja**, que comença en prémer i dura un i dos dècimes de segon: el camp que
+-- una persona estava mirant i el que arriba es barregen en to i en nivell, i quan la barreja s'acaba el panell es queda en
+-- el nou sense presses (docs/30).
+local kFadeMs = 1200
 -- **The hello**: a quarter of a second of the whole panel at the ceiling when the app takes the light, and it is short
 -- enough that nobody waits for it (docs/30).
 local kHelloMs = 260
@@ -96,30 +101,37 @@ end
 -- kept anywhere. The same millisecond always paints the same panel, which is what makes a capture of it a fact
 -- (docs/30, docs/85).
 
+-- **I EL MOVIMENT DINS DEL CAMP, AL DOBLE** (0.179.32): every field is a function of the seconds of the app's own clock,
+-- so the number that decides how fast a hue travels is the one that multiplies `t` —the other terms are the shape— and
+-- halving it in time is doubling it here. A band now crosses the panel in a little over a second instead of two and a
+-- half, and the crest of the rain goes down the panel every half second. **The clock does not restart when the field
+-- changes**: the same light keeps travelling, and that is what makes a press land on a moving panel and not on a still one
+-- (docs/30).
+
 -- The bands: the wheel laid diagonally across the panel and sliding towards the corner, at the ceiling of the board.
 local function bands(i, t)
-  return frac((g_x[i] + g_y[i]) * 0.11 + t * 0.085), 1
+  return frac((g_x[i] + g_y[i]) * 0.11 + t * 0.17), 1
 end
 
 -- The iris: a hue per radius out of the middle, and a rim that goes a little soft —a third off and not two thirds, so
 -- that the ring is a shape and not a hole (docs/30).
 local function iris(i, t)
   local r = g_r[i] / middle
-  return frac(r * 0.62 + t * 0.10), 0.58 + 0.42 * (1 - r * r * 0.9)
+  return frac(r * 0.62 + t * 0.20), 0.58 + 0.42 * (1 - r * r * 0.9)
 end
 
 -- The spiral: the hue turns with the angle and the radius at once, so the bands twist around the middle.
 local function spiral(i, t)
   local r = g_r[i] / middle
-  return frac(g_a[i] + r * 0.55 - t * 0.07), 0.64 + 0.36 * (1 - r * 0.55)
+  return frac(g_a[i] + r * 0.55 - t * 0.14), 0.64 + 0.36 * (1 - r * 0.55)
 end
 
 -- The rain: one hue for the panel and a band of light that travels down it, which is movement without a new colour.
 -- The crest is squared so it reads as a band and not as a panel going up and down, and the floor is **a third** of the
 -- ceiling —a tenth was invisible on the board— so the lights the crest has left behind are still lights (docs/30).
 local function rain(i, t)
-  local crest = 0.5 + 0.5 * math.sin((g_y[i] / span - t * 0.45) * 2 * math.pi)
-  return frac(0.55 + g_x[i] * 0.07 - t * 0.075), 0.34 + 0.66 * crest * crest
+  local crest = 0.5 + 0.5 * math.sin((g_y[i] / span - t * 0.90) * 2 * math.pi)
+  return frac(0.55 + g_x[i] * 0.07 - t * 0.15), 0.34 + 0.66 * crest * crest
 end
 
 local g_fields = {bands, iris, spiral, rain}
@@ -143,16 +155,21 @@ local function wheel(h, v)
   return v, 0, fall
 end
 
--- **A press jumps to the boundary between two fields**, which is the one place where the frame has no mix in it: after
--- it the panel shows the next field whole, so the change a person asked for is the change they see at once (docs/30).
+-- **A press jumps to the next field**, and the mix towards it begins at the press: what a person asked for is the field
+-- that arrives, and the one that goes is the one they were looking at —the one arriving, if a press lands in the middle of
+-- a mix—. The hook only counts; the loop, with the coroutine awake, does the rest (docs/30).
 local started = sys.time_ms()
-local bias = 0
+local index = 1
+local previous = 1
+-- **Quan va començar la barreja**, en el rellotge de l'app, o `-1` quan no n'hi ha cap: with no field turning on its own,
+-- what the press starts is a mix and not a hold.
+local mix_started = -1
 local shown = 0
 -- **The presses that have arrived and the frame has not used yet**: the hook is called between turns, with this
 -- coroutine parked, so it cannot paint; it counts and the loop does the rest (docs/30).
 local presses = 0
 
--- **A press is an edge, and the hook is the edge** (0.179.21): the loop paints the panel twenty-five times a second, so a
+-- **A press is an edge, and the hook is the edge** (0.179.21): the loop paints the panel fifty times a second, so a
 -- finger on the button for less than a frame would be a press nobody sees if the loop asked the level. `on_button` is
 -- called with the coroutine parked and it misses nothing —it is the second of the three ways docs/30 gives, and the one
 -- for a press that happens between two frames—.
@@ -160,8 +177,8 @@ function on_button(kind)
   if kind == 'press' then presses = presses + 1 end
 end
 
-console.print(string.format('rainbow: %d light(s) in %d by %d, %d fields of %d s, the button takes the next one',
-                            count, side, side, kFields, math.floor(kCycleMs / 1000)))
+console.print(string.format('rainbow: %d light(s) in %d by %d, %d fields, the button changes it',
+                            count, side, side, kFields))
 
 -- **The hello**: the whole panel at the ceiling, once, so that a person sees the app take the light before the first
 -- field has moved at all. On the board this is the difference between an app that works and an app that nobody can tell
@@ -174,19 +191,27 @@ sys.delay(kHelloMs):await()
 while true do
   local now = sys.time_ms()
   if presses > 0 then
-    -- Every press the hook counted moves the fields on by one, and the first of them lands on the boundary so that the
-    -- panel shows the next field whole and not half of a mix (docs/30).
-    bias = bias + (kCycleMs - ((now - started + bias) % kCycleMs)) + (presses - 1) * kCycleMs
+    -- **Un toc és el camp següent i la barreja comença aquí**: every press the hook counted takes one field —two presses
+    -- between two frames are two fields— and the one that goes is the one a person was looking at (docs/30).
+    for _ = 1, presses do
+      previous = index
+      index = index % kFields + 1
+    end
     presses = 0
+    mix_started = now
   end
 
-  local t = now - started + bias
-  local index = math.floor(t / kCycleMs) % kFields + 1
-  local phase = t % kCycleMs
+  -- **La barreja només hi és si un dit l'ha començada**: from zero to one over `kFadeMs`, and at one the field that
+  -- arrived is the field and the mix is over; nothing else moves the panel from one field to another (docs/30).
   local mix = 0
-  if phase > kHoldMs then
-    mix = (phase - kHoldMs) / kFadeMs
-    mix = mix * mix * (3 - 2 * mix)
+  if mix_started >= 0 then
+    mix = (now - mix_started) / kFadeMs
+    if mix >= 1 then
+      mix = 0
+      mix_started = -1
+    else
+      mix = mix * mix * (3 - 2 * mix)
+    end
   end
   if index ~= shown then
     shown = index
@@ -194,22 +219,25 @@ while true do
   end
 
   local here = g_fields[index]
-  local following = g_fields[index % kFields + 1]
-  local seconds = t / 1000
+  local leaving = g_fields[previous]
+  local seconds = (now - started) / 1000
 
   for i = 0, count - 1 do
     local h1, level = here(i, seconds)
     local h = h1
     if mix > 0 then
-      local h2, l2 = following(i, seconds)
-      local away = h2 - h1
+      -- **Es barreja des del que marxa cap al que arriba**: at zero the panel is the field a person was looking at and at
+      -- one it is the new one, and the hue takes the short way round the wheel so the two colours in between are
+      -- neighbours and not a muddy average (docs/30).
+      local h0, l0 = leaving(i, seconds)
+      local away = h1 - h0
       if away > 0.5 then
         away = away - 1
       elseif away < -0.5 then
         away = away + 1
       end
-      h = frac(h1 + away * mix)
-      level = level + (l2 - level) * mix
+      h = frac(h0 + away * mix)
+      level = l0 + (level - l0) * mix
     end
     local v = math.floor(level * top + 0.5)
     if v < 0 then v = 0 elseif v > top then v = top end

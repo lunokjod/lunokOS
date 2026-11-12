@@ -416,6 +416,13 @@ la feina. El nucli pregunta `http_poll` a cada torn i dona la resposta com a pro
   del core mou també l'APB i el tick de FreeRTOS, i per sota de 80 l'APB baixa i cap perifèric es
   reconfigura —ni el port sèrie, que és l'única interfície d'aquesta placa. Un valor que no sigui un dels
   passos es refusa, no s'arrodoneix.
+- **I la línia s'ha buidat també abans de moure el processador** (0.179.43): la velocitat del port sèrie
+  surt del rellotge del bus, i el xip la torna a calcular quan canvia la freqüència. Els bytes que ja són
+  a la FIFO i al registre de desplaçament surten a la velocitat de abans i el port els ensenya com a
+  **escombraries**, o sigui que la corrupció cau a l'**última línia escrita abans del canvi** i no a la que
+  ve després. Es va veure al registre de la placa: `[D][PANEL] paint 60,356 72x76 … (page 108lx␘␂����2,
+  76 rows of 36 B)` amb `[I][POWER] cpu 160 MHz from 240` a la línia següent. `move_to` i `set_cpu_mhz`
+  buiden la consola (`IConsole::flush()`) abans de cridar la placa, pel mateix motiu que el son.
 - **No hi ha DFS.** `CONFIG_PM_ENABLE` no està activat al framework precompilat, o sigui que pujar i
   baixar sol queda fora i la velocitat és sempre una decisió de qui la demana.
 
@@ -932,6 +939,16 @@ paper. El que fa ara el sistema:
 - **una qualitat que l'app va nomenar es respecta**: `ui.rect(…, 'gc16')` és l'app dient què necessita la seua
   tinta, i una regió que no en porta és d'un control que es dibuixa amb `du`, que és el barat i no una promesa
   sobre el panell (`Damage::named`). El `present` amb `mode` no canvia: el que diu l'app és el que va al vidre;
+- **i el present que fa el sistema tampoc no la sobreescriu** (0.179.41): el cercle que es mou, el control que
+  deixa anar i el valor que ha canviat es pinten amb `present_each`, que abans escrivia el seu mode a **totes** les
+  regions. El resultat a la placa va ser el que l'amo va veure i va preguntar —*«Perqué l'editor fa tants
+  refrescos i a aquesta qulitat???»*—: el primer toc a la pàgina de l'editor pintava el **seu quadre de document
+  sencer** (550 dels 912 píxels d'alt, o sigui més de mig vidre) amb un `gl16` de 450 ms i un flaix, sobre el `du`
+  de 120 ms que l'app havia demanat pel nom. Ara una regió que ha nomenat la seua qualitat la conserva, i la que no
+  en porta rep la passada del present;
+- **i la passada del present és `a2` i no `gl16`** (0.179.41): 290 ms contra 450, i la forma d'ona de dos nivells
+  és la que té la tinta d'un cercle i d'una cara premuda. Una pàgina que un present ajunta es queda amb la qualitat
+  més forta que l'app va nomenar, i només pren la del present quan l'app no en va nomenar cap;
 - **el rentat entre dues apps compta passades** (0.169.2 i 0.179.5): `cleaner_for` mira els nivells de la pàgina i
   el pressupost de passades, i el que abans comptava caixes feia que tota pàgina de text arribés a les trenta-dues
   i s'emportés un `gc16` entre app i app. Amb el comptador de passades, una pàgina de text es renta amb `a2` i una
@@ -962,6 +979,29 @@ taula del fabricant (docs/95): **120 ms** per a `du` i `du4`, **290** per a `a2`
 lectura de pin i un comptador. Guanyar-hi: la pàgina puja **sense cap sis segons d'espera** (docs/92 §33). Per això `It8951::flush` espera —amb un sostre de tres segons— si encara hi ha una
 pintada en curs: **el primer pintat d'un `present` no espera mai, el segon sí**. L'alternativa era
 enviar el segon damunt del primer i que el controlador l'ignorés, que al vidre es veu com mitja pàgina.
+
+**`LUTAFSR` és l'estat del motor de LUT i no la mesura de la tinta** (0.179.41): `0x1224` val `0000` quan cap
+motor de LUT del controlador està corrent, i el log l'escriu a la **primera** lectura que contesta, amb els
+mil·lisegons que han passat **des del pintat fins a la pregunta** —i no la durada del pintat—. Una línia com
+`LUTAFSR 0000 3632 ms after the paint` vol dir que la pregunta s'ha fet tres segons i mig després d'enviar la
+pàgina. El que la feia trigar tant era el conductor mateix: el mínim que s'espera abans de preguntar
+(`measured_ms_`) s'aprenia d'una mesura que s'acabava quan el registre contestava, o sigui que una lectura que
+el bus va retenir dos segons es desava com **dos segons de tinta** i, com que el número només creix, **totes**
+les pàgines de la tirada esperaven això abans de preguntar un registre que hauria dit `0000` de seguida. Ara una
+lectura que s'ha hagut de repetir no mesura res i el mínim après té un sostre de **1 200 ms**
+(`kEngineFloorCeilingMs`): torna a decidir la resposta del panell i no el pitjor dia del bus.
+
+**I la lectura que es feia just després del pintat no hi és** (0.179.41): era un debug de la 0.118.8 —la línia
+`engine status read after the paint`— **el resultat del qual no s'usava** (només es deia si la lectura havia
+funcionat), i com que `read_words` espera la línia **BUSY** abans de prendre un mot, aquella línia esperava **tot
+el pintat** (de 120 a 450 ms, i el sostre de tres segons quan el motor anava lent) amb el torn del nucli a dins,
+en un pintat que aquest conductor demana **sense esperar**. A més era dins del `now - painted_ms_` del qual el
+següent espera aprèn la tinta d'una pàgina, o sigui que el conductor apuntava el seu propi bloqueig com a tinta.
+L'amo ho va preguntar amb el log a la mà: *«son necesaris per fer la feina? o es un debug antic que està fent
+consultes innecessàries a la eink fent-la més lenta?»*. El que diu el motor es llegeix igualment, on vol dir
+alguna cosa: a `wait_paint`. I **`idle()` tampoc no s'hi bloqueja**: ara mira primer el pin (un GPIO, baix vol dir
+"encara pinta") i només pregunta el registre quan la línia diu que la tinta s'ha aturat, o quan ja ha passat la
+tinta d'una pàgina sense que la línia es mogui.
 
 **I tres segons de sostre volen dir que el pintat gros pot no haver acabat** (0.118.2): una pàgina sencera
 en `gc16` mou la tinta dos o tres segons, o sigui que un `flush` que arriba just després en rep un **no**,
@@ -1001,9 +1041,14 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   i la càrrega, cadascuna mesurada amb el text més ample que pot portar— i el que canvia és la seva caixa
   i no la franja. Un títol nou és el mig de la barra i no la barra; un minut és el dígit i no el mig. La
   qualitat és **`gld16`, que neteja i no fa cap flaix**: `du` pinta però no neteja —i el dígit d'abans es
-  queda al vidre—, `gc16` neteja a canvi de quatre ensurts i `a2` deixa dos setzens del que hi havia. És la
+  queda al vidre—, `gc16` neteja a canvi de dos ensurts i `a2` deixa dos setzens del que hi havia. És la
   regla que el projecte ja tenia escrita: res que parpellegi no arriba al vidre, i netejar és `gld16`
-  (docs/92). La franja sencera amb `gc16` queda per al que la fa nova sencera: el boot i un gir de pàgina.
+  (docs/92). **I la franja sencera també va a `gld16` des de la 0.179.40**: el boot, una tornada de pàgina i
+  una imatge que hagi rentat el vidre són una franja sencera, i `gc16` allà eren dos flaixos de tota la franja
+  cada cop; la franja és **de dos nivells** (paper 15, línia i lletres 0, `font::draw` baixa un sol nivell), o sigui
+  que el rentat que deixa dos setzens aterra **al** nivell i no a prop —el que queda de la pàgina de sota és un
+  tretze i no una banda negra—, i un cas de la suite comprova que no hi ha cap píxel de la franja que no sigui zero
+  o quinze (`test_the_strip_of_the_bar_is_two_tones`, docs/50).
 - **I el dit que hi cau és del sistema** (0.179.22): arrossegar-lo cap avall obre el **panell del sistema**, una
   targeta d'un terç de la pàgina que penja de la franja —buida pel que fa a commutadors, i és on aniran els del
   sistema—, i la pàgina de sota queda retinguda mentre hi és. **La rodona de la cantonada tanca l'app del
@@ -1035,6 +1080,15 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   hauria pintat, píxel a píxel. **`make_disk` la fa servir a cada build** d'una placa amb vidre i deixa el
   `.bmp` fora de la imatge: les tres imatges de l'arrencada passen de 1 558 434 B a 777 600 B, i el que
   arriba al controlador per a cada una baixa de 519 478 B llegits i descodificats a 259 200 B copiats.
+- **I una imatge que no és un pla es retalla a la seva tinta i el fons de la pàgina el diu el seu marge** (0.179.39):
+  el camí del PNG/BMP descodifica el fitxer, mesura **l'anella exterior** de la imatge —si més de la meitat dels seus
+  píxels són foscos, la pàgina és tinta (0), i si no paper (15); un empat és paper— i **descarta l'aire uniforme** al
+  voltant del dibuix (un píxel és dibuix quan és a més de dos nivells del fons, que és el que deixa el dither d'una
+  àrea plana), o sigui que el que es bliteja i el que el panell mou és **el dibuix i prou**, centrat. La columna on
+  comença es fa **parell**, perquè el nibble de l'esquerra d'un byte és el píxel del costat. El segell de la versió es
+  pinta amb el nivell **contrari** al de la pàgina (tinta sobre paper, paper sobre tinta), i la línia del registre diu
+  el dibuix i la pàgina: `SPLASH /apps/x/res/splash.png, 302x448 at 119,256, a drawing of 420x520, the page is paper`
+  (docs/30, docs/40).
 - **I la imatge s'ha d'acabar de moure abans que la placa se'n vagi** (0.165.1): `splash::show` espera la tinta
   que es movia **abans** de la seva imatge i després demana un `gc16` de tot el panell, que és mig segon de
   tinta. Un `reboot` que talla la placa on la crida l'ha trobada deixa el vidre amb la pàgina d'abans: el que

@@ -95,6 +95,15 @@ const uint32_t kPaintTimeoutMs = 3000;
 // timed how long the engine takes to say it is busy, and it can only make the answer later (docs/50).
 const uint32_t kEngineStartMs = 50;
 
+// **The floor of a page can never be the worst read the board ever had** (0.179.41): the wait before the first question
+// is the ink of a page, and it is learned from a measurement that ended when the register answered —so a read the bus
+// held for two seconds was recorded as two seconds of ink—. It only grows, so one slow read made **every** page of the
+// run wait that long before asking a register that would have said `0000` at once: the board came back with
+// *«LUTAFSR 0000 3632 ms after the paint»*, *«2999»*, *«3589»*, and every paint of the editor cost three seconds. The
+// ceiling is a page's ink and nothing more; past it the register is the answer and polling it costs five milliseconds
+// (docs/50, docs/92).
+const uint32_t kEngineFloorCeilingMs = 1200;
+
 // **How many times a panel that stopped answering is brought back before the driver gives up on it**
 // (0.118.9). Three and not one, because the rail cycle of a `power_on` takes a second of the driver's
 // time and a controller that is deaf for a moment is not a controller that is gone; and not ten,
@@ -768,13 +777,17 @@ bool It8951::flush(UpdateMode mode) {
   // and the frame they were in. A driver that sends a rectangle nobody sees is a driver that has to say which one.
   // **A whole page says it at info and a blink at debug**: the caret of a box blinks twice a second and would fill the
   // console, and a page nobody sees is the thing being chased (0.118.6, docs/50).
-  // **And what the engine says of itself** (0.118.8): the register right after `DPY_BUF_AREA`. A controller that accepts
-  // the command answers with a status that is not zero; one that ignores it leaves it at zero, and a page nobody sees is
-  // told apart from a page that is coming (docs/50, docs/92 §33).
-  uint16_t status_after = 0;
-  const bool status_read = read_register(kRegLutAfsr, status_after);
-  hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
-            "engine status %s after the paint", status_read ? "read" : "not read");
+  //
+  // **And the register is NOT read here, which is what made every paint wait for its own ink** (0.179.41): the read this
+  // line used to make was a debug of 0.118.8 whose answer nothing used —only whether the read had succeeded was
+  // printed—, and `read_words` waits on the BUSY line before it takes a word, so that line waited **the whole paint**
+  // (a hundred and twenty to four hundred and fifty milliseconds, and the three-second cap when the engine was slow) with
+  // the turn of the kernel inside it. The paint of this driver is asked and **not** waited for, which is the whole point
+  // of `idle()` being a question for a later turn (docs/50). It also poisoned the floor below: that wait was inside the
+  // `now - painted_ms_` the next `wait_paint` learns a page's ink from, so the driver recorded its own blocking as ink.
+  // The owner asked exactly this with the board's log in his hand: *«son necesaris per fer la feina? o es un debug antic
+  // que està fent consultes innecessàries a la eink fent-la més lenta?»* — and it was the second thing. What the engine
+  // says of itself is still read, once, where it means something: `wait_paint` (docs/50, docs/92 §33).
   hal::logf((static_cast<uint32_t>(w) * h >= 10000u) ? pal::kLogInfo : pal::kLogDebug, "PANEL",
             "paint %u,%u %ux%u mode %u %s at 0x%06x (page %u,%u %ux%u, %u rows of %u B)",
             static_cast<unsigned>(nx0), static_cast<unsigned>(ny0), static_cast<unsigned>(w),
@@ -918,7 +931,9 @@ bool It8951::set_rotation(uint16_t degrees) {
 // engine of the controller is running. The maker's own driver asks exactly this before every `DPY_BUF_AREA`
 // (`M5EPD_Driver::CheckAFSR`, a loop on that register with a three second cap), and **the BUSY pin of the panel is not
 // the engine**: measured on the board (8/11), "busy" said a page took 1052 ms, then 3000, then 2613 — three different
-// numbers for the same page, and two of them a timeout. The register is an answer and the pin is a guess.
+// numbers for the same page, and two of them a timeout. The register is an answer and the pin is a guess — and of the two
+// halves of that guess **only "low" is worth trusting** (0.179.41): the panel holds the line low while it works, so a low
+// line is a `no` that costs nothing, while a high one is still left to the register below.
 bool It8951::engine_over() {
   if (!ready_) return false;
   // A glass that is gone has nothing in flight, and saying `no` for ever keeps the kernel asking every turn (0.151.5).
@@ -927,7 +942,17 @@ bool It8951::engine_over() {
   // has not been marked yet, and `idle()` is asked by the kernel every turn (docs/50).
   if (painted_ms_ != 0) {
     const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if ((now - painted_ms_) < (last_wide_ ? measured_ms_ : kEngineStartMs)) return false;
+    const uint32_t since = now - painted_ms_;
+    if (since < (last_wide_ ? measured_ms_ : kEngineStartMs)) return false;
+    // **And the line of busy answers before the register does, without a word on the bus** (0.179.41): a read of the
+    // register waits on BUSY inside `read_words`, so asking the register while the ink is moving is the same as waiting
+    // for it — the one thing `idle()` promises not to do (`idle()` is the kernel's question every turn, docs/50). The pin
+    // costs one GPIO read: low is "still painting" and the answer is no. Past the ceiling of a page's ink the register is
+    // asked anyway, so a line that is stuck low still ends in the read and in the recovery below.
+    if (since < kEngineFloorCeilingMs &&
+        gpio_get_level(static_cast<gpio_num_t>(pins_.busy)) == 0) {
+      return false;
+    }
   }
   uint16_t status = 0;
   // A read that failed says nothing about the engine, and saying "over" is the safe answer for a question that only
@@ -951,6 +976,9 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
   // register read 50 ms after a whole page has started is a zero that means nothing, and the page before is still moving
   // ink. The number only ever grows, and it only grows from a page (docs/50).
   const uint32_t floor = last_wide_ ? measured_ms_ : kEngineStartMs;
+  // **A question the bus refused is not a measurement** (0.179.41): the number learned below is the ink of a page, and a
+  // read that had to be asked again has the waiting of the bus inside it (docs/50).
+  bool retried = false;
   for (;;) {
     const uint32_t now = static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS);
     if (painted_ms_ != 0 && (now - painted_ms_) < floor) {
@@ -961,6 +989,7 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
     const bool first = (painted_ms_ != 0) && !asked_;
     asked_ = true;
     if (!read_register(kRegLutAfsr, status)) {
+      retried = true;
       // **The bus did not take the question**, which is not the same as a panel that is not answering: the ink of a
       // whole page keeps the line of busy low for a second and a register read has to wait for it, and a read that came
       // back empty is asked again (0.151.8).
@@ -986,16 +1015,27 @@ bool It8951::wait_paint(uint32_t timeout_ms) {
       // **What the register says, and how long after our own paint it said it** (0.151.8): the board has only ever shown
       // `0000` there, read a millisecond after `DPY_BUF_AREA`, and whether the engine ever marks itself busy is the one
       // number this driver has never seen (docs/50).
-      hal::logf(pal::kLogDebug, "PANEL", "LUTAFSR %04x %u ms after the paint", static_cast<unsigned>(status),
-                static_cast<unsigned>(now - painted_ms_));
+      //
+      // **And it is only said when it says something** (0.179.41): the quiet answer of a paint that ended inside the ink
+      // of a page is a `0000` at the floor, which is the number the driver already knows, and a line per paint is a line
+      // on the wire per paint —the whole point of this driver is that the glass is the slow thing, not the serial port—.
+      // What is worth reading is a status that is **not** zero, or a question that had to wait longer than a page's ink:
+      // both are the two ways this wait goes wrong, and both are what the owner was reading when he asked whether the
+      // panel was being consulted for nothing (docs/50, docs/92).
+      if (status != 0 || (now - painted_ms_) > kEngineFloorCeilingMs) {
+        hal::logf(pal::kLogDebug, "PANEL", "LUTAFSR %04x %u ms after the paint", static_cast<unsigned>(status),
+                  static_cast<unsigned>(now - painted_ms_));
+      }
     }
     if (status == 0) {
       // **The panel measured itself again**: how long this paint held the engine, which is what the next page of the same
-      // size will be waited for (0.151.8).
-      if (last_wide_ && painted_ms_ != 0) {
+      // size will be waited for (0.151.8). Only a first question measures the ink, and never more than a page's worth
+      // (0.179.41): one read the bus held for two seconds became a floor of two seconds for every page of the run
+      // (docs/50).
+      if (last_wide_ && painted_ms_ != 0 && !retried) {
         const uint32_t took = now - painted_ms_;
         if (took < kPaintTimeoutMs && took > measured_ms_) {
-          measured_ms_ = took;
+          measured_ms_ = (took > kEngineFloorCeilingMs) ? kEngineFloorCeilingMs : took;
           hal::logf(pal::kLogInfo, "PANEL", "a page held the engine %u ms", static_cast<unsigned>(took));
         }
       }

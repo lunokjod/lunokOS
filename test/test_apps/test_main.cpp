@@ -26,6 +26,7 @@
 #include "img/img.h"
 #include "json/json.h"
 #include "kernel/apps.h"
+#include "kernel/bar.h"
 #include "kernel/button.h"
 #include "kernel/calendar.h"
 #include "kernel/cfg.h"
@@ -384,6 +385,33 @@ void use_board(const char* model) {
   kernel::boot(hal::platform());
 }
 
+// **On es prem la tecla d'un dit** (0.179.46): the band is at the bottom of the view it was given —the page's height of
+// `canvas()` minus what the keyboard takes of it, which is `band_top`'s own sum— and its first row is a key deep below its
+// margin, so the centre of the first cells is thirty pixels into the band and fifty-two apart in a view of five hundred
+// and forty. A case that types with a finger says where it presses with this and not with a pixel written by hand,
+// because the view is not the same size in every one of them (docs/30, docs/85, docs/90).
+uint16_t band_finger_y() {
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  return static_cast<uint16_t>(view.y + view.height - kernel::ui::keyboard_height() + 30);
+}
+
+uint16_t band_finger_x(int8_t cell) {
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  return static_cast<uint16_t>(view.x + 30 + (static_cast<uint16_t>(cell) * 52));
+}
+
+// **La placa amb el panell tàctil**: `use_board` gives the glass alone, and a case whose fingers type needs the panel of the
+// emulator as well (docs/85).
+void use_board_with_fingers(const char* model) {
+  const emu::Model hw = emu::model_of(model);
+  emu::Options opts = emu::options();
+  opts.board = model;
+  if (hw.glass) opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // The card of this run: a directory of its own, empty but for what the test writes, so a
 // leftover file from the run before cannot make a test pass.
 void make_card() {
@@ -542,6 +570,25 @@ void pump_turns(int turns) {
     kernel::poll();
     sleep_one_ms();
   }
+}
+
+// **Un dit que prem, i el paper lliure perquè el llegeixi** (0.179.46): the emulator's panel reports the finger that is
+// there at the moment it is asked and the ink of a paint blocks the turns for its four hundred and fifty milliseconds, so
+// a press that happens inside a paint is a press nobody reads —the case says "the band typed nothing" when the truth is
+// that the band was never asked—. This waits the paint out, presses, and lets the lift be seen as well (docs/85).
+void press_finger(emu::Gt911Panel* panel, uint16_t x, uint16_t y) {
+  pump_turns(1200);
+  printf("[press] %u,%u with the band %d, a view of %u+%u and a band of %u\n", static_cast<unsigned>(x),
+         static_cast<unsigned>(y), kernel::ui::keyboard_visible() ? 1 : 0,
+         static_cast<unsigned>(kernel::ui::canvas().y), static_cast<unsigned>(kernel::ui::canvas().height),
+         static_cast<unsigned>(kernel::ui::keyboard_height()));
+  TEST_ASSERT_TRUE_MESSAGE(panel->finger_down(0, x, y), "the panel of the emulator took no finger");
+  // **El dit s'hi està una estona**: the chip is asked at the rate it can have news —`scan_ms`— and a press that lasts a
+  // couple of turns can fall between two reads of it, which is a press the kernel never saw. A thumb rests on a key for
+  // a tenth of a second and this one does the same (docs/50, docs/85).
+  pump_turns(120);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(120);
 }
 
 // The console of a run, including a QR when provisioning prints one: 37 modules in
@@ -2460,6 +2507,7 @@ void test_a_turn_does_not_wait_past_the_hand(void) {
   // (docs/30, docs/75).
   TEST_ASSERT_TRUE(kernel::led::set_colour(0, 0, 0));
   kernel::led::poll();
+
   TEST_ASSERT_LESS_THAN_INT32_MESSAGE(0, kernel::led::next_frame_ms(), "the light still has a frame to paint");
 
   // **At the prompt**: a turn with nothing in the queue and nothing to do. A second of wait here is a key press that
@@ -6197,6 +6245,72 @@ void test_every_app_of_the_repository_carries_an_icon(void) {
   TEST_ASSERT_TRUE_MESSAGE(seen > 0, "the folder of the apps of the repository is empty");
 }
 
+// **An app that names a splash carries it, and the launcher's is a card and not a page** (0.179.30): a manifest that
+// names a picture and a folder that does not have it is a start that shows nothing and says it in a line of the log
+// nobody reads —and the launcher is the app that starts in every boot—. **And the card is small on purpose**: the
+// system decides how fast a splash reaches the glass by how many pixels it has to decode and how many bytes it has to
+// read, so a card of 420 by 520 is **218 400 pixels and eleven thousand bytes** where a plane of the whole glass
+// (`res/splash.e4`, the fastest thing to paint) would be **246 240 bytes** on a disk that carries twelve apps
+// (docs/40, docs/50, docs/85).
+void test_an_app_that_names_a_splash_carries_it(void) {
+  static const char* const kParents[] = {"", "../", "../../", "../../../"};
+  static char text[1024];
+  bool found_the_folder = false;
+  uint32_t named = 0;
+  long launcher_bytes = 0;
+  char launcher_path[640] = {0};
+  for (size_t p = 0; p < sizeof(kParents) / sizeof(kParents[0]); ++p) {
+    char dir_path[256];
+    snprintf(dir_path, sizeof(dir_path), "%sapps", kParents[p]);
+    DIR* dir = opendir(dir_path);
+    if (dir == nullptr) continue;
+    found_the_folder = true;
+    struct dirent* item = nullptr;
+    while ((item = readdir(dir)) != nullptr) {
+      if (item->d_name[0] == '.') continue;
+      char manifest[560];
+      snprintf(manifest, sizeof(manifest), "%s/%s/manifest.json", dir_path, item->d_name);
+      FILE* file = fopen(manifest, "rb");
+      if (file == nullptr) continue;
+      const size_t got = fread(text, 1, sizeof(text) - 1, file);
+      fclose(file);
+      text[got] = '\0';
+
+      char splash[64] = {0};
+      if (!lunok::json::get_string(text, got, "splash", splash, sizeof(splash))) continue;
+      // **Inside its own folder and with a picture in it**, the same rule the icon follows (docs/40).
+      TEST_ASSERT_TRUE_MESSAGE(splash[0] != '\0' && splash[0] != '/', item->d_name);
+      TEST_ASSERT_NULL_MESSAGE(strstr(splash, ".."), item->d_name);
+      char picture[640];
+      snprintf(picture, sizeof(picture), "%s/%s/%s", dir_path, item->d_name, splash);
+      FILE* art = fopen(picture, "rb");
+      TEST_ASSERT_NOT_NULL_MESSAGE(art, picture);
+      unsigned char head[8] = {0};
+      const size_t head_got = fread(head, 1, sizeof(head), art);
+      fseek(art, 0, SEEK_END);
+      const long size = ftell(art);
+      fclose(art);
+      // **A PNG and not an empty file**, which is what the recipe of `tools/app_splash.py` writes.
+      TEST_ASSERT_EQUAL_INT_MESSAGE(8, static_cast<int>(head_got), picture);
+      static const unsigned char kPng[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+      TEST_ASSERT_EQUAL_MEMORY_MESSAGE(kPng, head, sizeof(kPng), picture);
+      TEST_ASSERT_GREATER_THAN_MESSAGE(200, size, picture);
+      if (strcmp(item->d_name, "home_eink") == 0) {
+        launcher_bytes = size;
+        snprintf(launcher_path, sizeof(launcher_path), "%s", picture);
+      }
+      ++named;
+    }
+    closedir(dir);
+    break;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found_the_folder, "the apps of the repository were not found");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, named, "no app of the repository names a splash at all");
+  // **El llançador és un dels que en porta**, i la seva targeta no és una pàgina.
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, launcher_bytes, "the launcher names no splash");
+  TEST_ASSERT_LESS_THAN_MESSAGE(20000, launcher_bytes, launcher_path);
+}
+
 // The store answers how full it is in **entries**, which is the number that says whether the
 // next alarm fits: the NVS is not bytes. On the PC there is no ceiling —a key is a file— and
 // the total says so by being zero (docs/70).
@@ -6522,6 +6636,85 @@ void test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page(void
   storage->remove("/apps/swiper");
 
   // The next test gets the default emulator back: the display and the panel were this test's.
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **A swipe that begins on a box that takes keys moves the window and does not bring the band** (0.179.35): the band of
+// the keyboard followed the finger that landed on a box since 0.91.0, and the band **changes the height of the page** —
+// the controls are made again and the `slot` the gesture was holding is nobody's—, so the rest of the drag scrolled
+// nothing. The case is the other half of the one above: the same finger on a box that would take keys, and the page it
+// is given stays the same size all the way (docs/30, docs/90, docs/92 §35).
+void test_a_swipe_on_a_box_that_takes_keys_does_not_bring_the_band(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // **The box takes keys and does not say otherwise**: `keyboard = false` is not written here, so the page is exactly the
+  // one of the editor —a document whose box would bring the band if the finger asked for it— (docs/30).
+  const char* kApp =
+      "local lines = {}\n"
+      "for i = 1, 40 do lines[i] = 'row ' .. i end\n"
+      "local box = ui.textbox_multiline(300, 200)\n"
+      "box:place(10, 60)\n"
+      "box.scale = 2\n"
+      "box.text = table.concat(lines, '\\n')\n"
+      "box.cursor = 0\n"
+      "local page = ui.caps().height\n"
+      "box.on_swipe = function(self, rows)\n"
+      "  console.print('swipe ' .. rows .. ' top ' .. tostring(self.top) .. ' same page ' ..\n"
+      "                tostring(ui.caps().height == page) .. ' band ' .. tostring(ui.caps().height < page))\n"
+      "end\n"
+      "ui.present('gc16')\n"
+      "while true do sys.delay(20):await() end\n";
+  TEST_ASSERT_TRUE(add_app(storage, "swipekeys",
+                           "{\"title\":\"SwipeKeys\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           kApp));
+
+  pump_captured(20, g_out, sizeof(g_out), "run swipekeys");
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **El dit puja seixanta píxels, que són quatre files** at the two steps the box is drawn in.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 100),
+                                      static_cast<uint16_t>(view.y + 200)));
+  pump_turns(10);
+  for (int step = 0; step < 4; ++step) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 100),
+                                        static_cast<uint16_t>(view.y + 200 - 15 * (step + 1))));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "swipe "), g_out);
+  // **The window moved and the page is the one it was**: the box is not at its first row and the band never came.
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "top 0 "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "same page true"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "band true"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/swipekeys/app.lua");
+  storage->remove("/apps/swipekeys/manifest.json");
+  storage->remove("/apps/swipekeys");
+
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -7226,8 +7419,12 @@ void test_three_taps_close_the_app(void) {
 // The speed of the processor is part of the same decision as the sleep: it is read,
 // it moves between the steps the board has, and a step it does not have is refused
 // instead of rounded (docs/50).
+// **I el cas comença a la velocitat de repòs** (0.179.38): a window of the start of an app of a case before this one may
+// still be open —three seconds of turns is a lot of pumping for a suite that runs one case after another— and what this
+// measures is the command and not what the case before left behind.
 void test_the_power_command_moves_the_cpu(void) {
   TEST_ASSERT_TRUE(boot_once());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::set_cpu_mhz(160), "the board did not take its resting step back");
   pump_captured(20, g_out, sizeof(g_out), "power");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu: 160 MHz"), g_out);
 
@@ -7244,6 +7441,30 @@ void test_the_power_command_moves_the_cpu(void) {
   // Back where it booted, so the rest of the suite runs at the same speed.
   pump_captured(20, g_out, sizeof(g_out), "power cpu 160");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu: 160 MHz"), g_out);
+}
+
+// **Una estona a 240 i el sistema torna sol a 160** (0.179.38): the boot and the start of an app are the two moments whose
+// work is known to be heavy, and the step back is the system's —a window of a few seconds that `poll` closes, with no app
+// keeping a clock for its own burst—. **And every move is a line of the register**, which is the only thing that makes a
+// policy of energy measurable after the fact (docs/50, docs/60).
+void test_a_burst_of_the_processor_gives_its_step_back(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::power::set_cpu_mhz(160), "the board did not take its resting step back");
+  TEST_ASSERT_EQUAL_UINT32(160, kernel::power::resting_cpu_mhz());
+
+  capture_begin();
+  kernel::power::hold_cpu(kernel::power::kBusyMhz, 120, "a case that is heavy");
+  // **La finestra no mou la velocitat de repòs**: what the system goes back to is still the one it was working at.
+  TEST_ASSERT_EQUAL_UINT32(240, kernel::power::cpu_mhz());
+  TEST_ASSERT_EQUAL_UINT32(160, kernel::power::resting_cpu_mhz());
+  pump_turns(40);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(240, kernel::power::cpu_mhz(), "the window of the burst ended before its time");
+  pump_turns(140);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(160, kernel::power::cpu_mhz(), "the burst never gave its step back");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu 240 MHz"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(a case that is heavy)"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "(the load is over)"), g_out);
 }
 
 // An app reads the speed, moves it, and gets a refusal it can catch (docs/30).
@@ -7659,15 +7880,45 @@ const uint8_t kTwoByTwoBmp[] = {
     255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-// **The same picture the other way up**: the top row white and the bottom one black, so a glass that painted it says
-// which of the two files it read with one number and no guess (0.115.0).
-const uint8_t kTwoByTwoBmpAlt[] = {
-    66, 77, 70, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
-    40, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0,
-    24, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 0, 0,
-};
+// **A picture of a case**: twenty-four bits, the rows the other way up, a page of one level with a rectangle of another
+// where the case says. It is built here and not in a constant because the crop of a splash is measured with a mark that
+// is **not** in the middle of its file, which is the whole of what 0.179.39 changed (docs/50).
+size_t build_a_bmp(uint8_t* out, size_t cap, uint16_t w, uint16_t h, uint8_t page_level, uint16_t mark_x,
+                   uint16_t mark_y, uint16_t mark_w, uint16_t mark_h, uint8_t mark_level) {
+  const size_t stride = ((static_cast<size_t>(w) * 3u) + 3u) / 4u * 4u;
+  const size_t total = 54u + stride * h;
+  if (out == nullptr || cap < total) return 0;
+  memset(out, 0, total);
+  const auto put16 = [out](size_t at, uint16_t value) {
+    out[at] = static_cast<uint8_t>(value & 0xFFu);
+    out[at + 1] = static_cast<uint8_t>((value >> 8) & 0xFFu);
+  };
+  const auto put32 = [out](size_t at, uint32_t value) {
+    for (int i = 0; i < 4; ++i) out[at + static_cast<size_t>(i)] = static_cast<uint8_t>((value >> (8 * i)) & 0xFFu);
+  };
+  out[0] = 'B';
+  out[1] = 'M';
+  put32(2, static_cast<uint32_t>(total));
+  put32(10, 54);
+  put32(14, 40);
+  put32(18, w);
+  put32(22, h);
+  put16(26, 1);
+  put16(28, 24);
+  put32(34, static_cast<uint32_t>(stride * h));
+  for (uint16_t y = 0; y < h; ++y) {
+    const size_t row = 54u + static_cast<size_t>(h - 1 - y) * stride;
+    for (uint16_t x = 0; x < w; ++x) {
+      const bool inside = x >= mark_x && x < static_cast<uint16_t>(mark_x + mark_w) && y >= mark_y &&
+                          y < static_cast<uint16_t>(mark_y + mark_h);
+      const uint8_t grey = static_cast<uint8_t>((inside ? mark_level : page_level) * 17u);
+      out[row + static_cast<size_t>(x) * 3u] = grey;
+      out[row + static_cast<size_t>(x) * 3u + 1] = grey;
+      out[row + static_cast<size_t>(x) * 3u + 2] = grey;
+    }
+  }
+  return total;
+}
 
 void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
   TEST_ASSERT_TRUE(boot_once());
@@ -7759,6 +8010,81 @@ void test_the_splash_paints_a_picture_in_the_middle_of_the_glass(void) {
 
   storage->remove("/res/splash/probe.bmp");
   storage->remove("/res/splash/boot.bmp");
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **El dibuix es retalla de l'aire que el volta i la pàgina és la del seu marge** (0.179.39): a splash is the drawing and
+// nothing else —the bytes of the file, the pixels decoded and the surface the panel moves— so the air around a mark is
+// dropped and the mark lands in the middle of the glass wherever it was in its canvas. **And the page is the colour of the
+// picture's border**: paper for a drawing on paper, ink for one drawn for a dark page, with the stamp in the opposite
+// level so it can be read in both (docs/30, docs/50).
+void test_the_drawing_of_a_splash_is_cut_from_its_air_and_its_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/res");
+  storage->mkdir("/res/splash");
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+  const uint16_t cx = static_cast<uint16_t>(glass->width() / 2);
+  const uint16_t cy = static_cast<uint16_t>(glass->height() / 2);
+  // **Two pictures of forty by forty with a mark of six in a corner of the canvas**, one on paper and one on ink: the
+  // air around the mark is what the crop has to drop, and the two pages are what the border has to say.
+  static uint8_t bmp[8192];
+  size_t bytes = build_a_bmp(bmp, sizeof(bmp), 40, 40, /*page*/ 15, /*mark*/ 4, 6, 6, 6, /*ink*/ 0);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, bytes, "the picture of the case was not built");
+  TEST_ASSERT_TRUE(write_picture("/res/splash/light.bmp", bmp, static_cast<uint32_t>(bytes)));
+  bytes = build_a_bmp(bmp, sizeof(bmp), 40, 40, /*page*/ 0, /*mark*/ 30, 3, 6, 6, /*ink*/ 15);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, bytes, "the second picture of the case was not built");
+  TEST_ASSERT_TRUE(write_picture("/res/splash/dark.bmp", bmp, static_cast<uint32_t>(bytes)));
+
+  // **El dibuix sobre paper**: the page is paper and the mark —six pixels of ink that were at four and six in its file—
+  // is in the middle of the glass, with paper around it and not the 40 by 40 of air it came in.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::splash::show("/res/splash/light.bmp"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(0, 0), "the page of a light drawing is not paper");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(cx, cy), "the mark of the drawing is not in the middle");
+  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(static_cast<uint16_t>(cx + 2), static_cast<uint16_t>(cy + 2)));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(cx - 4), cy));
+  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(cx + 3), cy));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the page is paper"), g_out);
+
+  // **I el dibuix sobre tinta**: the page is ink because the border of the picture is, and the stamp of the build is
+  // paper —the opposite level— so it reads on the dark page.
+  capture_begin();
+  TEST_ASSERT_TRUE(kernel::splash::show("/res/splash/dark.bmp"));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(0, 0), "the page of a dark drawing is not ink");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(cx, cy), "the mark of the dark drawing is not in the middle");
+  int stamp = 0;
+  for (uint16_t y = static_cast<uint16_t>(glass->height() - 60); y < glass->height(); ++y) {
+    for (uint16_t x = static_cast<uint16_t>(glass->width() - 300); x < glass->width(); ++x) {
+      if (glass->level_at(x, y) == 15) ++stamp;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(100, stamp, "the stamp of the build is not on an ink page");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "the page is ink"), g_out);
+
+  storage->remove("/res/splash/light.bmp");
+  storage->remove("/res/splash/dark.bmp");
   opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
@@ -7906,6 +8232,9 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   // The board is a fourth of four cells and the button is inside the view, which is what makes it pressable.
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, cell, geometry);
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, bw, geometry);
+  // **And the whole button is inside the view**: the box the app says it paints is the box it hit-tests, and one that hung
+  // off the page would be a corner a finger cannot reach.
+  TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, geometry);
 
   // **A new game with the dice fixed**: two tiles, both twos, and a score of zero.
   pump_captured(40, g_out, sizeof(g_out), "run 2048 seed=7");
@@ -8117,8 +8446,9 @@ void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
   pump_turns(600);
   TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(5, panel_changes(), "the panel stood still");
 
-  // **The one button takes the next field**: the app jumps to the boundary between two fields, so the panel after a
-  // press is the one that follows whole, and the app says which one it is in the log (docs/30).
+  // **The one button takes the next field, and it is the only thing that does** (0.179.32): no clock turns the fields, so
+  // the press is what starts the mix towards the next one and the app says in the log which field it is now in —the panel
+  // moving at the same time is the hue travelling and not the field changing (docs/30).
   capture_begin();
   emu::press_button(true);
   pump_turns(50);
@@ -8143,6 +8473,56 @@ void test_the_rainbow_app_paints_the_panel_of_the_matrix(void) {
   opts.board = "m5stack-atom";
   emu::set_options(opts);
   kernel::boot(hal::platform());
+}
+
+// **El títol d'una arrencada és a la barra abans que la pàgina de l'app que nomena** (0.179.27): `bar::title()` només
+// aixeca una bandera i qui pintava la franja era `bar::poll()`, que el nucli crida **després** del torn de l'app —o sigui
+// que el nom de l'app era l'última tinta de l'arrencada, darrere la primera pàgina, i damunt d'un vidre que encara deia el
+// nom de l'anterior—. `run_app` el demana i el pinta **abans de netejar res**, just després de trobar l'app i abans del
+// `ui::attach` que renta la vista, i aquest cas llegeix **l'ordre de les pintades del vidre** i no la intenció: no hi ha
+// cap paraula a la consola que digui l'ordre, perquè el vidre de l'emulador no registra les seves passades (docs/30,
+// docs/50, docs/85).
+void test_the_title_of_a_start_is_painted_before_the_page_of_the_app(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(add_app(storage, "painter",
+                           "{\"title\":\"Painter\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "ui.clear(15)\nui.rect(20, 20, 200, 120, 0)\nui.present()\n"
+                           "while true do sys.delay(20):await() end\n"));
+  emu::MemorySurface* glass = emu::memory_surface();
+  TEST_ASSERT_NOT_NULL(glass);
+
+  const uint32_t first = glass->paint_count();
+  pump_captured(40, g_out, sizeof(g_out), "run painter");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **The last paint of the strip and the last paint of the page**, in the order the glass took them: the bar is the rows
+  // above the view (`bar::height()`), and the page is the first row of the canvas the app draws in.
+  int32_t last_strip = -1;
+  int32_t last_page = -1;
+  for (uint32_t i = first; i < glass->paint_count(); ++i) {
+    const emu::MemorySurface::Paint* paint = glass->paint_at(i);
+    if (paint == nullptr) continue;
+    if (paint->y < kernel::bar::height()) last_strip = static_cast<int32_t>(i);
+    if (paint->y == kernel::ui::canvas().y) last_page = static_cast<int32_t>(i);
+  }
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(-1, last_strip, "the start of an app did not paint the strip at all");
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(-1, last_page, "the app did not paint its page");
+  TEST_ASSERT_TRUE_MESSAGE(last_strip < last_page,
+                           "the title of the bar reached the glass after the page of the app it names");
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/painter/app.lua");
+  storage->remove("/apps/painter/manifest.json");
 }
 
 // **An app that names a picture gets it painted before it starts** (0.114.0): the manifest says `splash` with a file
@@ -8277,6 +8657,86 @@ void test_an_app_that_names_a_picture_has_it_painted_before_it_starts(void) {
 
   // The next test gets the default emulator back: the display was this test's.
   emu::Options opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **La targeta d'un llançador és per a la tornada i no per a l'arrencada** (0.179.33). L'amo: *«en launcher no ha de mostrar
+// l'splash rera el boot, tenim l'splash del sistema. L'splash del home s'ha de mostrar al tancar una app lua i tornar al
+// home»*. The boot has already painted its own picture on that glass, so a second one is a wash and a card for something a
+// person has just seen; the card of the launcher is what a person sees when a Lua app ends and the page they came from
+// comes back (docs/30, docs/40).
+//
+// **La prova són les dues meitats del mateix fitxer**, i el camí de la imatge al registre és el que les separa: a
+// l'arrencada no hi és, a la tornada hi és.
+void test_the_card_of_a_launcher_is_for_the_way_back_and_not_for_the_boot(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  const auto write_picture = [storage](const char* path, const uint8_t* bytes, uint32_t len) {
+    hal::FileSlot slot;
+    if (!storage->open(path, hal::OpenMode::kWrite, slot)) return false;
+    const bool ok = storage->write(slot, bytes, len) == static_cast<int32_t>(len);
+    storage->close(slot);
+    return ok;
+  };
+  storage->mkdir("/apps/homish");
+  storage->mkdir("/apps/homish/res");
+  TEST_ASSERT_TRUE(write_picture("/apps/homish/res/start.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
+  // **Un llançador que obre una app al cap de mig segon**, que és el que deixa l'arrencada sola a la primera captura, i una
+  // app que s'acaba de seguida, que és el que fa tornar el llançador (docs/30, docs/90).
+  TEST_ASSERT_TRUE(add_app(storage, "homish",
+                           "{\"title\":\"Homish\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],"
+                           "\"launcher\":true,\"splash\":\"res/start.bmp\"}",
+                           "console.print('homish up')\n"
+                           "sys.delay(600):await()\n"
+                           "app.run('pagey', true)\n"
+                           "while true do sys.delay(20):await() end\n"));
+  TEST_ASSERT_TRUE(add_app(storage, "pagey",
+                           "{\"title\":\"Pagey\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "console.print('pagey done')\n"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  emu::set_options(opts);
+  kernel::cfg::set_home_app("homish");
+
+  // **Fase 1: l'arrencada.** El llançador arrenca i no pinta la seva targeta.
+  capture_begin();
+  kernel::boot(hal::platform());
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "homish up"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pagey done"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "/apps/homish/res/start.bmp"),
+                           "the launcher's card was painted on a boot, which has a picture of its own");
+
+  // **Fase 2: l'app lua s'acaba i el llançador torna amb la targeta del seu manifest.**
+  capture_begin();
+  pump_turns(900);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "pagey done"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "/apps/homish/res/start.bmp"),
+                               "the launcher came back without the card of its manifest");
+
+  kernel::shell::close_app();
+  pump_turns(20);
+  kernel::cfg::set_home_app(nullptr);
+  storage->remove("/apps/homish/res/start.bmp");
+  storage->remove("/apps/homish/res");
+  storage->remove("/apps/homish/app.lua");
+  storage->remove("/apps/homish/manifest.json");
+  storage->remove("/apps/homish");
+  storage->remove("/apps/pagey/app.lua");
+  storage->remove("/apps/pagey/manifest.json");
+  storage->remove("/apps/pagey");
+
+  opts = emu::options();
   opts.board = nullptr;
   opts.display = false;
   emu::set_options(opts);
@@ -8475,7 +8935,13 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   storage->remove("/res/splash/boot-2.bmp");
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-2.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
-  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
+  // **The picture of the word that is gone is drawn for a dark page** (0.179.39): since a splash is cut to its drawing, the
+  // two rows of the clipart of before would come out as the same bar as the drawings of the boot, and the check below would
+  // say nothing. A dark page is a page no drawing of the boot can produce, so the glass still says which file was read.
+  static uint8_t alt[8192];
+  size_t alt_bytes = build_a_bmp(alt, sizeof(alt), 40, 40, /*page*/ 0, /*mark*/ 4, 4, 6, 6, /*ink*/ 15);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, alt_bytes, "the dark picture of the case was not built");
+  TEST_ASSERT_TRUE(write_picture("/res/splash/boot-alt.bmp", alt, static_cast<uint32_t>(alt_bytes)));
 
   // **The word is a setting of the system**, asked to the store the way the unit and the keyboard are.
   TEST_ASSERT_TRUE(kernel::cfg::set_boot_splash("boot"));
@@ -8502,13 +8968,13 @@ void test_the_boot_paints_the_drawing_the_settings_chose(void) {
   const uint16_t at_x = static_cast<uint16_t>((glass->width() - 2) / 2);
   const uint16_t at_y = static_cast<uint16_t>((glass->height() - 2) / 2);
   TEST_ASSERT_EQUAL_STRING_MESSAGE("", kernel::splash::last_error(), chosen);
-  // **The two pixels of a drawing of the boot, and not the two of the clipart that is gone**: the plain picture is the black
-  // row over the white one and the old `boot-alt` was the other way up, so this is the check that the file painted is one of
-  // the drawings and not the one the owner took out of the list (docs/30, docs/50).
+  // **The two pixels of a drawing of the boot, and not the dark page of the clipart that is gone**: the drawing of the boot is
+  // ink on paper and the file of the dead word is a page of ink, so a page of ink here would say that the boot read the one
+  // the owner took out of the list (docs/30, docs/50).
   TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, at_y));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(static_cast<uint16_t>(at_x + 2), at_y));
-  TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(0, 0));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass->level_at(0, 0), "the boot painted the dark page of the dead word");
 
   // **The choice survives a restart**: `cfg::boot` is what a boot reads, so asking it again is the question the next
   // boot asks, and the answer is the one that was written (docs/30, docs/70).
@@ -8564,7 +9030,13 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   storage->remove("/res/splash/boot-2.bmp");
   storage->remove("/res/splash/boot-alt.bmp");
   TEST_ASSERT_TRUE(write_picture("/res/splash/boot-1.bmp", kTwoByTwoBmp, sizeof(kTwoByTwoBmp)));
-  TEST_ASSERT_TRUE(write_picture("/res/splash/charging.bmp", kTwoByTwoBmpAlt, sizeof(kTwoByTwoBmpAlt)));
+  // **I la segona imatge és per a una pàgina fosca** (0.179.39): since a splash is cut to its drawing, the two rows of the
+  // picture of before would land as the same bar in both cases and the case would not know which of the two files the glass
+  // is showing. The page is the colour of the picture's border, and only one of the two is drawn for ink.
+  static uint8_t charging[8192];
+  size_t charging_bytes = build_a_bmp(charging, sizeof(charging), 40, 40, /*page*/ 0, /*mark*/ 4, 4, 6, 6, /*ink*/ 15);
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, charging_bytes, "the dark picture of the case was not built");
+  TEST_ASSERT_TRUE(write_picture("/res/splash/charging.bmp", charging, static_cast<uint32_t>(charging_bytes)));
 
   emu::MemorySurface* glass = emu::memory_surface();
   TEST_ASSERT_NOT_NULL(glass);
@@ -8585,10 +9057,11 @@ void test_the_splash_waits_for_the_ink_of_the_page_before(void) {
   TEST_ASSERT_EQUAL_STRING("the previous paint did not finish", glass->last_error());
 
   // And the next picture lands anyway: the splash waited for the ink and asked again, which is the whole fix. It is
-  // another moment, because a moment has one drawing of each and the boot draws the drawings of `boot-`.
+  // another moment, because a moment has one drawing of each and the boot draws the drawings of `boot-`. **The glass says it
+  // with the page**: the charge is drawn for ink and the boot for paper (docs/50).
   TEST_ASSERT_TRUE(kernel::splash::show(kernel::splash::kCharging));
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass->level_at(0, 0), "the second picture did not land on the glass");
   TEST_ASSERT_EQUAL_UINT8(15, glass->level_at(at_x, at_y));
-  TEST_ASSERT_EQUAL_UINT8(0, glass->level_at(at_x, static_cast<uint16_t>(at_y + 1)));
 
   // The emulator goes back as it was for the tests that come after this one.
   storage->remove("/res/splash/boot-1.bmp");
@@ -8978,7 +9451,7 @@ void test_a_box_without_a_frame_leaves_its_edge_in_paper(void) {
 // follow— and **the dial walks the keys** so a board with three keys can type too (docs/30, docs/90).
 void test_the_keyboard_types_into_the_box_it_was_given(void) {
   TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
+  use_board_with_fingers("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(add_app(storage, "typer",
@@ -8997,7 +9470,7 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
                            "  console.print('typed ' .. text .. ' at ' .. self.cursor)\n"
                            "end\n"
                            "ui.present('gc16')\n"
-                           "while changes < 3 do sys.delay(10):await() end\n"
+                           "while changes < 2 do sys.delay(10):await() end\n"
                            "console.print('word ' .. box.text)\n"));
 
   pump_captured(20, g_out, sizeof(g_out), "run typer");
@@ -9006,35 +9479,20 @@ void test_the_keyboard_types_into_the_box_it_was_given(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "band 256"), g_out);
   capture_begin();
   pump_turns(20);
-  // The centre presses the key the dial is on —the first one of the first row, which is a `q`— twice, then the
-  // down key of the dial walks to the next key of the layout, which is the `w` of the same row, and the centre
-  // types it. **The keyboard is lowercase until the shift says otherwise**, so the letters arrive as they are
-  // drawn (0.83.0, docs/30, docs/90).
-  for (int i = 0; i < 2; ++i) {
-    emu::press_button(true);
-    pump_turns(20);
-    emu::press_button(false);
-    pump_turns(20);
-  }
-  emu::press_key(2, true);
-  pump_turns(20);
-  emu::press_key(2, false);
-  pump_turns(20);
-  // **The third letter waits out the window of the way out** (0.167.0): three presses of the centre inside a second and a
-  // half are the system's —the page with the ring gives a view back, the only page closes the app— and this case types
-  // three letters with the same key, so the reading pause is what keeps the third one a letter (docs/30, docs/92).
-  pump_turns(1600);
-  emu::press_button(true);
-  pump_turns(20);
-  emu::press_button(false);
-  pump_turns(20);
+  // **Els dits i no el dial** (0.179.46): the band is the fingers' —the keys are pressed where they are drawn, the first
+  // two of the first row, which are a `q` and a `w`— and the dial types nothing at all, which is the rule the owner gave
+  // with the board in his hand: *«al teclat per software només vull tocs de dits»*. **The keyboard is lowercase until the
+  // shift says otherwise**, so the letters arrive as they are drawn (docs/30, docs/90).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL_MESSAGE(panel, "the emulated Paper has no finger to type with");
+  press_finger(panel, band_finger_x(0), band_finger_y());
+  press_finger(panel, band_finger_x(1), band_finger_y());
   capture_end(g_out, sizeof(g_out));
   // Four rows of a key of sixty-four pixels in a view of the Paper: the band is two hundred and fifty-six.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed q at 1"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qq at 2"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qqw at 3"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "word qqw"), g_out);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its three keys");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed qw at 2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "word qw"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its two keys");
 
   storage->remove("/apps/typer/app.lua");
   storage->remove("/apps/typer/manifest.json");
@@ -9146,31 +9604,23 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656 kb true"), g_out);
 
-  // The centre presses the key the keyboard is on: a `q` goes into the box that took the finger.
-  capture_begin();
-  emu::press_button(true);
-  pump_turns(10);
-  emu::press_button(false);
-  pump_turns(20);
+  // **Un dit sobre la primera tecla escriu dins la caixa que l'ha rebut** (0.179.46): the band is up for that box and the
+  // first key of the first row types the `q` into it, which is the half the dial used to do and no longer does (docs/30,
+  // docs/90).
+  press_finger(panel, band_finger_x(0), band_finger_y());
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one q"), g_out);
 
-  // A second box of the same alphabet takes the target without taking the band down: the next key is a `w` because the
-  // down key of the dial walked the keyboard one key.
+  // **La segona caixa pren el destí sense fer baixar la banda**, and the letter that goes into it is a `w` because the
+  // finger presses the second key of the first row and not because the dial walked anywhere: the walk of the ring is the
+  // page's and the band does not see it (0.179.46, docs/30, docs/90).
   capture_begin();
   TEST_ASSERT_TRUE(panel->finger_down(0, static_cast<uint16_t>(view.x + 30),
                                       static_cast<uint16_t>(view.y + 150)));
   pump_turns(10);
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(60);
-  emu::press_key(2, true);
-  pump_turns(10);
-  emu::press_key(2, false);
-  pump_turns(10);
-  emu::press_button(true);
-  pump_turns(10);
-  emu::press_button(false);
-  pump_turns(20);
+  press_finger(panel, band_finger_x(1), band_finger_y());
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "resize 540x912"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "two focus true"), g_out);
@@ -9222,6 +9672,156 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   storage->remove("/apps/focus/app.lua");
   storage->remove("/apps/focus/manifest.json");
   storage->remove("/apps/focus");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **Un dit sobre una lletra escriu dins la caixa d'una línia** (0.179.45): the box of `ui.textbox` —the one the clock has
+// for its note— takes the finger on itself, brings the band of the system up and the band types into it, which is the whole
+// chain the owner asked for: *«l'app TimerClock te un Textbox per editar i prova teclat … Allá també hi ha cursor i lletres
+// per escriure i teclat»*. The case is here and not in `test_ui` because the band types **through the interpreter**
+// (`ui_keyboard_typed` writes the field of the app's object and calls `on_change`), and only an app that is really running
+// has one (docs/30, docs/90).
+static void test_a_finger_on_the_band_types_into_a_box_of_one_line(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "noter",
+                           "{\"title\":\"Noter\",\"version\":\"0.1.0\",\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local one = ui.textbox(200, 48)\n"
+                           "one:place(20, 60)\n"
+                           "one.on_change = function(self, text) console.print('box ' .. text) end\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run noter");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const uint16_t bar = kernel::bar::height();
+  // **The box takes the finger and brings the band**: the box is at (20, 60) of the view, so a finger at (100, 128) of the
+  // glass is on it, and the band comes up at the bottom of the view (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 100, static_cast<uint16_t>(bar + 80)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::ui::keyboard_visible(), "the box did not bring the band of the system");
+
+  // **I un dit sobre la primera lletra de la primera fila escriu**: the keys start at the twelve pixels of margin of the
+  // band, which begins at the rows the view has minus the band —656 of 912— and the first row is a key deep.
+  capture_begin();
+  press_finger(panel, band_finger_x(0), band_finger_y());
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "box q"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/noter/app.lua");
+  storage->remove("/apps/noter/manifest.json");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
+// **L'AMO DEL CONTACTE ES DECIDEIX EN COMENÇAR** (0.179.34). L'amo: *«l'event, tant gest com toc(s) l'ha de rebre
+// l'objecte UI que hi ha sota quan comença l'acció. […] Si un swipe acaba sobre un botó, el botó no rep cap event»*.
+// The keyboard's band is the one that could not obey it before, because it was asked with the point of the finger **in
+// every frame**: a drag that began on the page and crossed the band typed the key it happened to pass over. With one owner
+// per contact the band is asked once, with the row the finger landed on, and a drag that began on a box of the page types
+// nothing at all while the same band still types when a key is pressed (docs/30, docs/90).
+void test_a_drag_that_crosses_the_keyboard_types_nothing(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  // A box that takes keys and says every change, and the band it brings: it is the box's alphabet that opens it.
+  TEST_ASSERT_TRUE(add_app(storage, "typer",
+                           "{\"title\":\"Typer\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local one = ui.textbox(200, 48)\n"
+                           "one:place(20, 60)\n"
+                           "one.scale = 2\n"
+                           "one.on_change = function(self, text) console.print('box ' .. text) end\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(20, g_out, sizeof(g_out), "run typer");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const uint16_t bar = kernel::bar::height();
+
+  // **La caixa agafa el dit i porta la banda**: the box is at (20, 60) of the view and a finger on it takes the focus, so
+  // the keyboard comes and the view shrinks to leave it the bottom of the glass (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 100, static_cast<uint16_t>(bar + 80)));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656"), g_out);
+
+  // **I un lliscament que comença a la caixa i baixa cap a la banda no escriu res**: the contact is the box's —it is where
+  // the finger landed— and the band that the finger crosses is not its own. With the band asked in every frame this drag
+  // typed the key it passed over, which is the fault this case exists for (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 100, static_cast<uint16_t>(bar + 80)));
+  pump_turns(10);
+  for (uint16_t y = 200; y <= 780; y += 60) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, 200, y));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(60);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "box "), g_out);
+
+  // **I el dial no escriu cap lletra a la banda** (0.179.46): the centre of the board is the door of the control it is on
+  // and it is no key of the band any more —the band is the fingers'—, so the press that used to type a `q` types nothing,
+  // leaves the box as it was and is the page's to hear (docs/30, docs/90).
+  TEST_ASSERT_TRUE_MESSAGE(kernel::button::available(), "the emulated board has no keys for the dial");
+  capture_begin();
+  emu::press_button(true);
+  pump_turns(10);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::button::down(0), "the press of the board never reached the module of the keys");
+  emu::press_button(false);
+  pump_turns(20);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "box "), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+
+  storage->remove("/apps/typer/app.lua");
+  storage->remove("/apps/typer/manifest.json");
 
   opts = emu::options();
   opts.board = nullptr;
@@ -9351,7 +9951,7 @@ void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
   TEST_ASSERT_EQUAL_STRING("azerty", kernel::cfg::keyboard());
 
   // A boot reads the setting: the Paper is a boot, and the UI selects what the door saved.
-  use_board("m5stack-paper");
+  use_board_with_fingers("m5stack-paper");
   TEST_ASSERT_EQUAL_STRING("azerty", kernel::ui::keyboard_current());
   TEST_ASSERT_EQUAL_STRING("azerty", kernel::cfg::keyboard());
 
@@ -9374,13 +9974,17 @@ void test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters(void) {
                            "while not done do sys.delay(50):await() end\n"));
 
   pump_captured(20, g_out, sizeof(g_out), "run aztype");
+  // **Un dit sobre la primera tecla escriu l'`a` d'AZERTY** (0.179.46): the band is the fingers' and it draws the layout
+  // the setting chose, so the first key of the first row is an `a` —a QWERTY would have typed a `q` here— and the dial
+  // types nothing at all, which is why this presses the glass and not the board (docs/30, docs/90).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL_MESSAGE(panel, "the emulated Paper has no finger to type with");
   capture_begin();
-  emu::press_button(true);
+  TEST_ASSERT_TRUE(panel->finger_down(0, band_finger_x(0), band_finger_y()));
   pump_turns(10);
-  emu::press_button(false);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(40);
   capture_end(g_out, sizeof(g_out));
-  // The first key of the first row of AZERTY is an `a`; a QWERTY would have typed a `q` here.
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed a"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its key");
 
@@ -9519,13 +10123,59 @@ void test_the_caret_blinks_without_the_app(void) {
   storage->remove("/apps/blink");
 }
 
+// **El bloc deixa de parpellejar quan no passa res** (0.179.35): six blinks after the last thing that moved it —a focus,
+// a key— and the caret stands **on** until the next one. A block that blinks while a person reads is a page of this
+// panel painted for nobody: each `du` leaves a fifth of what it finds and a mark that grows (docs/30, docs/50, docs/90).
+void test_the_caret_stops_blinking_when_nothing_moves_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  use_board("m5stack-paper");
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  TEST_ASSERT_TRUE(add_app(storage, "settle",
+                           "{\"title\":\"Settle\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local box = ui.textbox(200, 48)\n"
+                           "box:place(20, 60)\n"
+                           "box.scale = 2\n"
+                           "local kb = ui.keyboard()\n"
+                           "kb.target = box\n"
+                           "kb:show('alpha')\n"
+                           "ui.present('gc16')\n"
+                           "local last = box.caret\n"
+                           "local changes = 0\n"
+                           "local waited = 0\n"
+                           // **Cinc segons i mig de rellotge de debò**: the blink is the kernel's and its clock is the
+                           // board's, so this is the only way the case can count them (docs/30, docs/90).
+                           "while waited < 5200 do\n"
+                           "  sys.delay(100):await()\n"
+                           "  waited = waited + 100\n"
+                           "  if box.caret ~= last then\n"
+                           "    changes = changes + 1\n"
+                           "    last = box.caret\n"
+                           "    console.print('blink ' .. changes .. ' at ' .. waited)\n"
+                           "  end\n"
+                           "end\n"
+                           "console.print('blinks ' .. changes)\n"));
+
+  pump_captured(5400, g_out, sizeof(g_out), "run settle");
+  // **Sis i no vuit**: the six of `kCaretMostBliks` and no more, and the block stops where it says the person is.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "blinks 6"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 7"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 8"), g_out);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its five seconds");
+
+  storage->remove("/apps/settle/app.lua");
+  storage->remove("/apps/settle/manifest.json");
+  storage->remove("/apps/settle");
+}
+
 // **The dial stops on a text box and the centre enters it** (0.116.0, and it was the finger's only since 0.85.2): a board
 // with keys and no touch has to be able to land on a field, and the ring on a field is the caret in it and no band —the
 // band is what entering buys—. This is the shape a slider has with its value, which is what the owner asked for: focus,
 // then the centre to get in (docs/30, docs/90, docs/92).
 void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   TEST_ASSERT_TRUE(boot_once());
-  use_board("m5stack-paper");
+  use_board_with_fingers("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
   TEST_ASSERT_NOT_NULL(storage);
   TEST_ASSERT_TRUE(add_app(storage, "dialbox",
@@ -9573,19 +10223,22 @@ void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "enter box band true"), g_out);
-  // And the button is still reachable: **the band is the keyboard's while it is up**, so the centre of this window types
-  // a letter into the field —the same key that entered it— and the app hides the band when it is typed. **The centre is
-  // what leaves the field** (`editing` off), and only then do the arrows belong to the walk again: the up key walks the
-  // dial to the button and its centre clicks it, which is what says the field did not eat the walk (docs/30, docs/92).
+  // **El que escriu és un dit** (0.179.46): the band is the fingers', so the letter comes from the glass —the first key of
+  // the first row— and hiding the band from the app's `on_change` is how the page says it has finished typing. **The
+  // centre is what leaves the field** (`editing` off), and only then do the arrows belong to the walk again: the up key
+  // walks the dial to the button and its centre clicks it, which is what says the field did not eat the walk (docs/30,
+  // docs/92).
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL_MESSAGE(panel, "the emulated Paper has no finger to type with");
   capture_begin();
-  emu::press_button(true);
-  pump_turns(20);
-  emu::press_button(false);
-  pump_turns(20);
-  // **The third press of the centre waits out the system's window** (0.167.0): three of them inside a second and a half are
-  // the way out of the page —a view back, or the app closed when it is the only one— and this case presses the centre three
-  // times to say three things to the app (docs/30, docs/92).
+  press_finger(panel, band_finger_x(0), band_finger_y());
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed "), g_out);
+  // **The centre of this window waits out the system's rule** (0.167.0): three presses of the centre inside a second and a
+  // half are the way out of the page —a view back, or the app closed when it is the only one— and this case presses it to
+  // say what the app hears from it (docs/30, docs/92).
   pump_turns(1600);
+  capture_begin();
   emu::press_button(true);
   pump_turns(20);
   emu::press_button(false);
@@ -9599,7 +10252,6 @@ void test_the_dial_stops_on_a_text_box_and_the_centre_enters_it(void) {
   emu::press_button(false);
   pump_turns(20);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "typed "), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "editing false"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "click button"), g_out);
 
@@ -10741,10 +11393,14 @@ void test_an_app_asks_for_the_processor_speed(void) {
                             "power.cpu(160)\n"));
 
   TEST_ASSERT_TRUE_MESSAGE(run_captured("run fast", g_out, sizeof(g_out)), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu 160"), g_out);
+  // **Una app arrenca amb el processador a dalt** (0.179.38): a start is a foreseeable burst and the window is open while
+  // the app reads its source, builds an interpreter and lays its first page out, so the first thing an app reads about
+  // the speed is the top step —and asking for one of its own is what makes it the step the system goes back to—.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "cpu 240"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "now 80"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "refused nil E_INVAL"), g_out);
   TEST_ASSERT_EQUAL_UINT32(160, kernel::power::cpu_mhz());
+  TEST_ASSERT_EQUAL_UINT32(160, kernel::power::resting_cpu_mhz());
 
   storage->remove("/apps/fast/app.lua");
   storage->remove("/apps/fast/manifest.json");
@@ -12527,10 +13183,198 @@ void test_the_shell_app_is_a_page_with_a_session_of_the_shell(void) {
   kernel::boot(hal::platform());
 }
 
-// **The cross of the panel closes the app** (0.179.23): a swipe down from the titlebar pulls the card of the system out, a
-// tap on the disc of its corner asks the one road out of a page —the same door the pinch and the three taps ask, so the same
-// three answers— and the page under the card comes back whole. **A launcher is the one page that is not left**: the card
-// stays where it is and the refusal is the line of the road out, because a door that did not open has not closed anything.
+// **Cada gest que fa el sistema va al registre, amb on i amb quants dits** (0.179.28): el xip dona punts i els noms són
+// del nucli, o sigui que una persona amb la placa a la mà no té manera de saber què n'ha tret el sistema —aquesta línia és
+// això—. Un gest és **un esdeveniment i no un fotograma**: un lliscament es diu una vegada, en aixecar el dit, i un toc
+// quan es tanca la finestra del multi-toc, i per això el registre no s'omple (docs/30, docs/85).
+void test_every_gesture_says_what_it_is_and_how_many_fingers(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // **Un dit que cau i s'aixeca és un `tap` i diu un dit**: la finestra dels tocs d'aquest sistema és de tres-cents
+  // cinquanta mil·lisegons, i els torns de després de l'aixecament són els que diuen què era (docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 400));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  // **La forma de la línia i no uns números de la placa**: el marc dels punts ja el fixa `test_touch`, i el que aquest cas
+  // demana és que el gest surti al registre amb el seu nom, el seu lloc i el seu dit.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[I][TOUCH] tap "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "1 finger(s)"), g_out);
+  // The place and the movement are in it, and the chip's frame is the one it says.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "dx 0 dy 0"), g_out);
+
+  // **Dos dits són un gest propi i diuen dos**: `two` surt així que es veu la parella, i el pessic que ve quan
+  // s'allunyen també diu dos (docs/30, docs/50).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 400));
+  TEST_ASSERT_TRUE(panel->finger_down(1, 300, 400));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, 150, 400));
+  TEST_ASSERT_TRUE(panel->finger_move(1, 350, 400));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  TEST_ASSERT_TRUE(panel->finger_up(1));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[I][TOUCH] two "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "[I][TOUCH] pinch "), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "2 finger(s)"), g_out);
+}
+
+// **Un lliscament no clica el botó que travessa** (0.179.29). El propietari: *«els botons es polsen encara que estigui
+// fent un swipe»*. Un control rebia el frame del dit —la primera passada i totes les altres— i **la pujada decidia el
+// clic per si el dit era a dins del requadre**, o sigui que un dit que queia damunt d'un botó i s'aixecava a la vora de
+// dins el clicava encara que la persona estigués arrossegant el tauler. El sistema sap què és el contacte abans que el
+// control actuï: vint píxels des d'on va caure —el mateix número amb què el gest distingeix un `tap` d'un `drag`— i el
+// control no és de ningú, ni premut ni clicat. **El que no es pot trencar és l'altra meitat**: un dit quiet sí que clica
+// (docs/30, docs/90).
+void test_a_slide_over_a_button_does_not_click_it(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // A button of four hundred by two hundred at (40, 40) of the view, which on the glass is 40..440 and 88..288.
+  TEST_ASSERT_TRUE(add_app(storage, "clickable",
+                           "{\"title\":\"Clickable\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local b = ui.button(400, 200)\n"
+                           "b:place(40, 40)\n"
+                           "b.on_click = function() console.print('clicked') end\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run clickable");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **Un lliscament de trenta píxels que comença i acaba dins del botó**: es mou i no es clica.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 240, 188));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_move(0, 240, 218));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "clicked"), g_out);
+
+  // **I un dit quiet al mateix lloc sí que clica**: la meitat que no es pot trencar.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 240, 188));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "clicked"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/clickable/app.lua");
+  storage->remove("/apps/clickable/manifest.json");
+}
+
+// **Un toc a la barra del sistema no prem la pàgina** (0.179.29). La franja de dalt no és de cap app i el dit que hi cau
+// conserva la seva `y` —és el que diu `on_the_bar`—, o sigui que **les files de la barra i les primeres de la pàgina són
+// els mateixos números**: un toc a l'hora premia el control que hi hagués a dalt de tot de la pàgina, i una estirada per
+// obrir el desplegable el premia abans de moure's. Un contacte que comença a la barra és del sistema i la pàgina no el
+// sent (docs/30, docs/50).
+void test_a_touch_on_the_bar_does_not_press_the_page(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // A button against the very top of the view: its rows on the glass are 48..108, and the bar's are 0..47.
+  TEST_ASSERT_TRUE(add_app(storage, "topmost",
+                           "{\"title\":\"Topmost\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local t = ui.button(400, 60)\n"
+                           "t:place(0, 0)\n"
+                           "t.on_click = function() console.print('top clicked') end\n"
+                           "ui.present('gc16')\n"
+                           "while true do sys.delay(20):await() end\n"));
+  pump_captured(40, g_out, sizeof(g_out), "run topmost");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  // **Un toc a la barra**, on hi ha l'hora, no és un toc a la pàgina.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 20));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "top clicked"), g_out);
+
+  // **I una estirada cap avall des de la barra tampoc**, que és el camí del desplegable del sistema.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 20));
+  pump_turns(10);
+  for (int y = 60; y <= 200; y += 35) {
+    TEST_ASSERT_TRUE(panel->finger_move(0, 200, static_cast<uint16_t>(y)));
+    pump_turns(10);
+  }
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "top clicked"), g_out);
+  // **I la targeta del sistema que ha sortit es queda a sobre** (0.179.44): the pull is the card's and the page under it is
+  // paused, so the tap of the step below would land **on the card** —one row under the bar is inside its rows— and not on
+  // the button. The card goes with a tap outside it, which is the only way out it has, and then the page is the page again.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a pull from the bar did not leave the card of the system out");
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 400));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
+
+  // **I el mateix dit una fila més avall sí que és de la pàgina**: el botó, tocat a dins, clica.
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, 200, 78));
+  pump_turns(10);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "top clicked"), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  storage->remove("/apps/topmost/app.lua");
+  storage->remove("/apps/topmost/manifest.json");
+}
+
+// **The cross of the panel closes the app** (0.179.23, and its button is a square since 0.179.26): a swipe down from the
+// titlebar pulls the card of the system out, a tap on the square of its corner asks the one road out of a page —the same door
+// the pinch and the three taps ask, so the same three answers— and the page under the card comes back whole. **A launcher is
+// the one page that is not left**: the card stays where it is and the refusal is the line of the road out, because a door
+// that did not open has not closed anything.
 //
 // The swipe and the tap are made the way a person makes them, on the panel of the emulator: sixty rows of the bar down two
 // hundred of the page, and a tap that is down sixty turns and up with five hundred after it, which is the window of the taps
@@ -12562,9 +13406,9 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
                            "\"entry\":\"app.lua\",\"boards\":[\"esp32\"],\"launcher\":true}",
                            "console.print('homey up')\nwhile true do sys.delay(20):await() end\n"));
 
-  // **The bar is where the card is pulled from, and the cross is fourteen rows under it and fourteen from the right**: the
-  // page of the emulator is 540 wide and the bar takes the first 48 rows, so the middle of the disc is that plus twenty
-  // (docs/30, docs/85).
+  // **The bar is where the card is pulled from, and the button is twenty-four off the corner of the card and fifty-six a
+  // side** (0.179.26): the page of the emulator is 540 wide and the bar takes the first 48 rows, so the middle of the square
+  // is that plus twenty-four plus half of it (docs/30, docs/85).
   auto swipe_down = [&]() {
     TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
     pump_turns(20);
@@ -12581,13 +13425,32 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
     TEST_ASSERT_TRUE(panel->finger_up(0));
     pump_turns(500);
   };
-  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 14 - 20);
-  const uint16_t cross_y = static_cast<uint16_t>(48 + 14 + 20);
-  // **The level of one pixel of the glass**, which is where the card is painted: the disc of the cross is black and the paper of a
-  // card that has none is white, and the two points the case reads are inside the disc and off its two strokes (docs/30, docs/85).
+  const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 24 - 32);
+  const uint16_t cross_y = static_cast<uint16_t>(48 + 24 + 32);
+  // **The level of one pixel of the glass**, which is where the card is painted.
   auto glass_level = [](uint16_t x, uint16_t y) {
     emu::MemorySurface* glass = emu::memory_surface();
     return (glass == nullptr) ? static_cast<uint8_t>(0xFF) : glass->level_at(x, y);
+  };
+  // **El botó és el del sistema i es llegeix com el que és** (0.179.31): the box of a button of this tree is the colour of
+  // its shadow with the face lifted four pixels off the bottom of it, so **the four rows under the face are ink** and the
+  // face is paper with the word in it. The three readings below are that drawing and not a shape of the panel: the shadow,
+  // a point of the face away from the word and the frame, and the ink the word puts in the middle. A card with no button
+  // is paper in all three —the counts tell the two apart without knowing a pixel of the face— (docs/30, docs/92).
+  const uint16_t box_left = static_cast<uint16_t>(cross_x - 32);
+  const uint16_t box_top = static_cast<uint16_t>(cross_y - 32);
+  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 30);
+  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 61);   // the middle of the four rows of shadow
+  const uint16_t face_x = static_cast<uint16_t>(cross_x + 12);     // inside the face, off the word
+  const uint16_t face_y = static_cast<uint16_t>(cross_y - 18);
+  auto ink_in_the_word = [&]() {
+    int ink = 0;
+    for (uint16_t y = static_cast<uint16_t>(cross_y - 12); y < static_cast<uint16_t>(cross_y + 12); ++y) {
+      for (uint16_t x = static_cast<uint16_t>(cross_x - 12); x < static_cast<uint16_t>(cross_x + 12); ++x) {
+        if (glass_level(x, y) == 0) ++ink;
+      }
+    }
+    return ink;
   };
 
   // **The card comes out over the page of the app and the cross closes it** (docs/30).
@@ -12612,23 +13475,39 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "homey up"), g_out);
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the launcher");
-  // **The disc is not there**: the middle of the six rows of the handle and the corner where the cross was are paper, and the two
-  // points are read on the glass where the card is painted (docs/30).
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(static_cast<uint16_t>(cross_x - 10), static_cast<uint16_t>(cross_y - 4)),
-                                  "the card of a launcher has a cross on it");
+  // **The button is not there**: the corner of the card where a button would be painted is paper from edge to edge —no
+  // shadow under a face, no word in the middle— and a tap there is a tap on the card (docs/30).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the card of a launcher has the shadow of a button on it");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_word(), "the card of a launcher has a word on it");
   tap(cross_x, cross_y);
   TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a launcher was closed by a tap on paper");
-  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the paper of the card did not put it away");
+  // **And a tap on the card leaves it exactly where it is** (0.179.42): the rows of the card are its own, and the way out
+  // is a tap **outside** it —the page below, or the bar it hangs from—. The owner: *«Ningú ha de poder tancar el panell
+  // excepte l'usuari, picant fora de la zona desplegada»*.
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a tap on the paper of the card put it away");
+  tap(270, 400);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
 
-  // **And a tap on the card still dismisses it with an app that can be left**, which is what the panel did before the cross existed.
+  // **And a tap below the card dismisses it with an app that can be left** (0.179.42), which is the way out the panel has
+  // for every page: the page below the card, and not the card's own rows.
   pump_captured(40, g_out, sizeof(g_out), "run leaver");
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(static_cast<uint16_t>(cross_x - 10), static_cast<uint16_t>(cross_y - 4)),
-                                  "the card of an app that can be left has no cross on it");
+  // **El dibuix del botó, llegit al vidre** (0.179.31): the four rows under the face are ink —the shadow is what makes it a
+  // key and not a rectangle—, the face is paper away from the word, and the middle has the ink of the word in it. **The
+  // three together** are the system's button; a shape of the panel would pass the first and fail the other two.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(shadow_x, shadow_y), "a button of this system has no shadow under its face");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the button is not paper");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the button has no word in it");
+  // **And nothing outside its box**, which is the twenty-four of margin the card gives the corner.
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(static_cast<uint16_t>(box_left - 6), shadow_y),
+                                  "the button is bigger than its box or the margin is not twenty-four");
+  // **And a tap on the page below the card dismisses it, with the app still there** (0.179.42): the card's own rows are
+  // the card's, and the page under them —four hundred is below the three hundred and fifty-two the card ends at— is the
+  // person's way out.
   tap(270, 400);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the card did not put it away");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a tap on the page of the card closed the app");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a tap on the page below the card closed the app");
 
   close_any_app();
   storage->remove("/apps/leaver/app.lua");
@@ -13532,6 +14411,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_call_that_returns_a_promise_is_timed_until_it_settles);
   RUN_TEST(test_the_power_command_says_what_the_board_can_do);
   RUN_TEST(test_the_power_command_moves_the_cpu);
+  RUN_TEST(test_a_burst_of_the_processor_gives_its_step_back);
   RUN_TEST(test_the_led_command_paints_and_gives_it_back);
   RUN_TEST(test_the_light_goes_off_when_its_app_goes);
   RUN_TEST(test_an_app_plays_an_effect_while_it_works);
@@ -13560,6 +14440,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_canvas_inside_a_cell_of_a_grid_survives_the_page);
   RUN_TEST(test_every_app_of_the_repository_declares_its_boards);
   RUN_TEST(test_every_app_of_the_repository_carries_an_icon);
+  RUN_TEST(test_an_app_that_names_a_splash_carries_it);
   RUN_TEST(test_the_store_says_how_full_it_is);
   RUN_TEST(test_a_press_reaches_the_app_as_a_promise);
   RUN_TEST(test_a_present_with_a_mode_paints_with_that_mode);
@@ -13568,6 +14449,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_selector_of_the_focus_comes_and_goes_with_the_hands);
   RUN_TEST(test_a_button_is_navigated_and_touched);
   RUN_TEST(test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page);
+  RUN_TEST(test_a_swipe_on_a_box_that_takes_keys_does_not_bring_the_band);
   RUN_TEST(test_the_document_of_the_editor_scrolls_with_a_finger);
   RUN_TEST(test_a_swipe_only_moves_the_box_that_has_the_dial);
   RUN_TEST(test_a_swipe_that_leaves_the_box_stops_where_it_left_it);
@@ -13597,10 +14479,12 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_a_list_turns_its_page_with_the_dial);
   RUN_TEST(test_the_keyboard_types_into_the_box_it_was_given);
   RUN_TEST(test_the_splash_paints_a_picture_in_the_middle_of_the_glass);
+  RUN_TEST(test_the_drawing_of_a_splash_is_cut_from_its_air_and_its_page);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
   RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
+  RUN_TEST(test_the_card_of_a_launcher_is_for_the_way_back_and_not_for_the_boot);
   RUN_TEST(test_the_picture_of_an_app_goes_up_before_it_is_read);
   RUN_TEST(test_the_boot_paints_the_drawing_the_settings_chose);
   RUN_TEST(test_the_memory_of_a_session_is_the_apps_and_not_the_systems);
@@ -13609,12 +14493,15 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_glass_is_one_surface_however_often_it_is_asked);
   RUN_TEST(test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given);
   RUN_TEST(test_the_keyboard_follows_the_box_that_takes_the_focus);
+  RUN_TEST(test_a_drag_that_crosses_the_keyboard_types_nothing);
+  RUN_TEST(test_a_finger_on_the_band_types_into_a_box_of_one_line);
   RUN_TEST(test_a_box_that_takes_no_keys_does_not_open_the_keyboard);
   RUN_TEST(test_a_keyboard_without_a_target_is_refused);
   RUN_TEST(test_the_keyboard_is_chosen_in_cfg_and_writes_its_letters);
   RUN_TEST(test_the_home_app_comes_up_with_the_board);
   RUN_TEST(test_a_home_app_that_is_not_there_leaves_the_prompt);
   RUN_TEST(test_the_caret_blinks_without_the_app);
+  RUN_TEST(test_the_caret_stops_blinking_when_nothing_moves_it);
   RUN_TEST(test_the_dial_stops_on_a_text_box_and_the_centre_enters_it);
   RUN_TEST(test_a_read_only_box_has_a_caret_and_never_a_band);
   RUN_TEST(test_the_keys_walk_the_rows_of_a_box_the_centre_entered);
@@ -13653,6 +14540,10 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
   RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
+  RUN_TEST(test_a_slide_over_a_button_does_not_click_it);
+  RUN_TEST(test_a_touch_on_the_bar_does_not_press_the_page);
+  RUN_TEST(test_every_gesture_says_what_it_is_and_how_many_fingers);
+  RUN_TEST(test_the_title_of_a_start_is_painted_before_the_page_of_the_app);
   RUN_TEST(test_a_pinch_from_big_to_small_goes_back_and_then_closes);
   RUN_TEST(test_a_strip_that_closes_its_tabs_draws_its_crosses);
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);

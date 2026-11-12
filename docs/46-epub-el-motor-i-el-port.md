@@ -199,7 +199,7 @@ portat és **el dibuix font** i **la recepta**, no els dos fitxers tal com eren:
 |---|---|---|
 | `apps/reader/res/icon-source.png` | el dibuix que una persona edita: `OLD/PaperOS/tools/icons/EPUB.png`, escala de grisos | 448×448, **2 818 B** |
 | `apps/reader/res/icon.png` | la icona que nomeja el manifest, feta amb `tools/make_icon.py` | 94×94, **1 760 B** |
-| `apps/reader/res/splash.png` | la composició de `splashgen.py`: la icona a 232 px, una ratlla, `EPUB`, `loading...` i el peu | 420×520, **6 876 B** |
+| `apps/reader/res/splash.png` | la composició de `splashgen.py`: la icona a 232 px, una ratlla, `EPUB`, `loading...` i el peu | **223 × 451, 6 217 B** (420×520 i 6 876 B fins a la 0.179.39, que la retalla al dibuix) |
 
 L'`icon.icn` **no s'ha portat**: aquest sistema no llegeix aquell format i el manifest apunta al PNG
 (docs/40). La recepta viatja com a `tools/app_splash.py` —el `splashgen.py` del paper amb la capçalera

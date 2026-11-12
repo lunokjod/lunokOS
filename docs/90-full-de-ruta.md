@@ -396,10 +396,12 @@ són el contracte; el `pressed` el porta el sistema mentre dura el contacte, i q
 **I el teclat segueix aquest focus** (0.91.0): una caixa de text que pren tecles (`box.keyboard`) obre la banda i
 en rep les tecles; un botó o la pàgina buida la tanquen; les caixes són objectiu del dit i no del dial (docs/30).
 
-**I el cursor és un bloc de la mida de la lletra que parpelleja sol** (0.92.0): el sistema el gira cada 600 ms i
-marca la caixa perquè es torni a pintar; l'app no hi ha de portar cap rellotge. El bloc és l'amplada del caràcter
-que hi ha sota el cursor i, al final del text, la d'una `M`; una caixa buida també el té, i el cursor no surt mai
-del marc de la caixa (docs/30).
+**I el cursor és la cel·la de la lletra girada, i parpelleja sol** (0.92.0, 0.179.37): el sistema el gira cada 600 ms i
+marca **aquella cel·la** perquè es torni a pintar amb un `du`; l'app no hi ha de portar cap rellotge. El gir és la
+mateixa primitiva de les cel·les triades —cada nivell canviat pel seu oposat—, o sigui que en una caixa de dos tons és
+tinta i paper i en una de grisos la lletra conserva la forma. La cel·la és l'amplada del caràcter que hi ha sota el
+cursor i, al final del text, la d'una `M`; una caixa buida també el té, el cursor no surt mai del marc de la caixa, i
+la lletra de sota el cursor es pinta amb el text (docs/30).
 
 **I el teclat és una classe amb un pare comú** (0.93.0): `Keyboard` té la banda, el dit, el dial, el bloc triat, la
 cara i la geometria, i els fills només diuen el seu id i les seves files. `QwertyKeyboard` és el teclat de sempre i

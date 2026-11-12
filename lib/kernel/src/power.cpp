@@ -63,6 +63,12 @@ const int64_t kMinIdleSleepMs = 10000;
 
 bool g_idle_allowed = true;
 int64_t g_last_activity_ms = 0;
+
+// **La velocitat de repòs i la finestra d'una feina pesada** (0.179.38): the step the system goes back to and the hour a
+// burst ends. `g_cpu_busy_until_ms` at zero is "no window is owed", which is the state of a system that is only working.
+// The step a person asks for becomes the resting one, so `power cpu 80` is not undone by the next app that starts.
+uint32_t g_cpu_rest_mhz = kRestingMhz;
+int64_t g_cpu_busy_until_ms = 0;
 // The hour the board was woken early for. The clock reaches a day at most, so a longer wait is
 // armed in stages, and a stage is **not** the wake: the app must not come back until its hour
 // (docs/60).
@@ -250,6 +256,35 @@ hal::SleepMode mode_of(uint8_t mode) {
   return (mode == 1) ? hal::SleepMode::kDeep : hal::SleepMode::kLight;
 }
 
+// **La línia del port s'buida abans de moure el processador** (0.179.43): the serial rate is derived from the clock of the
+// bus, and the chip re-derives it when the frequency changes. The bytes that are already in the FIFO and in the shift
+// register of the UART go out at the rate of before, and the port shows them as garbage — the owner read it in a log of
+// the board: `[D][PANEL] paint 60,356 72x76 … (page 108lx␘␂����2, 76 rows of 36 B)`, with `[I][POWER] cpu 160 MHz from
+// 240` on the very next line. It is the same reason the sleep of this file empties the line before the clocks stop, said
+// for a step instead of a stop (docs/50, docs/60, docs/92).
+void empty_the_line() {
+  pal::IConsole* console = pal::system().console();
+  if (console != nullptr) console->flush();
+}
+
+// **Cada canvi de velocitat es diu a la consola i al registre** (0.179.38): a step of the processor is energy and time,
+// and a board whose speed changed without a line is a board nobody can measure. The line says what was asked, what the
+// board answered and why, so a step the chip does not have reads as itself and not as a silence. **Every call is a
+// line**, even the one that asks for the step it is already on: the boot at two hundred and forty is a fact of the
+// policy and not of the chip's default, and a log that hides it says the system booted at the resting step.
+void move_to(uint32_t mhz, const char* why) {
+  if (g_power == nullptr) return;
+  const uint32_t before = g_power->cpu_mhz();
+  empty_the_line();
+  if (!g_power->set_cpu_mhz(mhz)) {
+    log_printf(pal::kLogWarn, "POWER", "the board did not take %u MHz (%s), it runs at %u", static_cast<unsigned>(mhz),
+               (why != nullptr) ? why : "?", static_cast<unsigned>(before));
+    return;
+  }
+  log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (%s)", static_cast<unsigned>(g_power->cpu_mhz()),
+             static_cast<unsigned>(before), (why != nullptr) ? why : "?");
+}
+
 bool can_sleep_op(uint8_t mode) { return can_sleep(mode_of(mode)); }
 
 bool sleep_op(uint8_t mode, int64_t at_epoch_ms) { return request_sleep(mode_of(mode), at_epoch_ms); }
@@ -263,6 +298,10 @@ void boot(hal::IPlatform& platform) {
   g_caps = platform.caps().bits;
   g_keep_awake = false;
   g_idle_allowed = true;
+  // **Un boot torna a la seva política** (0.179.38): the resting step is the system's again and no window of the boot
+  // before is owed, or a board that reboots would carry the two hundred and forty of the last app it ran.
+  g_cpu_rest_mhz = kRestingMhz;
+  g_cpu_busy_until_ms = 0;
   // The quiet count starts with this boot: nothing has been typed at it yet.
   g_last_activity_ms = 0;
   // A stage of a longer wait belongs to one boot: `report_wake()` is what sets it again
@@ -459,6 +498,13 @@ bool request_sleep(hal::SleepMode mode, int64_t at_epoch_ms) {
 }
 
 void poll(int64_t next_alarm_epoch_ms) {
+  // **La finestra d'una feina pesada s'acaba aquí** (0.179.38): the boot and the start of an app take the top step for a
+  // few seconds, and the step back is not the caller's to watch —an app cannot be trusted with the clock of its own
+  // burst— so it is a turn of this system like the sleep is (docs/50, docs/60).
+  if (g_cpu_busy_until_ms > 0 && pal::system().millis() >= g_cpu_busy_until_ms) {
+    g_cpu_busy_until_ms = 0;
+    move_to(g_cpu_rest_mhz, "the load is over");
+  }
   if (g_pending) {
     const bool from_app = g_pending_from_app;
     const hal::SleepMode mode = g_pending_mode;
@@ -491,15 +537,42 @@ bool battery(int& mv, int& pct, bool& charging) {
 
 uint32_t cpu_mhz() { return (g_power != nullptr) ? g_power->cpu_mhz() : 0; }
 
+uint32_t resting_cpu_mhz() { return g_cpu_rest_mhz; }
+
 bool set_cpu_mhz(uint32_t mhz) {
-  // The processor changes market: it is a call to the board and not a variable (docs/30).
-  meter::Scope scope(meter::kCpuSet);
   if (g_power == nullptr) return false;
   // The steps are the board's, and the kernel does not invent them: 80 is the
   // floor because below it the APB goes down with the CPU and the serial port
   // stops making sense, and 240 is the ceiling of this chip (docs/50).
   if (mhz < 80 || mhz > 240) return false;
-  return g_power->set_cpu_mhz(mhz);
+  const uint32_t before = g_power->cpu_mhz();
+  // The processor changes market: it is a call to the board and not a variable (docs/30). **And the port is emptied
+  // before it**, or the line in flight comes out garbled (0.179.43, `empty_the_line`).
+  meter::Scope scope(meter::kCpuSet);
+  empty_the_line();
+  if (!g_power->set_cpu_mhz(mhz)) return false;
+  // **La velocitat que demana algú és la de repòs** (0.179.38): a person at the prompt or an app that asked for a step is
+  // choosing what the system works at, so the step is not undone by the next start that ends; and a window that was owed
+  // is not owed any more, because the next step to take is this one.
+  g_cpu_rest_mhz = mhz;
+  g_cpu_busy_until_ms = 0;
+  log_printf(pal::kLogInfo, "POWER", "cpu %u MHz from %u (asked)", static_cast<unsigned>(g_power->cpu_mhz()),
+             static_cast<unsigned>(before));
+  return true;
+}
+
+void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why) {
+  if (g_power == nullptr || mhz < 80 || mhz > 240) return;
+  move_to(mhz, why);
+  // **The window is the caller's and its end is the system's**: nothing has to keep a clock for it, because `poll` is a
+  // turn of this system and a turn that is not taken is a board that is off.
+  g_cpu_busy_until_ms = (hold_ms > 0) ? (pal::system().millis() + hold_ms) : 0;
+}
+
+void rest_cpu(const char* why) {
+  if (g_power == nullptr) return;
+  g_cpu_busy_until_ms = 0;
+  move_to(g_cpu_rest_mhz, why);
 }
 
 void restore_session() {

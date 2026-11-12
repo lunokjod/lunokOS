@@ -336,6 +336,94 @@ static void test_the_kernel_turns_a_finger_into_a_long_press() {
   TEST_ASSERT_TRUE(chip().finger_up(0));
 }
 
+// **Un dit quiet que s'aixeca és un toc, duri el que duri** (0.179.29): the four hundred milliseconds that used to be the
+// ceiling of a tap left a hole. A finger pressed for six hundred, still, and lifted was **neither a `tap` nor a `long`**,
+// so an app that reads `touch.gesture()` heard nothing at all while the control under it clicked —the controls work on the
+// frame and not on the name— and a person saw a button answer a press the page never knew about. `held_ms` is the number
+// that says how long it was. **A `long` is said while the finger is still there** and it is not a tap when it goes
+// (docs/30, docs/90).
+static void test_a_slow_still_press_is_a_tap_and_a_long_is_not(void) {
+  boot_with_a_touch_panel();
+  chip().reset();
+  kernel::touch::forget_gestures();
+  // **Six hundred milliseconds of a still finger**: a press with the calm of somebody reading what they press. **The
+  // first turn is the frame of the press** —the module follows a finger from the frame that has seen it, and it is
+  // `held_ms` that measures the press— and the second one is the press itself (0.179.43: one turn for a press and a
+  // press of six hundred milliseconds is a turn that measured a finger nobody had heard of yet).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 400));
+  turn(20);
+  turn(600);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  // **The lift needs a turn of quiet** —thirty milliseconds, three scans of this panel— and the tap is said by the
+  // turn that closes the window of the multi-tap, which is another one (0.179.29, 0.179.43).
+  turn(400);
+  turn(400);
+  kernel::touch::Gesture slow;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(slow), "a still press of six hundred milliseconds said nothing");
+  TEST_ASSERT_EQUAL_STRING("tap", slow.kind);
+  TEST_ASSERT_EQUAL_UINT8(1, slow.fingers);
+  TEST_ASSERT_TRUE_MESSAGE(slow.held_ms >= 550, "the tap does not say how long it was held");
+  // **I un `long` no és un toc quan el dit marxa**: mil cent mil·lisegons de pressa quieta donen `long` i res més, o una
+  // pàgina rebria dues coses per una premuda. **The frame of the press and the press are two turns here too**.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 400));
+  turn(20);
+  turn(1100);
+  kernel::touch::Gesture held;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(held), "a press of a second did not say its `long`");
+  TEST_ASSERT_EQUAL_STRING("long", held.kind);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(400);
+  turn(400);
+  kernel::touch::Gesture after;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::touch::take_gesture(after), "the lift of a `long` was said as a tap as well");
+}
+
+// **Un gest entre dos tocs no els fa un doble** (0.179.29): the window of the multi-tap waited three hundred and fifty
+// milliseconds without looking at what happened in between, so a tap, a short drag and another tap were said as a `drag`
+// and a `double` —and the second tap was counted with the first, which the person had already spent on the drag—. A
+// gesture closes the window: what was waiting is said **before** the gesture, in the order it happened (docs/30, docs/90).
+static void test_a_gesture_between_two_taps_is_not_a_double(void) {
+  boot_with_a_touch_panel();
+  chip().reset();
+  kernel::touch::forget_gestures();
+  // **Every step is a turn of forty milliseconds and not twenty** (0.179.43): a finger that leaves is a finger that goes
+  // when the glass has said nothing for a whole scan and a half —thirty milliseconds, `kQuietMs`—, so a lift read by a
+  // turn of twenty is a finger that, as far as the module knows, is still on the glass and the two presses become one. The
+  // window of the multi-tap is three hundred and fifty and these six steps are two hundred and forty, so both taps are
+  // still inside it, which is what this case is about.
+  // A tap, at once.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 400));
+  turn(40);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(40);
+  // **Un drag curt, dins de la finestra del toc**: vuitanta píxels i a fora.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 400));
+  turn(40);
+  TEST_ASSERT_TRUE(chip().finger_move(0, 200, 480));
+  turn(40);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(40);
+  // I un altre toc, també dins de la finestra del primer.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 200, 400));
+  turn(40);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  turn(40);   // the lift is seen here, and the tap is counted
+  turn(400);  // i la finestra es tanca, que és quan es diu
+
+  // **Tres gestos i no dos**: el toc, el drag i el toc altre cop.
+  kernel::touch::Gesture first;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(first), "the first tap was not said");
+  TEST_ASSERT_EQUAL_STRING("tap", first.kind);
+  kernel::touch::Gesture middle;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(middle), "the drag between the two taps was not said");
+  TEST_ASSERT_EQUAL_STRING("drag", middle.kind);
+  kernel::touch::Gesture last;
+  TEST_ASSERT_TRUE_MESSAGE(kernel::touch::take_gesture(last), "the second tap was not said");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("tap", last.kind, "two taps with a drag between them came out as a double");
+  kernel::touch::Gesture none;
+  TEST_ASSERT_FALSE_MESSAGE(kernel::touch::take_gesture(none), "a fourth gesture came out of three");
+}
+
 // **Three taps are the system's, and on the whole glass they are the way back to the bar** (0.136.0, docs/46 D1). The
 // gesture is taken out of the queue before the app reads it —the kernel asks it right after `touch::poll` and before the
 // app's turn— so a page that covers everything cannot take away the way out, and what the app hears is not the three
@@ -454,10 +542,23 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   TEST_ASSERT_TRUE(kernel::panel::open());
   TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "a frame of the app dropped the hold of the page");
 
-  // **The finger up and the card goes with it**: forty pixels of the card are enough, and the page comes back whole —
-  // the whole view washed with `gc16`, which is the level the app left in its canvas while the card was out.
+  // **A gesture of the page does not fold the card** (0.179.42): a drag up is what the page under the card does with its
+  // own scroll, and the owner took it away —*«Ningú ha de poder tancar el panell excepte l'usuari, picant fora de la zona
+  // desplegada»*—. A hundred pixels up, the card is where it was and the page is still held (docs/30).
   drag_on_the_glass(220, 120);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a drag up did not put the card away");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a drag up put the card of the system away");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "a drag up dropped the hold of the page");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass().level_at(270, 200), "a drag up painted the page over the card");
+
+  // **And a tap outside the card is the way out**: the rows of the page below it, which is the person asking for it. The
+  // card ends at forty-eight plus a third of the page —row three hundred and fifty-two of this glass— so four hundred is
+  // the page and not the card. The page comes back whole —the whole view washed with `gc16`, which is the level the app
+  // left in its canvas while the card was out— (0.179.42, docs/30, docs/50).
+  TEST_ASSERT_TRUE(chip().finger_down(0, 270, 400));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
+  for (int t = 0; t < 25 && kernel::panel::open(); ++t) hand_turn(20);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
   TEST_ASSERT_FALSE_MESSAGE(ui::page_held(), "the card is gone and the page is still held");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(8, glass().level_at(270, 200), "the page did not come back where the card was");
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, 100));
@@ -465,9 +566,9 @@ static void test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system() {
   // **And the handle and the line of the card are gone with it** (docs/30).
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, handle_y));
   TEST_ASSERT_EQUAL_UINT8(8, glass().level_at(270, static_cast<uint16_t>(48 + kernel::panel::height() - 2)));
-  // **The drag up was the system's**: the card took it and the page heard nothing at all (docs/30).
+  // **Neither the drag nor the tap was the page's**: the card took them and the page heard nothing at all (docs/30).
   the_app_hears(heard, sizeof(heard));
-  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the page heard the drag that put the card away");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the page heard the gestures that put the card away");
 }
 
 // **A drag that begins on the page is the page's** (0.179.22): same length, same direction, one row below the bar, and
@@ -491,24 +592,35 @@ static void test_a_drag_that_begins_on_the_page_is_the_pages() {
   TEST_ASSERT_FALSE(gesture.on_the_bar);
 }
 
-// **A tap puts the card away** (0.179.22): the rows of switches that come later will take the taps inside the card, and
-// until then the whole card is one thing to dismiss. The app hears neither the tap nor a pull (docs/30).
-static void test_a_tap_puts_the_card_away_and_the_page_never_hears_it() {
+// **A tap on the card leaves it where it is and a tap below it puts it away** (0.179.42): the rows of the card are its own
+// —the switches that come later will take their taps— and the only way out is a tap **outside** the dropped-down area, which
+// is what the owner asked for: *«Ningú ha de poder tancar el panell excepte l'usuari, picant fora de la zona desplegada»*.
+// The app hears neither (docs/30).
+static void test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away() {
   boot_with_a_touch_panel();
   kernel::panel::boot();
   chip().reset();
   pull_from_the_bar(20, 120);
   TEST_ASSERT_TRUE(kernel::panel::open());
   // **A tap of a hand on the card**: down and up in one place, and the window of the taps of this system is three
-  // hundred and fifty milliseconds, so the turns after the lift are the ones that say it was a tap (docs/30).
+  // hundred and fifty milliseconds, so the turns after the lift are the ones that say it was a tap (docs/30). Two hundred
+  // is a row of the card —it ends at forty-eight plus a third of the page, which is two hundred and twelve on this glass—.
   TEST_ASSERT_TRUE(chip().finger_down(0, 270, 200));
   hand_turn(20);
   TEST_ASSERT_TRUE(chip().finger_up(0));
+  for (int t = 0; t < 25; ++t) hand_turn(20);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a tap on the card put it away");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "a tap on the card dropped the hold of the page");
+  // **And the same tap below the card is the way out** (0.179.42): the card ends at row three hundred and fifty-two of
+  // this glass, so four hundred is the page and not the card.
+  TEST_ASSERT_TRUE(chip().finger_down(0, 270, 400));
+  hand_turn(20);
+  TEST_ASSERT_TRUE(chip().finger_up(0));
   for (int t = 0; t < 25 && kernel::panel::open(); ++t) hand_turn(20);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the card did not put it away");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
   char heard[64];
   the_app_hears(heard, sizeof(heard));
-  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the app heard the tap that closed the card");
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the app heard a tap of the card of the system");
 }
 
 int main(int argc, char** argv) {
@@ -524,9 +636,11 @@ int main(int argc, char** argv) {
   RUN_TEST(test_the_kernel_asks_the_glass_once_per_scan);
   RUN_TEST(test_the_waits_are_one_switch);
   RUN_TEST(test_the_kernel_turns_a_finger_into_a_long_press);
+  RUN_TEST(test_a_slow_still_press_is_a_tap_and_a_long_is_not);
+  RUN_TEST(test_a_gesture_between_two_taps_is_not_a_double);
   RUN_TEST(test_three_taps_take_the_app_out_of_the_whole_glass);
   RUN_TEST(test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system);
   RUN_TEST(test_a_drag_that_begins_on_the_page_is_the_pages);
-  RUN_TEST(test_a_tap_puts_the_card_away_and_the_page_never_hears_it);
+  RUN_TEST(test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away);
   return UNITY_END();
 }

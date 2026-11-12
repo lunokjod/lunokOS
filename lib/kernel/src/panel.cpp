@@ -26,24 +26,35 @@ namespace {
 // and a movement nobody makes by accident, and forty up to put it away, which is less because the card is already out and
 // the person is telling the system something it is waiting to hear (docs/30).
 const int16_t kPullPx = 60;
-const int16_t kPushPx = 40;
+// **And it goes with a tap and with nothing else** (0.179.42): there was a `kPushPx` of forty here that made a drag up a
+// way out, and the owner took it away —*«Ningú ha de poder tancar el panell excepte l'usuari, picant fora de la zona
+// desplegada»*—. A drag up is the gesture the page under the card uses for its own scroll, so a hand that swiped a page
+// folded the card by accident (docs/30, docs/50).
 
 // **The handle of the card, at the bottom of it** (0.179.24): a black bar in the same ink as the line that closes the card,
-// centred and fourteen rows above it. It is the grip of the way out —the card hangs from the bar of the system, which is the
-// grip of the way in, so the white rows a finger pushes up are the ones that come last (docs/30, docs/92).
+// centred and fourteen rows above it. It is the shape the bar of the system has, and it is **not** a way out any more
+// (0.179.42): the only way out is a tap outside the card, so the handle is the look of the thing and nothing to pull —the
+// owner took the drag up away with the rest of the gestures the page under the card owns (docs/30, docs/92).
 const uint16_t kHandleW = 96;
 const uint16_t kHandleH = 6;
 const uint16_t kHandleGap = 14;
 // The two rows that close the card, which are the same line the bar has under itself.
 const uint16_t kLineH = 2;
 
-// **The cross of the corner** (0.179.23): a disc of ink of forty pixels with a white cross in it, in the right corner because
-// that is the one a right hand reaches without covering the card, fourteen rows under the bar and fourteen from the edge —the
-// margin the card has for its ink (docs/30).
-const int16_t kCrossR = 20;
-const int16_t kCrossHalf = 9;      // the arm of the cross, nine pixels each way from the middle
-const uint16_t kCrossTop = 14;
-const uint16_t kCrossRight = 14;
+// **The button of the corner** (0.179.23, and its shape in 0.179.26 and 0.179.31): a **button of the system** —a key of
+// sixty-four a side, painted by the one function every button of this system is painted by— with the ink of the card: paper
+// face, ink shadow under it, ink frame and the word in ink. It was a disc of forty drawn by hand and then a square with a
+// cross of pixels, and a system that has a button cannot have a second way of drawing one (the owner, 12/11). **Twenty-four
+// rows and twenty-four columns off the corner**: the first version was fourteen from the edge and he found it small and too
+// close to the corners of the glass (docs/30, docs/45, docs/92).
+const int16_t kCrossSide = 64;       // the side of the button, so what a finger lands on is a key
+const uint16_t kCrossTop = 24;
+const uint16_t kCrossRight = 24;
+// **The word and its steps**: the box leaves thirty-two pixels of word —the sixteen of air a button has on each side— and
+// `X` at four steps of the face is twenty-two, which is the measure the two numbers were chosen with. A bigger step is cut
+// by the control and a smaller one is a dot in a box.
+const char kCrossWord[] = "X";
+const uint8_t kCrossScale = 4;
 
 bool g_open = false;
 
@@ -56,49 +67,53 @@ uint16_t card_height() {
   return static_cast<uint16_t>((glass - top) / 3);
 }
 
-// **Where the cross is, in the frame of the view** (0.179.23): the fingers arrive with the rows of the bar taken off and the
+// **The word of the control** (0.179.31): the button of the system draws its own word, centred and cut at its frame, so there
+// is no cross of pixels here any more —`paint_the_cross` was a drawing of this file and it is gone—. What is left is the
+// box and the position.
+//
+// **Where the button is, in the frame of the view** (0.179.23): the fingers arrive with the rows of the bar taken off and the
 // card is painted with them put back, so a hit test that mixed the two frames would be a button a whole bar away from the
-// thing the person aimed at (docs/30).
-int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossR; }
-int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossR; }
+// thing the person aimed at (docs/30). The two numbers are **the middle of the button**, which is what a tap aims at.
+int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossSide / 2; }
+int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossSide / 2; }
 
 // **The cross is a button only when there is a page it can close** (0.179.25): over a launcher —the one page that is not left— and
 // over no page at all, the corner of the card is paper, and a tap there is a tap on the card. A button that does nothing is worse
 // than no button: it says the system can do something it cannot (docs/30, docs/45).
 bool the_cross_is_there() { return shell::the_page_in_front_can_be_left(); }
 
+// **The button is the square a finger lands on** (0.179.26): the ink and the hit test are the same rectangle, so what a person
+// sees is what a person presses.
 bool in_the_cross(uint16_t x, uint16_t y) {
   if (!the_cross_is_there()) return false;
-  const int32_t dx = static_cast<int32_t>(x) - cross_x();
-  const int32_t dy = static_cast<int32_t>(y) - cross_y();
-  return (dx * dx + dy * dy) <= static_cast<int32_t>(kCrossR) * kCrossR;
+  const int32_t half = kCrossSide / 2;
+  const int32_t left = static_cast<int32_t>(cross_x()) - half;
+  const int32_t top = static_cast<int32_t>(cross_y()) - half;
+  const int32_t px = static_cast<int32_t>(x);
+  const int32_t py = static_cast<int32_t>(y);
+  return px >= left && px < left + kCrossSide && py >= top && py < top + kCrossSide;
 }
 
-// **A disc of ink, row by row**: the surface of the driver has no circle, and the circle of this button is a span a row — the
-// widest one that is inside the radius at that height, walked down from the half of it so the edge is round and not a
-// staircase (docs/30, docs/50).
-void fill_disc(hal::ISurface& surface, int16_t cx, int16_t cy, int16_t r, uint8_t level) {
-  for (int16_t row = -r; row <= r; ++row) {
-    int16_t half = 0;
-    while ((half + 1) * (half + 1) + row * row <= r * r) ++half;
-    surface.fill_rect(static_cast<uint16_t>(cx - half), static_cast<uint16_t>(cy + row),
-                      static_cast<uint16_t>(2 * half + 1), 1, level);
-  }
+// **Whether the finger landed on the card** (0.179.42): the card hangs from the bar, so its rows are the first
+// `card_height()` rows of the view and every row of the page below that is outside it. The bar itself is outside too —it is
+// the handle of the card and not the card—, and the flag that says so is the chip's own row kept before the frame was
+// turned, because a finger on the bar arrives at the top rows of the view and the numbers cannot tell the two apart
+// (docs/30).
+bool on_the_card(const touch::Gesture& gesture) {
+  if (gesture.on_the_bar) return false;
+  return gesture.y < card_height();
 }
 
-// **The two strokes of the cross**: forty-five degrees, two pixels wide, and one pixel a step, which is what makes them a line
-// and not a row of dots. An e-ink glass of sixteen levels has no room for antialiasing and this is the shape of a cross at this
-// size (docs/30, docs/50).
-void paint_the_cross(hal::ISurface& surface, int16_t cx, int16_t cy) {
-  fill_disc(surface, cx, cy, kCrossR, 0);
-  for (int16_t i = -kCrossHalf; i <= kCrossHalf; ++i) {
-    for (int16_t t = 0; t < 2; ++t) {
-      surface.pixel(static_cast<uint16_t>(cx + i + t), static_cast<uint16_t>(cy + i), 15);
-      surface.pixel(static_cast<uint16_t>(cx + i), static_cast<uint16_t>(cy + i + t), 15);
-      surface.pixel(static_cast<uint16_t>(cx + i + t), static_cast<uint16_t>(cy - i), 15);
-      surface.pixel(static_cast<uint16_t>(cx + i), static_cast<uint16_t>(cy - i + t), 15);
-    }
-  }
+// **The button, painted by the system** (0.179.31): `ui::paint_a_button` is the drawing of every button of this tree —the
+// box in the colour of its shadow with the face lifted four pixels, the frame on the face, the word centred in what the air
+// leaves— and the panel only says where it is and with which ink. The `X` is the control's word and it is not a shape of
+// this file: a cross of pixels was a second button in a system that has one (the owner, 12/11, docs/30, docs/92).
+void paint_the_button(hal::ISurface& surface, int16_t cx, int16_t cy) {
+  const uint16_t left = static_cast<uint16_t>(cx - kCrossSide / 2);
+  const uint16_t top = static_cast<uint16_t>(cy - kCrossSide / 2);
+  ui::paint_a_button(surface, left, top, static_cast<uint16_t>(kCrossSide), static_cast<uint16_t>(kCrossSide),
+                     /*background=*/15, /*border=*/0, /*pressed=*/false, /*focused=*/false, /*primary=*/false,
+                     kCrossWord, /*color=*/0, kCrossScale);
 }
 
 void paint() {
@@ -111,9 +126,9 @@ void paint() {
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
   surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2),
                      static_cast<uint16_t>(top + rows - kLineH - kHandleGap - kHandleH), kHandleW, kHandleH, 0);
-  // **And the cross of the corner**, on the rows of the card and not of the view, when there is a page it can close: the one
+  // **And the button of the corner**, on the rows of the card and not of the view, when there is a page it can close: the one
   // control the panel has until the switches of the system come (docs/30).
-  if (the_cross_is_there()) paint_the_cross(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
+  if (the_cross_is_there()) paint_the_button(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
   // **`gc16` and not `gld16`**: the card is the whole box and it has to come out clean the first time, which is what the
   // strip of the bar asks for when it paints itself whole (docs/50, docs/92).
   display::present(hal::UpdateMode::kGc16);
@@ -180,8 +195,12 @@ void poll() {
   if (!display::available()) return;
   // **A page that went away takes the card with it** (0.179.22): another app took the view, or the glass turned, and the
   // hold was dropped by whoever did it. What is on the glass is washed by that change, so the card goes without a paint.
+  // **And it says so** (0.179.42): this is the one close that is not the person's —no finger, no cross—, and a card that
+  // disappeared with nothing in the log was a card the owner could not account for. It can only come from the system now:
+  // while the card is out the app's turn is not run, so the app cannot drop the hold of the page it is behind.
   if (g_open && !ui::page_held()) {
     g_open = false;
+    log_printf(pal::kLogWarn, "PANEL", "the card went with the page it was over");
     return;
   }
   if (!g_open) {
@@ -191,24 +210,33 @@ void poll() {
     touch::Gesture gesture;
     if (!touch::take_drag_down_from_the_bar(kPullPx, gesture)) return;
     pull_it_out();
+    // **I EL QUE HA PASSAT ABANS DE LA TARGETA NO LA POT TANCAR** (0.179.44): the gestures of the queue are the ones the
+    // page was told about or nobody was, and a tap of a moment ago is a tap that happened **before** there was a card to
+    // dismiss. It was the fault that made the card open and close on the same pull: the drag pulled it out, and the tap
+    // that was waiting in the queue put it away on the very next turn, with no finger on the card at all —the board's log
+    // showed `pulled down` and `put away` with nothing in between— (docs/30, docs/50).
+    touch::forget_gestures();
     return;
   }
   touch::Gesture gesture;
-  // **Up or a tap**: the drag is the gesture the panel was pulled out with and the tap is the one a person tries when the
-  // card has no button in it yet (0.179.22). Both are the system's while the card is out (docs/30).
-  if (touch::take_drag_up(kPushPx, gesture)) {
-    put_it_away();
-    return;
-  }
+  // **One way out, and it is the person's** (0.179.42). The owner: *«Ningú ha de poder tancar el panell excepte l'usuari,
+  // picant fora de la zona desplegada. Es deixa com estava i es resumeix l'execució de l'app lua»*. So the card goes on a
+  // **tap outside its rows** —the page below it, or the bar it hangs from— and on nothing else:
+  //   - a drag up used to put it away, and a drag up is what the page under the card does with its own scroll, so a hand
+  //     that swiped the file of the editor folded the system's card without being asked (docs/30);
+  //   - a tap **on** the card used to put it away too; the rows of the card are its own, and the switches that come later
+  //     will take their taps, so a tap there is a tap on the card and the card stays as it was.
+  // What is left is nobody's either way: the app under the card hears neither the pull nor the tap that takes it away, and
+  // the turn of the app is not run while the card is out (`kernel.cpp`), so nothing but this function can close it.
   if (touch::take_gesture_of("tap", gesture)) {
-    // **A tap on the cross closes the app and a tap anywhere else puts the card away**: the rows of switches that come will take
-    // their own taps, and until then the whole card is one thing to dismiss (0.179.23, docs/30).
     if (in_the_cross(gesture.x, gesture.y)) {
       close_the_app();
       return;
     }
-    put_it_away();
-    return;
+    if (!on_the_card(gesture)) {
+      put_it_away();
+      return;
+    }
   }
   // **What is left is nobody's**: an app that reacted under the card would be acting on a page the person cannot see
   // (docs/30).

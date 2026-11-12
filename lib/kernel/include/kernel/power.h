@@ -81,6 +81,22 @@ bool battery(int& mv, int& pct, bool& charging);
 uint32_t cpu_mhz();
 bool set_cpu_mhz(uint32_t mhz);
 
+// **La velocitat de repòs és 160 i les estones de feina són finestres** (0.179.38): the system works at the resting step
+// and only a moment whose work is known to be heavy —the boot and the start of an app— asks for the top one, because a
+// step that is never given back is a board burning its battery at two hundred and forty for nothing. A window is a
+// number of milliseconds and the system is the one that sees it end (`poll`); a step a person asks for with `power cpu`
+// is the one the system goes back to. **Every move is a line of the log** (docs/50, docs/60).
+const uint32_t kRestingMhz = 160;
+const uint32_t kBusyMhz = 240;
+// **Els segons d'una càrrega** (0.179.38): an app reads its source, builds an interpreter and lays its first page out,
+// and three seconds is what it takes on this board with room to spare.
+const int32_t kStartBusyMs = 3000;
+uint32_t resting_cpu_mhz();
+// To a step now, and back to the resting one after `hold_ms` — `0` leaves no window and the caller steps it down.
+void hold_cpu(uint32_t mhz, int32_t hold_ms, const char* why);
+// The resting step now, and no window is owed any more.
+void rest_cpu(const char* why);
+
 // The app that was in front when the board went to sleep comes back, with
 // `app.args.restore` in its args (docs/30). Runs at boot; exposed so a test can do
 // a reboot without one.

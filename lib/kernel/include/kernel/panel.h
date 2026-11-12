@@ -33,8 +33,14 @@ bool open();
 uint16_t height();
 
 // **The hand of the panel**, asked in every turn before the app's: a drag that comes down from the bar opens the card,
-// a drag that goes up or a tap puts it away, and while the card is out the gestures the panel did not take are nobody's
+// **a tap outside the card** puts it away, and while the card is out the gestures the panel did not take are nobody's
 // (docs/30).
+//
+// **And it is the only way out** (0.179.42): the card used to go with a drag up as well, and with a tap anywhere, and the
+// owner took both away —*«Ningú ha de poder tancar el panell excepte l'usuari, picant fora de la zona desplegada. Es deixa
+// com estava i es resumeix l'execució de l'app lua»*—. A drag up is the scroll of the page under it, and the rows of the
+// card are the card's. **The app does not run while the card is out** (`kernel.cpp` skips its turn), which is what makes the
+// card unclosable by anything but a person.
 void poll();
 
 }  // namespace panel

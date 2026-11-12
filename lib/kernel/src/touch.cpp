@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "kernel/display.h"
+#include "kernel/log.h"
 #include "kernel/meter.h"
 #include "kernel/orientation.h"
 #include "kernel/ui.h"
@@ -32,17 +33,21 @@ hal::IClock* g_clock = nullptr;
 hal::TouchPoint g_frame[kMaxPoints];
 uint8_t g_count = 0;
 
-// A finger that lands and leaves inside this is a `tap`. The window is the button's, because two
-// different windows on one board is a person learning two things (docs/30).
-const int32_t kTapMs = 400;
-// Held this long and it is a `long`, said once, when the threshold is crossed and not when the
-// finger leaves: the same rule the button follows (docs/30).
+// A finger that lands and leaves without moving is a `tap`, and **the four hundred milliseconds that used to be its
+// ceiling are gone** (0.179.29): a press held for six hundred and lifted was neither a tap nor a `long`, so the app heard
+// nothing at all while the control under it clicked. `held_ms` says how long it was, which is the number an app needs.
 const int32_t kLongMs = 1000;
 // How far a finger may move and still be the same press, in the chip's own units, which are pixels
 // of the panel (docs/50).
 const int32_t kSlopPx = 20;
 
 bool g_down = false;
+// **L'AMO DEL CONTACTE** (0.179.34): who the finger that is on the glass belongs to, decided on the frame it landed and
+// not asked again. The three that exist are the page (its controls), the band of the keyboard, and the system —the strip of
+// the bar and a card over the page, which deliver to nobody here because the panel and the bar read the queue—. It is what
+// makes a swipe that ends on a button nobody's: the owner was decided where the finger began (docs/30, docs/90).
+enum : uint8_t { kNoContact = 0, kThePage = 1, kTheKeyboard = 2, kTheSystem = 3 };
+uint8_t g_contact = kNoContact;
 int32_t g_down_ms = 0;
 uint16_t g_start_x = 0;
 uint16_t g_start_y = 0;
@@ -95,8 +100,22 @@ int32_t now_ms() {
   return (g_clock != nullptr) ? static_cast<int32_t>(g_clock->monotonic_ms()) : 0;
 }
 
+// **Els tocs que esperen la finestra, dits d'una vegada** (0.179.29): it is the same sentence `settle_taps` says when the
+// window closes, and `emit` asks for it as well when **another gesture** arrives, because a drag between two taps is not a
+// double.
+void say_the_taps();
+
 void emit(const char* kind, uint16_t x, uint16_t y, int16_t dx, int16_t dy, int16_t spread,
           int32_t held_ms, uint8_t fingers) {
+  // **Un altre gest tanca la finestra dels tocs** (0.179.29): a tap waits three hundred and fifty milliseconds to know
+  // whether it is alone, and a person who does something else in that time has answered for it —a tap, a short drag and
+  // another tap were said as a `drag` and a `double`, and the page heard two taps where there were two taps but also a
+  // drag between them—. What was waiting goes in the queue **before** the gesture that closed the window, which is the
+  // order it happened in (docs/30, docs/90).
+  if (kind != nullptr && strcmp(kind, "tap") != 0 && strcmp(kind, "double") != 0 &&
+      strcmp(kind, "triple") != 0) {
+    say_the_taps();
+  }
   if (g_queue_count == kQueueLength) {
     // Full: the oldest goes. Losing a gesture is bad; losing the **newest** is worse, because the last
     // thing a person did is the one they are waiting for (docs/30).
@@ -115,16 +134,30 @@ void emit(const char* kind, uint16_t x, uint16_t y, int16_t dx, int16_t dy, int1
   // **A gesture made by one finger also says where it landed** (0.179.22): a pair's middle is not on the bar, and the
   // gestures of one finger are the ones the shade is made of (docs/30).
   slot.on_the_bar = (fingers < 2) && g_start_on_the_bar;
+  // **I cada gest diu què és, on i amb quants dits** (0.179.28): every gesture of this system is made here and nowhere
+  // else, so this one line is the whole of what a person with the board in their hand cannot see —the chip gives points
+  // and the names are the kernel's—. It is `kLogInfo` and not a debug line because a gesture is **one event and not a
+  // frame**: a drag is said once, on the lift, and so is a tap when the window of the multi-tap closes, so a panel moved
+  // all over costs a handful of lines and not one a turn (docs/30, docs/85).
+  log_printf(pal::kLogInfo, "TOUCH", "%s %u,%u dx %d dy %d spread %d, %u finger(s), %d ms%s", kind,
+             static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<int>(dx),
+             static_cast<int>(dy), static_cast<int>(spread), static_cast<unsigned>(fingers),
+             static_cast<int>(held_ms), slot.on_the_bar ? " on the bar" : "");
 }
 
 // A tap that is alone becomes a `tap`; two in a row inside the window are a `double` and three are a
 // `triple`, which is said at the third one and does not wait for a fourth (docs/30).
+void say_the_taps() {
+  if (g_taps == 0) return;
+  const char* kind = (g_taps >= 3) ? "triple" : ((g_taps == 2) ? "double" : "tap");
+  g_taps = 0;
+  emit(kind, g_tap_x, g_tap_y, 0, 0, 0, g_tap_held_ms, 1);
+}
+
 void settle_taps(int32_t now) {
   if (g_taps == 0) return;
   if ((now - g_last_tap_ms) <= kMultiTapMs) return;
-  const char* kind = (g_taps >= 3) ? "triple" : ((g_taps == 2) ? "double" : "tap");
-  emit(kind, g_tap_x, g_tap_y, 0, 0, 0, g_tap_held_ms, 1);
-  g_taps = 0;
+  say_the_taps();
 }
 
 // The distance between two points, without floating point: the kernel has no maths library and this
@@ -268,6 +301,7 @@ bool boot(hal::IPlatform& platform) {
   g_clock = platform.clock();
   g_count = 0;
   g_down = false;
+  g_contact = kNoContact;
   g_queue_count = 0;
   g_taps = 0;
   g_seen_ms = -1;
@@ -308,21 +342,58 @@ void poll() {
     g_count = 0;
     g_seen_ms = -1;
   }
-  // **The controls see the same frame the app reads**: a finger on a UIButton is a press and a
-  // click, not a detail every app has to wire again (docs/30, docs/90).
-  // **The keyboard of the system takes the finger inside its band first**: a page under the band must not be
-  // pressed through it (docs/90).
-  // **And a page that a card of the system is over is not pressed** (0.179.22): the fingers of a person looking at the panel
-  // are over the page and not on it, so the controls hear the lift and not a press —a button under a card that acts is a
-  // button that acts on a page nobody is looking at— (docs/30).
-  if (g_count > 0 && !ui::page_held()) {
-    if (!ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
+  // **QUI REP L'EVENT ES DECIDEIX EN COMENÇAR I NO ES TORNA A MIRAR** (0.179.34): a contact has **one owner** from its
+  // first frame —the strip of the system, the band of the keyboard, or the page— and every frame that comes after goes to
+  // that one. It is the rule the owner wrote down: *«l'event, tant gest com toc(s) l'ha de rebre l'objecte UI que hi ha
+  // sota quan comença l'acció»*, and both of its halves are needed: a swipe that begins on the bar is the bar's, **and a
+  // swipe that ENDS on a button is nobody's**, because the finger began somewhere else and a button that answers the end
+  // of a gesture is a button acting on something it never heard (docs/30, docs/90).
+  //
+  // **The keyboard is why the owner is remembered and not asked again in every frame**: `keyboard_touch` is given the
+  // point of the finger, so a drag that began on the page and crossed the band used to type the key it happened to pass
+  // over —the band taking a contact that was never its own—. With one owner the band is asked **once**, with the point
+  // the finger landed on (docs/90).
+  if (g_count == 0) {
+    // **El contacte s'ha acabat**: the owner hears the lift, and the next contact decides its own.
+    if (g_contact != kNoContact) {
+      log_printf(pal::kLogDebug, "TOUCH", "the contact is over (%d was the owner)", static_cast<int>(g_contact));
+    }
+    if (g_contact == kTheKeyboard) ui::keyboard_touch(0, 0, false);
+    if (g_contact == kThePage) luabind::ui_touch_progress(0, 0, false);
+    g_contact = kNoContact;
+  } else if (g_contact == kNoContact) {
+    // **Un contacte nou vol dir que el dit de la banda de abans ja no hi és** (0.179.45): the band keeps `held_` between
+    // frames so a finger that stays on a key types once, and a lift that the glass never reported —a frame lost while a
+    // paint held the turns, which this panel does by the hundred— left it set for ever; from that moment the band answered
+    // `true` to every finger and typed **none** of them, and the dial was refused with the same word (`held_`). A contact
+    // that begins is a contact that is not the one before, so the band is told its finger is over before it is asked whose
+    // this one is (docs/30, docs/90).
+    ui::keyboard_touch(0, 0, false);
+    // **La primera passada del contacte, i el propietari es decideix aquí**: `on_the_bar` is the strip of the system,
+    // which is not part of any view —the first rows of the bar and the first rows of the page are the same numbers—; then
+    // the band of the keyboard, asked with the row the finger landed on, so a page under it cannot be pressed through it;
+    // and everything else is the page. **A card of the system over the page** (0.179.22) is the system's too: a button
+    // under a card that acts is a button acting on a page nobody is looking at (docs/30, docs/50).
+    if (g_on_the_bar || ui::page_held()) {
+      g_contact = kTheSystem;
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the system's: bar %d, page held %d",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y), g_on_the_bar ? 1 : 0,
+                 ui::page_held() ? 1 : 0);
+    } else if (ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true)) {
+      g_contact = kTheKeyboard;
+    } else {
+      g_contact = kThePage;
+      log_printf(pal::kLogDebug, "TOUCH", "the contact at %u,%u is the page's",
+                 static_cast<unsigned>(g_frame[0].x), static_cast<unsigned>(g_frame[0].y));
       luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
     }
-  } else {
-    ui::keyboard_touch(0, 0, false);
-    luabind::ui_touch_progress(0, 0, false);
+  } else if (g_contact == kThePage) {
+    luabind::ui_touch_progress(g_frame[0].x, g_frame[0].y, true);
+  } else if (g_contact == kTheKeyboard) {
+    ui::keyboard_touch(g_frame[0].x, g_frame[0].y, true);
   }
+  // `kTheSystem` goes to nobody here: the panel and the bar read the gestures of the queue and the page hears neither the
+  // press nor the click (docs/30, docs/50).
 
   // A tap waiting for its window: when the window closes it is a tap, and if another one arrived inside
   // it, it is a double (docs/30).
@@ -382,7 +453,7 @@ void poll() {
 
   if (g_count == 0) {
     if (!g_down) return;
-    // The finger left: short and still is a tap, moved is a drag with the way it went (docs/30).
+    // The finger left: still is a tap, moved is a drag with the way it went (docs/30).
     const int32_t held = now - g_down_ms;
     if (g_moved) {
       emit("drag", g_start_x, g_start_y, static_cast<int16_t>(static_cast<int32_t>(g_last_x) -
@@ -390,7 +461,13 @@ void poll() {
            static_cast<int16_t>(static_cast<int32_t>(g_last_y) -
                                 static_cast<int32_t>(g_start_y)),
            0, held, 1);
-    } else if (held <= kTapMs) {
+    } else if (!g_long_said) {
+      // **Un dit quiet que s'aixeca és un toc, encara que s'hagi pres amb calma** (0.179.29): the ceiling of four hundred
+      // milliseconds this file had (`kTapMs`, now gone) was the definition of a tap, and a finger pressed for six hundred
+      // and lifted without moving was **neither a tap nor a long**: the control under it clicked —because the controls work
+      // on the frame and not on the name— and the app heard nothing at all, so a page of Lua that reads `touch.gesture()`
+      // lost the press a person had made on purpose. `held_ms` already says how long it was, which is the number the app
+      // needed. **A `long` is said while the finger is still there** and it is not a tap as well (docs/30, docs/90).
       // Counted and not said yet: see `settle_taps`. A third one is a `triple` at once, because
       // nothing longer than three exists and waiting would only add delay (docs/30).
       g_taps = (g_taps > 0 && (now - g_last_tap_ms) <= kMultiTapMs)

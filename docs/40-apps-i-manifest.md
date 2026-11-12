@@ -240,6 +240,31 @@ Regles de validació, totes amb error clar i el nom del camp:
   (`ui::give_back_the_glass()` i `bar::title("")`), perquè ja eren de l'app que no arriba. Una
   finestra d'alarma (`run_window`) **no** pinta cap imatge: no és una arrencada ni té pàgina pròpia,
   i fa servir `load_source`, que és els dos trossos junts.
+- **I qui arrenca diu si la vol** (0.179.33): `shell::start_app(id, splash)` té dues maneres i la targeta
+  **no s'endevina pel manifest**. El **boot de l'app de casa no la pinta** —el vidre ja té la imatge de
+  l'arrencada del sistema, i una segona és una rentada i una targeta per a una cosa que la persona acaba de
+  veure— i **la tornada a un llançador sí**: quan una app de Lua s'acaba, la pàgina d'on venia arriba amb la
+  seva targeta, que és el moment per al qual es va dibuixar (l'amo: *«en launcher no ha de mostrar l'splash
+  rera el boot, tenim l'splash del sistema. L'splash del home s'ha de mostrar al tancar una app lua i tornar
+  al home»*). Les altres arrencades —`run <id>`, una app que en demana una altra, una alarma que la puja—
+  la pinten com sempre.
+- **La targeta del llançador és la recepta del projecte** (0.179.30, retallada a 0.179.39): `home_eink` porta
+  `res/splash.png`, **209 × 445 i 5 585 B**, composta amb `tools/app_splash.py` a partir del **mestre** de
+  la icona —`--icon apps/home_eink/res/icon-source.png --title Home --foot lunokOS`—, que és 448 × 448 i
+  baixa a 232 en comptes d'ampliar la de 94: la targeta surt més fina **i pesa menys** que composta de la
+  petita (11 824 B). És **una targeta i no una pàgina**: el sistema la centra sobre el paper, o sigui que
+  **93 005 píxels** per decodificar i no els 518 400 d'una imatge de tot el vidre, i **5,5 KB** de disc i no
+  els **246 240 B** d'un pla del vidre (`res/splash.e4`), que seria l'única cosa més ràpida de pintar i la
+  més lenta de llegir. Un llançador que és el disc sencer no pot pagar el pla: la targeta és la que es
+  llegeix de seguida, i és també l'única de les dues que sobreviu a un gir de la pàgina.
+  **I des de la 0.179.39 l'eina escriu el dibuix i prou**: la composició es retalla al que hi ha dibuixat amb **12
+  píxels** de marge, o sigui que la targeta va passar de 420 × 520 i 6 906 B a 209 × 445 i 5 585 B (**−57 % de
+  píxels**) i la del lector de 420 × 520 i 6 876 B a **223 × 451 i 6 217 B** (−54 %).
+- **La imatge d'un splash és el dibuix i prou** (0.179.39): el sistema en treu **el fons de la pàgina del seu marge**
+  (si més de la meitat de l'anella exterior és fosca, la pàgina és tinta; si no, paper) i **descarta l'aire uniforme** que
+  envolta el dibuix, que és el que es queda al mig del vidre. O sigui que una imatge no ha de tenir vores blanques ni ser
+  la mida de la pantalla: com més petita és, menys bytes es pugen, menys píxels es descodifiquen i menys superfície mou
+  el panell. `tools/app_splash.py` retalla la targeta al que hi ha dibuixat amb **12 píxels** de marge (docs/50).
 - Els camps desconeguts s'ignoren (per poder afegir-ne en el futur sense trencar res).
 - Si hi ha un camp `id`, **s'ignora**: l'identificador d'una app és sempre el nom del seu directori,
   i un `id` que digui una altra cosa no es comprova ni es fa servir.
@@ -409,21 +434,25 @@ el que fa és pintar la tira i esperar el torn següent.
 - **La forma del panell surt del número de la placa i no d'una constant**: `led.caps().count` és vint-i-cinc i
   `side = floor(sqrt(count) + 0.5)` és cinc, o sigui que el mateix fitxer sobre el llum únic del Lite és un to que
   respira (`rainbow: 1 light(s) in 1 by 1`) i cap línia del codi no diu «Matrix» enlloc (docs/30).
-- **Quatre camps es tornen —`bands`, `iris`, `spiral` i `rain`— i el canvi és una barreja i no un tall**: el que marxa
-  i el que arriba es barregen durant dos segons i mig **en to i en nivell**, i el to va **per la drecera de la roda**
-  —la diferència es plega a ±mig gir—, i així els dos colors que es veuen entremig són veïns de la roda i no una
-  mitjana terrosa en RGB. A sobre, una respiració del nou per cent cada onze segons és el to que no para de moure's.
+- **Quatre camps —`bands`, `iris`, `spiral` i `rain`— i el camp el canvia el botó i només el botó**: cap rellotge els fa
+  tornar (l'amo: *«el canvi d'efecte es fa només amb el botó, no per temps»*). El que hi ha és una **barreja** que comença a
+  la premuda i dura **un i dos dècimes de segon** **en to i en nivell** entre el camp que es mirava i el que arriba; el to
+  va **per la drecera de la roda** —la diferència es plega a ±mig gir—, i així els dos colors que es veuen entremig són
+  veïns de la roda i no una mitjana terrosa en RGB. **Cada camp és una funció del rellotge de l'app** i el número que
+  multiplica `t` és la seva velocitat, que **no es reinicia** quan canvia el camp: des de la 0.179.32 `kFrameMs` és **20 ms**
+  —cinquanta frames per segon en comptes de vint-i-cinc— i el `t` de cada camp va **al doble**: una banda travessa el
+  panell en poc més d'un segon i la cresta de la pluja el baixa cada mig segon.
 - **El nivell és el sostre de la placa**: `led.caps().max` és **vint** al Matrix —vint-i-cinc LEDs de 2020 en una caixa
   tancada s'escalfen per sobre— i una rampa escrita contra 255 seria una rampa que el sistema talla sense dir res. Un
   frame és com a molt `(20, 20, 20)`, i això és el que el panell de debò ensenya.
-- **Un frame és un torn, i el torn s'acaba esperant**: `sys.delay(40):await()` torna la coroutine al nucli, que és qui
+- **Un frame és un torn, i el torn s'acaba esperant**: `sys.delay(20):await()` torna la coroutine al nucli, que és qui
   llatxa la tira a final de torn, i els vint-i-cinc llums amb dos camps i una barreja a sobre costen uns tres mil
   instructions dels vint mil que té un torn. Cap panell s'envia mig pintat (docs/20, docs/75).
-- **L'únic botó salta a la frontera entre dos camps**, que és l'únic instant en què el frame no té barreja: el que es
-  veu després de prémer és el camp següent sencer. Es llegeix amb `button.down(0)` un cop per frame, que és la tercera
-  de les tres maneres que dona docs/30.
-- **I el que diu el registre és el que el cas de la suite llegeix**: `rainbow: 25 light(s) in 5 by 5, 4 fields of 9 s,
-  the button takes the next one` a l'arrencada i `[rainbow] field 2 of 4: iris` quan en canvia un.
+- **L'únic botó és l'única cosa que canvia de camp**, i la barreja cap al següent comença amb la premuda: el que marxa és
+  el camp que es mirava i el que arriba es veu sencer quan la barreja s'acaba. Es llegeix amb `on_button`, que és la
+  segona de les tres maneres que dona docs/30, i dues premudes entre dos frames són dos camps.
+- **I el que diu el registre és el que el cas de la suite llegeix**: `rainbow: 25 light(s) in 5 by 5, 4 fields, the button
+  changes it` a l'arrencada i `[rainbow] field 2 of 4: iris` quan en canvia un.
 - **Viatja a la imatge del Matrix i de cap altra placa** (0.179.19, l'amo: *«afegeix aquesta app al littlefs de només el
   Atom Matrix i l'emulador atom matrix»*): l'entorn `m5-atom-matrix` la demana amb `custom_apps = rainbow`, i el Lite —que
   no la nomena— es queda amb el sistema sol. Són **28 490 B en quatre fitxers** i la imatge mesurada és `7 files, 1 apps
@@ -515,7 +544,8 @@ sistema on corre, i `--foot PaperOS` torna a donar l'original de PaperOS.
 
 **La primera app amb icona i splash és `reader`** (0.151.17): `res/icon-source.png` és el dibuix
 font de l'EPUB de PaperOS (`OLD/PaperOS/tools/icons/EPUB.png`, 448×448, escala de grisos, 2 818 B),
-`res/icon.png` n'és la icona de 94×94 (1 760 B) i `res/splash.png` la composició (6 876 B).
+`res/icon.png` n'és la icona de 94×94 (1 760 B) i `res/splash.png` la composició (**223 × 451, 6 217 B** des de la
+0.179.39, que la retalla al dibuix).
 L'`icon.icn` d'aquella app **no s'ha portat**: el manifest nomeja el PNG, que és el que aquest
 sistema sap llegir.
 

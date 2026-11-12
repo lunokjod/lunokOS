@@ -2315,16 +2315,26 @@ ui.present()
 
 ### `ui.textbox` i el teclat del sistema (0.72.0)
 
-**El cursor és la meitat important d'una caixa de text**, i aquí és un **bloc tan ample com la lletra que té a
-sota**, pintat amb la tinta i amb aquella lletra en paper —un bloc ple taparia la lletra que es va a escriure a
-sobre, i un contorn seria una caixa dibuixada sobre una altra caixa—. **Al final del text, on no hi ha cap lletra, el
+**El cursor és la meitat important d'una caixa de text**, i aquí és **la cel·la de la lletra girada**: la lletra de sota
+el cursor es pinta amb el text i el bloc és el seu rectangle **invertit** —cada nivell canviat pel seu oposat—, que és la
+mateixa primitiva amb què el sistema gira la cel·la triada d'una graella o la cara d'un botó premut (0.179.37). En una
+caixa de dos tons això és tinta i paper, i en una de grisos **la forma de la lletra es conserva**: un bloc ple la taparia
+i un contorn seria una caixa dibuixada sobre una altra caixa. **Al final del text, on no hi ha cap lletra, el
 bloc fa l'amplada d'una `M`** i no la barra de tres píxels de les primeres caixes (0.92.0, docs/90).
 
+- **I la lletra de sota hi és sempre** (0.179.37): abans la capçalera s'aturava al cursor i la resta començava després
+d'ell, o sigui que la lletra del cursor només la pintava el bloc —i mitja parpellejada era una caixa amb un forat al
+text—. Ara es pinta amb el text i el bloc la gira, i la fase apagada és el text sencer i no un forat.
 - **El text és una finestra**: si la línia no hi cap, cauen les lletres del començament fins que el cursor queda
   al vidre. Sense això, qui escriu al final d'una paraula llarga escriu en un lloc que no es veu (docs/90).
 - **El parpelleig és del sistema** (0.92.0): mentre la caixa és la del teclat, el nucli gira `box.caret` cada
-  sis-cents mil·lisegons i torna a pintar la caixa amb un `du`; l'app no ha de portar cap rellotge ni cridar `present`
+  sis-cents mil·lisegons i torna a pintar la cel·la del cursor amb un `du` —**la part més petita que es pot demanar al
+  vidre**, una lletra, i sempre a la qualitat mínima—; l'app no ha de portar cap rellotge ni cridar `present`
   per fer parpellejar el cursor. Escriure una tecla torna el bloc a visible i reinicia el comptador.
+- **I deixa de parpellejar quan no passa res** (0.179.35): sis parpellejos després de l'última cosa que l'ha mogut —un
+  focus, una tecla— el bloc es queda **encès** fins a la següent. Un cursor que parpelleja mentre algú llegeix és tinta
+  que no ha demanat ningú i, en aquest panell, una marca que creix: cada `du` deixa cinc setzens del que troba
+  (docs/50, docs/90).
 - **`mask`** dibuixa un puntet per lletra: és el mateix requadre amb els punts al lloc de les lletres, i per tant el
   cursor cau on cauria i l'amplada del que s'ha escrit no es filtra.
 - **`cursor` és quants bytes hi ha abans del cursor**, no una lletra: una lletra pot fer dos bytes.
@@ -2335,7 +2345,11 @@ bloc fa l'amplada d'una `M`** i no la barra de tres píxels de les primeres caix
 **El teclat no és un control, és del sistema, i des de 0.91.0 segueix el focus.** És una **banda** que el nucli
 pinta a baix de la vista, sobre la pàgina ja composta, i que **pren el dit i el dial abans que els controls de la
 pàgina**. **Quan una caixa de text que pren tecles rep el focus, la banda surt i la caixa passa a ser el target; quan
-el focus se'n va a un botó, a una targeta o a la pàgina buida, la banda es tanca** (docs/30, docs/90).
+el focus se'n va a un botó, a una targeta o a la pàgina buida, la banda es tanca** (docs/30, docs/90). **I amb el dit,
+la banda arriba quan el contacte s'acaba i no quan cau** (0.179.35): la banda canvia l'alçada de la pàgina, o sigui que
+obrir-la amb el dit a sobre és espatllar el gest que començava allà mateix —una caixa de text que s'ha de poder
+recórrer amb el dit no pot perdre la pàgina en el moment de tocar-la—. Un toc hi porta la banda; un dit que camina
+hi desplaça el text (docs/30, docs/90).
 
 **Des de 0.93.0 el teclat és una classe amb un pare comú.** `Keyboard` té la banda, el dit, el dial, el bloc de la
 tecla triada i la cara; cada fill (`QwertyKeyboard`, `AzertyKeyboard`) només diu el seu id i les seves files.
@@ -2404,23 +2418,31 @@ end
   vidre: *«el teclat ha de ser més alt i amb tecles i lletres més grans, gairebé no es poden polsar»*. Aquest panell
   llegeix un dit a uns sis píxels per mil·límetre, o sigui que 64 és una mica més d'un centímetre, el més petit que un
   polze prem sense mirar. **La banda no passa mai de dos cinquens de la vista** i, en un vidre petit, s'encongeix ella
-  (mínim 32); el sostre de la lletra és **5 passos**, que és el que cap al bloc de noranta-sis píxels del glif
-  antialiasejat.
-- **Cada lletra es pinta a doble mida i es rebaixa a quatre nivells de tinta** (0.85.0): la cara dona corbes i el
-  vidre té setze nivells, o sigui que la diagonal d'una `x` són quatre passos i no una escala de píxels. És el que fa
-  que el teclat no sembli una graella. El fitxer són **8,5 KB** de la memòria extra i es té mentre la banda és al
-  vidre.
+  (mínim 32); el sostre de la lletra és **5 passos**, que és el que cap al bloc de noranta-sis píxels del glif de quatre
+  mostres.
+- **Cada lletra es pinta a doble mida i cada píxel de la tecla en decideixen quatre mostres** (0.85.0, 0.179.36):
+  la cara dona corbes i el bloc del glif és de doble mida, o sigui que la diagonal d'una `x` es decideix amb quatre
+  mostres i no amb una escala de píxels. **I el que arriba al vidre són dos nivells i no quatre** (0.179.36): la tinta
+  de la tecla o el seu paper, i res entremig —`el teclat usa blanc i negre bàsic per poder-se pintar i esborrar
+  ràpidament`—. El fitxer són **8,5 KB** de la memòria extra i es té mentre la banda és al vidre.
 - **`MAY` és un bloqueig i no un shift** (0.85.0): premut, totes les lletres es pinten en majúscula i la tecla queda
   girada; **es queda així fins que es torna a prémer**. Una lletra no el desactiva —un shift d'una lletra és el d'un
   telèfon, i una pàgina que s'escriu amb el dial vol el mode on la persona l'ha posat—.
-- **Prémer una lletra no repinta la banda** (0.85.0): el que canvia és la caixa, i el dibuix del teclat només es
-  torna a fer quan canvia el bloqueig, l'alfabet, o quan la pàgina passa per sobre de la banda (`ui.clear`, un
-  rectangle o un píxel): la banda viu al llenç i el sistema la torna a posar al següent `present`.
+- **Prémer una lletra no repinta la banda** (0.85.0, i des de 0.179.36 tampoc amb el dit): el que canvia és la caixa,
+  i el dibuix del teclat només es torna a fer quan canvia el bloqueig, l'alfabet, o quan la pàgina passa per sobre de
+  la banda (`ui.clear`, un rectangle o un píxel): la banda viu al llenç i el sistema la torna a posar al següent
+  `present`. **El dit escriu i no mou el bloc del dial**: el bloc és el punter del dial i el dit és el seu propi punter,
+  o sigui que una tecla premuda amb el dit no canvia ni un píxel de la banda —abans movia el bloc dues cel·les per cada
+  lletra escrita, i això era un `gld16` de quatre-cents cinquanta mil·lisegons per lletra— (docs/50, docs/90).
+  **I el canvi de caixa o d'alfabet no espera l'app**: és una pintada que el nucli fa ell mateix al torn de la tecla,
+  perquè una app que només espera no presenta mai (docs/30, docs/50).
 - **La banda fa quatre files en els dos jocs** (0.83.0): un canvi de joc canvia les tecles i no l'alçada, o la
   pàgina que s'ha col·locat a sobre es mouria en prémer el `123`.
-- **La banda es pinta amb `gl16` i no amb `du`**: un joc nou posa tinta on hi havia les lletres del vell, i una
-  actualització ràpida deixa les velles a mig esborrar —dos teclats a la mateixa banda, que és el que es va veure a
-  la banqueta en canviar de joc (0.83.0, docs/50, docs/90).
+- **La banda es pinta amb `gld16` i no amb `du`** (0.83.0, 0.179.36): un joc nou posa tinta on hi havia les lletres del
+  vell, i una actualització ràpida deixa les velles a mig esborrar —dos teclats a la mateixa banda, que és el que es va
+  veure a la banqueta en canviar de joc—. El `du` costa cent vint mil·lisegons però **deixa cinc setzens** del que
+  troba, o sigui que no esborra; `gld16` en deixa dos, aterra al nivell i **no fa cap parpelleig**, i és el més ràpid
+  dels tres que esborren (`gl16` i `gc16` són els altres dos, i parpellegen els dos) (docs/50, docs/90).
 - **I només s'envia al vidre el que ha canviat** (0.83.1): la banda es pinta al llenç a cada `present` perquè és la
   capa de sobre, però una lletra, un espai o un retrocés **no en canvien cap píxel** i no en marquen cap. El bloc de la
   tecla que es mou són dues cel·les, i el canvi de joc o de caixa és la banda sencera. Sense això el teclat
@@ -2714,9 +2736,15 @@ caixa on el text hi cap no en té, de barra (docs/90).
 - **El gest el registra l'app** amb `box.on_swipe = function(self, rows) end`. Sense aquesta funció la caixa no té cap
   gest i el dit hi posa el cursor com sempre: un swipe sobre una caixa que ningú no ha preparat no ha de fer res.
 - **El sistema fa l'aritmètica i pinta**: un dit que recorre la caixa paga una fila cada catorze píxels (els que fa una
-  fila, que és el que diu `box`), escriu el `top` nou, presenta la pàgina amb `gld16` i llavors crida `on_swipe` amb les
+  fila, que és el que diu `box`), escriu el `top` nou, presenta la pàgina i llavors crida `on_swipe` amb les
   files que ha mogut —positives cap al final del text, negatives cap al principi—. Els píxels que no arriben a una fila
   es guarden per al moviment següent, o sigui que un dit lent no perd el que ha recorregut.
+- **Mentre el dit camina es pinta amb `du` i el `gld16` es paga un sol cop, en aixecar el dit** (0.179.35): abans cada
+  fila recorreguda costava un `gld16` —quatre-cents cinquanta mil·lisegons per pas, o sigui quatre segons i mig per un
+  swipe de deu files, que es llegeix com una pàgina que no es mou—. Ara el camí posa les files amb la passada ràpida
+  (cent vint mil·lisegons) i la neta arriba una vegada quan el dit marxa, que és quan el borrós no el mira ningú; i dos
+  `du` no es demanen amb menys de seixanta mil·lisegons entre ells, perquè un dit ràpid travessa diverses files entre
+  dues pintades del vidre i una cua de pintades sobreviu al gest (docs/50, docs/90).
 - **Un toc i un swipe no es confonen**: amb el gest registrat, el cursor **no** es mou en baixar el dit —encara pot ser un
   swipe— i es posa al lloc tocat quan el dit deixa anar sense haver-se mogut més de dotze píxels. Un dit que ha caminat
   prou ja no deixa cursor encara que torni al punt de sortida.
@@ -3067,6 +3095,13 @@ vidre i es poden provar al PC (docs/85).
   finestra no es tanca, un toc no se sap si és sol. L'altra manera —dir-lo de seguida i després
   esmenar-lo— faria que cada app desfés el que ja havia fet amb el primer toc. El `triple` sí que surt
   de seguida, perquè no hi ha res més llarg que tres.
+- **Cada gest surt al registre, amb el lloc i amb quants dits** (0.179.28): una línia `[I][TOUCH]` per
+  gest, del tipus `[I][TOUCH] tap 200,400 dx 0 dy 0 spread 0, 1 finger(s), 380 ms`, i el mateix per a
+  `drag`, `long`, `two`, `pinch`, `double` i `triple` (`2 finger(s)` quan el gest és de dos). Un gest
+  és **un esdeveniment i no un fotograma** —un lliscament es diu una vegada, en aixecar el dit, i un
+  toc quan es tanca la finestra del multi-toc—, o sigui que el registre no s'omple. És la línia que
+  diu què n'ha fet el sistema d'una mà quan el que veu la persona no quadra amb el que fa la placa
+  (docs/85).
 - **Un gest de dos dits es diu pel més gran dels dos que pot fer**: si la distància ha canviat més que
   no s'ha mogut el mig, és `pinch`; si s'ha mogut més el mig, és `drag` amb `fingers = 2`. I **els dos
   números van sempre al missatge** (`spread` i `dx`/`dy`), així que una app que vulgui la història
@@ -3100,6 +3135,30 @@ vidre i es poden provar al PC (docs/85).
   posa `pressed` en baixar, i el clic arriba en aixecar-lo a dins; l'app continua veient el mateix frame i
   el mateix gest a `touch.read()` i `touch.gesture()`, perquè el control no amaga el dit, només decideix
   què fa el clic (docs/30, docs/90).
+- **L'event el rep l'objecte que hi ha sota quan comença l'acció** (0.179.34): un contacte té **un sol amo**,
+  decidit al frame que el dit cau i que no es torna a preguntar —la barra del sistema, la banda del teclat o
+  la pàgina—, i tots els frames que vénen van a aquell. D'aquí surten les tres coses que es veuen:
+  - un **lliscament que comença a la barra** és del sistema, i la pàgina no el sent mai (les files de la barra
+    i les primeres de la vista són els mateixos números, i per això la pregunta es fa a la primera passada,
+    quan encara se sap d'on ve el dit);
+  - un **toc o un lliscament que comença en un botó** és del botó, i un que comença en una caixa multilínia és
+    de la caixa (que el fa córrer);
+  - i **un lliscament que s'acaba damunt d'un botó no és de ningú**: el dit va començar en un altre lloc, i un
+    botó que respon el final d'un gest és un botó que actua per una cosa que no ha sentit. El mateix val per a
+    la banda del teclat: **un lliscament que la travessa no escriu res**, perquè la banda només es pregunta una
+    vegada, amb la fila on el dit va caure (abans es preguntava a cada frame i escrivia la tecla que passava
+    per sobre).
+- **I dins la pàgina, vint píxels fan que el control deixi de ser de ningú** (0.179.29): passat el mateix número
+  amb què es decideix `tap` o `drag`, el control es desprèn i **no clica en aixecar-se encara que el dit acabi a
+  dins del seu requadre**. El toc quiet continua clicant: el que es descarta és el contacte que camina.
+- **Un toc lent és un toc** (0.179.29): el sostre de quatre-cents mil·lisegons que tenia un `tap` deixava un
+  forat —un dit premut sis-cents mil·lisegons i aixecat quiet no era `tap` ni `long`, i una app que llegeix
+  `touch.gesture()` no rebia res mentre el control de sota clicava—. `held_ms` diu quant ha durat. Un
+  `long` es diu mentre el dit encara hi és i **no compta també com a toc** quan marxa.
+- **I un altre gest tanca la finestra dels tocs** (0.179.29): un toc, un lliscament curt i un altre toc
+  sortien com un `drag` i un `double`, perquè la finestra dels tres-cents cinquanta mil·lisegons no mirava
+  què havia passat entremig. El toc que esperava es diu **abans** del gest que tanca la finestra, que és
+  l'ordre en què va passar.
 - **Sense vidre**: les tres crides responen `nil, E_UNSUPPORTED` i `sys.caps().touch` diu `false`.
 - **El marc és el de la vista de l'app, i no el del xip.** El xip compta en 540 × 960 i la pàgina que
   veu una app també, i a sobre **del dret**: es va mesurar l'1/11 tocant les quatre cantonades (docs/95,
@@ -3117,12 +3176,12 @@ vidre i es poden provar al PC (docs/85).
 
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
-terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —l'agafador
-del camí de tornada, que és on va el dit que l'empeny cap amunt: la barra del sistema ja és l'agafador del camí
-d'anada—, i res a dins encara
-—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **una rodona amb una creu a la
-cantonada de dalt a la dreta** que tanca l'app del davant. El gest de tancar-lo és el contrari,
-**arrossegar cap amunt**, i també **un toc a la targeta**, fora de la rodona.
+terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
+barra del sistema, que és l'agafador del camí d'anada: el de tornada és un toc fora de la targeta (0.179.42)—, i res a
+dins encara
+—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **un quadrat negre amb una creu a la
+cantonada de dalt a la dreta** que tanca l'app del davant. **L'única manera de tancar-lo és la de la persona: un toc
+fora de la targeta** —a la pàgina de sota o a la barra de la qual penja—, i res més (0.179.42).
 
 - **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
   cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
@@ -3141,24 +3200,39 @@ cantonada de dalt a la dreta** que tanca l'app del davant. El gest de tancar-lo 
   quan canvia una app.
 - **Si la pàgina se'n va, la targeta se'n va amb ella**: canviar d'app, girar el vidre, canviar la mida de
   la vista o passar a pantalla sencera baixa la targeta sense pintar res, perquè el canvi que hi ha darrere
-  ja renta el vidre. **En pantalla sencera no hi ha estirada**: la barra no hi és i el gest no existeix.
-- **El llindar de tancar és més curt que el d'obrir** (40 píxels contra 60): la targeta ja és a la
-  pantalla i el dit que la tanca només ha de dir el que vol, no demostrar-ho.
-- **La rodona de la cantonada tanca l'app del davant** (0.179.23): un disc negre de quaranta píxels amb
-  una creu blanca, a catorze files de la barra i a catorze de la vora dreta. El toc no tanca l'app a la
+  ja renta el vidre, i ho diu al registre (0.179.42). **En pantalla sencera no hi ha estirada**: la barra no hi és i el gest no existeix.
+- **I una app no la pot tancar, i a sobre no hi corre** (0.179.42): la targeta penja de la barra, els dits a sobre
+  són del panell i la tinta de la pàgina està retinguda, o sigui que el torn de l'app és un torn sota una pàgina que
+  ningú mira. Mentre la targeta hi és el nucli **no fa córrer el corxut de l'app** (`shell::poll_app`), ni el cursor
+  que parpelleja, ni el present de la banda del teclat: l'app queda **en pausa** i torna on era quan la targeta marxa.
+  L'amo ho va demanar així: *«un cop el desplegable es a la pantalla l'app es queda en pausa … Es deixa com estava i es
+  resumeix l'execució de l'app lua»*. És el que fa que **cap app pugui tancar el panell**: no hi ha cap camí pel qual
+  una app caigui el que el sistema té a sobre (docs/30).
+- **El botó de la cantonada tanca l'app del davant** (0.179.23): un **botó del sistema** —un control de
+  seixanta-quatre píxels de costat pintat per `ui::paint_a_button`, el mateix dibuix que tenen tots els
+  botons d'aquest arbre: la cara de paper aixecada quatre píxels, l'ombra de tinta a sota, el marc a la cara
+  i la paraula al mig—, amb una `X` de paraula i a vint-i-quatre files de la barra i a vint-i-quatre de la
+  vora dreta (0.179.31; abans era un disc de quaranta dibuixat a mà i després un quadrat amb una creu de
+  píxels, i un sistema que té un botó no pot tenir una segona manera de dibuixar-lo). La tinta i el toc són
+  **el mateix requadre**: el que se sent és el que es veu. El toc no tanca l'app a la
   seva manera: passa pel **camí únic de sortir d'una pàgina** (`shell::leave_one_page`), que és el
   mateix que el pessic de gran a petit i els tres tocs. O sigui que fa les tres mateixes coses: una
   pàgina amb una altra a sobre la torna i l'app es queda; **un llançador no es tanca**; i una app d'una
   sola pàgina es tanca i **la pàgina que la va obrir torna a agafar el vidre**. La targeta se'n va amb
   l'app que tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la
   targeta i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
-- **I sobre un llançador la rodona no hi és** (0.179.25): el llançador és l'única pàgina que no es
+- **I sobre un llançador el quadrat no hi és** (0.179.25): el llançador és l'única pàgina que no es
   deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
-  toc allà és un toc a la targeta, que la descarta com qualsevol altre. El sistema ho pregunta abans de
+  toc allà és un toc a la targeta, que no fa res (0.179.42). El sistema ho pregunta abans de
   pintar (`shell::the_page_in_front_can_be_left`, la mateixa pregunta que fa el camí de sortir) i no ho
   endevina pel nom de l'app: ho diu el `"launcher": true` del manifest (docs/40).
-- **Un toc a la targeta que no és a la rodona la tanca i prou**: les files de commutadors que vindran
-  prendran els seus propis tocs, i fins llavors la targeta sencera és una cosa que es descarta.
+- **Les files de la targeta són seves** (0.179.42): un toc **a sobre** de la targeta no la tanca —les files de
+  commutadors que vindran prendran els seus propis tocs, i un toc que descarta la targeta seria un commutador que no
+  es pot prémer mai—. El que la tanca és un toc **fora** d'ella, i **cap arrossegament**: un dit que puja per la
+  pàgina de sota és l'scroll d'aquella pàgina, i amb el llindar de quaranta píxels que hi havia la targeta es plegava
+  sola mentre l'amo llegia el fitxer de l'editor —*«Perqué l'editor cancela el panell lliscant de la barra de
+  sistema?»*—. Si la targeta es tanca per una cosa que no és un dit, ho diu al registre (`the card went with the page
+  it was over`), perquè era un tancament que no es podia explicar amb el que hi havia al log.
 
 ## `imu`
 
@@ -3322,8 +3396,14 @@ end
   core es torna a configurar** (no hi ha ni un `onApbChangeCallback` registrat a `cores/esp32`): el
   port sèrie sortiria amb el baud malament, i és l'única interfície d'aquesta placa. El valor que
   torna és **el que la placa corre de debò** i no el que se li ha demanat: un xip classificat per a
-  160 contesta 160 quan se li demanen 240. La placa arrenca a **160 MHz** i una app que vol anar de
-  pressa ho ha de demanar ella, perquè el sistema no el canvia sol (docs/90).
+  160 contesta 160 quan se li demanen 240.
+- **I el sistema ja no va sempre a la mateixa marxa** (0.179.38): treballa a **160** i només demana el
+  topall en els moments en què la feina és previsible que sigui pesada —**l'arrencada** i **el
+  llançament d'una app**, tres segons de finestra— i el deixa solo quan la finestra s'acaba. O sigui que
+  una app que vol anar de pressa ho ha de demanar ella amb `power.cpu(240)`, i **la velocitat que demana
+  algú és la que el sistema torna a posar** quan una finestra es tanca; `power cpu <mhz>` a la consola fa
+  el mateix. **Cada canvi és una línia del registre** (`[I][POWER] cpu 240 MHz from 160 (an app is
+  starting)`), i la finestra es tanca amb la línia de tornada (docs/50, docs/60).
 
 ```lua
 -- Es desa el que calgui abans de baixar, i es llegeix en tornar.

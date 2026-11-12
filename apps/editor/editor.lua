@@ -37,6 +37,12 @@ local kSmall = 2
 local kStatusH = 28
 local kNoteH = 24
 local kCardH = 208
+-- **Un `du` per tecla i un sol rentat net cada quatre** (0.179.35): every key used to ask the glass for a `gld16` —four
+-- hundred and fifty milliseconds of a page painted for one letter, which is what a person writing felt as *«va tot molt
+-- lent»*—. The quick pass is a hundred and twenty and keeps five sixteenths of what it finds, so four of them cost less
+-- than one clean pass and the fifth key pays it: a letter costs a hundred and sixty on average and the page is washed
+-- clean often enough that the ghost of the letters before is not read (docs/50, docs/92).
+local kWashEvery = 4
 -- **The page the editor opens when nobody names one**: it ships in `/res` —the system's own content, which an app
 -- reads and does not write— and the first run copies it into the ground of the app, where Save works (docs/70).
 local kSampleName = 'notes.txt'
@@ -62,6 +68,9 @@ local doc = {
   readonly = false,
   wrap = true,
   note = '',
+  -- **Els comptes de tecles des de l'últim rentat net** (0.179.35): `on_change` pays a `du` and every `kWashEvery` keys
+  -- the `gld16` that takes the ghost away (docs/50, docs/92).
+  keys = 0,
 }
 local asking = nil   -- 'open' or 'save as' while the card is up
 local quits = false  -- Close of the File menu
@@ -384,9 +393,16 @@ box.on_change = function(self, text)
   -- **Writing takes the window back to the caret**: the box follows the caret while nobody has moved it, and whoever has
   -- moved the bar and then writes wants to see what they write (0.88.0, docs/30).
   self.top = -1
-  -- **The letters of the page go to the glass with a wash that cleans and does not blink**: a `du` leaves a third of
-  -- the ink it finds and the text of the key before stays under the new one (docs/50, docs/92).
   say()
+  -- **The letters of the page go to the glass with a wash that cleans and does not blink**: a `du` keeps five sixteenths of
+  -- the ink it finds and the text of the key before stays under the new one (docs/50, docs/92). The clean one comes every
+  -- `kWashEvery` keys and not on each of them, which is the difference between a letter that costs four hundred and fifty
+  -- milliseconds and one that costs a hundred and sixty (0.179.35).
+  doc.keys = (doc.keys or 0) + 1
+  if doc.keys % kWashEvery ~= 0 then
+    ui.present('du')
+    return
+  end
   ui.present('gld16')
 end
 

@@ -36,6 +36,8 @@ void title(const char*) {}
 
 void refresh() {}
 
+bool flush() { return false; }
+
 void poll() {}
 
 }  // namespace bar
@@ -89,8 +91,6 @@ const char* keyboard_at(uint8_t) { return kNoGlass; }
 const char* keyboard_current() { return "none"; }
 
 bool keyboard_select(const char*) { return false; }
-
-bool keyboard_key(const char*, uint32_t) { return false; }
 
 }  // namespace ui
 

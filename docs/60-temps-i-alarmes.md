@@ -149,6 +149,33 @@ button"` a l'ATOM, `"timer, clock"` al Paper). I el sistema **sí que es dorm so
 ha una alarma pendent i ningú no fa servir la placa (§«Qui arma el despert»); a les plaques sense xip
 de rellotge no, perquè un caràcter que arribi mentre dorm es perd i no hi ha pantalla per dir-ho.
 
+## La velocitat del processador: 160 de repòs i dues finestres (0.179.38)
+
+**La CPU és la mateixa decisió que el son** —energia— i es pren al nucli i no dins d'una app: la placa diu quins passos té
+(80, 160 i 240) i un altre número es refusa en comptes d'arrodonir-se.
+
+| Moment | Velocitat | Quant dura | Qui ho diu |
+|---|---|---|---|
+| Arrencada | **240** | fins que el sistema està carregat | `kernel::boot`, `power::hold_cpu(240, 0, "boot")` |
+| Sistema carregat | **160** | fins a la finestra següent | `power::rest_cpu("the system is loaded")` al final del boot |
+| Llançament d'una app de Lua | **240** | **3 s** (`kStartBusyMs`) | `shell::run_app`, `power::hold_cpu(240, 3000, "an app is starting")` |
+| La resta | **160** | — | la velocitat de repòs |
+
+- **La finestra té rellotge i no amo**: `power::hold_cpu(mhz, ms, why)` posa el pas ara i deixa escrit quan s'acaba; qui
+  el tanca és **`power::poll`**, un torn del sistema, o sigui que cap app no ha de vigilar la seva pròpia estona (ni pot
+  deixar-la oberta si penja).
+- **El que demana algú mana sobre el repòs**: `power cpu <mhz>` a la consola i `power.cpu(mhz)` de Lua fan que aquell pas
+  sigui **el que el sistema torna a posar** quan una finestra es tanca, i cancel·len la finestra que hi hagués. Així una
+  persona que baixa la placa a 80 per mesurar no es troba que la propera app la torna a pujar.
+- **Els canvis es veuen al registre**, tots i cada un, amb el número que hi havia abans i el motiu:
+  `[I][POWER] cpu 240 MHz from 160 (an app is starting)`, i el tancament de la finestra
+  `[I][POWER] cpu 160 MHz from 240 (the load is over)`. Una velocitat que el xip no accepta surt com a avís i diu a quina
+  corre. **La línia del boot hi és encara que el xip ja arrenqui a 240**: la política és del sistema i no una casualitat del
+  valor per defecte.
+- **Per què 160 i no 80**: per sota de 80 l'APB baixa amb la CPU i cap perifèric del core es reconfigura (docs/30), o sigui
+  que el port sèrie sortiria amb el baud malament. 160 és el repòs de debò d'aquesta placa, i les dues finestres són els
+  moments en què el treball és, per endavant, pesat: muntar el sistema i compilar i arrencar un intèrpret de Lua.
+
 ## Precisió
 
 | Què | Valor |

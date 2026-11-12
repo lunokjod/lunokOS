@@ -365,6 +365,21 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
                  bool primary = false, const char* title = nullptr, const char* tag = nullptr,
                  uint8_t color = 0, uint8_t scale = 1);
 
+// **El dibuix d'un botó, sobre el vidre mateix** (0.179.31): the panel of the system paints on the glass while the page
+// under it is held, so its controls **cannot** be children of the view's tree —the composition of the page at the release
+// would erase them—, and the close button of the card was a shape drawn by hand in `panel.cpp`: a second way of drawing
+// a button in a system that has one. This is `paint_button`, the function every button of this system is drawn with, over
+// a scratch canvas the size of the control and one `blit` to the surface: the box in the colour of its shadow with the
+// face lifted four pixels —the strip left in sight is what makes it a key and not a rectangle—, the frame on the face, the
+// word centred in what its sixteen pixels of air leave on each side, and the face inverted when it is pressed or has the
+// focus (docs/30, docs/90, docs/92).
+//
+// **The word is cut by the control**: a box of sixty-four leaves thirty-two pixels for it, and `X` at four steps of the
+// face is twenty-two, which is the measure this was drawn for.
+bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                    uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
+                    const char* title, uint8_t color, uint8_t scale);
+
 // ---- a checkbox: a square with a tick, and the state the click changes (docs/30, docs/90) ----
 //
 // **A checkbox is a row**: a square box at its left and the words that say what is being checked, which is a
@@ -644,13 +659,14 @@ bool list_draw(int16_t slot, uint8_t count, uint8_t rows, uint8_t page, uint8_t 
 
 // ---- a text box: a line of letters, the window of it, and the caret (docs/30, docs/90) ----
 //
-// **The caret is the important half of a text box**: it is a block as wide as the letter under it, it is drawn
-// in the ink and the letter under it is drawn in the paper —so the block shows the letter it is on and not a
-// black square—, and the text is a **window** that drops leading letters until the caret is on the glass, or a
-// person typing at the end of a long word types into a place nobody can see (docs/90).
+// **The caret is the important half of a text box**: it is the cell of the letter under it **turned over**, which is
+// `draw_invert` —every level swapped for its opposite, the same primitive the selected cell of a grid uses— so in a box of
+// two tones it is the ink and the letter in the paper, in a box of greys it keeps the shape of the letter, and nothing is
+// shaped twice for a blink (0.179.37). The text is a **window** that drops leading letters until the caret is on the glass,
+// or a person typing at the end of a long word types into a place nobody can see (docs/90).
 //
 // `cursor` is how many bytes of the text are before the caret; `caret` says whether the block is drawn, because
-// the blinking is the app's clock and not the control's; `mask` draws a dot for every letter, which is what a
+// the blinking is the system's clock and not the control's; `mask` draws a dot for every letter, which is what a
 // password is (docs/30).
 bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, bool mask, uint8_t color,
                   uint8_t background, uint8_t border, uint8_t scale);
@@ -836,9 +852,12 @@ bool keyboard_visible();
 uint16_t keyboard_height();
 // The finger, in the view's coordinates. True when the keyboard took it and the page must not see it.
 bool keyboard_touch(uint16_t x, uint16_t y, bool down);
-// The dial: the arrows walk the keys and the centre presses the one they are on. True when the keyboard took the
-// key (docs/90).
-bool keyboard_key(const char* kind, uint32_t key);
+// **I el dial no hi és** (0.179.46): the band is a picture a finger presses, and the keys of the board walk the controls of
+// the page —a box a person has entered takes them as the caret— (docs/30, docs/90).
+// **Whether the band owes a picture and the app is not going to present it** (0.179.36): the case and the alphabet are
+// a band painted again and nothing else on the page changes, so an app that only waits would leave a `MAY` lying in the
+// canvas. The kernel asks this every turn and presents when it is true (docs/30, docs/50).
+bool keyboard_owes_paint();
 
 // **The keyboards the system carries** (0.93.0): the band's common behaviour is one parent class and each keyboard is
 // one child that says its name and its rows. The settings choose one by name; `keyboard_count` and `keyboard_at` are

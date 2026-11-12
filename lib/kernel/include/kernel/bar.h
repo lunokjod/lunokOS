@@ -24,7 +24,9 @@ uint16_t height();
 // Makes the bar and paints it once, white. Needs the panel: `display::boot` goes first (docs/50).
 bool boot(hal::IPlatform& platform);
 
-// The title of the app in front, or "" when there is none. The bar repaints itself on the next turn.
+// The title of the app in front, or "" when there is none. The bar repaints itself on the next turn —and **at once** if
+// the caller asks for it with `flush()` below, which is what a start does so its name is on the glass before the app is
+// even read (0.179.27).
 void title(const char* text);
 
 // **Whether the strip is on the glass at all** (0.136.0): an app that asked for the whole glass has it away, and the
@@ -35,6 +37,16 @@ bool visible();
 
 // The glass changed under the bar —a turn, a new size—: paint the strip again whole (docs/50).
 void refresh();
+
+// **Lo que la barra deu, ara i no al final del torn** (0.179.27): `title()` and `refresh()` only raise a flag, and the
+// strip is painted by `poll()` —which the kernel calls **after** the app's turn—, so the title of a start used to reach
+// the glass after the app's first page and after the whole of the start (`malloc`, the read, the machine and the
+// compile). This paints it where it was asked for. It reads nothing: the hour and the charge are the last ones the
+// turn read, and what it costs is one pass of the strip (docs/30, docs/50).
+//
+// It answers whether it painted anything, which is false for a bar that is hidden (an app with the whole glass), one
+// that was never painted, or one with nothing owing.
+bool flush();
 
 // One turn of the bar: if the minute, the title or the charge changed, it paints **its own strip** and
 // asks for it. Nothing else on the glass is touched (docs/30).

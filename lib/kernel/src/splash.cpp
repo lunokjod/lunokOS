@@ -160,8 +160,10 @@ void settle(hal::ISurface* glass) {
 
 // **The stamp of the build**: `lunokOS v<version>` in the bottom right corner of the glass, in black with a margin, at
 // scale two of the face the system draws with —the five by seven of the flash at the boot, the bold face of the disk
-// later, which is the same face the bar and the prompt use— (0.165.0, docs/30, docs/50).
-void draw_version(hal::ISurface& surface) {
+// later, which is the same face the bar and the prompt use— (0.165.0, docs/30, docs/50). **And in the opposite level of
+// the page** (0.179.39): a picture drawn for a black page leaves the glass black, and a stamp of ink on ink is a colour
+// that says nothing.
+void draw_version(hal::ISurface& surface, uint8_t ink) {
   char text[40];
   snprintf(text, sizeof(text), "lunokOS v%s", kVersion);
   const uint8_t scale = 2;
@@ -170,7 +172,7 @@ void draw_version(hal::ISurface& surface) {
   const uint16_t margin = 16;
   if (surface.width() <= text_w + margin || surface.height() <= line_h + margin) return;
   font::draw(surface, static_cast<uint16_t>(surface.width() - text_w - margin),
-             static_cast<uint16_t>(surface.height() - line_h - margin), text, scale, 0);
+             static_cast<uint16_t>(surface.height() - line_h - margin), text, scale, ink);
 }
 
 // **One nibble of a packed row**, which is the packing of the glass and of the decoder: one byte per two
@@ -211,6 +213,77 @@ void on_row(void* context, uint16_t y, const uint8_t* packed) {
 
 void release(void* block) {
   if (block != nullptr) pal::extra_memory().release(block);
+}
+
+// **El fons d'una imatge és el del seu marge** (0.179.39): a drawing made for a black page has black borders and one made
+// for paper has paper borders, so the outermost ring of the picture is what says which page the picture belongs on. **A
+// tie is paper**: half of the ring dark is a picture with no background of its own —a photograph cut at its edges, the two
+// by two of a test— and white is the page that costs nothing (docs/30, docs/50).
+uint8_t level_at(const uint8_t* pixels, uint16_t stride, uint16_t x, uint16_t y) {
+  return nibble(pixels + static_cast<uint32_t>(y) * stride, x);
+}
+
+uint8_t background_of(const uint8_t* pixels, uint16_t stride, uint16_t width, uint16_t height) {
+  if (pixels == nullptr || width == 0 || height == 0) return 15;
+  uint32_t ring = 0;
+  uint32_t dark = 0;
+  const auto look = [&](uint16_t x, uint16_t y) {
+    ++ring;
+    if (level_at(pixels, stride, x, y) < 8) ++dark;
+  };
+  for (uint16_t x = 0; x < width; ++x) {
+    look(x, 0);
+    if (height > 1) look(x, static_cast<uint16_t>(height - 1));
+  }
+  for (uint16_t y = 1; y + 1 < height; ++y) {
+    look(0, y);
+    if (width > 1) look(static_cast<uint16_t>(width - 1), y);
+  }
+  return (dark * 2 > ring) ? 0 : 15;
+}
+
+// **El dibuix i no l'aire que el volta** (0.179.39): a picture is drawn on a canvas as big as the artist wanted and the page
+// it lands on has its own air, so the uniform border of the picture is dropped and what is left is **centred**. It is the
+// whole of what a splash costs —the pixels decoded and the ones the panel is asked to move— and it is what lets a drawing be
+// the size of itself and not of the glass (docs/30, docs/50). A pixel belongs to the drawing when it is more than two levels
+// away from the background, which is what the dither of a flat area leaves.
+struct Box {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+};
+
+Box drawing_of(const uint8_t* pixels, uint16_t stride, uint16_t width, uint16_t height, uint8_t background) {
+  Box box;
+  box.w = width;
+  box.h = height;
+  uint16_t left = width;
+  uint16_t right = 0;
+  uint16_t top = height;
+  uint16_t bottom = 0;
+  bool any = false;
+  for (uint16_t y = 0; y < height; ++y) {
+    for (uint16_t x = 0; x < width; ++x) {
+      const int32_t delta = static_cast<int32_t>(level_at(pixels, stride, x, y)) - static_cast<int32_t>(background);
+      if (delta <= 2 && delta >= -2) continue;
+      any = true;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  // **A picture with no drawing in it is the picture**: a page of one tone has no air to drop, and a box of nothing would
+  // paint nothing at all.
+  if (!any) return box;
+  // **La columna on comença el dibuix ha de ser parell** (docs/50): the nibble of the left half of a byte is the pixel
+  // beside it, so a rectangle that starts at an odd column would blit somebody else's pixels.
+  box.x = static_cast<uint16_t>(left & ~static_cast<uint16_t>(1u));
+  box.y = top;
+  box.w = static_cast<uint16_t>(right - box.x + 1);
+  box.h = static_cast<uint16_t>(bottom - top + 1);
+  return box;
 }
 
 }  // namespace
@@ -338,10 +411,13 @@ bool show_plane(const char* path, hal::ISurface* glass, const hal::Stat& info) {
   // 259 200 B that the next line would write over— and no centre, because a plane that does not fit is refused above
   // (docs/50).
   glass->blit(0, 0, width, height, static_cast<const uint8_t*>(block), stride);
+  // **El segell va en el nivell contrari al de la pàgina** (0.179.39): a plane brings its own page with it, so which one it
+  // is has to be read from the plane and not supposed.
+  const uint8_t page = background_of(static_cast<const uint8_t*>(block), stride, width, height);
   release(block);
   // The version of the build goes over the picture like it does on every other one (0.165.0): it is a stamp of the
   // system and not part of the file (docs/30).
-  draw_version(*glass);
+  draw_version(*glass, (page == 0) ? 15 : 0);
   settle(glass);
   const bool painted = glass->flush(hal::UpdateMode::kGc16);
   if (!painted) {
@@ -438,18 +514,18 @@ bool show(const char* path) {
     g_error = "the picture is not one this system can draw";
     return false;
   }
-  // **One wash and one paint**: the glass is cleaned whole, the picture goes in the middle, and the panel
-  // is asked for a `gc16` of everything — the mode that takes the ghost of the page before with it
-  // (docs/50, docs/92).
-  const uint16_t at_x = static_cast<uint16_t>((glass_w - width) / 2u);
-  const uint16_t at_y = static_cast<uint16_t>((glass_h - height) / 2u);
-  glass->clear(15);
-  glass->blit(at_x, at_y, width, height, sink.pixels, stride);
-  // **The version of the build, in a corner and in the face of the system** (0.165.0): a board on a table has no console,
-  // and the one thing a person asks of the picture at the boot is which build it is. Black letters, a margin of sixteen
-  // pixels, the bottom right corner and **scale two** —a stamp and not a text— over whatever the picture has there, which
-  // is the owner's wish: discreet (docs/30, docs/50).
-  draw_version(*glass);
+  // **One wash and one paint**: the glass is painted with the page the picture belongs on and the **drawing** —the picture
+  // without its air— goes in the middle. The panel is asked for a `gc16` of everything, the mode that takes the ghost of
+  // the page before with it (docs/50, docs/92).
+  const uint8_t page = background_of(sink.pixels, stride, width, height);
+  const Box box = drawing_of(sink.pixels, stride, width, height, page);
+  const uint16_t at_x = static_cast<uint16_t>((glass_w - box.w) / 2u);
+  const uint16_t at_y = static_cast<uint16_t>((glass_h - box.h) / 2u);
+  glass->clear(page);
+  glass->blit(at_x, at_y, box.w, box.h,
+              sink.pixels + static_cast<uint32_t>(box.y) * stride + static_cast<uint32_t>(box.x / 2u), stride);
+  // **And the stamp in the level the page is not** (0.179.39): black letters on paper and paper letters on ink.
+  draw_version(*glass, (page == 0) ? 15 : 0);
   // **The wash before is over before this one is asked for** (0.118.2): the panel refuses a paint that arrives while
   // it is moving ink, and the boot's own wash of the whole page is still running when a person types quickly.
   settle(glass);
@@ -459,8 +535,12 @@ bool show(const char* path) {
     note_failure("the panel did not take the picture", glass->last_error());
     return false;
   }
-  log_printf(pal::kLogInfo, "SPLASH", "%s, %ux%u at %u,%u", path, static_cast<unsigned>(width),
-             static_cast<unsigned>(height), static_cast<unsigned>(at_x), static_cast<unsigned>(at_y));
+  // **El que ha costat arribar al vidre es diu**: the drawing and not the picture is what the panel moved, which is the
+  // number a person reads when a splash feels slow (docs/30, docs/50).
+  log_printf(pal::kLogInfo, "SPLASH", "%s, %ux%u at %u,%u, a drawing of %ux%u, the page is %s", path,
+             static_cast<unsigned>(box.w), static_cast<unsigned>(box.h), static_cast<unsigned>(at_x),
+             static_cast<unsigned>(at_y), static_cast<unsigned>(width), static_cast<unsigned>(height),
+             (page == 0) ? "ink" : "paper");
   return true;
 }
 

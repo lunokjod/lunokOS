@@ -5598,6 +5598,472 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.46 (12/11): **the band of the keys is the fingers' and the dial is the caret**. The owner cut the contract
+// with the board in his hand: *«no vull selector amb botons físics al teclat per software, al teclat per software
+// només vull tocs de dits»*, and the selector is for a text box —the two keys walk the caret left and right— and for a
+// multiline one it walks the line up and down keeping the column and stopping at the last letter of a short line,
+// which is what the finger on the text does too. What that took away: `Keyboard` lost the cell it was on and the
+// walking of the dial, `keyboard_key` is gone from the system, and `button::deliver` gives the keys of the board back
+// to the page instead of handing them to the band (docs/30, docs/90).
+//   **And the band types into the box that has the focus** when the app named none —the clock's note is an app that
+//   never says `kb.target`— or when the one it named is not on the page any more: the two faults were the same one,
+//   a table of the app that was not there and a silent `return`, and the letter went nowhere with the band painted and
+//   the ring still walking it. Both now say so on the console (0.179.45 was the first half of it).
+// 0.179.45 (12/11): **the keyboard types again, with the fingers and with the dial, and it says why when it cannot**. The
+// owner, in the editor: *«El táctil tampoc funciona en el cas 1, el dial no escriu, però els tocs sobre les lletres tampoc.
+// Soluciona l1 per ara i fes-ho bé. El teclat ha de funcionar i ser rápid»* (docs/30, docs/90):
+//   - **la banda escriu a la caixa que ha nomenat l'app i, si ja no hi és, a la que té el focus** (`keyboard_object`): both
+//     the finger and the dial end in `ui_keyboard_typed`, so the one fault that explains **both** is a target that is not on
+//     the screen any more —a page the system made again leaves the registry pointing at a slot that went back to the
+//     table— with the band painted and the ring still walking it, which is what the board showed. The fallback is the
+//     focused text box —the control the person is looking at and the one the caret is on— and it says on the console
+//     `keyboard: the box the band was given is gone; it types into the one with the focus`, because a target that went
+//     away is a fault of the page and not of the person;
+//   - **i un contacte nou desbloqueja la banda** (`touch::poll`, `g_contact == kNoContact`): `held_` is what makes a finger
+//     that stays on a key type once, and a lift this panel never reported —a frame lost while a paint held the turns— left
+//     it set for ever; from then on the band answered `true` to every finger and typed none of them, and the dial was
+//     refused with the same word. The release is now given on the first frame of any contact, before its owner is decided;
+//   - **and the two silent exits of `ui_keyboard_typed` are gone**: a band with nothing to type into is a warning of the
+//     kernel (`ui_keyboard_has_target`, which now asks the real question) and a stale target is a line of the console, so
+//     the next log says which of the two it was instead of showing a keyboard that does nothing;
+//   - **the cost of a key is unchanged and it is the one to keep**: a letter is a `du` of the box (a hundred and twenty
+//     milliseconds) and the band is not repainted for it (0.84.4); showing the band is a `gld16` of its two hundred and
+//     fifty-six rows and the app's own repaint of the page, which is the number to watch when a start feels slow.
+
+// 0.179.44 (12/11): **the card of the system no longer closes on a gesture that happened before it existed**. The board's
+// log had `pulled down: the card is 304 rows under the bar` and `put away: the page is back` with nothing in between, and
+// the owner's own words were *«Perqué l'editor cancela el panell…?»* (docs/30, docs/50):
+//   - **the queue of gestures is emptied when the card comes out** (`touch::forget_gestures` in `panel::poll`): a tap of a
+//     moment before is a tap that happened before there was a card to dismiss, and it was still in the queue when the drag
+//     pulled the card out —so the very next turn took it as the tap outside that puts the card away—. Nothing that happened
+//     before the card can act on it, which is the same rule the owner wrote for a swipe that ends on a button;
+//   - **what the same log measured**: a `gc16` of the whole page takes **2 650 ms** on this board —`LUTAFSR 0000 2650 ms`,
+//     `a page held the engine 2650 ms`— and the card costs **two** of those washes, one to come out and one to go. The card's
+//     rows are 304 of the 912, so a close that paints only them would cost a third; it is **not** done here, because it
+//     narrows the promise of 0.179.22 («when the card goes the page comes back whole») and three cases of the suite assert
+//     it. The next step is that decision and not a number of this note.
+
+// 0.179.43 (12/11): **the garbled line of the log is the serial port changing speed under itself, and the band that types
+// into nothing now says so**. The owner read the board: *«Que vol dir l'escombrería del missatge del [D][PANEL] paint 60 ?»*
+// —`(page 108lx␘␂����2, 76 rows of 36 B)`— and, in the same message, a keyboard whose focus arrived and whose fingers typed
+// nothing (docs/50, docs/90):
+//   - **the port is emptied before the processor moves** (`empty_the_line` in `power.cpp`): the rate of the UART comes from
+//     the clock of the bus and the chip re-derives it when the frequency changes, so the bytes already in the FIFO and in the
+//     shift register go out at the rate of before and the port shows them as garbage. That is why the corruption falls on
+//     the **last line written before the change** and not on the one after it, which in his log was the clean
+//     `[I][POWER] cpu 160 MHz from 240`. It is the same wait the sleep of this system already does before it stops the
+//     clocks, said for a step instead of a stop;
+//   - **a band that types into nothing is a warning** (`ui_keyboard_has_target`): `ui_keyboard_typed` answers nothing at all
+//     when no object is bound to the band —the letter goes nowhere, the page does not change and no line says why—, which is
+//     the one failure of this tree that was silent everywhere;
+//   - **and a finger inside the band that lands on no key says where it landed** (a debug line in `Keyboard::touch`): the
+//     call answers false both for a point above the band —the page's, and the band must not take it— and for a point
+//     **inside** its rows that falls in its margins or between two cells. The first is a page that works and the second is a
+//     band that eats a finger and types nothing, and until now the two looked the same from outside;
+//   - **what is written and not measured**: no case of the suite covers the two lines above —they are diagnostics—, and the
+//     typing itself is covered by the band's cases of `test_ui`, which type through `keyboard_touch` at a known point. The
+//     board's answer is what the next log says, and the two lines are there to be read once.
+
+// 0.179.42 (12/11): **the card of the system has one way out and it is the person's, and the app does not run while it is
+// out**. The owner, in the editor: *«Perqué l'editor cancela el panell lliscant de la barra de sistema? ningú pot fer-ho
+// això, un cop el desplegable es a la pantalla l'app es queda en pausa. Ningú ha de poder tancar el panell excepte
+// l'usuari, picant fora de la zona desplegada. Es deixa com estava i es resumeix l'execució de l'app lua»* (docs/30):
+//   - **a drag up no longer folds the card** (`kPushPx` is gone): a swipe up is what the page under the card does with its
+//     own scroll, so a hand that scrolled the editor's file folded the system's card without being asked. The card is
+//     opened with a drag down from the bar and that is the only drag it knows;
+//   - **and a tap on the card no longer folds it either** (`on_the_card`): the rows of the card are its own —the switches
+//     that come later will take their taps— and the way out is a **tap outside** it, on the page below or on the bar it
+//     hangs from;
+//   - **the app's turn is not run while the card is out** (`kernel.cpp`): `shell::poll_app`, the blinking caret and the
+//     present of the keyboard band wait, so the page under the card is left exactly as it was and the Lua resumes where it
+//     stopped when the card goes —a coroutine is suspended between turns anyway, so the pause costs it one turn—. The
+//     alarms, the light, the network and the prompt keep running. This is what makes the card unclosable by an app: there
+//     is no road left by which one could end the thing the system has on top of it;
+//   - **the three taps of a full-screen app are not asked under the card** (`ui::poll_full_screen`), because a triple tap
+//     there is a tap outside it;
+//   - **and the one close that is not a finger says so**: the card that goes with the page it was over (`!page_held`, a
+//     turn or a new view) wrote nothing to the log, which is why a card that disappeared could not be accounted for;
+//   - **measured by two rewritten cases** (`test/test_touch`): a hundred pixels up leave the card open, held and unpainted,
+//     and then a tap below it puts it away and the page comes back whole; and a tap on the card leaves it where it is while
+//     the same tap one row below the card takes it away. **Both are written and not run.** The pause itself has no case of
+//     its own: the turn of the kernel is not part of `test_touch`.
+
+// 0.179.41 (12/11): **the editor is slow because the system painted its page at a quality the app never asked for, and
+// because a page's wait had grown to three seconds**. The owner read the log of the board and asked what those lines
+// were: *«Perqué l'editor fa tants refrescos i a aquesta qulitat??? l'editor ha de ser lleuger, rápid, responsiu!»*
+// (docs/30, docs/50, docs/92):
+//   - **`present_each` no longer writes over the quality an app named**: it is the present of the system's own ink —the
+//     ring that moves, the control that let go, the value that was stepped— and it wrote `mode` into **every** region,
+//     so the `du` a text box asked for by name came out as the `gl16` of the whole box: four hundred and fifty
+//     milliseconds and a blink for the hundred and twenty of the quick pass, on the first touch of the glass and on every
+//     step of the dial. A region that named a quality keeps it; the ones that named nothing still get the pass;
+//   - **and that pass is `a2` and not `gl16`**: two hundred and ninety milliseconds against four hundred and fifty, and
+//     the two-level waveform is the one the ink of a ring and a face is drawn in. The page a merged present covers keeps
+//     the strongest quality the app named, and only takes the present's when the app named none;
+//   - **`LUTAFSR` is the register of the engine**, `0x1224` = the display register base plus `0x0224`: zero means no LUT
+//     engine of the controller is running. The line of the log is written on the **first** read that answers, and the
+//     milliseconds are **when the question was asked** and not how long the ink took —`LUTAFSR 0000 3632 ms after the
+//     paint` is a read that came back three seconds and six tenths after the paint went out—;
+//   - **and those three seconds were the driver's own fault** (`kEngineFloorCeilingMs`): the floor a page is waited for
+//     before the first question is learned from a measurement that ended when the register answered, so a read the bus
+//     held for two seconds was recorded as **two seconds of ink**, and the number only grows —every page of the run waited
+//     it before asking a register that would have said `0000` at once—. A read that had to be asked again measures
+//     nothing, and the learned floor is capped at a page's ink (1 200 ms), so the answer of the panel is what decides
+//     again;
+//   - **the debug read after the paint is gone, and it was the one that made every paint wait for its own ink**
+//     (0.179.41): `flush` read `LUTAFSR` right after `DPY_BUF_AREA` —the `engine status read after the paint` line of
+//     0.118.8— and the answer was never used, only whether the read had succeeded. But `read_words` waits on the **BUSY**
+//     line before it takes a word, so that line waited the whole paint (a hundred and twenty to four hundred and fifty
+//     milliseconds, and the three-second cap when the engine was slow) with the turn of the kernel inside it — on a paint
+//     this driver asks **without waiting**, which is what `idle()` exists for. It was also inside the `now - painted_ms_`
+//     that the next wait learns a page's ink from, so the driver recorded its own blocking as ink. The owner asked
+//     exactly this with the board's log in his hand: *«son necesaris per fer la feina? o es un debug antic que està fent
+//     consultes innecessàries a la eink fent-la més lenta?»*. What the engine says is still read, where it means
+//     something: `wait_paint`;
+//   - **and `idle()` no longer blocks on it either**: `engine_over` asked the register every turn the moment the floor
+//     passed, and a read waits on BUSY. Now the pin is read first —one GPIO, low is "still painting"— and the register is
+//     asked only when the line says the ink has stopped, or when a page's ink has gone by without the line moving;
+//   - **the `LUTAFSR` line of the log is said only when it says something**: a status that is not zero, or a question that
+//     had to wait longer than a page's ink. A `0000` at the floor is the number the driver already knows, and a line per
+//     paint is a line on the wire per paint — there is no level filter in this system, so a debug line costs its
+//     formatting and its echo (docs/50);
+//   - **written and not measured**: `test_a_present_of_the_system_keeps_the_quality_the_app_named` (`test_ui`) paints a
+//     box of seven hundred of the nine hundred and sixty wide with a `du` by name and asserts that a present of the system
+//     asking `gl16` leaves the glass at `du`, and that a box that named nothing takes the `gl16` of that present. **The
+//     board's numbers are pending**: what the editor should show is a `du` of its document box per letter and no `gl16`
+//     of it at all.
+
+// 0.179.40 (12/11): **the strip of the bar never flashes**. The boxes of the hour, the title and the charge were already
+// `gld16` and the whole strip was `gc16` —two blinks of forty-eight rows— on every boot, every return of the strip and
+// every picture that washed the glass (docs/50, docs/92):
+//   - **the three whole-strip paints are `gld16`** (`boot`, `flush`, `poll`): the wash keeps two sixteenths, does not
+//     blink, and it is the same quality the boxes already used, so the bar has one wash and not two;
+//   - **and the strip is two tones, which is what makes it enough**: the paper is `fill_rect(…, 15)`, the line and every
+//     run of a letter are `fill_rect(…, 0)` —`font::draw` puts **one** level down and not four shades—, so the two
+//     sixteenths of what the page under the strip left land on a **level thirteen and not a black band**;
+//   - **measured by the case of the strip** (`test_the_strip_of_the_bar_is_two_tones`): every pixel of the forty-eight rows
+//     of the bar is zero or fifteen and nothing else, with ink and paper both there, which is the promise that a single
+//     `gld16` can take back; and the three cases that asserted `gc16` for a whole strip now assert `gld16` —the strip that
+//     comes back, a turn and the view given back—. **The measure on the board is pending**.
+
+// 0.179.39 (12/11): **a splash is the drawing and the page of its own border**. A picture of an app was decoded and laid on
+// a page of paper with all the air the artist had left in it (docs/30, docs/40, docs/50):
+//   - **l'aire que envolta el dibuix es descarta** (`drawing_of`): the box of the pixels that are more than two levels away
+//     from the picture's background, which is what the dither of a flat area leaves. That box is what is blitted and what
+//     the panel moves, and it is centred on the glass, so a drawing does not have to have white margins or be the size of
+//     the screen —which is the whole of the load of a splash: the bytes uploaded, the pixels decoded and the surface the
+//     panel is asked to move—;
+//   - **i la pàgina és la del marge de la imatge** (`background_of`): the outermost ring of the picture, dark on more than
+//     half of it, paints the page ink (0); anything else, a tie included, paints it paper (15). A drawing made for a black
+//     page lands on a black page instead of in a black rectangle on white;
+//   - **and the stamp of the build is drawn in the level the page is not** (`draw_version(surface, ink)`): black letters on
+//     paper and paper letters on ink, or the build would be invisible on half the splashes;
+//   - **`tools/app_splash.py` writes the drawing and not the card**: it cuts the composition to its ink with `MARGIN` = 12
+//     pixels of air, so what an app carries is what it shows. The two splashes of the disk were made again with it: the
+//     launcher's card went from **420x520 and 6 906 B to 209x445 and 5 585 B** and the reader's from **420x520 and
+//     6 876 B to 223x451 and 6 217 B**, which is 57 % and 54 % fewer pixels to decode for the same page;
+//   - **the line of the log is the number of that cost**: `SPLASH <path>, 6x6 at 267,453, a drawing of 40x40, the page is
+//     paper`;
+//   - **measured by the two cases of the splash**: `test_the_drawing_of_a_splash_is_cut_from_its_air_and_its_page` builds a
+//     picture of forty by forty with a mark of six **off the middle of its canvas** and reads the mark in the middle of the
+//     glass with paper around it, and a picture drawn for an ink page paints the page ink with the stamp in paper;
+//     `test_the_splash_paints_a_picture_in_the_middle_of_the_glass` keeps its two by two —a tie of the ring is paper— and the
+//     cases that tell two pictures apart by their pixels now tell them apart by their page, because a drawing of two rows
+//     is a bar after the crop. **The measure on the board is pending**.
+
+// 0.179.38 (12/11): **the processor works at a hundred and sixty and only the two loads ask for the top step**. The
+// speed was a switch a person or an app moved by hand and nothing else (docs/30, docs/50, docs/60):
+//   - **the boot takes two hundred and forty** (`kernel::boot`, `power::hold_cpu(240, 0, "boot")`) because the mount, the
+//     panel, the settings, the picture of the boot and the shell are the heaviest second of this system, and **the end of
+//     the boot gives it back** (`power::rest_cpu("the system is loaded")`): from there the board is working at a hundred and
+//     sixty until somebody asks it something;
+//   - **and the start of an app of Lua takes it again** (`shell::run_app`) for `kStartBusyMs` —three seconds— before the
+//     first line of its source is read: reading it, building an interpreter and laying its first page out is the heaviest
+//     thing this system does on purpose, and it is foreseeable, which is the rule the owner set for the two windows;
+//   - **the window has a clock and no owner**: `power::hold_cpu` writes when it ends and **`power::poll`** is what closes it,
+//     a turn of the system, so no app watches its own burst and a page that hangs does not leave the processor up;
+//   - **and what somebody asks for wins over the resting step**: `power cpu <mhz>` and `power.cpu(mhz)` make that step the one
+//     the system goes back to and drop the window that was owed, so a person who puts the board at eighty to measure does not
+//     find the next app taking it back up;
+//   - **every move is a line of the log** (`[I][POWER] cpu 240 MHz from 160 (an app is starting)`, and the closing one
+//     `cpu 160 MHz from 240 (the load is over)`), including the line of the boot that asks for the step the chip already
+//     runs at: the policy is the system's and not a default of the manufacturer. A step the board does not have is a
+//     warning that says which one it is running;
+//   - **measured by the cases of the power of this suite**: `test_a_burst_of_the_processor_gives_its_step_back` —a window
+//     of a hundred and twenty milliseconds, still up at forty turns and back at a hundred and eighty, with the two lines in
+//     the console—, and `test_an_app_asks_for_the_processor_speed` reads **240** inside an app that has just started where it
+//     read 160 before. `test_the_power_command_moves_the_cpu` starts from `set_cpu_mhz(160)` because a window of a case
+//     before it may still be open, which is what three seconds of turns mean in a suite that runs one case after another.
+//     **The measure on the board is pending**.
+
+// 0.179.37 (12/11): **the caret is the cell of the letter turned over, and the box it repaints is that cell**. The block
+// of a text box was a rectangle of the ink with the letter under it painted again in paper (docs/30, docs/90):
+//   - **it is `draw_invert` now**, the primitive the selected cell of a grid and the face of a pressed button already use:
+//     every level of the cell swapped for its opposite. On a box of two tones that is exactly what the rectangle and the
+//     letter said, and on a box of greys —an app that writes in level eight— it **keeps the shape of the letter** a person
+//     is about to type over, which a block of one level cannot do;
+//   - **and no glyph is shaped twice a blink**: the letter under the cursor is drawn with the text, once, and the block is
+//     a swap of the nibbles of its cell —`put_rect` plus `draw_text` of the same letter in `background` is gone from both
+//     boxes, the one of a line and the one of many—;
+//   - **and the hole is closed**: the head of a one-line box stops at the cursor and the rest starts after it, so the only
+//     thing that ever drew the letter under the cursor was the block —the phase with the block off was a box with a letter
+//     missing—. The letter is drawn with the text now and the off phase is the text whole;
+//   - **the area and the quality were already the smallest**: `caret_poll` invalidates the box `textbox_caret_box` answers
+//     —one letter, `9x33` in the note of 0.168.2— and presents it with `du`, so a blink is one cell at the quick quality,
+//     the same rule the band of the keyboard follows;
+//   - **measured by the case that owns the caret** (`test_a_textbox_keeps_the_caret_on_the_glass`): the same box drawn with
+//     the block and without it has, pixel for pixel and in the whole cell the system repaints, `15 - level` of the other —
+//     and the letter under the cursor is on the glass with the block off—. A rectangle of ink with the letter in paper
+//     cannot pass that comparison. **The measure on the board is pending**.
+
+// 0.179.36 (12/11): **the band of the keyboard is a picture of two tones and a letter does not paint it**. The band was
+// a page of four shades drawn again, in two cells, for every letter a finger wrote (docs/30, docs/50, docs/92):
+//   - **the letters are ink or paper and nothing in between** (`aa_level`): the block of a glyph is still four samples of
+//     ink and the letter is still decided by them —which is what keeps a diagonal a diagonal— but what reaches the glass
+//     is two levels. A band of two tones is a band that one clean pass lands **on** the level and not close to it, and it
+//     writes half the runs of a glyph of four;
+//   - **and a finger writes without moving the block of the dial** (`Keyboard::touch`): the chosen cell is the pointer the
+//     dial walks with, and a finger is its own pointer. Moving it on every key a finger pressed marked two cells of the
+//     band for every letter, which the glass paid as a `gld16` of four hundred and fifty milliseconds per letter —the one
+//     thing on this panel that is written with—. A letter, a space, a backspace and an enter now leave the band's picture
+//     as it was; the case and the alphabet are still a band painted again, which is what they must be;
+//   - **the wash of a band that changes stays `gld16` and the reason is the model**: a `du` costs a hundred and twenty
+//     milliseconds and keeps five sixteenths of what it finds, so a white key over a letter of before lands at level ten
+//     and not at fifteen —it paints and it does not erase—. `gld16` keeps two sixteenths, lands on the level and has no
+//     flash; `gl16` and `gc16` clean too and both blink, and nothing that flickers reaches this glass (docs/50, docs/92);
+//   - **and the band's change does not wait for the app** (`ui::keyboard_owes_paint`, asked by the kernel every turn): a
+//     `MAY` and a `123` mark the band and nothing of the page, and an app that only waits never presents them —with the
+//     caret settling after its six blinks there may be no present at all—, so the turn that pressed the key presents it;
+//   - **measured by the case that already owns the band** (`test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on`):
+//     a key of a finger now paints **zero** regions of the glass and leaves the ink of the cell of the letter it wrote
+//     exactly as it was, where before it painted the band and moved the block. **The measure on the board is pending**:
+//     the numbers of this turn are the model's (`du` 5/16, `gld16` 2/16) and the count of paints of the emulator.
+
+// 0.179.35 (12/11): **the editor, a caret that painted too much, and a swipe that did not scroll**. Three faults in the
+// page of a document, and the numbers of each (docs/30, docs/50, docs/92 §35):
+//   - **the caret blinked every six hundred milliseconds for ever**, and each blink asked for a `du` of the whole page
+//     —a hundred and twenty milliseconds of panel and five sixteenths of what it found that stays—. `caret_poll` counts
+//     the blinks now (`g_caret_blinks`, `kCaretMostBliks = 6`) and the block stands **on** until the next key or focus,
+//     which is what a page of electronic ink wants;
+//   - **every row a swipe walked cost a `gld16`**: four hundred and fifty milliseconds a step and four and a half seconds
+//     for a swipe of ten rows, with the queue of the panel doing the rest. `ui_swipe_by` puts the rows up with `du` and
+//     leaves the clean pass for the lift (`g_ui_swipe_clean`, paid once by the `!down` branch of `ui_touch_progress`), and
+//     two `du` are not asked within sixty milliseconds of each other (`kSwipePaintMs`), because a quick finger walks
+//     several rows between two paints of the glass;
+//   - **and the swipe was killing itself**: the band of the keyboard came up on the way **down** onto a box (0.91.0), the
+//     band changes the height of the page (`on_resize`), the controls were made again and the `slot` the gesture was
+//     holding was nobody's. The case of 0.113.0 did not see it because the editor opens the band in `resume()` and the
+//     system does not call `keyboard_show` a second time. The band arrives **on the way up** now, when the contact is
+//     known to be a tap (`ui_keyboard_follow_object` in the `!down` branch, only for a box of text and only when the
+//     finger has not walked);
+//   - **and the app stops asking for a `gld16` per key** (`apps/editor/editor.lua`): one `du` and the clean pass every
+//     `kWashEvery = 4` keys, which is a hundred and sixty milliseconds of average instead of four hundred and fifty;
+//   - **what is not changed, said plainly**: typing still costs a paint per key (a cheaper one), the document is still a
+//     window and not the pages of the old editor (`turnPage`/`loadPage`, twenty-two lines), and **the measure on the
+//     glass of the board is pending**: the numbers of this turn are the constants and what the code says.
+
+// 0.179.34 (12/11): **l'amo del contacte es decideix en començar**. The owner: *«L'event, tant gest, com toc(s) els ha de
+// rebre l'objecte UI que hi ha sota quan comença l'acció: si el swipe comença a la barra de sistema, es la barra de sistema
+// qui reb l'event. Si es fa tap sobre un botó el reb el botó, si es fa swipe sobre un textbox multiline el reb el control.
+// Si un swipe acaba sobre un botó, el botó no rep cap event»* (docs/30, docs/90):
+//   - **`touch::poll` té ara un sol fet i no tres preguntes per frame**: `g_contact` diu qui té el dit —`kThePage`, the band
+//     of the keyboard, or `kTheSystem`, which is the strip of the bar and a card over the page— i es decideix **al frame que
+//     el dit cau** i no es torna a mirar. L'alliberament (el `false` del control) el rep exactament aquell;
+//   - **i el teclat és el que no ho podia complir**: `keyboard_touch` s'havia de cridar amb el punt del dit **a cada frame**,
+//     o sigui que un lliscament que començava a la pàgina i travessava la banda **escrivia la tecla que passava per sobre** —
+//     la banda prenent un contacte que no era seu—. Amb un amo es pregunta **una vegada**, amb la fila on el dit va caure;
+//   - **el que ja es complia es queda**: la barra no entrega res a la pàgina (0.179.29), un botó que el dit abandona no clica
+//     (0.179.29, vint píxels) i el panell llegeix els gestos de la cua pel `on_the_bar` del contacte;
+//   - **measured**: one case of `test_apps` —`test_a_drag_that_crosses_the_keyboard_types_nothing`— opens a box that takes
+//     keys, drags from the box down into the band and reads **no character at all**, and then presses a key of the band and
+//     reads one, which is the half that must not break. With the band asked in every frame the drag typed the key it
+//     crossed, and that is the line this case is for.
+
+// 0.179.33 (12/11): **la targeta d'un llançador és per a la tornada i no per a l'arrencada**. The owner: *«en launcher no ha
+// de mostrar l'splash rera el boot, tenim l'splash del sistema. L'splash del home s'ha de mostrar al tancar una app lua i
+// tornar al home. Cap home app usa l'splash rera el boot, l'usa després amb les apps lua. Fes que es pugui llençar una app
+// amb o sense splash i que el boot arrenqui sense splash la primera arrencada del home app»* (docs/30, docs/40):
+//   - **la pintura és del qui arrenca i no de l'app**: `run_app` té un quart paràmetre i `shell::start_app(id, splash)` el
+//     publica amb `true` per defecte, així que el que canvia no és el camí de la imatge sinó **qui la demana**. `run <id>`,
+//     una app que en demana una altra, `raise_app` i la tornada a la pàgina que va preguntar la pinten com sempre;
+//   - **i el boot no la demana**: `kernel::boot` fa `start_app(home, false)`, perquè el vidre ja porta la imatge de
+//     l'arrencada del sistema i una segona targeta és una rentada de tot el panell i mitja segona de tinta per a una cosa
+//     que la persona acaba de veure. L'app de casa arrenca amb la seva pàgina i prou;
+//   - **la tornada sí**: `start_the_one_that_asked` —el camí de quan una app de Lua s'acaba o la tanquen el pessic i els
+//     tres tocs— arrenca el llançador amb la seva targeta. És el moment per al qual es va dibuixar;
+//   - **measured**: one case of `test_apps` —`test_the_card_of_a_launcher_is_for_the_way_back_and_not_for_the_boot`— boots
+//     with a launcher that has a picture and reads the two halves of the same file in the log: **at the boot the path of
+//     the picture is not there**, and when the Lua app it opens has ended and the launcher comes back, it is.
+
+// 0.179.32 (12/11): **la demo del Matrix es mou al doble**. The owner: *«Fes que l'app "rainbow" del m5atom matrix es mogui
+// mes ràpid»*. The app is a function of its own clock, so there were two numbers to move and they are not the same thing
+// (docs/30, docs/40):
+//   - **the rhythm was one**: `kFrameMs` goes from 40 to **20 ms**, fifty frames a second instead of twenty-five, because
+//     on a strip of twenty-five lights a hue that only moves every forty milliseconds reads as a series of steps. A frame
+//     is under a millisecond of work in a turn that has twenty thousand instructions, so nothing new is paid;
+//   - **and the speed was the other**: every field takes the seconds of the app's clock and the number that multiplies `t`
+//     is how fast it travels —the other terms are the shape—, so **all four doubled**: `bands` 0.085 → 0.17, `iris` 0.10 →
+//     0.20, `spiral` 0.07 → 0.14, and the crest of `rain` 0.45 → 0.90 with its hue 0.075 → 0.15. A band now crosses the
+//     panel in a little over a second instead of two and a half and the crest goes down it every half second;
+//   - **and the field changes only with the button**: `kHoldMs` and the cycle are gone —the demo shows the field a person
+//     asked for and keeps it— so a press takes the next one and starts a mix of **1 200 ms** from the field that was on
+//     the glass to the one that arrives, in hue and in level and by the short way round the wheel. Two presses between two
+//     frames are two fields, the clock of the hue does not restart with a field, and the line of the log is
+//     `4 fields, the button changes it` (the owner: *«el canvi d'efecte es fa només amb el botó, no per temps»*);
+//   - **measured by the case that already exists**: `test_the_rainbow_app_paints_the_panel_of_the_matrix` pumps six hundred
+//     milliseconds of the app's clock and wants more than five lights changed, which a faster demo passes with more —what
+//     the case pins, the hello at the ceiling, the field it starts in, the press that takes the next one and the light
+//     given back at the end, is the same.
+//
+// **I la DRAM de la Paper va dir que no**: the scratch canvas `paint_a_button` was given in 0.179.31 was a
+// `static uint8_t scratch[128 * 128 / 2]` —**8 192 B of `.dram0.bss`**— and the board stopped linking,
+// `region dram0_0_seg overflowed by 7 704 bytes` (the owner's build, 12/11). The block is now the size of the control and
+// comes from the extra memory —a 64 by 64 key is **2 048 B**—, it is given back after the `blit`, and a control bigger than
+// the pool is refused. **What that leaves**: the region had 488 B of air with the static gone, which is a number to keep in
+// mind before the next array of this file.
+
+// 0.179.31 (12/11): **the button of the panel is a button**. The owner: *«el botó de tancar del menú desplegable de la
+// barra del sistema es un botó o es una cosa custom de merda que et dic que intentis no fer mai?»*. Right, and it was the
+// second one: a disc of forty with a cross of pixels, then a square of fifty-six with another, all of it drawn in
+// `panel.cpp` with `fill_rect` and a loop of `pixel`s. **A system that has a button cannot have a second way of drawing
+// one** —it is the rule the 2048 port already followed: the control that exists is the one that is used— (docs/30,
+// docs/92):
+//   - **`ui::paint_a_button`** (new, `lib/kernel/include/kernel/ui.h`): `paint_button` —the function every button of this
+//     tree is painted with, the one the app's `ui.button` and the doors of a dialog use— over a scratch canvas of the size
+//     of the control and one `blit` to the surface. It is needed because the panel paints **on the glass**, over a page it
+//     holds composed: its controls cannot be children of the view's tree, or the composition of the page at the release
+//     would erase them. The levels the scratch canvas notes are put back, because they are the page's counters and a card
+//     of the system is not the app's page;
+//   - **and what the panel says now is where and with which ink**: a key of sixty-four a side, twenty-four rows and
+//     twenty-four columns off the corner, paper face, ink shadow, ink frame and an `X` at four steps of the face —the box
+//     leaves thirty-two pixels of word, the sixteen of air a button has on each side, and `X` at four is twenty-two, which
+//     is the measure the two numbers were chosen with; a bigger step is cut by the control—. The shadow of four rows under
+//     the face is the system's way of saying that it is a key and not a rectangle;
+//   - **measured**: the case of `test_apps` reads **the drawing and not a shape of the panel**: the four rows of shadow under
+//     the face are ink, a point of the face away from the word and the frame is paper, the middle has the ink of the word in
+//     it, and six pixels outside the box is the paper of the card; over a launcher all four are paper, which is the half
+//     that says the button is not painted there at all.
+
+// 0.179.30 (12/11): **la targeta del llançador**. The owner: *«Fes una splash adient per l'app home_eink. Que carregui
+// ràpid»*. `home_eink` is the app that starts in every boot of this board and it was the only one of the two apps of the
+// tree with a picture that had none (docs/40, docs/50):
+//   - **the card is the project's recipe and not a drawing**: `tools/app_splash.py --icon
+//     apps/home_eink/res/icon-source.png --title Home --foot lunokOS`, the same tool the reader's splash came from, which
+//     draws the icon at 232 px, a rule, the title, `l o a d i n g . . .` and the foot — **420 by 520 and 6 906 B**, made
+//     from the 448-pixel master of the icon: composing it from the 94-pixel `icon.png` is a card with soft edges **and
+//     11 824 B**, so the master is sharper and lighter at the same time;
+//   - **and it loads fast because it is a card and not a page**: what a splash costs is the pixels the decoder walks and
+//     the bytes the disk reads, so a card is **218 400 pixels** —forty-two per cent of the 518 400 of a whole-glass
+//     picture— and **6,9 KB** where the plane of the glass (`res/splash.e4`, 0.179.15, the fastest thing there is to
+//     paint) would be **246 240 B** on a disk that carries twelve apps. For a launcher the plane is the slow choice: it
+//     is one blit and a quarter of a megabyte of littlefs in front of the grid. The card is also the only one of the two
+//     that survives a turned page, because a plane is refused when it is not the exact size of the glass;
+//   - **and the manifest names it**: `"splash": "res/splash.png"` (app 0.3.0), so the system washes the glass and puts
+//     the card in the middle while the 33 KB of Lua are read and the machine is built — the same path the reader's app
+//     has had since 0.151.17;
+//   - **measured**: one case of `test_apps` —`test_an_app_that_names_a_splash_carries_it`— walks the apps of the
+//     repository and wants, for every one that names a splash, the file beside the manifest with a PNG signature in it;
+//     and it wants the launcher among them, and under twenty thousand bytes, which is the line that would catch a plane
+//     of the glass being slipped in as a card.
+
+// 0.179.29 (12/11): **a control acts only when the contact is known to be a tap**. The owner: *«Revisa bé el codi del
+// "tap", "doble tap" i "triple tap" els botons es polsen encara que estigui fent un swipe… Els controls responen
+// erròniament quan fagi un slide o el swipe de la barra de sistema… Cal esbrinar si l'usuari està fent un tap o un gest
+// abans d'enviar la informació a l'aplicació»*. Three faults, one of them older than the day (docs/30, docs/90):
+//   - **a slide clicked the button it crossed**: the controls hear the frame of the finger and not the name of the
+//     gesture, so a `ui.button` was pressed on the frame the finger landed and **clicked on the lift if the finger was
+//     inside its box** —and a drag that begins on a button and ends sixty pixels lower, still inside a big one, did
+//     exactly that—. The ordinary path of `ui_touch_progress` never looked at the travel; only the text box's caret
+//     did. Now a contact that walks **twenty pixels** from where it landed —`kTapSlop`, the same number `touch.cpp`
+//     uses to call a contact a `drag` and not a `tap`— is a gesture: the control is unpressed and the lift activates
+//     nothing, and it stays that way even if the finger comes back (`g_ui_touch_moved`);
+//   - **a finger on the bar of the system pressed the top of the page**: the strip is not part of any view and a finger
+//     that lands on it keeps its own `y` —that is what `on_the_bar` is—, so **the rows of the bar and the first rows of
+//     the view are the same numbers**: a tap on the hour pressed the control at the top of the page, and the pull that
+//     opens the card pressed it before moving. A contact is the system's from the row it landed on
+//     (`the_bar_has_the_finger`), and the page never hears it: no `pressed`, no click, no key;
+//   - **and a slow tap was nothing at all**: the four hundred milliseconds of `kTapMs` were the ceiling of a `tap`, so a
+//     finger pressed six hundred, still, and lifted was **neither a `tap` nor a `long`** —the control clicked and the app
+//     heard nothing, which is the same press answered twice in two different ways—. The ceiling is gone: a still contact
+//     that lifts is a tap with its `held_ms`, except one that has already said its `long`, which is said once while the
+//     finger is still there;
+//   - **measured**: four cases, each failing on the code of before. `test_touch` holds a finger six hundred milliseconds
+//     and reads the `tap` with its `held_ms`, then holds it a thousand and a hundred and wants the `long` and **no tap
+//     after it**; it makes a tap, a short drag and another tap and wants **three gestures** and no `double`; `test_apps`
+//     drags thirty pixels inside a button and wants no click, and taps the same point and wants one; and it taps the bar,
+//     pulls the card from the bar, and neither reaches the control at the top of the view, while the same finger one row
+//     lower clicks it.
+//   - **what is not changed and is said**: the keyboard of the system **types on the frame the finger lands** —one press
+//     is one key, which is 0.93.0's rule— so a slide that begins on a key types that key. Making it wait for the lift is
+//     a change of its own and it is not in this version.
+
+// 0.179.28 (12/11): **every gesture says what it is, where, and with how many fingers**. The owner: *«vull que el sistema
+// faci log dels gestos o taps i de quants dits»*. Every gesture of this system is made in one function —`emit()` of
+// `lib/kernel/src/touch.cpp`— and nothing said them, so a hand on the glass and what the board made of it could only be
+// compared by eye (docs/30, docs/85):
+//   - **one line a gesture**: `[I][TOUCH] tap 200,400 dx 0 dy 0 spread 0, 1 finger(s), 380 ms`, and the same shape for
+//     `drag`, `long`, `two`, `pinch`, `double` and `triple`, with ` on the bar` when the finger landed on the strip of the
+//     system —the `on_the_bar` of 0.179.22—;
+//   - **`kLogInfo` and not a debug line, because a gesture is one event and not a frame**: a drag is said once, on the
+//     lift, and a tap when the window of the multi-tap closes, so a hand moved all over the glass costs a handful of lines
+//     and not one a turn (the caret of a keyboard is the other way round, 0.118.6);
+//   - **and the numbers are the ones the app reads**: the line is written before the frame of the view is taken off —that
+//     conversion is `take_gesture`'s and not this function's—, so `x,y` is what the chip said and `dx`/`dy` what an app
+//     gets;
+//   - **measured**: one case of `test_apps` —`test_every_gesture_says_what_it_is_and_how_many_fingers`— puts a finger
+//     down and up and reads `[I][TOUCH] tap …` with `1 finger(s)` and its `dx 0 dy 0`, and then two fingers coming apart
+//     and reads `two` and `pinch` with `2 finger(s)`. The numbers of the frame are `test_touch`'s and not this case's,
+//     which reads the shape of the line and not the plate.
+
+// 0.179.27 (12/11): **el títol d'una arrencada es pinta ABANS DE NETEJAR RES**. The owner: *«l'actualització del titol
+// s'ha de fer ABANS DE TOT, fes el refresh també»* and then *«actualitza el titol abans de netejar la pantalla»*, after
+// asking why the name of an app is always the last thing the glass shows. The answer was not a slow title: **it was a
+// title that nobody painted where it was asked for** (docs/30, docs/50):
+//   - `bar::title()` only raises a flag —`g_title_changed`— and the strip is painted by `bar::poll()`, which the kernel
+//     calls **after** `shell::poll_app()`: the app's first page went up first and the name of that app after it. And
+//     the two passes are serialised inside the driver (`wait_paint` before the load, 0.151.8), `gc16` at 450 ms each,
+//     so with a splash the start was a whole wash + the page + the strip and the title arrived more than a second after
+//     the command. The 0.151.17 said the title must not wait for the interpreter: that was true of the **call** and
+//     false of the ink, and this is the ink;
+//   - **`bar::flush()`** is that paint where it was asked for, and it reads nothing —the hour and the charge are the ones
+//     the turn read—: the strip whole in `gc16` when the glass changed under it (a splash washes the bar with it and
+//     `refresh()` says so), and the box of the title in `gld16` when the title is all that changed. It answers whether
+//     it painted, which is false for a bar that is away —an app with the whole glass has a title and no strip— and for
+//     one with nothing owing;
+//   - **and it costs no extra ink**: the `poll()` of the same turn finds the flag gone and paints nothing, so the turn
+//     buys the same one pass of the strip it bought before, in the other order. Called in `run_app`, between
+//     `bar::title` and `read_source` —so the name is on the bar while the 98 304 B, the machine and the compile happen—
+//     and in `run_window`, where an alarm's app gets the same rule;
+//   - **abans de netejar la pantalla i no després**: the title is not only before the read and the machine, it is
+//     **before the clean**, with the page of the app before still on the glass. `run_app` asks for it right after
+//     `find_app` and paints it there, and the wash of `ui::attach` that comes next is the rows of the view and never the
+//     strip, so the clean does not take the name away. **The one start that cannot have it there is the one that shows a
+//     picture**: the splash washes the whole glass —the bar with it— and a name painted before it is a name nobody sees
+//     (the rule of 0.118.1), so that start asks for its title after the picture and paints it whole there; its strip is
+//     painted once, like every other, and not twice;
+//   - **measured**: two cases and none of them looks at the intention. `test_bar` asks `title` + `flush` and reads the
+//     paint record: the box `107,6 764x21` in `gld16`, the turn behind it with nothing to pay, `flush()` false with
+//     nothing owing and false with the bar away, and the strip whole in `gc16` when it comes back with its title.
+//     `test_apps` runs an app that paints a page and reads **the order of the passes on the glass**: the last paint of
+//     the bar's rows is before the last paint of the view's first row, which is the line that the code of before fails.
+
+// 0.179.26 (12/11): **the button of the panel is a square, bigger and further from the corner**. The owner: *«El botó de
+// tancar al desplegable de la barra de sistema es massa petit i està massa aprop de les cantonades de la pantalla. Fes el
+// botó mes gran i cuadrat»*. The disc of forty with fourteen of margin was a target in theory and a corner nobody hits in
+// practice (docs/30, docs/45):
+//   - **fifty-six a side** —forty per cent more side and 3 136 pixels of ink against the 1 257 of the disc— and **twenty-four
+//     rows and twenty-four columns off the corner** (`kCrossTop`, `kCrossRight`): the ink starts three millimetres from the
+//     edge of the glass instead of one and a half, which is what puts it out of the corner a thumb rounds;
+//   - **and square, so what a person sees is what a person presses**: the ink is one `fill_rect` and the hit test is that
+//     same rectangle —before, a corner of the card that was paper still took the tap, which is a control bigger than its own
+//     ink— (`in_the_cross`);
+//   - **the cross inside it grew with it**: the arms reach sixteen pixels each way and the strokes are three pixels, because
+//     two read as a smudge in a box of fifty-six;
+//   - **measured**: the case of `test_apps` reads the shape and not the intention —a corner of the square is ink, six pixels
+//     outside its edge is paper, and the middle is the stroke of the cross—, and the first of the three is the line that would
+//     catch a disc coming back, because a disc of forty had paper at that point. Over a launcher the corner is still paper
+//     with no button at all (0.179.25).
+
 // 0.179.25 (12/11): **the cross of the panel is not drawn over a launcher**. The owner: *«Si l'app es un launcher, no mostris el botó
 // de tancar»*. He is right, and it is the rule the panel already had one version before: a button the system is going to refuse is a
 // button that should not be offered, because it says the system can do something it cannot (docs/30, docs/45):
@@ -6539,7 +7005,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.25";
+static const char kVersion[] = "0.179.46";
 
 }  // namespace kernel
 

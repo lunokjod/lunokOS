@@ -62,9 +62,12 @@ void deliver(const char* kind, int64_t held_ms, uint32_t key) {
   // **A page with controls owns the dial**: the focus ring and the click are the UI layer's, and an
   // app that declared `on_button` does not get the same press twice. An app waiting for a press is
   // explicit about wanting the raw key, so the promise wins (docs/30, docs/90).
-  // **And the keyboard of the system takes it before the page**: while the band is on the glass, the
-  // centre presses the key the dial is on and the arrows walk the keys (docs/90).
-  if (!g_waiting && (ui::keyboard_key(kind, key) || luabind::ui_button_event(kind, key))) return;
+  // **El dial no toca el teclat de programari** (0.179.46): the owner: *«No vull selector amb botons físics al teclat per
+  // software, al teclat per software només vull tocs de dits»*. So the keys of the board go straight to the page, and a box a
+  // person has entered takes them as the caret —left and right in a box of one line, a row up and down in a box of several
+  // lines keeping the column it came from—, which is the same thing the finger does when it lands on a letter (docs/30,
+  // docs/90).
+  if (!g_waiting && luabind::ui_button_event(kind, key)) return;
   if (g_waiting) {
     g_waiting = false;
     luabind::button_progress(kind, held_ms, key);

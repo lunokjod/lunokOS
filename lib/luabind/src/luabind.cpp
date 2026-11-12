@@ -3945,6 +3945,14 @@ uint16_t g_ui_touch_generation = 0;
 // Which tab of a strip the finger went down on, 0 for a control of its own.
 uint8_t g_ui_touch_item = 0;
 bool g_ui_touch_inside = false;
+// **On ha caigut el contacte i si ha caminat des d'aleshores** (0.179.29): a press is a tap or it is a gesture, and the
+// system knows which one by the pixels the finger travels —not by the name the gesture layer gives it later, which arrives
+// when the finger is already gone—. A control the finger walked away from is not pressed and does not click on the way up,
+// even if the finger ends inside its box: an app opened by a swipe is an app nobody asked for, and the same rule already
+// stopped a text box from putting a caret (docs/30, docs/90).
+uint16_t g_ui_touch_x0 = 0;
+uint16_t g_ui_touch_y0 = 0;
+bool g_ui_touch_moved = false;
 // **A contact that has lost its control** (0.113.0): the app releases the box the finger is on, and the finger that is
 // still on the glass is not a press on whatever the app builds in its place —the contact began on another control—. It
 // is cleared when the finger goes up, which is when a press of its own can begin (docs/30, docs/90).
@@ -3973,6 +3981,19 @@ const int32_t kSwipeSlop = 12;
 // when it leaves (docs/30, docs/90).
 const int32_t kPageSwipeSlop = 40;
 bool g_ui_swipe_page = false;
+// **Un lliscament d'una caixa deu una passada neta** (0.179.35): the rows go up with a `du` while the finger walks and the
+// `gld16` that takes the blur away is the one at the lift, paid once (docs/30, docs/50).
+bool g_ui_swipe_clean = false;
+// **El rellotge de l'últim `du` d'un lliscament**: a quick finger walks several rows between two paints of the glass, and a
+// paint per row is a queue that outlives the gesture. Zero means nothing has been painted for this contact yet (docs/50).
+int64_t g_ui_swipe_painted_ms = 0;
+const int64_t kSwipePaintMs = 60;
+
+// **Quan un contacte deixa de ser un toc per a un control** (0.179.29): the same twenty pixels `touch.cpp` uses to call a
+// contact a `drag` and not a `tap` (`kSlopPx`), said once here so a button and an app cannot disagree about what a finger
+// did. Under it a control behaves as it always has; over it the finger is a gesture and the control is nobody's
+// (docs/30, docs/90).
+const int32_t kTapSlop = 20;
 
 // **The text box the system's keyboard types into** (docs/30, docs/90): a reference to the object in the registry
 // and not a slot, because the app holds the box in a local and the keyboard must not lose it when a page is made
@@ -3985,10 +4006,18 @@ uint8_t g_keyboard_kind = 0;  // 0 is alpha, 1 is numeric, the two of `ui.keyboa
 // **The caret of the target blinks without the app** (0.92.0): the system owns the block of the box the keys go to,
 // toggles it every six hundred milliseconds in the kernel loop and asks for the box to be redrawn. `dirty` means the
 // block has just come back —a focus, a key— and the next turn has to show it before the clock starts again.
+//
+// **I NO PARPELLEJA PER SEMPRE** (0.179.35): here a blink costs a paint of the block and leaves a trace of the one before
+// —`du` keeps five sixteenths of what it finds—, so a block that blinks while a person reads is ink spent by nobody and a
+// mark that grows. It blinks `kCaretMostBliks` times after the last thing that moved it —a focus, a key— and then stands
+// **on** until the next one. The owner read it in the editor: *«el cursor sembla que refresca massa dibuix»*
+// (docs/30, docs/50, docs/90).
 bool g_caret_on = true;
 bool g_caret_dirty = false;
 int64_t g_caret_next_ms = 0;
+uint8_t g_caret_blinks = 0;
 const int64_t kCaretBlinkMs = 600;
+const uint8_t kCaretMostBliks = 6;
 
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
@@ -7748,6 +7777,9 @@ void caret_start(lua_State* L, int object) {
   if (canvas != nullptr && g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
   g_caret_on = true;
   g_caret_dirty = true;
+  // **Un focus o una tecla tornen a guanyar els sis parpellejos** (0.179.35): the count of the settle is of this block and
+  // of nothing else, so it starts again here (docs/30, docs/90).
+  g_caret_blinks = 0;
   g_caret_present_mark = g_ui_present_count;
   g_caret_next_ms = now_ms() + kCaretBlinkMs;
 }
@@ -7755,6 +7787,7 @@ void caret_start(lua_State* L, int object) {
 void caret_stop(lua_State* L) {
   g_caret_on = true;
   g_caret_dirty = false;
+  g_caret_blinks = 0;
   g_caret_next_ms = 0;
   if (g_keyboard_target_ref == LUA_NOREF) return;
   lua_rawgeti(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
@@ -8734,9 +8767,12 @@ void ui_gesture_forget_if(LuaCanvas* canvas) {
   g_ui_touch_generation = 0;
   g_ui_touch_item = 0;
   g_ui_touch_inside = false;
+  g_ui_touch_moved = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_page = false;
+  g_ui_swipe_clean = false;
+  g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
   g_ui_swipe_y0 = 0;
   g_ui_swipe_y = 0;
@@ -9900,7 +9936,13 @@ int l_ui_present_feedback(lua_State* L) {
     lua_settop(L, height);
   }
   ++g_ui_present_count;
-  g_ui_ops.present_each(static_cast<uint8_t>(hal::UpdateMode::kGl16));
+  // **The system's own feedback is the two-level pass** (0.179.41): a ring that moves, a control that let go and a value
+  // that was stepped are ink of two levels —a frame and a face— on a page that may be anything, and what they cost is
+  // the one thing this pass can know. It was `gl16`: four hundred and fifty milliseconds and **a blink** of every region
+  // that happened to be damaged, which on the editor's page was its whole document box on the first touch of the glass
+  // (docs/30, docs/50). `a2` is two hundred and ninety and it erases what it writes over; a region the app painted with a
+  // quality of its own keeps it, because `present_each` no longer writes over the app's wish (docs/30, docs/50).
+  g_ui_ops.present_each(static_cast<uint8_t>(hal::UpdateMode::kA2));
   return 0;
 }
 
@@ -11394,10 +11436,13 @@ bool start(const Boot& boot, size_t limit_bytes) {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_touch_moved = false;
   g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_page = false;
+  g_ui_swipe_clean = false;
+  g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
@@ -11447,10 +11492,13 @@ void stop() {
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
+  g_ui_touch_moved = false;
   g_ui_touch_orphan = false;
   g_ui_swipe_moved = false;
   g_ui_swipe_tap_armed = false;
   g_ui_swipe_page = false;
+  g_ui_swipe_clean = false;
+  g_ui_swipe_painted_ms = 0;
   g_ui_swipe_rest = 0;
   // **The finger is not a number that outlives the interpreter** (0.113.0): the row it started on and the pixels it
   // had walked are the system's, and a new attempt that began with the ones the last one left would move a window the
@@ -12178,16 +12226,58 @@ bool ui_at_the_edge_of_the_list(const FocusTarget* targets, int count, int16_t l
 // the box's state, and an app that had to insert a letter in a callback could insert the wrong one at the wrong
 // place. `on_change(self, text)` arrives with the field already written, and 13 is the enter, which a box of one
 // line does not type: it tells the app with `on_enter(self)` and nothing changes (docs/30, docs/90).
-void ui_keyboard_typed(int code) {
-  if (g_state == nullptr || g_keyboard_target_ref == LUA_NOREF) return;
+// **On escriu la banda** (0.179.45 i 0.179.46): the object the app named with `kb.target` and, when there is none or it is
+// **not on the screen any more**, the **text box that has the focus**. Two faults of one shape: a page that does not say
+// `kb.target` —the clock's note is one, and the system brings the band up for a box a finger touches— and a page the system
+// made again, which leaves the registry pointing at a slot that went back to the table. In both the band typed **into
+// nothing at all**, with the band painted and no letter anywhere, which is what the owner had in the editor and in the
+// clock —*«el táctil tampoc funciona … el dial no escriu, però els tocs sobre les lletres tampoc»*—. The focus is the
+// control the person is looking at and the one the block of the caret is on, so it is the honest second answer, and it is
+// said on the console because a box the band could not find is a fault of the page and not of the person (docs/30,
+// docs/90).
+//
+// It leaves **the object on the stack** and answers its index, or 0 when there is nothing to type into. `say` is what keeps
+// the question quiet when a caller asks it only to know whether the band can type at all.
+int keyboard_object(lua_State* L, bool say) {
+  if (g_keyboard_target_ref != LUA_NOREF) {
+    lua_rawgeti(L, LUA_REGISTRYINDEX, g_keyboard_target_ref);
+    if (canvas_ready(L, lua_gettop(L))) return lua_gettop(L);
+    lua_pop(L, 1);
+  }
+  // **I quan l'app no n'ha nomenat cap, la caixa que ha pres el focus és la que escriu** (0.179.46): a box that a person
+  // touches is focused and the system brings the band up for it, and an app that does not say `kb.target` —the clock's note
+  // is one— is an app the band could not type into at all: the finger and the dial both, with the band painted and the
+  // letter going nowhere. The focus is the control the person is looking at, so it is the answer when the app gave none
+  // (docs/30, docs/90).
+  if (g_ui_focus_slot < 0 || l_ui_root(L) != 1) return 0;
+  const bool found = ui_push_slot_from(L, lua_gettop(L), g_ui_focus_slot, 0);
+  lua_remove(L, -2);  // the root, which the finder copied from
+  if (!found) return 0;
+  const bool box = ui_field_bool(L, -1, "__textbox", false) || ui_field_bool(L, -1, "__textbox_multiline", false);
+  if (!box || !canvas_ready(L, lua_gettop(L))) {
+    lua_pop(L, 1);
+    return 0;
+  }
+  if (say) con_text("keyboard: the band types into the box that has the focus\r\n");
+  return lua_gettop(L);
+}
+
+bool ui_keyboard_has_target() {
+  if (g_state == nullptr) return false;
   const int top = lua_gettop(g_state);
-  lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
-  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
-  if (canvas == nullptr || !canvas_ready(g_state, lua_gettop(g_state))) {
+  const bool any = keyboard_object(g_state, /*say=*/false) != 0;
+  lua_settop(g_state, top);
+  return any;
+}
+
+void ui_keyboard_typed(int code) {
+  if (g_state == nullptr) return;
+  const int top = lua_gettop(g_state);
+  const int object = keyboard_object(g_state, /*say=*/true);
+  if (object == 0) {
     lua_settop(g_state, top);
     return;
   }
-  const int object = lua_gettop(g_state);
   // **A key puts the block back and restarts the clock** (0.92.0): a person who is typing sees the caret while the
   // letter goes in, and the six hundred milliseconds are counted from the key and not from the blink before it.
   caret_start(g_state, object);
@@ -12418,6 +12508,9 @@ void caret_poll() {
     // The app painted the box after the focus or the key: the block is already there, and the clock starts from now.
     g_caret_dirty = false;
     g_caret_next_ms = now + kCaretBlinkMs;
+    // **I el comptador torna a començar**: a page that was painted is a person writing or moving the caret, and the block
+    // has earned its blinks again (0.179.35).
+    g_caret_blinks = 0;
     return;
   }
   lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
@@ -12427,7 +12520,18 @@ void caret_poll() {
     ui_keyboard_forget_target(g_state);
     return;
   }
-  if (!g_caret_dirty) g_caret_on = !g_caret_on;
+  if (!g_caret_dirty) {
+    // **Un block que s'ha quedat quiet es queda encès** (0.179.35): after `kCaretMostBliks` blinks with nothing painted in
+    // between, the caret stops moving and stays where it says the person is —which is what a page of electronic ink wants—.
+    // `g_caret_next_ms = 0` is what makes the next turn leave at the guard of the top, so this is asked once.
+    if (g_caret_blinks >= kCaretMostBliks) {
+      g_caret_next_ms = 0;
+      lua_pop(g_state, 1);
+      return;
+    }
+    g_caret_on = !g_caret_on;
+    ++g_caret_blinks;
+  }
   caret_set_field(g_state, -1, g_caret_on);
   // **A blink repaints the block and nothing else** (0.168.2): the box of the caret the last draw put down is the part of
   // the control that has changed, and the rule of this project is that a control repaints the part that changed. Before
@@ -12483,7 +12587,21 @@ void ui_swipe_by(int object, int rows) {
       canvas->slot, text, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap, box_scale,
       static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)), static_cast<int16_t>(rows));
   if (ui_set_field_number(g_state, object, "top", first)) ui_invalidate(g_state, object);
-  ui_draw_and_present("gld16");
+  // **Un `du` mentre el dit camina i un sol `gld16` quan marxa** (0.179.35): a swipe of a page was a `gld16` for **every
+  // row** the finger walked —four hundred and fifty milliseconds a step, so a swipe of ten rows took four and a half
+  // seconds and read as a page that does not move—. The quick pass puts the rows up while the hand is moving and the clean
+  // one is waited for at the lift, where nobody is looking at the blur (the owner: *«el swipe (amunt i avall) no va per
+  // desplaçar-se per l'arxiu»*, docs/30, docs/50, docs/90).
+  //
+  // **I el `du` no es demana dues vegades en seixanta mil·lisegons**: a quick hand crosses several rows between two frames
+  // of the glass, and a paint per row is a queue that outlives the gesture. The window is already written —the next pass
+  // shows it whether or not this one was asked— and the `gld16` of the lift is what makes the page true (docs/30, docs/50).
+  const int64_t now = now_ms();
+  if (g_ui_swipe_painted_ms == 0 || now - g_ui_swipe_painted_ms >= kSwipePaintMs) {
+    g_ui_swipe_painted_ms = now;
+    ui_draw_and_present("du");
+  }
+  g_ui_swipe_clean = true;
   ui_call_hook_number(g_state, object, "on_swipe", rows);
 }
 
@@ -12606,6 +12724,15 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     if (g_ui_touch_slot >= 0) {
       const int index =
           ui_target_index(targets, count, g_ui_touch_slot, g_ui_touch_generation, g_ui_touch_item);
+      // **La passada neta d'un lliscament, un cop, en aixecar el dit** (0.179.35): the rows of a box went up with `du`
+      // while the finger walked and this is the one `gld16` that takes the blur away —one at the lift, and not one for each
+      // row as it was: four hundred and fifty milliseconds a step, four and a half seconds for a swipe of ten rows, which
+      // read as a page that does not move (the owner: *«el swipe (amunt i avall) no va per desplaçar-se per l'arxiu»*)—.
+      // It is paid even when the box the finger was in has gone, or the blur would stay on the glass (docs/30, docs/50).
+      if (g_ui_swipe_clean) {
+        g_ui_swipe_clean = false;
+        ui_draw_and_present("gld16");
+      }
       if (index >= 0) {
         lua_rawgeti(g_state, objects, index + 1);
         if (ui_set_field_bool(g_state, -1, "pressed", false)) ui_invalidate(g_state, -1);
@@ -12619,14 +12746,36 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         }
         lua_pop(g_state, 1);
         if (g_ui_touch_inside) ui_activate(g_state, count, objects, index);
+        // **I la banda arriba quan el contacte és un toc, no quan el dit cau** (0.179.35): the keyboard followed the finger
+        // that landed on a box (0.91.0), and the band **resizes the page** —the view loses the bottom of the glass and the
+        // box measures its rows again—, so a swipe that began on that box lost its target and the rest of the drag scrolled
+        // nothing (found by the owner in the editor, 12/11). It arrives **after** the activation and not before, because a
+        // resize inside the activation would leave the control it was activating on a page that no longer exists: a person
+        // who drags was scrolling, and a person who taps meant to type (docs/30, docs/90).
+        if (!g_ui_touch_moved) {
+          lua_rawgeti(g_state, objects, index + 1);
+          bool keys_wanted = false;
+          uint8_t keys_kind = 0;
+          // **Només una caixa de text té banda a qui seguir** (0.179.35): a button, a card or a picture has nothing to
+          // follow, and asking would take the band away from the box that has it in the lift of the wrong control.
+          if (ui_box_keyboard(g_state, lua_gettop(g_state), keys_wanted, keys_kind)) {
+            ui_keyboard_follow_object(g_state, lua_gettop(g_state));
+          }
+          lua_pop(g_state, 1);
+        }
       }
       g_ui_touch_slot = -1;
       g_ui_touch_generation = 0;
       g_ui_touch_item = 0;
       g_ui_touch_inside = false;
+      // **A contact that is over is not a gesture any more** (0.179.29): the next press of the same finger —or of the one
+      // that comes after it— measures its own travel from its own landing.
+      g_ui_touch_moved = false;
       g_ui_swipe_tap_armed = false;
       g_ui_swipe_moved = false;
       g_ui_swipe_page = false;
+      g_ui_swipe_clean = false;
+      g_ui_swipe_painted_ms = 0;
       g_ui_swipe_rest = 0;
     }
     // **The finger goes up and the contact is over**: the next press is a new one (0.113.0, docs/30).
@@ -12751,8 +12900,20 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
       lua_settop(g_state, top);
       return;
     }
+    // **A contact that has walked is a gesture and not a press** (0.179.29): from the point it landed, in either
+    // direction, and once walked it stays walked —a finger that comes back to where it began is still a gesture, which is
+    // the rule the text box's caret already followed (0.88.0)—. This is the line that was missing: a `ui.button` has no
+    // gesture of its own, so this ordinary path never looked at the travel point and a swipe that ended inside the button
+    // clicked it.
+    if (!g_ui_touch_moved) {
+      const int32_t walked_x = static_cast<int32_t>(x) - static_cast<int32_t>(g_ui_touch_x0);
+      const int32_t walked_y = static_cast<int32_t>(y) - static_cast<int32_t>(g_ui_touch_y0);
+      if (walked_x >= kTapSlop || walked_x <= -kTapSlop || walked_y >= kTapSlop || walked_y <= -kTapSlop) {
+        g_ui_touch_moved = true;
+      }
+    }
     const bool inside =
-        index >= 0 && x >= targets[index].x && y >= targets[index].y &&
+        !g_ui_touch_moved && index >= 0 && x >= targets[index].x && y >= targets[index].y &&
         x < targets[index].x + targets[index].w && y < targets[index].y + targets[index].h;
     if (inside != g_ui_touch_inside) {
       if (index >= 0) {
@@ -12790,7 +12951,11 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     ui_apply_focus(g_state, targets, count, objects, hit);
     // **Where the finger landed**, for the gesture that is a page turn: the sideways travel of a finger over a grid is
     // measured from here and not from the last frame, so a page does not turn twice for one swipe (0.175.0, docs/90).
+    // **And it is the point every control measures its own tap from** (0.179.29): the same landing, for the same reason.
     g_ui_swipe_x0 = x;
+    g_ui_touch_x0 = x;
+    g_ui_touch_y0 = y;
+    g_ui_touch_moved = false;
     g_ui_touch_slot = targets[hit].slot;
     g_ui_touch_generation = targets[hit].generation;
     g_ui_touch_item = targets[hit].item;
@@ -12930,12 +13095,15 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         g_ui_swipe_y = y;
         g_ui_swipe_rest = 0;
         g_ui_swipe_moved = false;
+        g_ui_swipe_painted_ms = 0;
         g_ui_swipe_tap = at;
         g_ui_swipe_tap_armed = true;
         // The press a finger makes on a box is its own state and not a button's: nothing is held and nothing is painted
         // as held, so the page keeps the pixels it had until the finger says which of the two it is (docs/90).
-        // **The box has the focus and the keyboard follows it** (0.91.0): the gesture and the band are both its.
-        ui_keyboard_follow_object(g_state, hit_object);
+        // **I LA BANDA NO ARRIBA ARA** (0.179.35): it was asked here for the whole of 0.91.0, and the band **resizes the
+        // page** —the view loses the bottom of the glass and the box measures its rows again—, which is a swipe that dies
+        // where it began: the targets of the page are new and the rest of the drag finds no control. It arrives at the lift,
+        // when the contact is known to be a tap and not a drag (found by the owner in the editor, 12/11, docs/30, docs/90).
         lua_settop(g_state, top);
         return;
       }

@@ -126,6 +126,10 @@ void format_charge(bool has_battery, int percent, char* out, size_t cap) {
 // Each one is measured from the widest text it can carry —"00:00" and "100%"— so a box is where it was on every paint
 // and one of them can be cleaned and drawn again on its own. The boxes do not touch, so a repaint of one is a repaint of
 // one (docs/50, docs/85).
+//
+// **I el dibuix és de dos nivells** (0.179.40): the paper of the strip, the line under it and every run of a letter are
+// `fill_rect` of level fifteen or level zero —`font::draw` puts one level down and not four shades—, which is what lets
+// the wash that does not blink land **on** the level instead of close to it (docs/50).
 struct Box {
   uint16_t x;
   uint16_t y;
@@ -223,7 +227,7 @@ void paint(hal::UpdateMode mode, const Status& status) {
 }
 
 // **A box of the strip and not the strip** (0.85.2): a title that changes is the middle of the bar, and the hour is the
-// hour. The quality is **`gld16`, which cleans and does not blink**, and not `gc16`, which is four blinks over the whole
+// hour. The quality is **`gld16`, which cleans and does not blink**, and not `gc16`, which is two blinks over the whole
 // strip for a word that changed; `du` is not used at all, because it paints and does not clean and a digit of a minute
 // ago would stay on the glass. It is the rule the project already had written down: nothing that flickers reaches the
 // glass, and cleaning is `gld16` (docs/50, docs/92, docs/95).
@@ -250,12 +254,14 @@ bool boot(hal::IPlatform& platform) {
   g_title[0] = '\0';
   // **A boot is a bar and no app**: the strip is on the glass again whatever the app of before asked for (0.136.0).
   g_visible = true;
-  // The first paint of the bar is **`gc16` and not `init`**: `init` is the two-second beginning of the
+  // The first paint of the bar is **`gld16` and not `init`**: `init` is the two-second beginning of the
   // glass, and while it runs the controller holds its busy line low for two whole seconds — which is
   // the ceiling of the driver, so an app that paints right after the boot found the panel refusing
-  // (measured on the board, 1/11). `gc16` leaves the bar clean in half a second (docs/50).
+  // (measured on the board, 1/11). **I no és `gc16`** (0.179.40): two blinks of the whole strip to erase what the picture
+  // of the boot left under it is a flash a person sees every time the board comes up, and the strip is two tones, so the
+  // wash that keeps two sixteenths lands on the level (docs/50, docs/92).
   g_read = read_status(true, true);
-  paint(hal::UpdateMode::kGc16, g_read);
+  paint(hal::UpdateMode::kGld16, g_read);
   hal::IClock* clock = platform.clock();
   int64_t mono = 0;
   if (clock != nullptr) {
@@ -275,9 +281,26 @@ void title(const char* text) {
 }
 
 void refresh() {
-  // The glass changed under the bar —a turn, a new size— and what it has on it is not the bar any more:
-  // it is painted again whole, with the quality that leaves no history (docs/50).
+  // The glass changed under the bar —a turn, a new size, a picture that washed it— and what it has on it is not the bar
+  // any more: it is painted again whole. **Sense parpelleig** (0.179.40): the strip is two tones, so the whole of it goes
+  // up at `gld16`, the wash that keeps two sixteenths and does not blink, and what the page under it left is a level
+  // thirteen and not a black band (docs/50, docs/92).
   g_whole_changed = true;
+}
+
+// **Lo que la barra deu, pintat aquí i no al final del torn** (0.179.27): the same two decisions `poll()` makes, taken
+// without reading the clock, because a start that is waiting for its title does not want a read of the RTC on top. A
+// strip whose glass changed under it is painted whole; a strip that only changed its title is painted in the box of the
+// title, at the wash of two levels —the hour and the charge are not touched and the strip does not blink (docs/50).
+bool flush() {
+  if (!g_drawn || g_platform == nullptr || !g_visible) return false;
+  if (!g_title_changed && !g_whole_changed) return false;
+  if (g_whole_changed) {
+    paint(hal::UpdateMode::kGld16, g_read);
+    return true;
+  }
+  paint_boxes(hal::UpdateMode::kGld16, g_read, false, g_title_changed, false);
+  return true;
 }
 
 void show(bool on) {
@@ -319,13 +342,14 @@ void poll() {
   if (!g_whole_changed && !g_title_changed && !minute_changed && !charge_changed) return;
 
   // **The strip is whole when the glass under it moved**, and only then: a page that turned took the bar with it and
-  // there is no box to clean, there is a strip to draw (docs/50).
+  // there is no box to clean, there is a strip to draw. **I es pinta sense parpelleig** (0.179.40): `gld16` over the two
+  // tones of the strip, which is the same wash the boxes use (docs/50).
   if (g_whole_changed) {
-    paint(hal::UpdateMode::kGc16, g_read);
+    paint(hal::UpdateMode::kGld16, g_read);
     return;
   }
   // **And otherwise the boxes that changed, at the wash of two levels** (0.85.2): the hour is a digit and the title is
-  // a word, and neither of them is worth four blinks of the whole strip (docs/50, docs/85).
+  // a word, and neither of them is worth two blinks of the whole strip (docs/50, docs/85).
   paint_boxes(hal::UpdateMode::kGld16, g_read, minute_changed, g_title_changed, charge_changed);
 }
 

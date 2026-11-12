@@ -1006,6 +1006,27 @@ static void test_a_du_of_the_whole_glass_is_painted_as_a_wash(void) {
   TEST_ASSERT_TRUE(glass().set_ink(false));
 }
 
+// **A present the system makes cannot overrule the ink an app named** (0.179.41): the ring that moves, the control that
+// let go and the value that was stepped are painted by `present_each` with a quality this layer chooses, because that ink
+// is not the app's. A region the app painted with a quality of its own says what its ink is, and writing the choice over
+// every region made the first touch of the editor's page paint its whole document box —most of the page— at `gl16`:
+// four hundred and fifty milliseconds and a blink where the app had asked for the hundred and twenty of a `du`. The owner
+// saw it on the board with these three lines of the log and asked *«Perqué l'editor fa tants refrescos i a aquesta
+// qulitat???»* (docs/30, docs/50).
+static void test_a_present_of_the_system_keeps_the_quality_the_app_named(void) {
+  fresh_view();
+  // A box that is most of the page —seven hundred of the nine hundred and sixty wide— with the quick quality by name.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 10, 700, 400, 0, "du"));
+  TEST_ASSERT_TRUE(ui::present_each(hal::UpdateMode::kGl16));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kDu), static_cast<int>(glass().last_mode()));
+  // **And a box that named nothing is still the system's to paint**: a control that only invalidated itself has no wish,
+  // and the pass of the present is the one its ink gets.
+  TEST_ASSERT_TRUE(ui::fill_rect(0, 10, 700, 400, 0, nullptr));
+  TEST_ASSERT_TRUE(ui::present_each(hal::UpdateMode::kGl16));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(hal::UpdateMode::kGl16), static_cast<int>(glass().last_mode()));
+  TEST_ASSERT_TRUE(glass().set_ink(false));
+}
+
 // **The level a band of the glass shows**, averaged over twenty pixels: one pixel can be a miss of the
 // speckle, and what the test below is about is the shape of the trace and not the grain of it (docs/85).
 static uint8_t band_of_the_glass(uint16_t y) {
@@ -1682,30 +1703,23 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   const uint32_t painted = glass().paint_count();
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(painted, glass().paint_count(), "a present with nothing pressed painted the band");
-  // And a key is the dial's too: it walks the first row before anything else, and the centre presses what it is on.
-  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
-  TEST_ASSERT_TRUE(ui::present());
+  // **I el dial no hi és** (0.179.46): the band is a picture a finger presses —*«No vull selector amb botons físics al teclat
+  // per software, al teclat per software només vull tocs de dits»*—, so there is no chosen cell to walk and no key the centre
+  // of the board presses: the keys of the board walk the controls of the page, and a box a person has entered takes them as
+  // the caret (docs/30, docs/90).
 
   // **The row of `a` is staggered half a key**: the first twentieth of it is air, so a finger there is a touch of
   // the band that presses nothing and the dial stays where it was —on the second key of the first row—.
   TEST_ASSERT_TRUE(ui::keyboard_touch(20, static_cast<uint16_t>(top + row + 10), true));
   ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(150, top + 10), "the dial left the key it was on");
-  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, view_level(40, top + 10), "a key of the first row is still the chosen one");
-  // A finger on the `a` itself puts the dial there, which is the cell the paint put down: the keys keep the twelve
-  // pixels of margin of the glass, so the row of `a` starts at thirty-seven, and **the chosen key is its whole cell in
-  // ink** and not a block inside three pixels of air (0.97.0, docs/92).
-  TEST_ASSERT_TRUE(ui::keyboard_touch(100, static_cast<uint16_t>(top + row + 40), true));
-  ui::keyboard_touch(0, 0, false);
-  TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(70, static_cast<uint16_t>(top + row + 4)));
-  TEST_ASSERT_EQUAL_UINT8(15, view_level(150, top + 10));
-
-  // **The capitals are a lock and not a shift**: what a capital costs is more ink in the cell of the letter and the
-  // same cell, the key of the case is lit while it is on, and **a letter does not put it out** —the picture of the
-  // band is the same after a letter, which is the other half of "the keyboard does not repaint on a key"- (docs/30,
-  // docs/90).
+  // **I la banda no canvia**: with no chosen cell, a finger that lands in the air of the stagger is a band that is exactly
+  // as it was —paper and the line of the key beside it— (0.179.46).
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(20, static_cast<uint16_t>(top + row + 10)));
+  // **I un dit sobre una lletra escriu i no toca la banda** (0.179.36): the block of the dial is what the dial points
+  // with and a finger is its own pointer, so a key a finger presses leaves the picture of the band as it was —not one
+  // pixel of it, which is what the glass would otherwise paint for every letter written— (docs/50, docs/90). It is the
+  // cell of the `a`, the first of the second row, which starts at the twelve pixels of margin of the glass.
   const auto ink_in = [&](uint16_t x0, uint16_t y0) {
     int ink = 0;
     for (uint16_t x = x0; x < x0 + 96; ++x) {
@@ -1715,6 +1729,18 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
     }
     return ink;
   };
+  const int letter_before = ink_in(37, top + row + 4);
+  const uint32_t before_the_finger = glass().paint_count();
+  TEST_ASSERT_TRUE(ui::keyboard_touch(100, static_cast<uint16_t>(top + row + 40), true));
+  ui::keyboard_touch(0, 0, false);
+  TEST_ASSERT_TRUE(ui::present());
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(before_the_finger, glass().paint_count(), "a key of a finger painted the band");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(letter_before, ink_in(37, top + row + 4), "a key of a finger painted over the band");
+
+  // **The capitals are a lock and not a shift**: what a capital costs is more ink in the cell of the letter and the
+  // same cell, the key of the case is lit while it is on, and **a letter does not put it out** —the picture of the
+  // band is the same after a letter, which is the other half of "the keyboard does not repaint on a key"- (docs/30,
+  // docs/90).
   const int lower = ink_in(192, top + 4);
   TEST_ASSERT_GREATER_THAN(0, lower);
   // The case is the first key of the third row: three twentieths of width, a hundred and forty-four pixels.
@@ -1725,15 +1751,14 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_GREATER_THAN_MESSAGE(lower, capital, "the case did not change the letters");
   // The key is lit while it is on, and the band is painted once for it.
   TEST_ASSERT_EQUAL_UINT8(0, view_level(20, static_cast<uint16_t>(top + 2 * row + 10)));
-  // **A letter of the row of `q` does not put it out**, and it does not paint the band either: the capitals stay and
-  // the key stays lit —what a lock is for— (0.84.4).
-  // The dial walks off the case key and onto a letter —the `z` of its row—, which is a move and paints the band once.
-  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
-  TEST_ASSERT_TRUE(ui::present());
   // **And the centre presses that letter**, which is a letter and not a move: the band's picture is the same one, so the
-  // glass is not refreshed for it (0.84.4).
+  // glass is not refreshed for it (0.84.4). **The dial is not walked here** (0.179.43): a letter of the row of `q` is what
+  // the centre presses, and the dial is already on one —the press of the case by the finger did not move it, which is the
+  // rule of 0.179.36—, so a walk before this would put the block of the dial inside the window this case measures and the
+  // number would be the block of ink and not the letters.
   const uint32_t before_the_letter = glass().paint_count();
-  TEST_ASSERT_TRUE(ui::keyboard_key("press", 0));
+  TEST_ASSERT_TRUE(ui::keyboard_touch(30, static_cast<uint16_t>(top + 20), true));
+  ui::keyboard_touch(0, 0, false);
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_INT_MESSAGE(capital, ink_in(192, top + 4), "a letter put the capitals out");
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(20, static_cast<uint16_t>(top + 2 * row + 10)),
@@ -1758,12 +1783,6 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   TEST_ASSERT_TRUE(ui::present());
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, view_level(0, top), "the band did not come back after a rectangle");
 
-  // **The walk of the dial is one paint of the cells it moves between** (0.83.1), and the rest of the band is left alone.
-  const uint32_t walked = glass().paint_count();
-  TEST_ASSERT_TRUE(ui::keyboard_key("press", 2));
-  TEST_ASSERT_TRUE(ui::present());
-  TEST_ASSERT_EQUAL_UINT32_MESSAGE(walked + 1, glass().paint_count(), "a walk of the dial painted more than once");
-
   // **The digits are the other alphabet and the same band**: four rows, because a page laid out around a band of
   // two hundred and sixteen does not move when the digits come (docs/90).
   TEST_ASSERT_TRUE(ui::keyboard_show(ui::kKeyboardNumeric));
@@ -1773,8 +1792,10 @@ static void test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on() {
   const uint16_t foot = static_cast<uint16_t>(ui::canvas().height - ui::keyboard_height());
   TEST_ASSERT_EQUAL_UINT16(324, foot);
   TEST_ASSERT_EQUAL_UINT8(0, view_level(0, foot));
-  // The dial is on the `1` of the first row, and the chosen key is a block of ink with the digit in paper.
-  TEST_ASSERT_EQUAL_UINT8(0, view_level(20, foot + 10));
+  // **The band of the digits is the same band and no key of it is lit** (0.179.46): the margin of the glass is paper and
+  // the first key of the row begins where the twelve pixels end, exactly as in the alphabet (docs/90).
+  TEST_ASSERT_EQUAL_UINT8(15, view_level(0, static_cast<uint16_t>(foot + 10)));
+  TEST_ASSERT_EQUAL_UINT8(0, view_level(12, static_cast<uint16_t>(foot + 10)));
   TEST_ASSERT_TRUE(ui::keyboard_hide());
   TEST_ASSERT_EQUAL_UINT16(0, ui::keyboard_height());
   // **And the page is the whole glass again** when the band goes.
@@ -2617,6 +2638,55 @@ void test_a_textbox_keeps_the_caret_on_the_glass() {
   // **Without the caret the box is paper**: the system blinks it, and this is the other half of the blink.
   TEST_ASSERT_TRUE(ui::textbox_draw(box, "", 0, false, false, 0, 15, 0, 2));
   TEST_ASSERT_EQUAL_UINT8(15, view_level(9, 14));
+
+  // **I el cursor és la cel·la girada i no una taca pintada** (0.179.37): the same box with the block and without it has
+  // **exactly the opposite levels** in the cell of the caret, letter included, which is what `draw_invert` is —the
+  // primitive the selected cells of this system already use— and what keeps the shape of the letter a person is about to
+  // type over. A caret painted as a rectangle of ink with the letter in paper could not promise this, and its off phase
+  // was a box with a hole where that letter goes.
+  static uint8_t with_caret[64 * 64];
+  uint16_t caret_x = 0;
+  uint16_t caret_y = 0;
+  uint16_t caret_w = 0;
+  uint16_t caret_h = 0;
+  // **Cada dibuix surt del paper** (0.179.43): a blink of this system invalidates the box of the caret and the control paints
+  // its paper again —a box drawn twice on the canvas of before would keep the ink of the block under the second paint, which
+  // is not what the glass ever sees— (docs/30, docs/90).
+  TEST_ASSERT_TRUE(ui::invalidate(box));
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "abc", 1, true, false, 0, 15, 0, 2));
+  TEST_ASSERT_TRUE(ui::textbox_caret_box(box, caret_x, caret_y, caret_w, caret_h));
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, caret_w, "the caret of a box of text has no box to repaint");
+  TEST_ASSERT_LESS_OR_EQUAL_UINT16(40, caret_w);
+  TEST_ASSERT_LESS_OR_EQUAL_UINT16(24, caret_h);
+  for (uint16_t y = 0; y < caret_h; ++y) {
+    for (uint16_t x = 0; x < caret_w; ++x) {
+      with_caret[y * caret_w + x] = view_level(static_cast<uint16_t>(caret_x + x), static_cast<uint16_t>(caret_y + y));
+    }
+  }
+  // **The block off is the same cell the other way up**, and the letter of the cursor is on the glass: the hole the
+  // rectangle of ink left —the head stops at the cursor and the rest starts after it, so only the block ever drew that
+  // letter— is what this half of the case measures.
+  TEST_ASSERT_TRUE(ui::invalidate(box));
+  TEST_ASSERT_TRUE(ui::textbox_draw(box, "abc", 1, false, false, 0, 15, 0, 2));
+  int ink_of_the_letter = 0;
+  int ink_of_the_block = 0;
+  for (uint16_t y = 0; y < caret_h; ++y) {
+    for (uint16_t x = 0; x < caret_w; ++x) {
+      const uint8_t off = view_level(static_cast<uint16_t>(caret_x + x), static_cast<uint16_t>(caret_y + y));
+      const uint8_t on = with_caret[y * caret_w + x];
+      char why[160];
+      snprintf(why, sizeof(why),
+               "the cell of the caret is not the cell turned over: %u,%u of the box %u,%u %ux%u, off %u on %u",
+               static_cast<unsigned>(caret_x + x), static_cast<unsigned>(caret_y + y), static_cast<unsigned>(caret_x),
+               static_cast<unsigned>(caret_y), static_cast<unsigned>(caret_w), static_cast<unsigned>(caret_h),
+               static_cast<unsigned>(off), static_cast<unsigned>(on));
+      TEST_ASSERT_EQUAL_UINT8_MESSAGE(static_cast<uint8_t>(15 - off), on, why);
+      if (off == 0) ++ink_of_the_letter;
+      if (on == 0) ++ink_of_the_block;
+    }
+  }
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, ink_of_the_letter, "the letter under the cursor is not on the glass with the block off");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(0, ink_of_the_block, "the cell of the caret came out with no ink in it");
 
   // **A text longer than the frame with the caret at its end**: the caret ends up against the right side of the
   // inside and not past the border, which is the whole point of the window.
@@ -3940,6 +4010,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_page_that_paints_itself_keeps_the_hole_for_the_app);
   RUN_TEST(test_the_window_shows_the_glass_in_the_colours_of_the_panel);
   RUN_TEST(test_a_du_of_the_whole_glass_is_painted_as_a_wash);
+  RUN_TEST(test_a_present_of_the_system_keeps_the_quality_the_app_named);
   RUN_TEST(test_the_ink_of_a_du_keeps_a_trace_and_a_gc16_cleans_it);
   RUN_TEST(test_a_gld16_leaves_a_trace_and_a_gc16_takes_it_away);
   RUN_TEST(test_the_trace_of_a_rich_page_is_richer_than_a_flat_one);

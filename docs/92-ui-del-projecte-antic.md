@@ -268,16 +268,16 @@ que res d'això**, perquè són les que diuen si un control nou pot declarar el 
 | **`ui.tabs`** — columnes iguals i la triada sense línia a sota | **0.70.0** | `test_a_strip_of_tabs_has_no_line_under_the_chosen_one` |
 | **`ui.dots`** — la pàgina on ets, i res si només n'hi ha una | **0.70.0** | `test_the_dots_of_a_page_draw_nothing_when_there_is_one_page` |
 | **`ui.list`** — files en pàgines, el peu `2 / 4` i `on_page` amb el dial | **0.71.0** | `test_a_list_measures_its_pages_with_one_arithmetic`, `test_a_list_draws_one_page_and_says_which_one_it_is`, `test_a_list_turns_its_page_with_the_dial`, `test_a_dial_step_past_the_last_row_of_a_page_turns_it`, `test_a_finger_that_walks_sideways_over_a_list_turns_the_page` |
-| **`ui.textbox`** — la finestra del text i el cursor de bloc amb la lletra en paper | **0.72.0** | `test_a_textbox_keeps_the_caret_on_the_glass` |
+| **`ui.textbox`** — la finestra del text i el cursor, que és la cel·la de la lletra girada (invertida) i parpelleja sola | **0.72.0, 0.179.37** | `test_a_textbox_keeps_the_caret_on_the_glass` |
 | **el teclat del sistema** — banda pròpia, dial que camina les tecles, i el camp escrit abans de `on_change` | **0.72.0** | `test_the_keyboard_types_into_the_box_it_was_given` |
 | **el teclat, dibuixat** (0.83.0) — QWERTY esglaonat de minúscules amb majúscules, barra d'espai, icones (← ↵ ⇧) en lloc de paraules, cap botó, quatre files en els dos jocs i la banda neta amb `gl16` | **0.83.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
 | **el teclat que no parpelleja** (0.83.1) — es pinta al llenç a cada present i al vidre només hi va el que ha canviat: dues cel·les quan el dial camina, la banda quan canvia el joc, res quan s'escriu una lletra | **0.83.1** | el mateix, amb el comptador de pintades del vidre |
 | **la vista que el teclat no trepitja** (0.84.0) — `ui.caps().height` baixa a 656 amb la banda (736 fins a 0.106.0, amb tecles de 44) i torna a 912 quan marxa, l'app rep `on_resize`, i `cv:resize` deixa un panel prendre la mida nova | **0.84.0** | `test_the_keyboard_takes_its_band_out_of_the_view_the_app_is_given` |
 | **la caixa de text, neta** (0.84.1) — el text de la finestra s'acumulava entre pintades (un buffer estàtic que no s'esborrava), el cursor a zero es pintava al final de la fila, i les apps presenten el canvi amb `gl16` | **0.84.1** | `test_a_box_paints_its_text_and_not_the_one_before_it`, `test_the_caret_of_a_box_of_lines_is_at_the_cursor_and_not_at_the_end_of_the_row` |
-| **el teclat, dibuixat de debò** (0.85.0) — DejaVu Sans Bold de `/fonts` a doble mida i rebaixat a quatre nivells de tinta, `MAY` com a bloqueig, i la banda que només es repinta quan canvia ella o quan la pàgina la trepitja | **0.85.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
+| **el teclat, dibuixat de debò** (0.85.0, i dos nivells des de 0.179.36) — DejaVu Sans Bold de `/fonts` a doble mida, la lletra decidida per quatre mostres i pintada en **blanc i negre**, `MAY` com a bloqueig, i la banda que només es repinta quan canvia ella o quan la pàgina la trepitja | **0.85.0** | `test_the_keyboard_is_a_qwerty_the_finger_and_the_glass_agree_on` |
 | **el dial de la finestra, dibuixat** (0.85.1) — fletxa amunt, cercle farcit i fletxa avall com a runs d'un píxel (`gui_key_icon`) en lloc de les paraules, botons de 40 × 40 amb 6 de buit, i una placa d'una tecla que es queda la paraula | **0.85.1** | `test_the_keys_of_the_window_are_the_dial_of_the_board` |
 | **el cursor on toca el dit** (0.85.2) — la fila pel `y` i la lletra pel `x`, una fila buida és una fila, una fila que no hi és és el final del text, i el sistema presenta amb `gld16` el cursor que ha mogut | **0.85.2** | `test_a_box_of_lines_keeps_the_caret_on_the_glass` |
-| **la barra, en tres caixes** (0.85.2) — l'hora, el títol i la càrrega, cadascuna neta i es dibuixa sola amb `gld16`, sense el `gc16` de tota la franja per un títol | **0.85.2** | `test_a_new_title_repaints_the_bar`, `test_a_new_minute_repaints_the_hour_and_not_the_strip` |
+| **la barra, en tres caixes** (0.85.2, i sense cap `gc16` des de 0.179.40) — l'hora, el títol i la càrrega, cadascuna neta i es dibuixa sola amb `gld16`, i la franja sencera —boot, tornada de pàgina, imatge que renti el vidre— també a `gld16`: el dibuix és de dos nivells i el rentat aterra al nivell | **0.85.2** | `test_a_new_title_repaints_the_bar`, `test_a_new_minute_repaints_the_hour_and_not_the_strip`, `test_the_strip_of_the_bar_is_two_tones` |
 | **`ui.dialog`** — targeta, missatge que s'ajusta, dues portes i el dit que tria la que toca | **0.73.0** | `test_a_dialog_wraps_its_message_and_has_two_doors`, `test_a_dialog_answers_with_the_door_the_dial_is_on` |
 | **`ui.sparkline`** — una barra per mostra, escala del pic de la finestra i la segona sèrie buida | **0.74.0** | `test_a_sparkline_scales_to_the_peak_of_its_window` |
 | **`ui.pie`** — quatre porcions, angles d'una taula de direccions i tons que camina el control | **0.74.0** | `test_a_pie_is_two_halves_when_the_slices_are_equal` |
@@ -1433,3 +1433,50 @@ de bits fetes a 33, 43, 57 i 82 px d'alçada de línia; aquí la cara és d'outl
 que les quatre mides surten **33, 44, 55 i 77** — la del número gran, cinc píxels curta— (docs/30). Fora d'això,
 les dues calculadores són la mateixa imatge: mateixa graella, mateixos marges (16 px de marge, 10 de separació),
 mateixa caixa del display, mateix gris i mateixa vora.
+
+## 35. L'editor, el cursor que pintava massa i el swipe que no desplaçava (0.179.35)
+
+**La queixa de l'amo**: *«Revisa a fons l'app Editor, revisa el codi original de l'app de PaperOS per comparar. El
+cursor sembla que refresca massa dibuix no trobes? va tot molt lent, el swipe (amunt i avall) no va per desplaçar-se
+per l'arxiu»*. Tres coses i tres causes, i cap de les tres és de l'app sola.
+
+**El que fa l'original de PaperOS** (`~/code/PaperOS/data/app/Editor/pos_launch.lua`, 1 370 línies): no és una
+finestra que es desplaci, és un **editor de pàgines**. Té `turnPage` i `loadPage`, el document es parteix en pàgines
+de **vint-i-dues línies** i el dit el que fa és girar la pàgina —una pàgina sencera de cop, amb un `paperos.redraw()`—.
+Aquell editor no va haver d'inventar cap desplaçament continu perquè mai no en va tenir: quan el text no hi cap, en
+vola una pàgina i prou. L'editor d'aquí és una **finestra** sobre el text sencer (`top` i `box:rows()`), que és més
+bo per llegir un fitxer llarg i molt més car de pintar, perquè cada moviment és una pàgina de text i no un full.
+
+**1. El cursor pintava cada sis-cents mil·lisegons per sempre.** El parpelleig és del sistema (`caret_poll`): cada
+volta posava `caret` a la caixa i demanava **un `du` de la pàgina sencera**, i una pàgina d'aquest vidre són cent vint
+mil·lisegons de panell i cinc setzens del que hi havia que s'hi queden. Amb el document a la caixa de text, això és tinta
+que no ha demanat ningú i una marca que creix. Ara el bloc parpelleja **sis vegades** després de l'última cosa que l'ha
+mogut —un focus, una tecla— i es queda **encès** fins a la següent (`kCaretMostBliks`, `luabind.cpp`).
+
+**2. Cada fila d'un swipe costava un `gld16`.** `ui_swipe_by` presentava la pàgina amb la passada neta per **cada fila
+que el dit recorria**: quatre-cents cinquanta mil·lisegons per pas, o sigui **quatre segons i mig** per un swipe de deu
+files —i el panell, mentrestant, té una cua, que és el que l'amo veia com una pàgina que no es mou—. Ara el camí posa
+les files amb `du` (cent vint) i la neta es paga **una vegada, en aixecar el dit** (`g_ui_swipe_clean`), i dos `du` no
+es demanen amb menys de **seixanta mil·lisegons** entre ells (`kSwipePaintMs`): un dit ràpid travessa diverses files
+entre dues pintades del vidre i una pintada per fila és una cua que sobreviu al gest.
+
+**3. El swipe obria la banda i es matava ell mateix.** Des de la 0.91.0 el teclat segueix el dit: en **baixar** sobre
+una caixa de text, la caixa pren el focus i la banda puja. I la banda **canvia l'alçada de la pàgina** (`on_resize`,
+la caixa es torna a mesurar): els controls de la pàgina es tornen a fer, el `slot` que el gest s'havia apuntat ja no és
+de ningú i la resta del moviment no mou res. La prova de la 0.113.0 no ho veia perquè l'editor ja té la banda oberta en
+arrencar —la `resume()` la demana— i aleshores el sistema no torna a cridar `keyboard_show`. Ara la banda arriba **en
+aixecar el dit**, quan el contacte ja se sap que és un toc i no un gest (`ui_touch_progress`, branca del `!down`), i un
+dit que camina no la porta.
+
+**I a l'app, dues coses més** (`apps/editor/editor.lua`): cada tecla demanava un `gld16` de la pàgina —quatre-cents
+cinquanta mil·lisegons per una lletra— i ara en demana un `du` i el net cada **quatre** tecles (`kWashEvery`), o sigui
+**cent seixanta de mitjana** en comptes de quatre-cents cinquanta; i `doc.keys` compta les tecles des de l'últim rentat.
+
+**Què NO s'ha canviat, i es diu**: escriure continua costant una pintada per tecla (ara més barata), el document continua
+sent una finestra i no unes pàgines com les del vell, i el `gld16` del lift és el preu de deixar el text net després del
+gest. Els números de la prova són els del codi: `kCaretBlinkMs = 600`, `kCaretMostBliks = 6`, `kSwipePaintMs = 60`,
+`kWashEvery = 4`; **la mesura al vidre de la placa queda pendent** en el moment d'escriure això.
+
+**Les proves escrites aquest torn**: `test_a_swipe_on_a_box_of_lines_moves_the_window_and_ends_with_its_page` i
+`test_the_document_of_the_editor_scrolls_with_a_finger` han de continuar verdes amb el canvi de la banda, i la de la
+caixa ha de veure `top` moure's amb un dit que camina **sense** que la caixa demani teclat.

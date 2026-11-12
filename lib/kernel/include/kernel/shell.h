@@ -129,7 +129,13 @@ bool restore_app(const char* id, const char* path);
 // **The app the system starts by itself** (0.119.0): the home app of the settings, started the way `run` starts
 // one but without a prompt in between —no restore flag, because it is not coming back from anything— and only when
 // nothing is in front (docs/30, docs/40).
-bool start_app(const char* id);
+//
+// **`splash` es diu i no s'endevina** (0.179.33): a start that shows the picture of the manifest and one that does not are
+// two different moments of the same app, and which one it is belongs to the caller. **The boot does not**: the board has
+// already painted the picture of its own boot on that glass and a second one is a wash of the glass and the card of an app
+// for something the person has just seen. **The way back to a launcher does**: a Lua app ends and the page a person comes
+// back to arrives with its card, which is the moment the card was drawn for (docs/30, docs/40).
+bool start_app(const char* id, bool splash = true);
 
 // The window of an alarm: the app is loaded, turned once and its on_alarm is
 // called, and then the VM goes away. Never runs on top of another app.

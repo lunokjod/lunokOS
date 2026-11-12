@@ -148,6 +148,50 @@ static void test_a_new_title_repaints_the_bar() {
   TEST_ASSERT_EQUAL_UINT32(after, glass().paint_count());
 }
 
+// **A title can be on the glass before the turn is over** (0.179.27): `title()` only raises a flag and it was `poll()` —the
+// last thing of a turn, after the app's own— that painted it, so the name of an app arrived after the whole start of it and
+// after the first page of the app it names. `flush()` is that paint where it was asked for, and the turn behind it has
+// nothing left to pay. A bar that is away, or one with nothing owing, paints nothing.
+static void test_the_title_can_be_painted_before_the_turn(void) {
+  boot_with_a_panel();
+  bar::poll();  // what the case before left owing, if anything
+  const uint32_t before = glass().paint_count();
+  bar::title("BEFORE");
+  TEST_ASSERT_TRUE_MESSAGE(bar::flush(), "the title asked for a paint and nothing was painted");
+  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
+  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
+  TEST_ASSERT_NOT_NULL(paint);
+  // The same box and the same quality the turn's paint of a title has: a word is not worth a whole strip.
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
+  TEST_ASSERT_EQUAL_UINT16(107, paint->x);
+  TEST_ASSERT_EQUAL_UINT16(6, paint->y);
+  TEST_ASSERT_EQUAL_UINT16(764, paint->w);
+  TEST_ASSERT_EQUAL_UINT16(21, paint->h);
+  // **And the turn after it pays nothing**: the flag went with the paint, so a start does not buy two strips.
+  const uint32_t after = glass().paint_count();
+  bar::poll();
+  TEST_ASSERT_EQUAL_UINT32(after, glass().paint_count());
+  // **Nothing owing is no paint**, and a bar that is away is no paint either: an app with the whole glass has a title and
+  // no strip to put it on (docs/30, docs/46 D1).
+  TEST_ASSERT_FALSE_MESSAGE(bar::flush(), "a bar with nothing owing was painted again");
+  bar::title("AWAY");
+  bar::show(false);
+  TEST_ASSERT_FALSE_MESSAGE(bar::flush(), "a bar that is not on the glass was painted");
+  // **And the strip that comes back is the strip whole**, with the title that was waiting on it: what is under it is not
+  // the bar any more, so that paint is the whole strip. **I sense parpelleig** (0.179.40): `gld16` and not `gc16`, because
+  // the strip is two tones and a flash on every return is a flash a person sees (docs/50).
+  bar::show(true);
+  TEST_ASSERT_TRUE_MESSAGE(bar::flush(), "the strip did not come back with its title");
+  const emu::MemorySurface::Paint* whole = glass().paint_at(glass().paint_count() - 1);
+  TEST_ASSERT_NOT_NULL(whole);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, whole->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, whole->y);
+  TEST_ASSERT_EQUAL_UINT16(48, whole->h);
+  // The bar goes back to nobody's title for the cases that come.
+  bar::title("");
+  bar::flush();
+}
+
 // **The hour is its own box too**, and the ten-minute full wash is gone: a minute is a digit and a digit is a box
 // cleaned without a blink, not a strip blinking four times (0.85.2, docs/50, docs/92).
 static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
@@ -173,9 +217,9 @@ static void test_a_new_minute_repaints_the_hour_and_not_the_strip() {
   TEST_ASSERT_EQUAL_UINT16(21, paint->h);
 }
 
-// **The strip is whole when the glass under it moved**: a turn or a new size is not a box, and the whole bar is
-// washed with the quality that leaves no history (0.85.2).
-static void test_a_turn_paints_the_whole_strip() {
+// **The strip is whole when the glass under it moved**: a turn or a new size is not a box, and the whole bar is painted
+// again at the wash that does not blink (0.85.2, 0.179.40).
+static void test_a_turn_paints_the_whole_strip(void) {
   boot_with_a_panel();
   bar::poll();
   const uint32_t before = glass().paint_count();
@@ -184,7 +228,7 @@ static void test_a_turn_paints_the_whole_strip() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
   const emu::MemorySurface::Paint* paint = glass().paint_at(before);
   TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
   TEST_ASSERT_EQUAL_UINT16(0, paint->x);
   TEST_ASSERT_EQUAL_UINT16(0, paint->y);
   TEST_ASSERT_EQUAL_UINT16(48, paint->h);
@@ -306,10 +350,43 @@ static void test_the_bar_comes_back_when_the_app_gives_the_glass_back() {
   TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
   const emu::MemorySurface::Paint* paint = glass().paint_at(before);
   TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGld16, paint->mode);
   TEST_ASSERT_EQUAL_UINT16(0, paint->x);
   TEST_ASSERT_EQUAL_UINT16(0, paint->y);
   TEST_ASSERT_EQUAL_UINT16(48, paint->h);
+}
+
+// **La franja és de dos colors i prou** (0.179.40): el paper, la línia de sota i cada tros de lletra són nivell zero o
+// nivell quinze, que és el que fa que un sol `gld16` la deixi "al" nivell i no a prop. A case that finds a grey in the strip
+// is a case that says the bar has adopted a tone it cannot erase without a flash (docs/50).
+static void test_the_strip_of_the_bar_is_two_tones(void) {
+  boot_with_a_panel();
+  // **El vidre comença net**: a case before this one may have left ink under the strip, and two sixteenths of it would be
+  // a grey that is the glass of the case and not the bar's drawing (docs/50).
+  glass().clear(15);
+  bar::title("TWO TONES");
+  bar::refresh();
+  bar::poll();
+  const uint16_t w = glass().width();
+  const uint16_t h = bar::height();
+  int ink = 0;
+  int paper = 0;
+  for (uint16_t y = 0; y < h; ++y) {
+    for (uint16_t x = 0; x < w; ++x) {
+      const uint8_t level = glass().level_at(x, y);
+      TEST_ASSERT_TRUE_MESSAGE(level == 0 || level == 15, "the strip of the bar painted a level that is neither ink nor paper");
+      if (level == 0) {
+        ++ink;
+      } else {
+        ++paper;
+      }
+    }
+  }
+  // **Les tres caixes hi són**: the hour, the title and the charge put ink on the paper of the strip.
+  TEST_ASSERT_GREATER_THAN_MESSAGE(100, ink, "the strip of the bar came out blank");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(1000, paper, "the strip of the bar came out black");
+  bar::title("");
+  bar::flush();
 }
 
 // **An app that ends gives the glass back, however it ends** (0.136.0, docs/46 D1): the shell says so when the app is
@@ -356,8 +433,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_turning_the_page_turns_the_bar_and_the_view);
   RUN_TEST(test_a_turn_with_nothing_new_paints_nothing);
   RUN_TEST(test_a_new_title_repaints_the_bar);
+  RUN_TEST(test_the_title_can_be_painted_before_the_turn);
   RUN_TEST(test_a_new_minute_repaints_the_hour_and_not_the_strip);
   RUN_TEST(test_a_turn_paints_the_whole_strip);
+  RUN_TEST(test_the_strip_of_the_bar_is_two_tones);
   RUN_TEST(test_a_long_title_is_cut_at_its_box);
   RUN_TEST(test_the_title_goes_away_with_the_app);
   RUN_TEST(test_an_app_that_asks_for_the_whole_glass_gets_it);

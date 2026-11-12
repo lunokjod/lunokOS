@@ -2958,6 +2958,51 @@ bool button_draw(int16_t slot, uint8_t background, uint8_t border, bool pressed,
   return true;
 }
 
+// **El dibuix d'un botó, sobre el vidre mateix** (0.179.31): the panel of the system paints on the glass while the page
+// under it is held, so its controls cannot be children of the view's tree —the composition of the page at the release
+// would erase them— and the card's close button had been a square with a cross drawn by hand, a second way of drawing a
+// button in a system that has one. This is that one: a scratch canvas of the size of the control, `paint_button` into it,
+// and one `blit` to the surface, which is a copy a row and not an arithmetic a pixel (docs/30, docs/90, docs/92).
+//
+// **The scratch is a block of the extra memory and not a static** (0.179.32): a fixed `uint8_t scratch[128 * 128 / 2]` is
+// **8 192 B of `.dram0.bss`**, and the Paper has no such room —it overflowed the region by 7 704 B and the board stopped
+// linking (found by the owner's build, 12/11)—. The block is the size of the control (a 64 by 64 key is **2 048 B**), it is
+// given back after the `blit`, and a control bigger than the pool is refused instead of painted half.
+//
+// **The levels the scratch canvas notes are not the page's**: `put_rect` marks every level it puts down in `g_levels`,
+// which is what the *page* reads to choose its cleaner between two apps —a card of the system is not the app's page—, so
+// the counters are saved and put back around the drawing.
+bool paint_a_button(hal::ISurface& surface, uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                    uint8_t background, uint8_t border, bool pressed, bool focused, bool primary,
+                    const char* title, uint8_t color, uint8_t scale) {
+  // **A nibble a pixel, so a width that is not even is refused**: half a byte is a pixel and an odd width would shift
+  // every row of the control.
+  if (width == 0 || height == 0 || (width & 1u) != 0 || scale == 0 || scale > 16) return false;
+  if (background > 15 || border > 15 || color > 15) return false;
+  const uint16_t stride = static_cast<uint16_t>(width / 2);
+  const size_t bytes = static_cast<size_t>(stride) * height;
+  void* block = pal::extra_memory().allocate(bytes, true);
+  if (block == nullptr) return false;
+  Canvas view;
+  view.width = width;
+  view.height = height;
+  view.stride = stride;
+  view.bytes = static_cast<uint32_t>(bytes);
+  view.bits = static_cast<uint8_t*>(block);
+  view.x = 0;
+  view.y = 0;
+  view.in_use = true;
+  const uint16_t levels = g_levels;
+  const uint16_t paints = g_paints;
+  paint_button(view, -1, font::system_face(), 0, 0, width, height, background, border, pressed, focused, primary,
+               title, nullptr, color, scale, hal::UpdateMode::kDu);
+  g_levels = levels;
+  g_paints = paints;
+  surface.blit(x, y, width, height, static_cast<const uint8_t*>(block), stride);
+  pal::extra_memory().release(block);
+  return true;
+}
+
 int16_t checkbox_side(int16_t slot) {
   if (!live(slot)) return 0;
   const int32_t height = g_canvases[slot].height;
@@ -3878,14 +3923,35 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
   if (head[0] != '\0') {
     draw_text(*window.canvas, face, inner_x, top, head, scale, color, mode);
   }
-  // **The caret is a block of ink with the letter under it in paper**: a filled block would hide the letter the
-  // person is about to type over, and an outline would be a box drawn on a box (docs/90).
+  // **La lletra de sota el cursor es pinta amb el text i el bloc és la seva cel·la girada** (0.179.37): the caret was a
+  // rectangle of the colour with the letter under it painted again in paper —two draws a blink and a letter shaped
+  // twice— and **half of every blink was a box with a hole in it**, because the head stops at the cursor and the rest
+  // starts after it, so the block was the only thing that ever drew that letter. It is the primitive this system already
+  // turns its selected cells over with (`draw_invert`): every level of the cell swapped for its opposite, which on a box
+  // of two tones is ink and paper and on a box of greys keeps the shape of the letter a person types over (docs/30,
+  // docs/90).
+  if (under_bytes > 0) {
+    draw_text(*window.canvas, face, inner_x + before, top, under, scale, color, mode);
+  }
+  // **I el que ve després del cursor, ABANS del bloc** (0.179.43): the rest of the text is drawn here and not after the
+  // turn-over, because a letter painted over the block is a column of the block that is not turned over —the caret's own
+  // case measured it: a pixel of the cell that was ink with the block on and ink with it off, and a turn-over that the tail
+  // of the line can undo is not the promise `draw_invert` makes—. The block goes **last**, over the letters it is between,
+  // so nothing of the line can be written on top of it (docs/30, docs/90).
+  if (rest[0] != '\0') {
+    draw_text(*window.canvas, face, inner_x + before + after_caret, top, rest, scale, color, mode);
+  }
   // **The box of the block is kept from the draw that put it down** (0.168.2): the block blinks, and half of the blinks
   // draw the box without it —the off phase—, so forgetting where it was would leave the system painting the whole control
   // on every second blink. It is the same place, and `invalidate` of the whole control is what forgets it (docs/30).
   if (caret) {
     int32_t caret_x = inner_x + before;
-    int32_t cell = caret_w;
+    // **El bloc és la cel·la i una columna d'aire** (0.179.43): the advance that `font::width` answers is the cell of the
+    // letter and the last column of a glyph of an outline face can land **one pixel past it** —measured by the caret's own
+    // case: the column of the `b` at 26 of the box was ink with the block on and ink with it off, and that is one pixel
+    // `draw_invert` cannot promise, because a rectangle narrower than the letter leaves the edge of the letter as it was—.
+    // The extra column is inside the advance of the letter that comes after, so it is the caret's to turn over.
+    int32_t cell = caret_w + 1;
     if (caret_x + cell > inner_x + inner_w) cell = inner_x + inner_w - caret_x;
     if (cell > 0) {
       // **The box of the block is what a blink of the system repaints** (0.168.2): one letter, and not the box of the
@@ -3895,15 +3961,9 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
       window.canvas->caret_y = top;
       window.canvas->caret_w = cell;
       window.canvas->caret_h = line_h;
-      put_rect(*window.canvas, caret_x, top, cell, line_h, color);
-      mark_box(*window.canvas, caret_x, top, cell, line_h, mode);
-      if (under_bytes > 0) {
-        draw_text(*window.canvas, face, caret_x, top, under, scale, background, mode);
-      }
+      draw_invert(*window.canvas, static_cast<uint16_t>(caret_x), static_cast<uint16_t>(top),
+                  static_cast<uint16_t>(cell), static_cast<uint16_t>(line_h), mode);
     }
-  }
-  if (rest[0] != '\0') {
-    draw_text(*window.canvas, face, inner_x + before + after_caret, top, rest, scale, color, mode);
   }
   close_draw(window);
   return true;
@@ -4167,8 +4227,9 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
       row_fit(face, at, span, layout.room, scale, shown, sizeof(shown));
       draw_text(*target.canvas, face, target.x + layout.pad, y, shown, scale, color, mode);
     }
-    // **The caret is a block of ink with the letter under it in paper**, the same one the one line box has: a filled
-    // block would hide the letter the person is about to type over (docs/90).
+    // **I el cursor d'aquí és el mateix bloc girat** (0.179.37): the row is drawn whole —the letter under the cursor with
+    // it— and the block is its cell turned over (`draw_invert`), so nothing is shaped twice and the shape of a letter in
+    // a grey is kept (docs/30, docs/90).
     if (caret && which == layout.cursor_row) {
       char under[8] = {0};
       int32_t under_bytes = 0;
@@ -4183,6 +4244,10 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
         under[under_bytes] = '\0';
       }
       int32_t caret_w = caret_cell_width(face, under, under_bytes, scale);
+      // **I la columna d'aire que la tinta pot necessitar** (0.179.43): the same rule the box of one line follows —the
+      // advance is the cell and a glyph may put its last column one pixel past it—, and without it the rectangle of the
+      // turn-over is narrower than the letter it is over (docs/30, docs/90).
+      ++caret_w;
       int32_t caret_at = target.x + layout.pad + layout.caret_x;
       if (caret_at + caret_w > target.x + layout.pad + layout.room) {
         caret_w = target.x + layout.pad + layout.room - caret_at;
@@ -4194,11 +4259,8 @@ bool textbox_multiline_draw(int16_t slot, const char* text, uint16_t cursor, boo
         target.canvas->caret_y = y;
         target.canvas->caret_w = caret_w;
         target.canvas->caret_h = layout.line_h;
-        put_rect(*target.canvas, caret_at, y, caret_w, layout.line_h, color);
-        mark_box(*target.canvas, caret_at, y, caret_w, layout.line_h, mode);
-        if (under_bytes > 0) {
-          draw_text(*target.canvas, face, caret_at, y, under, scale, background, mode);
-        }
+        draw_invert(*target.canvas, static_cast<uint16_t>(caret_at), static_cast<uint16_t>(y),
+                    static_cast<uint16_t>(caret_w), static_cast<uint16_t>(layout.line_h), mode);
       }
     }
     at += taken;
@@ -6065,6 +6127,10 @@ class Keyboard {
   void paint();
   void page_cleared() { needs_paint_ = true; }
   void band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
+  // **El que la banda deu i encara no és al llenç** (0.179.36): the case and the alphabet mark the band and nothing of the
+  // page, so this is the question the kernel asks every turn before it decides that nobody owes anything
+  // (docs/30, docs/50). It is public because the kernel is not the keyboard's friend.
+  bool owes() const { return shown_ && (needs_paint_ || (dw_ > 0 && dh_ > 0)); }
 
  private:
   const LayoutDef& current_layout() const { return layout(kind_); }
@@ -6073,7 +6139,6 @@ class Keyboard {
   KeyArea keys() const;
   void note_band(int32_t x, int32_t y, int32_t w, int32_t h);
   void note_the_whole_band();
-  void note_cell(int8_t row, int8_t key);
   const char* label_of(const KeyDef& key, char* buffer, size_t cap) const;
   void press_key(const KeyDef& key);
   bool key_at(uint16_t x, uint16_t y, int8_t& row, int8_t& index) const;
@@ -6083,8 +6148,11 @@ class Keyboard {
   // **The capitals are a lock** (0.84.4): the key turns them on and the key turns it off, and a letter does not put
   // them back (docs/90).
   bool shift_ = false;
-  int8_t row_ = 0;
-  int8_t key_ = 0;
+  // **I la banda no té cap cel·la triada** (0.179.46): the owner: *«No vull selector amb botons físics al teclat per
+  // software, al teclat per software només vull tocs de dits»*. The block of the dial (`row_`, `key_`, `note_cell`) was what
+  // the arrows walked and the centre pressed, and it is gone: the band is a picture a finger presses, and the dial belongs
+  // to the page under it —the caret left and right in a box of one line, a row up and down in a box of several lines, with
+  // the column it came from (docs/30, docs/90).
   bool held_ = false;
   uint16_t key_h_ = 0;
   bool needs_paint_ = true;
@@ -6194,9 +6262,10 @@ const font::Face& keyboard_face() {
 }
 
 // **A letter is drawn at twice its size and every pixel of the key is the four samples of that block** (docs/90). The
-// file draws curves and the panel has sixteen levels, so the ink of a diagonal is four steps and not a staircase —which
-// is the whole difference between a keyboard and a grid of pixels—. It costs the glyphs of forty keys, and they are
-// painted when the case or the alphabet changes and not on every key (docs/50).
+// file draws curves, so the four samples of a block decide whether a pixel of the key is ink —a diagonal stays a
+// diagonal and not a staircase of pixels— and **what comes out is the ink or the paper and nothing in between**
+// (0.179.36): a band of two tones is a band that one `gld16` of the band takes back **to** the level and not close to
+// it, which is what makes it the picture the glass can paint and erase quickly (docs/50, docs/90).
 // **Ninety-six pixels of block** (0.107.0): the glyph is rendered at twice its size, so a letter of `scale` five is
 // ninety pixels of it (`kOutlineBody` nine, twice). With sixty-four the tallest letters did not fit, `ttf::render`
 // refused them and the key fell back to the blocky text of the table —which on a key of sixty-four would be precisely
@@ -6204,7 +6273,7 @@ const font::Face& keyboard_face() {
 const uint16_t kAaMaxWidth = 96;
 const uint16_t kAaMaxHeight = 96;
 // **The tallest a letter of a key goes**: it is what the block above holds, and one step more is a letter drawn
-// without its four shades of ink (docs/90).
+// without its four samples (docs/90).
 const uint8_t kKeyTextScale = 5;
 const uint16_t kAaRowBytes = kAaMaxWidth / 8;
 uint8_t g_aa_rows[kAaRowBytes * kAaMaxHeight];
@@ -6213,13 +6282,14 @@ bool aa_lit(uint16_t row, uint16_t column) {
   return (g_aa_rows[row * kAaRowBytes + (column >> 3)] & (0x80u >> (column & 7))) != 0;
 }
 
-// A level between the paper of the key and the ink of the letter, from zero to four samples of ink.
+// **Dos nivells i no quatre** (0.179.36): the block of the glyph is still four samples of ink and the letter is still
+// decided by them —which is what keeps a diagonal a diagonal—, but what reaches the glass is the **ink or the paper of
+// the key and nothing in between**: a band of two tones is a band that a `gld16` of the band lands **on** the level and
+// not close to it, and it is the picture the owner asked for with his reason in the same line —*«el teclat usa blanc i
+// negre bàsic per poder-se pintar i esborrar ràpidament»*—. It costs the same glyph and it writes half the runs
+// (docs/50, docs/90).
 uint8_t aa_level(uint16_t covered, uint8_t ink, uint8_t paper) {
-  const int32_t span = static_cast<int32_t>(ink) - static_cast<int32_t>(paper);
-  int32_t level = static_cast<int32_t>(paper) + (span * static_cast<int32_t>(covered)) / 4;
-  if (level < 0) level = 0;
-  if (level > 15) level = 15;
-  return static_cast<uint8_t>(level);
+  return (covered >= 2) ? ink : paper;
 }
 
 // One row of the glyph: the four samples of every pixel of the key, in runs of one level.
@@ -6428,23 +6498,6 @@ void Keyboard::note_the_whole_band() {
   note_band(0, top, static_cast<int32_t>(root().width), static_cast<int32_t>(root().height) - top);
 }
 
-// The cell of a key of the layout that is on the glass now, which is the rect a chosen key moves between.
-void Keyboard::note_cell(int8_t row, int8_t key) {
-  if (!shown_ || key_h_ == 0) return;
-  const LayoutDef& current = current_layout();
-  if (row < 0 || row >= static_cast<int8_t>(current.count)) return;
-  const RowDef& def = current.rows[row];
-  if (key < 0 || key >= static_cast<int8_t>(def.count)) return;
-  const KeyArea area = keys();
-  int32_t x = 0;
-  int32_t w = 0;
-  int32_t y = 0;
-  int32_t h = 0;
-  cell_place(area, def, static_cast<uint8_t>(key), x, w);
-  cell_row(area, current.count, static_cast<uint8_t>(row), y, h);
-  note_band(x, y, w, h);
-}
-
 void Keyboard::band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
   if (!shown_ || key_h_ == 0) return;
   const int32_t top = band_top();
@@ -6453,33 +6506,6 @@ void Keyboard::band_may_be_gone(uint16_t x, uint16_t y, uint16_t w, uint16_t h) 
   if (static_cast<int32_t>(y) >= static_cast<int32_t>(root().height)) return;
   if (w == 0 || static_cast<int32_t>(x) >= static_cast<int32_t>(root().width)) return;
   needs_paint_ = true;
-}
-
-// The flat order of the keys of a layout, which is what the dial walks: row by row, left to right.
-int32_t flat_count(const LayoutDef& layout) {
-  int32_t total = 0;
-  for (uint8_t row = 0; row < layout.count; ++row) total += layout.rows[row].count;
-  return total;
-}
-
-int32_t flat_index(const LayoutDef& layout, int8_t row, int8_t key) {
-  int32_t index = 0;
-  for (int8_t walk = 0; walk < row && walk < static_cast<int8_t>(layout.count); ++walk) {
-    index += layout.rows[walk].count;
-  }
-  return index + key;
-}
-
-void flat_place(const LayoutDef& layout, int32_t index, int8_t& row, int8_t& key) {
-  for (uint8_t walk = 0; walk < layout.count; ++walk) {
-    const int32_t count = layout.rows[walk].count;
-    if (index < count) {
-      row = static_cast<int8_t>(walk);
-      key = static_cast<int8_t>(index);
-      return;
-    }
-    index -= count;
-  }
 }
 
 // **An app is told when the band takes part of its page and when it gives it back** (0.84.0): `on_resize` is the hook
@@ -6576,6 +6602,14 @@ void Keyboard::press_key(const KeyDef& key) {
     case KeyAction::kChar: {
       char letter = (key.label != nullptr) ? key.label[0] : '\0';
       if (shift_ && letter >= 'a' && letter <= 'z') letter = static_cast<char>(letter - 'a' + 'A');
+      // **A band that types into nothing says so** (0.179.43): `ui_keyboard_typed` answers nothing at all when no object is
+      // bound to the band, which is the one failure of this system that is silent everywhere —the letter goes nowhere, the
+      // page does not change and no line says why—. The owner asked with the band on the glass and the fingers doing
+      // nothing: *«el focus de les tecles arriba al teclat, pero no deixa teclejar amb els dits»* (docs/30, docs/90).
+      if (!luabind::ui_keyboard_has_target()) {
+        log_printf(pal::kLogWarn, "UI", "the band typed '%c' with no object to type into",
+                   (letter != '\0') ? letter : '?');
+      }
       luabind::ui_keyboard_typed(static_cast<int>(letter));
       break;
     }
@@ -6597,10 +6631,9 @@ void Keyboard::press_key(const KeyDef& key) {
     case KeyAction::kMode: {
       kind_ = (kind_ == kKeyboardNumeric) ? kKeyboardAlpha : kKeyboardNumeric;
       shift_ = false;
+      // **The alphabet changes the height of the band and nothing else has to be walked** (0.179.46): the cell of the dial
+      // went with the walk, so what is re-measured is the band and what is painted again is the whole of it (docs/30).
       measure();
-      const LayoutDef& current = current_layout();
-      if (row_ >= static_cast<int8_t>(current.count)) row_ = 0;
-      if (key_ >= static_cast<int8_t>(current.rows[row_].count)) key_ = 0;
       break;
     }
   }
@@ -6646,8 +6679,6 @@ bool Keyboard::show(uint8_t kind) {
   measure();
   if (key_h_ == 0) return false;
   shown_ = true;
-  row_ = 0;
-  key_ = 0;
   held_ = false;
   // **The face of the band is read once per time it comes up**: the file is nine kilobytes and it is kept while the
   // keyboard is on the glass (docs/30, docs/75).
@@ -6699,6 +6730,11 @@ void Keyboard::paint() {
   // **And the wash is `gld16` and not `gl16`** (0.85.4): both clean the sixteen levels the letters are drawn in, and
   // `gl16` does it with two blinks of the whole band —which is what a person sees on every MAY and every `123`— and
   // `gld16` does it without one. It is the rule of this project: nothing that flickers reaches the glass (docs/92).
+  // **I ÉS EL MODE RÀPID DE DEBÒ** (0.179.36): a `du` costs a hundred and twenty milliseconds and **keeps five sixteenths
+  // of what it finds** —a white key over a letter of before lands at level ten and not at fifteen—, so the quick mode
+  // cannot erase a band; `gld16` keeps two sixteenths, lands on the level and has no flash, and it is the quickest of the
+  // three that erase (docs/50). What the two tones of the band buy is that this one pass is enough: with its four shades,
+  // a letter of before left a grey that read as a second keyboard (docs/50, docs/90).
   const hal::UpdateMode mode = hal::UpdateMode::kGld16;
   const font::Face& face = keyboard_face();
   const LayoutDef& current = current_layout();
@@ -6735,8 +6771,10 @@ void Keyboard::paint() {
       //
       // **And the key the dial is on is the whole cell in ink with its letter in paper**: on this glass there is
       // nothing else to say "this is the one", and the same block says the capitals are on (docs/90).
-      const bool chosen = (row_ == row && key_ == i);
-      const bool lit = chosen || (key.action == KeyAction::kCaps && shift_);
+      // **I la banda no diu on és el dial perquè el dial no hi és** (0.179.46): the block that marked the chosen key is
+      // gone with the walk —the band is pressed with a finger— and the only block left is the one of the capitals, which is
+      // a lock the person turned on and a state of the band they have to be able to read (docs/30, docs/90).
+      const bool lit = (key.action == KeyAction::kCaps && shift_);
       if (lit) {
         draw_fill_rect(view, static_cast<uint16_t>(x), static_cast<uint16_t>(y), static_cast<uint16_t>(w),
                        static_cast<uint16_t>(h), 0, mode);
@@ -6805,6 +6843,14 @@ void Keyboard::paint() {
 }
 
 bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
+  // **On cau cada contacte** (0.179.46): the band is asked once per contact and its answer is the one that decides who
+  // owns it, so a finger that types nothing has to be readable from the log: where it landed, whether the band was on the
+  // glass, the top row of it and how deep a key is. A line per press and not per frame.
+  if (down && !held_) {
+    log_printf(pal::kLogDebug, "UI", "the band asked at %u,%u: shown %d, top %d, key %u", static_cast<unsigned>(x),
+               static_cast<unsigned>(y), shown_ ? 1 : 0, static_cast<int>(band_top()),
+               static_cast<unsigned>(key_h_));
+  }
   if (!shown_) return false;
   if (!down) {
     const bool was = held_;
@@ -6820,40 +6866,36 @@ bool Keyboard::touch(uint16_t x, uint16_t y, bool down) {
   if (!key_at(x, y, row, index)) {
     // **A finger on the band that is not on a key is still the keyboard's**: the page under the band must
     // not be pressed through it (docs/90).
-    return static_cast<int32_t>(y) >= band_top();
+    const int32_t top = band_top();
+    const bool inside = (top >= 0) && (static_cast<int32_t>(y) >= top);
+    // **And a finger inside the band that lands on no key says where it landed** (0.179.43): this call answers false for a
+    // point above the band —which is the page's, and the band must not take it— and for a point **inside** its rows that
+    // falls in its margins or between two cells. The two look the same on the glass and they are not the same thing: the
+    // first is a page that works, and the second is a band that eats a finger and types nothing. It was asked with the
+    // band up and the fingers doing nothing —*«no deixa teclejar amb els dits»*— and one line here says which of the two
+    // it is (docs/50, docs/90).
+    if (inside) {
+      log_printf(pal::kLogDebug, "UI", "a finger at %u,%u is inside the band and on no key (band from %d, %u rows of %d)",
+                 static_cast<unsigned>(x), static_cast<unsigned>(y), static_cast<int>(top),
+                 static_cast<unsigned>(current_layout().count), static_cast<int>(key_h_));
+    }
+    return inside;
   }
   held_ = true;
-  note_cell(row_, key_);
-  row_ = row;
-  key_ = index;
-  note_cell(row, index);
+  // **EL DIT ESCRIU I NO MOU RES DE LA BANDA** (0.179.36): the chosen cell of the band is the pointer of the dial, and a
+  // finger is its own pointer. Moving it on the key a finger pressed repainted **two cells of the band for every letter
+  // written** —a `gld16` of four hundred and fifty milliseconds on the one thing on this glass that is written with—,
+  // and the letter arriving in the box is the answer a finger needs. What a finger may still change is the case or the
+  // alphabet, which is a band painted again and what the owner asked to keep (docs/50, docs/90).
   press_key(current_layout().rows[row].keys[index]);
   return true;
 }
 
-bool Keyboard::key(const char* kind, uint32_t key_id) {
-  if (!shown_ || kind == nullptr || held_) return false;
-  if (strcmp(kind, "press") != 0) return false;
-  const LayoutDef& current = current_layout();
-  if (row_ >= static_cast<int8_t>(current.count)) row_ = 0;
-  if (key_ >= static_cast<int8_t>(current.rows[row_].count)) key_ = 0;
-  // **The three keys of the dial in the shape every page has**: key 0 is the centre, 1 is up and 2 is down
-  // —the Paper's dial and the ATOM's single key both arrive here— and the walk goes round the keyboard in
-  // the order it is drawn, so a row that is not the width of the last one costs nothing (docs/50, docs/90).
-  if (key_id == 0) {
-    press_key(current.rows[row_].keys[key_]);
-    return true;
-  }
-  const int32_t total = flat_count(current);
-  if (total <= 0) return true;
-  const int32_t step = (key_id == 1) ? -1 : 1;
-  int32_t next = (flat_index(current, row_, key_) + step) % total;
-  if (next < 0) next += total;
-  note_cell(row_, key_);
-  flat_place(current, next, row_, key_);
-  note_cell(row_, key_);
-  return true;
-}
+// **El dial no escriu al teclat de programari** (0.179.46): the owner took the block and the walk away —*«No vull selector
+// amb botons físics al teclat per software, al teclat per software només vull tocs de dits»*—, so the keys of the board do
+// not reach the band at all: they walk the controls of the page, and a box a person has entered takes them as the caret
+// (`ui_step_caret`: left and right in a box of one line, a row up and down in a box of several lines keeping the column it
+// came from). What is left of the band's own state is the case and the alphabet, which a finger turns (docs/30, docs/90).
 
 }  // namespace
 
@@ -6867,9 +6909,9 @@ uint16_t keyboard_height() { return g_keyboard->height(); }
 
 void keyboard_paint() { g_keyboard->paint(); }
 
-bool keyboard_touch(uint16_t x, uint16_t y, bool down) { return g_keyboard->touch(x, y, down); }
+bool keyboard_owes_paint() { return g_keyboard->owes(); }
 
-bool keyboard_key(const char* kind, uint32_t key_id) { return g_keyboard->key(kind, key_id); }
+bool keyboard_touch(uint16_t x, uint16_t y, bool down) { return g_keyboard->touch(x, y, down); }
 
 uint8_t keyboard_count() { return kKeyboardCount; }
 
@@ -7076,7 +7118,7 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
 // already counts (`kManyPaints`):
 //   - **a page is `gl16`**, which puts it up with its sixteen levels and **does not flash**: the page that came before it was
 //     left clean by the system —it washes the glass between two apps— so there is nothing to burn away, and `gc16` here
-//     would be four blinks per page turn for paper that ends up the same;
+//     would be two blinks per page turn for paper that ends up the same;
 //   - **a page that has taken the quick paints after which the panel keeps a ghost is `gc16`**, the only wash that leaves
 //     the paper white (docs/50), and so is the one an app names when it knows it carries a plate;
 //   - **`a2` and `du` are never chosen here**: the two-level pass leaves two sixteenths of the page before it, and a `du`
@@ -7249,16 +7291,33 @@ bool present_each(hal::UpdateMode mode) {
   }
   compose_tree(0, -1, 0, 0);
   Canvas& page = root();
-  // **And a page of boxes is one paint** (0.179.5): a ring that moves is two controls and the paper between them is nobody's
-  // business, but a page that owes four boxes or half of itself is the page going up, and four passes of the panel for one
-  // page is ink and time spent on the air between the boxes (docs/30, docs/50).
+  // **A quality the app named is the app's, here too** (0.179.41): this present is the system's —the ring that moves, a
+  // control that let go, a value that was stepped— and the mode it asks for is a guess about ink it did not draw. A
+  // region the app painted with a quality of its own says what that ink is: `du` for a text box that changed a letter,
+  // `gc16` for a plate. Writing `mode` over every region made a touch of the editor's page paint its whole document box
+  // at `gl16` —four hundred and fifty milliseconds and a blink of the page for one letter— over the `du` of a hundred
+  // and twenty the app had asked for, and the owner saw it on the board: *«Perqué l'editor fa tants refrescos i a
+  // aquesta qulitat???»* (docs/30, docs/50).
   if (the_damage_is_the_page()) {
-    merge_all(page, mode);
+    bool named = false;
+    hal::UpdateMode whole = mode;
+    for (uint8_t i = 0; i < page.damage_count; ++i) {
+      if (!page.damage[i].named) continue;
+      whole = named ? stronger_mode(whole, page.damage[i].mode) : page.damage[i].mode;
+      named = true;
+    }
+    merge_all(page, whole);
+    // **The page that has just been merged keeps whose wish it is**: the loop below paints the regions that named
+    // nothing with the mode of this present, and the one merged region is the app's when any of the boxes it came from
+    // was (docs/30, docs/50).
+    page.damage[0].named = named;
     g_levels = 0;
     g_paints = 0;
     g_updates = 0;
   }
-  for (uint8_t i = 0; i < page.damage_count; ++i) page.damage[i].mode = mode;
+  for (uint8_t i = 0; i < page.damage_count; ++i) {
+    if (!page.damage[i].named) page.damage[i].mode = mode;
+  }
   keyboard_paint();
   const bool ok = paint_root();
   sweep_released();
