@@ -12583,6 +12583,12 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   };
   const uint16_t cross_x = static_cast<uint16_t>(kernel::ui::canvas().width - 14 - 20);
   const uint16_t cross_y = static_cast<uint16_t>(48 + 14 + 20);
+  // **The level of one pixel of the glass**, which is where the card is painted: the disc of the cross is black and the paper of a
+  // card that has none is white, and the two points the case reads are inside the disc and off its two strokes (docs/30, docs/85).
+  auto glass_level = [](uint16_t x, uint16_t y) {
+    emu::MemorySurface* glass = emu::memory_surface();
+    return (glass == nullptr) ? static_cast<uint8_t>(0xFF) : glass->level_at(x, y);
+  };
 
   // **The card comes out over the page of the app and the cross closes it** (docs/30).
   pump_captured(40, g_out, sizeof(g_out), "run leaver");
@@ -12599,21 +12605,30 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   // (docs/50).
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 2 gc16"), g_out);
 
-  // **A launcher is not left**: the tap on the cross does nothing but say it, and the card is still over the page.
+  // **A launcher has no cross at all** (0.179.25): it is the one page that is not left, so the corner of the card is paper, the app
+  // stays and a tap there is a tap on the card, which is how the panel is dismissed. A button that does nothing is worse than no
+  // button (docs/30, docs/45).
   pump_captured(40, g_out, sizeof(g_out), "run homey");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "homey up"), g_out);
   swipe_down();
   TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the launcher");
-  capture_begin();
+  // **The disc is not there**: the middle of the six rows of the handle and the corner where the cross was are paper, and the two
+  // points are read on the glass where the card is painted (docs/30).
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(static_cast<uint16_t>(cross_x - 10), static_cast<uint16_t>(cross_y - 4)),
+                                  "the card of a launcher has a cross on it");
   tap(cross_x, cross_y);
-  capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the cross closed a launcher");
-  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card went away over a page that did not");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "is a launcher: it is the one page that is not left"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a launcher was closed by a tap on paper");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the paper of the card did not put it away");
 
-  // **And a tap that is not the cross puts the card away**, which is how the panel was dismissed before the cross existed.
+  // **And a tap on the card still dismisses it with an app that can be left**, which is what the panel did before the cross existed.
+  pump_captured(40, g_out, sizeof(g_out), "run leaver");
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(static_cast<uint16_t>(cross_x - 10), static_cast<uint16_t>(cross_y - 4)),
+                                  "the card of an app that can be left has no cross on it");
   tap(270, 400);
   TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap on the card did not put it away");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a tap on the page of the card closed the app");
 
   close_any_app();
   storage->remove("/apps/leaver/app.lua");

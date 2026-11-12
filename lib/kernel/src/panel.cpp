@@ -62,7 +62,13 @@ uint16_t card_height() {
 int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossR; }
 int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossR; }
 
+// **The cross is a button only when there is a page it can close** (0.179.25): over a launcher —the one page that is not left— and
+// over no page at all, the corner of the card is paper, and a tap there is a tap on the card. A button that does nothing is worse
+// than no button: it says the system can do something it cannot (docs/30, docs/45).
+bool the_cross_is_there() { return shell::the_page_in_front_can_be_left(); }
+
 bool in_the_cross(uint16_t x, uint16_t y) {
+  if (!the_cross_is_there()) return false;
   const int32_t dx = static_cast<int32_t>(x) - cross_x();
   const int32_t dy = static_cast<int32_t>(y) - cross_y();
   return (dx * dx + dy * dy) <= static_cast<int32_t>(kCrossR) * kCrossR;
@@ -105,9 +111,9 @@ void paint() {
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
   surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2),
                      static_cast<uint16_t>(top + rows - kLineH - kHandleGap - kHandleH), kHandleW, kHandleH, 0);
-  // **And the cross of the corner**, on the rows of the card and not of the view: the one control the panel has until the
-  // switches of the system come (docs/30).
-  paint_the_cross(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
+  // **And the cross of the corner**, on the rows of the card and not of the view, when there is a page it can close: the one
+  // control the panel has until the switches of the system come (docs/30).
+  if (the_cross_is_there()) paint_the_cross(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
   // **`gc16` and not `gld16`**: the card is the whole box and it has to come out clean the first time, which is what the
   // strip of the bar asks for when it paints itself whole (docs/50, docs/92).
   display::present(hal::UpdateMode::kGc16);

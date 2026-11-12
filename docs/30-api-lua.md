@@ -3148,12 +3148,15 @@ cantonada de dalt a la dreta** que tanca l'app del davant. El gest de tancar-lo 
   una creu blanca, a catorze files de la barra i a catorze de la vora dreta. El toc no tanca l'app a la
   seva manera: passa pel **camí únic de sortir d'una pàgina** (`shell::leave_one_page`), que és el
   mateix que el pessic de gran a petit i els tres tocs. O sigui que fa les tres mateixes coses: una
-  pàgina amb una altra a sobre la torna i l'app es queda; **un llançador no es tanca** i la targeta es
-  queda on és amb la frase del registre («is a launcher: it is the one page that is not left»), perquè
-  una porta que no s'ha obert no ha tancat res; i una app d'una sola pàgina es tanca i **la pàgina que
-  la va obrir torna a agafar el vidre**. La targeta se'n va amb l'app que tanca: si ja hi ha una pàgina
-  que ha de rentar el vidre, aquella és la que esborra la targeta i el tancament no paga dues passades;
-  si no, la pàgina de sota torna sencera.
+  pàgina amb una altra a sobre la torna i l'app es queda; **un llançador no es tanca**; i una app d'una
+  sola pàgina es tanca i **la pàgina que la va obrir torna a agafar el vidre**. La targeta se'n va amb
+  l'app que tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la
+  targeta i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
+- **I sobre un llançador la rodona no hi és** (0.179.25): el llançador és l'única pàgina que no es
+  deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
+  toc allà és un toc a la targeta, que la descarta com qualsevol altre. El sistema ho pregunta abans de
+  pintar (`shell::the_page_in_front_can_be_left`, la mateixa pregunta que fa el camí de sortir) i no ho
+  endevina pel nom de l'app: ho diu el `"launcher": true` del manifest (docs/40).
 - **Un toc a la targeta que no és a la rodona la tanca i prou**: les files de commutadors que vindran
   prendran els seus propis tocs, i fins llavors la targeta sencera és una cosa que es descarta.
 

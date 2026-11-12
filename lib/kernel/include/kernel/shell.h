@@ -88,6 +88,11 @@ void close_app();
 // exist for (docs/30).
 bool go_back_one_view();
 
+// **Whether the page in front is one that may be left** (0.179.25): the panel of the system asks it to know whether its cross is a
+// button at all —a launcher is the one page that is not left, and no page at all is nothing to leave— and the answer is the one
+// `leave_one_page` gives, asked before the fact instead of after it (docs/30, docs/45).
+bool the_page_in_front_can_be_left();
+
 // **What going out of a page ended in** (0.167.0), so the three gestures can say it in their own words and a caller does
 // not have to ask the same questions twice (docs/30).
 enum class LeaveOutcome {

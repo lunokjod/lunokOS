@@ -5598,6 +5598,20 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.25 (12/11): **the cross of the panel is not drawn over a launcher**. The owner: *«Si l'app es un launcher, no mostris el botó
+// de tancar»*. He is right, and it is the rule the panel already had one version before: a button the system is going to refuse is a
+// button that should not be offered, because it says the system can do something it cannot (docs/30, docs/45):
+//   - **`shell::the_page_in_front_can_be_left()`** is the question, and it is the one `leave_one_page` already asks —there is an app
+//     in front and its manifest does not say `"launcher": true`— asked **before** the fact instead of after it. The panel asks it when
+//     it paints and when it hit-tests, so the two answers cannot disagree;
+//   - **over a launcher the corner of the card is paper**: no disc, no cross, and a tap there is a tap on the card, which dismisses it
+//     like every other tap. The refusal line («is a launcher: it is the one page that is not left») is still the pinch's and the three
+//     taps', because those two gestures cannot be hidden from a launcher's page;
+//   - **and the same is true with no page at all**: a prompt under the card has nothing to close, so the corner is paper there too;
+//   - **measured**: the case of `test_apps` reads the glass where the disc was —a point inside it and off its two strokes, so black for
+//     an app and white for a launcher— and then taps it: the app stays, the card goes, and on the app that can be left the same point
+//     is black and a tap elsewhere still dismisses the card with the app alive (`599 cases`, the five boards and the emulator built).
+
 // 0.179.24 (12/11): **the handle of the panel goes to the bottom of the card**. The owner: *«la barra que hi ha a dalt del
 // panell, no hauria d'estar a baix de tot?»*, about the card of the system bar and the cross in it. He was right, and for the
 // reason the card is a card at all: **the bar of the system is the grip of the way in** —a finger that lands on it pulls the
@@ -6525,7 +6539,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.24";
+static const char kVersion[] = "0.179.25";
 
 }  // namespace kernel
 

@@ -3778,6 +3778,11 @@ static bool app_in_front_is_a_launcher() {
   return apps::read(id, entry) && entry.launcher;
 }
 
+// **The same question the road out asks, asked before it is taken** (0.179.25): the panel of the system draws its cross only when
+// there is a page that can be left, and a button that would answer «is a launcher» is a button nobody should be offered (docs/30,
+// docs/45).
+bool the_page_in_front_can_be_left() { return g_app_alive && !app_in_front_is_a_launcher(); }
+
 // **The one road out of a page** (0.167.0): the owner's complaint was that three presses of the middle key closed the app
 // and **the launcher did not come back** —the page he came from was lost and the prompt was what he found—, while a pinch
 // came home. It is one function now, and all three gestures call it: a page with another one on top gives the top one
