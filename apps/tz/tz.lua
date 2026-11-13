@@ -280,6 +280,11 @@ place_settings = function()
     -- two answers to one finger (docs/30, docs/60).
     dstbox.on_change = function(self, on)
       dst = on
+      -- **I es desa en el moment** (0.182.0): the hour of summer is a setting of the system and not a shift of this page, so the
+      -- box writes it when it turns and the hour of the board moves with it —`time.date()` reads the offset of the map plus this
+      -- hour—. What waits for the close is the offset of the map, which is a number a person walks the map to choose
+      -- (docs/30, docs/60).
+      time.dst(on)
       console.print('tz: dst ' .. (on and 'on' or 'off') .. ' ' .. tz_text(shown_offset()))
       paint_page()
       ui.present(kPageMode)
@@ -363,6 +368,9 @@ if chosen_hour < kFirstHour then chosen_hour = kFirstHour end
 if chosen_hour > kLastHour then chosen_hour = kLastHour end
 chosen = chosen_hour * kMinutesPerHour
 leap = time.leap()
+-- **L'hora d'estiu és la del sistema i no la d'aquesta visita** (0.182.0): the box shows what the board has kept, so a person who
+-- comes back finds it ticked and the hour they left (docs/30, docs/60).
+dst = time.dst() and true or false
 week = time.week()
 -- **The controls are placed after the state is read and before the page is painted**: they show the leap day and the
 -- first day of the week the board has, and the first `present` composes them over the paper, so this page is made of its
@@ -400,11 +408,12 @@ ui.present(kPageMode)
 -- page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the system's rule, so the
 -- pinch of the glass is what closes it (docs/30).
 function on_close()
-  -- **I l'hora d'estiu va amb l'hora**: the number the board keeps is the one the page was showing, or a close would save
-  -- the winter hour of a page that said summer all afternoon (0.179.50, docs/30).
-  if shown_offset() ~= time.tz() then
-    time.tz(shown_offset())
-    console.print('tz: saved ' .. tz_text(shown_offset()))
+  -- **El que es desa és l'hora del mapa i prou** (0.182.0): the hour of summer has its own setting and it was written when the box
+  -- turned, so folding it into the offset here would save summer twice —a board that reads +02:00 in December— and the box would
+  -- come up unticked on the next visit (docs/30, docs/60).
+  if chosen ~= time.tz() then
+    time.tz(chosen)
+    console.print('tz: saved ' .. tz_text(chosen))
   end
 end
 

@@ -1052,8 +1052,9 @@ end
 -- The length is a hand's, and the way that moves more is the way the gesture is: a diagonal is not two pages.
 --
 -- The gestures are shapes of the flow of fingers that the system makes (`touch.gesture`, docs/30) and not something
--- the chip knows. The keys of the board reach `on_button` **because this page has no focusable control**: if it had
--- one, the system would take the dial for it (docs/30, docs/90).
+-- the chip knows. **Les tecles arriben per la cua** (0.181.2): the app is a subscriber in cascade, so it hears the keys the
+-- dial does not take —this page has no focusable control to walk— and the ones it does not want it leaves, which is the
+-- guard of its own function (docs/30, docs/90).
 local kSwipe = 60
 
 local function on_gesture()
@@ -1156,7 +1157,12 @@ end
 -- it —up goes back and down goes forward, the same order as the fingers—. It is the gate of the slider (docs/30):
 -- before the centre the keys are the walk of the dial, and this page has no control to walk, so they do nothing. A
 -- notice or a menu is a page of its own and takes the keys and the mode with it (docs/46, C3, C4 and C12).
-function on_button(kind, held_ms, key)
+-- **Les tecles per la cua** (0.181.2): `button.subscribe` is the queue of the system, and the app says which function hears
+-- the keys instead of the system looking for a global called `on_button`. The mode is **cascade** because this page wants the
+-- keys the dial does not take —the menu that is open walks the dial, and the guard below leaves the keys to it— and the place
+-- is given back by the system when the app ends (docs/30, docs/46).
+button.subscribe(function(event)
+  local kind, key = event.kind, event.key
   -- **A book is what the keys are for**, and the lists of it take the keys themselves (docs/46, C14 and C15).
   if book == nil or index_list ~= nil then return end
 
@@ -1190,7 +1196,7 @@ function on_button(kind, held_ms, key)
   elseif key == 2 then
     turn_forward()
   end
-end
+end)
 
 -- The book of the manifest, when the shell opened one with `open`: the app starts on its page and not on the shelf
 -- (docs/46, B10). It opens through the loading page like a book picked on the shelf (docs/46, C8).

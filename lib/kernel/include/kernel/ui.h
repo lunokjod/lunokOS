@@ -702,6 +702,11 @@ bool textbox_caret_box(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint
 // **Where a point of the box puts the cursor**: the row from the y and the letter from the x, both measured with the
 // font, which is the only thing that knows how wide a letter comes out. A byte offset of the text, for a finger that
 // went past the end of a row (docs/90).
+// **The column a finger asked for in a box of one line** (0.179.77): the offset in the text where the tap landed, walked letter by
+// letter with the width the face answers —the second half of a letter is after it— and measured from the padding of the frame. A box
+// of one line has no rows, so there is no line to work out (docs/30, docs/90).
+uint16_t textbox_column_at(int16_t slot, const char* text, uint8_t scale, uint16_t x);
+
 uint16_t textbox_multiline_hit(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
                                uint16_t x, uint16_t y, int16_t top = -1);
 

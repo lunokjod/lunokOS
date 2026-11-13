@@ -355,7 +355,7 @@ segueix aquesta mateixa taula**: `http.download(url, '/data/<id>/x')` hi escriu 
 de només llegir per a ella (`/apps` és `ro`), i el rewrite no ho canvia: només hi afegeix l'id.
 
 **El camí que la persona nomena** (0.65.0). `run editor /littlefs/notes.txt` és una app i un fitxer, i aquell
-fitxer és de la persona: l'app el pot **llegir i escriure mentres viu**, i res més del disc de la persona. No
+fitxer és de la persona: l'app el pot **llegir i escriure mentre viu**, i res més del disc de la persona. No
 és una porta oberta —`fs.write('/littlefs/altre.txt')` des de la mateixa app segueix dient `E_INVAL`— sinó
 l'autoritat del prompt sobre el que la persona ha escrit a la comanda. És el que fa que un editor desi on li
 han dit, i el que fa que una app que obre un fitxer d'un altre lloc no el pugui canviar sense que el prompt

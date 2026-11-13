@@ -23,6 +23,10 @@ uint8_t weekday_of(uint16_t year, uint8_t month, uint8_t day) {
 
 bool leap_years() { return cfg::leap_years(); }
 
+bool dst() { return cfg::dst(); }
+bool set_dst(bool on) { return cfg::set_dst(on); }
+int32_t offset_minutes() { return cfg::offset_minutes(); }
+
 bool set_leap_years(bool on) { return cfg::set_leap_years(on); }
 
 uint8_t week_start() { return cfg::week_start(); }
@@ -37,6 +41,11 @@ void install_time_ops() {
   ops.set_tz_minutes = &set_tz_minutes;
   ops.parse_tz = &parse_tz;
   ops.weekday_of = &weekday_of;
+  // **L'hora d'estiu** (0.182.0): the box of the Time zone page is a setting of the system and the hour of a person is the
+  // offset of the map plus sixty minutes when it is on (docs/30, docs/60).
+  ops.dst = &dst;
+  ops.set_dst = &set_dst;
+  ops.offset_minutes = &offset_minutes;
   ops.leap_years = &leap_years;
   ops.set_leap_years = &set_leap_years;
   ops.week_start = &week_start;

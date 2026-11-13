@@ -5598,10 +5598,327 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.182.0 (13/11): **l'hora d'estiu és una opció del sistema** (docs/30, docs/60):
+//   - **el que demana l'amo**: *«el checkbox "Daylight time" de l'app Time Zone no es guarda enlloc i l'hora no canvia si l'activo»*;
+//   - **per què no hi havia on**: the page folded the hour into the offset at the close and the system had no setting for it —a board
+//     that saved +02:00 in summer read +02:00 in December, and the box came up unticked because nothing had kept it—;
+//   - **ara `cfg dst` és una clau del store** (`on`/`off`) llegida a l'arrencada com `leap` i `week`; **`time.dst([on])`** la llegeix i
+//     l'escriu des de Lua, i **`time.date()` fa servir `offset_minutes()`** —el fus del mapa més l'hora quan és on— mentre `time.tz()`
+//     segueix dient el que diu el mapa;
+//   - **l'app Time zone**: the box writes `time.dst(on)` the moment it turns —so the hour of the system and of the page move with it—
+//     and the close saves only the hour of the map, which is what a person walks the map to choose;
+//   - **el que el maquinari no fa, que és la pregunta**: the BM8563 of the Paper counts seconds, has a century bit and **no rule of
+//     summer**; the processor would want a name of zone per country (the IDF's newlib has the POSIX rules) and this system has no
+//     table of zones. So the hour of summer is a word —`on`/`off`— and the next step, if it is wanted, is a pair of dates that turn
+//     it on and off alone (mesurat a l'emulador: `true 1 3` — UTC 1, local 3 amb +01:00 i dst on— i `dst on` al log de la següent
+//     arrencada).
+
+// 0.181.4 (13/11): **el triple toc del vidre tampoc no és una sortida amb la banda a la pantalla** (docs/30, docs/90):
+//   - **el símptoma**: *«es segueix tancant als 3 tocs sobre el teclat desplegat»*. La 0.181.3 va tancar el camí de la **tecla** del
+//     mig; el que faltava és un altre camí, i és el del **dit**: `touch` compta els tocs que es fan on sigui i el tercer és el gest
+//     `triple`, que `shell.cpp` pren abans que l'app el vegi i que vol dir «surt d'aquesta pàgina»;
+//   - **ara, amb la banda a la pantalla, el gest es pren igualment i no es fa res amb ell**: escriure tres lletres seguides era
+//     sortir de l'app al mig d'una nota;
+//   - **i el gest no arriba a l'app tampoc** mentre la banda hi és: tres tocs sobre un teclat no són cap gest d'una app, i el
+//     proper triple que arribi després és un gest sencer i no una resta dels que s'han escrit;
+//   - **el que segueix igual**: sense banda, el triple torna a ser la sortida, i la tecla del mig té el seu camí propi (0.181.3).
+// 0.181.3 (13/11): **la banda té la cua mentre és a la pantalla** (docs/30, docs/90):
+//   - **el que demana el propietari**: *«el teclat al sortir registra el triple tap com a exclusiu i el desregistra al sortir, així
+//     el sistema no rep l'event i no tanca l'app»*;
+//   - **la plaça**: `caret_poll` agafa una plaça **exclusiva** de la cua mentre `keyboard_visible()` i la dona quan la banda marxa; una
+//     caixa que s'està editant té la seva de la 0.181.0 i aquesta és per a una banda sense cap camp entrat (`kb:show`), on les tecles
+//     no tenen on anar i tampoc han d'arribar al dial;
+//   - **el resultat**: amb la banda a la pantalla el sistema no rep la premuda, o sigui que el gest no compta i l'app no es pot tancar
+//     amb tres tocs. El comptador mira la banda **també** a `poll` perquè el gest es compta abans de la cua, i una app que es quedi les
+//     tecles per a ella no pot deixar la placa sense sortida;
+//   - **i les tecles de dins segueixen sent del camp**: amb la banda oberta s'escriu, el cursor es mou i el centre entra i surt.
+// 0.181.2 (13/11): **les apps de Lua demanen les tecles a la cua** (docs/30, docs/40):
+//   - **el hook `on_button` no es diu a més quan l'app té una plaça a la cua**: the same press arriving twice —once with the
+//     event and once with the hook— is a page that moves two steps for one key, and the check is `luabind::has_button_listener`
+//     inside the system's own subscriber;
+//   - **`2048`**: the side keys go through `button.subscribe` and the game hears them **even though its page has a button**,
+//     which the dial used to take before the hook could see them; the centre is still the system's (the button of a new game);
+//   - **`rainbow`**: the same road as the hook it had, said by the app instead of being a name the system looks for;
+//   - **`reader`**: a subscriber in cascade, with its own guard for the menu that owns the dial —so the page turns with the
+//     keys when no menu is up and leaves them alone when one is—;
+//   - **i el que va ensenyar la prova**: the paper's side keys say `up` and `down`, not `left` and `right`, and an app that reads
+//     the spot of one board and writes the name of another hears nothing at all (the 2048 read `spot == 'left'` and did not move
+//     one piece on the emulator; with `up` it merged a 4 and a 4 and the score went from 24 to 32).
+
+// 0.181.1 (13/11): **els tres tocs no tanquen l'app mentre la banda és a la pantalla** (docs/30, docs/90):
+//   - **el que demana l'amo**: *«quan el teclat en pantalla està visible, els 3 tocs per tancar l'app queden desactivats. Al amagar el
+//     teclat els 3 tocs tornen a funcionar com s'espera»*;
+//   - **per què**: escrivint amb la banda, la tecla del mig es prem una vegada i una altra —és l'enter del camp— i tres seguides tancaven
+//     l'app al mig d'una nota;
+//   - **què queda desactivat**: el **gest**, i només el gest. La premuda segueix el seu camí (la caixa la rep com a enter) i el comptador
+//     torna a zero, o sigui que els tres tocs que es donen quan la banda ja no hi és són tres i no dos i una resta.
+// 0.181.0 (13/11): **el control entrat té les tecles, i són les tres menes de control** (docs/30, docs/90, docs/92):
+//   - **una sola regla**: while a control says `editing` a person is inside it, and the two keys of the board are its own —taken
+//     as **one exclusive place** in the queue of 0.180.0 and given back the moment it stops saying it—;
+//   - **les caixes**: a box of one line takes left/right as the caret and a box of several takes up/down as its rows, the way a
+//     finger does; the middle key is what enters and leaves, so an exclusive place still answers the centre;
+//   - **l'slider**: the same place, and the two keys are the number inside it —the rule the dial had is now a subscription, so a
+//     page that is built again under the finger does not take the keys away from the control—;
+//   - **i deixa de dependre de la banda**: a box that takes no keys (a read-only document) has no band on the glass and its two
+//     keys are still its caret, because the truth is the control and not the keyboard;
+//   - **una tecla sense lloc es consumeix igual**: a caret at the first letter has nowhere to go back to, and it used to fall
+//     through to the walk of the dial and take the focus away from the field a person was writing in.
+// 0.180.0 (13/11): **les tecles són events i qui les rep és una cua** (docs/30, docs/50, docs/90):
+//   - **el que demana l'amo**: *«els botons físics emeten events, hi hagi algú escoltant o no»*, que el sistema i les apps es
+//     puguin registrar i desregistrar, que una app que tanca de forma prematura quedi desregistrada sola, i que en registrar-se es
+//     pugui triar **cascada** o **exclusiu**;
+//   - **`kernel::button` té una cua de vuit places** (`subscribe`/`unsubscribe`/`unsubscribe_owner`/`subscribers`/`emit`): `poll`
+//     llegeix la placa a cada torn i reparteix l'event per la cua, i **el sistema és el primer subscriptor en cascada** —el dial, la
+//     promesa de `wait` i `on_button` són dins seu, o sigui que una placa que arrenca es comporta com abans—;
+//   - **exclusiu vol dir sol**: l'últim exclusiu de la cua és qui respon, i la resta —el sistema inclòs— no veu l'event fins que dona
+//     la plaça;
+//   - **l'app**: `button.subscribe(fn, mode)`, `button.unsubscribe([handle])` i `button.handle()`; la funció rep
+//     `{kind, key, spot, held_ms}` i **la plaça es dona sola a `luabind::stop()`**, que és el camí de sortida de tota app —fi, error,
+//     tres tocs, una altra pàgina—, que és el que vol dir *«si una app tanca de forma prematura, s'ha de desregistrar automàticament»*;
+//   - **i els controls en treuen profit**: la caixa que té el focus pren les tecles com a subscriptor **exclusiu** mentre la banda és a
+//     la pantalla i les dona quan baixa (`ui_caret_listener`), o sigui que la branca de la 0.179.83 dins del dial és ara una plaça de
+//     la cua;
+//   - **el gest de tancar no hi entra**: els tres tocs es compten abans de repartir, i cap subscriptor no se'ls pot empassar.
+// 0.179.84 (13/11): **sortir del teclat picant la vista ja no tomba la placa** (docs/30, docs/75, docs/90):
+//   - **el pànic**: `Guru Meditation … LoadProhibited … EXCVADDR 0x00000008` just després de `the finger at 418,315 hit -1 of 5 targets`,
+//     quan el dit sortia de la banda picant la pàgina; el backtrace simbolitzat amb l'ELF de la placa dona `luaH_getint` ← `lua_rawgeti`
+//     ← `ui_apply_focus` (`luabind.cpp:9883`) ← `ui_touch_progress`;
+//   - **la causa**: el bloc que decideix si el dit ha caigut dins la caixa de la banda cridava `keyboard_object` (que apila el que troba) i
+//     tornava la pila a `top`, i **la taula de les parades viu a `top + 1`**: se l'enduia, i `ui_apply_focus` llegia una ranura de pila que ja no
+//     existia (0x8 és l'offset de `tt_` dins d'un `TValue` nul);
+//   - **ara es torna a la marca de la pila que hi havia abans de preguntar** (`mark`), que és `top + 1`, i la taula es queda.
+// 0.179.83 (13/11): **les tecles físiques són del cursor mentre la banda és a la pantalla** (docs/30, docs/90):
+//   - **el propietari**: *«captura els botons físics quan obris i allibera'ls quan tanquis el teclat»*, i el símptoma era que les
+//     tecles tornaven a caminar el dial i el focus marxava de la caixa;
+//   - **per què passava**: el camí del cursor es demanava només quan l'itinerari del `ui_step_caret` **podia moure el cursor**
+//     (`stepped`), i amb el cursor a la primera lletra —o amb un text buit— no hi havia moviment, la tecla queia al camí del dial i
+//     el focus se n'anava al control següent, amb la banda i el bloc al darrere;
+//   - **ara, amb la banda a la pantalla, la tecla és del teclat i es consumeix sempre**: el cursor es mou si pot i, si no, no passa res;
+//     quan la banda baixa, les dues tecles tornen a ser del dial;
+//   - **I un dit dins la caixa de la banda no és un dit sobre la pàgina**: la caixa no sempre és una parada del dial —l'app la pot
+//     desactivar un moment— i el toc es llegia com un toc a la vista, que baixava la banda i el focus. Ara es mira l'emmarcat de la
+//     caixa (`canvas_caps`) i, si el dit hi cau dins, la banda es queda;
+//   - **i l'app del rellotge, que és la causa de debò**: `list` no és a `screen`, o sigui que `give_back()` en deixava anar el nom i **no
+//     alliberava el control**: la llista de la pàgina d'abans es quedava a l'arbre, pintada al seu lloc i mida vells a sobre de la caixa de
+//     la nota i de la fila de tecles (els fantasmes), i **les seves files continuaven sent parades del dial i objectius del dit** —el toc a
+//     la caixa queia en una fila que no era ni a la pantalla i el focus se n'hi anava, i la banda baixava— (mesurat: `the finger at
+//     296,482 hit 4 of 15 targets` amb una llista de dues files; ara `hit 1 of 8`);
+//   - **i la finestra de la llista**: la fila marcada la mana, i la llista només rep les files que hi caben (`last_row`), perquè amb la
+//     banda a sota la llista té menys files i la marca queia fora del rectangle, `marked = 0` i la caixa de la nota es desactivava just
+//     quan el teclat hi arribava.
+// 0.179.82 (13/11): **la banda no es tanca sola al mateix toc que l'obre** (docs/30, docs/90):
+//   - **el símptoma**: *«al pitjar sobre el textbox el teclat mig surt dibuixat pero la vista no s'estreny i no veig que el textbox
+//     agafi focus. El cursor apareix breument i desapareix»*;
+//   - **la cadena, mesurada a l'emulador**: el toc activa la caixa → `keyboard_show` → el sistema diu a l'app que la vista és més
+//     curta → l'app dona **tots** els controls i torna a fer la pàgina → i el `release` de la caixa **oblidava el destí de la banda**
+//     (`ui_gesture_forget_if`, 0.113.0); el mateix toc, tot seguit, crida `ui_keyboard_follow_object` amb la caixa que ja no hi és,
+//     no troba cap destí i **tanca la banda** → el registre ensenya un sol `on_resize` (el de tancar) i cap pintada de la banda;
+//   - **ara el destí no es perd mentre la banda és a la pantalla**: queda apuntant a la caixa que se'n va i el torn següent el torna
+//     a lligar a la caixa viva de la pàgina (`caret_poll`, 0.179.81), que és la que rep el focus, el bloc i les lletres;
+//   - **i amb la banda baixa es fa el de sempre**: la caixa que es dona s'emporta el destí (0.113.0).
+// 0.179.81 (13/11): **el focus no marxa de la caixa quan la pàgina es torna a fer** (docs/30, docs/90):
+//   - **el símptoma del propietari**: *«puc escollir el control TextBox per el focus (botons físics) pero un cop activat, el
+//     focus s'envá al botó del ull»*;
+//   - **què el movia**: la banda pren el peu del vidre, l'app sent `on_resize` i torna a fer la pàgina, i la caixa que tenia el
+//     focus es dona (`release`): el dial es queda apuntant a una ranura morta i **el primer control que es torna a crear amb
+//     `focusable` pren el focus buit**, que a la pàgina del rellotge és el botó de l'ull;
+//   - **ara, quan es dona una caixa que tenia el focus i la banda és a la pantalla**, el lloc es guarda (`g_ui_focus_back_to_the_band`)
+//     i cap control nou el pren; el torn següent el posa **a la caixa que el teclat escriu** (`keyboard_object`), que és la que té
+//     el destí, el bloc i `on_focus`, i la deixa **entrada** (`editing`) perquè les dues tecles siguin el cursor i no el dial;
+//   - **i el cursor no es perd pel camí**: el lloc del camp és de la caixa (l'app el torna a posar en reconstruir-la, 0.179.80).
+// 0.179.80 (13/11): **el cursor torna al seu lloc quan la caixa recupera el focus** (docs/30, docs/50):
+//   - **la 0.179.79 llegia la caixa equivocada**: the rebuild is `give_back()` then `build_day()` then `refresh()`, so when
+//     `refresh()` ran, `note_box` was already the new object and its `cursor` was zero — the place a finger or the two keys had
+//     put was written back as zero on **every** focus and **every** resize, which is the block jumping to the beginning of the
+//     line the moment the band came up;
+//   - **ara el lloc es pren a `give_back`**, before the box that holds it is released, and **the newborn box has no say**:
+//     `note_is_new` makes `refresh()` keep the carried place instead of the zero of the box built a moment before.
+// 0.179.79 (13/11): **el cursor el mana la caixa, no el número desat abans** (docs/30, docs/40):
+//   - **per què el dit no movia el cursor tot i que el sistema l'hi posava**: `textbox_column_at` escrivia el camp `cursor` amb la
+//     columna del toc i, tot seguit, la pàgina es tornava a construir (el focus, la mida) i `apps/timeclock` hi tornava a escriure
+//     `pending_cursor`, que només canviava en escriure una lletra —o sigui que el cursor del toc es trepitjava amb el d'abans—;
+//   - **ara la reconstrucció pren el cursor que hi ha a la caixa abans de fer-la nova** (`pending_cursor = note_box.cursor`), i el
+//     lloc que ha posat el dit o les dues tecles és el que es torna a posar;
+//   - **i el que el codi diu de la resta**: una caixa de text **sí** que és un objectiu del dial i del dit (`ui_target_is_focusable`,
+//     `__textbox` → `focusable`), o sigui que el toc hi arriba i el que fallava era qui es quedava el número.
+// 0.179.78 (13/11): **una línia per premsa diu quin control rep el dit** (docs/30, docs/90):
+//   - **el toc a la caixa del rellotge no fa res i les tecles continuen caminant el dial**: two answers fit the same symptom —the box of
+//     one line is not among the targets the finger and the dial walk, or it is and the road of the caret is not reached— and nothing
+//     in the log told them apart;
+//   - **ara, amb la banda a la pantalla, cada premsa diu** `the finger at x,y hit N of M targets` (una línia per premsa i prou): un
+//     `hit -1` vol dir que la caixa no és cap objectiu, i un `hit` amb índex vol dir que sí i que el camí del cursor no s'hi arriba.
+// 0.179.77 (13/11): **el dit dins una caixa d'una línia posa el cursor on toca** (docs/30, docs/90):
+//   - **una caixa d'una línia no tenia cap manera de rebre el dit**: the offset of a tap was worked out by `textbox_multiline_hit`,
+//     which is the layout of a box of several rows, and it was only asked for a box that had registered `on_swipe` —a box of one
+//     line has no page to scroll, so it never got a caret from a finger at all—;
+//   - **i només cal la columna**: a box of one line has no rows to work out, so the new `textbox_column_at(slot, text, scale, x)`
+//     walks the letters with the width the face answers from the padding of the frame and stops on the half of a letter, the same
+//     rule the box of several lines follows;
+//   - **i el gest del dit**: si el control és una caixa d'una línia, la columna s'escriu al camp `cursor` en **baixar** el dit —no
+//     hi ha cap lliscament a esperar— i la caixa es marca perquè es torni a pintar;
+//   - **l'operació va al final de la taula** (`UIOps`), que es passa per posició: afegir-la al final de la declaració i de la
+//     llista deixa tots els altres punters al seu lloc.
+// 0.179.76 (13/11): **si el dit cau sobre la caixa que ja té el focus del teclat, no es toca res** (docs/30, docs/90):
+//   - **la pregunta és la del propietari**: *which control had the keyboard's focus? is it this one?* — i si ho és, la banda es
+//     queda, el focus es queda, el mode d'edició es queda i el bloc es queda; el cursor va on demana el dit i prou;
+//   - **el que passava**: el camí del dit reaplicava el focus **sempre** (`ui_apply_focus`) i tot seguit activava el control, i un
+//     focus que es torna a aplicar **atura el bloc** de la caixa que ja el tenia: la caixa es quedava entrada, amb la banda a la
+//     pantalla i sense cursor. Un botó i una casella no ho noten perquè prémer'ls és la seva feina;
+//   - **ara es compara amb el control que té el focus** (`ui_target_index`) i, si és el mateix i és una caixa de text amb la banda
+//     a la pantalla, no es fa res més.
+// 0.179.75 (13/11): **una caixa morta no és una banda que marxa** (docs/30, docs/90):
+//   - **`ui_keyboard_follow_object` tirava la banda quan la caixa no era viva**: `canvas_ready` és fals per a l'objecte d'una
+//     pàgina que s'ha tornat a construir —i la banda la reconstrueix cada cop que pren el peu del vidre—, i el camí del dit
+//     responia penjant la banda i oblidant el destí, amb una altra caixa de la mateixa pàgina viva i esperant les lletres;
+//   - **ara, si la banda ja té un destí, no es toca res**: el destí que té és la caixa, i el bloc es pinta allà; la banda només
+//     marxa quan no hi ha cap destí (i llavors sí que no hi ha res a escriure);
+//   - **i s'ha tret una crida doble** a `ui_keyboard_target_set` dins del mateix camí (la segona no deia res que la primera no
+//     digués) després de revisar la funció sencera amb el codi al davant.
+// 0.179.74 (13/11): **tocar una caixa de text no amaga el teclat** (docs/30, docs/90):
+//   - **`ui_keyboard_follow_object` penjava la banda quan la caixa no volia tecles**: a box that takes no keys got the block of the
+//     caret and then `ui_keyboard_hide()`, so a tap on the field could take the keyboard down while the caret stayed alive behind
+//     it —a field that looks like it has lost the focus, with the band gone—;
+//   - **ara la caixa que no vol tecles es queda amb el bloc i no toca la banda**: el teclat baixa quan el dit cau **fora** de la
+//     caixa, que és un altre camí, i un dit dins la caixa no canvia el focus, ni la banda, ni el mode d'edició, ni el cursor.
+// 0.179.73 (13/11): **un dit dins la caixa no li treu res** (docs/30, docs/90):
+//   - **el segon toc deixava la caixa sense bloc**: el toc posa el focus al control (`ui_apply_focus`) i un focus que canvia **atura
+//     el bloc** del que deixa; com que la caixa ja estava entrant, l'activació no feia res més (`stays`) i el destí de la banda i el
+//     cursor es quedaven escrits enrere, amb la banda a la pantalla i cap cursor —el camp semblava haver perdut el focus—;
+//   - **ara, en aquest camí, es torna a nomenar la caixa** (`ui_keyboard_target_set`, que és el destí i l'inici del bloc) i no canvia
+//     res més: la banda es queda, el camp es queda entrat i el cursor on el dit l'ha posat.
+// 0.179.72 (13/11): **les dues tecles mouen el cursor de la caixa que el teclat escriu, i el cursor no se surt del text**
+// (docs/30, docs/40):
+//   - **les fletxes caminaven el dial amb el camp obert**: `ui_button_event` demanava el cursor només a la caixa que té el
+//     focus (`ui_step_caret(g_state, objects, current, …)`), i la pàgina es torna a construir quan la banda pren el peu del
+//     vidre: la caixa on s'escriu **no** és la que té el focus, o sigui que la condició era falsa i les tecles es menjaven el
+//     recorregut. Ara, amb la banda a la pantalla, el cursor és el de la caixa de la banda (la mateixa que resol
+//     `keyboard_object`), i només si la tecla no ha mogut res;
+//   - **i el cursor que es torna a posar no passa de la longitud del text**: a `apps/timeclock`, un lloc més enllà de l'última
+//     lletra no és cap lloc i el bloc quedava on no hi ha res.
+// 0.179.71 (13/11): **obrir una caixa no mou el cursor de lloc** (docs/30, docs/40):
+//   - **la caixa nova neixia amb el cursor a zero**: the page is built again when the band takes the bottom of the glass, and
+//     `apps/timeclock` wrote `note_box.cursor = 0` on every rebuild, so the caret jumped to the beginning of the line the
+//     moment a person opened the field. The place it was is kept (`pending_cursor`) and put back with the text;
+//   - **i les dues maneres de moure'l ja hi eren i no canvien**: les dues tecles de la placa mouen el cursor dins una caixa
+//     d'una línia (`textbox_caret`, 0.179.46: esquerra i dreta, aturant-se a la longitud del text) i el dit el posa on el
+//     toca, que és el mateix camí que el del multilínia (0.179.56).
+// 0.179.70 (13/11): **el text escrit en una caixa no es descarta en sortir-ne** (docs/30, docs/40):
+//   - **la pàgina es torna a construir** cada cop que la caixa pren el focus i cada cop que el teclat canvia l'alçada del vidre, i
+//     la caixa nova neix amb el `text` buit; `apps/timeclock` el tornava a escriure a `''` a cada reconstrucció
+//     (`note_box.text = chosen and note_of(chosen) or ''`), o sigui que sortir de la caixa llençava el que s'havia escrit;
+//   - **ara el text que s'escriu es queda a `pending_note`** i és el que es torna a posar a la caixa a cada reconstrucció, amb una
+//     fila marcada o sense: el que el sistema hi ha posat (`ui_keyboard_typed` escriu el camp `text`) no el trepitja ningú;
+//   - **el multilínia de l'editor ja ho feia així** —l'app torna a pintar el seu document i no toca el camp—, i aquesta és la
+//     mateixa regla per a la caixa d'una línia.
+// 0.179.69 (13/11): **el bloc del cursor parpelleja cada set-cents mil·lisegons** (docs/30, docs/90):
+//   - **sis-cents era massa ràpid per a aquest vidre**: every blink is a `du` of the cell —a hundred and twenty milliseconds
+//     of ink—, and a block that turns faster than a person reads it is a page painted for nobody. `kCaretBlinkMs` is 700
+//     for the period and for the restart after a key, which is the only number that changes.
+// 0.179.68 (13/11): **el cursor no narra res** (docs/30):
+//   - **les quatre línies de la 0.179.65 omplien el port sèrie**: una banda que no és a la pantalla és l'estat normal del
+//     sistema, i `caret_poll` es pregunta a cada torn, o sigui que el registre rebia una línia per torn per sempre —es va
+//     veure al launcher, sense cap teclat, amb la consola saturada i la placa fent feina de bades—;
+//   - **s'han tret les quatre**: el parpelleig ja no diu res en el camí normal, i el que la 0.179.67 va arreglar (el bloc
+//     s'encén quan hi ha banda) es queda igual.
+// 0.179.67 (13/11): **una banda a la pantalla encén el bloc del cursor ella mateixa** (docs/30, docs/90):
+//   - **el registre de la placa ho va dir**: `caret: nothing to blink, no focus and no key started the block`, una vegada
+//     darrera l'altra, amb la banda desplegada —o sigui que `caret_start` no s'havia cridat mai— i cap pintada d'una cel·la.
+//     El bloc depenia que cada camí que aixeca la banda se'n recordés (el destí de la banda, la caixa que pren el focus, una
+//     tecla), i n'hi havia un que no ho feia;
+//   - **ara el parpelleig mira la banda**: si hi ha banda i cap bloc encès, l'encén ell i el pinta al mateix torn. El camí
+//     que l'ha aixecada deixa de comptar, i una banda amb un camp a sota no pot arribar al vidre sense cursor;
+//   - **i el que no canvia**: el parpelleig és una cel·la (`du`) cada sis-cents mil·líscions, i la caixa on va surt del mateix
+//     lloc que abans (el destí de l'app, la caixa amb el focus, o l'única caixa de la pàgina).
+// 0.179.66 (13/11): **una caixa de text buida té cursor** (docs/30, docs/90):
+//   - **`textbox_draw` plegava quan el text era `nullptr`**: the frame and the paper were drawn and then the function returned
+//     before measuring a letter or the block, so a field whose text the app had not written yet —which is every box on its
+//     first frame, and a box of one line in an app that only writes it when there is something to write— showed **no
+//     cursor at all**, while the same box in the editor did;
+//   - **un text buit és un text a l'offset zero**: `nullptr` is now the empty string, so the block sits on the first cell of
+//     the line, which is where a person expects it, and the first key does not move it;
+//   - **i el que no canvia**: el dibuix de la cel·la i del bloc (0.179.43 i 0.179.48) i la seva amplada, que per a un text
+//     buit ja era la d'una lletra (`caret_cell_width` amb `M`).
+// 0.179.65 (13/11): **el parpelleig diu per què no pinta** (docs/30, docs/90):
+//   - **al rellotge la banda puja i el bloc no es pinta mai**: the page is repainted whole when the band takes its rows, the
+//     field is entered, and there is **not one `[UI] paint … du` line** in the log of the board —the caret is the only thing
+//     that writes one every six hundred milliseconds— while the editor, with the same code, blinks;
+//   - **`caret_poll` tenia quatre sortides mudes** i una de les quatre és la que passa: now each of them says which it is —
+//     `nothing to blink: no focus and no key started the block`, `the app painted the box, so the block is already on the
+//     glass`, `there is no box to blink in…`, `the box the caret found is not a canvas any more`—, so one run of the clock
+//     says the fault instead of a guess.
+// 0.179.64 (13/11): **una pàgina no es pinta amb els modes d'una regió, i el panell torna a dibuixar** (docs/50):
+//   - **què va passar a la placa amb la 0.179.60**: la pàgina demanava `cleaner_for` i, per a una pàgina de text, la resposta
+//     és `a2`. El registre del panell diu el que això és en aquest controlador: `blit 0,48 540x912` i tot seguit
+//     `LUTAFSR was not read in 3006 ms (busy stayed low; busy reads 0)` —el motor no arrenca i el BUSY no puja mai—, o
+//     sigui **tres segons per pintada i cap píxel al vidre**;
+//   - **la qualitat d'una pàgina torna a ser `gl16`** (450 ms, setze nivells, sense parpelleig) i `gc16` quan el pressupost
+//     de passades ràpides ha deixat fantasma. `du`, `du4` i `a2` queden per a les **regions**: les files de l'editor pugen
+//     amb `du` i la lletra hi surt, que és el que sí que està mesurat en aquest panell;
+//   - **i els tres casos que la 0.179.60 havia canviat** tornen a dir `gl16` per a la pàgina i per a la línia.
+// 0.179.63 (13/11): **si la pàgina té una sola caixa de text, és la caixa** (docs/30, docs/90):
+//   - **el que passava al rellotge**: la banda pren el peu del vidre i la pàgina es torna a fer (`on_resize`) amb objectes
+//     nous, i la caixa que el sistema coneixia es queda morta. L'app de l'editor la torna a nomenar (`kb.target` al seu
+//     `on_resize`); la nota del rellotge no nomena cap teclat i no la tornava a apuntar enlloc —`apps/timeclock` no té cap
+//     `ui.focus` ni cap `kb.target`—, o sigui que la banda escrivia al buit i el bloc del cursor no tenia on pintar-se;
+//   - **la resposta**: quan no hi ha destí ni focus, i la pàgina té **una sola** caixa de text, aquesta és la caixa. Una
+//     caixa sola no és cap tria, i el comportament passa a ser el mateix que el del camp de l'editor, que sí que en diu;
+//   - **què s'ha vist al vidre abans d'això**: l'editor, amb aquesta versió i la 0.179.62, mou el cursor, escriu on ha
+//     d'escriure i el bloc no deixa de parpellejar; el rellotge desplegava la banda i cap cursor.
+// 0.179.62 (13/11): **un dit posa el focus allà on toca** (docs/30, docs/90):
+//   - **el toc no li donava el focus a ningú**: el camí del dit cridava `ui_activate` i prou, i `ui_apply_focus` només el
+//     feia servir el dial. Una caixa que un dit entrava podia no haver tingut mai el focus, i les dues coses que demanen el
+//     focus quan el destí que l'app va nomenar ja no hi és —la banda que escriu i el bloc del cursor (`caret_poll`)— es
+//     quedaven sense a qui escriure i sense on pintar: la banda pren el peu del vidre, la pàgina es torna a fer, el
+//     `kb.target` apunta a un objecte que se n'ha anat, i des d'allà cap lletra i cap cursor;
+//   - **i ara el toc és el mateix esdeveniment que el dial**: la fila del toc és la que pren el focus —amb el seu
+//     `on_focus` i la seva volta— abans que el control s'activi, que és el que ja deia el comentari d'aquest camí;
+//   - **el que això arregla al vidre**: la nota del rellotge i el document de l'editor tenen cursor des del primer toc i no
+//     des del segon, i la caixa on s'escriu és la que té el focus fins que el dit cau fora d'ella.
+// 0.179.61 (13/11): **el cursor és de la caixa que té el focus, no del destí que l'app escriu, i no s'atura**
+// (docs/30, docs/90):
+//   - **una caixa que no diu `kb.target` no tenia cap bloc** (`caret_poll`): la nota del rellotge n'és una —pren el focus,
+//     la banda puja, el camp queda entrat i **no es veu cap cursor**—, i l'única manera de veure'l era tornar a tocar la
+//     caixa, que el que feia era **baixar la banda** i deixar el focus sol. El parpelleig pregunta ara el mateix que la
+//     banda quan escriu una lletra (`keyboard_object`): el destí de l'app i, si no n'hi ha, la caixa amb el focus;
+//   - **i el bloc no s'atura**: s'apagava després de sis parpellejos i una persona que mira la pantalla llegeix un cursor
+//     quiet com un cursor mort. El que aquella regla estalviava són cent vint mil·lisegons d'una cel·la cada sis-cents, i
+//     el compte del repòs torna a començar a cada tecla i a cada focus;
+//   - **i un dit sobre la caixa que s'està escrivint és el cursor i res més** (`ui_activate` amb `by_finger`): abans entrava
+//     i sortia del camp —o sigui que tocar la línia que escrius baixava la banda i et deixava fora—, i ara no toca ni el
+//     camp, ni la banda, ni el focus: el cursor va on demana el dit quan el gest acaba. Sortir del camp és del centre i d'un
+//     toc **fora** de la caixa;
+//   - **el cas que deia el valor vell** (`test_apps`) ara diu el nou: cinc segons i mig de parpelleig són **vuit** i no sis.
+// 0.179.60 (13/11): **la qualitat d'una passada és sempre la més baixa que neteja, i els modes ràpids van primer**
+// (docs/30, docs/50):
+//   - **la pàgina demanava `gl16` per a tot** (`quality_of_the_page`, ui.cpp), i era la mateixa decisió que
+//     `cleaner_for` ja escrivia i que ningú no li preguntava: dues taules per a una cosa, i la de la pàgina era la cara
+//     —**450 ms** per a un canvi d'una lletra—. Ara la pàgina pregunta `cleaner_for(g_levels, g_updates)`, que contesta
+//     `du` si no s'hi ha posat res, **`a2` (dos nivells, un parpelleig, 290 ms) per a una pàgina de text**, `gl16` per a
+//     una pàgina amb quatre grisos, i `gc16` només quan el fantasma és la pàgina —les trenta-dues passades ràpides del
+//     pressupost, que no canvien—;
+//   - **què vol dir al vidre**: una pàgina de text i la línia d'un canvi passen de 450 a **290 ms**, i el `gc16` de
+//     **2 650 ms** mesurat a la placa queda per al fantasma i per a una app que el nomeni;
+//   - **els tres casos que deien el valor vell** (`test_apps`) ara diuen el nou: la pàgina d'una app i la línia que
+//     canvia es pinten `a2`, i quaranta presents d'una línia no en manen cap al `gc16`;
+//   - **i el que no toca aquesta versió**: una regió petita que el control ha dibuixat en `du` i que no ha nomenat encara
+//     puja amb la qualitat de la passada (ara `a2`, no `gl16`). Deixar-la en `du` vol el sedàs per franges —una franja que
+//     no ha canviat de píxels no es pinta—, que és el pas següent.
+// 0.179.59 (13/11): **el text no fa servir cap forma valenciana, i el `default_envs` del document és el del codi**. The
+// owner: *«No usem valencià. usem català i mai en el codi. el codi sempre en anglès.»* (docs/30, docs/50, docs/70, docs/80):
+//   - **deu línies** deien el català que no és el d'aquest projecte: els possessius de la primera i la tercera persona a la
+//     crònica de les versions 0.179.55 i 0.179.58 i a `docs/30` i `docs/50`, un adverbi de temps a `docs/70` i un
+//     demostratiu a la crònica. Ara diuen `meva`, `seva`, `seves`, `aquestes` i `mentre`, que és el que el document de
+//     convencions veta des del primer dia —i el veta també al text que ja hi era, no només al que s'escriu—;
+//   - **i el comentari d'un cas passa a l'anglès** (`test_ui`, el del present amb mode): el codi d'aquest projecte
+//     s'escriu en anglès, comentaris inclosos, i aquest comentari l'havia escrit jo en català. La raó que explica el cas
+//     no canvia, i ara la diu la mateixa llengua que la resta del fitxer;
+//   - **i `docs/80` torna a dir la veritat**: el bloc que copia `platformio.ini` deia `default_envs = emulator`, i la
+//     mateixa pàgina explica cent quaranta línies més avall que des de la 0.179.56 és `test`. El codi mana sobre el
+//     document, que és la llei d'aquest arbre (docs/80).
 // 0.179.58 (13/11): **el cas del preu d'una clau de la NVS torna a mesurar el model i no el rellotge de la màquina**. The
 // owner: *«passa els tests, revisa el workflow del github i puja-ho tot»* (docs/80):
 //   - **el que va fer vermell el CI de la 0.179.56** (`8bd7375`): `test_a_key_of_the_store_pays_a_page_and_the_sector_once_in_a_while`
-//     (test_disk) va sortir amb «every key of the store paid a sector» —la cua de dalt—, i a la meua màquina passava. La
+//     (test_disk) va sortir amb «every key of the store paid a sector» —la cua de dalt—, i a la meva màquina passava. La
 //     mesura és `micros()` de la màquina i `delay_us` és un `sleep_for`, o sigui que cent vint-i-vuit dormides en un runner
 //     carregat s'allarguen el mil·lisegon del planificador: el total nominal és **134 600 µs** (128 programacions de pàgina i un
 //     sector) i el sostre era **200 000**, que demanava mig mil·lisegon de mitjana per dormida per a passar-se'n. El que el cas
@@ -5675,19 +5992,19 @@ namespace kernel {
 //   - **el que ja era així**: el cercle és un de sol (`log.cpp`, 2 048 B a la RAM) i l'alimenten tres portes —`log_printf`, el
 //     *sink* que el nucli instal·la perquè els conductors no depenen d'ell, i ara `log_say`—; el mirall cap al port és el
 //     `g_echo` que `log_init()` encén i `verbose on|off` mou, i `log` aboca el cercle sencer. La shell i les apps no hi
-//     passen: `shell::out_bytes` i `luabind::con_write` escriuen al port del sistema (o a la seua sessió) i no al log, que és
+//     passen: `shell::out_bytes` i `luabind::con_write` escriuen al port del sistema (o a la seva sessió) i no al log, que és
 //     el que l'amo diu de la shell com una app que fa servir el port;
 //   - **el que no era així i ho és ara**: dues famílies de línies del sistema s'escrivien **directament al port** i no eren al
 //     cercle —les tres pulsacions (`button: three taps, closing the app`) i el son (`power: woke on the timer, +120 ms from the
 //     hour it was given`, el número que demana docs/75)—: sortien pel port i `log` no les podia ensenyar. Passen per
-//     `log_say`, que les desa **amb les seues paraules**, perquè són frases per a una persona i no fitxes amb etiqueta; el
+//     `log_say`, que les desa **amb les seves paraules**, perquè són frases per a una persona i no fitxes amb etiqueta; el
 //     text que algú llig no canvia ni un byte;
 //   - **i l'ordre és el del log i no el del port**: `emit` desa primer al cercle i després fa la còpia, així un port que no hi
 //     és no deixa el log sense la línia;
 //   - **mesurat a l'emulador**: `sleep light 300` i tot seguit `log` torna a dir `power: woke on the timer, +120 ms from the
 //     hour it was given` dins de l'abocament del cercle, cosa que abans no hi era; `test_three_taps_close_the_app` i
 //     `test_a_light_sleep_comes_back_with_the_clock_moved` (test_apps) i les setze de `test_touch` verdes, que és el que
-//     llig eixes línies.
+//     llegeix aquestes línies.
 
 // 0.179.54 (13/11): **`pio test` sense `-e` deixa de ser un mur de vermells falsos**. The owner: *«jo continuo veient MERDA A
 // ~/.platformio/penv/bin/pio test»* (docs/80):
@@ -7284,7 +7601,27 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.58";
+// 0.182.1 (13/11): **dins una caixa, amunt és la lletra següent i avall la d'abans, i la multilínia camina la lletra**
+// (docs/30, docs/90):
+//   - **el que demana l'amo**: *«El TextBox captura els botons físics correctament, pero amb el mapa al revés, per mi avall
+//     es esquerra, amunt dreta. El TextBox Muliline no sembla capturar bé els botons físics, ha der el mateix que el
+//     TextBox, recórrer la fila endavant i endarrera»*;
+//   - **el mapa**: `ui_keys_listener` porta `up`/`right` a **+1** i `down`/`left` a **-1**, que és el revés del dial —el
+//     dial camina la pàgina amb `up` com el control d'abans— i és a posta: dins una caixa les dues tecles són la línia que
+//     s'escriu i no el passeig;
+//   - **la lletra i no la fila**: `ui_step_caret` té `letters_only` i la caixa de diverses línies fa servir la mateixa
+//     aritmètica de text que la d'una (`textbox_caret`) en comptes de la fila de la glass;
+//   - **i la caixa que la banda té de destí es queda les dues tecles**: l'editor obre la pàgina amb `kb:show` i cap dit no
+//     havia tocat la caixa, o sigui que `editing` no era cert i les tecles anaven a la plaça que no en fa res —el centre no
+//     podia ni entrar al camp—; `l_keyboard_show` escriu `editing` i dóna la plaça de la cua, que és la regla que el
+//     restaurar del focus ja seguia;
+//   - **measured a l'emulador, tecles de la placa**: caixa d'una línia (el rellotge) amb el cursor a 126: un `avall` el
+//     porta a 94, dos `amunt` el tornen a 126, tres `avall` el porten a 28; caixa de diverses línies (l'editor) amb el
+//     cursor a 8: tres `amunt` el porten a 62, un `avall` el torna a 50. La lletra, no la fila (docs/30);
+//   - **el que queda**: sortir del camp amb el centre sí (la banda baixa i la pàgina torna), i **tornar-hi amb el centre no
+//     arrenca la banda ni la plaça** —el següent toc de tecla mou el focus i tanca la banda—. És una pàgina que el centre
+//     ha de poder reprendre, i queda per a la propera.
+static const char kVersion[] = "0.182.1";
 
 }  // namespace kernel
 

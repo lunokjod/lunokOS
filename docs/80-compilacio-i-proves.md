@@ -13,7 +13,7 @@
 
 ```ini
 [platformio]
-default_envs = emulator
+default_envs = test
 boards_dir = boards        ; el Paper no és una placa que la plataforma conegui
 
 [env:m5-atom]

@@ -85,6 +85,16 @@ bool parse_tz(const char* text, int32_t& minutes);
 // value the calendar is using.
 bool leap_years();
 bool set_leap_years(bool on);
+
+// **L'hora d'estiu** (0.182.0): the box of the Time zone page that the owner ticked and that was kept nowhere. It is a setting of
+// the system and not a shift of a page, because the hour a person reads is the system's: the offset of the map plus, when this is
+// on, **sixty minutes**. The RTC cannot do it —the BM8563 of the Paper counts seconds and has a century bit, not a rule of summer—
+// and the chip's library would want a name of zone per country, which is a table this system does not carry (docs/30, docs/60).
+bool dst();
+bool set_dst(bool on);
+// **L'offset que compta**: the one the map says plus the hour of summer. `tz_minutes()` is still the map's, which is what an app
+// shows and what `time.tz()` answers; this is the one that makes an hour of a person (docs/30, docs/60).
+int16_t offset_minutes();
 // **1 is Monday and 7 is Sunday**: Monday is the default of this system since its first calendar, and Sunday is the
 // week a person may ask for with `cfg week sunday` or `time.week(7)` (docs/60).
 uint8_t week_start();

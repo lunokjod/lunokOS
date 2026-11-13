@@ -25,14 +25,6 @@
       }
     },
     {
-      "label": "lunokOS: native tests",
-      "type": "shell",
-      "command": "pio",
-      "args": ["test", "-e", "test"],
-      "problemMatcher": [],
-      "group": "test"
-    },
-    {
       "label": "lunokOS: seed emulator disk",
       "detail": "Copies the assembled disk (build/disk: data/ plus apps/) into emulator/littlefs. Only for a run of a private disk (--flash emulator/littlefs): with no --flash the emulator reads build/disk itself.",
       "type": "shell",

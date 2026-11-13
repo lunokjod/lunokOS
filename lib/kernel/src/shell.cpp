@@ -573,7 +573,7 @@ void print_help(const char* only) {
   help_continuation(
       "                    lives, the keyboard, the picture of the boot and the app that comes up with the board;", only);
   help_continuation(
-      "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg week [monday|sunday]` and", only);
+      "                    `cfg tz [<offset>]`, `cfg leap [on|off]`, `cfg dst [on|off]`, `cfg week [monday|sunday]` and", only);
   help_continuation("                    `cfg turn [<instructions>]`, the slice of Lua a turn is worth", only);
   help_line("  run <id> [path] [&]  run an app, optionally pointed at a file; `&` leaves it in the background", only);
   help_line("  wifi              the stored network and the radio", only);
@@ -3883,9 +3883,15 @@ bool poll_app() {
   // **And three taps on the glass are the same way out** (0.167.0): the gesture is taken out of the queue here, as the
   // pinch is, so an app cannot swallow the one gesture that means «leave this page» in every app of this system. It used
   // to be the way back from a page that covers the whole glass and nothing else (docs/30).
+  // **Amb la banda a la pantalla no es pren** (0.181.4): the owner: *«es segueix tancant als 3 tocs sobre el teclat desplegat»* —
+  // three taps of a finger on the keyboard are three letters and not a way out, and the gesture was leaving the app in the middle
+  // of a note. The band is the system's own keyboard, so this is the system not taking its way out while it is there; a page with
+  // no band keeps it, and the three taps of the middle **key** are a different road and untouched by this one (docs/30).
   {
     touch::Gesture triple{};
-    if (touch::take_gesture_of("triple", triple)) {
+    // The gesture is taken out of the queue in both cases: three taps on a keyboard are not an app's gesture either, and the
+    // triple that arrives after the band is a gesture of its own and not a leftover of the ones typed on the keyboard (docs/30).
+    if (touch::take_gesture_of("triple", triple) && !ui::keyboard_visible()) {
       const LeaveOutcome out = leave_one_page();
       if (out == LeaveOutcome::kBack || out == LeaveOutcome::kLauncher) return true;
       if (out == LeaveOutcome::kClosed || out == LeaveOutcome::kClosedHome) return g_app_alive;
@@ -4071,7 +4077,7 @@ bool command_cfg(const char* argument) {
   if (!read_words(argument, words, 2, count)) return false;
   if (count > 2) {
     usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-              "leap [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
+              "leap [on|off]|dst [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
     return false;
   }
 
@@ -4122,6 +4128,23 @@ bool command_cfg(const char* argument) {
     // **The calendar of the person** (0.170.0): the leap day and the first day of the week, the two settings the app of
     // the time zone writes from Lua with the same words —`on`/`off` and `monday`/`sunday`— so that a person and an app
     // never disagree about what a calendar is (docs/30, docs/60).
+    // **I l'hora d'estiu** (0.182.0): the box of the Time zone page has the same setting and the same two words, so the prompt and
+    // the app never disagree about whether the board is in summer (docs/30, docs/60).
+    if (strcmp(words[0], "dst") == 0) {
+      bool on = false;
+      if (strcmp(words[1], "on") == 0) {
+        on = true;
+      } else if (strcmp(words[1], "off") != 0) {
+        out("cfg: the hour of summer is on or off\r\n");
+        return false;
+      }
+      const bool kept = cfg::set_dst(on);
+      out("settings: dst ");
+      out(cfg::dst() ? "on" : "off");
+      newline();
+      if (!kept) out("cfg: the choice lives until the board restarts (there is no key-value store)\r\n");
+      return true;
+    }
     if (strcmp(words[0], "leap") == 0 || strcmp(words[0], "week") == 0) {
       bool kept = false;
       if (strcmp(words[0], "leap") == 0) {
@@ -4178,7 +4201,7 @@ bool command_cfg(const char* argument) {
     }
     if (strcmp(words[0], "keyboard") != 0 && strcmp(words[0], "tz") != 0) {
       usage_out("usage: cfg [auto|sd|littlefs|keyboard [<id>]|boot [<word>]|home [<id>|none]|tz [<offset>]|"
-                "leap [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
+                "leap [on|off]|dst [on|off]|week [monday|sunday]|turn [<instructions>]]\r\n");
       return false;
     }
     // **The hour of the person** (0.125.0): the chip counts UTC and this is the one number that joins them, because a
@@ -4261,6 +4284,12 @@ bool command_cfg(const char* argument) {
       return true;
     }
     // **The calendar, read in the same words it is written** (0.170.0).
+    if (strcmp(words[0], "dst") == 0) {
+      out("settings: dst ");
+      out(cfg::dst() ? "on" : "off");
+      newline();
+      return true;
+    }
     if (strcmp(words[0], "leap") == 0) {
       out("settings: leap ");
       out(cfg::leap_years() ? "on" : "off");

@@ -7175,6 +7175,7 @@ void test_a_page_goes_up_with_the_quality_its_ink_asks_for(void) {
     if (paint != nullptr && paint->w == 300 && paint->h > 300) page = paint;
   }
   TEST_ASSERT_NOT_NULL_MESSAGE(page, "the page was painted as one box of 300 wide");
+  // **Sixteen levels without a flash, which is what a page of this panel takes** (0.179.64, docs/50).
   TEST_ASSERT_EQUAL(hal::UpdateMode::kGl16, page->mode);
   TEST_ASSERT_EQUAL_UINT16(kernel::ui::canvas().y + 20, page->y);
 
@@ -10174,10 +10175,10 @@ void test_the_caret_blinks_without_the_app(void) {
   storage->remove("/apps/blink");
 }
 
-// **El bloc deixa de parpellejar quan no passa res** (0.179.35): six blinks after the last thing that moved it —a focus,
-// a key— and the caret stands **on** until the next one. A block that blinks while a person reads is a page of this
-// panel painted for nobody: each `du` leaves a fifth of what it finds and a mark that grows (docs/30, docs/50, docs/90).
-void test_the_caret_stops_blinking_when_nothing_moves_it(void) {
+// **El bloc parpellegeja mentre la caixa té el focus i no s'atura** (0.179.61): it stood still after six blinks, and on the
+// glass a person reads a cursor that stopped as a cursor that died. Five seconds and a bit at six hundred milliseconds is
+// eight blinks, and all eight have to be there (docs/30, docs/50, docs/90).
+void test_the_caret_keeps_blinking_while_the_box_has_the_focus(void) {
   TEST_ASSERT_TRUE(boot_once());
   use_board("m5stack-paper");
   hal::IStorage* storage = hal::platform().storage("/littlefs");
@@ -10209,10 +10210,9 @@ void test_the_caret_stops_blinking_when_nothing_moves_it(void) {
                            "console.print('blinks ' .. changes)\n"));
 
   pump_captured(5400, g_out, sizeof(g_out), "run settle");
-  // **Sis i no vuit**: the six of `kCaretMostBliks` and no more, and the block stops where it says the person is.
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "blinks 6"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 7"), g_out);
-  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 8"), g_out);
+  // **Vuit i no sis**: the block does not stop, so the eight blinks of five seconds are there and the sixth is not the last.
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "blinks 8"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "blinks 9"), g_out);
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app did not end after its five seconds");
 
   storage->remove("/apps/settle/app.lua");
@@ -14826,7 +14826,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_home_app_comes_up_with_the_board);
   RUN_TEST(test_a_home_app_that_is_not_there_leaves_the_prompt);
   RUN_TEST(test_the_caret_blinks_without_the_app);
-  RUN_TEST(test_the_caret_stops_blinking_when_nothing_moves_it);
+  RUN_TEST(test_the_caret_keeps_blinking_while_the_box_has_the_focus);
   RUN_TEST(test_the_dial_stops_on_a_text_box_and_the_centre_enters_it);
   RUN_TEST(test_a_read_only_box_has_a_caret_and_never_a_band);
   RUN_TEST(test_the_keys_walk_the_rows_of_a_box_the_centre_entered);

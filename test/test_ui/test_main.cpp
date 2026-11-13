@@ -190,12 +190,11 @@ static void test_damage_of_the_same_quality_merges() {
 // A present with one quality paints everything pending with it: what a page that must look uniform
 // asks for (docs/30).
 //
-// **I cada caixa va a la seua i no a la unió de totes** (0.179.57): el present amb `mode` deia la qualitat de
-// tota la pàgina i, de pas, feia **una** regió amb tot el que hi havia pendent —la unió de dues caixes que només
-// comparteixen aire és una caixa que també cobreix el que ningú ha canviat—. Al teclat de l'editor això era
-// `paint 6,54 534x602` per una lletra. Aquest cas deia `220` i el que diu ara és el que ha de dir: dos pintats de
-// vint files cadascun, tots dos amb la qualitat que l'app ha demanat, i els vuitanta píxels de paper del mig
-// sense tocar (docs/30, docs/50).
+// **Each box is painted on its own and not in the union of all of them** (0.179.57): a present with `mode` said the
+// quality of the whole page and, on the way, made **one** region of everything pending —the union of two boxes that only
+// share air is a box that also covers what nobody changed—. On the editor's keyboard that was `paint 6,54 534x602` for
+// one letter. This case said `220` rows and what it says now is what it has to say: two paints of twenty rows each, both
+// with the quality the app asked for, and the eight hundred pixels of paper in the middle untouched (docs/30, docs/50).
 static void test_present_with_a_quality_overrides_the_damage() {
   fresh_view();
   const uint32_t before = glass().paint_count();

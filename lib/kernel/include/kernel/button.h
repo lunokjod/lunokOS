@@ -48,6 +48,51 @@ bool waiting();
 // is the same gesture the console has with three ESC, and the same window (docs/30).
 uint32_t taps_to_close();
 
+// ---- the queue of subscribers (0.180.0) ----
+//
+// **The keys emit events whether or not anybody listens**: `poll` is the only reader of the board and it always reads it,
+// and what happens to the event is decided by whoever is in the queue at that moment (docs/30, docs/50).
+//
+// **Cascade and exclusive**: a cascade subscriber is called with the others, in the order it registered; an exclusive one
+// is called **alone** —nobody else hears the event, the system's own delivery included— until it gives its handle back.
+// The last exclusive to register is the one that answers, so a control that takes the keys sits on top of the app's queue
+// the way a dialog sits on top of a page (docs/30, docs/90).
+//
+// **A listener is a plain function and an owner**, because the interpreter has to be able to hand one of its own without
+// this module knowing that Lua exists (docs/10, docs/30).
+typedef void (*Listener)(const char* kind, uint32_t key, int64_t held_ms, void* owner);
+
+enum class Mode : uint8_t {
+  // Called with the others, in the order it registered.
+  kCascade = 0,
+  // Called alone: the rest of the queue does not hear the event until it goes.
+  kExclusive = 1,
+};
+
+// One event, as a caller that is not a listener sees it (the shell, the tests).
+struct Event {
+  const char* kind;  // "press" or "long"
+  uint32_t key;
+  int64_t held_ms;
+};
+
+// **A handle above zero, or zero when the queue is full**: a subscriber that could not register is told so and not given
+// a number it cannot give back. `owner` is any pointer the listener gets back, and it is what `unsubscribe_owner` uses to
+// take a whole owner out of the queue at once (docs/30, docs/75).
+uint16_t subscribe(Listener listener, void* owner, Mode mode);
+void unsubscribe(uint16_t handle);
+// **An owner that goes takes its subscriptions with it**: an app that ends —or that ends early, on an error— is
+// unregistered by the system and not by itself (docs/30).
+void unsubscribe_owner(void* owner);
+// How many are in the queue right now, for the shell and the tests (docs/30).
+uint16_t subscribers();
+// **The event goes to the queue and not to a function of this module**: the board calls it once per edge and the shell
+// and the tests use it to put one through the same road (docs/30).
+void emit(const char* kind, uint32_t key, int64_t held_ms);
+// **Buida la cua i hi torna a deixar el sistema**: `boot` ho fa abans de llegir la placa i les proves ho fan entre cas, perquè
+// una prova que hereta la cua d'una altra no prova res (docs/30, docs/85).
+void reset();
+
 }  // namespace button
 }  // namespace kernel
 

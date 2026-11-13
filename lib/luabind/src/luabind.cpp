@@ -26,6 +26,13 @@ extern "C" {
 #include "hal/hal.h"
 
 namespace luabind {
+
+// **Els dos passos que una tecla pot fer** (0.181.0): declared before the unnamed namespace because the listener that holds the
+// keys of a control lives with the queue, higher up than their definitions, and a key it cannot name is a key that does nothing
+// (docs/30, docs/90).
+bool ui_step_caret(lua_State* L, int objects, int index, int direction, bool letters_only);
+bool ui_step_value(lua_State* L, int objects, int index, int direction);
+
 namespace {
 
 const size_t kErrorTextCap = 512;
@@ -93,6 +100,18 @@ const char kHttpKey[] = "lunokOS.http";
 const char kPowerKey[] = "lunokOS.power";
 // The promise a button press will settle (docs/30).
 const char kButtonKey[] = "lunokOS.button";
+// **La funció de l'app a la cua dels botons** (0.180.0): one function per app —an app has one place in the queue— kept
+// by a reference of the registry, and the handle the kernel gave back to give it up with (docs/30, docs/75).
+const char kButtonListenerKey[] = "lunokOS.button.listener";
+uint16_t g_app_button_handle = 0;
+// **Qui té les tecles mentre s'edita** (0.181.0): the control that a person has entered —a box of text, a box of several
+// lines, a slider— takes one **exclusive** place in the queue of the kernel while it says `editing` and gives it back the
+// moment it does not. It is the one road for the three of them, and it is why the page is not walked while a person is
+// writing or dragging (docs/30, docs/90). The slot and the generation are kept with it because that is what says WHICH
+// control it is after a page is built again (docs/75).
+uint16_t g_keys_handle = 0;
+int16_t g_keys_slot = -1;
+uint16_t g_keys_generation = 0;
 const char kTaskKey[] = "lunokOS.task";
 
 // The promise the task is waiting for, as a registry reference. It is held here
@@ -1068,7 +1087,10 @@ int l_time_utc(lua_State* L) {
 // wall the `in` of an alarm hit (docs/30)—, and `date` is the name the paper project gave this call, which is one more
 // row of the equivalence table of docs/45 with nothing to explain.
 int l_time_date(lua_State* L) {
-  const int32_t shift = (g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0;
+  // **The offset that counts is the map's plus the hour of summer** (0.182.0): `time.tz()` keeps saying what the map says and
+  // this is what makes the hour of a person, so a box ticked in the Time zone page moves the clock at once (docs/30, docs/60).
+  const int32_t shift = (g_time_ops.offset_minutes != nullptr) ? g_time_ops.offset_minutes()
+                                                               : ((g_time_ops.tz_minutes != nullptr) ? g_time_ops.tz_minutes() : 0);
   push_civil(L, moment_ms(L, 1) + static_cast<int64_t>(shift) * 60000);
   return 1;
 }
@@ -1104,6 +1126,36 @@ int l_time_tz(lua_State* L) {
   return 1;
 }
 
+
+// time.dst([on]): **l'hora d'estiu** (0.182.0). With no argument it answers the setting; with one it writes it and answers the
+// new one, and a boolean or the two words of the prompt (`on`/`off`) are the same. It is a setting of the system and it is kept
+// in the store, so the hour a person reads is the same after a reboot —the RTC counts seconds and knows nothing of summer— and
+// `time.date()` moves the moment this is written (docs/30, docs/60).
+int l_time_dst(lua_State* L) {
+  if (g_time_ops.dst == nullptr || g_time_ops.set_dst == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this system keeps no hour of its own");
+  }
+  if (!lua_isnoneornil(L, 1)) {
+    bool on = false;
+    if (lua_isboolean(L, 1)) {
+      on = lua_toboolean(L, 1) != 0;
+    } else if (lua_isstring(L, 1)) {
+      const char* word = lua_tostring(L, 1);
+      if (word != nullptr && strcmp(word, "on") == 0) {
+        on = true;
+      } else if (word == nullptr || strcmp(word, "off") != 0) {
+        return push_nil_error(L, "E_INVAL", "the hour of summer is on or off");
+      }
+    } else {
+      return push_nil_error(L, "E_INVAL", "the hour of summer is a boolean, or on and off");
+    }
+    if (!g_time_ops.set_dst(on)) {
+      return push_nil_error(L, "E_INVAL", "the store did not take the hour of summer");
+    }
+  }
+  lua_pushboolean(L, g_time_ops.dst() ? 1 : 0);
+  return 1;
+}
 
 // time.leap([on]): **whether February has its twenty-ninth day** (0.170.0). With no argument it answers the setting;
 // with one it writes it and answers the new one, and the word it takes is a boolean or the two words a person types in
@@ -3484,6 +3536,111 @@ int l_button_held(lua_State* L) {
   return 1;
 }
 
+// **The event as the app's function hears it** (0.180.0): a table, because an event has a kind, a key and where that
+// key is, and `spot` is the name the board gives it —`left`, `centre`, `right`— so an app gives a function to a place
+// and not to a number (docs/30, docs/50).
+int push_button_event(lua_State* L, const char* kind, uint32_t key, int64_t held_ms) {
+  lua_createtable(L, 0, 4);
+  lua_pushstring(L, (kind != nullptr) ? kind : "press");
+  lua_setfield(L, -2, "kind");
+  lua_pushinteger(L, static_cast<lua_Integer>(key));
+  lua_setfield(L, -2, "key");
+  lua_pushinteger(L, static_cast<lua_Integer>(held_ms));
+  lua_setfield(L, -2, "held_ms");
+  KeyInfo info = {};
+  if (g_button_ops.info != nullptr && g_button_ops.info(key, info)) {
+    lua_pushstring(L, info.spot);
+    lua_setfield(L, -2, "spot");
+  }
+  return 1;
+}
+
+// **The listener the kernel keeps in its queue** (0.180.0): the interpreter's own function pointer, with the app's
+// function in a reference of the registry. The kernel knows nothing of Lua and this is the one place the two meet, the
+// same road `ui_button_event` and `call_button` already take (docs/10, docs/30).
+void app_button_listener(const char* kind, uint32_t key, int64_t held_ms, void* owner) {
+  (void)owner;
+  lua_State* L = g_state;
+  if (L == nullptr) return;
+  const int top = lua_gettop(L);
+  lua_getfield(L, LUA_REGISTRYINDEX, kButtonListenerKey);
+  if (!lua_isfunction(L, -1)) {
+    lua_settop(L, top);
+    return;
+  }
+  push_button_event(L, kind, key, held_ms);
+  if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+    con_text("button listener: ");
+    const char* message = lua_tostring(L, -1);
+    con_text((message != nullptr) ? message : "(no message)");
+    con_text("\r\n");
+  }
+  lua_settop(L, top);
+}
+
+// button.subscribe(fn, [mode]): **l'app entra a la cua dels botons** (0.180.0). `fn` hears every event as a table and
+// the mode is `'cascade'` —the default, called with the others— or `'exclusive'`, which means **the others do not hear
+// the event until this one is given back** (docs/30). It answers a handle, or nil and an error; an app has **one** place
+// in the queue and a second call replaces the function and answers the same handle.
+int l_button_subscribe(lua_State* L) {
+  if (g_button_ops.subscribe == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  if (lua_gettop(L) < 1 || !lua_isfunction(L, 1)) {
+    return push_nil_error(L, "E_INVAL", "a subscription is a function");
+  }
+  uint8_t mode = 0;
+  if (lua_isstring(L, 2)) {
+    const char* asked = lua_tostring(L, 2);
+    if (asked != nullptr && strcmp(asked, "exclusive") == 0) {
+      mode = 1;
+    } else if (asked != nullptr && strcmp(asked, "cascade") != 0) {
+      return push_nil_error(L, "E_INVAL", "a subscription is cascade or exclusive");
+    }
+  }
+  lua_pushvalue(L, 1);
+  lua_setfield(L, LUA_REGISTRYINDEX, kButtonListenerKey);
+  if (g_app_button_handle == 0) {
+    g_app_button_handle = g_button_ops.subscribe(&app_button_listener, nullptr, mode);
+    if (g_app_button_handle == 0) {
+      lua_pushnil(L);
+      lua_setfield(L, LUA_REGISTRYINDEX, kButtonListenerKey);
+      return push_nil_error(L, "E_NOMEM", "the queue of the keys is full");
+    }
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_app_button_handle));
+  return 1;
+}
+
+// button.unsubscribe([handle]): **l'app surt de la cua**. With no argument it gives back its own place, and the number
+// is checked so an app cannot take another owner's subscription away (docs/30).
+int l_button_unsubscribe(lua_State* L) {
+  if (g_button_ops.unsubscribe == nullptr) {
+    return push_nil_error(L, "E_UNSUPPORTED", "this board has no button");
+  }
+  const lua_Integer asked = luaL_optinteger(L, 1, static_cast<lua_Integer>(g_app_button_handle));
+  if (asked <= 0 || static_cast<uint16_t>(asked) != g_app_button_handle) {
+    return push_nil_error(L, "E_INVAL", "that handle is not this app's subscription");
+  }
+  g_button_ops.unsubscribe(g_app_button_handle);
+  g_app_button_handle = 0;
+  lua_pushnil(L);
+  lua_setfield(L, LUA_REGISTRYINDEX, kButtonListenerKey);
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+// button.mode(): the mode of the app's subscription, or nil when it is not in the queue. The shell and a test use it to
+// see the state without taking it (docs/30).
+int l_button_mode(lua_State* L) {
+  if (g_app_button_handle == 0) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_pushinteger(L, static_cast<lua_Integer>(g_app_button_handle));
+  return 1;
+}
+
 // The five points a frame can hold, which is what the chips here report and what the kernel keeps
 // (docs/50). It is not a copy of a HAL constant on purpose: the interpreter asks and the kernel
 // clamps.
@@ -3933,6 +4090,12 @@ int16_t g_ui_focus_slot = -1;
 // Which tab of the strip has the ring, 0 when the ring is on a control of its own.
 uint8_t g_ui_focus_item = 0;
 uint16_t g_ui_focus_generation = 0;
+// **El focus no es perd quan la pàgina es torna a fer sota el teclat** (0.179.81): the band takes the bottom of the glass, the
+// app hears `on_resize` and builds its page again, and the box that had the dial is released —which left the walk pointing at a
+// dead slot, and **the first control the rebuild created took the empty focus**: the eye of the clock's page, a row after the box
+// a person had just entered—. While the band is up the box it types into is the one entered, so the place waits for that box and
+// the first control that becomes focusable does not take it (docs/30, docs/90).
+bool g_ui_focus_back_to_the_band = false;
 // **Whether the selector of the focus is on the glass** (0.179.7, the owner: *«Si s'usa el dit el selector del focus ha
 // d'amagar-se. Si es tornen a usar els botons físics ha de tornar. Per defecte el selector de focus ha d'estar desactivat
 // fins que s'usen els botons»*). It is **off until a key of the board arrives** and it goes off again with the first finger:
@@ -4003,21 +4166,22 @@ const int32_t kTapSlop = 20;
 int g_keyboard_target_ref = LUA_NOREF;
 uint8_t g_keyboard_kind = 0;  // 0 is alpha, 1 is numeric, the two of `ui.keyboard()`
 
-// **The caret of the target blinks without the app** (0.92.0): the system owns the block of the box the keys go to,
-// toggles it every six hundred milliseconds in the kernel loop and asks for the box to be redrawn. `dirty` means the
-// block has just come back —a focus, a key— and the next turn has to show it before the clock starts again.
+// **The caret of the box blinks without the app** (0.92.0): the system owns the block of the box that has the focus, toggles
+// it every six hundred milliseconds in the kernel loop and asks for the cell to be redrawn. `dirty` means the block has
+// just come back —a focus, a key— and the next turn has to show it before the clock starts again.
 //
-// **I NO PARPELLEJA PER SEMPRE** (0.179.35): here a blink costs a paint of the block and leaves a trace of the one before
-// —`du` keeps five sixteenths of what it finds—, so a block that blinks while a person reads is ink spent by nobody and a
-// mark that grows. It blinks `kCaretMostBliks` times after the last thing that moved it —a focus, a key— and then stands
-// **on** until the next one. The owner read it in the editor: *«el cursor sembla que refresca massa dibuix»*
-// (docs/30, docs/50, docs/90).
+// **I parpelleja mentre la caixa té el focus i no s'atura** (0.179.61): it stood still after six blinks, which was ink saved
+// on a panel that keeps the ghost of a quick pass and read on the glass as a cursor that had died while a person was looking
+// at it. The block goes on; what it costs is one cell of a hundred and twenty milliseconds every six hundred, and the count
+// of the settle starts again at every key and every focus.
 bool g_caret_on = true;
 bool g_caret_dirty = false;
 int64_t g_caret_next_ms = 0;
 uint8_t g_caret_blinks = 0;
-const int64_t kCaretBlinkMs = 600;
-const uint8_t kCaretMostBliks = 6;
+// **Set-cents mil·lisegons per parpelleig** (0.179.69): the period of the block is a decision about this glass and not about a
+// cursor of a computer screen: a pass costs a hundred and twenty milliseconds of ink, and a block that turns faster than a
+// person reads it is ink spent by nobody. Every blink is one cell and no more than one cell (docs/30, docs/90).
+const int64_t kCaretBlinkMs = 700;
 
 const char kCanvasMeta[] = "lunokOS.UICanvas";
 
@@ -4851,7 +5015,10 @@ int l_canvas_newindex(lua_State* L) {
       lua_pushboolean(L, 0);
       lua_setfield(L, -2, "focused");
       redraw = true;
-    } else if (wanted && focus_gone) {
+    } else if (wanted && focus_gone && !g_ui_focus_back_to_the_band) {
+      // **Excepte quan el focus és de la caixa que el teclat escriu** (0.179.81): the empty focus of a page built again under a
+      // band is not a choice —the band says which box a person is typing into— and the first focusable control of the rebuild
+      // took it, which is why entering the clock's note left the dial on the eye (docs/30, docs/90).
       g_ui_focus_slot = canvas->slot;
       g_ui_focus_generation = canvas->generation;
       // A control that takes the dial is a stop of its own unless it is a strip, which says its tab next.
@@ -7861,6 +8028,11 @@ void ui_keyboard_follow_object(lua_State* L, int object) {
   bool wants = false;
   uint8_t kind = 0;
   if (canvas == nullptr || !canvas_ready(L, object) || !ui_box_keyboard(L, object, wants, kind)) {
+    // **Una caixa morta no s'emporta la banda que ja té un destí** (0.179.75): the page is built again every time the band takes
+    // the bottom of the glass, so the box a tap resolves to can be a dead object while the band is still the one a person is
+    // typing into. Nothing is taken down in that case: the target the band already has is the box, and the caret is drawn in it.
+    // With no target at all there is nothing to keep, and the band goes (docs/30, docs/90).
+    if (g_keyboard_target_ref != LUA_NOREF) return;
     ui_keyboard_forget_target(L);
     ui_keyboard_hide();
     return;
@@ -7869,17 +8041,24 @@ void ui_keyboard_follow_object(lua_State* L, int object) {
   // the caret where it landed —that is a place in the text— and the band is the only thing it does not get (docs/30).
   ui_keyboard_target_set(L, object);
   if (!wants) {
-    ui_keyboard_hide();
+    // **Una caixa que no vol tecles no amaga el teclat** (0.179.74): a tap on a text box must not take the focus, the band, the
+    // edit mode or the cursor away from what a person is writing —the box that takes no keys gets the block and nothing else—,
+    // and the band goes when the finger lands **outside** the box, which is another path. Hiding it here meant that a tap on
+    // the field could take the keyboard down with the caret alive behind it (docs/30, docs/90).
     return;
   }
   if (g_ui_ops.keyboard_show == nullptr) return;
-  ui_keyboard_target_set(L, object);
   const bool visible = (g_ui_ops.keyboard_visible != nullptr) && g_ui_ops.keyboard_visible();
   const uint8_t before = g_keyboard_kind;
   g_keyboard_kind = kind;
   // A new box of the same alphabet only moves the target: the band is already the one it wants.
   if (!visible || before != kind) g_ui_ops.keyboard_show(kind);
 }
+
+// **L'app que aixeca la banda diu que escriu en aquella caixa** (0.182.1): the rule of who owns the two keys while a person
+// edits lives further down, after the listener that answers them, and here the show only needs the name of the place it takes
+// (docs/30, docs/90).
+void ui_keys_follow_the_control(lua_State* L, int object);
 
 int l_keyboard_show(lua_State* L) {
   if (g_ui_ops.keyboard_show == nullptr) return push_nil_error(L, "E_UNSUPPORTED", "this board has no keys");
@@ -7931,6 +8110,18 @@ int l_keyboard_show(lua_State* L) {
   lua_pop(L, 1);
   g_keyboard_kind = wanted;
   const bool shown = g_ui_ops.keyboard_show(wanted);
+  // **I la caixa que la banda té de destí queda entrada i es queda les dues tecles** (0.182.1): the editor opens its page with
+  // `kb:show` and no finger has landed on the box, so nothing had marked it `editing` and the keys went to the place that does
+  // nothing with them —the centre could not even enter the field, and the two keys never walked the text—. A band with a box
+  // under it is a box a person is writing in: the state says it, the queue follows it, and the three taps stay away because the
+  // box's place is exclusive too (docs/30, docs/90).
+  if (shown) {
+    if (ui_set_field_bool(L, target, "editing", true)) {
+      LuaCanvas* shown_canvas = static_cast<LuaCanvas*>(luaL_testudata(L, target, kCanvasMeta));
+      if (shown_canvas != nullptr && g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(shown_canvas->slot);
+    }
+    ui_keys_follow_the_control(L, target);
+  }
   lua_settop(L, base);
   lua_pushboolean(L, shown ? 1 : 0);
   return 1;
@@ -8758,12 +8949,31 @@ void ui_gesture_forget_if(LuaCanvas* canvas) {
   // **The box the keys go to can be given back too** (0.113.0): a box that is released while the band is up leaves the
   // keyboard holding an object that will never be drawn again, and the keys would go to a window nobody sees. This is
   // asked before the slot goes, because a released slot is a number that another control takes (docs/30, docs/75).
+  const bool band_up = (g_ui_ops.keyboard_visible != nullptr) && g_ui_ops.keyboard_visible();
   if (g_keyboard_target_ref != LUA_NOREF && g_state != nullptr) {
     lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
     LuaCanvas* typed = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
     const bool mine = typed != nullptr && typed->slot == canvas->slot && typed->generation == canvas->generation;
     lua_pop(g_state, 1);
-    if (mine) ui_keyboard_forget_target(g_state);
+    // **Una caixa que es dona amb la banda a la pantalla no s'emporta el destí** (0.179.82): the page is built again when the band
+    // takes the bottom of the glass, and that rebuild happens **inside the very tap that brought the band up** —`keyboard_show`
+    // tells the app, the app gives every control back and builds its page again—. Forgetting the target here left the band with
+    // nothing to type into, and the next thing the same tap does —`ui_keyboard_follow_object` with the box that is gone— found no
+    // target and **took the band down again**, which is the band that is painted half and disappears with the cursor (measured on
+    // the emulator, 13/11). The target stays pointing at the box that went and the next turn bends it to the live box of the page
+    // (`caret_poll`, 0.179.81); when the page has no box at all, `keyboard_object` answers nothing and the band goes with the next
+    // finger (docs/30, docs/90).
+    if (mine && !band_up) ui_keyboard_forget_target(g_state);
+  }
+  // **La caixa que tenia el focus i el dona l'ha de tornar a rebre** (0.179.81): a page that is built again under the band
+  // releases the box a person is typing into, and the walk cannot find a slot that is gone; the place is kept here —and the
+  // focus is cleared so no dead slot is left behind— for the box the band types into, which `caret_poll` puts it back on in the
+  // same turn (docs/30, docs/90).
+  if (g_ui_focus_slot == canvas->slot && g_ui_focus_generation == canvas->generation && band_up) {
+    g_ui_focus_back_to_the_band = true;
+    g_ui_focus_slot = -1;
+    g_ui_focus_generation = 0;
+    g_ui_focus_item = 0;
   }
   if (g_ui_touch_slot != canvas->slot || g_ui_touch_generation != canvas->generation) return;
   g_ui_touch_orphan = true;
@@ -9815,6 +10025,70 @@ bool ui_ring_shown(bool on) {
   return true;
 }
 
+// ---- qui té les tecles mentre una persona edita (0.181.0) ----
+//
+// **El listener és més avall**, after `ui_activate`: it is the middle key that enters and leaves a control, so the
+// listener that answers the centre needs it already defined, and here it is only named for the place it takes in the queue
+// (docs/30, docs/90).
+void ui_keys_listener(const char* kind, uint32_t key, int64_t held_ms, void* owner);
+
+// **Deixa la plaça** is defined below, after the listener that can need it on the road out (docs/30).
+void ui_release_the_keys(lua_State* L, int object);
+
+// ---- qui té les tecles mentre una persona edita (0.181.0) ----
+//
+
+// **La plaça de la banda** (0.181.3): a band with no field entered takes the keys and does nothing with them —there is nothing to
+// type into—, and what it buys is that the system's own delivery does not hear the press at all: the three taps cannot close the
+// app while a person has the keyboard on the glass (docs/30, docs/90).
+void ui_band_listener(const char* kind, uint32_t key, int64_t held_ms, void* owner) {
+  (void)kind;
+  (void)key;
+  (void)held_ms;
+  (void)owner;
+}
+
+// **Deixa la plaça, i només si és seva**: a control that leaves gives the keys back, and a control that was never the one
+// holding them does not take them away from the one that is (docs/30, docs/90).
+void ui_release_the_keys(lua_State* L, int object) {
+  if (g_keys_handle == 0) return;
+  if (object != 0) {
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+    if (canvas != nullptr && (canvas->slot != g_keys_slot || canvas->generation != g_keys_generation)) return;
+  }
+  if (g_button_ops.unsubscribe != nullptr) g_button_ops.unsubscribe(g_keys_handle);
+  g_keys_handle = 0;
+  g_keys_slot = -1;
+  g_keys_generation = 0;
+}
+
+// **El control entrat es queda les tecles**: one exclusive place in the queue, taken with the slot of the control so the
+// listener knows whose keys they are. A second call for the same control does nothing —`editing` is read once per key and
+// not once per turn— (docs/30, docs/90).
+void ui_hold_the_keys(lua_State* L, int object) {
+  if (g_button_ops.subscribe == nullptr) return;
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+  if (canvas == nullptr || canvas->slot < 0) return;
+  if (g_keys_handle != 0 && canvas->slot == g_keys_slot && canvas->generation == g_keys_generation) return;
+  ui_release_the_keys(L, 0);
+  g_keys_handle = g_button_ops.subscribe(&ui_keys_listener, nullptr, /*exclusive=*/1);
+  if (g_keys_handle != 0) {
+    g_keys_slot = canvas->slot;
+    g_keys_generation = canvas->generation;
+  }
+}
+
+// **Una sola regla per a la caixa, la multilínia i l'slider**: the state of the control is the truth. While it says
+// `editing` a person is inside it and the keys are its own; when it stops saying it —the centre, the dial, a page that took
+// the focus away— the place goes back and the dial is the page's again (docs/30, docs/90).
+void ui_keys_follow_the_control(lua_State* L, int object) {
+  if (ui_field_bool(L, object, "editing", false)) {
+    ui_hold_the_keys(L, object);
+  } else {
+    ui_release_the_keys(L, object);
+  }
+}
+
 // **The ring taken from a control, said once** (0.179.4): it stops being focused —and a grid is asked for that one cell,
 // because the paper of the control did not change—, it is not entered any more (the boxes and the slider, 0.116.0 and
 // 0.117.0) and it stops being the lit tab of its strip (0.99.0). The caller leaves the stack as it found it (docs/30,
@@ -9833,7 +10107,12 @@ void ui_take_the_focus_from(lua_State* L, int object) {
   }
   // **A control the dial leaves is not entered any more** (0.116.0 for the boxes, 0.117.0 for the slider): the other
   // control has the ring, and a person who comes back has to say "enter" again (docs/30, docs/92).
-  if (ui_set_field_bool(L, object, "editing", false)) ui_invalidate(L, object);
+  if (ui_set_field_bool(L, object, "editing", false)) {
+    ui_invalidate(L, object);
+    // **I deixa les tecles si les tenia** (0.181.0): the focus going away is one of the roads out of an edition, and it is the
+    // one the dial takes —the ring is on another control and the two keys are the page's again— (docs/30, docs/90).
+    ui_keys_follow_the_control(L, object);
+  }
   // **The tab the dial leaves stops being the lit one**: the strip is one control and the paint needs to know
   // which of its tabs has the ring (0.99.0, docs/92).
   if (ui_set_field_number(L, object, "focus_index", 0)) ui_invalidate(L, object);
@@ -10022,7 +10301,7 @@ int l_ui_focus(lua_State* L) {
   return 0;
 }
 
-bool ui_activate(lua_State* L, int count, int objects, int index) {
+bool ui_activate(lua_State* L, int count, int objects, int index, bool by_finger = false) {
   if (index < 0 || index >= count) return false;
   lua_rawgeti(L, objects, index + 1);
   const int object = lua_gettop(L);
@@ -10115,6 +10394,9 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
     // docs/92).
     const bool editing = ui_field_bool(L, object, "editing", false);
     if (ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
+    // **L'slider entrat es queda les dues tecles** (0.181.0): inside it the two keys are the number and not the walk, and it is a
+    // place of the queue and not a branch of the dial, so a page that is built again under the finger keeps them (docs/30, docs/92).
+    ui_keys_follow_the_control(L, object);
     ui_call_hook(L, object, "on_click", false, false);
   } else if (ui_field_bool(L, object, "__textbox", false) ||
              ui_field_bool(L, object, "__textbox_multiline", false)) {
@@ -10127,8 +10409,20 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
     bool wants = false;
     uint8_t kind = 0;
     ui_box_keyboard(L, object, wants, kind);
-    if (ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
-    if (editing) {
+    // **A finger on the box that is being typed into is a caret and nothing else** (0.179.61): it does not leave the
+    // field, it does not take the band down and it does not move the focus —only the centre and a tap outside the box do
+    // that—, which is what a person is doing when they tap the middle of the line they are writing and the caret has to
+    // go where the finger asked. The caret went there on the way up, and that is the whole of the change (docs/30, docs/90).
+    const bool stays = editing && by_finger;
+    if (!stays && ui_set_field_bool(L, object, "editing", !editing)) ui_invalidate(L, object);
+    if (stays) {
+      // **Un dit dins la caixa que s'escriu torna a ser el destí de la banda i el bloc** (0.179.73): the tap focuses the
+      // control first (`ui_apply_focus`) and a focus that changes **stops the block** of the one it leaves, so a second tap
+      // inside the same field left it entered, with the band up and **no cursor at all** —the field looked like it had lost
+      // the focus, and the pointer of the keyboard had been written off behind the scenes—. Nothing else changes: the band
+      // stays, the field stays entered and the caret stays where the finger put it.
+      ui_keyboard_target_set(L, object);
+    } else if (editing) {
       ui_keyboard_hide();
     } else {
       // The target is the box in both cases: the block is the focus's, and the block is the point of entering a page
@@ -10139,6 +10433,10 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
         g_ui_ops.keyboard_show(kind);
       }
     }
+    // **La caixa que s'ha entrat es queda les tecles, i la que s'ha deixat les dona** (0.181.0): one line for the three roads
+    // because the state of the control is the truth —`editing` says whether a person is inside it— and the queue follows it, the
+    // same line the slider and the block of the band use (docs/30, docs/90).
+    ui_keys_follow_the_control(L, object);
     ui_call_hook(L, object, "on_activate", false, false);
   } else if (!ui_call_hook(L, object, "on_click", false, false)) {
     ui_call_hook(L, object, "on_activate", false, false);
@@ -10154,6 +10452,75 @@ bool ui_activate(lua_State* L, int count, int objects, int index) {
   }
   lua_pop(L, 1);
   return true;
+}
+
+// **El control entrat té les tecles, i les tres menes de control passen per aquí**: a box of one line and a box of several
+// take the two keys as the caret, a slider takes them as its value, and the centre is what enters and leaves the control —so
+// an exclusive place must still answer the centre, or the only way out of an edition would be gone—. A key that does not move
+// anything is **consumed all the same**: a caret at the first letter has nowhere to go back to, and it used to fall through to
+// the walk and take the focus away from the field a person was writing in (docs/30, docs/90, docs/92).
+// **El control entrat té les tecles, i les tres menes de control passen per aquí**: a box of one line and a box of several
+// take the two keys as the caret, a slider takes them as its value, and the centre is what enters and leaves the control —so
+// an exclusive place must still answer the centre, or the only way out of an edition would be gone—. A key that does not move
+// anything is **consumed all the same**: a caret at the first letter has nowhere to go back to, and it used to fall through to
+// the walk and take the focus away from the field a person was writing in (docs/30, docs/90, docs/92).
+void ui_keys_listener(const char* kind, uint32_t key, int64_t held_ms, void* owner) {
+  (void)held_ms;
+  (void)owner;
+  if (g_state == nullptr || kind == nullptr || strcmp(kind, "press") != 0) return;
+  int direction = 0;
+  bool centre = false;
+  KeyInfo info = {};
+  if (g_button_ops.info != nullptr && g_button_ops.info(key, info) && info.spot != nullptr) {
+    // **Amunt és la lletra següent i avall la d'abans** (0.182.1): the owner: *«amb el mapa al revés, per mi avall és esquerra, amunt
+    // dreta»*. It is the opposite of the dial, which walks the page with `up` as the control before it, and it is on purpose: inside a
+    // box the two keys are the line a person is writing and not the walk (docs/30, docs/90).
+    if (strcmp(info.spot, "up") == 0 || strcmp(info.spot, "right") == 0) {
+      direction = 1;
+    } else if (strcmp(info.spot, "down") == 0 || strcmp(info.spot, "left") == 0) {
+      direction = -1;
+    } else if (strcmp(info.spot, "centre") == 0 || strcmp(info.spot, "center") == 0) {
+      centre = true;
+    }
+  }
+  if (direction == 0 && !centre) return;
+  const int top = lua_gettop(g_state);
+  const int objects = top + 1;
+  FocusList list;
+  const int count = ui_collect_targets(g_state, list.items, list.capacity);
+  int which = -1;
+  for (int i = 0; i < count; ++i) {
+    if (list.items[i].slot != g_keys_slot || list.items[i].generation != g_keys_generation) continue;
+    which = i;
+    break;
+  }
+  if (which < 0) {
+    // **El control ja no és a la pàgina**: the place goes back and the keys with it (docs/30).
+    ui_release_the_keys(g_state, 0);
+    lua_settop(g_state, top);
+    return;
+  }
+  if (centre) {
+    // **El centre és del control**, not of the dial: it is what enters a box and leaves it, and what leaves a slider (docs/30).
+    ui_activate(g_state, count, objects, which);
+  } else {
+    lua_rawgeti(g_state, objects, which + 1);
+    const bool box = ui_field_bool(g_state, -1, "__textbox", false) || ui_field_bool(g_state, -1, "__textbox_multiline", false);
+    lua_pop(g_state, 1);
+    if (box) {
+      // **La lletra i no la fila** (0.182.1), la mateixa caixa d'una línia que la de diverses (docs/30, docs/90).
+      ui_step_caret(g_state, objects, which, direction, /*letters_only=*/true);
+    } else {
+      ui_step_value(g_state, objects, which, direction);
+    }
+  }
+  // **I la plaça es queda mentre el control digui que està entrat**: the centre may have left it, and a page built again by the
+  // band has already taken the old object with it (docs/30, docs/90).
+  lua_rawgeti(g_state, objects, which + 1);
+  const bool still = ui_field_bool(g_state, -1, "editing", false);
+  lua_pop(g_state, 1);
+  lua_settop(g_state, top);
+  if (!still) ui_release_the_keys(g_state, 0);
 }
 
 int ui_hit(const FocusTarget* targets, int count, int x, int y) {
@@ -10942,6 +11309,8 @@ void seal_globals(lua_State* L) {
   set_function(L, "utc", l_time_utc);
   set_function(L, "date", l_time_date);
   set_function(L, "tz", l_time_tz);
+  // **L'hora d'estiu** (0.182.0): the setting the Time zone page ticks, kept in the store and applied to `time.date` (docs/30).
+  set_function(L, "dst", l_time_dst);
   set_function(L, "leap", l_time_leap);
   set_function(L, "week", l_time_week);
   lua_setglobal(L, "time");
@@ -11046,6 +11415,10 @@ void seal_globals(lua_State* L) {
   set_function(L, "held", l_button_held);
   set_function(L, "info", l_button_info);
   set_function(L, "list", l_button_list);
+  // **La cua** (0.180.0): an app can be one of the listeners of the keys, or it can take them for itself (docs/30).
+  set_function(L, "subscribe", l_button_subscribe);
+  set_function(L, "unsubscribe", l_button_unsubscribe);
+  set_function(L, "handle", l_button_mode);
   lua_setglobal(L, "button");
 
   // touch: the glass, read in a loop. caps says how big it is, read gives the fingers of the last
@@ -11437,6 +11810,8 @@ bool start(const Boot& boot, size_t limit_bytes) {
   // **Every machine starts with no ring** (0.179.7): the selector is off until a key of the board is used, and an app that
   // has just opened has not seen one (docs/30).
   g_ui_ring_shown = false;
+  // **I el lloc del focus no sobreviu a la pàgina** (0.179.81): the box it waits for is a control of an app that is not here.
+  g_ui_focus_back_to_the_band = false;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -11477,6 +11852,22 @@ void stop() {
   g_waiting_ref = LUA_NOREF;
   g_read_ref = LUA_NOREF;
   g_byte_ref = LUA_NOREF;
+  // **Una app que s'acaba surt de la cua dels botons** (0.180.0): the owner: *«si una app tanca de forma prematura, s'ha de
+  // desregistrar automàticament»*. Every road out of an app comes through here —its own end, an error, the three taps, the
+  // system taking the page away— so this is the one place that has to remember it, with the handle the kernel gave back
+  // (docs/30, docs/75).
+  if (g_app_button_handle != 0 && g_button_ops.unsubscribe != nullptr) {
+    g_button_ops.unsubscribe(g_app_button_handle);
+  }
+  g_app_button_handle = 0;
+  if (g_keys_handle != 0 && g_button_ops.unsubscribe != nullptr) {
+    g_button_ops.unsubscribe(g_keys_handle);
+  }
+  g_keys_handle = 0;
+  g_keys_slot = -1;
+  g_keys_generation = 0;
+  lua_pushnil(g_state);
+  lua_setfield(g_state, LUA_REGISTRYINDEX, kButtonListenerKey);
   g_console_raw = false;
   g_key_read = 0;
   g_key_count = 0;
@@ -11493,6 +11884,8 @@ void stop() {
   // **And a machine that goes away leaves no ring for the next one** (0.179.7): the next app opens as the owner asked,
   // with the selector off until it sees a key (docs/30).
   g_ui_ring_shown = false;
+  // **I el lloc del focus no sobreviu a la pàgina** (0.179.81): the box it waits for is a control of an app that is going.
+  g_ui_focus_back_to_the_band = false;
   g_ui_touch_slot = -1;
   g_ui_touch_generation = 0;
   g_ui_touch_inside = false;
@@ -11872,7 +12265,11 @@ void ui_draw_and_present(const char* mode);
 // box of one line, one row up or down in a box of several. The arithmetic is the kernel's —a letter is a code point and
 // a row is the one the glass shows, wrapped or not— and what is here is the field, the paint and the hook, the same
 // three things every other move of a control does (docs/30, docs/90, docs/92).
-bool ui_step_caret(lua_State* L, int objects, int index, int direction) {
+// **`letters_only` és el cursor d'una lletra i no d'una fila** (0.182.1): the owner: *«el TextBox Multiline ha de fer el mateix que el
+// TextBox, recórrer la fila endavant i endarrera»*. A box of several lines used to walk its **rows**, and the two keys of the board
+// inside it are the line a person is writing, one letter at a time —the same arithmetic `textbox_caret` does for a box of one line,
+// which is pure text and needs no geometry— (docs/30, docs/90).
+bool ui_step_caret(lua_State* L, int objects, int index, int direction, bool letters_only) {
   lua_rawgeti(L, objects, index + 1);
   const int object = lua_absindex(L, -1);
   const bool line = ui_field_bool(L, object, "__textbox", false);
@@ -11897,7 +12294,7 @@ bool ui_step_caret(lua_State* L, int objects, int index, int direction) {
   const lua_Integer scale = ui_field_number(L, object, "scale", 3);
   const uint8_t box_scale = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
   uint16_t next = static_cast<uint16_t>((cursor < 0) ? 0 : ((cursor > 65535) ? 65535 : cursor));
-  if (line) {
+  if (line || letters_only) {
     next = (g_ui_ops.textbox_caret != nullptr)
                ? g_ui_ops.textbox_caret(canvas->slot, text, next, static_cast<int16_t>(direction))
                : next;
@@ -12253,17 +12650,51 @@ int keyboard_object(lua_State* L, bool say) {
   // is one— is an app the band could not type into at all: the finger and the dial both, with the band painted and the
   // letter going nowhere. The focus is the control the person is looking at, so it is the answer when the app gave none
   // (docs/30, docs/90).
-  if (g_ui_focus_slot < 0 || l_ui_root(L) != 1) return 0;
-  const bool found = ui_push_slot_from(L, lua_gettop(L), g_ui_focus_slot, 0);
-  lua_remove(L, -2);  // the root, which the finder copied from
-  if (!found) return 0;
-  const bool box = ui_field_bool(L, -1, "__textbox", false) || ui_field_bool(L, -1, "__textbox_multiline", false);
-  if (!box || !canvas_ready(L, lua_gettop(L))) {
-    lua_pop(L, 1);
-    return 0;
+  if (g_ui_focus_slot >= 0 && l_ui_root(L) == 1) {
+    const int base = lua_gettop(L);
+    const bool found = ui_push_slot_from(L, base, g_ui_focus_slot, 0);
+    lua_remove(L, -2);  // the root, which the finder copied from
+    if (found) {
+      const bool box = ui_field_bool(L, -1, "__textbox", false) || ui_field_bool(L, -1, "__textbox_multiline", false);
+      if (box && canvas_ready(L, lua_gettop(L))) {
+        if (say) con_text("keyboard: the band types into the box that has the focus\r\n");
+        return lua_gettop(L);
+      }
+      lua_pop(L, 1);
+    }
+    lua_settop(L, base);
   }
-  if (say) con_text("keyboard: the band types into the box that has the focus\r\n");
-  return lua_gettop(L);
+  // **I si no hi ha cap focus, la caixa de la pàgina quan n'hi ha una de sola** (0.179.63): the band takes the bottom of
+  // the glass and the page is built again —`on_resize`—, so the box the system knew is a new object and the old one is
+  // gone. An app that writes `kb.target` points it again (the editor does); the clock's note does not, and its page has
+  // **one** text box: one box is no choice at all, so it is the answer. The band types into it and the block blinks in
+  // it, which is the behaviour the editor has, with a target and without one (docs/30, docs/90).
+  {
+    const int base = lua_gettop(L);
+    FocusList list;
+    const int count = ui_collect_targets(L, list.items, list.capacity);
+    int which = -1;
+    int boxes = 0;
+    for (int i = 0; i < count; ++i) {
+      lua_rawgeti(L, base + 1, i + 1);
+      const bool is_a_box =
+          ui_field_bool(L, -1, "__textbox", false) || ui_field_bool(L, -1, "__textbox_multiline", false);
+      lua_pop(L, 1);
+      if (!is_a_box) continue;
+      ++boxes;
+      which = i;
+    }
+    if (boxes == 1 && which >= 0) {
+      lua_rawgeti(L, base + 1, which + 1);
+      lua_remove(L, base + 1);  // the table the collector left
+      if (canvas_ready(L, lua_gettop(L))) {
+        if (say) con_text("keyboard: the band types into the only box of the page\r\n");
+        return lua_gettop(L);
+      }
+    }
+    lua_settop(L, base);
+  }
+  return 0;
 }
 
 bool ui_keyboard_has_target() {
@@ -12462,9 +12893,16 @@ bool ui_button_event(const char* kind, uint32_t key) {
     if (current < 0) ui_apply_focus(g_state, targets, count, objects, target);
     ui_activate(g_state, count, objects, target);
   } else {
+    // **Les tecles amb la banda a la pantalla ja no arriben aqui** (0.180.0): while the band is up the box the band types into
+    // is an **exclusive subscriber** of the kernel's queue (`ui_caret_listener`), so the system's own delivery —this
+    // function among it— is not called at all and the page is not walked. What is left here is the dial's own caret: a box a
+    // person entered with the middle key on a page with no band (a read-only document) (docs/30, docs/90).
     // **A box a person has entered takes the arrows first** (0.116.0): inside a field the two keys are the caret, and a
     // box that is not entered gives them back to the walk, which is the same rule the slider follows with its value.
-    if (current >= 0 && ui_step_caret(g_state, objects, current, direction)) {
+    // **I el mateix mapa dins del camp** (0.182.1): `-direction` perquè el dial compta `up` com el control d'abans i dins d'una caixa
+    // `up` és la lletra següent; la lletra i no la fila, com la caixa d'una línia (docs/30, docs/90).
+    bool stepped = (current >= 0) && ui_step_caret(g_state, objects, current, -direction, /*letters_only=*/true);
+    if (stepped) {
       lua_settop(g_state, top);
       return true;
     }
@@ -12564,13 +13002,104 @@ void ui_draw_and_present(const char* mode) {
 // second loop for it. A focus or a key marked the caret dirty, and that turn shows the block before the clock restarts
 // (docs/30, docs/90).
 void caret_poll() {
-  if (g_state == nullptr || g_keyboard_target_ref == LUA_NOREF) return;
-  // **A block blinks while a box has the focus and not while a band is up** (0.116.0): the caret of a page nobody types
-  // into is still a person's place in the text, and the band is only the letters. The block goes with the focus, which
-  // is why this asks for the target and nothing else (docs/30, docs/90).
+  if (g_state == nullptr) return;
   const int64_t now = now_ms();
-  if (!g_caret_dirty && (g_caret_next_ms <= 0 || now < g_caret_next_ms)) return;
+  // **Per què no es pinta el bloc** (0.179.65): the caret is asked every turn and one of its four exits says nothing, so
+  // a glass with no cursor and no `paint … du` line in the log cannot be told apart from a caret that was never started.
+  // One debug line per reason, only when the turn does not paint (docs/30, docs/90).
+  // **La banda a la pantalla vol un bloc** (0.179.67): a band with a field under it and no block is a field nobody can type
+  // into, and it does not matter which path raised the band —a tap that landed on the box, an app that shows it, a page
+  // built again under it—. The block is started here, in the same turn that draws it, and from then on it blinks. Before
+  // this, every one of those paths had to remember to call `caret_start` and a band could reach the glass with no cursor
+  // at all (measured on the board: the clock's note, `caret: nothing to blink`, and not one paint of a cell) (docs/30).
+  const bool band_up = (g_ui_ops.keyboard_visible != nullptr) && g_ui_ops.keyboard_visible();
+  // **Les tecles les té el control entrat, i no la banda** (0.181.0): the queue is taken and given where `editing` changes
+  // —`ui_activate` for the centre, `ui_take_the_focus_from` for the dial, the block of the band for the box the keyboard types
+  // into— so this turn has nothing to guess and a box that takes no keys keeps its two keys with no band on the glass
+  // (docs/30, docs/90).
+  // **I el focus del dial torna a la caixa de la banda** (0.179.81): when the page is built again under the band —`on_resize`, the
+  // box released— the place that was the box waits here, and the box the band types into is the one that gets it: the ring, the
+  // `on_focus` of the app, the keyboard's target (so a letter goes where it is written) and the entry, because a box a person has
+  // entered is a box whose two keys are its caret. It is done once and not every turn, and the flag falls with the band or when
+  // there is no box to give it to (docs/30, docs/90).
+  if (g_ui_focus_back_to_the_band) {
+    int16_t wanted_slot = -1;
+    uint16_t wanted_generation = 0;
+    if (band_up) {
+      const int mark = lua_gettop(g_state);
+      const int box = keyboard_object(g_state, /*say=*/false);
+      if (box != 0) {
+        LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, box, kCanvasMeta));
+        if (canvas != nullptr) {
+          wanted_slot = canvas->slot;
+          wanted_generation = canvas->generation;
+        }
+      }
+      lua_settop(g_state, mark);
+    }
+    if (wanted_slot < 0) {
+      g_ui_focus_back_to_the_band = false;
+    } else {
+      const int top = lua_gettop(g_state);
+      const int objects = top + 1;
+      FocusList list;
+      const int count = ui_collect_targets(g_state, list.items, list.capacity);
+      int which = -1;
+      for (int i = 0; i < count; ++i) {
+        if (list.items[i].slot == wanted_slot && list.items[i].generation == wanted_generation &&
+            list.items[i].item == 0) {
+          which = i;
+          break;
+        }
+      }
+      if (which >= 0) {
+        ui_apply_focus(g_state, list.items, count, objects, which);
+        // **I la caixa queda entrada**: a box whose band is up is a box a person is writing in, and `ui_step_caret` gives the two
+        // keys to a box that says `editing` and to no other (0.179.81, docs/30, docs/90).
+        lua_rawgeti(g_state, objects, which + 1);
+        if (ui_set_field_bool(g_state, -1, "editing", true) && g_ui_ops.canvas_invalidate != nullptr) {
+          LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
+          if (canvas != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
+        }
+        // **I la caixa nova es queda les tecles de la vella** (0.181.0): the box that was being written into went with the page, and
+        // the place of the queue is the new box's, which is what the person has been typing into all along (docs/30, docs/90).
+        ui_keys_follow_the_control(g_state, -1);
+        lua_settop(g_state, top);
+        g_ui_focus_back_to_the_band = false;
+      } else {
+        lua_settop(g_state, top);
+        g_ui_focus_back_to_the_band = false;
+      }
+    }
+  }
+  // **La banda pren les tecles mentre és a la pantalla, i les dona quan marxa** (0.181.3): the owner: *«el teclat al sortir registra
+  // el triple tap com a exclusiu i el desregistra al sortir, així el sistema no rep l'event i no tanca l'app»*. A box that is being
+  // edited has a place of its own —taken above— and this one is for a band with **no field entered** (an app that raised it with
+  // `kb:show`): the keys have nowhere to go, and they must not reach the dial or the gesture either. The place is marked with no
+  // slot (`g_keys_slot < 0`) so the band's one and a control's one never get confused (docs/30, docs/90).
+  // **I una banda que té caixa té la caixa entrada** (0.182.1): an app that raises the band before any finger lands on the box —the
+  // editor opens its page with the keyboard already up— leaves the queue here only when the target it named takes no keys; `l_keyboard_show`
+  // writes `editing` on the box it types into, so the box's own place is taken by then (docs/30, docs/90).
+  if (band_up && g_keys_handle == 0 && g_button_ops.subscribe != nullptr) {
+    g_keys_handle = g_button_ops.subscribe(&ui_band_listener, nullptr, /*exclusive=*/1);
+    g_keys_slot = -1;
+    g_keys_generation = 0;
+  } else if (!band_up && g_keys_handle != 0 && g_keys_slot < 0) {
+    ui_release_the_keys(g_state, 0);
+  }
+  if (!g_caret_dirty && g_caret_next_ms <= 0) {
+    if (!band_up) {
+      return;
+    }
+    g_caret_on = true;
+    g_caret_dirty = true;
+    g_caret_blinks = 0;
+    g_caret_present_mark = g_ui_present_count;
+    g_caret_next_ms = now + kCaretBlinkMs;
+  }
+  if (!g_caret_dirty && now < g_caret_next_ms) return;
   if (g_caret_dirty && g_ui_present_count != g_caret_present_mark) {
+
     // The app painted the box after the focus or the key: the block is already there, and the clock starts from now.
     g_caret_dirty = false;
     g_caret_next_ms = now + kCaretBlinkMs;
@@ -12579,22 +13108,29 @@ void caret_poll() {
     g_caret_blinks = 0;
     return;
   }
-  lua_rawgeti(g_state, LUA_REGISTRYINDEX, g_keyboard_target_ref);
-  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, -1, kCanvasMeta));
-  if (canvas == nullptr || !canvas_ready(g_state, lua_gettop(g_state))) {
-    lua_pop(g_state, 1);
-    ui_keyboard_forget_target(g_state);
+  // **The block blinks in the box that has the focus, named or not** (0.179.61): this asked for the target an app writes
+  // (`kb.target`) and a box that never writes one —the clock's note is one— had **no block at all**: the band came up, the
+  // field was entered, and the only way to see a cursor was to tap the box a second time, which took the band away. The
+  // question is the one the band already asks when a letter is typed, so it is the same answer: the target, and the box
+  // that has the focus when there is none or it is gone (docs/30, docs/90).
+  const int top = lua_gettop(g_state);
+  const int object = keyboard_object(g_state, /*say=*/false);
+  if (object == 0) {
+
+    lua_settop(g_state, top);
+    return;
+  }
+  LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, object, kCanvasMeta));
+  if (canvas == nullptr) {
+
+    lua_settop(g_state, top);
     return;
   }
   if (!g_caret_dirty) {
-    // **Un block que s'ha quedat quiet es queda encès** (0.179.35): after `kCaretMostBliks` blinks with nothing painted in
-    // between, the caret stops moving and stays where it says the person is —which is what a page of electronic ink wants—.
-    // `g_caret_next_ms = 0` is what makes the next turn leave at the guard of the top, so this is asked once.
-    if (g_caret_blinks >= kCaretMostBliks) {
-      g_caret_next_ms = 0;
-      lua_pop(g_state, 1);
-      return;
-    }
+    // **I no para de parpellejar mentre la caixa té el focus** (0.179.61): six blinks and then a block that stood still was
+    // a rule against the ghost of the panel that a person reads as a cursor that died, and the ink it saves is one cell of a
+    // hundred and twenty milliseconds every six hundred. `caret_start` still restarts the count at every key and every
+    // focus, which is what the number was for (docs/30, docs/90).
     g_caret_on = !g_caret_on;
     ++g_caret_blinks;
   }
@@ -12614,7 +13150,7 @@ void caret_poll() {
   } else {
     ui_invalidate(g_state, -1);
   }
-  lua_pop(g_state, 1);
+  lua_settop(g_state, top);
   ui_draw_and_present("du");
   g_caret_dirty = false;
   g_caret_next_ms = now + kCaretBlinkMs;
@@ -12811,7 +13347,30 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
           ui_draw_and_present("gld16");
         }
         lua_pop(g_state, 1);
-        if (g_ui_touch_inside) ui_activate(g_state, count, objects, index);
+        if (g_ui_touch_inside) {
+          // **El dit és el mateix esdeveniment que el dial, també pel focus** (0.179.62): a tap lands the ring on the control
+          // it touched. Without it a finger could enter a box that **never had the focus**, and the two things that ask the
+          // focus when the target an app named is gone —the band that types and the block of the caret— had nothing to go
+          // to: the page was built again when the band took the bottom of the glass, the `kb.target` pointed at an object
+          // that went with it, and from then on a letter went nowhere and no cursor was ever drawn (docs/30, docs/90).
+          // **El dit sobre el control que ja té el focus del teclat no toca res** (0.179.76): "which control had the keyboard's
+          // focus? is it this one?" — if it is, the band stays, the focus stays, the edit mode stays and the block stays; the
+          // caret went where the finger asked on the way up and that is the whole of the change. A button and a checkbox are
+          // happy being pressed again because pressing them is their job; a text box was re-focused, its block stopped and the
+          // band taken down by the same tap that was meant to place a caret in the field it was already writing into.
+          const int focused = ui_target_index(targets, count, g_ui_focus_slot, g_ui_focus_generation, g_ui_focus_item);
+          bool the_same_box = false;
+          if (index == focused && g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible()) {
+            lua_rawgeti(g_state, objects, index + 1);
+            the_same_box =
+                ui_field_bool(g_state, -1, "__textbox", false) || ui_field_bool(g_state, -1, "__textbox_multiline", false);
+            lua_pop(g_state, 1);
+          }
+          if (!the_same_box) {
+            ui_apply_focus(g_state, targets, count, objects, index);
+            ui_activate(g_state, count, objects, index, /*by_finger=*/true);
+          }
+        }
         // **I la banda arriba quan el contacte és un toc, no quan el dit cau** (0.179.35): the keyboard followed the finger
         // that landed on a box (0.91.0), and the band **resizes the page** —the view loses the bottom of the glass and the
         // box measures its rows again—, so a swipe that began on that box lost its target and the rest of the drag scrolled
@@ -13008,6 +13567,15 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
   }
 
   const int hit = ui_hit(targets, count, x, y);
+  // **Quin control rep el dit, dit una vegada per premsa** (0.179.78): a tap that lands on a box of one line and does nothing is a
+  // question with two answers —the box is not a target at all, or it is and the caret's road is not reached— and this line is the
+  // one that tells them apart without a flash per guess. One line a press, and only with the band on the glass (docs/30, docs/90).
+  if (g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible()) {
+    char said[96];
+    snprintf(said, sizeof(said), "the finger at %u,%u hit %d of %d targets\r\n", static_cast<unsigned>(x),
+             static_cast<unsigned>(y), hit, count);
+    con_text(said);
+  }
   if (hit < 0 && g_modal_slot >= 0) {
     // **A finger outside the card is a «no»** (0.172.0): the card is a question and the page behind it is not an answer, so a
     // touch that lands nowhere on it is the cancel door —the app hears `on_cancel` and closes the card, which is the same
@@ -13146,7 +13714,8 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         lua_pop(g_state, 1);
         ui_invalidate(g_state, base);
       }
-    } else if (ui_field_bool(g_state, -1, "__textbox_multiline", false) &&
+    } else if ((ui_field_bool(g_state, -1, "__textbox_multiline", false) ||
+                ui_field_bool(g_state, -1, "__textbox", false)) &&
                g_ui_ops.textbox_multiline_hit != nullptr) {
       // **A finger in a box of several lines puts the caret where it is touched**, with the same arithmetic the paint
       // used to put the rows down (docs/90).
@@ -13159,15 +13728,28 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
         lua_pop(g_state, 1);
       }
       lua_pop(g_state, 1);
-      const lua_Integer cursor = ui_field_number(g_state, base, "cursor", 0);
       const lua_Integer scale = ui_field_number(g_state, base, "scale", 3);
+      const uint8_t box_scale = static_cast<uint8_t>((scale < 1) ? 1 : ((scale > 16) ? 16 : scale));
+      // **El dit dins una caixa d'una línia posa el cursor on toca** (0.179.77, i el camí que hi porta, 0.179.81): a box of one
+      // line has no page to scroll, so there is no gesture to wait for and the column goes in on the way down —only the column,
+      // because a box of one line has no rows—. **The gate of this branch asked for `__textbox_multiline`**, so the road written
+      // for the box of one line was behind a door it could not open and the finger put nothing (docs/30, docs/90).
+      if (ui_field_bool(g_state, base, "__textbox", false) && g_ui_ops.textbox_column_at != nullptr) {
+        const uint16_t column = g_ui_ops.textbox_column_at(
+            targets[hit].slot, lines, box_scale, static_cast<uint16_t>(x - targets[hit].x));
+        if (ui_set_field_number(g_state, base, "cursor", column)) ui_invalidate(g_state, base);
+        lua_settop(g_state, top);
+        return;
+      }
+      const lua_Integer cursor = ui_field_number(g_state, base, "cursor", 0);
       const bool wrap = ui_field_bool(g_state, base, "wrap", false);
-      const lua_Integer top = ui_field_number(g_state, base, "top", -1);
+      // **El camp `top` de la caixa no és la pila** (0.179.81): this was `const lua_Integer top`, and the `lua_settop` of the way
+      // out of the branch read a row of the box where it wanted the number of values on the stack.
+      const lua_Integer first_row = ui_field_number(g_state, base, "top", -1);
       const uint16_t at = g_ui_ops.textbox_multiline_hit(
-          targets[hit].slot, lines, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap,
-          static_cast<uint8_t>((scale < 1) ? 1 : scale), static_cast<uint16_t>(x - targets[hit].x),
-          static_cast<uint16_t>(y - targets[hit].y),
-          static_cast<int16_t>((top < -1) ? -1 : ((top > 4096) ? 4096 : top)));
+          targets[hit].slot, lines, static_cast<uint16_t>((cursor < 0) ? 0 : cursor), wrap, box_scale,
+          static_cast<uint16_t>(x - targets[hit].x), static_cast<uint16_t>(y - targets[hit].y),
+          static_cast<int16_t>((first_row < -1) ? -1 : ((first_row > 4096) ? 4096 : first_row)));
       // **A box that has registered the gesture does not move the caret on the way down** (0.88.0): the finger that has
       // touched the letter and the one that is starting a swipe are the same at this moment, and the caret of a tap goes
       // in on the way up —or does not go in at all if the finger has just travelled half a page—. The caret that waits and
@@ -13272,9 +13854,37 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // **A finger outside every control ends the edition** (0.91.0): the ring goes and the keyboard with it. The page
     // under the band was never given this finger —the keyboard took it first— so this is the empty page or a label,
     // and a person who taps there is not typing any more (docs/30, docs/90).
-    if (g_ui_focus_slot >= 0) ui_apply_focus(g_state, targets, count, objects, -1);
-    ui_keyboard_forget_target(g_state);
-    ui_keyboard_hide();
+    // **Però un dit dins la caixa que el teclat escriu no és un dit sobre la pàgina** (0.179.83): the box of the band is not
+    // always a stop of the walk —an app that turns it off for a moment, a page built again under the finger— and a tap on the
+    // field a person is writing into was read as a tap on the page: the band went down and the focus with it, which is
+    // *«al polsar sobre el TextBox quan ja està amb focus i el teclat està desplegat, el teclat ho entén com un blur»*. The
+    // frame is the box's and what a finger inside it means is a caret or nothing; the empty page is elsewhere (docs/30, docs/90).
+    bool on_the_band_box = false;
+    if (g_ui_ops.keyboard_visible != nullptr && g_ui_ops.keyboard_visible() && g_ui_ops.canvas_caps != nullptr) {
+      // **La marca és `top + 1` i no `top`** (0.179.84): the stops live in the table at `objects` = `top + 1`, and this block asked
+      // `keyboard_object` for the box —which pushes what it finds— and then put the stack back to `top`, **taking the table of the stops
+      // with it**. The `ui_apply_focus` of the line below then read a stack slot that no longer existed, and the Paper panicked with
+      // `LoadProhibited` at `0x8` —`luaH_getint` ← `lua_rawgeti` ← `ui_apply_focus` ← `ui_touch_progress`, read from the backtrace of
+      // the crash dump— the moment a finger left the band by tapping the page (docs/30, docs/75, docs/90).
+      const int mark = lua_gettop(g_state);
+      const int box = keyboard_object(g_state, /*say=*/false);
+      if (box != 0) {
+        LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(g_state, box, kCanvasMeta));
+        uint16_t w = 0;
+        uint16_t h = 0;
+        uint16_t bx = 0;
+        uint16_t by = 0;
+        if (canvas != nullptr && g_ui_ops.canvas_caps(canvas->slot, w, h, bx, by)) {
+          on_the_band_box = (x >= bx && y >= by && x < bx + w && y < by + h);
+        }
+      }
+      lua_settop(g_state, mark);
+    }
+    if (!on_the_band_box) {
+      if (g_ui_focus_slot >= 0) ui_apply_focus(g_state, targets, count, objects, -1);
+      ui_keyboard_forget_target(g_state);
+      ui_keyboard_hide();
+    }
   }
   lua_settop(g_state, top);
 }
@@ -13349,6 +13959,8 @@ bool call_button(const char* kind, int64_t held_ms, uint32_t key) {
   lua_settop(L, top);
   return true;
 }
+
+bool has_button_listener() { return g_app_button_handle != 0; }
 
 // The system gave the app a view of another size: `on_resize(width, height)`. It is a hook and not a
 // call into the coroutine for the same reason the others are —it runs between turns— and an app

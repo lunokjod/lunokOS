@@ -452,6 +452,7 @@ Constants: `term.BLACK`, `term.RED`, `term.GREEN`, `term.YELLOW`, `term.BLUE`, `
 | `time.date([t])` | taula | El mateix moment **en l'hora de la persona** (`cfg tz`) |
 | `time.tz([offset])` | enter | El desfasament en minuts: es llegeix sol i s'escriu amb un argument |
 | `time.leap([on])` | booleà | **Si el febrer té el vint-i-nou** (0.170.0): es llegeix sol i s'escriu amb `true`/`false` o les paraules `on`/`off`, que són les del prompt (`cfg leap on`) |
+| `time.dst([on])` | booleà | **L'hora d'estiu** (0.182.0): es llegeix sola i s'escriu amb `true`/`false` o `on`/`off`, com `time.leap`. És una opció del sistema i es desa, o sigui que `time.date()` dona **el fus del mapa més seixanta minuts** quan és certa, i una rellotgeria que la canvia la fa canviar a l'instant; `time.tz()` continua dient el que diu el mapa |
 | `time.week([dia])` | enter | **Quin dia comença la setmana** (0.170.0): `1` dilluns —el valor del sistema— o `7` diumenge, en el mateix compte que `wday`, i les paraules `monday`/`sunday`. `ui.month` gira les seves set columnes amb això |
 | `time.format(t, fmt)` | cadena | `%Y-%m-%d %H:%M:%S` — **encara no hi és** |
 | `time.parse(s, fmt)` | enter o `nil, error` | **Encara no hi és** |
@@ -515,6 +516,8 @@ reinici (docs/60, docs/70).
 ```lua
 time.leap()          -- cert: el febrer té vint-i-nou quan toca
 time.leap(false)     -- el calendari sense el dia de traspàs; torna el valor nou
+time.dst(true)       -- l'hora d'estiu: `time.date()` passa a ser el fus del mapa + 01:00
+time.dst('off')      -- i es desa, o sigui que el proper arrencament la troba igual
 time.week()          -- 1, la setmana comença en dilluns
 time.week('sunday')  -- 7, i torna 7
 ```
@@ -1073,7 +1076,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.rect(x, y, w, h, [level], [mode])` | `true` o `nil, error` | Un rectangle; `level` per defecte 0 (negre) |
 | `ui.pixel(x, y, [level], [mode])` | `true` o `nil, error` | Un píxel |
 | `ui.invert(x, y, w, h, [mode])` | `true` o `nil, error` | **Gira una caixa: la tinta es torna paper i el paper tinta**, nivell a nivell (el 5 es torna 10), que és el dibuix que diu «aquest és el que respondrà» en aquest vidre (0.178.0). És una primitiva i no una manera de pintar perquè el que es gira és **el que ja hi ha**: el paper d'una imatge, els seus grisos i la lletra del mig (docs/92) |
-| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode` **el sistema tria la qualitat de la pàgina** (0.179.5): `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ja ha rebut tantes passades que li queda fantasma; **una qualitat que l'app va nomenar en un dibuix es respecta**. Amb `mode`, tot el que està pendent es pinta amb aquesta i prou —**en les seues caixes**, perquè dues caixes que no es toquen no es converteixen en una de sola que també cobreix l'aire del mig (0.179.57, docs/50)—. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
+| `ui.present([mode])` | `true` o `nil, error` | **El sistema compon** el que ha canviat al buffer del vidre i demana el pintat. Sense `mode` **el sistema tria la qualitat de la pàgina** (0.179.5): `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ja ha rebut tantes passades que li queda fantasma; **una qualitat que l'app va nomenar en un dibuix es respecta**. Amb `mode`, tot el que està pendent es pinta amb aquesta i prou —**en les seves caixes**, perquè dues caixes que no es toquen no es converteixen en una de sola que també cobreix l'aire del mig (0.179.57, docs/50)—. **Si el panell diu que no perquè encara mou la tinta del pintat anterior, la pàgina no es perd** (0.118.2): queda pendent i el sistema la torna a demanar tot sol quan el vidre la pot prendre, o sigui que un `nil` aquí **no** vol dir que la pàgina no s'arribarà a veure mai (docs/50, docs/92 §33) |
 | `ui.damage()` | número | Quantes regions esperen un `present` |
 | `ui.title(text)` | `true` o `nil, error` | El títol que surt **a la barra del sistema**. **No fa falta per posar-hi el nom de l'app**: el sistema ja hi escriu el `title` del `manifest.json` quan obre l'app. La crida és per dir-hi **una altra cosa** i per un motiu concret — el lector hi posa el llibre obert, el rellotge de fitxatge hi posa el dia— |
 | `ui.rotation([degrees])` | el gir actual | **Gira la pàgina sencera**: 0, 90, 180 o 270. El vidre, la barra i els dits giren amb ella, i l'app rep `on_resize` amb la mida nova |
@@ -2787,9 +2790,11 @@ una excepció. Un cop dins,
 
 - **una caixa d'una línia** es mou una **lletra** a cada tecla —endavant i enrere—, i una lletra és un punt de codi i no
   un byte: el accent de «el meu fitxer» no es pot partir;
-- **una caixa de diverses línies** es mou una **fila** a cada tecla, i la fila és la que el vidre ensenya: amb `wrap`
-  una línia llarga són més files, i el cursor baixa de fila i no de línia. La columna es queda tan a prop com la fila
-  ho permet, i a la primera i a l'última fila el cursor es queda on és;
+- **una caixa de diverses línies** camina **la lletra i no la fila** (0.182.1): les dues tecles fan el mateix que a la
+  caixa d'una línia, endavant i enrere pel text, i la finestra segueix el cursor;
+- **amunt és la lletra següent i avall la d'abans, i esquerra i dreta fan el mateix** (0.182.1): és el revés del dial
+  —que camina la pàgina amb `amunt` com el control d'abans— i és a posta, perquè dins una caixa les dues tecles són la
+  línia que s'escriu i no el passeig (ho va demanar l'amo: *«per mi avall és esquerra, amunt dreta»*);
 - **la finestra segueix el cursor**: `top` torna a `-1` quan el cursor es mou amb una tecla, el mateix que quan s'escriu
   una lletra, perquè un cursor que ha sortit de la caixa és una persona editant una fila que no veu;
 - **l'app ho sent a `box.on_move(self, cursor)`**, que és on la línia de sota la pàgina diu la fila. El sistema ja ha
@@ -3312,6 +3317,9 @@ El botó: **l'única cosa que una persona pot prémer** en aquesta placa (docs/5
 | `button.wait([ms])` | **promesa** | Es resol amb `{key, kind = "press"\|"long", held_ms}` de la primera tecla que es premi; **20 000 ms** per defecte |
 | `button.down(key)` | booleà | Aquesta tecla és premuda **ara** (es llegeix en el moment de preguntar-ho) |
 | `button.held(key)` | enter | Quants ms fa que és premuda, o `0` si no ho està |
+| `button.subscribe(fn, [mode])` | enter o `nil, error` | **L'app entra a la cua de les tecles** (0.180.0): `fn(e)` rep cada event com `{kind, key, spot, held_ms}`, i `mode` és `"cascade"` (per defecte) o `"exclusive"` |
+| `button.unsubscribe([handle])` | booleà o `nil, error` | **Surt de la cua** (0.180.0). Sense argument dona la seva pròpia plaça; amb número només l'accepta si és el seu |
+| `button.handle()` | enter o `nil` | El número de la plaça de l'app a la cua, o `nil` si no hi és (0.180.0) |
 
 ```lua
 local press = button.wait(10000):await()
@@ -3352,6 +3360,11 @@ end
   `group` diu **quin**: una placa amb dos botons separats i un dial tindria dos grups.
 - **Les posicions són les de la placa i no les de la pantalla**: la tecla és on és el contacte, i la
   rotació de la vista (`ui.rotation`) no la mou (docs/50).
+- **Una placa pot dir `up`/`down` on una altra diu `left`/`right`** (0.181.2): el dial de la Paper té
+  les seves tres tecles en vertical i les anomena `up` i `down`, i una app que escrigui `spot == 'left'`
+  no sent res en aquesta placa. Es llegeix el `spot` i es tracten les parelles com el que són —amunt i
+  esquerra són el mateix «enrere», avall i dreta el mateix «endavant»—, que és el que fa el sistema amb
+  el dial.
 - `button.list()` torna una taula buida en una placa sense tecles, i `button.info` d'una tecla que no
   hi és dona `E_INVAL`: cap de les dues inventa res.
 - **Si la pàgina té controls, el dial és del sistema**: `amunt`/`esquerra` van al control anterior,
@@ -3388,6 +3401,46 @@ end
   amb l'única tecla de l'ATOM i amb les tres de la Paper.
 - **Sense app al davant no passa res**: les premudes no es compten ni es guarden, i una app que arrenca
   no es troba un gest a mitges (docs/30).
+
+### La cua de les tecles (0.180.0)
+
+**Les tecles emeten events hi hagi algú escoltant o no**: el nucli llegeix la placa a cada torn, i qui els rep es
+decideix per **la cua de subscriptors** que hi hagi en aquell moment. El sistema hi és sempre, com a primer
+subscriptor, i és on viuen el dial, la promesa de `button.wait` i el hook `on_button`.
+
+| Mode | Què vol dir |
+|---|---|
+| `"cascade"` (per defecte) | Es crida **amb els altres**, en l'ordre en què es van registrar. És el mode d'una app que vol veure les tecles i deixar que el sistema i els controls facin la seva feina |
+| `"exclusive"` | **Només ell les rep**: la resta de la cua no veu l'event —el sistema inclòs— fins que el doni. És el mode d'un control que s'ha quedat les tecles mentre dura una edició, i el de l'últim que s'hi registra, o sigui que un control pot quedar-se-les per sobre de la cua de l'app |
+
+```lua
+local handle = button.subscribe(function(e)
+  console.print(string.format('%s %s (%d ms)', e.spot or e.key, e.kind, e.held_ms))
+end, 'cascade')
+-- ... i quan ja no calgui
+button.unsubscribe(handle)
+```
+
+- **Una app té una sola plaça**: una segona crida a `subscribe` canvia la funció i torna el mateix número.
+  Qui vol una cua per a dos consumidors en fa un de sol que reparteixi —o escolta el control, que és el que
+  ja fa—.
+- **Els events es queden a la teva funció i no arriben a `on_button`**: una app que s'ha posat a la cua va
+triar la cua, i el hook no es diu a més. La promesa de `button.wait` continua guanyant, perquè una app que
+espera una tecla està esperant exactament aquella.
+- **Si l'app s'acaba, la plaça es dona sola**: la baixa la fa el sistema quan tanca l'intèrpret —acabi bé,
+amb un error, amb tres tocs o perquè una altra app pren la pàgina—, o sigui que una app que mor de pressa no
+deixa la cua amb un nom mort a dins.
+- **Els controls en treuen profit, i és una sola regla**: el control **entrat** —una caixa d'una línia, una de diverses, un
+`slider`, que diuen `editing`— té les tecles mentre dura l'edició, com a subscriptor **exclusiu**, i les dona quan en
+surt: el centre entra i surt, el dial que se l'emporta també, i una caixa que no vol tecles (un document de només llegir)
+se les queda igual perquè el que mana és el control i no el teclat. Dins la caixa les dues tecles són el cursor —esquerra i
+dreta en una línia, amunt i avall en una de diverses, amb la columna que tenien— i dins l'slider són el número; una tecla
+que no pot moure res es consumeix igual i no camina el dial (0.181.0).
+- **El gest del sistema no entra a la cua**: tres tocs de la tecla principal tanquen l'app es compten abans de
+repartir l'event, i cap subscriptor no se'ls pot empassar.
+- **El nombre de places és vuit** i una cua plena dona `E_NOMEM`: el sistema en té una, un control n'agafa una
+altra, la teva app una, i la resta és marge per a un diàleg sobre una pàgina que ja les havia agafades.
+
 
 ## `power`
 

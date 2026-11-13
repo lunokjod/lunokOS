@@ -2018,7 +2018,8 @@ bool boot(hal::IPlatform& platform, uint16_t top_rows) {
                                      icon_grid_page_cell,
                                      icon_grid_ring_for_lua,
                                      invert_for_lua,
-                                     canvas_invert_for_lua});
+                                     canvas_invert_for_lua,
+                                     textbox_column_at});
   // **Said once, like the panel's own line**: the canvas the system made, because an app that reports a
   // view of another size than the glass is a system that sized it wrong, and this line is where that is
   // visible without a scope (docs/30).
@@ -3869,7 +3870,13 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
       static_cast<int32_t>((face.height != 0) ? face.height : font::kGlyphHeight) * scale;
   const int32_t top = target.y + (height - line_h) / 2;
   close_draw(target);
-  if (inner_w <= 0 || text == nullptr) return true;
+  if (inner_w <= 0) return true;
+  // **Una caixa sense text es una caixa buida, i el bloc s'hi ha de pintar** (0.179.66): the draw stopped when the text was
+  // `nullptr` —a field whose text the app never wrote, which is every box on its first frame— and with it went the block of
+  // the caret: the frame and the paper were there, no letter and **no cursor**, and the caret of a box being typed into was
+  // invisible until the first key put a byte in it. An empty text is a text at offset zero, and the block sits on the first
+  // cell of the line where a person expects it (docs/30, docs/90).
+  if (text == nullptr) text = "";
   const int32_t length = static_cast<int32_t>(strlen(text));
   int32_t at = cursor;
   if (at < 0) at = 0;
@@ -4371,6 +4378,27 @@ bool textbox_caret_box(int16_t slot, uint16_t& x, uint16_t& y, uint16_t& w, uint
   w = static_cast<uint16_t>(canvas.caret_w);
   h = static_cast<uint16_t>(canvas.caret_h);
   return true;
+}
+
+uint16_t textbox_column_at(int16_t slot, const char* text, uint8_t scale, uint16_t x) {
+  if (!live(slot)) return 0;
+  if (scale == 0) scale = 1;
+  if (scale > 16) scale = 16;
+  const Canvas& box = g_canvases[slot];
+  const font::Face& face = face_of(box.face);
+  const int32_t thickness = (box.width > 24 && box.height > 16) ? 2 : 1;
+  const char* at = (text != nullptr) ? text : "";
+  const int32_t column = static_cast<int32_t>(x) - (thickness + 6);
+  if (column <= 0) return 0;
+  int32_t used = 0;
+  int32_t pen = 0;
+  while (at[used] != '\0') {
+    const int32_t step = advance_of(face, static_cast<uint8_t>(at[used]), scale);
+    if (pen + step / 2 > column) break;
+    pen += step;
+    ++used;
+  }
+  return static_cast<uint16_t>(used);
 }
 
 uint16_t textbox_multiline_hit(int16_t slot, const char* text, uint16_t cursor, bool wrap, uint8_t scale,
@@ -6214,6 +6242,11 @@ class Keyboard {
   bool held_ = false;
   uint16_t key_h_ = 0;
   bool needs_paint_ = true;
+  // **La primera pintada de la banda neteja i les altres no** (0.179.82): the band comes up **over the page**, and the ink under it is
+  // the page's —a hint, the row of keys of the app—, which a `gld16` keeps at two sixteenths and reads as a second screen behind the
+  // keyboard (measured on the emulator, 13/11: *«el teclat mig surt dibuixat»*). One `gc16` of the band's own rectangle lands on the
+  // level; the case and the alphabet change comes after and only touches the band's own ink, which is what `gld16` is for.
+  bool clean_ = false;
   int32_t dx_ = 0;
   int32_t dy_ = 0;
   int32_t dw_ = 0;
@@ -6738,6 +6771,9 @@ bool Keyboard::show(uint8_t kind) {
   if (key_h_ == 0) return false;
   shown_ = true;
   held_ = false;
+  // **La banda arriba sobre una pàgina i el que hi ha sota no és seu** (0.179.82): its first paint is the one that has to land on
+  // the level, so it takes the clean of the band's own rectangle and not the reduced pass (docs/50, docs/90).
+  clean_ = true;
   // **The face of the band is read once per time it comes up**: the file is nine kilobytes and it is kept while the
   // keyboard is on the glass (docs/30, docs/75).
   keyboard_face();
@@ -6793,7 +6829,8 @@ void Keyboard::paint() {
   // cannot erase a band; `gld16` keeps two sixteenths, lands on the level and has no flash, and it is the quickest of the
   // three that erase (docs/50). What the two tones of the band buy is that this one pass is enough: with its four shades,
   // a letter of before left a grey that read as a second keyboard (docs/50, docs/90).
-  const hal::UpdateMode mode = hal::UpdateMode::kGld16;
+  const hal::UpdateMode mode = clean_ ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGld16;
+  clean_ = false;
   const font::Face& face = keyboard_face();
   const LayoutDef& current = current_layout();
   const int32_t key_h = static_cast<int32_t>(key_h_);
@@ -7169,33 +7206,25 @@ bool dots_draw(int16_t slot, uint16_t pages, uint16_t current, uint8_t level, ui
   return true;
 }
 
-// **The quality a present asks for when the app does not name one** (0.179.5). The owner: *«Perqué totes refresquen amb
-// tanta qualitat quan no fa falta? usa sempre el mode necessari adequat per els canvis del buffer que es volen pujar a
-// l'eink»*. The panel is the one thing in this system that is slow and that blinks, so the quality is not the app's
-// taste: it is what the glass has been asked for since the page was last washed whole, which is a number this system
-// already counts (`kManyPaints`):
-//   - **a page is `gl16`**, which puts it up with its sixteen levels and **does not flash**: the page that came before it was
-//     left clean by the system —it washes the glass between two apps— so there is nothing to burn away, and `gc16` here
-//     would be two blinks per page turn for paper that ends up the same;
-//   - **a page that has taken the quick paints after which the panel keeps a ghost is `gc16`**, the only wash that leaves
-//     the paper white (docs/50), and so is the one an app names when it knows it carries a plate;
-//   - **`a2` and `du` are never chosen here**: the two-level pass leaves two sixteenths of the page before it, and a `du`
-//     does not clean what it writes over, so an app that wants them says so at the present (docs/30, docs/50).
+// **The quality a present asks for when the app does not name one**: the lowest one that cleans, and the fast modes
+// first. The panel is the one thing in this system that is slow and that blinks, so the quality is not the app's taste and
+// this layer has no business keeping a second table of its own: `cleaner_for` is the table, it is asked with the levels the
+// page has put down and the passes it has taken since the last wash, and it answers `du` for nothing, **`a2` (290 ms, one
+// blink) for a page of text**, `gl16` for a page with a few grays and `gc16` only for a page that has taken so many quick
+// passes that the ghost is the page (docs/30, docs/50).
 hal::UpdateMode quality_of_the_page() {
-  // **Past the quick paints the panel keeps a ghost, and then the page is washed whole** (docs/50): the budget is the one the
-  // cleaner between two apps already counts (`kManyPaints`), and what it counts here is **passes of ink and not the boxes a
-  // page is drawn with** —a page of text drawn once is one pass, and the same page updated forty times is forty— (0.179.5).
-  // Until then the page goes up in `gl16`, which is its sixteen levels and **no flash**: a page with a picture in it is the
-  // only one that has a reason to ask for more, and that reason is the app's —the cover of a book says `gc16` because it
-  // knows it is a plate— (docs/30, docs/50).
-  //
-  // **And a page that has shown nothing but black and white owes no full wash** (0.179.15): `gc16` is the one that takes
-  // the ghost of the greys away and it flashes the glass four times, and a page of one bit has no such ghost —the text of
-  // the system is rasterised one bit a pixel, so a cell of a launcher is 0 and 15 and nothing between (docs/30)—. It was
-  // being sent there all the same after thirty-two boxes, and the grid of the launcher spends ten of them a visit: every
-  // cell of the third visit flashed white, black, white, black over a picture nobody had painted before.
-  const uint16_t text_only = static_cast<uint16_t>((1u << 0) | (1u << 15));
-  if (g_levels != 0 && (g_levels & static_cast<uint16_t>(~text_only)) == 0) return hal::UpdateMode::kGl16;
+  // **The quality is always the lowest one that cleans, and the fast modes come first** (0.179.60): the whole policy of
+  // what an e-ink pass costs lives in `cleaner_for` and this is the page's turn to ask it. It answers `du` when the page
+  // has put nothing down, `a2` —two levels, one blink, **290 ms**— for a page of text, `gl16` for a page with a few
+  // grays, and `gc16` only when the page has taken so many quick passes that the ghost is the page. It used to answer
+  // `gl16` (450 ms) for everything and `gc16` past the budget, which is a page of letters paying four hundred and fifty
+  // milliseconds a letter's worth of change, and it was the same policy written twice and differently (docs/30, docs/50).
+  // **A page is `gl16`, and the two-level passes are not for a page** (0.179.64): asking the page for the cheapest pass that
+  // cleans (`cleaner_for` answers `a2` for a page of text) leaves this panel with the engine stuck —the log of the board
+  // says `blit 0,48 540x912` and then `LUTAFSR was not read in 3006 ms (busy stayed low)`, which is three seconds of every
+  // paint and a glass that draws nothing—. `a2`, `du` and `du4` are the modes of a **region** here: the rows of the editor
+  // go up in `du` and the letter appears. What a page pays is `gl16` (450 ms, sixteen levels, no flash) and `gc16` when the
+  // quick passes have left a ghost, and that is the trade this panel takes (docs/30, docs/50).
   return (g_updates >= kManyPaints) ? hal::UpdateMode::kGc16 : hal::UpdateMode::kGl16;
 }
 
@@ -7530,7 +7559,11 @@ bool poll_full_screen() {
   // before the app reads it, so a page of a book that covers everything cannot take away the way back to the bar.
   // What the app does hear is `on_resize`, which is how it knows its view is another size (docs/30).
   touch::Gesture gesture;
+  // **I amb la banda a la pantalla tampoc no és una sortida** (0.181.4): three taps of a finger on the keyboard are three letters,
+  // and this is the other road of the same gesture —a page that has the whole glass takes its bar back with it—; the gesture is
+  // taken out of the queue and nothing is done with it while a person is typing (docs/30, docs/46).
   if (!touch::take_gesture_of("triple", gesture)) return false;
+  if (keyboard_visible()) return false;
   log_printf(pal::kLogInfo, "UI", "three taps at %u,%u: the glass goes back",
              static_cast<unsigned>(gesture.x), static_cast<unsigned>(gesture.y));
   return full_screen(false);

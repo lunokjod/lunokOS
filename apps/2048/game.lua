@@ -610,17 +610,22 @@ local function swipe(dx, dy)
 end
 
 -- **LEFT AND RIGHT ARE ALSO ON THE TWO SIDE KEYS** (the paper's design): the panel has three keys and the game
--- has four directions, so the finger is the real input and this costs three lines. The centre is left to the
--- system on purpose (docs/30).
-function on_button(kind, held_ms, key)
-  if kind ~= 'press' then return end
+-- has four directions, so the finger is the real input. **Les tecles es demanen a la cua** (0.181.2): `button.subscribe` is
+-- the queue of the system and the game hears the side keys **even though the page has a button** —the dial used to take them
+-- before the hook could see them—; the centre is left to the system on purpose, which is what the button of a new game is
+-- for (docs/30). The place in the queue is given back by the system when the app ends.
+button.subscribe(function(event)
+  if event.kind ~= 'press' then return end
 
-  if key == 1 then
+  -- **La tecla lateral es diu `up` i `down` a la Paper** i `left`/`right` en una placa que les tingui al costat: el nom és
+  -- el lloc on és la tecla i no el número, i el joc dona el mateix a les dues parelles —la de dalt és la columna d'anar
+  -- enrere i la de baix la d'anar endavant, el mateix ordre que el dial— (docs/30, docs/50).
+  if event.spot == 'left' or event.spot == 'up' then
     play(0, -1)
-  elseif key == 2 then
+  elseif event.spot == 'right' or event.spot == 'down' then
     play(0, 1)
   end
-end
+end)
 
 -- --------------------------------------------------------------------------------- the app
 

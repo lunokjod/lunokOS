@@ -169,13 +169,14 @@ local shown = 0
 -- coroutine parked, so it cannot paint; it counts and the loop does the rest (docs/30).
 local presses = 0
 
--- **A press is an edge, and the hook is the edge** (0.179.21): the loop paints the panel fifty times a second, so a
--- finger on the button for less than a frame would be a press nobody sees if the loop asked the level. `on_button` is
--- called with the coroutine parked and it misses nothing —it is the second of the three ways docs/30 gives, and the one
--- for a press that happens between two frames—.
-function on_button(kind)
-  if kind == 'press' then presses = presses + 1 end
-end
+-- **A press is an edge, and the subscriber is the edge** (0.179.21, i la cua de la 0.180.0): the loop paints the panel fifty
+-- times a second, so a finger on the button for less than a frame would be a press nobody sees if the loop asked the level.
+-- `button.subscribe` calls this between turns with the coroutine parked —it is the same road `on_button` was, said by the app
+-- instead of being a hook the system looks for, and it misses nothing— (docs/30). This board has one key and no glass, so
+-- there is no page and no dial behind the queue: cascade is the whole of it.
+button.subscribe(function(event)
+  if event.kind == 'press' then presses = presses + 1 end
+end)
 
 console.print(string.format('rainbow: %d light(s) in %d by %d, %d fields, the button changes it',
                             count, side, side, kFields))

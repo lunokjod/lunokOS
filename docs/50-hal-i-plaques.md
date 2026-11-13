@@ -896,7 +896,7 @@ driver del panell**, escriu els dos extrems nibble a nibble: pintar el byte senc
 text de la barra —que és una tirada de rectangles de cada caràcter— engreixava una columna de píxels a
 cada lletra (trobat per la suite nativa l'1/11: un rectangle a `x = 101` pintava el píxel 100).
 
-**I el controlador només pinta un rectangle que comenci a la columna 0 de la seua memòria** (0.118.7, mesurat a la
+**I el controlador només pinta un rectangle que comenci a la columna 0 de la seva memòria** (0.118.7, mesurat a la
 placa amb el log de la 0.118.6): la splash (`0,0 960x540`) i la barra a l'arrencada (`0,0 48x540`) pujaven al vidre, i
 **totes** les altres —la pàgina d'`images` a `48,0 912x540`, els seus quatre controls a `56,12`, `484,12`, `616,12` i
 `876,12`, el rellotge de la barra a `4,104`— el controlador les **acceptava i no pintava res**: carregava una imatge que
@@ -927,7 +927,7 @@ que es volen pujar a l'eink»*. Tenia raó i el comptador era el pitjor: **cada 
 paper. El que fa ara el sistema:
 
 - **una pàgina és un sol pintat** (0.179.5): si el que ha canviat cobreix mig vidre o més, o són quatre caixes o
-  més, es pinta d'un cop —el panell pinta una caixa cada vegada i cada passada espera la seua tinta, o sigui que
+  més, es pinta d'un cop —el panell pinta una caixa cada vegada i cada passada espera la seva tinta, o sigui que
   quatre caixes són quatre passades per una pàgina—; **dues caixes són dues**, perquè el cercle que marxa i el que
   arriba no es toquen i ajuntar-los pintaria l'aire del mig (0.177.4). Això també val per al present del focus
   (`present_each`), que abans podia pintar la pàgina sencera en cinc passades quan una app demanava `ui.focus()`
@@ -942,7 +942,7 @@ paper. El que fa ara el sistema:
   tantes passades que li queda fantasma. El pressupost de fantasma és **el de passades i no el de caixes**: es
   compten les passades que el vidre ha rebut des de l'última rentada (`kManyPaints`, 32) i no els rectangles amb
   què s'ha dibuixat la pàgina, perquè quaranta paraules són una pàgina i quaranta passades són quaranta taques;
-- **una qualitat que l'app va nomenar es respecta**: `ui.rect(…, 'gc16')` és l'app dient què necessita la seua
+- **una qualitat que l'app va nomenar es respecta**: `ui.rect(…, 'gc16')` és l'app dient què necessita la seva
   tinta, i una regió que no en porta és d'un control que es dibuixa amb `du`, que és el barat i no una promesa
   sobre el panell (`Damage::named`). El `present` amb `mode` no canvia: el que diu l'app és el que va al vidre;
 - **i el present que fa el sistema tampoc no la sobreescriu** (0.179.41): el cercle que es mou, el control que
@@ -950,7 +950,7 @@ paper. El que fa ara el sistema:
   regions. El resultat a la placa va ser el que l'amo va veure i va preguntar —*«Perqué l'editor fa tants
   refrescos i a aquesta qulitat???»*—: el primer toc a la pàgina de l'editor pintava el **seu quadre de document
   sencer** (550 dels 912 píxels d'alt, o sigui més de mig vidre) amb un `gl16` de 450 ms i un flaix, sobre el `du`
-  de 120 ms que l'app havia demanat pel nom. Ara una regió que ha nomenat la seua qualitat la conserva, i la que no
+  de 120 ms que l'app havia demanat pel nom. Ara una regió que ha nomenat la seva qualitat la conserva, i la que no
   en porta rep la passada del present;
 - **i la passada del present és `a2` i no `gl16`** (0.179.41): 290 ms contra 450, i la forma d'ona de dos nivells
   és la que té la tinta d'un cercle i d'una cara premuda. Una pàgina que un present ajunta es queda amb la qualitat
@@ -960,9 +960,9 @@ paper. El que fa ara el sistema:
   i s'emportés un `gc16` entre app i app. Amb el comptador de passades, una pàgina de text es renta amb `a2` i una
   de grisos amb `gl16`;
 - **la imatge de l'arrencada és l'excepció que el sistema diu** (0.179.5): la splash pinta el vidre sencer i la
-  seua tinta no ha passat per la pàgina, o sigui que la primera pàgina que la tapa es deu **sencera i neta**
+  seva tinta no ha passat per la pàgina, o sigui que la primera pàgina que la tapa es deu **sencera i neta**
   (`ui::owe_the_page()`, el mateix camí que quan una app torna una vista enrere). Abans això ho deia el `gc16`
-  que cada llançador escrivia a la primera línia de la seua pàgina; ara ho diu el sistema, que és qui sap què hi
+  que cada llançador escrivia a la primera línia de la seva pàgina; ara ho diu el sistema, que és qui sap què hi
   ha al vidre.
 - **i el deute és la vista i no les caixes de la pàgina** (0.179.53): `present_all` ajuntava el dany que hi havia i
   no n'afegia cap, i una pàgina que el sistema ha donat blanca fa gratuït el `ui.clear(15)` de l'app (0.168.0) — o

@@ -615,6 +615,17 @@ local rows_built = {}       -- the texts the list is showing, so a repaint costs
 
 local status_label, eye_btn, since_label, work_label, rest_label
 local hint_label, note_box, start_btn, pause_btn, end_btn
+-- **El text que s'escriu no es descarta** (0.179.70): the page is built again on every focus and every size change —the band takes
+-- the bottom of the glass and the view is another one—, and a box that is created again with `text` untouched is a box that throws
+-- away what a person just typed. The note being written is kept here and put back every time.
+local pending_note = ''
+-- **I el cursor on era** (0.179.71): the box is created again on every rebuild, and a new box starts at offset zero —a caret that
+-- jumps to the beginning of the line the moment the band comes up, which is not where the person left it.
+local pending_cursor = 0
+-- **I una caixa que acaba de néixer no mana** (0.179.80): `refresh()` takes the place from the living box, because a finger puts
+-- one there and the app is told nothing; but the box built a moment before has `cursor = 0`, and writing that back would undo
+-- the place the page carried. This flag says which of the two boxes is the one that knows.
+local note_is_new = false
 local list, week_canvas, back_btn
 local screen = {}           -- every control of the page that is on the glass, given back on a turn
 local loading = false
@@ -630,11 +641,24 @@ local spots = {}
 local list_y, list_height, max_rows = 0, 0, 0
 
 local function give_back()
+  -- **El lloc del cursor no es perd quan la pàgina es torna a fer** (0.179.80): the page is built again when the band takes the
+  -- bottom of the glass and when the glass changes size, and the box that comes next is a new object at offset zero. The place a
+  -- person put —with a finger or with the two keys— is taken from the box that is about to be released, which is the only one
+  -- that knows it, and waits there for the box that will have the focus (docs/30, docs/50).
+  if note_box ~= nil then pending_cursor = note_box.cursor or pending_cursor end
   for i = 1, #screen do
     if screen[i] ~= nil then pcall(function() screen[i]:release() end) end
     screen[i] = nil
   end
   screen = {}
+  -- **La llista no és a `screen` i el `give_back` la deixava viura** (0.179.83): `list` is made by `rebuild_list` and only replaced inside
+  -- it, so a page built again —the band taking the bottom of the glass— nilled the name and **never gave the control back**: the list of
+  -- the page before stayed in the tree, drawn at its old place and size over the note box and over the row of keys, and **its rows were
+  -- still stops of the dial and targets of the finger** —a tap on the box landed on a row that was not even on the glass and the focus
+  -- went to it, which is *«el teclat ho entén com un blur»*— (measured on the emulator, 13/11: `the finger at 296,482 hit 4 of 15 targets`
+  -- over a page whose list had two rows) (docs/30, docs/45).
+  if list ~= nil then pcall(function() list:release() end) end
+  if week_canvas ~= nil then pcall(function() week_canvas:release() end) end
   list, week_canvas, back_btn = nil, nil, nil
   status_label, eye_btn, since_label, work_label, rest_label = nil, nil, nil, nil, nil
   hint_label, note_box, start_btn, pause_btn, end_btn = nil, nil, nil, nil, nil
@@ -952,17 +976,35 @@ refresh = function(t)
   local first_row = 1
   if n > max_rows then first_row = n - max_rows + 1 end
 
-  if marked < first_row or marked > n then marked = 0 end
+  -- **La fila marcada mana la finestra de la llista** (0.179.83): when the band takes the bottom of the glass the list has fewer rows and
+  -- the window was the last ones; a mark above it was cleared —`marked = 0`— and the note box went dead with it, in the very moment the
+  -- keyboard came up to write in it. The mark stays and the window moves to it (docs/30, docs/45).
+  if marked > 0 and marked < first_row then first_row = marked end
+  if marked > 0 and marked > first_row + max_rows - 1 then first_row = marked - max_rows + 1 end
+  if marked > n then marked = 0 end
 
-  rebuild_list(view.width - 2 * kMargin, list_height, first_row, n)
+  -- **La llista només rep les files que hi caben** (0.179.83): this handed the list **every** mark (`first_row, n`) and the control drew
+  -- them all, so a page whose window is two rows had five outside its own frame —over the hint and over the note box— and a finger on
+  -- the box landed on a row that was not visible: the ring went to the row, the band went down and the field lost the focus. It read
+  -- as *«el teclat ho entén com un blur»* (measured on the emulator, 13/11: `the finger at 296,482 hit 4 of 14 targets`) (docs/30, docs/45).
+  local last_row = math.min(n, first_row + max_rows - 1)
+  rebuild_list(view.width - 2 * kMargin, list_height, first_row, last_row)
 
   -- The box is the note of the marked row, and with no row marked it is dead: a box that writes into nothing is a note
   -- somebody typed and lost.
   local chosen = marked > 0 and marks[marked] or nil
 
   loading = true
-  note_box.text = chosen and note_of(chosen) or ''
-  note_box.cursor = 0
+  -- **El cursor que hi ha a la caixa és el que mana** (0.179.79), **mentre la caixa no sigui la que acaba de néixer** (0.179.80):
+  -- a finger puts a place in the box and the app is told nothing, so the living box is the one that knows it; but the box built
+  -- a moment before is at zero and reading it there was what put the block back at the beginning of the line on every rebuild.
+  if note_box ~= nil and not note_is_new then pending_cursor = note_box.cursor or pending_cursor end
+  note_is_new = false
+  note_box.text = chosen and note_of(chosen) or pending_note
+  -- **I si el text és més curt, al final** (0.179.72): a place that is past the last letter is not a place, and the block
+  -- would sit where no letter is.
+  if pending_cursor > #note_box.text then pending_cursor = #note_box.text end
+  note_box.cursor = pending_cursor
   loading = false
   note_box.enabled = chosen ~= nil
   -- The block of the caret is the app's to blink here, so a box with no row to write keeps it off (docs/30).
@@ -1091,6 +1133,9 @@ end
 -- What is typed goes to the file at once: a note is a few hundred bytes, and holding it in memory until the app leaves
 -- would lose it on a flat battery, the one moment a time clock is asked about.
 local function on_note(text)
+  -- **I el que s'escriu es queda a la caixa, amb fila marcada o sense** (0.179.70).
+  pending_note = clean_note(text)
+  pending_cursor = note_box and note_box.cursor or 0
   if loading then return end
 
   local m = marked > 0 and marks[marked] or nil
@@ -1178,8 +1223,7 @@ build_day = function()
 
   list_y = y
   list_height = hint_y - kGap - y
-  max_rows = math.max(1, math.floor(list_height / kRow))
-  rows_built = {}
+  max_rows = math.max(1, math.floor(list_height / kRow))  rows_built = {}
   list = nil
 
   hint_label = make_label(view.width - 2 * kMargin, kHintH, '', kSmall, 'left', 'middle')
@@ -1188,6 +1232,9 @@ build_day = function()
 
   note_box = ui.textbox(view.width - 2 * kMargin, kNoteH)
   note_box.caret = false
+  -- **La caixa nova no té res a dir sobre el lloc** (0.179.80): it is at offset zero, and the place that waits in `pending_cursor`
+  -- is the one `refresh()` writes into it.
+  note_is_new = true
   note_box.scale = kBody
   note_box.background = 15
   note_box.on_change = function(self, text) on_note(text or self:text()) end
@@ -1259,16 +1306,17 @@ turn = function(_)
   page = (page == 1) and 2 or 1
   if page == 2 then load_week() end
 
-  ui.clear(15, 'gld16')
+  ui.clear(15)
 
   if page == 2 then build_week() else build_day() end
   refresh()
 
   if page == 2 then say_week() else say_day() end
 
-  -- **The page is new and the quality is the system's** (0.179.5): the clear above is already a whole-page wash of sixteen
-  -- levels, and the pass that flashes a second time over the same paper is what this file was asking for —a day is words
-  -- and a week is a chart of a few grays, not a photograph— (docs/30, docs/50).
+  -- **La qualitat de la pàgina és del sistema** (0.179.82): a whole page is washed, and a reduced pass does not land on the level —
+  -- the words of the page before stay at two sixteenths and read as a second page under this one (measured on the emulator, 13/11).
+  -- What `present` gets with no mode is `quality_of_the_page()`, which is the system's answer to "what does this page deserve"
+  -- (docs/30, docs/50).
   ui.present()
 end
 
@@ -1276,10 +1324,10 @@ end
 function on_resize(width, height)
   view = ui.caps()
   give_back()
-  ui.clear(15, 'gld16')
+  ui.clear(15)
   if page == 2 then build_week() else build_day() end
   refresh()
-  ui.present('gld16')
+  ui.present()
 end
 
 -- ====================================================================================================== the clock

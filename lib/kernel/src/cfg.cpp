@@ -53,6 +53,8 @@ const int32_t kTzMaxMinutes = 14 * 60;
 // reads with `nvs` —`leap on`/`leap off` and `week monday`/`week sunday`— and not as numbers nobody can look up
 // (docs/60, docs/70).
 const char kLeapKey[] = "leap";
+// **The hour of summer, as the two words a person reads in the store** (0.182.0, docs/30, docs/70).
+const char kDstKey[] = "dst";
 const char kWeekKey[] = "week";
 
 // **The slice of a turn of Lua, which is the latency of the system** (0.174.7): how many instructions of an app a turn
@@ -83,6 +85,9 @@ char g_home[kHomeCap] = LUNOK_HOME_APP;
 int16_t g_tz_minutes = 0;
 // What the store said, which is also what the calendar is using: the two are written together.
 bool g_leap_years = true;
+// **The hour of summer is off until somebody says otherwise**: a clock that adds an hour on its own is a clock that lies in
+// the winter (0.182.0, docs/60).
+bool g_dst = false;
 uint8_t g_week_start = 1;
 
 bool same(const char* a, const char* b) { return a != nullptr && b != nullptr && strcmp(a, b) == 0; }
@@ -124,6 +129,13 @@ bool remember_leap() {
   const char* word = g_leap_years ? kOn : kOff;
   meter::Scope scope(meter::kKvSet);
   return g_nvs->set(kNamespace, kLeapKey, word, strlen(word));
+}
+
+bool remember_dst() {
+  if (g_nvs == nullptr) return false;
+  const char* word = g_dst ? kOn : kOff;
+  meter::Scope scope(meter::kKvSet);
+  return g_nvs->set(kNamespace, kDstKey, word, strlen(word));
 }
 
 bool remember_week() {
@@ -186,6 +198,7 @@ void boot(hal::IPlatform& platform) {
   // before the store is read so that a second boot of the same object —the tests— does not inherit the run before
   // (docs/60).
   g_leap_years = true;
+  g_dst = false;
   g_week_start = 1;
   calendar::set_leap_years(true);
   calendar::set_week_start(1);
@@ -287,6 +300,20 @@ void boot(hal::IPlatform& platform) {
       }
     }
   }
+  char raw_dst[kNameCap] = {0};
+  size_t dst_len = 0;
+  if (g_nvs != nullptr) {
+    meter::Scope scope(meter::kKvGet);
+    if (g_nvs->get(kNamespace, kDstKey, raw_dst, sizeof(raw_dst) - 1, dst_len) && dst_len > 0 &&
+        dst_len < sizeof(raw_dst)) {
+      raw_dst[dst_len] = '\0';
+      if (same(raw_dst, kOn) || same(raw_dst, kOff)) {
+        g_dst = same(raw_dst, kOn);
+      } else {
+        log_printf(pal::kLogWarn, "CFG", "dst '%s' is not on or off; the hour of summer stays off", raw_dst);
+      }
+    }
+  }
   char raw_week[kNameCap] = {0};
   size_t week_len = 0;
   if (g_nvs != nullptr) {
@@ -327,10 +354,10 @@ void boot(hal::IPlatform& platform) {
   }
   apply();
   log_printf(pal::kLogInfo, "CFG",
-             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, week %s, turn %u",
+             "/cfg on %s (asked for %s), keyboard %s, boot %s, home %s, tz %+03d:%02d, leap %s, dst %s, week %s, turn %u",
              (g_unit[0] != '\0') ? g_unit : "nowhere", g_preference, g_keyboard, g_boot,
              (g_home[0] != '\0') ? g_home : "none", g_tz_minutes / 60, (g_tz_minutes < 0 ? -g_tz_minutes : g_tz_minutes) % 60,
-             g_leap_years ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
+             g_leap_years ? kOn : kOff, g_dst ? kOn : kOff, (g_week_start == 7) ? kSunday : kMonday,
              static_cast<unsigned>(luabind::turn_budget()));
 }
 
@@ -441,6 +468,17 @@ bool set_leap_years(bool on) {
   g_leap_years = on;
   calendar::set_leap_years(on);
   return remember_leap();
+}
+
+bool dst() { return g_dst; }
+
+bool set_dst(bool on) {
+  g_dst = on;
+  return remember_dst();
+}
+
+int16_t offset_minutes() {
+  return static_cast<int16_t>(g_tz_minutes + (g_dst ? 60 : 0));
 }
 
 uint8_t week_start() { return g_week_start; }

@@ -231,6 +231,12 @@ struct TimeOps {
   // way `set_tz_minutes` is the door of the offset (docs/30, docs/60).
   bool (*leap_years)();
   bool (*set_leap_years)(bool on);
+  // **L'hora d'estiu** (0.182.0): whether the hour a person reads is the offset of the map plus sixty minutes, and the offset
+  // that counts —the map's plus that hour—. It is a setting of the system because the RTC counts seconds and has no summer and
+  // the chip's library would want a zone name per country (docs/30, docs/60).
+  bool (*dst)();
+  bool (*set_dst)(bool on);
+  int32_t (*offset_minutes)();
   uint8_t (*week_start)();
   bool (*set_week_start)(uint8_t first);
 };
@@ -413,6 +419,12 @@ struct ButtonOps {
   bool (*down)(uint32_t key);
   int64_t (*held)(uint32_t key);
   bool (*info)(uint32_t key, KeyInfo& out);
+  // **La cua de subscriptors** (0.180.0): a listener, the owner it gets back and the mode —0 cascade, 1 exclusive—.
+  // Answers a handle above zero, or zero when the queue is full. The same two calls serve an app and a control of the
+  // page, and the owner is what tells them apart when one of them goes (docs/30, docs/90).
+  uint16_t (*subscribe)(void (*listener)(const char* kind, uint32_t key, int64_t held_ms, void* owner), void* owner,
+                        uint8_t mode);
+  void (*unsubscribe)(uint16_t handle);
 };
 
 void set_button_ops(const ButtonOps& ops);
@@ -843,6 +855,10 @@ struct UIOps {
   // second one is the same on a canvas of the app, which is where a launcher turns its icon over.
   bool (*invert)(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
   bool (*canvas_invert)(int16_t slot, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* mode);
+  // **On cau un dit dins una caixa d'una línia** (0.179.77): the column the finger asked for, as an offset in the text. A box of
+  // one line has no rows to work out —only a column— and this is what puts the caret where a person tapped, the same way the box
+  // of several lines does it at the lift (docs/30, docs/90).
+  uint16_t (*textbox_column_at)(int16_t slot, const char* text, uint8_t scale, uint16_t x);
 };
 
 void set_ui_ops(const UIOps& ops);
@@ -942,6 +958,11 @@ void button_failed(const char* code);
 // A press for an app that did not ask for it as a promise: the `on_button` hook, in
 // the same shape as on_alarm, so it cannot await (docs/30).
 bool call_button(const char* kind, int64_t held_ms, uint32_t key);
+
+// **Si l'app s'ha posat a la cua dels botons** (0.181.2): an app that registered a listener chose the queue, so the hook
+// `on_button` is not called a second time behind its back —the same press would arrive twice, once with the event and once
+// with the hook— (docs/30).
+bool has_button_listener();
 
 // The kernel says the board is back from the sleep an app asked for. Called
 // between turns, never from inside Lua (docs/30).
