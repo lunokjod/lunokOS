@@ -5846,6 +5846,20 @@ void test_a_finger_that_walks_sideways_over_a_grid_turns_the_page(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell1"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
 
+  // **I un dit que va cap amunt o avall també la gira** (0.179.51): una graella i una llista no fan scroll, o sigui que el gest
+  // vertical vol dir el mateix que l'horitzontal —la pàgina següent cap amunt, la d'abans cap avall—, i aquesta meitat del cas
+  // és la que faltava quan el paginador només mirava el camí de costat (docs/30, docs/90).
+  capture_begin();
+  TEST_ASSERT_TRUE(panel->finger_down(0, start_x, start_y));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_move(0, start_x, static_cast<uint16_t>(start_y - 100)));
+  pump_turns(20);
+  TEST_ASSERT_TRUE(panel->finger_up(0));
+  pump_turns(40);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "focus cell3"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "pick cell"), g_out);
+
   close_any_app();
   storage->remove("/apps/swipe/app.lua");
   storage->remove("/apps/swipe/manifest.json");
@@ -14343,6 +14357,108 @@ void test_the_faces_app_opens_more_specimens_than_the_board_keeps(void) {
   storage->remove("/apps/fonts");
 }
 
+// **Una pàgina de la llista es passa també amb un dit que va cap amunt** (0.179.51): the owner, with the shelf of the faces on
+// the board: *«L'app fonts no passa pàgina de la llista amb swipe»*. The paginator is the list's own —the dots of its foot are
+// painted by the control and it is the control that turns— and what the system measured was the **sideways** travel only, so a
+// finger that goes up or down over a page that never scrolls did nothing. Left and up are the page after this one, right and
+// down the one before, and **the gesture is not a press**: the row it ends over is not picked, because the contact that walked
+// twenty pixels was a gesture from the first one (0.179.29) and the page turn spends it (docs/30, docs/90).
+//
+// The shelf of this case is twenty files written into `/fonts`: the app lists them and `sniff` reads the name and not the
+// bytes, so a file of one byte per row is a row of the list and the twenty of them are three pages (docs/85).
+void test_a_swipe_up_turns_the_page_of_a_list(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // **`/fonts` és un directori virtual** (docs/70): the flash's `res/fonts`, the card's `fonts` and the app's own, so the
+  // files of this case go where the board's faces are and the app lists them through the door (0.179.51, docs/70).
+  storage->mkdir("/res");        // the disk of the suite already has it, with the faces of the board
+  storage->mkdir("/res/fonts");
+  for (int i = 1; i <= 20; ++i) {
+    char name[32];
+    char path[64];
+    snprintf(name, sizeof(name), "page-%02d.ttf", i);
+    snprintf(path, sizeof(path), "/res/fonts/%s", name);
+    TEST_ASSERT_TRUE(write_text(storage, path, "x"));
+  }
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  TEST_ASSERT_TRUE(storage->mkdir("/apps/fonts"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/fonts.lua", "/apps/fonts/fonts.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/fonts/manifest.json", "/apps/fonts/manifest.json"));
+
+  // **On the first page and on the first row**, which the app says where it is (docs/30, docs/85).
+  kernel::log_echo(true);
+  pump_captured(120, g_out, sizeof(g_out), "run fonts shelf");
+  int row_x = 0;
+  int row_y = 0;
+  const char* row = strstr(g_out, "fonts: row ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(row, g_out);
+  {
+    char name[64] = {0};
+    TEST_ASSERT_EQUAL_INT_MESSAGE(3, sscanf(row, "fonts: row %63s %d %d", name, &row_x, &row_y), g_out);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), g_out);
+
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+  auto swipe = [&](int from_y, int to_y) {
+    if (!panel->finger_down(0, static_cast<uint16_t>(view.x + row_x), static_cast<uint16_t>(view.y + from_y))) {
+      return false;
+    }
+    pump_turns(40);
+    // **Three frames and not one**: a drag is a finger that moved between two scans of the glass, and the page turns on the
+    // frame that crosses the forty pixels (docs/50, docs/85).
+    const int step = (to_y > from_y) ? 40 : -40;
+    for (int y = from_y + step; (step > 0) ? (y <= to_y) : (y >= to_y); y += step) {
+      if (!panel->finger_move(0, static_cast<uint16_t>(view.x + row_x), static_cast<uint16_t>(view.y + y))) return false;
+      pump_turns(40);
+    }
+    if (!panel->finger_up(0)) return false;
+    pump_turns(200);
+    return true;
+  };
+
+  // **Cap amunt: la pàgina següent**, and the row it ends over is not picked.
+  capture_begin();
+  TEST_ASSERT_TRUE(swipe(row_y, row_y - 160));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: page 2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: open "), "the swipe picked the row it ended over");
+
+  // **I cap avall torna a la primera**, which is the other half of the same rule.
+  capture_begin();
+  TEST_ASSERT_TRUE(swipe(row_y, row_y + 160));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "fonts: page 1"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "fonts: open "), "the swipe picked the row it ended over");
+
+  kernel::shell::close_app();
+  pump_turns(40);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  kernel::log_echo(false);
+  for (int i = 1; i <= 20; ++i) {
+    char name[32];
+    char path[64];
+    snprintf(name, sizeof(name), "page-%02d.ttf", i);
+    snprintf(path, sizeof(path), "/res/fonts/%s", name);
+    storage->remove(path);
+  }
+  storage->remove("/apps/fonts/fonts.lua");
+  storage->remove("/apps/fonts/manifest.json");
+  storage->remove("/apps/fonts");
+}
+
 int main(int argc, char** argv) {  (void)argc;
   (void)argv;
   UNITY_BEGIN();
@@ -14570,6 +14686,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_an_app_reads_its_own_modules_and_no_one_elses);
   RUN_TEST(test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close);
   RUN_TEST(test_the_faces_app_opens_more_specimens_than_the_board_keeps);
+  RUN_TEST(test_a_swipe_up_turns_the_page_of_a_list);
   RUN_TEST(test_the_eraser_app_empties_the_store_after_the_card_is_accepted);
   RUN_TEST(test_the_eraser_app_empties_the_card_it_may_not_write);
   UNITY_END();

@@ -1106,7 +1106,7 @@ perquè la pàgina següent i la barra no són seves per quedar-se-les.
 | `ui.textbox_multiline(w, h)` | **un objecte** o `nil, error` | **Un camp de diverses línies**: `text`, `cursor` (bytes abans del cursor), `caret` (el bloc que el sistema fa parpellejar), `wrap` (si les línies llargues es parteixen), `top` (la primera fila que es veu, o `-1` perquè la trii el cursor), `color`, `background`, `border`, `scale`, **`keyboard`** (com el d'una línia), **`readonly`** (es llegeix i no s'escriu: el cursor hi és i el teclat no puja, 0.116.0) i **`framed`** (amb vora o sense, 0.116.0); **`box:rows()`** diu quantes files s'hi veuen i **`box:lines()`** quantes en té el text. **Si el text no hi cap, el cantó dret és una barra de desplaçament** que el dit mou si l'app ha registrat el gest amb `on_swipe`. **Retorn escriu un salt de línia** i el dit posa el cursor on toca (3/11, 0.78.0, 0.88.0, 0.91.0, 0.92.0, 0.116.0) |
 | `ui.selector(w, h)` | **un objecte** o `nil, error` | **Un camp que s'escull i no s'escriu**: `label` (la pregunta, en el to `dim` i petit), `items` (les opcions), `index` (**la triada, 1 a n, i 0 = cap**, que és un estat de debò), `empty` (com es diu «cap» en la llengua de l'app) i `choosing` (si la llista és a sobre, que inverteix només la columna de la fletxa). **La llista no és al control**: el dit o el centre disparen `on_open(self)` i l'app hi posa un `ui.menu` (3/11, 0.79.0) |
 | `ui.notification_bar(w, h)` | **un objecte** o `nil, error` | **La banda dels avisos**: `items` (cada avís és una paraula o `{title=, text=}`, **el més nou al final**), `color`, `dim`, `background`, `border` i `scale`. Les targetes s'apilen cap amunt amb **la més nova a baix**, tres com a molt; el que no hi cap **no es perd**: es compta amb un `+N`. La creu dispara `on_close(self, item)` i la targeta `on_pick(self, item)` (3/11, 0.80.0) |
-| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat passa la pàgina** (0.175.0, docs/30). **El cursor l'escriu el sistema** quan una cel·la pren el cercle (0.179.4) |
+| `ui.icon_grid(w, h)` | **un objecte** o `nil, error` | **Una graella de cel·les amb pàgines**: `items` (una paraula, o `{label=, mark=}`, on `mark` és la paraula curta de la caixa de la icona), `index` (la cel·la on és el dial, 1 a n, o 0), `marked` (la triada, que s'inverteix), `columns` (0 = el control decideix per l'amplada), `color`, `dim` i `scale`. **La pàgina segueix el cursor** i les fletxes caminen les cel·les; el centre i el dit trien amb `on_pick(self, index)` (3/11, 0.81.0). El peu és el **paginador del sistema** i **un dit que camina de costat —o cap amunt o avall, 0.179.51— passa la pàgina** (0.175.0, docs/30). **El cursor l'escriu el sistema** quan una cel·la pren el cercle (0.179.4) |
 | `ui.frame(x, y, w, h, [level], [mode])` | `true` o `nil, error` | El **voltant** d'una caixa, d'un píxel, i el mig sense tocar |
 | `ui.line(x0, y0, x1, y1, [level], [mode])` | `true` o `nil, error` | De punt a punt |
 | `ui.circle(cx, cy, r, [level], [mode])` | `true` o `nil, error` | La **línia** del cercle |
@@ -2280,11 +2280,18 @@ llista **pagina**, i el peu diu en quina pàgina ets.
   triada d'aquesta, i el control ho sap (zero).
 - **Les fletxes del dial canvien la pàgina** mentre la llista té el focus i l'app ho sap per `on_page(self, page)`.
   El peu només ensenya el galó del costat on hi ha alguna cosa, i al final del recorregut la tecla torna al dial.
-- **I el dit la canvia igual** (0.179.4): un gest de quaranta píxels o més cap a l'esquerra passa a la pàgina següent i
-  cap a la dreta a l'anterior, **una pàgina per contacte i mai una premuda** —la fila on s'aixeca el dit no es tria—, i
-  una llista que és a l'última pàgina no fa res si el dit hi va cap a l'esquerra: no dona la volta. És el mateix gest de
-  la graella i el mateix avís per `on_page`, o sigui que **una app no ha de llegir cap gest per girar una pàgina**: el
-  paginador és del control i el control el gira ell (docs/30, docs/90).
+- **I el dit la canvia igual** (0.179.4): un gest de quaranta píxels passa a la pàgina següent cap a l'esquerra **i cap
+  amunt**, i a l'anterior cap a la dreta **i cap avall** (0.179.51: una llista no fa scroll, o sigui que el gest vertical
+  vol dir el mateix que l'horitzontal, i el costat que el dit ha caminat més és el que mana). És **una pàgina per
+  contacte i mai una premuda** —la fila on s'aixeca el dit no es tria—, i una llista que és a l'última pàgina no fa res si
+  el dit hi va cap a l'esquerra: no dona la volta. És el mateix gest de la graella i el mateix avís per `on_page`, o sigui
+  que **una app no ha de llegir cap gest per girar una pàgina**: el paginador és del control i el control el gira ell
+  (docs/30, docs/90).
+- **El gest comença al control i acaba on vulgui** (0.179.51): el que fa que un control rebi un gest és **on cau el dit**,
+  i això val per al paginador igual que per a un botó —un lliscament que comença en una fila de la llista la gira encara
+  que el dit s'acabi fora del control i fora de la llista—. Les zones que no són de cap fila (el peu amb les boles, els
+  marges de la caixa) no són parada de res i un dit que hi cau no gira la pàgina: el gest s'ha de començar **sobre una
+  fila**.
 - **La pàgina no es queda mai enrere del cercle** (0.179.4): les files de les altres pàgines són fora del marc i no són
   parades, o sigui que una passa més enllà de l'última fila visible **és la pàgina** —i el cercle va a la primera de la
   nova—, i una passa enrere de la primera gira a l'anterior amb el cercle a l'última. A l'última pàgina la tecla torna

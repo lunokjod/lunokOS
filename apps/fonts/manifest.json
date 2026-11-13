@@ -1,9 +1,10 @@
 {
   "title": "Fonts",
   "author": "@lunokjod",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "fonts.lua",
   "boards": ["esp32"],
   "icon": "res/icon.png",
+  "splash": "res/splash.png",
   "description": "Every face the board can read, in one page: /fonts gathers the flash, the card and the fonts an app carries, and the page opens one of each of the four formats the system knows and draws it with its own letters."
 }

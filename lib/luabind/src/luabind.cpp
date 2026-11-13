@@ -12806,8 +12806,22 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // be a page whose dial is nowhere (docs/30, docs/90).
     if (index >= 0 && !g_ui_swipe_page) {
       const int dx = static_cast<int>(x) - static_cast<int>(g_ui_swipe_x0);
-      if (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop) {
-        const int8_t delta = static_cast<int8_t>((dx < 0) ? 1 : -1);
+      const int dy = static_cast<int>(y) - static_cast<int>(g_ui_swipe_y0);
+      const bool sideways = (dx >= kPageSwipeSlop || dx <= -kPageSwipeSlop);
+      const bool upwards = (dy >= kPageSwipeSlop || dy <= -kPageSwipeSlop);
+      // **Una pàgina es passa cap als dos costats i també cap amunt i avall** (0.179.51): the owner, with the list of the
+      // faces on the board: *«L'app fonts no passa pàgina de la llista amb swipe»*. The gesture was the sideways one and
+      // nothing else, and a finger on a list that never scrolls goes **up** as often as it goes left —the two mean the same
+      // thing on a page of paper, and this system has no scroll to give them another meaning—. The axis the finger walked
+      // most is the one that says which way: left and up are the page after this one, right and down the one before
+      // (docs/30, docs/90).
+      if (sideways || upwards) {
+        int8_t delta = 0;
+        if (sideways && (!upwards || (dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy))) {
+          delta = static_cast<int8_t>((dx < 0) ? 1 : -1);
+        } else {
+          delta = static_cast<int8_t>((dy < 0) ? 1 : -1);
+        }
         // **A list turns with the same finger** (0.179.4): the paginator of the control is the one that says which page is
         // on the glass and the finger is one more way of asking for the next one, the same promise `about` kept by hand with a
         // drag of its own. What the system does is join the two, and the app hears `on_page` as it does from the dial.
@@ -12953,6 +12967,9 @@ void ui_touch_progress(uint16_t x, uint16_t y, bool down) {
     // measured from here and not from the last frame, so a page does not turn twice for one swipe (0.175.0, docs/90).
     // **And it is the point every control measures its own tap from** (0.179.29): the same landing, for the same reason.
     g_ui_swipe_x0 = x;
+    // **I el mateix punt per al camí de dalt a baix** (0.179.51): a page of a list is not a scroll, so a finger that goes up
+    // is asking for the page after this one and the travel to measure it starts here, where the finger landed.
+    g_ui_swipe_y0 = y;
     g_ui_touch_x0 = x;
     g_ui_touch_y0 = y;
     g_ui_touch_moved = false;

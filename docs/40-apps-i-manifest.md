@@ -260,6 +260,10 @@ Regles de validació, totes amb error clar i el nom del camp:
   **I des de la 0.179.39 l'eina escriu el dibuix i prou**: la composició es retalla al que hi ha dibuixat amb **12
   píxels** de marge, o sigui que la targeta va passar de 420 × 520 i 6 906 B a 209 × 445 i 5 585 B (**−57 % de
   píxels**) i la del lector de 420 × 520 i 6 876 B a **223 × 451 i 6 217 B** (−54 %).
+- **I la de les cares existeix des de la 0.179.51**: `fonts` llegeix el directori sencer de `/fonts` i obre una cara de
+  cada format, o sigui que **una arrencada seva són fitxers de disc** i la targeta és el que hi ha al vidre mentre
+  passen —`--icon apps/fonts/res/icon-source.png --title Fonts --foot lunokOS`, **209 × 447 i 5 276 B**, la mateixa
+  recepta del mestre de 448 i no de la icona de 94— (docs/50).
 - **La imatge d'un splash és el dibuix i prou** (0.179.39): el sistema en treu **el fons de la pàgina del seu marge**
   (si més de la meitat de l'anella exterior és fosca, la pàgina és tinta; si no, paper) i **descarta l'aire uniforme** que
   envolta el dibuix, que és el que es queda al mig del vidre. O sigui que una imatge no ha de tenir vores blanques ni ser

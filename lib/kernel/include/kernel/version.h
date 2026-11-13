@@ -5598,6 +5598,33 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.51 (13/11): **a page of a list is turned with a finger that goes up, and the shelf of the faces has a card**. The
+// owner: *«L'app fonts no passa pàgina de la llista amb swipe, usa el paginador Dots intern de la llista o afegit manualment? En
+// cas de ser intern, el control registra bé els swipe?»* (docs/30, docs/40, docs/90):
+//   - **el paginador és intern i el control registrava el gest a mitges**: the dots of the foot are the list's own (0.174.2) and
+//     since 0.179.4 the control turns its page with a finger — but the travel it measured was **sideways only**, so a hand that
+//     goes **up or down** over a page that never scrolls did nothing, and that is the gesture a person makes on the shelf of the
+//     faces. Left and up are the page after this one, right and down the one before, and the axis the finger walked most is the
+//     one that says which. A list and a grid both, because both are pages and neither has a scroll to give the vertical its other
+//     meaning (`kPageSwipeSlop`, the landing's `y` is kept now the way its `x` already was);
+//   - **and el que no canvia és la regla de l'amo**: the gesture is the control's when it **begins** on it —a swipe that starts on
+//     a row turns the page even if the finger ends outside the list—, a contact that walked twenty pixels is never a press (0.179.29)
+//     so a swipe picks no row, and **a point that is not on a row is not a stop of anything**: a finger that lands on the foot with
+//     the dots or in the margin of the box is on no control and turns nothing. That last one is the hole this version leaves
+//     written down and does not close (the foot is thirty-seven rows of a list that are the paginator's and not a target);
+//   - **i la lleixa diu en quina pàgina és** (`fonts: page 2`): the app did not have `on_page`, so a page turned by a finger left
+//     no line in the log and a test could only see the ink;
+//   - **i l'app de les cares té targeta** (0.179.51): `fonts` reads the whole directory of `/fonts` and opens one face of each of
+//     the four formats, which is files of the disk before its first page —`tools/app_splash.py --icon
+//     apps/fonts/res/icon-source.png --title Fonts --foot lunokOS`, **209 × 447 i 5 276 B** from the 448 master, the recipe of the
+//     launcher's card and not a page of the glass— and `"splash"` in its manifest (app 0.2.0);
+//   - **mesurat**: two cases. `test_a_swipe_up_turns_the_page_of_a_list` (test_apps) writes twenty files into `res/fonts` —which
+//     `/fonts` presents as a directory— runs the app, swipes up from the first row and reads `fonts: page 2` with **no row picked**,
+//     then swipes down and reads `page 1`; and the case of the grid grows the same half (a finger up over a cell turns to the second
+//     page and the ring lands on its first cell). **The case of the list is red without this version's line** —it was checked by
+//     turning the vertical travel off and running it— and the whole suite is green (`618 cases`, 24 suites), with the five boards and
+//     the emulator built.
+
 // 0.179.50 (13/11): **the page of the hour shows the hour of summer and not the leap day**. The owner, with the page of the time
 // zone on the emulator: *«A l'app Time zone surt "Leap year" i aquesta dada no es important, l'important es el "Daylight time"
 // (horari d'estiu!)»* (docs/30, docs/60):
@@ -7087,7 +7114,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.50";
+static const char kVersion[] = "0.179.51";
 
 }  // namespace kernel
 

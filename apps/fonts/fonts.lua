@@ -304,6 +304,10 @@ build_shelf = function()
   -- **The ring is on the first row**: a list with entries is a list of stops, and a page that does not say which one the
   -- centre would press is a page opened only by a finger (docs/30).
   if first ~= nil then ui.focus(first) end
+  -- **La pàgina es diu**: the paginator is the list's and a swipe or a key turns it, so the app is told which page it is on
+  -- and nothing has to read the gesture to know (the rule of 0.179.4, docs/30) — and a page that says it can be read in the
+  -- log, which is how the case of the swipe up knows it turned (0.179.51, docs/85).
+  the_list.on_page = function(self, page) console.print('fonts: page ' .. page) end
   shelf_list = the_list
   ui.present()
   console.print(string.format('fonts: %d rows, %d of them faces', #files, faces))
