@@ -147,10 +147,20 @@ pio run -e m5-atom            # firmware; les proves de flashejar les fa l'amo
 pio run -e m5-atom-matrix     # la placa del panell: 25 llums al mateix GPIO27
 pio run -e esp32-devkit           # el mínim: un ESP32 de DevKit, sense res a sobre
 pio run -e ttgo-t-koala          # la LilyGO T-Koala: WROVER-B, PSRAM mapejada, LED i SD
-pio test -e test           # proves natives
+pio test                   # proves natives (i `pio test -e test`, el que fa el CI)
 ```
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
+
+**`pio test` sense `-e` corre a l'entorn de l'emulador** (0.179.54): `default_envs` és `emulator`, i fins avui
+això volia dir que les suites es compilaven en un entorn que **no les pot enllaçar** —`[env:emulator]` no tenia
+`test_build_src`, o sigui que `src/board_link.cpp` no es compilava i tota biblioteca que demana `pal::system()`
+es quedava amb una referència sense resoldre—. El resultat era el que es veia el 13/11: `emulator:test_bar` mort
+al enllaç, `emulator:test_apps` vermell pel default de l'app d'inici de la placa, i vint-i-dues suites més amb
+una barreja de les dues coses. Ara l'entorn de l'emulador porta `test_build_src = yes` i les 619 proves hi passen
+igual que a l'entorn `test`, i són el mateix codi: l'única diferència que queda és `LUNOK_HOME_APP`, i el cas que
+la llegeix compara amb `cfg::home_default()` en lloc de suposar que és buit. El CI continua cridant
+`pio test -e test`, que és l'entorn que té el disc i les apps de les proves (`custom_apps_copied`).
 
 **Un emulador sense vidre, per veure què arrenca una placa sense pantalla** (0.179.9): les quatre plaques sense
 pantalla compilen el sistema sense la pàgina, el lector, les cares ni `epub`/`ttf`/`img`, i el PC és l'única manera de

@@ -10074,7 +10074,14 @@ void test_the_home_app_comes_up_with_the_board(void) {
   TEST_ASSERT_EQUAL_STRING("comer", kernel::cfg::home_app());
   pump_captured(20, g_out, sizeof(g_out), "cfg home");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: home comer"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "this board's default is none"), g_out);
+  // **El default és el del build i no el d'aquest entorn** (0.179.54): `pio test` sense `-e` corre a l'entorn de
+  // l'emulador, on `LUNOK_HOME_APP` és `home_eink` i no buit, i aquesta línia deia `none` a la força: el cas mesurava
+  // l'entorn on s'havia compilat i no la configuració, i era vermell a `pio test` i verd a `pio test -e test` (13/11).
+  // El que la línia ha de dir és el default del build, sigui quin sigui, i qui el sap és `cfg::home_default()`.
+  char the_default[96];
+  snprintf(the_default, sizeof(the_default), "this board's default is %s",
+           (kernel::cfg::home_default()[0] != '\0') ? kernel::cfg::home_default() : "none");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, the_default), g_out);
 
   // **The boot starts it**: nothing is in front, so the home app is the one that comes up, and the prompt is not a
   // place the board stopped at. **The capture wraps the boot and not the turns after it** (0.152.5): the source of an

@@ -5598,6 +5598,23 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.54 (13/11): **`pio test` sense `-e` deixa de ser un mur de vermells falsos**. The owner: *«jo continuo veient MERDA A
+// ~/.platformio/penv/bin/pio test»* (docs/80):
+//   - **el que passava**: `pio test` sense `-e` agafa `default_envs`, que és `emulator`, i `[env:emulator]` **no tenia
+//     `test_build_src`** — o sigui que `src/board_link.cpp` no es compilava en una compilació de proves i les biblioteques que
+//     demanen `pal::system()`, `pal::extra_memory()` o `pal::delay_us()` es quedaven amb referències sense resoldre. Mesurat:
+//     `emulator:test_bar` moria a l'enllaç, `emulator:test_apps` sortia vermell, i el resum deia `0 succeeded` amb vint-i-quatre
+//     `ERRORED`; les que enllaçaven corrien amb el disc de l'emulador i el seu `LUNOK_HOME_APP=home_eink`. Res d'allò deia res
+//     del codi, i el CI no ho veia perquè crida `pio test -e test`;
+//   - **la línia que ho arregla** és `test_build_src = yes` a `[env:emulator]`, amb el comentari que diu per què: una compilació
+//     de proves en aquest entorn ha de poder enllaçar el PAL. Amb això sol, `pio test` va passar a `618 de 619`;
+//   - **i el cas que quedava mesurava l'entorn i no la configuració** (`test_the_home_app_comes_up_with_the_board`): deia
+//     `this board's default is none` a la força, i a l'entorn de l'emulador el default del build és `home_eink`. Ara compara amb
+//     `cfg::home_default()`, que és qui el sap, i el cas diu el mateix en qualsevol entorn on es compili;
+//   - **mesurat**: `pio test` (sense `-e`) **619 de 619 en 3 min 30 s** i `pio test -e test` **619 de 619 en 3 min 35 s**, el
+//     mateix codi als dos llocs; l'emulador compilat. **El CI no canvia**: continua cridant `pio test -e test`, que és l'entorn
+//     amb el disc propi i les apps copiades (`custom_apps_copied`).
+
 // 0.179.53 (13/11): **la suite torna a estar verda: un forat del sistema, i un cas que era una moneda a l'aire**. The owner:
 // *«els tests no passen... soluciona els problems de pio test [...] Fes que els tests estiguin actualitzats, funcionant i
 // que tots passen en verd»* (docs/50, docs/80):
@@ -7176,7 +7193,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.53";
+static const char kVersion[] = "0.179.54";
 
 }  // namespace kernel
 
