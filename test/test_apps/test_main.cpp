@@ -13812,7 +13812,7 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
       one.y = one.w;
       one.w = 0;
       one.h = 0;
-    } else if (read == 4 && strcmp(one.what, "leap") == 0) {
+    } else if (read == 4 && (strcmp(one.what, "dst") == 0 || strcmp(one.what, "leap") == 0)) {
       // `what`, the place and one side of it: the checkbox is a square and the app says one side.
       one.h = one.w;
     } else if (read != 5) {
@@ -13840,7 +13840,9 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     if (++seen == 16) hour_three = &places[i];
   }
   TEST_ASSERT_NOT_NULL_MESSAGE(place("sync"), g_out);
-  TEST_ASSERT_NOT_NULL_MESSAGE(place("leap"), g_out);
+  // **I la casella és la de l'hora d'estiu** (0.179.50): the page of the hour shows what makes the hour of summer and not
+  // the leap day, which is a calendar of the board and lives with `cfg leap` (docs/30, docs/60).
+  TEST_ASSERT_NOT_NULL_MESSAGE(place("dst"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(place("week"), g_out);
   TEST_ASSERT_NOT_NULL_MESSAGE(place("list"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(25, seen, g_out);
@@ -13855,7 +13857,8 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
     return true;
   };
 
-  // **Nothing has touched a setting yet**: the page is only holding the hour it read.
+  // **Nothing has touched a setting yet**: the page is only holding the hour it read, and the leap day of the board is not
+  // hers to turn any more (0.179.50).
   TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the leap day went off with no finger on it");
 
   // **The dial is the system's again** (0.174.0): the page reads no key any more, and the ring is on the first control
@@ -13873,8 +13876,8 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   emu::press_button(false);
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap off"), g_out);
-  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the centre did not press the box the ring was on");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: dst on +01:00"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the box of the hour turned the leap day of the board");
 
   // **A finger on the band of +3** picks it and says so, and nothing is written yet: the page is holding it.
   TEST_ASSERT_NOT_NULL(hour_three);
@@ -13884,7 +13887,7 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: picked +03:00"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(before, kernel::cfg::tz_minutes(), "the page saved the hour before the close");
-  TEST_ASSERT_FALSE_MESSAGE(kernel::cfg::leap_years(), "the map turned the leap day, and that is not its setting");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the map turned the leap day, and that is not its setting");
 
   // **The button of the time server is a `ui.button` of the system and it hears the finger** (0.174.0, the owner: *«el
   // botó de sync NTP tampoc sembla un botó de sistema»*): the click is a hook and a hook cannot wait, so the button leaves
@@ -13896,15 +13899,14 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: no clock: no network saved"), g_out);
 
-  // **The leap day and the week are settings with an immediate effect**: a checkbox and a list are not a choice that
-  // waits for the close, and the finger is the other road to the same box (docs/60).
-  const Place* leap = place("leap");
+  // **The hour of summer and the week are settings with an immediate effect on the page**: a box and a list are not a
+  // choice that waits for the close, and the finger is the other road to the same box (docs/30).
+  const Place* dst = place("dst");
   capture_begin();
-  TEST_ASSERT_TRUE(tap(leap->x, leap->y));
+  TEST_ASSERT_TRUE(tap(dst->x, dst->y));
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: leap on"), g_out);
-  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the finger did not turn the box back on");
-  TEST_ASSERT_EQUAL_UINT8(29, kernel::calendar::days_in_month(2024, 2));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: dst off +03:00"), g_out);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::cfg::leap_years(), "the finger on the box turned the leap day of the board");
 
   const Place* week = place("week");
   capture_begin();
@@ -13926,17 +13928,24 @@ void test_the_time_zone_app_picks_a_zone_and_saves_it_on_the_close(void) {
   // take—, `on_close` runs, and the setting is the one the page was holding. **The three taps of the centre are not the
   // way out of this page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the rule
   // of the system, so this case closes the app the way the pinch does (docs/30).
+  // **The hour of summer is turned on again and it goes into the close with the hour**: the page was showing +04:00 and
+  // that is the number the board keeps, or a person would have to add the hour of summer twice —once in the page and once
+  // in their head— (0.179.50, docs/30).
+  capture_begin();
+  TEST_ASSERT_TRUE(tap(dst->x, dst->y));
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: dst on +04:00"), g_out);
   capture_begin();
   kernel::shell::close_app();
   pump_turns(40);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_FALSE_MESSAGE(kernel::app_running(), "the app survived a close of the shell");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +03:00"), g_out);
-  TEST_ASSERT_EQUAL_INT(180, kernel::cfg::tz_minutes());
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "tz: saved +04:00"), g_out);
+  TEST_ASSERT_EQUAL_INT(240, kernel::cfg::tz_minutes());
 
   // And the prompt says the same thing the page said.
   pump_captured(20, g_out, sizeof(g_out), "cfg tz");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: tz +03:00"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: tz +04:00"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg week");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "settings: week sunday"), g_out);
   pump_captured(20, g_out, sizeof(g_out), "cfg leap");

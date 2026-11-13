@@ -5598,6 +5598,27 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.50 (13/11): **the page of the hour shows the hour of summer and not the leap day**. The owner, with the page of the time
+// zone on the emulator: *«A l'app Time zone surt "Leap year" i aquesta dada no es important, l'important es el "Daylight time"
+// (horari d'estiu!)»* (docs/30, docs/60):
+//   - **la casella és `Daylight time` i suma una hora a la zona**: checked, the offset of the map goes sixty minutes east —in the
+//     band that is filled, in the words `Selected timezone: +01:00` and in the number the close saves—. It is a **shift of this
+//     page** and not a second setting, because the board keeps one number: a board that reads +02:00 in July and +01:00 in
+//     December keeps the same setting all year, and a country that shifts by half an hour is a `time.tz` of its own
+//     (`kDaylightMinutes`, `shown_offset` and `shown_hour` in `apps/tz/tz.lua`);
+//   - **i el dia de traspàs surt de la pàgina sense perdre's**: it is still a setting of the board —`cfg leap`, `time.leap`, and
+//     the clock that comes from a server turns it on, which is the rule of 9/11— and it keeps its two homes; what it does not have
+//     any more is a box on the page of the hour, which is what the owner asked for (docs/60);
+//   - **i la pàgina que s'esborra demana els seus controls**: `ui.clear` covers what the children of the page had drawn and a
+//     control draws only when it is marked, so a page painted whole after the box —or after a sync, which had the fault since
+//     0.174.0— left the button and the list white until the next finger. `paint_page` invalidates the three of them, and
+//     `invalidate` of a parent asks its children (the rule of 0.168.4) (found in the window, 13/11);
+//   - **mesurat**: the case of the page walks its three controls with the dial as before, and now the second one is the box of the
+//     hour of summer: the centre turns it on (`tz: dst on +01:00`, and the leap day of the board is **not** turned), the finger
+//     turns it off (`tz: dst off +03:00`), it is turned on again and the close saves **+04:00** (`cfg tz` says the same). En la
+//     finestra: la casella surt a la pàgina, la banda i la frase es mouen una hora i el botó i el desplegable hi són després del
+//     canvi. `617 cases` i la suite sencera verda, les cinc plaques i l'emulador construïts.
+
 // 0.179.49 (13/11): **a swipe up from outside the card puts the panel away**. The owner: *«es pot tancar polsant fora del
 // panell. Afegeix també el "sipe up" desde fora del panell que fa que el tancament sigui molt més natural»* (docs/30, docs/92):
 //   - **el gest torna i la condició és tota la història**: 0.179.42 va treure l'arrissada cap amunt perquè era el gest que la pàgina
@@ -7066,7 +7087,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.49";
+static const char kVersion[] = "0.179.50";
 
 }  // namespace kernel
 

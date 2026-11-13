@@ -210,7 +210,8 @@ de la funció, tal com el llista el resum del `RUN_TEST`.
   pàgina que **té `on_draw`**: el forat que queda és de l'app —sense cap rentada de paper i amb una sola regió de tinta en
   comptes de dues— i el dibuix de la vista el torna a pintar tallat en aquell requadre (`test_ui` i `test_apps`), i la de
   la 0.174.0 és **`net.ntp` contestant a una app** i no només a la consola (`test_luabind`, que falla sense l'arranjament),
-  amb el cas de la pàgina de la zona horària passejant el dial pels seus tres controls i prement-los (`test_apps`), i
+  amb el cas de la pàgina de la zona horària passejant el dial pels seus tres controls i prement-los —el segon és la casella
+  de l'horari d'estiu (0.179.50), que mou la banda i el número que es desa— (`test_apps`), i
   les dues de la 0.174.1 són **la porta de `/fonts`** amb els dos discs i la marca de la còpia de la targeta (`test_apps`)
   i **el visor obrint els quatre formats** que el nucli llegeix, amb un dit en una fila i la tornada pel botó
   (`test_apps`), i la de la 0.174.2 és **el peu d'una llista essent el paginador del sistema** —la bola de la pàgina

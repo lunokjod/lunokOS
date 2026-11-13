@@ -12,9 +12,17 @@
 -- the world with the world hidden is a ruler.
 --
 -- **THE ZONE IS SAVED WHEN THE APP CLOSES AND NOT WHEN IT IS TOUCHED**, which is the owner's decision (9/11):
--- `time.tz()` writes the setting at once, so the page keeps the choice and calls it from `on_close`. The leap day and
--- the first day of the week are the other way round —a checkbox and a list are settings with an immediate effect on
--- every calendar of the system, and a person who turns one of them is telling the system and not this page— (docs/60).
+-- `time.tz()` writes the setting at once, so the page keeps the choice and calls it from `on_close`. The first day of the
+-- week is the other way round —a list is a setting with an immediate effect on every calendar of the system, and a person
+-- who turns it is telling the system and not this page— (docs/60).
+--
+-- **EL QUE COMPTA ÉS L'HORARI D'ESTIU I NO EL DIA DE TRASPÀS** (0.179.50). The owner, with the page on the emulator:
+-- *«A l'app Time zone surt "Leap year" i aquesta dada no es important, l'important es el "Daylight time" (horari
+-- d'estiu!)»*. The leap day is a calendar of the whole board and it has its own two homes —`cfg leap` and the automatic
+-- one of a clock that came from a server—, so the box of this page is the hour a person really has in summer: **checked,
+-- the offset of the map goes one hour east** (`kDaylightMinutes`), in the bands, in the label and in what the close
+-- saves. It is a shift and not a second setting: the system keeps one number, and a board that reads +02:00 in July and
+-- +01:00 in December has the same setting all year (docs/30, docs/60).
 --
 -- **THE THREE SETTINGS ARE THE SYSTEM'S CONTROLS AND THE MAP IS THE APP'S** (0.174.0): a `ui.button` with its `title`, a
 -- `ui.checkbox` with its label and a `ui.selector` whose door opens a `ui.menu`; the ring of the focus walks them and the
@@ -34,6 +42,9 @@ end
 -- on e-ink that is the difference between a settings page and a page that flashes (docs/50).
 local kPageMode = 'gc16'
 local kMoveMode = 'du'
+-- **Una hora i no una regla**: the hour of summer is what a person asks for, and the system keeps offsets of minutes. A
+-- country that shifts by half an hour is a `time.tz` of its own, not a box of this page (docs/30, docs/60).
+local kDaylightMinutes = 60
 
 -- **How long a person waits for the time server before the page says it did not answer**: the system's default is twenty
 -- seconds, which on this page is twenty seconds of a button that does nothing, and a finger that presses it again
@@ -119,14 +130,31 @@ local function build_layout()
 end
 
 -- **What the page is holding**, which is not yet what the system keeps: the offset of the hour waits for the close, and
--- the two calendar settings go in as soon as they are touched (docs/60).
+-- the first day of the week goes in as soon as it is touched (docs/60). `chosen_hour` is the hour the map says and
+-- `chosen` the offset it is worth, and they are both here because the page, the bands and the box of the hour of summer
+-- read them from the same place (0.179.50).
 local chosen = 0
+local chosen_hour = 0
+-- **L'horari d'estiu és una hora de més sobre el que diu el mapa** and it is the page's until the close, like the
+-- offset itself. `leap` stays because a clock that comes from a server turns the leap day on (the rule of 9/11), and this
+-- page is where that clock is asked for (docs/60).
+local dst = false
 local leap = true
 local week = 1
 local status = ''
 -- **What a click asked for and the loop has to do**: see the `on_click` of the button (0.174.0).
 local want_sync = false
 local busy = false
+
+-- **El que la pàgina ensenya i desa**: the offset the map says plus the hour of summer, and the hour of the band that is
+-- filled. One place each, so a checked box cannot move the label and leave the bands behind (0.179.50, docs/30).
+local function shown_offset()
+  return chosen + (dst and kDaylightMinutes or 0)
+end
+
+local function shown_hour()
+  return chosen_hour + (dst and 1 or 0)
+end
 
 local function tz_text(minutes)
   local sign = '+'
@@ -202,8 +230,8 @@ end
 -- label inside it and a `ui.selector` are the look and the behaviour of every other page of this board, they are drawn
 -- by the kernel, and **the ring of the focus arrives at them by itself** (docs/30, docs/92).
 local sync = nil
-local leapbox = nil
-local leapwords = nil
+local dstbox = nil
+local dstwords = nil
 local weekfield = nil
 local weekmenu = nil
 -- **What the controls ask for is the page's, and it is said here because the controls are made above it**: the two
@@ -212,6 +240,9 @@ local sync_clock
 local open_week_menu
 local close_week_menu
 local place_settings
+-- **I la pàgina sencera**, because the box of the hour of summer paints it from its hook and a hook that runs before the
+-- page exists would be a nil (0.179.50, docs/30).
+local paint_page
 
 local function refused(what, err)
   console.print('tz: no ' .. what .. ' (' .. tostring(err and err.code or 'the memory') .. ')')
@@ -236,19 +267,21 @@ place_settings = function()
     -- close, and then run it— (docs/30, docs/90).
     sync.on_click = function() want_sync = true end
 
-    leapbox, why = ui.checkbox(2, 2)
-    if leapbox == nil then return refused('leap box', why) end
-    leapwords, why = ui.label(2, 2)
-    if leapwords == nil then return refused('leap words', why) end
-    leapwords.text = 'Leap year'
-    leapwords.valign = 'middle'
-    leapbox:add(leapwords)
-    -- **The state is the system's and the app only reads it**: the click turns `checked` before this runs, so the page and
-    -- the setting cannot say different things (docs/30).
-    leapbox.on_change = function(self, on)
-      leap = time.leap(on)
-      console.print('tz: leap ' .. (on and 'on' or 'off'))
-      -- A square that has turned leaves the ghost of its cross, and a `gc16` of the row is what washes it (docs/50).
+    dstbox, why = ui.checkbox(2, 2)
+    if dstbox == nil then return refused('daylight box', why) end
+    dstwords, why = ui.label(2, 2)
+    if dstwords == nil then return refused('daylight words', why) end
+    dstwords.text = 'Daylight time'
+    dstwords.valign = 'middle'
+    dstbox:add(dstwords)
+    -- **La casella és de la pàgina i no del sistema** (0.179.50): the offset of the board is one number, and the hour of
+    -- summer is the map's hour plus sixty minutes — a shift of this page, saved with it. What it moves is the band that is
+    -- filled and the label, so the page is painted again whole: a box that turned and a band that stayed where it was is
+    -- two answers to one finger (docs/30, docs/60).
+    dstbox.on_change = function(self, on)
+      dst = on
+      console.print('tz: dst ' .. (on and 'on' or 'off') .. ' ' .. tz_text(shown_offset()))
+      paint_page()
       ui.present(kPageMode)
     end
 
@@ -264,12 +297,12 @@ place_settings = function()
   sync:place(box.sync_x, box.sync_y)
   sync.scale = kBody
 
-  leapbox:resize(box.check_row_w, box.check_row_h)
-  leapbox:place(box.check_x, box.check_y - (box.check_row_h - box.check_box) // 2)
-  leapbox.checked = leap
-  leapwords:resize(box.check_row_w - leapbox:box() - 32, line)
-  leapwords:place(leapbox:box() + 16, (box.check_row_h - line) // 2)
-  leapwords.scale = kBody
+  dstbox:resize(box.check_row_w, box.check_row_h)
+  dstbox:place(box.check_x, box.check_y - (box.check_row_h - box.check_box) // 2)
+  dstbox.checked = dst
+  dstwords:resize(box.check_row_w - dstbox:box() - 32, line)
+  dstwords:place(dstbox:box() + 16, (box.check_row_h - line) // 2)
+  dstwords.scale = kBody
 
   weekfield:resize(box.select_w, box.select_h)
   weekfield:place(box.select_x, box.select_y)
@@ -283,29 +316,37 @@ local function paint_status()
   ui.text(box.sync_x + box.sync_w + 20, box.sync_y + 20, status, kSmall, 0)
 end
 
-local function paint_page(chosen_hour)
+paint_page = function()
   ui.clear(15)
   ui.image(box.map_x, box.map_y, '/res/world.png', box.map_w, box.map_h)
-  paint_bands(chosen_hour)
+  paint_bands(shown_hour())
   paint_hours()
 
-  local sentence = 'Selected timezone: ' .. tz_text(chosen)
+  local sentence = 'Selected timezone: ' .. tz_text(shown_offset())
   ui.text(box.map_x, box.label_y, sentence, fit_scale(sentence, box.map_w, kTitle), 0)
   ui.text(box.map_x, box.saved_y, 'Saved when this app closes', kSmall, 8)
 
   -- **The three settings are not painted here**: they are children of the page, the system draws them, and this call is
   -- only the text of the page and the answer of the last synchronisation (0.174.0, docs/30).
   paint_status()
+  -- **I la pàgina que s'ha esborrat els demana que es tornin a dibuixar** (0.179.50): `ui.clear` paints the paper of the
+  -- page over what its children had there, and a control draws only when it is marked —placing it marks it, which is why
+  -- the first page is whole—. A page painted whole after a sync or after the box of the hour of summer left the button and
+  -- the list white until the next finger (found in the window, 13/11). `invalidate` of a parent asks its children, which is
+  -- the rule of 0.168.4 (docs/30, docs/90).
+  for _, one in ipairs({ sync, dstbox, weekfield }) do
+    if one ~= nil then one:invalidate() end
+  end
 end
 
 local function paint_choice()
   -- **A finger on the map moves two bands and one line**: the bands and the row of the label paint themselves over
   -- their own paper, and the map under them is not touched, because a page that flashes at every hour is a page nobody
   -- drags across (docs/50).
-  paint_bands(chosen // kMinutesPerHour)
+  paint_bands(shown_hour())
   paint_hours()
   ui.rect(box.map_x, box.label_y, box.map_w, ui.line_height(kTitle), 15)
-  local sentence = 'Selected timezone: ' .. tz_text(chosen)
+  local sentence = 'Selected timezone: ' .. tz_text(shown_offset())
   ui.text(box.map_x, box.label_y, sentence, fit_scale(sentence, box.map_w, kTitle), 0)
   ui.present(kMoveMode)
 end
@@ -314,10 +355,8 @@ end
 
 build_layout()
 
-local chosen_hour = 0
-chosen = 0
--- **The page reads the system first**: the offset it is showing is the one the board has, and the two calendar
--- settings are the ones every calendar of this board is using (docs/30, docs/60).
+-- **The page reads the system first**: the offset it is showing is the one the board has, and the first day of the week
+-- is the one every calendar of this board is using (docs/30, docs/60).
 chosen = time.tz()
 chosen_hour = math.floor(chosen / kMinutesPerHour + (chosen >= 0 and 0.5 or -0.5))
 if chosen_hour < kFirstHour then chosen_hour = kFirstHour end
@@ -341,18 +380,18 @@ if app.args ~= nil and app.args.path == 'zones' then
       box.map_y + box.map_h // 2))
   end
   console.print(string.format('tz sync %d %d %d %d', box.sync_x, box.sync_y, box.sync_w, box.sync_h))
-  console.print(string.format('tz leap %d %d %d', box.check_x + box.check_box // 2,
+  console.print(string.format('tz dst %d %d %d', box.check_x + box.check_box // 2,
     box.check_y + box.check_box // 2, box.check_box))
   console.print(string.format('tz week %d %d %d %d', box.select_x, box.select_y, box.select_w, box.select_h))
   console.print(string.format('tz list %d %d %d %d', box.list_x, box.list_y, box.list_w, box.list_h))
-  for _, one in ipairs({ sync, leapbox, weekfield }) do
+  for _, one in ipairs({ sync, dstbox, weekfield }) do
     ui.focus(one)
     console.print('tz stop ' .. tostring(one.focused))
   end
   ui.focus(sync)
 end
 
-paint_page(chosen_hour)
+paint_page()
 ui.present(kPageMode)
 
 -- **Saving is the close and nothing else**: `time.tz()` writes the setting at once, so this page calls it when the
@@ -361,9 +400,11 @@ ui.present(kPageMode)
 -- page any more** (0.174.0): a page with focusable controls has the centre for Enter, which is the system's rule, so the
 -- pinch of the glass is what closes it (docs/30).
 function on_close()
-  if chosen ~= time.tz() then
-    time.tz(chosen)
-    console.print('tz: saved ' .. tz_text(chosen))
+  -- **I l'hora d'estiu va amb l'hora**: the number the board keeps is the one the page was showing, or a close would save
+  -- the winter hour of a page that said summer all afternoon (0.179.50, docs/30).
+  if shown_offset() ~= time.tz() then
+    time.tz(shown_offset())
+    console.print('tz: saved ' .. tz_text(shown_offset()))
   end
 end
 
@@ -413,11 +454,11 @@ sync_clock = function()
     -- **An hour that came from a time server turns the leap day on**: the calendar of the world has the twenty-ninth
     -- of February, and a board that has just been told what day it is does not need to be told that too (the owner's
     -- rule, 9/11, docs/60).
+    -- **I el dia de traspàs ja no té casella en aquesta pàgina** (0.179.50): the setting is still turned on by a clock that
+    -- came from a server —the rule of 9/11— and it is read and written with `cfg leap` and `time.leap`, but the page of the
+    -- hour is the page of the hour (docs/60).
     if not leap then
       leap = time.leap(true)
-      -- **And the checkbox says so**, because it is the control of that setting and a page whose box is empty over a
-      -- calendar that has the twenty-ninth is a page that lies (0.174.0, docs/30).
-      leapbox.checked = leap
     end
     local now = time.date()
     status = string.format('synced %04d-%02d-%02d %02d:%02d', now.year, now.month, now.day, now.hour, now.min)
@@ -427,7 +468,7 @@ sync_clock = function()
     console.print('tz: ' .. status)
   end
 
-  paint_page(chosen_hour)
+  paint_page()
   ui.present(kPageMode)
 end
 
@@ -502,7 +543,7 @@ while true do
     -- **A turned glass is the same page with other boxes**, and the controls move with it (0.174.0).
     build_layout()
     place_settings()
-    paint_page(chosen_hour)
+    paint_page()
     ui.present(kPageMode)
   end
 

@@ -329,7 +329,9 @@ són a `test/test_calendar`: el febrer de 2024, 1900, 2000 i 2100, i sis dates q
 
 **I les dues coses que sí que són una opció** (0.170.0): el primer dia de la setmana i el dia de traspàs són
 **ajustos del sistema**, i no una taula de cada app, perquè `ui.month`, `time.utc`/`date` i qualsevol pàgina que compti
-dies d'un mes han de dir el mateix (l'app de la zona horària les mou amb `time.leap` i `time.week`, docs/30):
+dies d'un mes han de dir el mateix (l'app de la zona horària mou el primer dia amb `time.week`; el traspàs es mou amb
+`cfg leap` i `time.leap`, i des de 0.179.50 **no té casella en aquella pàgina** —el que hi ha és l'horari d'estiu, que és
+una hora de més sobre la zona— docs/30):
 
 - **`cfg leap on|off`** (o `time.leap`): amb el traspàs apagat, `days_in_month` diu que el febrer té vint-i-vuit dies
   **cada any**, i la pàgina d'un calendari ensenya vint-i-vuit. **El dia de la setmana d'una data no es mou**: el 29 de

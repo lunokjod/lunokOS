@@ -534,7 +534,8 @@ I el 8/11 **D6 queda resolta de les dues bandes**: **`require`** (0.148.0) i el 
 
 ## Les dues apps que l'amo va demanar el 9/11
 
-Cap de les dues no falta: **la de la zona horària** hi és des de la 0.170.0 (`tz`, amb `time.leap` i `time.week`) i
+Cap de les dues no falta: **la de la zona horària** hi és des de la 0.170.0 (`tz`, amb `time.week` i, des de la 0.179.50, la
+casella de l'horari d'estiu en lloc de la del traspàs) i
 **l'esborrador** des de la 0.171.0 (`wipe`, amb `fs.format` i `sys.reboot`), i totes dues amb icona pròpia i el seu
 cas a `test_apps` (docs/30, docs/40, docs/70). **I el 9/11 el mateix dia en va demanar una tercera porta** —*«afegeix
 també el botó de format per littlefs a l'app wipe»*—, que és la 0.171.1: la flash del sistema és un volum com la
