@@ -392,6 +392,12 @@ Regles:
   d'una pintada, ni les tres transaccions del tàctil; la que mesura temps el posa a cert i ho diu
   (`test_ui`, `test_touch`). Al binari és al revés: els temps es paguen sempre, i `--no-delay` és el
   mateix commutador per a un guió (docs/85).
+- **I una mesura de temps té marge per al planificador.** `test_disk` mesura el que costa escriure a la flash i a la
+  NVS amb `delay_us`, que és un `sleep_for` de debò: cent vint-i-vuit dormides en un runner carregat s'allarguen el
+  mil·lisegon que el sistema operatiu dedica a qui no hi és, i un sostre de 200 000 µs sobre un nominal de 134 600
+  demanava mig mil·lisegon de mitjana per dormida (el CI del 13/11 va sortir vermell exactament així). El marge es
+  posa pel costat de la fallada que el cas distingeix —un sector contra un per clau són 5,7 s— i no pel costat del
+  número fi (0.179.58).
 - **I la tinta que es paga és el rellotge de qui prem.** `test_apps` paga la tinta —la primera pàgina d'una app
   és un `gc16` de 450 ms del model— i el torn de l'app que llegeix la cua de gestos espera darrere d'aquest
   pintat: un cas que prem i mira quaranta mil·lisegons després llegeix una captura que es va tancar abans que

@@ -189,18 +189,33 @@ static void test_damage_of_the_same_quality_merges() {
 
 // A present with one quality paints everything pending with it: what a page that must look uniform
 // asks for (docs/30).
+//
+// **I cada caixa va a la seua i no a la unió de totes** (0.179.57): el present amb `mode` deia la qualitat de
+// tota la pàgina i, de pas, feia **una** regió amb tot el que hi havia pendent —la unió de dues caixes que només
+// comparteixen aire és una caixa que també cobreix el que ningú ha canviat—. Al teclat de l'editor això era
+// `paint 6,54 534x602` per una lletra. Aquest cas deia `220` i el que diu ara és el que ha de dir: dos pintats de
+// vint files cadascun, tots dos amb la qualitat que l'app ha demanat, i els vuitanta píxels de paper del mig
+// sense tocar (docs/30, docs/50).
 static void test_present_with_a_quality_overrides_the_damage() {
   fresh_view();
   const uint32_t before = glass().paint_count();
   TEST_ASSERT_TRUE(ui::fill_rect(0, 0, 40, 20, 0, "du4"));
   TEST_ASSERT_TRUE(ui::fill_rect(0, 200, 40, 20, 3, "du4"));
   TEST_ASSERT_TRUE(ui::present_all(hal::UpdateMode::kGc16));
-  TEST_ASSERT_EQUAL_UINT32(before + 1, glass().paint_count());
-  const emu::MemorySurface::Paint* paint = glass().paint_at(before);
-  TEST_ASSERT_NOT_NULL(paint);
-  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, paint->mode);
-  TEST_ASSERT_EQUAL_UINT16(0, paint->y);
-  TEST_ASSERT_EQUAL_UINT16(220, paint->h);  // the union of both regions
+  TEST_ASSERT_EQUAL_UINT32(before + 2, glass().paint_count());
+  const emu::MemorySurface::Paint* first = glass().paint_at(before);
+  const emu::MemorySurface::Paint* second = glass().paint_at(before + 1);
+  TEST_ASSERT_NOT_NULL(first);
+  TEST_ASSERT_NOT_NULL(second);
+  // La qualitat és la del present a les dues, que és el que aquest cas mesura.
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, first->mode);
+  TEST_ASSERT_EQUAL(hal::UpdateMode::kGc16, second->mode);
+  TEST_ASSERT_EQUAL_UINT16(0, first->y);
+  TEST_ASSERT_EQUAL_UINT16(20, first->h);
+  TEST_ASSERT_EQUAL_UINT16(200, second->y);
+  TEST_ASSERT_EQUAL_UINT16(20, second->h);
+  // I el paper entre les dues no s'ha pintat: el que ningú ha canviat no es toca.
+  TEST_ASSERT_EQUAL_UINT16(0, static_cast<uint16_t>(glass().paint_count() - before - 2));
 }
 
 // **The damage is in the canvas' coordinates and the glass wants panel ones.** A view that sits in a

@@ -5598,6 +5598,23 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.58 (13/11): **el cas del preu d'una clau de la NVS torna a mesurar el model i no el rellotge de la màquina**. The
+// owner: *«passa els tests, revisa el workflow del github i puja-ho tot»* (docs/80):
+//   - **el que va fer vermell el CI de la 0.179.56** (`8bd7375`): `test_a_key_of_the_store_pays_a_page_and_the_sector_once_in_a_while`
+//     (test_disk) va sortir amb «every key of the store paid a sector» —la cua de dalt—, i a la meua màquina passava. La
+//     mesura és `micros()` de la màquina i `delay_us` és un `sleep_for`, o sigui que cent vint-i-vuit dormides en un runner
+//     carregat s'allarguen el mil·lisegon del planificador: el total nominal és **134 600 µs** (128 programacions de pàgina i un
+//     sector) i el sostre era **200 000**, que demanava mig mil·lisegon de mitjana per dormida per a passar-se'n. El que el cas
+//     ha de distingir és **un** sector d'un per clau, i això són 5,7 s: el sostre és mig segon, que ho diu igual i una màquina
+//     compartida no ho pot falsejar;
+//   - **i el cas de `test_ui` que la 0.179.57 va deixar vermell** (`test_present_with_a_quality_overrides_the_damage`): deia el
+//     contracte vell de `present_all` —una regió de 220 files per dues caixes de vint— i ara diu el nou: dos pintats de vint
+//     files, tots dos amb la qualitat del present (vegeu la 0.179.57);
+//   - **i el workflow del GitHub, revisat i corregut sencer aquí**: `version bump` (law 10) verd; `no unreachable code` amb
+//     `clang++ -Wunreachable-code-aggressive` sobre cada `lib/*/src/*.cpp` del host, verd; `pio test -e test`, **619 casos i 24
+//     suites en verd**; i les sis compilacions (`emulator`, `m5-atom`, `m5-atom-matrix`, `m5-paper`, `esp32-devkit`,
+//     `ttgo-t-koala`) verdes. No hi ha res a canviar-li: el que estava vermell era el codi, no el workflow.
+
 // 0.179.57 (13/11): **una tecla danya la fila del cursor i prou**. The owner: *«Fes que el refresc només afecti a la zona on
 // està el cursor, al proper refresc del multiline ja es veurá correctament. Al fer keystrokes nomeś has de modificar la part del
 // cursor»* (docs/30, docs/50):
@@ -5619,11 +5636,16 @@ namespace kernel {
 //     gives two pieces of one drawing) and each group keeps the quality of the present; **a page that owes the whole glass is
 //     still one region** (the `gc16` wash is one pass and not forty), which is the `one_region` argument of the three calls
 //     that ask for it;
+//   - **i el cas de `test_ui` que deia el contrari** (`test_present_with_a_quality_overrides_the_damage`): demanava **una** regió
+//     de 220 files per dues caixes de vint separades per cent vuitanta de paper —el que aquesta versió lleva— i ara demana dos
+//     pintats de vint files, tots dos amb la qualitat del present, amb el paper del mig sense tocar. És el cas que va trobar el
+//     canvi, i el que mesura —que la qualitat del present mana sobre la de les caixes— no s'ha tocat;
 //   - **mesurat a l'emulador** (`--board m5stack-paper --gui-scale 1 --run editor`, les regions dels presents): una tecla passa
 //     de `paint 0,54 540x602` a **`paint 8,54 532x74` (39 368 px) i `paint 6,628 528x28` (14 784 px)**, that is 54 152 for
 //     321 468 —**six times less**—, and the wash of the fourth key is `paint 0,54 532x74 mode 5 gld16`: the same band, clean.
 //     The rest of the page keeps its ink until the app draws it again, which is the trade the owner asked for (`al proper
-//     refresc del multiline ja es veurá correctament`).
+//     refresc del multiline ja es veurá correctament`). **I la suite sencera torna a ser verda**: `619 cases`, 24 suites, en
+//     4 min 22 s.
 
 // 0.179.56 (13/11): **el teclat torna a escriure dins d'un document llarg, i `pio test` torna a les proves**. The owner:
 // *«revisa l'editor, puc moure el cursor (a dures penes) pero el teclat no envia keystrokes al multiline»* (docs/30, docs/80):
@@ -7262,7 +7284,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.57";
+static const char kVersion[] = "0.179.58";
 
 }  // namespace kernel
 

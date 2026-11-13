@@ -165,7 +165,13 @@ static void test_a_key_of_the_store_pays_a_page_and_the_sector_once_in_a_while()
   }
   const int64_t total = micros() - before;
   TEST_ASSERT_TRUE_MESSAGE(total >= 44000, "the page turned over and nothing was erased");
-  TEST_ASSERT_TRUE_MESSAGE(total <= 200000, "every key of the store paid a sector");
+  // **El sostre té marge perquè el rellotge és el de la màquina i no el del model** (0.179.58): `delay_us` is a
+  // `sleep_for`, and a hundred and twenty-eight of them on a loaded runner overshoot by the scheduler's millisecond
+  // or so —the nominal total is 134 600 (128 page programmes and one sector), and a ceiling of 200 000 needed an
+  // average of half a millisecond of overshoot to go red, which is what the run of 13/11 on GitHub did—. What this
+  // case exists for is the difference between **one** sector and one per key, and that is 5,7 s: half a second still
+  // says it and a shared machine cannot fake it (docs/80, docs/85).
+  TEST_ASSERT_TRUE_MESSAGE(total <= 500000, "every key of the store paid a sector");
   pay_times(false);
 }
 
