@@ -173,8 +173,60 @@ bool mode_or_default(const char* name, hal::UpdateMode& out) {
   return display::mode_from_name(name, out);
 }
 
-void merge_all(Canvas& canvas, hal::UpdateMode mode) {
+// **Dues caixes que no es toquen no són una caixa** (0.179.57): the union of two rectangles that only share air is a
+// rectangle that also covers what nobody changed, and on e-ink that air is ink moved for nothing. A page whose box of text
+// takes a key and whose line under it changes is two boxes eight hundred rows apart, and merging them into their bounding
+// box painted the whole page area between them —measured on the emulator, 13/11: `paint 6,54 534x602` for a letter and a
+// caption—. What is joined here is what touches within `kMergeGap`, the same slack `damage_add` gives two pieces of one
+// drawing (docs/30, docs/50).
+bool boxes_touch(const Damage& a, const Damage& b) {
+  const int32_t ax1 = static_cast<int32_t>(a.x) + a.w + kMergeGap;
+  const int32_t ay1 = static_cast<int32_t>(a.y) + a.h + kMergeGap;
+  const int32_t bx1 = static_cast<int32_t>(b.x) + b.w + kMergeGap;
+  const int32_t by1 = static_cast<int32_t>(b.y) + b.h + kMergeGap;
+  return static_cast<int32_t>(a.x) <= bx1 && static_cast<int32_t>(b.x) <= ax1 &&
+         static_cast<int32_t>(a.y) <= by1 && static_cast<int32_t>(b.y) <= ay1;
+}
+
+// **One region when the caller says so, and the groups that touch otherwise** (0.179.57): a page that owes the whole glass
+// is one paint —the wash of `gc16` is one region and not forty— and a present of a page with two separate changes is two.
+void merge_all(Canvas& canvas, hal::UpdateMode mode, bool one_region = false) {
   if (canvas.damage_count == 0) return;
+  if (!one_region && canvas.damage_count > 1) {
+    bool joined = true;
+    while (joined) {
+      joined = false;
+      for (uint8_t i = 0; i < canvas.damage_count && !joined; ++i) {
+        for (uint8_t j = static_cast<uint8_t>(i + 1); j < canvas.damage_count; ++j) {
+          if (!boxes_touch(canvas.damage[i], canvas.damage[j])) continue;
+          Damage& keep = canvas.damage[i];
+          const Damage& gone = canvas.damage[j];
+          const uint16_t x0 = (gone.x < keep.x) ? gone.x : keep.x;
+          const uint16_t y0 = (gone.y < keep.y) ? gone.y : keep.y;
+          const int32_t x1 = (static_cast<int32_t>(gone.x) + gone.w > static_cast<int32_t>(keep.x) + keep.w)
+                                 ? static_cast<int32_t>(gone.x) + gone.w
+                                 : static_cast<int32_t>(keep.x) + keep.w;
+          const int32_t y1 = (static_cast<int32_t>(gone.y) + gone.h > static_cast<int32_t>(keep.y) + keep.h)
+                                 ? static_cast<int32_t>(gone.y) + gone.h
+                                 : static_cast<int32_t>(keep.y) + keep.h;
+          keep.x = x0;
+          keep.y = y0;
+          keep.w = static_cast<uint16_t>(x1 - x0);
+          keep.h = static_cast<uint16_t>(y1 - y0);
+          keep.named = keep.named || gone.named;
+          // The present's own quality is written over every region at the end of this function, so the mode carried here
+          // only has to be one of the two.
+          keep.mode = gone.mode;
+          for (uint8_t k = j; k + 1 < canvas.damage_count; ++k) canvas.damage[k] = canvas.damage[k + 1];
+          --canvas.damage_count;
+          joined = true;
+          break;
+        }
+      }
+    }
+    for (uint8_t i = 0; i < canvas.damage_count; ++i) canvas.damage[i].mode = mode;
+    return;
+  }
   uint16_t x0 = canvas.damage[0].x;
   uint16_t y0 = canvas.damage[0].y;
   uint16_t x1 = static_cast<uint16_t>(canvas.damage[0].x + canvas.damage[0].w);
@@ -338,7 +390,7 @@ void damage_add(Canvas& canvas, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
       all_mode = stronger_mode(all_mode, canvas.damage[i].mode);
       all_named = all_named || canvas.damage[i].named;
     }
-    merge_all(canvas, all_mode);
+    merge_all(canvas, all_mode, /*one_region=*/true);
     canvas.damage[0].named = all_named;
     // **A full list becomes one region that also covers this piece.** Assuming that the last piece falls
     // inside what was already pending was only true for a page drawn in one corner: an app that keeps
@@ -7222,7 +7274,7 @@ bool present() {
     const bool whole = the_damage_is_the_page();
     const hal::UpdateMode mode = quality_of_the_damage();
     if (whole) {
-      merge_all(root(), mode);
+      merge_all(root(), mode, /*one_region=*/true);
       // **And the page is clean again**: a wash is the whole page and it is what the inks of the page owed, so the budget
       // of quick paints and the levels the wash between two apps reads start again from here (docs/50).
       g_levels = 0;
@@ -7320,7 +7372,7 @@ bool present_each(hal::UpdateMode mode) {
       whole = named ? stronger_mode(whole, page.damage[i].mode) : page.damage[i].mode;
       named = true;
     }
-    merge_all(page, whole);
+    merge_all(page, whole, /*one_region=*/true);
     // **The page that has just been merged keeps whose wish it is**: the loop below paints the regions that named
     // nothing with the mode of this present, and the one merged region is the app's when any of the boxes it came from
     // was (docs/30, docs/50).

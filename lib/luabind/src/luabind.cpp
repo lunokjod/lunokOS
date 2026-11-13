@@ -7771,10 +7771,14 @@ void caret_set_field(lua_State* L, int object, bool on) {
   lua_pop(L, 1);
 }
 
-void caret_start(lua_State* L, int object) {
+// **`whole` is whether the control is marked for a draw here** (0.179.57): a box that takes the focus or the band has
+// changed in a way nobody can place yet —the caret was not drawn, so its box is unknown— and it is marked whole, which is
+// what it did before this argument existed. A key is the other case: the damage is the row of the caret, and the caller
+// says where that is (`ui_invalidate_the_key`), so a whole invalidate here would be the page painted for one letter.
+void caret_start(lua_State* L, int object, bool whole = true) {
   caret_set_field(L, object, true);
   LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
-  if (canvas != nullptr && g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
+  if (whole && canvas != nullptr && g_ui_ops.canvas_invalidate != nullptr) g_ui_ops.canvas_invalidate(canvas->slot);
   g_caret_on = true;
   g_caret_dirty = true;
   // **Un focus o una tecla tornen a guanyar els sis parpellejos** (0.179.35): the count of the settle is of this block and
@@ -12270,6 +12274,50 @@ bool ui_keyboard_has_target() {
   return any;
 }
 
+// **La tecla danya la fila del cursor i no el quadre sencer** (0.179.57): the owner: *«Fes que el refresc només afecti a la zona
+// on està el cursor, al proper refresc del multiline ja es veurá correctament. Al fer keystrokes nomeś has de modificar la part
+// del cursor»*. A box of several lines was marking **all of itself** for one letter —measured on the emulator, 13/11: `paint
+// 0,54 540x602 mode 1 du` for every key on the editor's page, and the reflow of a wrapped document under that `du` left the
+// ghost of the text below—. Here the box of the caret the last draw put down says where the letter goes, and the damage is
+// the rest of that row from the caret to the right edge: the line under the person's finger reads right and the rows below
+// keep what they had until the next draw of the whole box, which is the trade the owner asked for (docs/30, docs/50, docs/90).
+// A box of one line, or a control that drew no caret, is marked whole as it was.
+bool ui_invalidate_the_key(lua_State* L, int object, bool lines) {
+  if (lines && g_ui_ops.canvas_invalidate_rect != nullptr && g_ui_ops.textbox_caret_box != nullptr &&
+      g_ui_ops.canvas_caps != nullptr) {
+    LuaCanvas* canvas = static_cast<LuaCanvas*>(luaL_testudata(L, object, kCanvasMeta));
+    if (canvas != nullptr && canvas->slot >= 0) {
+      uint16_t caret_x = 0;
+      uint16_t caret_y = 0;
+      uint16_t caret_w = 0;
+      uint16_t caret_h = 0;
+      uint16_t box_w = 0;
+      uint16_t box_h = 0;
+      uint16_t box_x = 0;
+      uint16_t box_y = 0;
+      if (g_ui_ops.textbox_caret_box(canvas->slot, caret_x, caret_y, caret_w, caret_h) &&
+          g_ui_ops.canvas_caps(canvas->slot, box_w, box_h, box_x, box_y) && caret_x < box_w && caret_y < box_h) {
+        const uint16_t right = static_cast<uint16_t>(box_w - caret_x);
+        // **La fila del cursor i les dues del costat**: the row of the caret and the two a letter can reach —an enter puts
+        // the block on the row below and a backspace at the start of a row joins it to the one above—, so the band is from
+        // one row up to one row down and never the whole box (docs/30, docs/90).
+        const int32_t from = (static_cast<int32_t>(caret_y) > static_cast<int32_t>(caret_h))
+                                 ? static_cast<int32_t>(caret_y) - caret_h
+                                 : 0;
+        int32_t to = static_cast<int32_t>(caret_y) + 2 * static_cast<int32_t>(caret_h);
+        if (to > static_cast<int32_t>(box_h)) to = static_cast<int32_t>(box_h);
+        if (to <= from) return false;
+        if (g_ui_ops.canvas_invalidate_rect(canvas->slot, caret_x, static_cast<uint16_t>(from), right,
+                                           static_cast<uint16_t>(to - from))) {
+          return true;
+        }
+      }
+    }
+  }
+  ui_invalidate(L, object);
+  return false;
+}
+
 void ui_keyboard_typed(int code) {
   if (g_state == nullptr) return;
   const int top = lua_gettop(g_state);
@@ -12279,8 +12327,10 @@ void ui_keyboard_typed(int code) {
     return;
   }
   // **A key puts the block back and restarts the clock** (0.92.0): a person who is typing sees the caret while the
-  // letter goes in, and the six hundred milliseconds are counted from the key and not from the blink before it.
-  caret_start(g_state, object);
+  // letter goes in, and the six hundred milliseconds are counted from the key and not from the blink before it. **And it
+  // marks nothing**: the damage of a key is the row of the caret, and `ui_invalidate_the_key` is where that is said
+  // (0.179.57, docs/30, docs/90).
+  caret_start(g_state, object, /*whole=*/false);
   lua_getiuservalue(g_state, object, 1);
   if (!lua_istable(g_state, -1)) {
     lua_settop(g_state, top);
@@ -12304,16 +12354,14 @@ void ui_keyboard_typed(int code) {
   const int length = static_cast<int>(bytes);
   const lua_Integer cursor = ui_field_number(g_state, object, "cursor", length);
   int at = (cursor < 0) ? 0 : ((cursor > length) ? length : static_cast<int>(cursor));
-  if (code == 13) {
+  const bool lines = ui_field_bool(g_state, object, "__textbox_multiline", false);
+  if (code == 13 && !lines) {
     // **The enter key of a box of several lines is a line break and not the end of the edition**: the control says which
     // one it is by its marker, and the key means in the text what the letter `\n` means. A box of one line still ends the
     // edition with it, which is what the app hears at `on_enter` (docs/30, docs/90).
-    const bool lines = ui_field_bool(g_state, object, "__textbox_multiline", false);
-    if (!lines) {
-      ui_call_hook(g_state, object, "on_enter", false, false);
-      lua_settop(g_state, top);
-      return;
-    }
+    ui_call_hook(g_state, object, "on_enter", false, false);
+    lua_settop(g_state, top);
+    return;
   }
   bool changed = false;
   if (code == 8) {
@@ -12348,7 +12396,7 @@ void ui_keyboard_typed(int code) {
     lua_setfield(g_state, fields, "text");
     lua_pushinteger(g_state, at);
     lua_setfield(g_state, fields, "cursor");
-    ui_invalidate(g_state, object);
+    ui_invalidate_the_key(g_state, object, lines);
     ui_call_hook_text(g_state, object, "on_change", lua_tostring(g_state, -1));
   }
   lua_settop(g_state, top);

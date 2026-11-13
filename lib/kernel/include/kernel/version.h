@@ -5598,6 +5598,33 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.57 (13/11): **una tecla danya la fila del cursor i prou**. The owner: *«Fes que el refresc només afecti a la zona on
+// està el cursor, al proper refresc del multiline ja es veurá correctament. Al fer keystrokes nomeś has de modificar la part del
+// cursor»* (docs/30, docs/50):
+//   - **el que es pintava amb una lletra**: `paint 0,54 540x602 mode 1 du` a cada tecla de l'editor —el quadre del document
+//     sencer, 320 000 píxels d'un vidre de 540×912, i sota el `du` el fantasma de tot el text que s'havia redistribuït—. Tres
+//     coses hi portaven i ara no:
+//   - **`caret_start` marcava el control sencer**: turning the block back on for a key is a caret of one cell, and the call
+//     that puts it there invalidated the whole box. A box that **takes the focus or the band** still marks itself whole (the
+//     caret was never drawn, so its box is unknown), and a key does not: `caret_start(L, object, /*whole=*/false)` and the
+//     damage is the caller's;
+//   - **la tecla diu quina fila i res més** (`ui_invalidate_the_key`): the box of the caret the last draw put down is where
+//     the letter goes, and the damage is from it to the right edge of the box, **one row up and one row down** (an enter puts
+//     the block on the row below, a backspace at the start of a row joins it to the one above). A box of one line is still
+//     marked whole, which is what it was;
+//   - **i `ui.present(mode)` no ajunta el que no es toca** (`merge_all`): `present_all` made **one** box of every pending
+//     region, and the union of two boxes that only share air covers what nobody changed —the box of the document and the line
+//     under the page are eight hundred rows apart on the editor's page, and the present of the app for one letter painted
+//     everything between them—. What is joined now is what touches within `kMergeGap` (the same two pixels `damage_add`
+//     gives two pieces of one drawing) and each group keeps the quality of the present; **a page that owes the whole glass is
+//     still one region** (the `gc16` wash is one pass and not forty), which is the `one_region` argument of the three calls
+//     that ask for it;
+//   - **mesurat a l'emulador** (`--board m5stack-paper --gui-scale 1 --run editor`, les regions dels presents): una tecla passa
+//     de `paint 0,54 540x602` a **`paint 8,54 532x74` (39 368 px) i `paint 6,628 528x28` (14 784 px)**, that is 54 152 for
+//     321 468 —**six times less**—, and the wash of the fourth key is `paint 0,54 532x74 mode 5 gld16`: the same band, clean.
+//     The rest of the page keeps its ink until the app draws it again, which is the trade the owner asked for (`al proper
+//     refresc del multiline ja es veurá correctament`).
+
 // 0.179.56 (13/11): **el teclat torna a escriure dins d'un document llarg, i `pio test` torna a les proves**. The owner:
 // *«revisa l'editor, puc moure el cursor (a dures penes) pero el teclat no envia keystrokes al multiline»* (docs/30, docs/80):
 //   - **el text d'una caixa no cap en un buffer i s'hi ficava** (`lib/luabind/src/luabind.cpp`, `ui_keyboard_typed`): the whole
@@ -7235,7 +7262,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.56";
+static const char kVersion[] = "0.179.57";
 
 }  // namespace kernel
 

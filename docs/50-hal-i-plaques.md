@@ -932,6 +932,12 @@ paper. El que fa ara el sistema:
   arriba no es toquen i ajuntar-los pintaria l'aire del mig (0.177.4). Això també val per al present del focus
   (`present_each`), que abans podia pintar la pàgina sencera en cinc passades quan una app demanava `ui.focus()`
   abans del primer `present`;
+- **i `ui.present(mode)` tampoc no ajunta el que no es toca** (0.179.57): `present_all` és el present amb una
+  qualitat per a tota la pàgina, i feia una sola caixa amb **totes** les regions pendents —la unió de dues caixes
+  que només comparteixen aire és una caixa que també cobreix el que ningú ha canviat—. Al teclat de l'editor això
+  era `paint 6,54 534x602` per una lletra i la línia del peu, i ara són dues passades de `532x74` i `528x28`. El
+  que sí que ajunta és el que es toca, amb el mateix marge de dos píxels que `damage_add`, i **una pàgina que es
+  deu sencera continua sent una sola regió** (la rentada de `gc16`, que és una passada i no quaranta);
 - **la qualitat és la que demana la tinta**: `gl16` —setze nivells i cap flaix— i `gc16` quan el panell ha rebut
   tantes passades que li queda fantasma. El pressupost de fantasma és **el de passades i no el de caixes**: es
   compten les passades que el vidre ha rebut des de l'última rentada (`kManyPaints`, 32) i no els rectangles amb
