@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "kernel/log.h"
 #include "kernel/shell.h"
 #include "kernel/ui.h"
 #include "luabind/luabind.h"
@@ -48,12 +49,10 @@ int64_t now_ms() {
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
 }
 
-// Said through the console and not with printf, which is buffered and would come
-// out in another order than the shell (measured on the PC, 31/10).
-void say(const char* text) {
-  pal::IConsole* console = pal::system().console();
-  if (console != nullptr && text != nullptr) console->write(text, strlen(text));
-}
+// **La frase de les tres pulsacions va al log i el port sèrie la copia** (0.179.55): aquestes línies són decisions del
+// sistema i han de ser al ring com les altres —`log` les ha de poder ensenyar—, i el text es queda com és perquè és el
+// que una persona llegeix (docs/30, docs/50). Abans anaven escrites directament al port i no eren al log.
+void say(const char* text) { log_say(text); }
 
 // The press goes to the app: the promise it is waiting for, or the hook it
 // declared. A promise first, because an app that is waiting for a press is waiting

@@ -53,10 +53,16 @@ void append(const char* data, size_t len) {
 // **The ring is where a line from a driver lands too.** The drivers do not depend on the kernel —they
 // cannot, the arrow goes the other way— so they format their line and hand it to this sink, installed
 // when the log comes up (docs/30, docs/50).
-void sink(const char* line, size_t len) {
-  if (g_echo) write_line(pal::system().console(), line, len);
+// **La línia va al ring i, si el mirall és obert, al port sèrie** (0.179.55): un sol lloc per a les tres portes —el
+// driver, el `log_printf` i la frase—, perquè el port sèrie és una còpia del log i no una segona sortida. L'ordre és
+// aquest i no el contrari: primer el ring i després la còpia, així una pàgina que el port refusa no deixa el log sense
+// la línia (docs/50).
+void emit(const char* line, size_t len) {
   append(line, len);
+  if (g_echo) write_line(pal::system().console(), line, len);
 }
+
+void sink(const char* line, size_t len) { emit(line, len); }
 
 }  // namespace
 
@@ -74,6 +80,13 @@ void log_init() {
 void log_echo(bool on) { g_echo = on; }
 
 bool log_echo_enabled() { return g_echo; }
+
+void log_say(const char* text) {
+  if (text == nullptr) return;
+  const size_t len = strlen(text);
+  if (len == 0) return;
+  emit(text, len);
+}
 
 void log_colour(bool on) { g_colour = on; }
 
@@ -97,8 +110,7 @@ void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...) {
   va_end(args);
   if (used == 0) return;
 
-  if (g_echo) write_line(pal::system().console(), line, used);
-  append(line, used);
+  emit(line, used);
 }
 
 void log_dump() {

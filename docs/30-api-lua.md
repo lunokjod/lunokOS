@@ -3061,13 +3061,22 @@ fila que no existeix en aquesta placa, i una fila a zero és una fila que existe
 
 - **`[nivell][etiqueta] missatge`**: el nivell és una lletra (`D`, `I`, `W`, `E`) i l'etiqueta és el
   conductor o la part del sistema que parla —`PANEL`, `TOUCH`, `SD`, `I2C`, `WIFI`, `POWER`, `FS`,
-  `VFS`, `APPS`, `UI`, `METER`…—. Una línia sense etiqueta no existeix.
+  `VFS`, `APPS`, `UI`, `METER`…—. Una línia sense etiqueta no existeix, amb la sola excepció de les frases
+  fetes per a una persona que diu el punt següent.
 - **El log es mira a la consola mentre el sistema arrenca** (`verbose off` el calla) i es queda al
   **cercle de 2 KB** que `log` aboca. Els conductors no depenen del nucli i no poden cridar-lo: formategen
   la línia i la donen a un *sink* que el nucli instal·la, i per això la línia d'un conductor acaba al
   mateix cercle que les altres (docs/50, docs/85).
 - **Una línia diu números**: quants bytes, quants mil·lisegons, quina adreça. Una frase sense cap número
   és una línia que no serveix per a res quan la placa és a la mà.
+- **el port sèrie és una còpia del cercle i no una segona sortida** (0.179.55): tot el que surt pel port
+  del sistema és al cercle, i `log` ho torna a ensenyar. Les línies que es van escriure directament al port
+  i no al cercle —les tres pulsacions (`button: three taps, closing the app`) i el son (`power: woke on
+  the timer…`)— ara hi passen amb `log_say`, que les desa **amb les seves paraules**: són frases per a una
+  persona i no fitxes, i per això no porten `[nivell][etiqueta]`. Són l'única excepció a la forma, i no una
+  segona mena de log.
+- **qui no passa pel cercle és la shell i les apps**: el prompt i el que una app escriu amb `console.print`
+  van al port (o a la seva sessió) i no al log, perquè són l'usuari del port i no el sistema (docs/40).
 
 ## `touch`
 

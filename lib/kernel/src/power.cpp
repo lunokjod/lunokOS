@@ -80,14 +80,12 @@ int64_t mono_now() {
   return (g_clock != nullptr) ? g_clock->monotonic_ms() : 0;
 }
 
-// Every line this file says to a person goes out through the console and not
-// through printf: `printf` is buffered and the shell is not, so a line written
-// with it comes out after lines that came later, and a test that captures the
-// console never sees it at all (measured on the PC, 31/10).
-void say(const char* text) {
-  pal::IConsole* console = pal::system().console();
-  if (console != nullptr && text != nullptr) console->write(text, strlen(text));
-}
+// **Every line this file says to a person goes through the log** (0.179.55): the serial port is a copy of the ring, so a
+// line written straight to the port is a line the `log` command never shows —and these are the lines a person wants
+// afterwards, the wake the clock made and the sleep that was cut short—. `log_say` keeps the words and puts them in the
+// ring; `printf` is still not used, because it is buffered and its lines come out in another order than the shell's
+// (measured on the PC, 31/10, docs/30, docs/50).
+void say(const char* text) { log_say(text); }
 
 void sayf(const char* format, ...) {
   char line[128];

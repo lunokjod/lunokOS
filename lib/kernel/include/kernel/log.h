@@ -27,6 +27,14 @@ void log_printf(pal::LogLevel level, const char* tag, const char* fmt, ...)
 #endif
     ;
 
+// **A line of the system that is a sentence and not a record** (0.179.55): the shape of this log is `[I][TAG] text`, and a
+// handful of lines of this tree are written for a person and not for a reader of tags —`button: three taps, closing the
+// app`, `power: woke on the timer, +2 ms from the hour it was given`—. **They go to the ring like everything else**,
+// because the serial port is a copy of the ring and a line that is only on the copy is a line the `log` command cannot
+// show; they keep their words, which is what a person reads. The shell and the apps are the ones that do not come here:
+// they use the port, and what they print is theirs (docs/30, docs/50).
+void log_say(const char* text);
+
 void log_dump();
 
 }  // namespace kernel

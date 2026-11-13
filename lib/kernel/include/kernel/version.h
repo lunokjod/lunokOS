@@ -5598,6 +5598,26 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.55 (13/11): **hi ha un sol log i el port sèrie és una còpia seva**. The owner: *«el log del serial ha de sortir del log
+// del sistema. Excepte la shell, que es considera aplicació que usa el serial. El log del sistema es només un i serial ho
+// replica. L'app shell no s'imprimeix al log, sinó al serial»* (docs/30):
+//   - **el que ja era així**: el cercle és un de sol (`log.cpp`, 2 048 B a la RAM) i l'alimenten tres portes —`log_printf`, el
+//     *sink* que el nucli instal·la perquè els conductors no depenen d'ell, i ara `log_say`—; el mirall cap al port és el
+//     `g_echo` que `log_init()` encén i `verbose on|off` mou, i `log` aboca el cercle sencer. La shell i les apps no hi
+//     passen: `shell::out_bytes` i `luabind::con_write` escriuen al port del sistema (o a la seua sessió) i no al log, que és
+//     el que l'amo diu de la shell com una app que fa servir el port;
+//   - **el que no era així i ho és ara**: dues famílies de línies del sistema s'escrivien **directament al port** i no eren al
+//     cercle —les tres pulsacions (`button: three taps, closing the app`) i el son (`power: woke on the timer, +120 ms from the
+//     hour it was given`, el número que demana docs/75)—: sortien pel port i `log` no les podia ensenyar. Passen per
+//     `log_say`, que les desa **amb les seues paraules**, perquè són frases per a una persona i no fitxes amb etiqueta; el
+//     text que algú llig no canvia ni un byte;
+//   - **i l'ordre és el del log i no el del port**: `emit` desa primer al cercle i després fa la còpia, així un port que no hi
+//     és no deixa el log sense la línia;
+//   - **mesurat a l'emulador**: `sleep light 300` i tot seguit `log` torna a dir `power: woke on the timer, +120 ms from the
+//     hour it was given` dins de l'abocament del cercle, cosa que abans no hi era; `test_three_taps_close_the_app` i
+//     `test_a_light_sleep_comes_back_with_the_clock_moved` (test_apps) i les setze de `test_touch` verdes, que és el que
+//     llig eixes línies.
+
 // 0.179.54 (13/11): **`pio test` sense `-e` deixa de ser un mur de vermells falsos**. The owner: *«jo continuo veient MERDA A
 // ~/.platformio/penv/bin/pio test»* (docs/80):
 //   - **el que passava**: `pio test` sense `-e` agafa `default_envs`, que és `emulator`, i `[env:emulator]` **no tenia
@@ -7193,7 +7213,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.54";
+static const char kVersion[] = "0.179.55";
 
 }  // namespace kernel
 
