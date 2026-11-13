@@ -5598,6 +5598,22 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.47 (13/11): **the case of the band that types was not reading the band at all**. The suite of 0.179.46 was red in five
+// places and this is the first of them: `test_the_keyboard_follows_the_box_that_takes_the_focus` pressed the first key of the band
+// and looked for `one q` in a capture that had been **closed** sixty lines before, so what it read was the console of the press on
+// the box and not the one of the key —the band was working and the case was looking at an empty page (docs/80).
+//   - **`capture_begin()` before the press and `capture_end` after it**, which is what every other case of this suite does around
+//     the thing it is about: `console_take_away` truncates the file and `console_give_back` closes it, so a second `capture_end`
+//     with no `capture_begin` in between answers with the content of the first one —a capture that says nothing about what happened
+//     while it was off—;
+//   - **and the trap is closed for the next case** (`capture_end`): a capture that was never opened is a case asking for the page it
+//     did not write, so the second `capture_end` of a case now fails with its own sentence instead of answering with the console of
+//     the first one. No case of the two suites trips it, which is the proof that this one was the only one;
+//   - **the case is green with the one line**, which is also the answer to the doubt of the note of 0.179.46: the finger on a key
+//     of the band does type into the box that took the focus, and the fault was of the case and not of the system.
+//   - **what is left red and is not this case**: three more of `test_apps` —two of them ask for a `resize 540x656` line that the
+//     app they build never prints, which is a copied assertion and not a measure— and one of `test_ui` (the cell of the caret).
+
 // 0.179.46 (12/11): **the band of the keys is the fingers' and the dial is the caret**. The owner cut the contract
 // with the board in his hand: *«no vull selector amb botons físics al teclat per software, al teclat per software
 // només vull tocs de dits»*, and the selector is for a text box —the two keys walk the caret left and right— and for a
@@ -7005,7 +7021,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.46";
+static const char kVersion[] = "0.179.47";
 
 }  // namespace kernel
 

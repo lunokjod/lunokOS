@@ -536,6 +536,12 @@ void capture_begin() {
 }
 
 void capture_end(char* out, size_t cap) {
+  // **Un capture_end sense capture_begin llegeix una pàgina que ningú ha escrit** (0.179.47): `console_take_away` truncates the file
+  // and `console_give_back` closes it, so the second `capture_end` of a case —the one that forgot to open the capture around the
+  // thing it was about— answers with the console of the first one and the line it looks for is never there. It is the fault that
+  // made the case of the band that types read as a keyboard that types nothing, and a case that fails here is a case that has to
+  // open its capture (docs/80).
+  TEST_ASSERT_TRUE_MESSAGE(g_console_saved >= 0, "capture_end with no capture_begin in front of it");
   console_give_back(false);
   if (out == nullptr || cap == 0) return;
   out[0] = '\0';
@@ -9607,6 +9613,7 @@ void test_the_keyboard_follows_the_box_that_takes_the_focus(void) {
   // **Un dit sobre la primera tecla escriu dins la caixa que l'ha rebut** (0.179.46): the band is up for that box and the
   // first key of the first row types the `q` into it, which is the half the dial used to do and no longer does (docs/30,
   // docs/90).
+  capture_begin();
   press_finger(panel, band_finger_x(0), band_finger_y());
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "one q"), g_out);
