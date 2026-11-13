@@ -5598,6 +5598,37 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.53 (13/11): **la suite torna a estar verda: un forat del sistema, i un cas que era una moneda a l'aire**. The owner:
+// *«els tests no passen... soluciona els problems de pio test [...] Fes que els tests estiguin actualitzats, funcionant i
+// que tots passen en verd»* (docs/50, docs/80):
+//   - **el deute d'una pàgina és la vista sencera, marcada o no** (`lib/kernel/src/ui.cpp`): `ui::owe_the_page()` promet que el
+//     present que ve és la vista tota, i `present_all` només ajuntava el dany que hi havia —`merge_all` torna de seguida quan
+//     el canvas no en té cap—. Una pàgina que el sistema ha donat blanca fa gratuït el `ui.clear(15)` de l'app (0.168.0), que
+//     és exactament el cas d'una app que ha empès una vista i no hi ha dibuixat res: la fletxa tornava la vista, l'app
+//     presentava i **no es demanava cap pintat**. El deute és la vista i no les caixes de la pàgina ara: `present_all` les
+//     descarta, marca els 540×912 amb la qualitat que li han donat i paga el deute en aquesta passada, i `present()` deixa de
+//     gastar-lo abans (docs/30, docs/50);
+//   - **i el cas de la fletxa és el que el va trobar**: verd tot sol —on el `clear` té tinta per rentar i deixa una regió— i
+//     vermell a la suite —on la pàgina arriba blanca i no n'hi ha cap—, que és per què el workflow de `b3abca9` sortia amb `1
+//     failed de 619`. El cas no s'ha tocat: la targeta que quedava sobre la pàgina era el que deia, i el que faltava era el
+//     sistema. **A la 0.179.52 el cas era verd sol i vermell a la suite** —la nota d'allà diu que la suite no es va córrer—:
+//     ara sí, i el forat que va obrir és aquest;
+//   - **i els daus de 2048 són de la caixa i no de la sort** (test_apps): `run 2048 keys` arrenca l'app sense cap desada, la qual
+//     fa una partida nova amb els daus de Lua i la desa; el `run 2048 seed=7` que venia després **carregava** aquella partida i
+//     la llavor no hi entrava. La meitat de les vegades les dues fitxes eren un quatre (vermell a `sum == 4`) i una partida amb
+//     les fitxes ja a la paret esquerra s'empassava el swipe sense dir res (vermell a la línia del tauler). Ara el cas esborra
+//     `/data/2048/game.txt`, la partida amb llavor la fa ell (una partida nova no diu res) i l'execució que ve després la
+//     carrega i la diu (`load` és el que crida `say`). Amb la llavor 7 surten dos dosos a la columna de la dreta, que és un
+//     tauler que un swipe a l'esquerra mou;
+//   - **i la tinta és el rellotge del dit** (test_apps): la primera pàgina d'una app és un `gc16` de quatre-cents cinquanta
+//     mil·lisegons que el model paga, i el torn de l'app —el que llegeix la cua de gestos— espera darrere. El cas bombejava
+//     quaranta torns després d'aixecar el dit i tancava la captura; amb el pintat de l'arrencada encara corrent, el drag es
+//     quedava a la cua i la línia del tauler arribava després de la captura: verd sol i vermell a la suite. Ara espera la tinta
+//     abans de la mà (`pump_turns(1200)`, la mateixa espera que fa `press_finger`) i dona sis-cents torns al moviment abans de
+//     tancar la captura, que és el sostre del cas;
+//   - **mesurat**: `619 cases`, 24 suites, tot verd en 3 min 28 s; el cas de 2048 dues vegades seguides a la suite i quatre
+//     vegades tot sol, i el de la fletxa a la suite i tot sol. The five boards and the emulator are built.
+
 // 0.179.52 (13/11): **the card of the system has a way back, at the left of the way out**. The owner: *«Afegir botó de "back" al
 // panell lliscant de la barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close"
 // com fins ara. El back ha de ser una icona, com el close»* (docs/30, docs/50):
@@ -5626,7 +5657,8 @@ namespace kernel {
 //     one byte** —it was checked by putting the UTF-8 word back, which draws `â†↓` and fails the «wider than tall» reading with
 //     `-82`— and the case of the cross still passes beside it; **the whole suite was not run again after that**, because the owner
 //     stopped the runs, so `619 cases` is the count of the run before the last two lines of this note; the five boards and the
-//     emulator are built.
+//     emulator are built. **I la suite que va venir la va trobar vermella**: el cas era verd tot sol i vermell a la suite, i el
+//     forat que va obrir —una pàgina que el sistema deu i que no té cap regió marcada— és el que tanca la 0.179.53.
 
 // 0.179.51 (13/11): **a page of a list is turned with a finger that goes up, and the shelf of the faces has a card**. The
 // owner: *«L'app fonts no passa pàgina de la llista amb swipe, usa el paginador Dots intern de la llista o afegit manualment? En
@@ -7144,7 +7176,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.52";
+static const char kVersion[] = "0.179.53";
 
 }  // namespace kernel
 

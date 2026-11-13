@@ -7202,11 +7202,9 @@ bool present() {
   // **A page the system owes whole is painted whole** (0.167.0): giving a view back is a change of page the system made,
   // so the app's next present is the whole view with a mode that cleans and not the damage of the page it built. It is
   // asked here and not in `present_all`, because an app that presents by itself is exactly the one that has to be given
-  // the right page (docs/30, docs/50).
-  if (g_owe_all) {
-    g_owe_all = false;
-    return present_all(hal::UpdateMode::kGc16);
-  }
+  // the right page (docs/30, docs/50). **The debt is paid by that pass**, and not here: `present_all` is where the view
+  // becomes a region when there is none, which is the hole 0.179.53 closed.
+  if (g_owe_all) return present_all(hal::UpdateMode::kGc16);
   // **A page under a card is composed and not sent** (0.179.22): the canvas keeps what the app drew —so the page is not lost
   // and the next frame of the app builds on it— and the glass keeps the card. The damage is dropped because the whole page is
   // owed anyway, and a page that presented forty times under the card would otherwise carry forty boxes to merge (docs/30).
@@ -7263,6 +7261,16 @@ bool present_all(hal::UpdateMode mode) {
     return true;
   }
   compose_tree(0, -1, 0, 0);
+  // **A page the system owes goes up whole, whatever is marked** (0.179.53): the debt is the view and not the boxes of the
+  // page, and `merge_all` merges only what is there —so an app whose page the system handed over white, where its
+  // `ui.clear(15)` is free (0.168.0), asked for a whole page with nothing pending and got no paint at all, and the glass kept
+  // the card of the panel over it—. Found by the suite the day the arrow was added: the case is green alone, where the clear
+  // has ink to wash, and red in the suite, where the page was handed white.
+  if (g_owe_all) {
+    root().damage_count = 0;
+    damage_add(root(), 0, 0, root().width, root().height, mode);
+    g_owe_all = false;
+  }
   merge_all(root(), mode);
   keyboard_paint();
   const bool ok = paint_root();

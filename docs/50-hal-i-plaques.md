@@ -958,6 +958,11 @@ paper. El que fa ara el sistema:
   (`ui::owe_the_page()`, el mateix camí que quan una app torna una vista enrere). Abans això ho deia el `gc16`
   que cada llançador escrivia a la primera línia de la seua pàgina; ara ho diu el sistema, que és qui sap què hi
   ha al vidre.
+- **i el deute és la vista i no les caixes de la pàgina** (0.179.53): `present_all` ajuntava el dany que hi havia i
+  no n'afegia cap, i una pàgina que el sistema ha donat blanca fa gratuït el `ui.clear(15)` de l'app (0.168.0) — o
+  sigui que l'app que torna una vista i no ha dibuixat res demanava una pàgina sencera, no trobava cap regió i el
+  vidre es quedava amb la targeta del panell a sobre. Ara la passada que paga el deute marca la vista sencera amb la
+  qualitat que li han donat, i les caixes que hi havia es descarten perquè la pàgina les tapa totes.
 
 **Mesurat a l'emulador, canviant de la pantalla d'inici a una app**: el que era un `gc16` de 540×912 (la rentada)
 i un `gc16` de la pàgina és ara un `a2` de 540×912 i un `gl16` de la pàgina; l'arrencada del llançador amb deu

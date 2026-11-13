@@ -382,6 +382,18 @@ Regles:
   d'una pintada, ni les tres transaccions del tàctil; la que mesura temps el posa a cert i ho diu
   (`test_ui`, `test_touch`). Al binari és al revés: els temps es paguen sempre, i `--no-delay` és el
   mateix commutador per a un guió (docs/85).
+- **I la tinta que es paga és el rellotge de qui prem.** `test_apps` paga la tinta —la primera pàgina d'una app
+  és un `gc16` de 450 ms del model— i el torn de l'app que llegeix la cua de gestos espera darrere d'aquest
+  pintat: un cas que prem i mira quaranta mil·lisegons després llegeix una captura que es va tancar abans que
+  l'app digués res, i passa quan corre tot sol —el pintat de l'execució anterior ja s'ha acabat— i falla a la
+  suite. La recepta és la de `press_finger`: `pump_turns(1200)` abans de posar el dit i prou torns després
+  perquè el moviment i el seu pintat hi càpiguen (0.179.53, el cas de 2048).
+- **I una prova és amo del que llegeix, també de la desada d'una app.** El disc de `test_apps` és de la suite i
+  les apps hi deixen el que hi deixen: `2048` desa la partida a `/data/2048/game.txt`, i el `run 2048 seed=7`
+  que venia darrere d'un `run 2048 keys` **carregava** la partida de l'execució anterior, feta amb els daus de
+  Lua, i la llavor no hi entrava: la meitat de les vegades les dues fitxes eren un quatre i una partida amb les
+  fitxes a la paret esquerra s'empassava el swipe sense dir res. El cas esborra el fitxer, fa la partida amb la
+  llavor i la torna a carregar per llegir-la (0.179.53).
 - **La pantalla de l'usuari no es toca.** Si una prova o una comprovació necessita la finestra de
   l'emulador, s'obre en un X propi —un X virtual (`xvfb-run -a`, o `Xvfb :99`) o un servidor X que la
   prova encengui i apagui—, mai al `DISPLAY` de qui treballa. Així no es mou el ratolí, no es roba el

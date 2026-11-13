@@ -8257,7 +8257,17 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, geometry);
 
   // **A new game with the dice fixed**: two tiles, both twos, and a score of zero.
+  // **The save is the app's and the case is not at its mercy** (0.179.53): a game that finds no save makes one —two tiles where
+  // Lua's dice put them, and those dice are random per run— and every run after it loads that one, so a case that read the board
+  // after `run 2048 seed=7` was reading the board of the run before, and the seed never came into it. Half the runs the two
+  // tiles were a four and `sum` said so; the other half the board was wherever the dice left it, and a board whose tiles were
+  // already against the left wall took a swipe that moved nothing and said nothing. The save goes first, the seeded run makes
+  // the board (a new game prints nothing), and the run after it loads the board and says what it is (`load` is what says).
+  storage->remove("/data/2048/game.txt");
   pump_captured(40, g_out, sizeof(g_out), "run 2048 seed=7");
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  pump_captured(40, g_out, sizeof(g_out), "run 2048");
   const char* board_line = strstr(g_out, "[2048] board: ");
   TEST_ASSERT_NOT_NULL_MESSAGE(board_line, g_out);
   char board_text[160] = {0};
@@ -8286,6 +8296,12 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, over, board_line);
   TEST_ASSERT_EQUAL_INT_MESSAGE(4, sum, board_line);    // two twos, and the sum says so
 
+  // **The ink of this board is the clock of the finger** (0.179.53): the first page of an app is one `gc16` of four hundred and
+  // fifty milliseconds that the model pays, and the app's turn —the one that reads the queue of gestures— waits behind it. The
+  // case pumped forty turns after the lift and closed the capture before the move, which is a case that reads green on its own
+  // —the paint of the run before already over— and red in the suite. This is the wait `press_finger` makes, before the hand.
+  pump_turns(1200);
+
   // **A finger that shakes is not a swipe**: ten pixels of a trembling hand must not move a board, and the app says
   // nothing at all, which is the rule of «a move that changes nothing costs nothing».
   capture_begin();
@@ -8294,7 +8310,7 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_TRUE(panel->finger_move(0, static_cast<uint16_t>(view.x + 280), static_cast<uint16_t>(view.y + 500)));
   pump_turns(10);
   TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(30);
+  pump_turns(600);
   capture_end(g_out, sizeof(g_out));
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "[2048] board: "), g_out);
 
@@ -8309,7 +8325,9 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
     pump_turns(10);
   }
   TEST_ASSERT_TRUE(panel->finger_up(0));
-  pump_turns(40);
+  // **And the move has a paint of its own before the line that says so**: six hundred turns is more than the longest pass of this
+  // panel and it is the ceiling of the case, so a board that does not move is still a red.
+  pump_turns(600);
   capture_end(g_out, sizeof(g_out));
   const char* after_line = strstr(g_out, "[2048] board: ");
   TEST_ASSERT_NOT_NULL_MESSAGE(after_line, g_out);
