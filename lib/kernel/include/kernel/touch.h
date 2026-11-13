@@ -74,10 +74,6 @@ bool take_pinch_in(int16_t min_px, Gesture& out);
 // before it keep the order they had, the same rule the three taps and the pinches follow (0.136.0) (docs/30).
 bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out);
 
-// **A drag that goes up** (0.179.22): the way a card that hangs from the bar is put away, wherever the finger landed and as
-// long as it went up by `min_px` and mostly up (docs/30).
-bool take_drag_up(int16_t min_px, Gesture& out);
-
 // **What the page does not hear** (0.179.22): the card of the system is over the page, so the gestures nobody took are
 // nobody's —an app that reacted under a panel would be acting on a page the person cannot see— (docs/30).
 void forget_gestures();

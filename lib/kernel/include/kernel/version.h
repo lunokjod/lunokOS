@@ -5598,6 +5598,26 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.49 (13/11): **a swipe up from outside the card puts the panel away**. The owner: *«es pot tancar polsant fora del
+// panell. Afegeix també el "sipe up" desde fora del panell que fa que el tancament sigui molt més natural»* (docs/30, docs/92):
+//   - **el gest torna i la condició és tota la història**: 0.179.42 va treure l'arrissada cap amunt perquè era el gest que la pàgina
+//     de sota fa servir per desplaçar-se —*«Perqué l'editor cancela el panell lliscant de la barra de sistema?»*—, i **la mateixa
+//     versió va aturar l'app mentre la targeta és a sobre**. Amb la pàgina en pausa allà no hi ha res a desplaçar: un dit que puja
+//     per sota la targeta no el vol ningú més, i el que diu és «això torna». Són **quaranta píxels** cap amunt i més amunt que de
+//     costat (`kPushPx`, el número que hi havia abans de 0.179.42), i la targeta marxa amb la mateixa passada sencera de la pàgina
+//     que un toc de fora (docs/50);
+//   - **i el que no la tanca és el que comença a sobre d'ella**: les files de la targeta són seves i ho seran més quan hi hagi els
+//     commutadors, que prendran els seus propis dits. És la regla que l'amo ja va escriure per als controls —l'amo del contacte es
+//     decideix allà on cau el dit— i aquí es diu amb el mateix predicat que el toc (`on_the_card`, que és fals per a un dit a la
+//     barra i per a qualsevol fila per sota de la targeta);
+//   - **i la cua de gestos es buida abans de tancar**: un toc o un segon gest del mateix torn que quedés a la cua arribaria a
+//     l'app que es reprèn just després, i l'app no ha de rebre res del que va passar sobre la targeta (docs/30);
+//   - **`touch::take_drag_up` s'ha esborrat**: era el codi mort que 0.179.42 va deixar enrere (declarat i definit, sense cap
+//     cridador), i ara que el panell llegeix la cua gest a gest no hi ha cap raó per tenir dues maneres de preguntar el mateix;
+//   - **mesurat**: un cas nou de `test_touch` (`test_a_swipe_up_from_outside_the_card_puts_it_away`) fa cent files cap amunt amb el
+//     dit a sobre la targeta i la targeta es queda amb la pàgina retinguda, el mateix lliscament amb el dit a la pàgina la tanca, i
+//     un de trenta files no la toca; `16 cases` en aquesta suite i la resta verda.
+
 // 0.179.48 (13/11): **the other four reds of 0.179.46, and three of them were the system's**. The suite of that commit was red in
 // five places; 0.179.47 closed the first, and this one closes the rest (docs/30, docs/40, docs/90):
 //   - **an app that ends in its own first turn never went back to the page that asked for it** (`run_app`, shell.cpp): the promise
@@ -7046,7 +7066,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.48";
+static const char kVersion[] = "0.179.49";
 
 }  // namespace kernel
 

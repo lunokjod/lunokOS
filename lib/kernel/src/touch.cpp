@@ -558,22 +558,6 @@ bool take_drag_down_from_the_bar(int16_t min_px, Gesture& out) {
   return false;
 }
 
-bool take_drag_up(int16_t min_px, Gesture& out) {
-  if (min_px <= 0) return false;
-  for (uint8_t i = 0; i < g_queue_count; ++i) {
-    const Gesture& mine = g_queue[i];
-    if (mine.kind == nullptr || strcmp(mine.kind, "drag") != 0) continue;
-    const int32_t up = -static_cast<int32_t>(mine.dy);
-    const int32_t sideways = (mine.dx < 0) ? -static_cast<int32_t>(mine.dx) : mine.dx;
-    if (up < min_px || up < sideways) continue;
-    out = mine;
-    for (uint8_t j = static_cast<uint8_t>(i + 1); j < g_queue_count; ++j) g_queue[j - 1] = g_queue[j];
-    --g_queue_count;
-    return true;
-  }
-  return false;
-}
-
 void forget_gestures() { g_queue_count = 0; }
 
 bool take_pinch_in(int16_t min_px, Gesture& out) {

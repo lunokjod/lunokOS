@@ -1051,9 +1051,10 @@ surt malament no es pot emportar l'hora per davant (docs/30).
   o quinze (`test_the_strip_of_the_bar_is_two_tones`, docs/50).
 - **I el dit que hi cau és del sistema** (0.179.22): arrossegar-lo cap avall obre el **panell del sistema**, una
   targeta d'un terç de la pàgina que penja de la franja —buida pel que fa a commutadors, i és on aniran els del
-  sistema—, i la pàgina de sota queda retinguda mentre hi és. **La rodona de la cantonada tanca l'app del
+  sistema—, i la pàgina de sota queda retinguda mentre hi és. **El botó de la cantonada tanca l'app del
   davant** (0.179.23) i ho fa pel camí únic de sortir d'una pàgina —i **no es dibuixa sobre un llançador** (0.179.25), que
-  és la pàgina que no es deixa—. El gest, el llindar, la rodona i què hi sent
+  és la pàgina que no es deixa—. Les maneres de tancar la targeta són totes de la persona: un toc fora seu i un
+  lliscament cap amunt que hi comenci (0.179.49). El gest, el llindar, la rodona i què hi sent
   l'app són a docs/30, «El panell del sistema».
 - **I quan el vidre queda net sota seu, s'ha de dir** (0.164.3): una imatge de l'arrencada de l'app
   (`splash::show`) renta **tot** el vidre —la franja amb ell— i la barra, que només es pinta quan canvia

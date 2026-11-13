@@ -623,6 +623,40 @@ static void test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away() {
   TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the app heard a tap of the card of the system");
 }
 
+// **I un lliscament cap amunt des de fora la tanca** (0.179.49): the owner asked for it with the board in his hand —*«afegeix
+// també el swipe up desde fora del panell, que fa que el tancament sigui molt més natural»*—. The rule is the same one the tap
+// follows: the gesture belongs to whoever the finger landed on, so a swipe up **outside** the card puts it away and the same
+// swipe **on** the card is the card's and does nothing —the rows are the card's, and the switches that come will take their
+// fingers there— (docs/30).
+static void test_a_swipe_up_from_outside_the_card_puts_it_away() {
+  boot_with_a_touch_panel();
+  kernel::panel::boot();
+  chip().reset();
+  pull_from_the_bar(20, 120);
+  TEST_ASSERT_TRUE(kernel::panel::open());
+
+  // **A hundred rows up with the finger on the card**: the card ends at row three hundred and fifty-two of this glass, so two
+  // hundred of the finger is a row of the card and the drag that begins there is the card's. It does not close it.
+  drag_on_the_glass(248, 148);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe up that began on the card put it away");
+  TEST_ASSERT_TRUE_MESSAGE(ui::page_held(), "a swipe up on the card dropped the hold of the page");
+
+  // **And the same drag with the finger on the page below**: seven hundred is a row of the page, and a hundred rows up is the
+  // gesture the page would scroll with —if it ran, which it does not while the card is out— (docs/30).
+  drag_on_the_glass(700, 600);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a swipe up from outside the card did not put it away");
+  TEST_ASSERT_FALSE_MESSAGE(ui::page_held(), "the card is gone and the page is still held");
+  char heard[64];
+  the_app_hears(heard, sizeof(heard));
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("", heard, "the page heard the swipe that put the card away");
+
+  // **I un lliscament de quaranta no n'hi ha prou**: thirty rows up is a gesture that says nothing, and the card stays.
+  pull_from_the_bar(20, 120);
+  TEST_ASSERT_TRUE(kernel::panel::open());
+  drag_on_the_glass(700, 670);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe of thirty rows put the card away");
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -642,5 +676,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_a_drag_down_from_the_bar_pulls_out_the_card_of_the_system);
   RUN_TEST(test_a_drag_that_begins_on_the_page_is_the_pages);
   RUN_TEST(test_a_tap_on_the_card_leaves_it_and_a_tap_below_takes_it_away);
+  RUN_TEST(test_a_swipe_up_from_outside_the_card_puts_it_away);
   return UNITY_END();
 }

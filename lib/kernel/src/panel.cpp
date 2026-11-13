@@ -2,6 +2,8 @@
 // (docs/30).
 #include "kernel/panel.h"
 
+#include <string.h>
+
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
@@ -26,15 +28,18 @@ namespace {
 // and a movement nobody makes by accident, and forty up to put it away, which is less because the card is already out and
 // the person is telling the system something it is waiting to hear (docs/30).
 const int16_t kPullPx = 60;
-// **And it goes with a tap and with nothing else** (0.179.42): there was a `kPushPx` of forty here that made a drag up a
-// way out, and the owner took it away —*«Ningú ha de poder tancar el panell excepte l'usuari, picant fora de la zona
-// desplegada»*—. A drag up is the gesture the page under the card uses for its own scroll, so a hand that swiped a page
-// folded the card by accident (docs/30, docs/50).
+// **I quaranta cap amunt per tancar-la, amb una condició** (0.179.49): the owner asked for the swipe up *«desde fora del
+// panell»* and that condition is the whole of it. 0.179.42 took a drag up away because it was the gesture the page under the
+// card uses for its own scroll; since then **the page does not run while the card is out** (that same version), so a swipe
+// up below the card belongs to nobody and it is the person saying «this again». What still does not close it is a drag that
+// begins **on** the card: those rows are the card's (docs/30, docs/50).
+const int16_t kPushPx = 40;
 
 // **The handle of the card, at the bottom of it** (0.179.24): a black bar in the same ink as the line that closes the card,
-// centred and fourteen rows above it. It is the shape the bar of the system has, and it is **not** a way out any more
-// (0.179.42): the only way out is a tap outside the card, so the handle is the look of the thing and nothing to pull —the
-// owner took the drag up away with the rest of the gestures the page under the card owns (docs/30, docs/92).
+// centred and fourteen rows above it. It is the shape the bar of the system has, and since 0.179.49 it is a lie that can be
+// believed again: the swipe up that puts the card away starts outside it —on the page below or on the bar, which are the two
+// places the finger that pulls it out comes from— and a drag that begins **on** the rows of the card is the card's and does
+// nothing (docs/30, docs/92).
 const uint16_t kHandleW = 96;
 const uint16_t kHandleH = 6;
 const uint16_t kHandleGap = 14;
@@ -218,29 +223,45 @@ void poll() {
     touch::forget_gestures();
     return;
   }
+  // **The ways out are the person's** (0.179.42, 0.179.49). The owner: *«Ningú ha de poder tancar el panell excepte l'usuari,
+  // picant fora de la zona desplegada»*, and then *«afegeix també el swipe up desde fora del panell, que fa que el tancament
+  // sigui molt més natural»*. So, while the card is out:
+  //   - a **tap on the button of the corner** closes the app under it, and it is the only thing on the card that answers a
+  //     finger (`in_the_cross` is false over a launcher, where the button is not painted at all);
+  //   - a **tap outside its rows** —the page below it, or the bar it hangs from— puts the card away. A tap **on** the card is
+  //     the card's: the switches that come later will take their taps, and the rows are not a thing to dismiss with;
+  //   - and a **drag up that begins outside it** puts it away too. That is the gesture the page under the card would use for
+  //     its own scroll —which is why 0.179.42 took it away— and the reason it is back is that the same version stopped the
+  //     app: while the card is out there is no scroll underneath, so a hand that swipes up there is telling the card to go.
+  //     A drag that begins **on** the card is still the card's and does nothing.
+  // What is left is nobody's: the app hears none of it, and its turn is not run while the card is out (`kernel.cpp`), so
+  // nothing but this function can close the card (docs/30).
   touch::Gesture gesture;
-  // **One way out, and it is the person's** (0.179.42). The owner: *«Ningú ha de poder tancar el panell excepte l'usuari,
-  // picant fora de la zona desplegada. Es deixa com estava i es resumeix l'execució de l'app lua»*. So the card goes on a
-  // **tap outside its rows** —the page below it, or the bar it hangs from— and on nothing else:
-  //   - a drag up used to put it away, and a drag up is what the page under the card does with its own scroll, so a hand
-  //     that swiped the file of the editor folded the system's card without being asked (docs/30);
-  //   - a tap **on** the card used to put it away too; the rows of the card are its own, and the switches that come later
-  //     will take their taps, so a tap there is a tap on the card and the card stays as it was.
-  // What is left is nobody's either way: the app under the card hears neither the pull nor the tap that takes it away, and
-  // the turn of the app is not run while the card is out (`kernel.cpp`), so nothing but this function can close it.
-  if (touch::take_gesture_of("tap", gesture)) {
-    if (in_the_cross(gesture.x, gesture.y)) {
-      close_the_app();
-      return;
+  while (touch::take_gesture(gesture)) {
+    if (gesture.kind == nullptr) continue;
+    if (strcmp(gesture.kind, "tap") == 0) {
+      if (in_the_cross(gesture.x, gesture.y)) {
+        touch::forget_gestures();
+        close_the_app();
+        return;
+      }
+      if (!on_the_card(gesture)) {
+        touch::forget_gestures();
+        put_it_away();
+        return;
+      }
+      continue;
     }
-    if (!on_the_card(gesture)) {
-      put_it_away();
-      return;
-    }
+    if (strcmp(gesture.kind, "drag") != 0 || on_the_card(gesture)) continue;
+    // **Cap amunt i més amunt que de costat**, the same shape the pull has: a finger that walks the page sideways is not
+    // asking for the card to go anywhere.
+    const int32_t up = -static_cast<int32_t>(gesture.dy);
+    const int32_t sideways = (gesture.dx < 0) ? -static_cast<int32_t>(gesture.dx) : gesture.dx;
+    if (up < kPushPx || up < sideways) continue;
+    touch::forget_gestures();
+    put_it_away();
+    return;
   }
-  // **What is left is nobody's**: an app that reacted under the card would be acting on a page the person cannot see
-  // (docs/30).
-  touch::forget_gestures();
 }
 
 }  // namespace panel

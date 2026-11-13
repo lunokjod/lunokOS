@@ -3177,11 +3177,12 @@ vidre i es poden provar al PC (docs/85).
 La barra del sistema és la franja de dalt del vidre, i **el dit que hi cau és del sistema** (docs/50). Des
 d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una targeta blanca que ocupa el
 terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
-barra del sistema, que és l'agafador del camí d'anada: el de tornada és un toc fora de la targeta (0.179.42)—, i res a
-dins encara
-—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **un quadrat negre amb una creu a la
-cantonada de dalt a la dreta** que tanca l'app del davant. **L'única manera de tancar-lo és la de la persona: un toc
-fora de la targeta** —a la pàgina de sota o a la barra de la qual penja—, i res més (0.179.42).
+barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
+lliscament cap amunt que hi comenci (0.179.42, 0.179.49)—, i res a dins encara
+—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **un botó amb una creu a la
+cantonada de dalt a la dreta** que tanca l'app del davant. **Les maneres de tancar-lo són totes de la persona: un toc
+fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi comenci**,
+i res més (0.179.42, 0.179.49).
 
 - **Què és una estirada i què no**: el dit ha de caure **a la barra** (les 48 files de dalt, que no són de
   cap app) i baixar **60 píxels o més, i més del que s'ha mogut de costat**. Una estirada que comença una
@@ -3228,11 +3229,16 @@ fora de la targeta** —a la pàgina de sota o a la barra de la qual penja—, i
   endevina pel nom de l'app: ho diu el `"launcher": true` del manifest (docs/40).
 - **Les files de la targeta són seves** (0.179.42): un toc **a sobre** de la targeta no la tanca —les files de
   commutadors que vindran prendran els seus propis tocs, i un toc que descarta la targeta seria un commutador que no
-  es pot prémer mai—. El que la tanca és un toc **fora** d'ella, i **cap arrossegament**: un dit que puja per la
-  pàgina de sota és l'scroll d'aquella pàgina, i amb el llindar de quaranta píxels que hi havia la targeta es plegava
-  sola mentre l'amo llegia el fitxer de l'editor —*«Perqué l'editor cancela el panell lliscant de la barra de
-  sistema?»*—. Si la targeta es tanca per una cosa que no és un dit, ho diu al registre (`the card went with the page
-  it was over`), perquè era un tancament que no es podia explicar amb el que hi havia al log.
+  es pot prémer mai—. El que la tanca és un toc **fora** d'ella. Si la targeta es tanca per una cosa que no és un dit,
+  ho diu al registre (`the card went with the page it was over`), perquè era un tancament que no es podia explicar amb
+  el que hi havia al log.
+- **I un lliscament cap amunt que comenci fora d'ella** (0.179.49): el mateix gest que la pàgina de sota faria servir
+  per desplaçar-se, i per això 0.179.42 el va treure —però des de 0.179.42 la pàgina **no corre** mentre la targeta hi
+  és, o sigui que allà no hi ha res a desplaçar i el dit només pot estar dient que la targeta marxi—. Són quaranta
+  píxels cap amunt i més amunt que de costat. **Un lliscament que comença a sobre la targeta no la tanca**: aquelles
+  files són de la targeta, i és la mateixa regla de sempre (l'amo del contacte es decideix on cau el dit). L'amo ho va
+  demanar amb la placa a la mà: *«afegeix també el swipe up desde fora del panell, que fa que el tancament sigui molt
+  més natural»*.
 
 ## `imu`
 
