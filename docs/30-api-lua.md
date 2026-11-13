@@ -3186,8 +3186,9 @@ d'aquesta versió, **arrossegar-lo cap avall obre el panell del sistema**: una t
 terç de la pàgina que hi ha sota la barra, amb la línia que la tanca i l'ansalada a la vora de baix —la forma de la
 barra del sistema, que és l'agafador del camí d'anada: els de tornada són un toc fora de la targeta i un
 lliscament cap amunt que hi comenci (0.179.42, 0.179.49)—, i res a dins encara
-—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **un botó amb una creu a la
-cantonada de dalt a la dreta** que tanca l'app del davant. **Les maneres de tancar-lo són totes de la persona: un toc
+—és el lloc on aniran els commutadors de wifi, bluetooth i paràmetres—, amb **dos botons a les cantonades de dalt**:
+una **fletxa a l'esquerra** que torna l'app a la vista de sota i **una creu a la dreta** que tanca l'app del davant
+(0.179.23, 0.179.52). **Les maneres de tancar-lo són totes de la persona: un toc
 fora de la targeta** —a la pàgina de sota o a la barra de la qual penja— **o un lliscament cap amunt que hi comenci**,
 i res més (0.179.42, 0.179.49).
 
@@ -3229,6 +3230,22 @@ i res més (0.179.42, 0.179.49).
   sola pàgina es tanca i **la pàgina que la va obrir torna a agafar el vidre**. La targeta se'n va amb
   l'app que tanca: si ja hi ha una pàgina que ha de rentar el vidre, aquella és la que esborra la
   targeta i el tancament no paga dues passades; si no, la pàgina de sota torna sencera.
+- **I la fletxa de l'esquerra torna una vista** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
+  barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close" com fins
+  ara. El back ha de ser una icona, com el close»*. És **el mateix botó de seixanta-quatre píxels** que la creu, amb la
+  mateixa distància de la barra i de la vora esquerra (`kBackLeft` i `kCrossRight`, els dos vint-i-quatre), i la seva
+  paraula és una **fletxa `←`** i **un sol byte**: `0x81`, el codi que CP1252 deixa buit i que la cara contesta amb
+  `U+2190` (0.158.0), perquè aquí un text és **un byte per caràcter** i els tres bytes de UTF-8 d'una fletxa serien tres
+  caràcters (`â†↓` al vidre, que és com es va trobar). Va a tres passos i no a quatre: una fletxa és més ampla que una `X` i a
+  quatre el marc del botó la tallaria. **Una icona i no una paraula** perquè
+  «back» és una paraula d'una llengua i una fletxa no. El toc no inventa cap camí: demana `shell::go_back_one_view`, la
+  mateixa porta que el pessic de gran a petit, o sigui que l'app rep la vista que va empènyer, sent `on_back(depth)` i
+  repinta la de sota. La targeta deixa anar la pàgina **sense pintar** i declara que el sistema deu la pàgina sencera,
+  i el `present` que l'app fa dins del seu `on_back` és el que renta el vidre i s'emporta la targeta: una passada i no
+  dues.
+- **I amb una sola pàgina la fletxa no hi és**: una app que no ha empès cap vista no té on tornar, i un botó que no pot
+  fer res és pitjor que cap botó —la mateixa regla que la creu sobre un llançador (0.179.25)—. El sistema ho pregunta
+  abans de pintar (`apps::views() > 0`), i la cantonada de la targeta és paper: un toc allà és un toc a la targeta.
 - **I sobre un llançador el quadrat no hi és** (0.179.25): el llançador és l'única pàgina que no es
   deixa, i un botó que no pot fer res és pitjor que cap botó. La cantonada de la targeta és paper, i un
   toc allà és un toc a la targeta, que no fa res (0.179.42). El sistema ho pregunta abans de

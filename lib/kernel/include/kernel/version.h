@@ -5598,6 +5598,36 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.52 (13/11): **the card of the system has a way back, at the left of the way out**. The owner: *«Afegir botó de "back" al
+// panell lliscant de la barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close"
+// com fins ara. El back ha de ser una icona, com el close»* (docs/30, docs/50):
+//   - **la fletxa és el mateix botó que la creu, a l'altra cantonada**: sixty-four pixels a side, the same twenty-four from the top of
+//     the card and the same twenty-four from the edge, painted by the same `ui::paint_a_button` every button of this tree is painted
+//     with —the face of paper lifted four pixels, the ink under it, the frame on the face and the word in the middle—, so the card
+//     reads as two keys of one system and not as two drawings (`back_x` is `kBackLeft` plus half a side, `paint_the_button` takes the
+//     word and the step now that there are two of them);
+//   - **la icona és una fletxa i no un dibuix de píxels**: `0x81`, the one byte CP1252 leaves empty and that the face answers with
+//     `U+2190` (0.158.0), at three steps and not four: an arrow is wider than an `X` and at four the frame of the control cuts it. A
+//     word would be the word of a language and an arrow is not. **One byte and not three**: a text here is one byte a character, and
+//     the UTF-8 `←` was three characters on the glass —`â†↓`, which is how the first drawing of this button was found—;
+//   - **el toc no inventa cap camí**: it asks `shell::go_back_one_view`, the door the pinch from big to small already uses, so the app
+//     gives its top view back, hears `on_back(depth)` and repaints the page below it. The card drops the hold of the page **without a
+//     paint**, says the system owes the page whole (`ui::owe_the_page()`), and the `present` the app makes inside its own `on_back` is
+//     the one wash that erases the card —one pass of this glass for one finger and not two, which is the same rule the close follows
+//     when a page goes back (0.179.23)—;
+//   - **i amb una sola pàgina la fletxa no hi és**: an app that never pushed a view has nowhere to go back to, and a button that cannot
+//     do anything is worse than no button —the rule the cross has followed over a launcher since 0.179.25—. It asks `apps::views()`
+//     before painting, so the corner of the card of a one-page app is paper and a tap there is a tap on the card;
+//   - **mesurat**: `test_the_arrow_of_the_panel_goes_back_one_view` (test_apps) runs an app that pushes a view, pulls the card down from
+//     the bar, reads the three things that make the arrow a key of this system at the glass —the ink of the shadow, the paper of the
+//     face off the arrow and the ink of the arrow in the middle—, taps its middle and reads the view count going from one to zero, the
+//     `stacky back 0` of the hook and the whole page washed with `gc16`; then pulls the card again over the same app, now with no view,
+//     and reads paper where the key was, no arrow in it, the app still there and the count still zero. **The case is red without the
+//     one byte** —it was checked by putting the UTF-8 word back, which draws `â†↓` and fails the «wider than tall» reading with
+//     `-82`— and the case of the cross still passes beside it; **the whole suite was not run again after that**, because the owner
+//     stopped the runs, so `619 cases` is the count of the run before the last two lines of this note; the five boards and the
+//     emulator are built.
+
 // 0.179.51 (13/11): **a page of a list is turned with a finger that goes up, and the shelf of the faces has a card**. The
 // owner: *«L'app fonts no passa pàgina de la llista amb swipe, usa el paginador Dots intern de la llista o afegit manualment? En
 // cas de ser intern, el control registra bé els swipe?»* (docs/30, docs/40, docs/90):
@@ -7114,7 +7144,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.51";
+static const char kVersion[] = "0.179.52";
 
 }  // namespace kernel
 

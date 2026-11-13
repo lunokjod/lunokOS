@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include "kernel/apps.h"
 #include "kernel/bar.h"
 #include "kernel/display.h"
 #include "kernel/log.h"
@@ -55,11 +56,22 @@ const uint16_t kLineH = 2;
 const int16_t kCrossSide = 64;       // the side of the button, so what a finger lands on is a key
 const uint16_t kCrossTop = 24;
 const uint16_t kCrossRight = 24;
+// **I el de la tornada, a l'esquerra** (0.179.52): the owner: *«Afegir botó de "back" al panell lliscant… A la part esquerra del
+// panell, a la dreta el "close" com fins ara. El back ha de ser una icona, com el close»*. The same key on the other side, with
+// the same margin and the same rows, so the two of them are one pair and not two numbers that happen to be close.
+const uint16_t kBackLeft = 24;
 // **The word and its steps**: the box leaves thirty-two pixels of word —the sixteen of air a button has on each side— and
 // `X` at four steps of the face is twenty-two, which is the measure the two numbers were chosen with. A bigger step is cut
 // by the control and a smaller one is a dot in a box.
 const char kCrossWord[] = "X";
 const uint8_t kCrossScale = 4;
+// **La icona de la tornada és una fletxa i no un dibuix d'aquest fitxer** (0.179.52): `0x81`, which is the leftwards arrow of this
+// system —the one byte CP1252 leaves empty and that the face answers with `U+2190` (0.158.0), so it is a character like the `X`
+// and not three bytes of UTF-8 that this system would read as three characters (`â†↓`, found on the glass)— at three steps,
+// because an arrow is wider than an `X` and at four the frame of the control cuts it. **Una icona i no una paraula**: «back» is
+// the word of a language and an arrow is not.
+const char kBackWord[] = "\x81";
+const uint8_t kBackScale = 3;
 
 bool g_open = false;
 
@@ -81,6 +93,7 @@ uint16_t card_height() {
 // thing the person aimed at (docs/30). The two numbers are **the middle of the button**, which is what a tap aims at.
 int16_t cross_x() { return static_cast<int16_t>(ui::width()) - static_cast<int16_t>(kCrossRight) - kCrossSide / 2; }
 int16_t cross_y() { return static_cast<int16_t>(kCrossTop) + kCrossSide / 2; }
+int16_t back_x() { return static_cast<int16_t>(kBackLeft) + kCrossSide / 2; }
 
 // **The cross is a button only when there is a page it can close** (0.179.25): over a launcher —the one page that is not left— and
 // over no page at all, the corner of the card is paper, and a tap there is a tap on the card. A button that does nothing is worse
@@ -89,14 +102,26 @@ bool the_cross_is_there() { return shell::the_page_in_front_can_be_left(); }
 
 // **The button is the square a finger lands on** (0.179.26): the ink and the hit test are the same rectangle, so what a person
 // sees is what a person presses.
-bool in_the_cross(uint16_t x, uint16_t y) {
-  if (!the_cross_is_there()) return false;
+bool in_a_button(int16_t cx, int16_t cy, uint16_t x, uint16_t y) {
   const int32_t half = kCrossSide / 2;
-  const int32_t left = static_cast<int32_t>(cross_x()) - half;
-  const int32_t top = static_cast<int32_t>(cross_y()) - half;
+  const int32_t left = static_cast<int32_t>(cx) - half;
+  const int32_t top = static_cast<int32_t>(cy) - half;
   const int32_t px = static_cast<int32_t>(x);
   const int32_t py = static_cast<int32_t>(y);
   return px >= left && px < left + kCrossSide && py >= top && py < top + kCrossSide;
+}
+
+bool in_the_cross(uint16_t x, uint16_t y) {
+  return the_cross_is_there() && in_a_button(cross_x(), cross_y(), x, y);
+}
+
+// **La tornada és un botó només quan hi ha una vista a sota** (0.179.52): an app with one page has nowhere to go back to, and a
+// button that does nothing is worse than no button —the same rule the cross follows over a launcher (0.179.25)—. What it asks is
+// the number the system already keeps for every app: the views on top of its first page (docs/30, docs/45).
+bool the_back_is_there() { return apps::views() > 0; }
+
+bool in_the_back(uint16_t x, uint16_t y) {
+  return the_back_is_there() && in_a_button(back_x(), cross_y(), x, y);
 }
 
 // **Whether the finger landed on the card** (0.179.42): the card hangs from the bar, so its rows are the first
@@ -113,12 +138,12 @@ bool on_the_card(const touch::Gesture& gesture) {
 // box in the colour of its shadow with the face lifted four pixels, the frame on the face, the word centred in what the air
 // leaves— and the panel only says where it is and with which ink. The `X` is the control's word and it is not a shape of
 // this file: a cross of pixels was a second button in a system that has one (the owner, 12/11, docs/30, docs/92).
-void paint_the_button(hal::ISurface& surface, int16_t cx, int16_t cy) {
+void paint_the_button(hal::ISurface& surface, int16_t cx, int16_t cy, const char* word, uint8_t scale) {
   const uint16_t left = static_cast<uint16_t>(cx - kCrossSide / 2);
   const uint16_t top = static_cast<uint16_t>(cy - kCrossSide / 2);
   ui::paint_a_button(surface, left, top, static_cast<uint16_t>(kCrossSide), static_cast<uint16_t>(kCrossSide),
                      /*background=*/15, /*border=*/0, /*pressed=*/false, /*focused=*/false, /*primary=*/false,
-                     kCrossWord, /*color=*/0, kCrossScale);
+                     word, /*color=*/0, scale);
 }
 
 void paint() {
@@ -131,15 +156,37 @@ void paint() {
   surface->fill_rect(0, static_cast<uint16_t>(top + rows - kLineH), width, kLineH, 0);
   surface->fill_rect(static_cast<uint16_t>((width - kHandleW) / 2),
                      static_cast<uint16_t>(top + rows - kLineH - kHandleGap - kHandleH), kHandleW, kHandleH, 0);
-  // **And the button of the corner**, on the rows of the card and not of the view, when there is a page it can close: the one
-  // control the panel has until the switches of the system come (docs/30).
-  if (the_cross_is_there()) paint_the_button(*surface, cross_x(), static_cast<int16_t>(top + cross_y()));
+  // **I els dos botons de la targeta**, on the rows of the card and not of the view: the arrow of the way back at the left, when
+  // there is a view under the page, and the cross of the way out at the right, when the page can be left. Each one is a key the
+  // system paints with the same function every button of this system is painted with (0.179.52, docs/30).
+  if (the_back_is_there()) {
+    paint_the_button(*surface, back_x(), static_cast<int16_t>(top + cross_y()), kBackWord, kBackScale);
+  }
+  if (the_cross_is_there()) {
+    paint_the_button(*surface, cross_x(), static_cast<int16_t>(top + cross_y()), kCrossWord, kCrossScale);
+  }
   // **`gc16` and not `gld16`**: the card is the whole box and it has to come out clean the first time, which is what the
   // strip of the bar asks for when it paints itself whole (docs/50, docs/92).
   display::present(hal::UpdateMode::kGc16);
 }
 
 void put_it_away();
+
+// **La fletxa torna l'app a la vista de sota** (0.179.52): `shell::go_back_one_view` is the door the pinch and the three taps
+// already use for «one page back» —the app gives the top page back, hears `on_back(depth)` and repaints the one below—, so the
+// button is a way of asking for the same thing and not a second behaviour (docs/30, docs/45).
+//
+// **I la targeta marxa abans que l'app pinti**: the hold of the page is dropped **without a paint** and the whole page is owed,
+// so the present the app makes inside `on_back` is the page whole and the card goes with it. A paint here and another one there
+// would be two passes of this glass for one finger, and the second would be the app's own (docs/50, docs/92).
+void go_back_a_view() {
+  if (!the_back_is_there()) return;
+  g_open = false;
+  ui::forget_the_page_hold();
+  ui::owe_the_page();
+  shell::go_back_one_view();
+  log_printf(pal::kLogInfo, "PANEL", "the arrow: the app went to the view below");
+}
 
 // **The cross closes the app of the page under the card** (0.179.23), and it asks the one road out of a page for it: a page
 // with another one on top gives it back, a launcher is refused with the line the pinch is refused with, and the page that
@@ -243,6 +290,11 @@ void poll() {
       if (in_the_cross(gesture.x, gesture.y)) {
         touch::forget_gestures();
         close_the_app();
+        return;
+      }
+      if (in_the_back(gesture.x, gesture.y)) {
+        touch::forget_gestures();
+        go_back_a_view();
         return;
       }
       if (!on_the_card(gesture)) {

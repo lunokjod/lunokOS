@@ -13551,6 +13551,169 @@ void test_the_cross_of_the_panel_closes_the_app(void) {
   kernel::boot(hal::platform());
 }
 
+// **La fletxa del panell torna l'app a la vista de sota** (0.179.52). L'amo: *«Afegir botó de "back" al panell lliscant de la
+// barra de sistema. Per tirar l'app a la vista anterior. A la part esquerra del panell, a la dreta el "close" com fins ara. El
+// back ha de ser una icona, com el close»*. So the card has a pair of keys on its top corners: the arrow at the left, which asks
+// `shell::go_back_one_view` —the same door the pinch uses, so the same behaviour—, and the cross at the right, which asks the
+// way out. The arrow is there **only when there is a view to give back**, the same way the cross is there only when the page
+// can be left (0.179.25): a button that does nothing is worse than no button.
+//
+// What this case measures is the two things a person would see: the number the system keeps of the views (`apps::views`, one
+// before the tap and zero after it), the hook the app hears when its view is given back (`on_back(left)`), and the ink of the
+// arrow on the left corner of the card —the shadow, the face and the word—, because a card with a key on it reads as a key and
+// the rest of the card does not (docs/30, docs/45, docs/92).
+void test_the_arrow_of_the_panel_goes_back_one_view(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+
+  // **The face of the system is the bold one of the disk**, because the arrow of the card is a character of it and not a
+  // drawing of the panel (0.179.52): the table of five by seven that a disk with no face falls back to carries no arrow, and a
+  // case that pressed a key nobody could see would pass for the wrong reason (docs/30, docs/70).
+  TEST_ASSERT_TRUE(copy_a_face(storage, "dejavusans-bold.ttf"));
+
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_NOT_NULL(hal::platform().touch());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  kernel::panel::boot();
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+
+  // An app with one view on top of its only page, and the hook that repaints the page below it.
+  TEST_ASSERT_TRUE(add_app(storage, "stacky",
+                           "{\"title\":\"Stacky\",\"version\":\"0.1.0\","
+                           "\"entry\":\"app.lua\",\"boards\":[\"esp32\"]}",
+                           "local depth = app.view_push()\n"
+                           "console.print('stacky view ' .. depth)\n"
+                           // **The app puts the page below back, which is what every app of this system does in `on_back`**
+                           // (docs/30, docs/45): the system has already given the view back, so the hook repaints the one
+                           // under it and presents —the present the arrow of the card is waiting for to erase the card.
+                           "function on_back(left)\n"
+                           "  console.print('stacky back ' .. left)\n"
+                           "  ui.clear(15)\n"
+                           "  ui.present()\n"
+                           "end\n"
+                           "while true do sys.delay(20):await() end\n"));
+
+  // **The two gestures are made the way a person makes them** (docs/30, docs/85): the bar is where the card is pulled from,
+  // and a tap is down and up with five hundred turns after it, which is the window of the taps of this system.
+  auto swipe_down = [&]() {
+    TEST_ASSERT_TRUE(panel->finger_down(0, 400, 20));
+    pump_turns(20);
+    for (int y = 60; y <= 200; y += 35) {
+      TEST_ASSERT_TRUE(panel->finger_move(0, 400, static_cast<uint16_t>(y)));
+      pump_turns(20);
+    }
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(40);
+  };
+  auto tap = [&](uint16_t x, uint16_t y) {
+    TEST_ASSERT_TRUE(panel->finger_down(0, x, y));
+    pump_turns(60);
+    TEST_ASSERT_TRUE(panel->finger_up(0));
+    pump_turns(500);
+  };
+  // **The arrow is the same square as the cross, on the other corner**: twenty-four off the left of the card and the same
+  // twenty-four from its top, in the rows of the view, so the middle of it is that plus half a side, on the glass where the
+  // bar has already been taken off (docs/30).
+  const uint16_t arrow_x = static_cast<uint16_t>(24 + 32);
+  const uint16_t arrow_y = static_cast<uint16_t>(48 + 24 + 32);
+  auto glass_level = [](uint16_t x, uint16_t y) {
+    emu::MemorySurface* glass = emu::memory_surface();
+    return (glass == nullptr) ? static_cast<uint8_t>(0xFF) : glass->level_at(x, y);
+  };
+  const uint16_t box_left = static_cast<uint16_t>(arrow_x - 32);
+  const uint16_t box_top = static_cast<uint16_t>(arrow_y - 32);
+  const uint16_t shadow_x = static_cast<uint16_t>(box_left + 30);
+  const uint16_t shadow_y = static_cast<uint16_t>(box_top + 61);   // the middle of the four rows of shadow
+  const uint16_t face_x = static_cast<uint16_t>(arrow_x - 12);     // inside the face, off the word
+  const uint16_t face_y = static_cast<uint16_t>(arrow_y - 18);
+  auto ink_in_the_word = [&]() {
+    int ink = 0;
+    int widest = 0;
+    int tallest = 0;
+    for (uint16_t y = static_cast<uint16_t>(arrow_y - 12); y < static_cast<uint16_t>(arrow_y + 12); ++y) {
+      int in_the_row = 0;
+      for (uint16_t x = static_cast<uint16_t>(arrow_x - 12); x < static_cast<uint16_t>(arrow_x + 12); ++x) {
+        if (glass_level(x, y) != 0) continue;
+        ++ink;
+        ++in_the_row;
+      }
+      if (in_the_row > widest) widest = in_the_row;
+    }
+    for (uint16_t x = static_cast<uint16_t>(arrow_x - 12); x < static_cast<uint16_t>(arrow_x + 12); ++x) {
+      int in_the_column = 0;
+      for (uint16_t y = static_cast<uint16_t>(arrow_y - 12); y < static_cast<uint16_t>(arrow_y + 12); ++y) {
+        if (glass_level(x, y) == 0) ++in_the_column;
+      }
+      if (in_the_column > tallest) tallest = in_the_column;
+    }
+    // **I la fletxa és més ampla que alta**: the shaft of `←` is a long row and the head of a `↓` is a tall column, so the two
+    // numbers swap over. It is the one reading that tells a sideways arrow from a down one on a box of ink, and it is here
+    // because the first drawing of this button was three bytes of UTF-8 read as three characters —`â†↓` on the glass— and the
+    // count of ink alone was happy with the down arrow at the end of them (0.179.52, docs/30).
+    if (widest <= tallest) return -ink;
+    return ink;
+  };
+
+  pump_captured(40, g_out, sizeof(g_out), "run stacky");
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stacky view 1"), g_out);
+  TEST_ASSERT_EQUAL_UINT8(1, kernel::apps::views());
+
+  // **The card comes out over the page and the arrow is a key of this system**: the four rows under the face are ink, the face
+  // is paper away from the arrow, and the middle of it has the ink of the arrow in it (docs/30, docs/92).
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a swipe down from the bar did not pull the card out");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, glass_level(shadow_x, shadow_y), "the arrow of the card has no shadow under its face");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(face_x, face_y), "the face of the arrow is not paper");
+  TEST_ASSERT_GREATER_THAN_MESSAGE(20, ink_in_the_word(), "the arrow of the card has no arrow in it");
+
+  // **I el dit, al mig de la fletxa, torna una vista i no tanca l'app** (docs/30, docs/45): the app is still the page in front,
+  // the view it pushed is given back, and the hook it wrote heard the depth that is left.
+  capture_begin();
+  tap(arrow_x, arrow_y);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "stacky back 0"), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, kernel::apps::views(), "the arrow did not give the view back");
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "the arrow closed the app instead of going back to the view below");
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "the card stayed open over the page it went back to");
+
+  // **And the page below is whole again**: the card's rows and the page under them are one wash and not two (docs/50).
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912 mode 2 gc16"), g_out);
+
+  // **Amb una sola pàgina no hi ha fletxa** (0.179.52): the app has one page and nowhere to go back to, so the corner of the
+  // card is paper and a tap there is a tap on the card —which is how the panel is dismissed, the page below being the other
+  // way—. What says so is the glass and the view count, the count staying at zero and the app still there.
+  swipe_down();
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "the card did not come out over the app");
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, glass_level(shadow_x, shadow_y), "the card of a single page has the shadow of a key on it");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, ink_in_the_word(), "the card of a single page has an arrow on it");
+  tap(arrow_x, arrow_y);
+  TEST_ASSERT_TRUE_MESSAGE(kernel::app_running(), "a tap on paper closed the app");
+  TEST_ASSERT_EQUAL_UINT8(0, kernel::apps::views());
+  TEST_ASSERT_TRUE_MESSAGE(kernel::panel::open(), "a tap on the paper of the card put it away");
+  tap(270, 400);
+  TEST_ASSERT_FALSE_MESSAGE(kernel::panel::open(), "a tap below the card did not put it away");
+
+  close_any_app();
+  storage->remove("/res/fonts/dejavusans-bold.ttf");
+  storage->remove("/apps/stacky/app.lua");
+  storage->remove("/apps/stacky/manifest.json");
+  storage->remove("/apps/stacky");
+
+  opts = emu::options();
+  opts.board = nullptr;
+  opts.display = false;
+  opts.touch = false;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+}
+
 // **A pinch from big to small closes** (0.163.0). The gesture is the system's and it has three wishes in it: an app
 // with views on top of its first one gives the last of them back and hears `on_back(depth)`; an app on its only page
 // is closed; and a launcher is not, because a board with no page at all is a board a person reaches with a cable.
@@ -14677,6 +14840,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_shelf_has_a_foot_of_its_own);
   RUN_TEST(test_the_shell_app_is_a_page_with_a_session_of_the_shell);
   RUN_TEST(test_the_cross_of_the_panel_closes_the_app);
+  RUN_TEST(test_the_arrow_of_the_panel_goes_back_one_view);
   RUN_TEST(test_a_slide_over_a_button_does_not_click_it);
   RUN_TEST(test_a_touch_on_the_bar_does_not_press_the_page);
   RUN_TEST(test_every_gesture_says_what_it_is_and_how_many_fingers);
