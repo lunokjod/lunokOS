@@ -5598,6 +5598,28 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.56 (13/11): **el teclat torna a escriure dins d'un document llarg, i `pio test` torna a les proves**. The owner:
+// *«revisa l'editor, puc moure el cursor (a dures penes) pero el teclat no envia keystrokes al multiline»* (docs/30, docs/80):
+//   - **el text d'una caixa no cap en un buffer i s'hi ficava** (`lib/luabind/src/luabind.cpp`, `ui_keyboard_typed`): the whole
+//     field was copied into a `char word[256]` and the key was refused when it did not fit —`length + 1 < sizeof(word)`—, so a
+//     box of **255 bytes or more could not be typed into at all**, and silently: the band painted the key, the letter went
+//     nowhere and `on_change` was never called. It is the editor, whose document is 1 423 bytes, and there was no way to see it
+//     from the page. The text now stays where it is —a string of the interpreter— and the new one is built from three pieces of
+//     it with `lua_concat` (the head, the letter and the tail), so a box of any size is typed into and nothing of the page is
+//     copied; the backspace takes the same road and walks back to the start of a UTF-8 letter as it did;
+//   - **i el que es veu a l'editor, mesurat a l'emulador** (`--board m5stack-paper --gui-scale 1 --run editor`): the sample of
+//     1 423 B takes `a` and `f` at the caret —the corner says `1425 B` and the row says `row 5/67`—, a tap in the middle of a
+//     wrapped line puts the caret there and the next keys land there, and the ⌫ and the ↵ of the band write into it;
+//   - **`pio test` i l'entorn de les proves** (0.179.54 deia el contrari i s'equivocava): `pio test` sense `-e` agafa
+//     `default_envs`, i fer que l'entorn de l'emulador compilés les suites va tenir un preu que la 0.179.54 no va mirar —
+//     **una compilació de proves escriu el binari de les suites al mateix `program`** que hom executa per mirar el vidre, i
+//     després `pio run -e emulator` deia que estava al dia: el 13/11 `.pio/build/emulator/program` era un binari de proves de
+//     1 714 232 B que contestava `43 Tests 0 Failures`. Ara `default_envs` és **`test`**, que és l'entorn que les proves volen
+//     (disc propi, `custom_apps_copied`, `LUNOK_HOME_APP` buit), l'entorn de l'emulador diu `test_ignore = *`, i cada
+//     compilació d'aquest projecte diu el seu entorn com deia abans. `pio test` i `pio test -e test` són el mateix;
+//   - **i el cas del default d'`home` no suposa l'entorn** (`test_the_home_app_comes_up_with_the_board`, 0.179.54): compara amb
+//     `cfg::home_default()` en lloc de dir `none` a la força, i així diu la veritat des de qualsevol entorn.
+
 // 0.179.55 (13/11): **hi ha un sol log i el port sèrie és una còpia seva**. The owner: *«el log del serial ha de sortir del log
 // del sistema. Excepte la shell, que es considera aplicació que usa el serial. El log del sistema es només un i serial ho
 // replica. L'app shell no s'imprimeix al log, sinó al serial»* (docs/30):
@@ -7213,7 +7235,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.55";
+static const char kVersion[] = "0.179.56";
 
 }  // namespace kernel
 

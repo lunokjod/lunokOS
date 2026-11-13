@@ -12288,11 +12288,20 @@ void ui_keyboard_typed(int code) {
   }
   const int fields = lua_gettop(g_state);
   lua_getfield(g_state, fields, "text");
-  const char* text = lua_isstring(g_state, -1) ? lua_tostring(g_state, -1) : "";
-  char word[256];
-  snprintf(word, sizeof(word), "%s", (text != nullptr) ? text : "");
-  lua_pop(g_state, 1);
-  const int length = static_cast<int>(strlen(word));
+  // **El text de la caixa no cap en un buffer i no s'hi ha de ficar** (0.179.56): this function copied the whole field into a
+  // `char word[256]` and refused the key when it did not fit (`length + 1 < sizeof(word)`), so **a box with 255 bytes or more
+  // could not be typed into at all** — and said nothing: the band painted the key, the letter went nowhere, `on_change` was
+  // never called. It is the owner's editor, whose document is 1 423 bytes: *«el teclat no envia keystrokes al multiline»*.
+  // The text stays where it is —a string of the interpreter— and the new one is built from three pieces of it with
+  // `lua_concat`, so a page of any size is typed into and nothing is copied but the letter.
+  const int text_index = lua_gettop(g_state);
+  size_t bytes = 0;
+  const char* text = lua_isstring(g_state, text_index) ? lua_tolstring(g_state, text_index, &bytes) : "";
+  if (text == nullptr) {
+    text = "";
+    bytes = 0;
+  }
+  const int length = static_cast<int>(bytes);
   const lua_Integer cursor = ui_field_number(g_state, object, "cursor", length);
   int at = (cursor < 0) ? 0 : ((cursor > length) ? length : static_cast<int>(cursor));
   if (code == 13) {
@@ -12312,26 +12321,35 @@ void ui_keyboard_typed(int code) {
       // **A letter goes whole**: the caret steps back to the start of the sequence and the bytes of that letter
       // are as many as its first byte says, or half of a UTF-8 letter is left in the box (docs/90).
       int start = at - 1;
-      while (start > 0 && (word[start] & 0xC0) == 0x80) --start;
+      while (start > 0 && (text[start] & 0xC0) == 0x80) --start;
       int width = 1;
-      while (start + width < length && (word[start + width] & 0xC0) == 0x80 && width < 3) ++width;
-      memmove(word + start, word + start + width, static_cast<size_t>(length - start - width) + 1);
+      while (start + width < length && (text[start + width] & 0xC0) == 0x80 && width < 3) ++width;
+      // The head and the tail of what is left: `start` bytes and then everything from `start + width`.
+      lua_pushlstring(g_state, text, static_cast<size_t>(start));
+      lua_pushlstring(g_state, text + start + width, bytes - static_cast<size_t>(start + width));
+      lua_concat(g_state, 2);
       at = start;
       changed = true;
     }
-  } else if (code > 0 && code < 127 && length + 1 < static_cast<int>(sizeof(word))) {
-    memmove(word + at + 1, word + at, static_cast<size_t>(length - at) + 1);
-    word[at] = static_cast<char>((code == 13) ? '\n' : code);
+  } else if (code > 0 && code < 127) {
+    const char letter = static_cast<char>((code == 13) ? '\n' : code);
+    lua_pushlstring(g_state, text, static_cast<size_t>(at));
+    lua_pushlstring(g_state, &letter, 1);
+    lua_pushlstring(g_state, text + at, bytes - static_cast<size_t>(at));
+    lua_concat(g_state, 3);
     ++at;
     changed = true;
   }
   if (changed) {
-    lua_pushstring(g_state, word);
+    // **The new text is the one the hook hears**: it is on top of the stack and the old one is dropped, so a page of any
+    // length is one string of the interpreter and not a copy of it here (docs/75, docs/90).
+    lua_remove(g_state, text_index);
+    lua_pushvalue(g_state, -1);
     lua_setfield(g_state, fields, "text");
     lua_pushinteger(g_state, at);
     lua_setfield(g_state, fields, "cursor");
     ui_invalidate(g_state, object);
-    ui_call_hook_text(g_state, object, "on_change", word);
+    ui_call_hook_text(g_state, object, "on_change", lua_tostring(g_state, -1));
   }
   lua_settop(g_state, top);
 }

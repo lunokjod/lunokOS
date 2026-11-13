@@ -152,15 +152,15 @@ pio test                   # proves natives (i `pio test -e test`, el que fa el 
 
 Cap sessió automàtica no puja res a la placa. Compilar sí; flashejar, no.
 
-**`pio test` sense `-e` corre a l'entorn de l'emulador** (0.179.54): `default_envs` és `emulator`, i fins avui
-això volia dir que les suites es compilaven en un entorn que **no les pot enllaçar** —`[env:emulator]` no tenia
-`test_build_src`, o sigui que `src/board_link.cpp` no es compilava i tota biblioteca que demana `pal::system()`
-es quedava amb una referència sense resoldre—. El resultat era el que es veia el 13/11: `emulator:test_bar` mort
-al enllaç, `emulator:test_apps` vermell pel default de l'app d'inici de la placa, i vint-i-dues suites més amb
-una barreja de les dues coses. Ara l'entorn de l'emulador porta `test_build_src = yes` i les 619 proves hi passen
-igual que a l'entorn `test`, i són el mateix codi: l'única diferència que queda és `LUNOK_HOME_APP`, i el cas que
-la llegeix compara amb `cfg::home_default()` en lloc de suposar que és buit. El CI continua cridant
-`pio test -e test`, que és l'entorn que té el disc i les apps de les proves (`custom_apps_copied`).
+**`pio test` sense `-e` corre a l'entorn de les proves** (0.179.56): `pio test` agafa `default_envs` quan no li
+diuen res, i des de la 0.179.56 aquest valor és **`test`** —l'entorn que té el disc propi, les apps copiades
+(`custom_apps_copied`) i `LUNOK_HOME_APP` buit—. Cada compilació d'aquest projecte diu el seu entorn (`pio run -e
+emulator`, `-e m5-paper`, …); l'única que no ho feia era la de les proves, i per això el valor per defecte és el
+seu. `[env:emulator]` diu `test_ignore = *`: no és un entorn de proves i no en pot ser, perquè una compilació de
+proves allà no enllaça el PAL i, sobretot, **escriu el binari de les suites al mateix `program`** que hom executa
+per mirar el vidre —el 13/11 va quedar-hi un binari de proves que contestava `43 Tests 0 Failures`, i `pio run -e
+emulator` deia que estava al dia—. Si alguna vegada es torna a veure això: `rm .pio/build/emulator/program` i
+`pio run -e emulator`.
 
 **Un emulador sense vidre, per veure què arrenca una placa sense pantalla** (0.179.9): les quatre plaques sense
 pantalla compilen el sistema sense la pàgina, el lector, les cares ni `epub`/`ttf`/`img`, i el PC és l'única manera de
