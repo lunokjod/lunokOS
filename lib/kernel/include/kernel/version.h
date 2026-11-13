@@ -5598,6 +5598,31 @@ namespace kernel {
 // other case of the suite that touches the glass says `opts.touch = true`; this one forgot it, and a case that presses a
 // panel that is not there is a case that passes for the wrong reason (`570 cases`, the whole suite green).
 
+// 0.179.48 (13/11): **the other four reds of 0.179.46, and three of them were the system's**. The suite of that commit was red in
+// five places; 0.179.47 closed the first, and this one closes the rest (docs/30, docs/40, docs/90):
+//   - **an app that ends in its own first turn never went back to the page that asked for it** (`run_app`, shell.cpp): the promise
+//     of `app.run` —the launcher comes back when the app it opened ends— had two halves in the code and only one of them kept it.
+//     An app that ends between two turns goes through the ended path of `poll_app`, which sees `g_run_back` and starts the page
+//     that asked; an app that ends **inside `run_app`** —a page that only prints and leaves, which an app is allowed to be— took the
+//     short branch that gave the glass back and stopped there, with **the wish still in `g_run_back`**, so the launcher never came
+//     back and *the next app that ended* went back to a page nobody had asked for. The short branch now does what the long one
+//     does: the page that asked takes the glass again, with the card its manifest names. Found by the case of the launcher's card;
+//     the three globals of the wish moved up so `run_app` can read them, and `start_the_one_that_asked` is declared at the top of
+//     the file;
+//   - **the tail of a one-line box moved with the blink of the caret** (`textbox_draw`, ui.cpp): `after_caret` reserved the cell of
+//     the block only in the phase that draws it, so with the block off the rest of the text started **on top of the letter under
+//     the cursor** and the whole tail jumped one cell to the left every six hundred milliseconds. The cell is the letter's whether
+//     the block is drawn or not, which is what makes the two phases of the blink the same page with one rectangle turned over —
+//     and what the case of the caret has been asking for since 0.179.37. The `+1` column of 0.179.43 is still there and is right;
+//     what was wrong was that the two phases did not draw the same text at the same place;
+//   - **and two cases measured a line that their app never prints**: `test_a_finger_on_the_band_types_into_a_box_of_one_line` and
+//     `test_a_drag_that_crosses_the_keyboard_types_nothing` looked for a `resize 540x656` that comes from an `on_resize` copied out
+//     of the case of the focus, and their apps have none. What they are about is the band, and `ui::keyboard_visible()` is that
+//     question without a console in the middle (docs/80);
+//   - **measured**: `test_apps` 226 of 226 and `test_ui` 109 of 109, and the whole suite green in one run —616 cases, 24 suites—,
+//     with the five boards and the emulator built. **The case of the 2048 swipe came out red once in a full run and is green alone
+//     and in its suite**, which is the flake this project already has written down.
+
 // 0.179.47 (13/11): **the case of the band that types was not reading the band at all**. The suite of 0.179.46 was red in five
 // places and this is the first of them: `test_the_keyboard_follows_the_box_that_takes_the_focus` pressed the first key of the band
 // and looked for `one q` in a capture that had been **closed** sixty lines before, so what it read was the console of the press on
@@ -7021,7 +7046,7 @@ namespace kernel {
 //   - **and what it is not**: a picture that carries its own transparency is still not used here —the icons of the disk are
 //     8-bit grayscale with no alpha and no `tRNS`, and `tools/make_icon.py` composes the transparency over white on
 //     purpose, like the tool of the old project—. The turn-over is what gives the old look, and it needs no new file.
-static const char kVersion[] = "0.179.47";
+static const char kVersion[] = "0.179.48";
 
 }  // namespace kernel
 

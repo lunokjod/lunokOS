@@ -46,6 +46,10 @@
 namespace kernel {
 namespace shell {
 
+// **The page that asked for the one that is ending** (0.153.0), said here because a start that ends in its own first turn
+// asks for it from inside `run_app` (0.179.48) and its body is with the rest of the ways out, further down (docs/30).
+bool start_the_one_that_asked();
+
 bool ansi_reply(const char* data, size_t len) {
   if (data == nullptr || len < 4) return false;
   for (size_t i = 0; i + 2 < len; ++i) {
@@ -1421,6 +1425,17 @@ bool load_source(const char* id, RunTarget& target, size_t& len) {
   return find_app(id, target) && read_source(target, len);
 }
 
+// **The app another app asked for** (0.153.0): `app.run` writes it and the end of the turn takes it. It is one name and
+// not a queue: a launcher starts one app per press, and a second wish in the same turn is refused where it is asked, in
+// the words a person reads (docs/30, docs/90).
+char g_run_wanted[40] = {0};
+// **The app to come back to** (0.153.0): the launcher that asked for another one and wants it back when that one ends,
+// which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
+// the app that asked handed the glass over for good (docs/30, docs/90).
+char g_run_back[40] = {0};
+// Whether the app that asked wants the glass back when the other one ends.
+bool g_run_wanted_back = false;
+
 bool run_app(const char* id, const char* open_path, bool restore = false, bool splash = true) {
   // **A start needs the interpreter, and the one in front still has it** (0.166.3): `luabind::start` answers no while a
   // state is alive —`if (g_state != nullptr) return false`—, so `run <id>` asked for while an app was in front said
@@ -1598,6 +1613,18 @@ bool run_app(const char* id, const char* open_path, bool restore = false, bool s
     luabind::set_console_attached(true);
     const int code = luabind::exit_code();
     luabind::stop();
+    // **I la pàgina que el va demanar torna a agafar el vidre** (0.179.48): an app that ends in its first turn is an app
+    // that ended, and the promise of `app.run` is the same one for both halves —the ended path of `poll_app` is the other
+    // half—: the page that asked for this one comes back, with the card its manifest names. Without this the wish stayed
+    // in `g_run_back` and **the next app that ended went back to a page nobody had asked for**, while the launcher whose
+    // app had already ended —a page that only prints and leaves, which an app is allowed to be— never came back at all
+    // (found by the case of the launcher's card, docs/30, docs/40).
+    if (g_run_back[0] != '\0') {
+      ui::give_back_the_glass();
+      bar::title("");
+      start_the_one_that_asked();
+      return true;
+    }
     // **An app that ends in its first turn is an app that ended** (0.136.0, docs/46 D1): same two lines as an app that
     // ends between two turns, or a page that failed would keep the bar away and its title on it (docs/30).
     ui::give_back_the_glass();
@@ -3624,18 +3651,6 @@ bool reboot(const char* reason) {
 bool native_running() { return g_job != RadioJob::kNone || g_install_pending; }
 
 const char* app_id() { return g_app_alive ? luabind::app_id() : ""; }
-
-// **The app another app asked for** (0.153.0): `app.run` writes it and the end of the turn takes it. It is one name and
-// not a queue: a launcher starts one app per press, and a second wish in the same turn is refused where it is asked, in
-// the words a person reads (docs/30, docs/90).
-namespace {
-char g_run_wanted[40] = {0};
-// **The app to come back to** (0.153.0): the launcher that asked for another one and wants it back when that one ends,
-// which is what makes a launcher usable on a board whose only way out of an app is three presses of a key. Empty when
-// the app that asked handed the glass over for good (docs/30, docs/90).
-char g_run_back[40] = {0};
-bool g_run_wanted_back = false;  // whether the app that asked wants the glass back when the other one ends
-}  // namespace
 
 bool ask_run(const char* id, bool back, char* why, size_t why_cap) {
   if (id == nullptr || id[0] == '\0') {

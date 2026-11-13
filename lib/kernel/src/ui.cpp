@@ -3886,7 +3886,13 @@ bool textbox_draw(int16_t slot, const char* text, uint16_t cursor, bool caret, b
   // showed it, because then the rest was the whole text (found in the graphical editor, 4/11).
   static char rest[512];
   rest[0] = '\0';
-  const int32_t after_caret = (caret) ? caret_w : 0;
+  // **La cel·la del cursor es reserva sempre, amb el bloc posat o tret** (0.179.48): the tail was placed `caret_w` to the right
+  // only in the phase with the block, so the letter after the cursor **moved** every six hundred milliseconds and, in the
+  // phase without it, was drawn **on top of** the letter under the cursor (`under` and `rest` at the same x) —a box whose
+  // text jumped while a person typed over it, and the letter the block exists to show was the one the tail covered—. The
+  // cell is the letter's whether the block is drawn or not, so the two phases of the blink are the same page with one
+  // rectangle turned over, which is what the case of the caret measures (found by that case, docs/30, docs/90).
+  const int32_t after_caret = caret_w;
   const int32_t room = inner_w - before - after_caret;
   const int32_t tail_from = at + under_bytes;
   int32_t fit = 0;

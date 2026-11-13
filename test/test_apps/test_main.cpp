@@ -9725,7 +9725,9 @@ static void test_a_finger_on_the_band_types_into_a_box_of_one_line(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656"), g_out);
+  // **I el que es mesura és la banda i no una línia de l'app**: the `resize` this case used to look for is printed by an
+  // `on_resize` that this app does not have —it was copied from the case of the focus— and the page it was about is the
+  // band, which `keyboard_visible` answers without a console in the middle (0.179.48, docs/30, docs/80).
   TEST_ASSERT_TRUE_MESSAGE(kernel::ui::keyboard_visible(), "the box did not bring the band of the system");
 
   // **I un dit sobre la primera lletra de la primera fila escriu**: the keys start at the twelve pixels of margin of the
@@ -9793,7 +9795,10 @@ void test_a_drag_that_crosses_the_keyboard_types_nothing(void) {
   TEST_ASSERT_TRUE(panel->finger_up(0));
   pump_turns(60);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "resize 540x656"), g_out);
+  // **I el que es mesura és la banda i no una línia de l'app** (0.179.48): the `resize` this case looked for was copied
+  // from the case of the focus and this app has no `on_resize` to print it; a drag that types nothing only means
+  // something with the band up, which is what `keyboard_visible` says (docs/30, docs/80).
+  TEST_ASSERT_TRUE_MESSAGE(kernel::ui::keyboard_visible(), "the box did not bring the band of the system");
 
   // **I un lliscament que comença a la caixa i baixa cap a la banda no escriu res**: the contact is the box's —it is where
   // the finger landed— and the band that the finger crosses is not its own. With the band asked in every frame this drag
