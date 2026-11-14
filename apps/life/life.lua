@@ -2,7 +2,7 @@
 --
 -- Ported from the paper project (`data/app/Life/pos_launch.lua`, version 1.5.2) with **the screen and the behaviour
 -- whole** and the original's numbers (docs/45). A grid of thirty-pixel cells, two generations and a rule of three
--- lines; four speeds, a pause, a `New` button and a finger that paints the world one cell at a time.
+-- lines; four speeds, a pause, a button of a new world and a finger that paints the world one cell at a time.
 --
 -- **EVERY GENERATION IS A PASS OF THE PANEL, AND THAT IS THE CLOCK.** That is why the speed is given in
 -- MILLISECONDS —1200, 700, 400 and 250— and why the ceiling is the glass and not the processor: a generation that
@@ -46,9 +46,13 @@
 -- that can change are what buys the clean pass of a new map (the original's T99).
 --
 -- **NO CONTROL TREE AND ONE BUTTON PAINTED BY HAND.** The page has no focusable control, so the dial of the board is
--- the app's: the centre pauses, the two sides change the speed, and none of the three costs a control. The `New` of
--- the strip is a frame and a word, and the same rectangle both paints it and takes the finger. The centre key is
--- also the system's way out —three presses inside a second and a half close the app— and a hook cannot take it away.
+-- the app's: the centre pauses, the two sides change the speed, and none of the three costs a control. The button of
+-- the strip is **a frame with the mark of a new world in it** —the `random` of FontAwesome, U+F074, the two arrows that
+-- cross and come out the other way, which is what the world does when it is thrown away and made again— and the same
+-- rectangle both paints it and takes the finger. The mark is a face of the app's own folder (`res/marks.ttf`, made by
+-- `tools/make_keys.py` out of the same font as the keys of the time clock) and the word is what the button says when
+-- the face is not on the disk, the fallback the other apps have (docs/45). The centre key is also the system's way out
+-- —three presses inside a second and a half close the app— and a hook cannot take it away.
 --
 -- **WHAT IS NOT REMEMBERED, AND WHY.** The world, the speed and the pause are the game and the person's choice, and
 -- the original threw them away when the app closed; this port does the same. There is no `state` session because a
@@ -67,7 +71,7 @@ local Top = 72                         -- the strip at the top: status and butto
 local Inset = 8                        -- the paper the board keeps around it, and the reason it is there is in
                                        -- the header: the strip and the band of a generation never touch, so neither
                                        -- box is ever the glass (docs/50)
-local BtnW = 84                        -- the New button, in pixels, and its
+local BtnW = 84                        -- the button of a new world, in pixels, and its
 local BtnH = 63                        -- ...height is the touch minimum
 
 -- **The two qualities this page asks for.** `du` is the fastest paint of this panel —two levels, 120 ms, no blink— and
@@ -92,6 +96,17 @@ local function scale_for(line_px)
 end
 
 local kSmall = scale_for(33)
+
+-- **THE MARK OF A NEW WORLD, AND THE WORD ONLY WHEN THE FACE IS NOT THERE**: `res/marks.ttf` is one shape answering the
+-- code 1 —a text here is one byte a character, so the room no text of a page means is the codes below space— and it is
+-- the road of the time clock (docs/30, docs/45). Five steps of an em of nine are 45 px, which is the 41 of the original
+-- in a key of 84.
+local marks, marks_why = ui.load_font('/res/marks.ttf')
+if marks == nil then
+  console.print('life: /res/marks.ttf: ' .. tostring(marks_why) .. ': the button says the word')
+end
+local kWorldMark = '\1'
+local kMarkScale = 5
 
 local GridX, GridY                     -- where the board starts, in pixels of the view: the inset is the paper
 local GridW, GridH                     -- ...around it, and the box of the world is never the glass because of it
@@ -342,7 +357,27 @@ local function paintButton()
   local x, y = buttonRect()
 
   ui.frame(x, y, BtnW, BtnH, 0)
-  ui.text(x + math.floor((BtnW - ui.text_width('New', kSmall)) / 2), y + 15, 'New', kSmall, 0)
+
+  if marks == nil then
+    -- **The word, and the shortest one that fits**: `World` is what the button means and `New` is what the paper's key
+    -- said, so the box takes the long one when the face of the disk is the small table of the flash (docs/45).
+    local word = 'World'
+    if ui.text_width(word, kSmall) > BtnW - 12 then word = 'New' end
+    ui.text(x + math.floor((BtnW - ui.text_width(word, kSmall)) / 2), y + 15, word, kSmall, 0)
+    return
+  end
+
+  -- **The mark is centred in the frame and the face goes back afterwards**, because the counters of the strip are
+  -- letters and a page has one face at a time (docs/30). The width is asked of the face itself: `ui.text_width` is the
+  -- measure of the **system** face and answers nothing for a glyph an app brought (found here, 15/11). And the line of
+  -- this face is much taller than its marks —the em is 1792 units and the mark 40 px in a box of 63—, so the line is
+  -- centred and then nudged the seven pixels that land the ink in the middle: gaps of ten and eleven, measured on the
+  -- emulator.
+  ui.font(marks)
+  local w = marks:text_width(kWorldMark, kMarkScale)
+  local _, step = marks:size()
+  ui.text(x + math.floor((BtnW - w) / 2), y + math.floor((BtnH - step * kMarkScale) / 2) + 7, kWorldMark, kMarkScale, 0)
+  ui.font(nil)
 end
 
 -- The page: the whole view in one pass of sixteen levels that does not blink, when the app opens, when the view is

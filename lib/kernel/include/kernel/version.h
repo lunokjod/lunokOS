@@ -8993,7 +8993,19 @@ namespace kernel {
 //     és `DU4`, 290 ms), i **el «60 Hz» que fa no parpellejar no existeix en aquest controlador**: l'IT8951 no té cap
 //     registre de freqüència de quadre, el `0x0004` és `I80CPCR` i la freqüència viu al fitxer de waveform. Els 60 Hz són
 //     del M5PaperS3, que no porta controlador.
-static const char kVersion[] = "0.189.45";
+// 0.189.46 — **el botó del `Life` és un marc amb una icona dins, i la icona és un món nou** (l'amo: *«un botó amb una
+// icona dins. I no és nova partida, és generar un món nou»*): el requadre de la franja deixa de dir un mot i porta la
+// marca del clipart, que és el camí d'aquest projecte des de les tecles del rellotge (docs/45):
+//   - **`res/marks.ttf` és una cara d'una sola forma**, feta amb `tools/make_keys.py` —que ara accepta `--marks`— del
+//     `random` de FontAwesome (U+F074, les dues fletxes que es creuen i surten per l'altre costat), i el codi que la
+//     dibuixa és l'1, que és on aquest sistema guarda les marques d'una cara (docs/30);
+//   - **i el mot queda de reserva**: sense la cara al disc el botó diu `World` i, si no hi cap en vuitanta-quatre píxels,
+//     `New`, que és el que deia el paper;
+//   - **`ui.text_width` no mesura una icona pròpia** (trobat aquí, 15/11): respon amb la cara del **sistema**, que no té el
+//     glif, i dóna zero —o sigui que la marca sortia enganxada a la dreta del marc—. L'amplada es demana a la cara
+//     (`marks:text_width`) i és 45 px; l'alçada de la línia és més gran que la de la tinta (l'em fa 1792 unitats i la
+//     marca 40 px), i el mig de la caixa es troba amb set píxels de nudge, mesurats a l'emulador: deu a dalt i onze a baix.
+static const char kVersion[] = "0.189.46";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

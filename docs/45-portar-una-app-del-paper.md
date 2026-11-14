@@ -395,8 +395,15 @@ Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
   per tornar-hi.
 - **`run life blank` arrenca el món buit I ATURAT**, perquè una generació d'un món buit és un mapa nou —la regla
   de l'avorriment de `step`— i la mà no arribaria a pintar la primera cel·la. És la porta que fa que la prova
-  pugui comptar cel·les: paper, una cel·la girada pel dit, la del costat intacta, el `New` que omple el món amb
-  el vint-i-vuit per cent i el centre que para el rellotge —un joc parat no demana cap pintat—.
+  pugui comptar cel·les: paper, una cel·la girada pel dit, la del costat intacta, el botó de món nou que omple el
+  món amb el vint-i-vuit per cent i el centre que para el rellotge —un joc parat no demana cap pintat—.
+- **El botó és un marc amb una icona a dins, i no un mot** (15/11, l'amo: *«un botó amb una icona dins, i no és una
+  partida nova, és generar un món nou»*): `res/marks.ttf` és una cara d'una sola forma feta amb `tools/make_keys.py`
+  —el `random` del clipart, U+F074, les dues fletxes que es creuen— i es dibuixa amb `ui.font` sobre el mateix requadre
+  que rep el dit; quan la cara no hi és el botó diu `World` i, si no hi cap, `New`, que és el mot del paper. Nou i no
+  quaranta-un: la mida és cinc passos d'un em de nou, quaranta píxels dins d'una caixa de seixanta-tres, amb els deu i
+  onze píxels de marge mesurats a l'emulador. **I `ui.text_width` no serveix per a una icona pròpia** —mesura la cara
+  del sistema i respon zero—: l'amplada es demana a la cara, `marks:text_width` (docs/30).
 
 La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app

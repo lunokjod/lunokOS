@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The five marks the time clock draws, as a face this system can load.
+"""The marks an app draws as a face this system can load, taken out of FontAwesome.
 
 The app of PaperOS carried `keys.pof`, a face of its own folder with the marks of the **FontAwesome family** —the same
 family as the icons of that system—: play (U+F04B), pause (U+F04C), stop (U+F04D), the eye that opens the week (U+F06E)
@@ -14,6 +14,12 @@ this file —it carries no shape of its own—, so the day the marks want anothe
 a table of coordinates to fix.
 
     python3 tools/make_keys.py --out apps/timeclock/res/keys.ttf
+
+**And any other face of marks, with `--marks`** (0.189.46): the game of life draws the mark of a new game and not the
+word, and it is the same road —the glyph of the clipart, rasterised by the face and not drawn by this file— with one
+mark instead of five:
+
+    python3 tools/make_keys.py --marks repeat=0x01 --family "lunokOS marks" --out apps/life/res/marks.ttf
 """
 
 import argparse
@@ -40,10 +46,11 @@ GLYPHS = [
 ]
 
 DEFAULT_SOURCE = "/usr/share/fonts-font-awesome/fonts/FontAwesome.otf"
+DEFAULT_FAMILY = "lunokOS keys"
 MAX_ERROR = 1.0    # font units; the shapes are read at some 40 px and this is under a tenth of a pixel there
 
 
-def build(source, out_path):
+def build(source, out_path, marks=GLYPHS, family=DEFAULT_FAMILY):
     if not os.path.exists(source):
         raise SystemExit("%s is not here: apt install fonts-font-awesome" % source)
     src = TTFont(source)
@@ -51,7 +58,7 @@ def build(source, out_path):
     glyph_set = src.getGlyphSet()
     hmtx = src["hmtx"]
 
-    order = [".notdef"] + [name for name, _, _, _ in GLYPHS]
+    order = [".notdef"] + [name for name, _, _, _ in marks]
     glyphs = {}
     metrics = {}
     cmap = {}
@@ -60,7 +67,7 @@ def build(source, out_path):
     glyphs[".notdef"] = TTGlyphPen(None).glyph()
     metrics[".notdef"] = (upem // 2, 0)
 
-    for name, source_name, code, _codepoint in GLYPHS:
+    for name, source_name, code, _codepoint in marks:
         if source_name not in glyph_set:
             raise SystemExit("%s has no glyph %s" % (source, source_name))
         # The outlines of the original are cubic (a CFF), and a TrueType of this system reads quadratic curves: the pen
@@ -78,11 +85,11 @@ def build(source, out_path):
     builder.setupHorizontalMetrics(metrics)
     builder.setupHorizontalHeader(ascent=src["hhea"].ascent, descent=src["hhea"].descent)
     builder.setupNameTable({
-        "familyName": "lunokOS keys",
+        "familyName": family,
         "styleName": "Regular",
-        "uniqueFontIdentifier": "lunokOS keys Regular 1.0",
-        "fullName": "lunokOS keys Regular",
-        "psName": "lunokOSKeys-Regular",
+        "uniqueFontIdentifier": "%s Regular 1.0" % family,
+        "fullName": "%s Regular" % family,
+        "psName": "%s-Regular" % family.replace(" ", ""),
     })
     builder.setupOS2(sTypoAscender=src["hhea"].ascent, sTypoDescender=src["hhea"].descent)
     builder.setupPost()
@@ -91,14 +98,14 @@ def build(source, out_path):
     # **The file is read back, because what this tool promises is the file and not the object it built**: a code with
     # no glyph, or a glyph with no width, is a key that draws nothing on the glass, and both are mistakes the writer
     # above can make without saying a word about them.
-    check(out_path)
+    check(out_path, marks)
     return out_path
 
 
-def check(path):
+def check(path, marks=GLYPHS):
     made = TTFont(path)
     cmap = made.getBestCmap()
-    for name, _source, code, codepoint in GLYPHS:
+    for name, _source, code, codepoint in marks:
         glyph = cmap.get(code)
         if glyph is None:
             raise SystemExit("%s: the code %d has no glyph (the U+%04X of the original)" % (path, code, codepoint))
@@ -110,13 +117,36 @@ def check(path):
               % (code, name, glyph, advance, contours, codepoint))
 
 
+def parse_marks(text):
+    """`glyph=code` pairs, the code in hex or in decimal, in the order they are written."""
+    marks = []
+    for piece in text.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        name, _, code = piece.partition("=")
+        if not name or not code:
+            raise SystemExit("a mark is glyph=code, and %r is not" % piece)
+        code = int(code, 0)
+        if code < 1 or code > 0x1F:
+            raise SystemExit("%s: %d is not one of the codes below space (docs/30)" % (name, code))
+        marks.append((name, name, code, code))
+    if not marks:
+        raise SystemExit("--marks was written and it names no mark")
+    return marks
+
+
 def main():
-    parser = argparse.ArgumentParser(description="The five marks of the time clock, taken from FontAwesome.")
+    parser = argparse.ArgumentParser(description="The marks of an app, taken from FontAwesome.")
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="the font the marks of the original come from")
     parser.add_argument("--out", default="apps/timeclock/res/keys.ttf")
+    parser.add_argument("--family", default=DEFAULT_FAMILY, help="the name of the face the file carries")
+    parser.add_argument("--marks", default=None,
+                        help="glyph=code pairs of this face (`repeat=0x01`); without it, the five of the time clock")
     args = parser.parse_args()
-    made = build(args.source, args.out)
-    print("%s: %d glyphs, %d bytes" % (made, len(GLYPHS) + 1, os.path.getsize(made)))
+    marks = GLYPHS if args.marks is None else parse_marks(args.marks)
+    made = build(args.source, args.out, marks, args.family)
+    print("%s: %d glyphs, %d bytes" % (made, len(marks) + 1, os.path.getsize(made)))
 
 
 if __name__ == "__main__":
