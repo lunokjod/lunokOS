@@ -9766,9 +9766,12 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(grid_line, g_out);
   int cols = 0;
   int rows = 0;
+  int grid_x = 0;
+  int grid_y = 0;
   int grid_w = 0;
   int grid_h = 0;
-  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(grid_line, "Life grid %d %d %d %d", &cols, &rows, &grid_w, &grid_h),
+  TEST_ASSERT_EQUAL_INT_MESSAGE(6, sscanf(grid_line, "Life grid %d %d %d %d %d %d", &cols, &rows, &grid_x, &grid_y,
+                                          &grid_w, &grid_h),
                                 grid_line);
   const char* button_line = strstr(g_out, "Life button ");
   TEST_ASSERT_NOT_NULL_MESSAGE(button_line, g_out);
@@ -9782,23 +9785,27 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   int cell = 0;
   TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(cell_line, "Life cell %d", &cell), cell_line);
 
-  // **The grid is the view under the strip, and the button lives in the strip**: a cell aims at `Cell` pixels of line and
-  // the shares are exact, and a button over the grid would be a box of rows that never change (the paper's 27/09).
+  // **The board is SMALLER THAN THE VIEW, and that is not a taste**: the box of a generation and the box of the strip
+  // must never touch, because the kernel turns a two-level pass of seven eighths of the glass into a wash —450 ms and
+  // two blinks— and a board that reaches the strip is a board that merges with it into the whole glass (docs/50). The
+  // cell aims at `Cell` pixels of line and the shares are exact, and a button over the board would be a box of rows
+  // that never change (the paper's 27/09).
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(4, cols, grid_line);
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(4, rows, grid_line);
-  TEST_ASSERT_EQUAL_INT_MESSAGE(view.width, static_cast<uint16_t>(grid_w), grid_line);
-  TEST_ASSERT_TRUE_MESSAGE(grid_h < view.height, grid_line);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, grid_x, grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(grid_x + grid_w < view.width, grid_line);        // paper on both sides
+  TEST_ASSERT_TRUE_MESSAGE(grid_y > 0, grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(grid_y + grid_h < view.height, grid_line);       // and under it
+  TEST_ASSERT_TRUE_MESSAGE(grid_y > by + bh, grid_line);                    // the strip and the board do not touch
   TEST_ASSERT_TRUE_MESSAGE(grid_w / cols >= cell - 1 && grid_w / cols <= cell + 1, grid_line);
   TEST_ASSERT_TRUE_MESSAGE(grid_h / rows >= cell - 1 && grid_h / rows <= cell + 1, grid_line);
   TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, button_line);
-  TEST_ASSERT_TRUE_MESSAGE(by + bh <= view.height - grid_h, button_line);   // the strip and not the world
 
-  // **The strip is what the grid leaves**, and it is where the app's own `Top` is: the cell of a row and a column is asked
-  // of the same shares the app uses (`bound`), in pixels of the view.
-  const int grid_y = static_cast<int>(view.height) - grid_h;
+  // **The board is where the app says it is**: the cell of a row and a column is asked of the same shares the app uses
+  // (`bound`), in pixels of the view.
   const auto cell_box = [&](int row, int col, int& x0, int& y0, int& x1, int& y1) {
-    x0 = (col - 1) * grid_w / cols;
-    x1 = col * grid_w / cols;
+    x0 = grid_x + (col - 1) * grid_w / cols;
+    x1 = grid_x + col * grid_w / cols;
     y0 = grid_y + (row - 1) * grid_h / rows;
     y1 = grid_y + row * grid_h / rows;
   };
@@ -9834,8 +9841,9 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 3 gl16"), g_out);
   TEST_ASSERT_EQUAL_INT_MESSAGE(0, dark_cells(), "a blank world is paper");
 
-  // **A finger turns a cell over**, and the pass that carries it is the two-level one: the box of one cell and the strip is
-  // nowhere near the whole glass, so the panel's rule does not turn it into a wash (docs/50).
+  // **A finger turns a cell over**, and the pass that carries it is the cheapest one this panel has —`du`, two levels and
+  // 120 ms— because the box of one cell and the box of the counters are nowhere near the whole glass, and the panel's
+  // rule only turns a quick pass of seven eighths of the glass into a wash (docs/50).
   const int row = rows / 2;
   const int col = cols / 2;
   uint16_t middle_x = 0;
@@ -9845,8 +9853,12 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   press_finger(panel, static_cast<uint16_t>(view.x + middle_x), static_cast<uint16_t>(view.y + middle_y));
   pump_turns(400);
   capture_end(g_out, sizeof(g_out));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 7 a2"), g_out);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);
   TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gc16"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gld16"), g_out);
+  // **And it is the cell and not the glass**: the one pass of the tap is the cells around the finger and the line of the
+  // counters, which is a tenth of the view (measured: `524x90 du` and `448x40 du` for a cell in the middle).
+  TEST_ASSERT_LESS_THAN_INT32_MESSAGE((view.width / 2) * (view.height / 2), painted_pixels(g_out), g_out);
   TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, page_level(middle_x, middle_y), g_out);
   // **And only that one**: the cell next to it is the paper it was, which says the box painted is the cell's and the world
   // was not painted whole.
@@ -9872,11 +9884,19 @@ void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
   TEST_ASSERT_GREATER_THAN_INT_MESSAGE(cols * rows / 10, soup, g_out);
   TEST_ASSERT_LESS_THAN_INT_MESSAGE(cols * rows / 2, soup, g_out);
 
-  // **The clock is running**: a generation is a pass of the panel, and the ink it leaves is the sums of the box it names —
-  // here the whole world changes, so the panel's rule gives it the clean pass (the paper's 88 %, docs/50).
+  // **The clock is running, and a generation is the cheapest pass of the panel over the band of rows it moved**: no wash,
+  // nothing that blinks, and **no box that is the whole glass** —which is the thing this case is here to keep away, because
+  // a `gc16` of the view is 450 ms of ink and two blinks for one generation of a game— (docs/50).
   capture_begin();
-  pump_turns(1500);
+  pump_turns(600);
   capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 1 du"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gc16"), g_out);
+  // **And the box is the board and the counters**: the glass is 540 wide and 912 high, and a generation of this game is
+  // two boxes of 524 and 448 pixels of line —what a soup costs here is the rows of the board and not a page of sixteen
+  // levels with two blinks— (measured on this emulator: 1 415 ms a generation against the 1 770 ms of the whole view,
+  // and a tenth of both once the world has settled).
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "paint 0,0 540x912"), g_out);
   TEST_ASSERT_GREATER_THAN_INT32_MESSAGE(0, painted_pixels(g_out), g_out);
 
   // **The centre key stops it**, and a stopped world asks the panel for nothing at all: the strip is painted once with the

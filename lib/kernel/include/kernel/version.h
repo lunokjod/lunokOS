@@ -8968,7 +8968,32 @@ namespace kernel {
 //   - **les proves**: `test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture` passa a mesurar **nou** files,
 //     la fila **636** i que **no hi ha cap `fonts: startname`** al registre —el nom a sota és fora—, i segueix demanant que
 //     el nom que va al registre sigui una cara de la porta i no un `OFL.txt`.
-static const char kVersion[] = "0.189.44";
+// 0.189.45 — **el refresc del `Life`: la passada més barata del panell sobre les caixes que han canviat** (l'amo:
+// *«el refresc és massa agressiu, d'una àrea massa grossa i lent … usa actualitzacions parcials i tots els trucs que
+// puguis»*): la pàgina demanava un `gc16` de tot el vidre a cada generació —450 ms de tinta i dos flaixos— i ara demana
+// `du` (120 ms, dos nivells, cap flaix) sobre la caixa del joc i la línia dels comptadors:
+//   - **el tauler és més petit que la vista** (`Inset`): la caixa del joc i la dels comptadors no es toquen i cap de les
+//     dues és el vidre, que és el que el nucli converteix en rentada a partir dels set vuitens (docs/50). Al paper el que
+//     manava era comptar files i la graella anava fins a l'última; aquí el que mana és la caixa;
+//   - **les caixes es compten**: com a molt dues bandes de files —les que han canviat, ajuntant les que es toquen i les
+//     dues més properes— més la línia dels comptadors, perquè una passada costa la seva tinta i no la seva àrea, però
+//     cada fila costa un mil·lisegon de cable. `ui.present('du')` no passa pel camí de la pàgina sencera: les caixes que
+//     es toquen s'ajunten i la resta es pinta caixa per caixa (docs/30, docs/50);
+//   - **`du` pinta i no neteja** (docs/95 E-7): cada sis generacions la pàgina es renta amb `gld16`, que són setze nivells
+//     i cap flaix. És la política del paper —deute de ghosting per fila i una rentada quan toca— i la que aquest projecte
+//     pot permetre's;
+//   - **els números, mesurats a l'emulador**: un brou costa **1 415 ms a la generació** (1 080 dels quals són les 824
+//     files de la caixa) contra els **1 770 ms** d'abans, i un món que es mou en un lloc costa **uns 500 ms**; cap
+//     `gc16` i cap caixa que sigui el vidre, que és la meitat del que l'amo veia;
+//   - **i el que queda no és de l'app**: `It8951::flush` envia **una transacció d'SPI per fila** —1 100 µs mesurades per
+//     fila a la placa, contra els 216 µs de cable— i el projecte del paper enviava la regió en **disset trossos** amb el
+//     CS aguantat (`OLD/PaperOS/src/plat/m5epd_hal.cpp`). És la feina següent i es mesura a la placa;
+//   - **el que s'ha après i no s'ha tocat** (docs/50): els noms de M5Stack —i els d'aquest projecte— tenen **el 6 i el 7
+//     intercanviats** respecte del full d'E Ink (6 és `A2`, 120 ms sense flaix i el mode de l'animació de blanc i negre; 7
+//     és `DU4`, 290 ms), i **el «60 Hz» que fa no parpellejar no existeix en aquest controlador**: l'IT8951 no té cap
+//     registre de freqüència de quadre, el `0x0004` és `I80CPCR` i la freqüència viu al fitxer de waveform. Els 60 Hz són
+//     del M5PaperS3, que no porta controlador.
+static const char kVersion[] = "0.189.45";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

@@ -362,16 +362,26 @@ Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
 
 **El que va ensenyar el `Life`** (el segon joc portat, i el primer que es mira com un rellotge):
 
-- **La pàgina és una passada i la generació són dues caixes.** Mesurat a l'emulador: la primera pàgina és
-  `paint 0,0 540x912 mode 3 gl16` —una passada de setze nivells i cap parpelleig— i una generació és la banda
-  de les files que han canviat més la tira dels comptadors (`paint 210,432 90x90 mode 7 a2` i
-  `paint 0,0 540x73 mode 7 a2`), que són 290 ms i no 450. **I l'aire del mig no viatja**: el nucli ajunta les
-  caixes que es toquen i prou, o sigui que la tira i la banda del món són dos pintats i no un de sencer
+- **La pàgina és una passada i la generació és la passada barata sobre les caixes que han canviat.** Mesurat a
+  l'emulador: la primera pàgina és `paint 0,0 540x912 mode 5 gld16` —una passada de setze nivells i cap
+  parpelleig— i una generació és `paint 8,80 524x824 mode 1 du` i `paint 0,0 448x40 mode 1 du`: el joc i la
+  línia dels comptadors, en el mode més barat del panell (120 ms, dos nivells, cap flaix). **`ui.present(mode)`
+  és el que dóna el control**: les caixes que es toquen s'ajunten i prou, cap pàgina sencera pel mig.
+- **El tauler és més petit que la vista, i no és un gust**: amb la franja de paper a tot el volt, la caixa del
+  joc i la dels comptadors no es toquen mai i cap de les dues és el vidre — i el nucli converteix en rentada
+  (`gc16`, 450 ms i dos flaixos) qualsevol passada de dos nivells sobre set vuitens del vidre (docs/50). El
+  paper feia el contrari (la graella fins a l'última fila) perquè allà el que decidia era *comptar files*, i
+  aquí el que mana és la caixa.
+- **`du` pinta i no neteja** (docs/95 E-7), o sigui que cada sis generacions la pàgina es renta amb `gld16`
+  (450 ms, cap flaix): és la política del paper, que portava el deute de ghosting per fila i rentava quan tocava.
+- **Els números**: un brou costa **1 415 ms per generació** —1 080 dels quals són les 824 files de la caixa— on
+  abans en costava **1 770** amb un `gc16` de tot el vidre i dos flaixos; un món que es mou en un lloc (un
+  planejador) costa **uns 500 ms**. **I el que queda no és de l'app**: `It8951::flush` fa una transacció d'SPI
+  per fila —1 100 µs mesurades per fila— i el projecte del paper enviava la regió en esclats amb el CS aguantat
   (docs/50).
-- **Un brou és l'excepció, i és la regla del panell i no la de l'app**: mentre gairebé totes les files canvien,
-  la caixa de la danyada és el vidre sencer, i els set vuitens d'aquesta placa converteixen un `a2` de tot el
-  vidre en un `gc16` —el paper hi mesurava el mateix 88 % en un mapa nou—. A mesura que el món s'asserena la
-  passada s'aprima i torna a ser la barata. L'app no hi té vot i no l'hi ha de tenir.
+- **I dos noms de mode estan intercanviats** respecte del full d'E Ink: el que aquí es diu `du4` és l'`A2`
+  autèntic (120 ms, sense flaix, el mode de l'animació de blanc i negre) i el que es diu `a2` és el `DU4`
+  (290 ms). No s'ha reanomenat res (docs/50 ho deixa escrit).
 - **El dit pinta una cel·la, i els voltants es pinten amb ella**: el tocadís es llegeix amb `touch.read()`
   —el primer marc que veu el dit, §5 trampa 4— i el `gesture` d'aquell mateix torn es buida i es llença. La
   línia de paper que separa dues cel·les vives es dibuixa DINS de la cel·la de dalt i de la de l'esquerra, o

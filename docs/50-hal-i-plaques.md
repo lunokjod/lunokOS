@@ -1072,6 +1072,45 @@ lectura de pin i un comptador. Guanyar-hi: la pàgina puja **sense cap sis segon
 pintada en curs: **el primer pintat d'un `present` no espera mai, el segon sí**. L'alternativa era
 enviar el segon damunt del primer i que el controlador l'ignorés, que al vidre es veu com mitja pàgina.
 
+### Els noms dels modes: dos estan intercanviats, i el «60 Hz» no és d'aquest panell (14/11)
+
+**Els noms de la taula de dalt són els de M5Stack, i dos d'ells estan intercanviats respecte del full de dades
+d'E Ink** (E Ink 800-1101 REV01, «AF 16 Tone Grayscale 5-bit Waveform Flash File Spec», taula 1 i 2; el text és
+copiat literalment a `M5EPD_Driver.h`). La numeració d'E Ink és: `0 init, 1 du, 2 gc16, 3 gl16, 4 glr16, 5 gld16,
+6 A2, 7 du4`, i les descripcions del full diuen:
+
+| Codi | Nom d'E Ink | Què fa | Temps a 85 Hz |
+|---|---|---|---|
+| 1 | `du` | de qualsevol gris a **només blanc i negre**, **molt ràpid i sense flaix** | 260 ms |
+| 6 | **`A2`** | **ràpid i sense flaix**, pensat per a passar pàgines i per a **animació de blanc i negre** | **120 ms** |
+| 7 | `du4` | ràpid com `du` i sense flaix, **quatre nivells** | 290 ms |
+
+`M5EPD_Driver.h` posa els noms al revés: el valor **6** el diu `DU4` («120 ms, fast page flipping») i el **7**
+`A2` («290 ms, anti-aliased text») —les descripcions són les de l'altre—, i M5GFX ho repeteix. **Aquest projecte
+ho va copiar tal com era** (`hal.h`: `kDu4 = 6, kA2 = 7`), o sigui que el que aquí s'escriu `du4` és l'**A2**
+autèntic (120 ms, sense flaix, per a animació de blanc i negre) i el que aquí s'escriu `a2` és el **DU4** (290 ms).
+Sospita que creix: la mesura E-7 del 1/11 (docs/95) diu que *«`du4` i `a2` no van pintar res»* amb la imatge de
+quatre bits —i l'A2 **vol** dades d'1 o 2 bits per píxel, que és el que la FAQ del controlador anomena el mode
+1bpp (`UP1SR` bit 2, `BGVR` per a fons i tinta)—. **No s'ha canviat cap nom**: un reanomenament toca el HAL, mig
+arbre i totes les proves, i el que es fa servir avui (`du`, mode 1) és correcte amb els dos fulls.
+
+**I el «driver que no parpelleja posant el panell a 60 Hz» no existeix per a aquest controlador** (l'amo ho
+recordava bé, però era un altre aparell): el **IT8951 no té cap registre de freqüència de quadre accessible per
+l'amfitrió**. El `0x0004` que sembla un «TCON setting» és `I80CPCR` (mode Intel-80 i escriptura empaquetada) i tots
+els drivers hi escriuen `0x0001`; el bloc `0x1000` que els drivers anomenen *«TCon registers»* és el de les taules
+de LUT (`LUT0EWHR`, `LUTAFSR`…), i la freqüència viu **al fitxer de waveform** (WBF, offset `0x18`, `0x55 = 85 Hz`)
+i, com a molt, a un camp del firmware del controlador (`SCCR`) sense cap ordre publicada. La història dels 60 Hz és
+del **M5PaperS3**, que **no porta controlador**: el seu ESP32 escriu la vora del panell directament, i això és el
+que diuen les notes pròpies d'aquest projecte (`OLD/PaperOS/notes/trampes-maquinari.md`). Aquí no hi ha camí de
+programari per a això.
+
+**I el que sí que es pot fer, quan calgui**: el **mode 1bpp** del controlador —`UP1SR` (0x1138) bit 2 i `BGVR`
+(0x1250) amb el fons i la tinta—, que fa vuit vegades menys bytes al bus per a una pàgina de dos nivells, i és el
+que fan servir els projectes que animen sobre aquest xip. I **enviar la regió en esclats i no fila a fila**: avui
+`It8951::flush` fa una transacció d'SPI per fila —1 100 µs mesurades per fila a la placa, contra els 216 µs de
+fil que tindria el cable—, i el projecte del paper enviava una pàgina sencera en **disset trossos** amb el CS
+aguantat (`OLD/PaperOS/src/plat/m5epd_hal.cpp`). És la feina pendent del refresc ràpid, i es mesura a la placa.
+
 **`LUTAFSR` és l'estat del motor de LUT i no la mesura de la tinta** (0.179.41): `0x1224` val `0000` quan cap
 motor de LUT del controlador està corrent, i el log l'escriu a la **primera** lectura que contesta, amb els
 mil·lisegons que han passat **des del pintat fins a la pregunta** —i no la durada del pintat—. Una línia com
