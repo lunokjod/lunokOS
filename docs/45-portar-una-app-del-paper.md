@@ -283,7 +283,7 @@ l'esborrat és al commit de la 0.152.6 amb el número del davant.
 (`apps.list()` i `app.run`, docs/30). És l'única app d'aquest arbre que no és un port, i el dia que PaperOS en
 tingui una de Lua es compara amb aquesta.
 
-Portades i viatjant avui, **sis** (`home_eink` va a part, a sota):
+Portades i viatjant avui, **set** (`home_eink` va a part, a sota):
 
 | Original | Id aquí | Versió |
 |---|---|---|
@@ -293,6 +293,7 @@ Portades i viatjant avui, **sis** (`home_eink` va a part, a sota):
 | `EPUB` | `reader` | 0.1.0 |
 | `Timeclock` | `timeclock` | 0.1.0 |
 | `2048` | `2048` | 0.2.0 |
+| `Life` | `life` | 0.1.0 |
 
 I a part, **dues que no són ports**:
 
@@ -310,8 +311,8 @@ I a part, **dues que no són ports**:
   per estacions i diu quina no ha sobreviscut (0.151.12). Marxa quan ja no calgui, i el seu id surt de la llista
   de la prova al mateix commit.
 
-Les **divuit** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`, `Clock`,
-`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Life`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
+Les **disset** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`, `Battery`, `Clock`,
+`FRAM`, `Files`, `ImageViewer`, `Jellyfin`, `Meteo`, `News`, `Pacman`, `Paint`, `Password`, `SerialFUSE`,
 `Snake`, `Tamagotchi` i `Tetris`.
 
 **El que va ensenyar el `2048`** (la primera app portada que és un joc i no una pàgina de dades):
@@ -358,6 +359,34 @@ Les **divuit** que falten, i que són la cua d'aquesta feina: `Agenda`, `Banner`
 - **I el botó New no pregunta res** (0.189.4): un toc comença la partida. El «Sure?» demanava dues
   decisions per a un desig —i dues pintades de la paraula, que és el que el va fer desaparèixer— i el desat
   de la jugada anterior és el que torna si el toc va ser un error; la màxima, en canvi, no es toca.
+
+**El que va ensenyar el `Life`** (el segon joc portat, i el primer que es mira com un rellotge):
+
+- **La pàgina és una passada i la generació són dues caixes.** Mesurat a l'emulador: la primera pàgina és
+  `paint 0,0 540x912 mode 3 gl16` —una passada de setze nivells i cap parpelleig— i una generació és la banda
+  de les files que han canviat més la tira dels comptadors (`paint 210,432 90x90 mode 7 a2` i
+  `paint 0,0 540x73 mode 7 a2`), que són 290 ms i no 450. **I l'aire del mig no viatja**: el nucli ajunta les
+  caixes que es toquen i prou, o sigui que la tira i la banda del món són dos pintats i no un de sencer
+  (docs/50).
+- **Un brou és l'excepció, i és la regla del panell i no la de l'app**: mentre gairebé totes les files canvien,
+  la caixa de la danyada és el vidre sencer, i els set vuitens d'aquesta placa converteixen un `a2` de tot el
+  vidre en un `gc16` —el paper hi mesurava el mateix 88 % en un mapa nou—. A mesura que el món s'asserena la
+  passada s'aprima i torna a ser la barata. L'app no hi té vot i no l'hi ha de tenir.
+- **El dit pinta una cel·la, i els voltants es pinten amb ella**: el tocadís es llegeix amb `touch.read()`
+  —el primer marc que veu el dit, §5 trampa 4— i el `gesture` d'aquell mateix torn es buida i es llença. La
+  línia de paper que separa dues cel·les vives es dibuixa DINS de la cel·la de dalt i de la de l'esquerra, o
+  sigui que qui toca una cel·la ha de repintar les vuit del costat o deixa una línia que no toca.
+- **Les tecles són de l'app i el centre segueix sent la sortida del sistema**: `on_button` llegeix el `spot` de
+  `button.list()` (centre = pausa, costats = velocitat), no espera res i no hi pinta —el bucle pinta la tira
+  quan el seu text és un altre—; els tres tocs del centre en un segon i mig tanquen l'app, i això no és una
+  cosa que un hook pugui prendre (docs/30).
+- **No té sessió `state`, i està dit al capçal** (§5 bis): el món, la velocitat i la pausa són la partida i la
+  decisió de la persona, i el paper les llençava en tancar. Una graella sense cap control no té forma de vista
+  per tornar-hi.
+- **`run life blank` arrenca el món buit I ATURAT**, perquè una generació d'un món buit és un mapa nou —la regla
+  de l'avorriment de `step`— i la mà no arribaria a pintar la primera cel·la. És la porta que fa que la prova
+  pugui comptar cel·les: paper, una cel·la girada pel dit, la del costat intacta, el `New` que omple el món amb
+  el vint-i-vuit per cent i el centre que para el rellotge —un joc parat no demana cap pintat—.
 
 La prova `test_every_app_of_the_repository_declares_its_boards` porta **la llista dels ids que hi ha d'haver a
 `apps/`** i comprova que tots s'han auditat: quan en portis una, l'id s'hi afegeix en el mateix commit. Si una app

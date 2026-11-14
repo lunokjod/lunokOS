@@ -8927,6 +8927,33 @@ namespace kernel {
 //     col·locats a `test_ui`, el tàctil amb les coordenades de la vista, el swipe vertical que no gira un panell i l'ordre de
 //     les carpetes d'una petició. Cap cas nou: la feina era fer dir la veritat als que hi havia.
 //
+// 0.189.44 — **el `Life`, portat del projecte del paper** (docs/45): el segon joc d'aquest arbre i el primer que es mira com
+// un rellotge, amb la pantalla i el comportament sencers de la seva versió 1.5.2 —una graella de cel·les de trenta píxels,
+// dues taules i cap taula nova per generació, un món que és un torus, la regla d'avorriment i el mapa nou— i les quatre
+// velocitats, la pausa i el botó `New` pintat a mà de l'original:
+//   - **la pàgina és una passada i la generació són dues caixes** (docs/50): mesurat a l'emulador, la primera pàgina és
+//     `paint 0,0 540x912 mode 3 gl16` —setze nivells i cap parpelleig— i una generació és la banda de les files que han
+//     canviat més la tira dels comptadors (`210,432 90x90 mode 7 a2` i `0,0 540x73 mode 7 a2`), que són 290 ms i no 450.
+//     **I l'aire del mig no viatja**: el nucli ajunta les caixes que es toquen i prou;
+//   - **un brou és l'excepció i és la regla del panell i no la de l'app**: mentre gairebé totes les files canvien, la caixa
+//     de la danyada és el vidre sencer i els set vuitens d'aquesta placa converteixen un `a2` de tot el vidre en un `gc16`,
+//     el mateix que el paper hi mesurava (88 % en un mapa nou). A mesura que el món s'asserena la passada s'aprima;
+//   - **el dit pinta una cel·la i els voltants es pinten amb ella** (docs/45 §5): el contacte es llegeix amb `touch.read()`
+//     —el primer marc que veu el dit— i el `gesture` del mateix torn es buida i es llença; la línia de paper que separa dues
+//     cel·les vives es dibuixa DINS de la de dalt i de l'esquerra, o sigui que qui toca una cel·la ha de repintar les vuit
+//     del costat o deixa una línia que no toca (T99 de l'original);
+//   - **les tecles són de l'app i el centre segueix sent la sortida del sistema** (docs/30): `on_button` llegeix el `spot` de
+//     `button.list()` —centre pausa, costats canvien la velocitat—, no espera res i no hi pinta; el bucle pinta la tira quan
+//     el seu text és un altre;
+//   - **no té sessió `state` i està dit al capçal** (docs/45 §5 bis): el món, la velocitat i la pausa són la partida i la
+//     decisió de la persona, i el paper les llençava en tancar; una graella sense cap control no té forma de vista per
+//     tornar-hi;
+//   - **`blank` arrenca el món buit I ATURAT**: una generació d'un món buit és un mapa nou, i la mà no arribaria a pintar la
+//     primera cel·la. És la porta que fa que la prova compti cel·les —paper, una cel·la girada pel dit, la del costat
+//     intacta, el `New` que omple el món amb el 28 % i el centre que para el rellotge— (`run life keys` diu la geometria);
+//   - **la icona** ve del novè dibuix de `tools/icons/` amb `tools/make_icon.py`, que és la norma de docs/40, i el manifest
+//     és 0.1.0 com el de tota app que arriba.
+//
 // 0.189.41 — **la barra de l'arrencada, més fina, més avall i sense el nom a sota** (l'amo: *«Baixa una mica mes la
 // progressbar i fes-la mes fina (menys alta) el text queda horrible. Treu-lo. Amb la barra serà suficient»*):
 //   - **el label deixa d'existir** (docs/30): the name of the family under the bar was a line of text at the size of the
@@ -8941,7 +8968,7 @@ namespace kernel {
 //   - **les proves**: `test_the_bar_of_the_start_is_a_line_under_the_loading_of_the_picture` passa a mesurar **nou** files,
 //     la fila **636** i que **no hi ha cap `fonts: startname`** al registre —el nom a sota és fora—, i segueix demanant que
 //     el nom que va al registre sigui una cara de la porta i no un `OFL.txt`.
-static const char kVersion[] = "0.189.43";
+static const char kVersion[] = "0.189.44";
 }  // namespace kernel
 
 #endif  // LUNOK_KERNEL_VERSION_H

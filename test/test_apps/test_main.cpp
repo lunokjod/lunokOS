@@ -9733,6 +9733,171 @@ void test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game(void) {
   TEST_ASSERT_FALSE(kernel::app_running());
 }
 
+// **The game of life, ported with its screen and its rule** (0.189.44, docs/45). The case runs the app of the repository
+// for real and reads **the page it leaves**, cell by cell: a `blank` world is paper, **a finger turns a cell over** and the
+// pass that carries that one cell is the two-level one of 290 ms and not a wash, **the New button fills the world** with the
+// twenty-eight percent of the paper, and **the centre key stops the clock** —a paused game does not ask the panel for
+// anything, which is what being stopped means— (docs/30, docs/45, docs/50).
+void test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops(void) {
+  TEST_ASSERT_TRUE(boot_once());
+  emu::Options opts = emu::options();
+  opts.board = "m5stack-paper";
+  opts.display = true;
+  opts.touch = true;
+  emu::set_options(opts);
+  kernel::boot(hal::platform());
+  TEST_ASSERT_TRUE(kernel::touch::boot(hal::platform()));
+  emu::Gt911Panel* panel = emu::touch_panel();
+  TEST_ASSERT_NOT_NULL(panel);
+  const kernel::ui::Canvas& view = kernel::ui::canvas();
+
+  // **The app that ships is the app the test runs** (docs/85): the disk of the suite carries none of the apps of the
+  // repository, so the two files are copied from it here.
+  hal::IStorage* storage = hal::platform().storage("/littlefs");
+  TEST_ASSERT_NOT_NULL(storage);
+  storage->mkdir("/apps/life");
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/life.lua", "/apps/life/life.lua"));
+  TEST_ASSERT_TRUE(copy_a_host_file(storage, "apps/life/manifest.json", "/apps/life/manifest.json"));
+
+  // **Where the grid and the button are, said by the app** (the paper's `keys`, docs/45): a case that guessed a cell would
+  // be measuring the layout of the day it was written.
+  pump_captured(60, g_out, sizeof(g_out), "run life keys");
+  const char* grid_line = strstr(g_out, "Life grid ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(grid_line, g_out);
+  int cols = 0;
+  int rows = 0;
+  int grid_w = 0;
+  int grid_h = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(grid_line, "Life grid %d %d %d %d", &cols, &rows, &grid_w, &grid_h),
+                                grid_line);
+  const char* button_line = strstr(g_out, "Life button ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(button_line, g_out);
+  int bx = 0;
+  int by = 0;
+  int bw = 0;
+  int bh = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(4, sscanf(button_line, "Life button %d %d %d %d", &bx, &by, &bw, &bh), button_line);
+  const char* cell_line = strstr(g_out, "Life cell ");
+  TEST_ASSERT_NOT_NULL_MESSAGE(cell_line, g_out);
+  int cell = 0;
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, sscanf(cell_line, "Life cell %d", &cell), cell_line);
+
+  // **The grid is the view under the strip, and the button lives in the strip**: a cell aims at `Cell` pixels of line and
+  // the shares are exact, and a button over the grid would be a box of rows that never change (the paper's 27/09).
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(4, cols, grid_line);
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(4, rows, grid_line);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(view.width, static_cast<uint16_t>(grid_w), grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(grid_h < view.height, grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(grid_w / cols >= cell - 1 && grid_w / cols <= cell + 1, grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(grid_h / rows >= cell - 1 && grid_h / rows <= cell + 1, grid_line);
+  TEST_ASSERT_TRUE_MESSAGE(bx >= 0 && by >= 0 && bx + bw <= view.width && by + bh <= view.height, button_line);
+  TEST_ASSERT_TRUE_MESSAGE(by + bh <= view.height - grid_h, button_line);   // the strip and not the world
+
+  // **The strip is what the grid leaves**, and it is where the app's own `Top` is: the cell of a row and a column is asked
+  // of the same shares the app uses (`bound`), in pixels of the view.
+  const int grid_y = static_cast<int>(view.height) - grid_h;
+  const auto cell_box = [&](int row, int col, int& x0, int& y0, int& x1, int& y1) {
+    x0 = (col - 1) * grid_w / cols;
+    x1 = col * grid_w / cols;
+    y0 = grid_y + (row - 1) * grid_h / rows;
+    y1 = grid_y + row * grid_h / rows;
+  };
+  const auto cell_middle = [&](int row, int col, uint16_t& vx, uint16_t& vy) {
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    cell_box(row, col, x0, y0, x1, y1);
+    vx = static_cast<uint16_t>((x0 + x1) / 2);
+    vy = static_cast<uint16_t>((y0 + y1) / 2);
+  };
+  // **What the page carries**, in cells: how many of the grid's centres are ink.
+  const auto dark_cells = [&]() {
+    int dark = 0;
+    for (int row = 1; row <= rows; ++row) {
+      for (int col = 1; col <= cols; ++col) {
+        uint16_t vx = 0;
+        uint16_t vy = 0;
+        cell_middle(row, col, vx, vy);
+        if (page_level(vx, vy) == 0) ++dark;
+      }
+    }
+    return dark;
+  };
+
+  // **A blank world is paper**: the app starts empty and stopped, so the hand gets to draw before the clock eats the first
+  // cell, and the first page is the sixteen-level pass that does not blink (docs/50).
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  pump_captured(60, g_out, sizeof(g_out), "run life blank");
+  pump_turns(1200);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 3 gl16"), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, dark_cells(), "a blank world is paper");
+
+  // **A finger turns a cell over**, and the pass that carries it is the two-level one: the box of one cell and the strip is
+  // nowhere near the whole glass, so the panel's rule does not turn it into a wash (docs/50).
+  const int row = rows / 2;
+  const int col = cols / 2;
+  uint16_t middle_x = 0;
+  uint16_t middle_y = 0;
+  cell_middle(row, col, middle_x, middle_y);
+  capture_begin();
+  press_finger(panel, static_cast<uint16_t>(view.x + middle_x), static_cast<uint16_t>(view.y + middle_y));
+  pump_turns(400);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(g_out, "mode 7 a2"), g_out);
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "gc16"), g_out);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(0, page_level(middle_x, middle_y), g_out);
+  // **And only that one**: the cell next to it is the paper it was, which says the box painted is the cell's and the world
+  // was not painted whole.
+  uint16_t beside_x = 0;
+  uint16_t beside_y = 0;
+  cell_middle(row, col + 2, beside_x, beside_y);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, page_level(beside_x, beside_y), g_out);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, dark_cells(), g_out);
+
+  // **A second finger takes it away**: the same cell, and the world is paper again.
+  press_finger(panel, static_cast<uint16_t>(view.x + middle_x), static_cast<uint16_t>(view.y + middle_y));
+  pump_turns(400);
+  TEST_ASSERT_EQUAL_UINT8_MESSAGE(15, page_level(middle_x, middle_y), "the cell came back to paper");
+
+  // **The New button fills the world**, and playing again if it was stopped: the paper's new map is twenty-eight cells in a
+  // hundred, so a page that came back with a handful of them is a button that did nothing and one with all of them is a
+  // world that is not a soup.
+  capture_begin();
+  press_finger(panel, static_cast<uint16_t>(view.x + bx + bw / 2), static_cast<uint16_t>(view.y + by + bh / 2));
+  pump_turns(1200);
+  capture_end(g_out, sizeof(g_out));
+  const int soup = dark_cells();
+  TEST_ASSERT_GREATER_THAN_INT_MESSAGE(cols * rows / 10, soup, g_out);
+  TEST_ASSERT_LESS_THAN_INT_MESSAGE(cols * rows / 2, soup, g_out);
+
+  // **The clock is running**: a generation is a pass of the panel, and the ink it leaves is the sums of the box it names —
+  // here the whole world changes, so the panel's rule gives it the clean pass (the paper's 88 %, docs/50).
+  capture_begin();
+  pump_turns(1500);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_GREATER_THAN_INT32_MESSAGE(0, painted_pixels(g_out), g_out);
+
+  // **The centre key stops it**, and a stopped world asks the panel for nothing at all: the strip is painted once with the
+  // word `paused` and after that there is no damage, which is what this case can see of a game that is not running.
+  emu::press_key(0, true);
+  pump_turns(60);
+  emu::press_key(0, false);
+  pump_turns(400);
+  capture_begin();
+  pump_turns(2000);
+  capture_end(g_out, sizeof(g_out));
+  TEST_ASSERT_NULL_MESSAGE(strstr(g_out, "paint "), g_out);
+
+  kernel::shell::close_app();
+  pump_captured(5, nullptr, 0);
+  TEST_ASSERT_FALSE(kernel::app_running());
+  storage->remove("/apps/life/life.lua");
+  storage->remove("/apps/life/manifest.json");
+  storage->remove("/apps/life");
+}
+
 // **The rainbow of the panel** (0.179.18, the owner: *«leds multicolor com l'arc iris i amb canvis de to suaus i
 // moviment»*). The case runs the app of the repository on a model of the Matrix and reads **the panel** and not the
 // app's intentions: the twenty-five lights are lit, they are not one colour, they are different from one frame to the
@@ -16833,6 +16998,7 @@ int main(int argc, char** argv) {  (void)argc;
   RUN_TEST(test_the_battery_and_the_reason_decide_the_picture);
   RUN_TEST(test_a_plane_of_the_glass_is_painted_as_it_is);
   RUN_TEST(test_the_tiles_of_2048_move_with_a_swipe_and_keep_their_game);
+  RUN_TEST(test_the_cells_of_life_are_painted_by_the_hand_and_the_clock_stops);
   RUN_TEST(test_the_rainbow_app_paints_the_panel_of_the_matrix);
   RUN_TEST(test_an_app_that_names_a_picture_has_it_painted_before_it_starts);
   RUN_TEST(test_the_card_of_a_launcher_is_for_the_way_back_and_not_for_the_boot);
